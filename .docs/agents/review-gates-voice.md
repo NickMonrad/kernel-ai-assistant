@@ -53,8 +53,12 @@ Choose the narrowest slice that exercises the changed path:
 ## Suggested Commands
 
 ```bash
-# Run voice-specific ADB test phase
-scripts/adb_skill_test.py --phase voice
+# Run focused voice unit tests
+./gradlew :core:voice:testDebugUnitTest
+
+# For on-device STT/wake-word validation, use the documented procedures in
+# docs/automated-testing.md; for TTS/audio focus, exercise the changed path on
+# the required physical device. No generic `voice` ADB harness phase exists.
 
 # Check audio focus state
 adb shell dumpsys media_session

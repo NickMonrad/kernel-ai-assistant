@@ -136,7 +136,7 @@ End every implementation handoff with: **Do not merge — wait for review.**
 ## Testing strategy
 
 - Unit: JUnit 5 + MockK (`src/test/`). Compose UI: `ui-test-junit4` (`src/androidTest/`)
-- Never load real models in tests — mock at `InferenceEngine` interface
+- Mock `InferenceEngine` in unit/CI tests; when issue acceptance or the risk policy requires real-model physical-device validation, execute it on the specified device and report the model/backend tested
 - CI: lint + unit tests + debug build only (no GPU/NPU, no real models)
 - Coroutine tests: use `MainDispatcherRule` (replaces `Dispatchers.Main` with `TestDispatcher`) to avoid `IllegalStateException`. Use Turbine library for StateFlow/Flow assertion in tests.
 
