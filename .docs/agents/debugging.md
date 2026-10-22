@@ -57,7 +57,7 @@ adb logcat -s KernelAI -v time
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| OOM during model load | E4B not loaded before FunctionGemma | Verify eager init order |
+| OOM during model load | Model size, active backend, or competing native allocations | Check the selected model/backend and concurrent memory use before changing load order |
 | No thinking tokens | Missing `extraContext` or Channel registration | Check both are present |
 | Tool call crashes | Malformed JSON from E4B | Verify `tryExecuteToolCall()` fallback |
 | Weight leaks | Conversation not closed properly | Check LeakCanary scope |

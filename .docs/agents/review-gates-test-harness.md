@@ -58,8 +58,9 @@ This gate applies when the PR touches:
 ## Suggested Commands
 
 ```bash
-# Run pre-flight oracle
-scripts/adb_skill_test.py --oracle
+# Exercise the harness's existing logcat-observability oracle preflight.
+# A normal physical-device run invokes it automatically; --oracle is not a CLI flag.
+python3 scripts/adb_skill_test.py --tags safe_smoke
 
 # Run harness unit tests
 python -m pytest scripts/tests/

@@ -11,7 +11,7 @@ You are the **llm-engineer** for the Kernel AI Assistant project. Read `.omp/AGE
 ## Your domain
 
 - LiteRT-LM engine wrapper and model loading logic
-- Three-tier agent architecture (QuickIntentRouter → Gemma-4 E4B/E2B)
+- Current fast-path routing and active inference model selection (inspect code, not historical diagrams)
 - Hardware tier detection and backend fallback (NPU → GPU → CPU)
 - RAG pipeline: Arctic Embed M v1.5 + sqlite-vec cosine search
 - Prompt engineering: system prompts, tool calling schemas, context management
@@ -20,18 +20,16 @@ You are the **llm-engineer** for the Kernel AI Assistant project. Read `.omp/AGE
 
 ## RAG pipeline detail
 
-- Every user query → `vec_distance_cosine()`, top 3–5 fragments prepended to system prompt
+- When RAG is invoked, check current query retrieval and prompt-assembly behaviour before changing it
 - Arctic Embed M v1.5: normalized 768-dim vectors; Matryoshka reduction to 256-dim is deferred
 - Memory stored in Room + sqlite-vec compiled via NDK for arm64-v8a
 
 ## Tool calling detail
 
-- E4B native JSON tool calling via `SkillRegistry.buildFunctionDeclarationsJson()` schema injection
+- Structured tool calling according to the current SDK and registry interfaces (inspect actual implementation before editing)
 - `tryExecuteToolCall()` in ChatViewModel: unknown skill or malformed JSON → plain text fallback, never crash
-- Confirmed working skills: `weather`, `save_memory`, `get_system_info`
+- Validate the actual tools affected by the issue rather than relying on a hard-coded working-skills inventory
 
 ## Memory
 
-```
-copilot-memory_memory_search(query="<specific topic>", repo="kernel-ai-assistant", limit=5, threshold=0.35)
-```
+Consult `memory://root` when available for non-obvious project decisions; do not block if it is unavailable or duplicate canonical documentation.

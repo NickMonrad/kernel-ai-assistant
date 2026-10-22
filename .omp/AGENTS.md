@@ -46,11 +46,11 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 
 ## Key conventions
 
-- No cloud inference — all inference through LiteRT, no network endpoints
+- No cloud LLM inference endpoints; explicit user-enabled integrations may use the network as defined by their existing contracts
 - `gemma4InitMutex` guards all E4B init paths
 - `tryExecuteToolCall()`: unknown skill or malformed JSON → plain text fallback, never crash
 - Inference on dedicated LLM dispatcher — never `Dispatchers.Main`
-- Explicit Intents only for SMS/email — never implicit
+- SMS/email composers use user-mediated `ACTION_SENDTO` with `mailto:`/`smsto:` URIs; do not send silently or substitute a generic share/broadcast Intent
 - Wasm sandboxing is non-negotiable — capabilities via Kotlin host bridge functions only
 - Context window managed, not truncated — recursive summarisation at 80% KV capacity
 - E4B loads eagerly first on GPU (~20s first boot, ~2s with kernel cache)
@@ -99,15 +99,13 @@ OMP isolated tasks normally integrate changes through automatic patch applicatio
 
 ## Branch isolation
 
-**Do not modify the main checkout directly.** Every session that touches code must use a dedicated worktree:
+**Do not modify a shared `main` checkout directly.** For shared local repositories, use an existing task worktree or create a dedicated one:
 
 ```bash
 git worktree add ~/.omp/wt/<task-name> <branch>
 ```
 
-Before starting: `git branch --show-current` to verify you're on the expected branch. Check `git worktree list` before creating a new one — avoid duplicating an existing branch checkout.
-
-Rationale: 50+ worktrees across sessions/agents exist in this repo. Direct checkout modifications cause conflicts with concurrent agent work.
+An already-isolated agent checkout/worktree does not need another worktree. Verify the current branch with `git branch --show-current`; check `git worktree list` before creating a new one. This prevents conflicts between concurrent local sessions.
 
 ## Build commands
 
@@ -138,7 +136,7 @@ End every implementation handoff with: **Do not merge — wait for review.**
 ## Testing strategy
 
 - Unit: JUnit 5 + MockK (`src/test/`). Compose UI: `ui-test-junit4` (`src/androidTest/`)
-- Never load real models in tests — mock at `InferenceEngine` interface
+- Mock `InferenceEngine` in unit/CI tests; when issue acceptance or the risk policy requires real-model physical-device validation, execute it on the specified device and report the model/backend tested
 - CI: lint + unit tests + debug build only (no GPU/NPU, no real models)
 - Coroutine tests: use `MainDispatcherRule` (replaces `Dispatchers.Main` with `TestDispatcher`) to avoid `IllegalStateException`. Use Turbine library for StateFlow/Flow assertion in tests.
 
@@ -179,7 +177,7 @@ Details: `.docs/agents/test-evidence-workflow.md`.
 
 ## Hard constraints
 
-No external LLM APIs | No cloud inference endpoints | No implicit Intents for SMS/email | No `Dispatchers.Main` for inference | No FunctionGemma at startup | No generic `fetch()` in Wasm skills | No concurrent E4B init (hold `gemma4InitMutex`) | No context truncation | No broad formatting-only diffs
+No external LLM APIs | SMS/email via user-mediated `ACTION_SENDTO` composers | No `Dispatchers.Main` for inference | No FunctionGemma at startup | No generic `fetch()` in Wasm skills | No concurrent E4B init (hold `gemma4InitMutex`) | No context truncation | No broad formatting-only diffs
 No GitHub Copilot Review | Human/ChatGPT review plus repo evidence is the expected review path
 
 ## Agent memory
