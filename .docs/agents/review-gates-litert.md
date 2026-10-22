@@ -58,8 +58,8 @@ This gate applies when the PR touches:
 ./gradlew :core:inference:testDebugUnitTest
 
 # Run session isolation smoke test
-scripts/adb_skill_test.py --phase safe_smoke
+python3 scripts/adb_skill_test.py --tags safe_smoke
 
 # Check for blank responses
-scripts/adb_skill_test.py --phase deterministic_core
+python3 scripts/adb_skill_test.py --tags deterministic_core
 ```

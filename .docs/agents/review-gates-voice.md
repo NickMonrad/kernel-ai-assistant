@@ -27,8 +27,11 @@ Choose the narrowest slice that exercises the changed path:
 
 - **Always** for: audio focus acquire/release, wake-word/VAD interaction,
   alert-time listening, STT no-match retry behaviour
-- **Not required** for: isolated engine backend swaps validated by ADB harness,
-  config-only changes (thresholds, model paths)
+- **Required** for: STT/TTS engine swaps and audible-behaviour changes under the
+  risk-based evidence policy. A targeted ADB harness can supply functional evidence,
+  but does not by itself waive required listening/recognition checks.
+- **Not required** for: config-only changes that do not affect observed audio
+  behaviour and are covered by applicable automated checks.
 
 ## Device Requirements
 
