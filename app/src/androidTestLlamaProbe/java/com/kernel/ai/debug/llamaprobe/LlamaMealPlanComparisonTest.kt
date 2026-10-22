@@ -201,7 +201,7 @@ class LlamaMealPlanComparisonTest {
             .put("preflight", preflight)
         var retryCount = 0
         var repairCount = 0
-        Log.i(TAG, results.toString())
+        logProbeResults(results)
 
         check(!preflight.getBoolean("low_memory")) { "Android reports lowMemory before inference; stopping preflight" }
 
@@ -274,7 +274,7 @@ class LlamaMealPlanComparisonTest {
                 stage("gemma_shutdown") { gemmaEngine.shutdown() }
             }
             results.put("gemma", gemmaSamples)
-            Log.i(TAG, results.toString())
+            logProbeResults(results)
         }
 
         val llamaColdStart = System.nanoTime()
@@ -432,7 +432,7 @@ class LlamaMealPlanComparisonTest {
         }
         results.put("llama", llamaSamples)
         results.put("retry_count", retryCount).put("repair_count", repairCount)
-        Log.i(TAG, results.toString())
+        logProbeResults(results)
 
 
         if (!llamaOnly) {
@@ -453,6 +453,14 @@ class LlamaMealPlanComparisonTest {
     }
 
     private fun newLiteRtEngine(context: Context) = LiteRtInferenceEngine(context, HardwareProfileDetector(context))
+
+    private fun logProbeResults(results: JSONObject) {
+        val chunks = splitProbeJsonForLogcat(results.toString())
+        chunks.forEachIndexed { index, chunk ->
+            Log.i(TAG, "result_json part=${index + 1}/${chunks.size} data=$chunk")
+        }
+    }
+
     private data class ValidationAttempt(
         val valid: Boolean,
         val normalizedIngredients: Int,
