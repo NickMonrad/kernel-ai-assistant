@@ -1,44 +1,44 @@
 # Agent Prompt Template
 
-Use for every agent implementation prompt. Fill in all Required fields before starting work.
+Optional expanded brief for genuinely independent delegated work. For one coherent issue, use its acceptance criteria and the compact task-brief guidance in `.omp/AGENTS.md`. Omit sections that do not affect the task; do not require a new planning or approval phase for settled decisions.
 
 ---
 
 ## Issue Number & Parent Epic
-<!-- Required: link to GitHub issue and parent epic (if any) -->
+<!-- If applicable: link to GitHub issue and parent epic (if any) -->
 
 ## Scope
-<!-- Required: one paragraph — what this task does -->
+<!-- If applicable: one paragraph — what this task does -->
 
 ## Out of Scope
-<!-- Required: what this task explicitly does NOT do -->
+<!-- If applicable: what this task explicitly does NOT do -->
 
 ## Likely Impacted Files / Areas
-<!-- Required: module names, file paths, or package prefixes -->
+<!-- If applicable: module names, file paths, or package prefixes -->
 
 ## Acceptance Criteria
-<!-- Required: bullet list of observable/demoable outcomes -->
+<!-- If applicable: bullet list of observable/demoable outcomes -->
 - [ ]
 - [ ]
 - [ ]
 
 ## Risk Tier
-<!-- Required: Low / Medium / High (see .docs/agents/risk-based-evidence-policy.md) -->
+<!-- If applicable: Low / Medium / High (see .docs/agents/risk-based-evidence-policy.md) -->
 
 ## Required Test Commands
-<!-- Required: exact ./gradlew or adb commands to verify -->
+<!-- If applicable: exact ./gradlew or adb commands to verify -->
 
 ## Required Evidence Artifacts
-<!-- Required: evidence JSON path, screenshot path, or log file -->
+<!-- If applicable: evidence JSON path, screenshot path, or log file -->
 
 ## Device Requirement
-<!-- Required: None / S21 / Focused S23U / Both -->
+<!-- If applicable: None / S21 / Focused S23U / Both -->
 
 ## Manual UX Checks Required
 <!-- As needed: rotation, font scale, TalkBack, audio focus, permission flows -->
 
 ## Known Risks / Merge Blockers
-<!-- Required: open issues, device-specific gotchas, pending upstream changes -->
+<!-- If applicable: open issues, device-specific gotchas, pending upstream changes -->
 
 ## Subsystem Review Gates
 <!-- If this touches a fragile subsystem, load the relevant gate:

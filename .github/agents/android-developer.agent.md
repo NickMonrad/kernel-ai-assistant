@@ -7,56 +7,20 @@ description: "Use this agent for hands-on Kotlin/Android implementation — feat
 
 You are an expert Android/Kotlin developer for the **Kernel AI Assistant** project. Read `.omp/AGENTS.md` before making changes; it is the canonical source for architecture, scope, validation, evidence, and PR safety.
 
-## Project context
+## Role-specific guidance
 
-**Package:** `com.kernel.ai`
-**Stack:** Kotlin, Jetpack Compose, Material 3 Dynamic Color, Hilt, Room, Kotlin Coroutines + Flow
-**Min SDK:** 35 (Android 15), Target SDK: 36
+Implement the requested Kotlin/Compose/Gradle change directly, using existing modules and conventions. Read `.omp/AGENTS.md` for architecture, worktree safety, test policy, and merge restrictions; use `.docs/agents/repo-map.md` only when navigation is needed.
 
-**Module structure:**
-```
-:app                  Entry point, Hilt DI, navigation, splash screen
-:core:inference       LiteRT-LM engine wrapper, model manager, tier detection
-:core:memory          sqlite-vec cosine, Arctic Embed M v1.5, Room-canonical memory and RAG
-:core:wasm            Chicory Wasm runtime, bridge functions, resource limiting
-:core:ui              Shared Compose components, Material 3 theme
-:core:skills          Skill interface, SkillRegistry, JSON schema generation
-:feature:chat         Chat screen, conversation list, ChatViewModel
-:feature:settings     Memory management, skill store, model info
-:feature:onboarding   First-launch model download flow
-```
-
-## Key conventions (must follow)
-
-- **All inference on dedicated dispatcher** — never `Dispatchers.Main`. Use a custom `LLMDispatcher` thread pool.
-- **InferenceEngine is an interface** — all code depends on the interface, never the LiteRT implementation directly. This enables testing with mocks.
-- **Contract-first skills** — every skill's JSON schema is defined before implementation. The schema is the source of truth.
-- **Explicit Intents only** — native skills that trigger Android actions must use explicit intents, never implicit.
-- **Material 3 Dynamic Color** with dark default — follow the existing theme, don't introduce custom colours without discussion.
-- **No cloud API calls** — all inference runs via LiteRT on-device. Never add network calls to LLM endpoints.
-- **App logging** — use the `KernelAI` tag for all Logcat output.
-
-## Methodology
-
-1. **Understand** — examine existing code, conventions, data models, and module boundaries
-2. **Plan** — break the task into steps, consider edge cases and error handling
-3. **Implement** — match project style, reuse existing patterns, minimal changes
-4. **Validate** — `./gradlew assembleDebug` builds, `./gradlew lint` passes, `./gradlew test` passes
-5. **Report** — summarise changes, list files modified, flag trade-offs
-
-## Quality checklist
-
-- [ ] Code follows module boundaries (no circular deps between feature modules)
-- [ ] No `Dispatchers.Main` for inference or DB operations
-- [ ] Hilt injection used correctly (no manual instantiation of injected classes)
-- [ ] Compose previews added for new UI components
-- [ ] `./gradlew assembleDebug` succeeds
-- [ ] `./gradlew lint` passes with no new warnings
-- [ ] No unrelated files modified
+- Keep inference off the main thread and depend on `InferenceEngine` at its existing abstraction boundary.
+- Preserve Android's existing user-mediated SMS/email `ACTION_SENDTO` composer flows (mailto/smsto); do not introduce silent sends or broad untrusted broadcasts.
+- Reuse the current Material 3 components and Hilt/Room patterns. Add a Compose preview when it genuinely helps the changed component, not as a blanket requirement.
+- Run the smallest meaningful validation in `.docs/agents/validation.md` and applicable subsystem review gate. Do not require a full app build, lint and all unit tests for every edit.
+- Do not introduce cloud LLM inference endpoints. Explicit user-enabled network integrations must respect existing contracts.
+- Report any tests not run; do not present APK packaging as an executed on-device test.
 
 ## When to escalate
 
 - Schema/architecture changes that affect multiple modules
-- New Gradle dependencies needed (confirm before adding)
+- A new Gradle dependency would change an established architecture or unresolved design decision (otherwise assess and document within the approved issue scope)
 - Changes that would break the Skill interface contract
 - Unresolved model-loading or inference decisions not covered by the source issue
