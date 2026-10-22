@@ -28,9 +28,16 @@ data class LlamaGeneration(
     val complete: Boolean,
     val streamedChunks: Int = 0,
     val streamTimeToFirstChunkMs: Long? = null,
+    val prefillMs: Long = -1,
+    val prefillTokens: Int = 0,
+    val draftedTokens: Int = 0,
+    val acceptedDraftTokens: Int = 0,
 ) {
     val decodeTokensPerSecond: Double
         get() = if (decodeMs <= 0) 0.0 else generatedTokens * 1000.0 / decodeMs
+
+    val prefillTokensPerSecond: Double
+        get() = if (prefillMs <= 0) 0.0 else prefillTokens * 1000.0 / prefillMs
 }
 
 class LlamaCppSession private constructor(
@@ -143,7 +150,10 @@ class LlamaCppSession private constructor(
                                 totalMs = result.getLong("total_ms"),
                                 complete = result.getBoolean("complete"),
                                 streamedChunks = tokenObserver?.chunkCount ?: 0,
-                                streamTimeToFirstChunkMs = tokenObserver?.firstChunkMs,
+                                prefillMs = result.optLong("prefill_ms", -1),
+                                prefillTokens = result.optInt("prefill_tokens", result.optInt("prompt_tokens")),
+                                draftedTokens = result.optInt("drafted_tokens", 0),
+                                acceptedDraftTokens = result.optInt("accepted_draft_tokens", 0),
                             )
                             activeRequestId.compareAndSet(requestId, 0)
                             check(generation.complete) {
@@ -227,13 +237,18 @@ class LlamaCppSession private constructor(
             System.loadLibrary("jandal_llama_probe")
         }
 
-        private external fun nativeOpen(modelPath: String, contextSize: Int): Long
+        private external fun nativeOpen(modelPath: String, contextSize: Int, draftModelPath: String?): Long
 
-        suspend fun load(model: File, contextSize: Int = 2048): LlamaCppSession = withContext(Dispatchers.IO) {
+        suspend fun load(
+            model: File,
+            contextSize: Int = 2048,
+            draftModel: File? = null,
+        ): LlamaCppSession = withContext(Dispatchers.IO) {
             require(model.isFile) { "GGUF model file is missing: ${model.absolutePath}" }
+            require(draftModel == null || draftModel.isFile) { "DSpark GGUF file is missing" }
             require(contextSize in 512..8192) { "contextSize must be between 512 and 8192" }
             val start = System.nanoTime()
-            val nativeHandle = nativeOpen(model.absolutePath, contextSize)
+            val nativeHandle = nativeOpen(model.absolutePath, contextSize, draftModel?.absolutePath)
             val loadMs = (System.nanoTime() - start) / 1_000_000
             check(nativeHandle != 0L) { "llama.cpp failed to open the GGUF model" }
             LlamaCppSession(nativeHandle, loadMs)

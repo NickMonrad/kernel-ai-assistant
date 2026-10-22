@@ -15,3 +15,7 @@ Full license: https://github.com/ggml-org/llama.cpp/blob/620d2225cc436ab0b001e32
 ## LiquidAI LFM2.5-2.6B GGUF
 
 The model is downloaded separately and is not bundled in the APK or repository. The pinned model repository declares LFM Open License v1.0; commercial use is not granted to entities with annual revenue of at least USD 10 million. The license is at https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/blob/e7caca5d835a3901a8e0d63e94009429bafafdfc/LICENSE . See [MODEL_PROVENANCE.md](MODEL_PROVENANCE.md) for the exact file revision and SHA-256.
+
+## LiquidAI LFM2.5 DSpark sidecar GGUF
+
+The optional sidecar is downloaded separately and is not bundled in the APK or repository. Its pinned repository declares LFM Open License v1.0. See the pinned model card and exact file revision, size, and SHA-256 in [MODEL_PROVENANCE.md](MODEL_PROVENANCE.md).

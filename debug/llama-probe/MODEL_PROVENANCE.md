@@ -23,6 +23,16 @@ The Debug native build adds `-O3` to every C/C++ target in this CMake tree, incl
 - Runtime/template compatibility: the pinned llama.cpp v0.7.0 revision includes `LLM_ARCH_LFM2` and the `lfm2` tokenizer pre-tokenizer. Its public chat-template API detects this GGUF's ChatML body but omits the model's `<think>` generation suffix. The probe calls `llama_model_chat_template` and `llama_chat_apply_template`, accepts only the pinned LFM2.5 BOS/ChatML/`<think>` template signature and exact formatted two-message body, then adds the metadata-verified `<think>` suffix; other template shapes fail clearly. Tokenization enables the model BOS and special-token parsing. This is source-level compatibility only; no model file was downloaded or executed in this host check.
 - The pinned GGUF is a 2.69B-parameter LFM2.5 checkpoint with 128K trained context; the probe deliberately caps runtime context at 4096 tokens for this bounded comparison.
 
+## Optional DSpark experiment
+
+- Target remains the pinned LFM2.5 Q4_K_M GGUF above.
+- Official sidecar repository: [LiquidAI/LFM2.5-2.6B-DSpark-GGUF](https://huggingface.co/LiquidAI/LFM2.5-2.6B-DSpark-GGUF)
+- Repository revision: [`7bc2896af56d82ccc7e156800197408db464d63b`](https://huggingface.co/LiquidAI/LFM2.5-2.6B-DSpark-GGUF/tree/7bc2896af56d82ccc7e156800197408db464d63b)
+- File: `LFM2.5-2.6B-DSpark-Q4_K_M.gguf`; size `199,680,512` bytes; Hugging Face LFS SHA-256 `63786b768e43562591a934625a66539eab39beb09e6e3d38e17509e34b79a3cd`.
+- License: LFM Open License v1.0; use the [pinned model card](https://huggingface.co/LiquidAI/LFM2.5-2.6B-DSpark-GGUF/blob/7bc2896af56d82ccc7e156800197408db464d63b/README.md) and its declared license.
+- Liquid AI describes this as a DFlash sidecar with a Markov/confidence head and nine-token block size. DSpark is not MTP or generic draft-model speculative decoding. The pinned llama.cpp v0.7.0 includes `LLM_ARCH_DFLASH` and `COMMON_SPECULATIVE_TYPE_DRAFT_DSPARK`; it validates target/draft vocabulary compatibility at initialization. The opt-in probe sets the DSpark type and block size 9 explicitly, keeps both models CPU-only, applies the same schema grammar to target sampling, and verifies target and sidecar size/SHA-256 before loading.
+- This mode is an experiment only. It runs target-only LFM2.5 first, closes and unloads it, then loads the same target with the DSpark sidecar; it never runs Gemma and never makes a production backend change. Model validity remains judged by Jandal's existing plan parser, recipe parser and quantity validator. No performance or quality claim is made before device results.
+
 ## Schema constraints
 
 The plan schema follows the parser's dynamic day-index contract and Issue #975's canonical 3–7 day range; `protein_tags` is optional. The comparison request asks for three days so both model paths use the same fixed input.
@@ -48,6 +58,14 @@ adb shell mkdir -p /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/mod
 adb push "$LFM2_5_GGUF" /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/LFM2.5-2.6B-Q4_K_M.gguf
 adb shell run-as com.kernel.ai.debug.llamaprobe mkdir -p files/models
 adb shell run-as com.kernel.ai.debug.llamaprobe cp -n /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/LFM2.5-2.6B-Q4_K_M.gguf files/models/LFM2.5-2.6B-Q4_K_M.gguf
+```
+
+```sh
+# Optional DSpark sidecar; the instrumented comparison checks both file hashes again.
+# Set LFM_DSPARK_GGUF to the exact pinned file recorded above.
+echo "63786b768e43562591a934625a66539eab39beb09e6e3d38e17509e34b79a3cd  $LFM_DSPARK_GGUF" | sha256sum --check
+adb push "$LFM_DSPARK_GGUF" /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/LFM2.5-2.6B-DSpark-Q4_K_M.gguf
+adb shell run-as com.kernel.ai.debug.llamaprobe cp -n /sdcard/Android/data/com.kernel.ai.debug.llamaprobe/files/models/LFM2.5-2.6B-DSpark-Q4_K_M.gguf files/models/LFM2.5-2.6B-DSpark-Q4_K_M.gguf
 ```
 
 Run the short startup/job-isolation check before any model initialization:
@@ -79,6 +97,16 @@ adb shell am instrument -w \
 ```
 
 Keep prior Gemma measurements/results separate; this mode does not validate or replace the Gemma comparator.
+
+For the opt-in DSpark comparison, pass `llamaDsparkCompare=true` instead of `llamaOnly=true`. It skips Gemma, validates both official LFM2.5 files by size and SHA-256, measures the target-only baseline first, unloads it, then runs the same plan, recipe, grammar, application validators, warm pass, cancellation/reuse and reload checks with the sidecar:
+
+```sh
+adb shell am instrument -w \
+  -e class com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest \
+  -e probeOnly true \
+  -e llamaDsparkCompare true \
+  com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
+```
 
 For a bounded first-token check without repeating the stalled full comparison, run this isolated LFM2.5 diagnostic. It loads only the official GGUF, applies its model-provided template and JSON grammar, and caps generation at one token with a 60-second deadline. The test records the first complete UTF-8 stream chunk and sanitized native TTFT/decode markers; it never logs prompt or generated text.
 

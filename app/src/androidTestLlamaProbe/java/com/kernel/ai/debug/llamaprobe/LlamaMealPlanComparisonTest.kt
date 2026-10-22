@@ -187,14 +187,18 @@ class LlamaMealPlanComparisonTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val arguments = InstrumentationRegistry.getArguments()
-        val llamaOnly = arguments.getString("llamaOnly") == "true"
+        val dsparkCompare = arguments.getString("llamaDsparkCompare") == "true"
+        val llamaOnly = arguments.getString("llamaOnly") == "true" || dsparkCompare
         stage("probe_isolation") { assertProbeIsolation(context) }
         val gemmaFileCandidate = if (llamaOnly) null else {
             gemmaModelFile(context, arguments.getString("gemmaModelPath"))
         }
         val llamaFile = llamaModelFile(context, arguments.getString("llamaModelPath"))
+        val dsparkFile = if (dsparkCompare) dsparkModelFile(context, arguments.getString("dsparkModelPath")) else null
         gemmaFileCandidate?.let { require(it.isFile) { "Gemma model file is missing" } }
         require(llamaFile.isFile) { "LFM2.5 GGUF file is missing" }
+        dsparkFile?.let(::verifyPinnedDsparkModel)
+        if (dsparkCompare) verifyPinnedLfmModel(llamaFile)
         val preflight = stage("memory_preflight") { memorySnapshot(context) }
         val results = JSONObject()
             .put("probe_pid", Process.myPid())
@@ -431,6 +435,218 @@ class LlamaMealPlanComparisonTest {
             stage("llama_reload_shutdown") { reloaded.close() }
         }
         results.put("llama", llamaSamples)
+        if (dsparkCompare) {
+            val draftFile = requireNotNull(dsparkFile)
+            val dsparkLoadStart = System.nanoTime()
+            val dspark = stage("dspark_load") {
+                LlamaCppSession.load(
+                    llamaFile,
+                    contextSize = LLAMA_CONTEXT_TOKENS,
+                    draftModel = draftFile,
+                )
+            }
+            val dsparkSamples = JSONObject()
+                .put("target_file", llamaFile.name)
+                .put("draft_file", draftFile.name)
+                .put("draft_sha256", DSPARK_SHA256)
+                .put("cold_load_ms", dspark.loadMs)
+                .put("cold_load_wall_ms", elapsedMs(dsparkLoadStart))
+                .put("backend", "CPU")
+                .put("context_tokens", LLAMA_CONTEXT_TOKENS)
+            var dsparkRetries = 0
+            try {
+                results.put("after_dspark_cold_load", ensureMemoryHealthy(context, "DSpark cold load"))
+                val dsparkPlanStart = dsparkLoadStart
+                val dsparkPlan = generateWithOneRepair(
+                    stageName = "dspark_plan",
+                    prompt = MealPlanProbePrompts.PLAN_USER,
+                    generate = { prompt ->
+                        generateStreamed(
+                            dspark, prompt, MealPlanProbePrompts.PLAN_SYSTEM,
+                            MealPlanProbeSchemas.plan(), reportProgress = true,
+                        )
+                    },
+                    textOf = LlamaGeneration::text,
+                    validate = { text ->
+                        ValidationAttempt(
+                            valid = runCatching { parser.parsePlanDraft(text, expectedDays = 3) }.isSuccess,
+                            normalizedIngredients = 0,
+                        )
+                    },
+                )
+                dsparkRetries += dsparkPlan.retries
+                dsparkSamples.put(
+                    "plan",
+                    dsparkPlan.value.toJson(
+                        dsparkPlan.valid, dsparkPlanStart,
+                        ensureMemoryHealthy(context, "DSpark plan"), dsparkPlan.retries,
+                    ),
+                )
+
+                val dsparkRecipeStart = System.nanoTime()
+                val dsparkRecipe = generateWithOneRepair(
+                    stageName = "dspark_recipe",
+                    prompt = MealPlanProbePrompts.RECIPE_USER,
+                    generate = { prompt ->
+                        generateStreamed(
+                            dspark, prompt, MealPlanProbePrompts.RECIPE_SYSTEM,
+                            MealPlanProbeSchemas.recipe(expectedServings = 4), reportProgress = true,
+                        )
+                    },
+                    textOf = LlamaGeneration::text,
+                    validate = ::validateRecipe,
+                )
+                dsparkRetries += dsparkRecipe.retries
+                dsparkSamples.put(
+                    "recipe",
+                    dsparkRecipe.value.toJson(
+                        dsparkRecipe.valid, dsparkRecipeStart,
+                        ensureMemoryHealthy(context, "DSpark recipe"), dsparkRecipe.retries,
+                    ).put("normalized_ingredients", dsparkRecipe.normalizedIngredients)
+                        .put("validation_diagnostics", recipeValidationDiagnostics(dsparkRecipe.attempts)),
+                )
+                dsparkSamples.put("plan_and_recipe_wall_ms", elapsedMs(dsparkPlanStart))
+
+                val dsparkWarmStart = System.nanoTime()
+                val dsparkWarmPlan = stage("dspark_warm_plan") {
+                    generateStreamed(
+                        dspark, MealPlanProbePrompts.PLAN_USER, MealPlanProbePrompts.PLAN_SYSTEM,
+                        MealPlanProbeSchemas.plan(), reportProgress = true,
+                    )
+                }
+                val dsparkWarmValid = runCatching {
+                    parser.parsePlanDraft(dsparkWarmPlan.text, expectedDays = 3)
+                }.isSuccess
+                dsparkSamples.put(
+                    "warm_plan",
+                    dsparkWarmPlan.toJson(
+                        dsparkWarmValid, dsparkWarmStart,
+                        ensureMemoryHealthy(context, "DSpark warm plan"),
+                    ),
+                )
+
+                val invalidDsparkSchema = stage("dspark_unsupported_schema") {
+                    runCatching {
+                        dspark.generate(
+                            "probe", "probe",
+                            """{"type":"array","items":{"type":"string"},"uniqueItems":true}""",
+                        )
+                    }.exceptionOrNull()
+                }
+                dsparkSamples.put(
+                    "invalid_schema_rejected",
+                    invalidDsparkSchema is UnsupportedSchemaException,
+                )
+
+                val cancelledChunksBefore = AtomicInteger()
+                val cancelledChunksAfter = AtomicInteger()
+                val markCancelled = AtomicBoolean(false)
+                val pendingDsparkRequest = async(Dispatchers.Default) {
+                    dspark.generate(
+                        prompt = "Return a detailed multi-step meal plan as valid JSON.",
+                        systemPrompt = MealPlanProbePrompts.PLAN_SYSTEM,
+                        schemaJson = MealPlanProbeSchemas.plan(),
+                        maxTokens = 512,
+                        reportProgress = true,
+                        onText = {
+                            if (markCancelled.get()) cancelledChunksAfter.incrementAndGet()
+                            else cancelledChunksBefore.incrementAndGet()
+                        },
+                    )
+                }
+                stage("dspark_cancel_request_start") {
+                    withTimeout(30_000) {
+                        while (!dspark.isGenerating) delay(25)
+                    }
+                }
+                delay(PREFILL_CANCEL_DELAY_MS)
+                check(pendingDsparkRequest.isActive) {
+                    "DSpark request completed before cancellation could be exercised"
+                }
+                pendingDsparkRequest.cancel()
+                markCancelled.set(true)
+                pendingDsparkRequest.join()
+                stage("dspark_cancel_drain") { dspark.awaitNativeIdle() }
+                assertEquals(0, cancelledChunksAfter.get())
+                assertEquals(false, dspark.isGenerating)
+                dsparkSamples.put("cancellation_drained", true)
+                    .put("chunks_before_cancel", cancelledChunksBefore.get())
+                    .put("chunks_after_cancel", cancelledChunksAfter.get())
+
+                val reuseStart = System.nanoTime()
+                val reuse = stage("dspark_reuse_after_cancel") {
+                    withTimeout(SESSION_REUSE_TIMEOUT_MS) {
+                        generateStreamed(
+                            dspark,
+                            """Return {"ok":true} as JSON.""",
+                            "Return only the requested JSON object.",
+                            """{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}""",
+                            maxTokens = 128,
+                            reportProgress = true,
+                        )
+                    }
+                }
+                dsparkSamples.put("reuse_after_cancel", reuse.toJson(
+                    runCatching { JSONObject(reuse.text).getBoolean("ok") }.getOrDefault(false),
+                    reuseStart, ensureMemoryHealthy(context, "DSpark reuse"),
+                ))
+            } finally {
+                stage("dspark_shutdown") { dspark.close() }
+            }
+
+            val dsparkReloadStart = System.nanoTime()
+            val dsparkReloaded = stage("dspark_reload") {
+                LlamaCppSession.load(
+                    llamaFile,
+                    contextSize = LLAMA_CONTEXT_TOKENS,
+                    draftModel = draftFile,
+                )
+            }
+            try {
+                val reloadedPlan = stage("dspark_plan_after_reload") {
+                    generateStreamed(
+                        dsparkReloaded, MealPlanProbePrompts.PLAN_USER, MealPlanProbePrompts.PLAN_SYSTEM,
+                        MealPlanProbeSchemas.plan(), reportProgress = true,
+                    )
+                }
+                val reloadedValid = runCatching {
+                    parser.parsePlanDraft(reloadedPlan.text, expectedDays = 3)
+                }.isSuccess
+                dsparkSamples.put("reload_load_ms", dsparkReloaded.loadMs)
+                    .put("reload_to_usable_ms", elapsedMs(dsparkReloadStart))
+                    .put(
+                        "after_unload_reload",
+                        reloadedPlan.toJson(
+                            reloadedValid, dsparkReloadStart,
+                            ensureMemoryHealthy(context, "DSpark unload/reload"),
+                        ),
+                    )
+            } finally {
+                stage("dspark_reload_shutdown") { dsparkReloaded.close() }
+            }
+            val dsparkDraftedTokens = listOf("plan", "recipe", "warm_plan")
+                .sumOf { dsparkSamples.getJSONObject(it).optInt("drafted_tokens", 0) }
+            val dsparkAcceptedDraftTokens = listOf("plan", "recipe", "warm_plan")
+                .sumOf { dsparkSamples.getJSONObject(it).optInt("accepted_draft_tokens", 0) }
+            dsparkSamples.put("retry_count", dsparkRetries)
+                .put("drafted_tokens", dsparkDraftedTokens)
+                .put("accepted_draft_tokens", dsparkAcceptedDraftTokens)
+                .put(
+                    "draft_acceptance_rate",
+                    if (dsparkDraftedTokens == 0) 0.0
+                    else dsparkAcceptedDraftTokens.toDouble() / dsparkDraftedTokens,
+                )
+            results.put("dspark", dsparkSamples)
+            assertTrue("DSpark meal plan failed application parsing", dsparkSamples.getJSONObject("plan").getBoolean("app_valid"))
+            assertTrue("DSpark recipe failed application parsing", dsparkSamples.getJSONObject("recipe").getBoolean("app_valid"))
+            assertEquals(6, dsparkSamples.getJSONObject("recipe").getInt("normalized_ingredients"))
+            assertTrue("DSpark warm plan failed application parsing", dsparkSamples.getJSONObject("warm_plan").getBoolean("app_valid"))
+            assertTrue("DSpark unsupported schema was not rejected", dsparkSamples.getBoolean("invalid_schema_rejected"))
+            assertTrue("DSpark cancellation did not drain", dsparkSamples.getBoolean("cancellation_drained"))
+            assertTrue("DSpark session did not recover after cancellation", dsparkSamples.getJSONObject("reuse_after_cancel").getBoolean("app_valid"))
+            assertTrue("DSpark draft path was not exercised", dsparkSamples.getInt("drafted_tokens") > 0)
+            assertTrue("DSpark unload/reload failed", dsparkSamples.getJSONObject("after_unload_reload").getBoolean("app_valid"))
+        }
         results.put("retry_count", retryCount).put("repair_count", repairCount)
         logProbeResults(results)
 
@@ -530,12 +746,16 @@ class LlamaMealPlanComparisonTest {
         prompt: String,
         systemPrompt: String,
         schemaJson: String,
+        maxTokens: Int = 1024,
+        reportProgress: Boolean = false,
     ): LlamaGeneration {
         val streamed = StringBuilder()
         val generation = session.generate(
             prompt = prompt,
             systemPrompt = systemPrompt,
             schemaJson = schemaJson,
+            maxTokens = maxTokens,
+            reportProgress = reportProgress,
             onText = { chunk -> streamed.append(chunk) },
         )
         assertEquals("streamed text differs from the final native result", generation.text, streamed.toString())
@@ -640,6 +860,45 @@ class LlamaMealPlanComparisonTest {
             ?: error("No LFM2.5 GGUF file exists under the app models directory")
     }
 
+    private fun dsparkModelFile(context: Context, override: String?): File {
+        override?.let(::File)?.let { return it }
+        val directories = listOfNotNull(
+            File(context.filesDir, "models"),
+            context.getExternalFilesDir("models"),
+        )
+        return directories.asSequence()
+            .map { directory -> File(directory, DSPARK_FILE_NAME) }
+            .firstOrNull(File::isFile)
+            ?: error("Official LFM2.5 DSpark Q4_K_M sidecar is missing from the probe model directory")
+    }
+
+    private fun verifyPinnedDsparkModel(file: File) {
+        verifyPinnedModel(file, DSPARK_FILE_SIZE_BYTES, DSPARK_SHA256, "LFM2.5 DSpark sidecar")
+    }
+
+    private fun verifyPinnedModel(file: File, expectedSize: Long, expectedSha256: String, label: String) {
+        require(file.isFile && file.length() == expectedSize) {
+            "$label size does not match its pinned provenance"
+        }
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val actualSha256 = digest.digest().joinToString("") { "%02x".format(it) }
+        require(actualSha256 == expectedSha256) {
+            "$label checksum does not match its pinned provenance"
+        }
+    }
+
+    private fun verifyPinnedLfmModel(file: File) {
+        verifyPinnedModel(file, LFM_FILE_SIZE_BYTES, LFM_SHA256, "LFM2.5 target")
+    }
+
     private fun ensureMemoryHealthy(context: Context, stage: String): JSONObject {
         val snapshot = memorySnapshot(context)
         check(!snapshot.getBoolean("low_memory")) {
@@ -699,6 +958,9 @@ class LlamaMealPlanComparisonTest {
         .put("ttft_ms", timeToFirstTokenMs)
         .put("stream_ttft_ms", streamTimeToFirstChunkMs ?: JSONObject.NULL)
         .put("stream_chunks", streamedChunks)
+        .put("prefill_ms", prefillMs)
+        .put("prefill_tokens", prefillTokens)
+        .put("prefill_tokens_per_second", prefillTokensPerSecond)
         .put("decode_ms", decodeMs)
         .put("decode_tokens_per_second", decodeTokensPerSecond)
         .put("total_ms", totalMs)
@@ -708,6 +970,8 @@ class LlamaMealPlanComparisonTest {
         .put("repair_count", retries)
         .put("prompt_tokens", promptTokens)
         .put("generated_tokens", generatedTokens)
+        .put("drafted_tokens", draftedTokens)
+        .put("accepted_draft_tokens", acceptedDraftTokens)
         .put("memory", memory)
 
     private fun assertProbeIsolation(context: Context) {
@@ -742,6 +1006,11 @@ class LlamaMealPlanComparisonTest {
         private const val SESSION_REUSE_TIMEOUT_MS = 60_000L
         private const val CONTEXT_TOKENS = 4096
         private const val LLAMA_CONTEXT_TOKENS = 4096
+        private const val LFM_FILE_SIZE_BYTES = 1_674_455_040L
+        private const val LFM_SHA256 = "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed"
+        private const val DSPARK_FILE_NAME = "LFM2.5-2.6B-DSpark-Q4_K_M.gguf"
+        private const val DSPARK_FILE_SIZE_BYTES = 199_680_512L
+        private const val DSPARK_SHA256 = "63786b768e43562591a934625a66539eab39beb09e6e3d38e17509e34b79a3cd"
         private const val MODEL_FILE_NAME = "LFM2.5-2.6B-Q4_K_M.gguf"
         private const val PROBE_APPLICATION_ID = "com.kernel.ai.debug.llamaprobe"
     }

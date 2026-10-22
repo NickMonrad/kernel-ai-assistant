@@ -4,6 +4,9 @@
 #include "llama.h"
 #include "json-schema-to-grammar.h"
 #include "json.h"
+#include "common.h"
+#include "sampling.h"
+#include "speculative.h"
 
 #include <array>
 #include <algorithm>
@@ -16,6 +19,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <functional>
 #include <time.h>
 #include <limits>
 
@@ -27,12 +31,17 @@ struct ProbeSession {
     llama_model * model = nullptr;
     llama_context * context = nullptr;
     const llama_vocab * vocab = nullptr;
+    common_speculative_init_result_ptr speculative_init;
+    common_speculative_ptr speculative;
+    int32_t draft_n_max = 0;
     std::mutex generation_mutex;
     std::atomic<int64_t> active_request_id{0};
     std::atomic<int64_t> cancelled_request{0};
     std::atomic<bool> abort_logged{false};
 
     ~ProbeSession() {
+        speculative.reset();
+        speculative_init.reset();
         if (context != nullptr) llama_free(context);
         if (model != nullptr) llama_model_free(model);
     }
@@ -177,19 +186,237 @@ std::int64_t process_cpu_time_ns() {
     return static_cast<std::int64_t>(cpu_time.tv_sec) * 1000000000LL + cpu_time.tv_nsec;
 }
 
+struct DsparkGenerationResult {
+    int32_t generated_tokens = 0;
+    int32_t drafted_tokens = 0;
+    int32_t accepted_draft_tokens = 0;
+    int64_t prefill_ms = 0;
+    int64_t ttft_ms = -1;
+    int64_t decode_ms = 0;
+    bool complete = false;
+};
+
+DsparkGenerationResult generate_dspark(
+        ProbeSession & session,
+        const std::vector<llama_token> & prompt_tokens,
+        common_sampler_ptr & sampler,
+        int32_t max_tokens,
+        std::chrono::steady_clock::time_point request_start,
+        bool report_progress,
+        const std::function<void(llama_token)> & emit_token) {
+    if (session.speculative == nullptr || session.speculative_init == nullptr ||
+        session.speculative_init->context() == nullptr || prompt_tokens.empty()) {
+        throw std::logic_error("DSpark session state is incomplete");
+    }
+
+    constexpr llama_seq_id seq_id = 0;
+    llama_context * const draft_context = session.speculative_init->context();
+    const common_context_seq_rm_type target_rm_type = common_context_can_seq_rm(session.context);
+    const common_context_seq_rm_type draft_rm_type = common_context_can_seq_rm(draft_context);
+    const bool use_ckpt_tgt = target_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL;
+    const bool use_ckpt_dft = draft_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL;
+    if (target_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_NO ||
+        draft_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_NO) {
+        throw std::runtime_error("DSpark target or draft context does not support request-state reset");
+    }
+
+    // Every request starts a new prompt at position zero in both contexts.
+    llama_memory_clear(llama_get_memory(session.context), false);
+    llama_memory_clear(llama_get_memory(draft_context), false);
+
+    llama_tokens prompt_tgt(prompt_tokens.begin(), prompt_tokens.end() - 1);
+    common_batch batch_prompt(session.context);
+    for (size_t i = 0; i < prompt_tokens.size() - 1; ++i) {
+        batch_prompt.add(prompt_tokens[i], static_cast<llama_pos>(i), seq_id, false);
+    }
+
+    DsparkGenerationResult result;
+    const auto prefill_start = std::chrono::steady_clock::now();
+    if (report_progress) {
+        __android_log_print(
+            ANDROID_LOG_INFO, "LlamaProbeNative",
+            "event=dspark_prefill_start prompt_tokens=%d", static_cast<int>(prompt_tokens.size()));
+    }
+    const int prefill_status = llama_process(
+        session.context, LLAMA_PROCESS_TYPE_DECODE, batch_prompt.get());
+    if (prefill_status != 0) {
+        if (abort_if_cancelled(&session)) throw std::runtime_error("Generation cancelled");
+        throw std::runtime_error("llama.cpp DSpark prompt evaluation failed");
+    }
+    if (!common_speculative_process(session.speculative.get(), batch_prompt)) {
+        if (abort_if_cancelled(&session)) throw std::runtime_error("Generation cancelled");
+        throw std::runtime_error("llama.cpp DSpark rejected prompt features");
+    }
+    common_speculative_begin(session.speculative.get(), seq_id, prompt_tgt);
+    result.prefill_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - prefill_start).count();
+    if (report_progress) {
+        __android_log_print(
+            ANDROID_LOG_INFO, "LlamaProbeNative",
+            "event=dspark_prefill_complete prefill_tokens=%d elapsed_ms=%lld",
+            static_cast<int>(prompt_tokens.size()) - 1,
+            static_cast<long long>(result.prefill_ms));
+    }
+
+    llama_token id_last = prompt_tokens.back();
+    int32_t n_past = static_cast<int32_t>(prompt_tokens.size()) - 1;
+    llama_tokens draft;
+    common_prompt_checkpoint checkpoint;
+    while (result.generated_tokens < max_tokens && !result.complete) {
+        if (abort_if_cancelled(&session)) throw std::runtime_error("Generation cancelled");
+        if (draft.empty()) {
+            checkpoint.update_pos(
+                static_cast<int64_t>(prompt_tgt.size()),
+                llama_memory_seq_pos_min(llama_get_memory(session.context), seq_id),
+                llama_memory_seq_pos_max(llama_get_memory(session.context), seq_id));
+            if (use_ckpt_dft) {
+                checkpoint.update_dft(draft_context, seq_id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
+            }
+
+            const int32_t remaining = max_tokens - result.generated_tokens;
+            const int32_t context_remaining =
+                static_cast<int32_t>(llama_n_ctx(session.context)) - n_past - 2;
+            const int32_t draft_limit = std::max(0, std::min({
+                session.draft_n_max, remaining - 1, context_remaining,
+            }));
+            auto & draft_params = common_speculative_get_draft_params(session.speculative.get(), seq_id);
+            draft_params.drafting = true;
+            draft_params.n_max = draft_limit;
+            draft_params.pos0 = n_past;
+            draft_params.id_last = id_last;
+            draft_params.prompt = &prompt_tgt;
+            draft_params.result = &draft;
+            draft_params.temp = 0.0f;
+            common_speculative_draft(session.speculative.get());
+            if (abort_if_cancelled(&session)) throw std::runtime_error("Generation cancelled");
+            result.drafted_tokens += static_cast<int32_t>(draft.size());
+            if (!draft.empty() && use_ckpt_tgt) {
+                checkpoint.update_tgt(session.context, seq_id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
+            }
+        }
+
+        if (use_ckpt_dft) {
+            if (!checkpoint.load_dft(draft_context, seq_id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY)) {
+                throw std::runtime_error("llama.cpp could not restore DSpark draft state");
+            }
+        }
+        llama_memory_seq_rm(
+            llama_get_memory(draft_context), seq_id, checkpoint.pos_max + 1, -1);
+
+        common_batch batch_target(session.context);
+        batch_target.add(id_last, n_past++, seq_id, true);
+        for (size_t i = 0; i < draft.size(); ++i) {
+            batch_target.add(draft[i], n_past + static_cast<llama_pos>(i), seq_id, true);
+        }
+        const int decode_status = llama_process(
+            session.context, LLAMA_PROCESS_TYPE_DECODE, batch_target.get());
+        if (decode_status != 0) {
+            if (abort_if_cancelled(&session)) throw std::runtime_error("Generation cancelled");
+            throw std::runtime_error("llama.cpp DSpark target evaluation failed");
+        }
+        if (!common_speculative_process(session.speculative.get(), batch_target)) {
+            if (abort_if_cancelled(&session)) throw std::runtime_error("Generation cancelled");
+            throw std::runtime_error("llama.cpp DSpark rejected target batch");
+        }
+        if (abort_if_cancelled(&session)) throw std::runtime_error("Generation cancelled");
+
+        common_sampler_ptr sampler_checkpoint;
+        if (use_ckpt_tgt) sampler_checkpoint.reset(common_sampler_clone(sampler.get()));
+        const size_t n_draft = draft.size();
+        const std::vector<llama_token> accepted =
+            common_sampler_sample_and_accept_n(sampler.get(), session.context, draft, true);
+        if (accepted.empty()) throw std::runtime_error("llama.cpp DSpark produced no target token");
+        const size_t accepted_draft = accepted.size() - 1;
+
+        if (use_ckpt_tgt && accepted_draft < n_draft) {
+            draft = accepted;
+            if (!checkpoint.load_tgt(session.context, seq_id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY)) {
+                throw std::runtime_error("llama.cpp could not restore DSpark target state");
+            }
+            llama_memory_seq_rm(
+                llama_get_memory(session.context), seq_id, checkpoint.pos_max + 1, -1);
+            if (use_ckpt_dft) {
+                if (!checkpoint.load_dft(draft_context, seq_id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY)) {
+                    throw std::runtime_error("llama.cpp could not restore DSpark draft state");
+                }
+                llama_memory_seq_rm(
+                    llama_get_memory(draft_context), seq_id, checkpoint.pos_max + 1, -1);
+            }
+            prompt_tgt.resize(static_cast<size_t>(checkpoint.n_tokens));
+            sampler = std::move(sampler_checkpoint);
+            n_past = static_cast<int32_t>(prompt_tgt.size());
+            continue;
+        }
+
+        result.accepted_draft_tokens += static_cast<int32_t>(accepted_draft);
+        common_speculative_accept(
+            session.speculative.get(), seq_id, static_cast<uint16_t>(accepted_draft));
+        for (const llama_token token : accepted) {
+            prompt_tgt.push_back(id_last);
+            id_last = token;
+            if (llama_vocab_is_eog(session.vocab, id_last)) {
+                result.complete = true;
+                break;
+            }
+            if (abort_if_cancelled(&session)) throw std::runtime_error("Generation cancelled");
+            emit_token(id_last);
+            ++result.generated_tokens;
+            if (result.ttft_ms < 0) {
+                result.ttft_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - request_start).count();
+            }
+            if (result.generated_tokens >= max_tokens) break;
+        }
+
+        n_past += static_cast<int32_t>(accepted_draft);
+        draft.clear();
+        llama_memory_seq_rm(llama_get_memory(session.context), seq_id, n_past, -1);
+        llama_memory_seq_rm(llama_get_memory(draft_context), seq_id, n_past, -1);
+    }
+
+    if (result.ttft_ms >= 0) {
+        result.decode_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - request_start).count() - result.ttft_ms;
+    }
+    return result;
+}
+
 } // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
-        JNIEnv * env, jobject, jstring model_path, jint context_size) {
+        JNIEnv * env, jobject, jstring model_path, jint context_size, jstring draft_model_path) {
     try {
         std::call_once(backend_once, [] { llama_backend_init(); });
         const std::string path = from_java(env, model_path, "modelPath");
+        const std::string draft_path = draft_model_path == nullptr
+            ? std::string{}
+            : from_java(env, draft_model_path, "draftModelPath");
+        const bool use_dspark = !draft_path.empty();
+
         llama_model_params model_params = llama_model_default_params();
         model_params.n_gpu_layers = 0; // CPU-only prototype; no GPU offload claim.
         std::unique_ptr<llama_model, decltype(&llama_model_free)> model(
             llama_model_load_from_file(path.c_str(), model_params), &llama_model_free);
         if (model == nullptr) throw std::runtime_error("llama.cpp could not load the GGUF model");
+
+        common_params spec_params;
+        if (use_dspark) {
+            spec_params.model.path = path;
+            spec_params.n_ctx = context_size;
+            spec_params.n_batch = context_size;
+            spec_params.n_ubatch = 512;
+            spec_params.n_gpu_layers = 0;
+            spec_params.cpuparams.n_threads = 4;
+            spec_params.cpuparams_batch.n_threads = 4;
+            spec_params.speculative.types = {COMMON_SPECULATIVE_TYPE_DRAFT_DSPARK};
+            spec_params.speculative.draft.n_max = 9;
+            spec_params.speculative.draft.n_min = 0;
+            spec_params.speculative.draft.n_gpu_layers = 0;
+            spec_params.speculative.draft.mparams.path = draft_path;
+            spec_params.speculative.draft.cpuparams.n_threads = 4;
+            spec_params.speculative.draft.cpuparams_batch.n_threads = 4;
+        }
 
         auto session = std::make_unique<ProbeSession>();
         session->vocab = llama_model_get_vocab(model.get());
@@ -201,14 +428,51 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
         context_params.n_threads_batch = context_params.n_threads;
         context_params.abort_callback = abort_if_cancelled;
         context_params.abort_callback_data = session.get();
+        if (use_dspark) {
+            spec_params.cpuparams.n_threads = static_cast<int32_t>(context_params.n_threads);
+            spec_params.cpuparams_batch.n_threads = static_cast<int32_t>(context_params.n_threads);
+            spec_params.speculative.draft.cpuparams.n_threads = static_cast<int32_t>(context_params.n_threads);
+            spec_params.speculative.draft.cpuparams_batch.n_threads = static_cast<int32_t>(context_params.n_threads);
+            session->draft_n_max = spec_params.speculative.draft.n_max;
+            const auto output_limits = common_speculative_get_output_limits(
+                context_params.n_batch, 1, session->draft_n_max);
+            spec_params.n_outputs_max = output_limits.total;
+            spec_params.n_outputs_max_per_seq = output_limits.per_seq;
+            context_params.n_outputs_max = output_limits.total;
+            context_params.n_outputs_max_per_seq = output_limits.per_seq;
+            context_params.n_rs_seq = spec_params.speculative.need_n_rs_seq();
+            context_params.n_ubatch = static_cast<uint32_t>(spec_params.n_ubatch);
+        }
         __android_log_print(
             ANDROID_LOG_INFO, "LlamaProbeNative",
-            "event=context_config n_ctx=%u n_batch=%u n_ubatch=%u n_threads=%d n_threads_batch=%d",
+            "event=context_config n_ctx=%u n_batch=%u n_ubatch=%u n_threads=%d n_threads_batch=%d dspark=%d n_draft=%d n_rs_seq=%u",
             context_params.n_ctx, context_params.n_batch, context_params.n_ubatch,
-            context_params.n_threads, context_params.n_threads_batch);
+            context_params.n_threads, context_params.n_threads_batch, use_dspark ? 1 : 0,
+            session->draft_n_max, context_params.n_rs_seq);
         context_params.no_perf = true;
         session->context = llama_init_from_model(session->model, context_params);
         if (session->context == nullptr) throw std::runtime_error("llama.cpp could not create the CPU context");
+
+        if (use_dspark) {
+            common_params draft_params = common_base_params_to_speculative(spec_params);
+            session->speculative_init = common_speculative_init_from_params(
+                draft_params, session->model, session->context);
+            if (session->speculative_init->model() == nullptr ||
+                session->speculative_init->context() == nullptr) {
+                throw std::runtime_error("llama.cpp could not initialize the DSpark GGUF");
+            }
+            llama_set_abort_callback(
+                session->speculative_init->context(), abort_if_cancelled, session.get());
+            draft_params.speculative.draft.ctx_tgt = session->context;
+            draft_params.speculative.draft.ctx_dft = session->speculative_init->context();
+            session->speculative.reset(common_speculative_init(draft_params.speculative, 1));
+            if (!session->speculative) {
+                throw std::runtime_error("llama.cpp rejected the LFM2.5 DSpark target/draft pair");
+            }
+            __android_log_print(
+                ANDROID_LOG_INFO, "LlamaProbeNative",
+                "event=dspark_ready draft_n_max=%d", session->draft_n_max);
+        }
         return reinterpret_cast<jlong>(session.release());
     } catch (const std::exception & error) {
         throw_java(env, "java/lang/IllegalStateException", error.what());
@@ -250,12 +514,24 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             __android_log_print(ANDROID_LOG_INFO, "LlamaProbeNative", "event=grammar_complete");
         }
         using SamplerPtr = std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)>;
-        SamplerPtr sampler(llama_sampler_chain_init(llama_sampler_chain_default_params()), &llama_sampler_free);
-        if (!sampler) throw std::runtime_error("Could not create sampler chain");
-        llama_sampler * grammar_sampler = llama_sampler_init_grammar(session->vocab, grammar.c_str(), "root");
-        if (grammar_sampler == nullptr) throw std::invalid_argument("llama.cpp rejected the generated JSON grammar");
-        llama_sampler_chain_add(sampler.get(), grammar_sampler);
-        llama_sampler_chain_add(sampler.get(), llama_sampler_init_greedy());
+        SamplerPtr sampler(nullptr, &llama_sampler_free);
+        common_sampler_ptr dspark_sampler;
+        if (session->speculative != nullptr) {
+            common_params_sampling sampling_params;
+            sampling_params.temp = 0.0f;
+            sampling_params.samplers = {COMMON_SAMPLER_TYPE_TEMPERATURE};
+            sampling_params.grammar = common_grammar(COMMON_GRAMMAR_TYPE_USER, grammar);
+            sampling_params.no_perf = true;
+            dspark_sampler.reset(common_sampler_init(session->model, sampling_params));
+            if (!dspark_sampler) throw std::runtime_error("Could not create DSpark constrained sampler");
+        } else {
+            sampler.reset(llama_sampler_chain_init(llama_sampler_chain_default_params()));
+            if (!sampler) throw std::runtime_error("Could not create sampler chain");
+            llama_sampler * grammar_sampler = llama_sampler_init_grammar(session->vocab, grammar.c_str(), "root");
+            if (grammar_sampler == nullptr) throw std::invalid_argument("llama.cpp rejected the generated JSON grammar");
+            llama_sampler_chain_add(sampler.get(), grammar_sampler);
+            llama_sampler_chain_add(sampler.get(), llama_sampler_init_greedy());
+        }
 
         const std::string formatted_prompt = format_model_prompt(session->model, system, user_prompt);
         if (report_progress) {
@@ -276,6 +552,76 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             __android_log_print(
                 ANDROID_LOG_INFO, "LlamaProbeNative", "event=tokenize_complete prompt_tokens=%d", prompt_token_count);
         }
+        if (session->speculative != nullptr) {
+            std::string dspark_output;
+            std::array<char, 4096> token_buffer{};
+            jmethodID on_token_bytes = nullptr;
+            jbyteArray token_bytes = nullptr;
+            if (token_observer != nullptr) {
+                jclass observer_class = env->GetObjectClass(token_observer);
+                if (observer_class == nullptr) return nullptr;
+                on_token_bytes = env->GetMethodID(observer_class, "onTokenBytes", "([BI)V");
+                if (on_token_bytes == nullptr) return nullptr;
+                token_bytes = env->NewByteArray(static_cast<jsize>(token_buffer.size()));
+                if (token_bytes == nullptr) return nullptr;
+            }
+            const auto emit_token = [&](llama_token token) {
+                if (session->cancelled_request.load(std::memory_order_acquire) == request_id) {
+                    throw std::runtime_error("Generation cancelled");
+                }
+                const int32_t piece_bytes = token_piece(
+                    session->vocab, token, token_buffer.data(),
+                    static_cast<int32_t>(token_buffer.size()));
+                if (piece_bytes <= 0) return;
+                dspark_output.append(token_buffer.data(), static_cast<size_t>(piece_bytes));
+                if (token_observer != nullptr) {
+                    env->SetByteArrayRegion(
+                        token_bytes, 0, piece_bytes,
+                        reinterpret_cast<const jbyte *>(token_buffer.data()));
+                    if (env->ExceptionCheck()) throw std::runtime_error("Token observer failed");
+                    env->CallVoidMethod(token_observer, on_token_bytes, token_bytes, piece_bytes);
+                    if (env->ExceptionCheck()) throw std::runtime_error("Token observer failed");
+                }
+            };
+            if (report_progress) {
+                __android_log_print(ANDROID_LOG_INFO, "LlamaProbeNative", "event=dspark_generate_start");
+            }
+            const DsparkGenerationResult dspark_result = generate_dspark(
+                *session, prompt_tokens, dspark_sampler, max_tokens,
+                request_start, report_progress, emit_token);
+            const int64_t total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - request_start).count();
+            if (report_progress) {
+                __android_log_print(
+                    ANDROID_LOG_INFO, "LlamaProbeNative",
+                    "event=dspark_request_complete generated_tokens=%d complete=%d drafted_tokens=%d accepted_draft_tokens=%d ttft_ms=%lld prefill_ms=%lld decode_ms=%lld total_ms=%lld",
+                    dspark_result.generated_tokens, dspark_result.complete ? 1 : 0,
+                    dspark_result.drafted_tokens, dspark_result.accepted_draft_tokens,
+                    static_cast<long long>(dspark_result.ttft_ms),
+                    static_cast<long long>(dspark_result.prefill_ms),
+                    static_cast<long long>(dspark_result.decode_ms), static_cast<long long>(total_ms));
+            }
+            const int32_t prefill_tokens = prompt_token_count - 1;
+            const double prefill_tokens_per_second = dspark_result.prefill_ms > 0
+                ? 1000.0 * static_cast<double>(prefill_tokens) /
+                    static_cast<double>(dspark_result.prefill_ms)
+                : 0.0;
+            common_json result = {
+                {"text", dspark_output},
+                {"complete", dspark_result.complete},
+                {"prompt_tokens", prompt_token_count},
+                {"generated_tokens", dspark_result.generated_tokens},
+                {"ttft_ms", std::max<int64_t>(dspark_result.ttft_ms, 0)},
+                {"prefill_tokens", prefill_tokens},
+                {"prefill_ms", dspark_result.prefill_ms},
+                {"prefill_tokens_per_second", prefill_tokens_per_second},
+                {"decode_ms", dspark_result.decode_ms},
+                {"total_ms", total_ms},
+                {"drafted_tokens", dspark_result.drafted_tokens},
+                {"accepted_draft_tokens", dspark_result.accepted_draft_tokens},
+            };
+            return to_java_bytes(env, result.dump());
+        }
 
         using BatchPtr = std::unique_ptr<llama_batch_ext, decltype(&llama_batch_ext_free)>;
         BatchPtr batch(llama_batch_ext_init(session->context), &llama_batch_ext_free);
@@ -285,9 +631,7 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         llama_memory_clear(llama_get_memory(session->context), false);
 
         batch_set_tokens(batch.get(), prompt_tokens.data(), prompt_token_count, 0);
-        const auto prefill_start = report_progress
-            ? std::chrono::steady_clock::now()
-            : std::chrono::steady_clock::time_point{};
+        const auto prefill_start = std::chrono::steady_clock::now();
         if (report_progress) {
             __android_log_print(
                 ANDROID_LOG_INFO, "LlamaProbeNative", "event=prefill_start prompt_tokens=%d", prompt_token_count);
@@ -343,9 +687,9 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             }
             throw std::runtime_error("llama.cpp prompt evaluation failed");
         }
+        const int64_t prefill_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - prefill_start).count();
         if (report_progress) {
-            const auto prefill_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - prefill_start).count();
             __android_log_print(
                 ANDROID_LOG_INFO, "LlamaProbeNative", "event=prefill_complete prompt_tokens=%d elapsed_ms=%lld",
                 prompt_token_count, static_cast<long long>(prefill_ms));
@@ -470,9 +814,13 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             {"complete", completed},
             {"prompt_tokens", prompt_token_count},
             {"generated_tokens", generated_tokens},
-            {"ttft_ms", std::max<int64_t>(ttft_ms, 0)},
-            {"decode_ms", decode_ms},
-            {"total_ms", total_ms},
+            {"prefill_tokens", prompt_token_count},
+            {"prefill_ms", prefill_ms},
+            {"prefill_tokens_per_second", prefill_ms > 0
+                ? 1000.0 * static_cast<double>(prompt_token_count) / static_cast<double>(prefill_ms)
+                : 0.0},
+            {"drafted_tokens", 0},
+            {"accepted_draft_tokens", 0},
         };
         const std::string json_result = result.dump();
         return to_java_bytes(env, json_result);
