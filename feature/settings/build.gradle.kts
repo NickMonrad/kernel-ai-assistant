@@ -64,6 +64,11 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.5.2")
     androidTestImplementation("androidx.test:rules:1.5.0")
     androidTestImplementation(libs.uiautomator)
+    androidTestImplementation(libs.room.runtime)
+    androidTestImplementation("io.mockk:mockk-android:1.13.16") {
+        exclude(group = "org.junit.jupiter")
+        exclude(group = "org.junit.platform")
+    }
     implementation(libs.coil.compose)
 
     implementation(libs.datastore.preferences)

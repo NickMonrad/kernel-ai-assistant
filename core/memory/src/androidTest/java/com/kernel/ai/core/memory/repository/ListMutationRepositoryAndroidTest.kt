@@ -384,7 +384,7 @@ class ListMutationRepositoryAndroidTest {
     }
 
     @Test
-    fun `adding a sub-item appends, reopens its parent, and preserves created details`() = runBlocking {
+    fun addingSubItemAppendsReopensParentAndPreservesCreatedDetails() = runBlocking {
         val listId = repository.createCollection("Add child")
         val parentId = repository.addItem(listId, "Parent")
         val parent = requireNotNull(database.listItemDao().getById(parentId))
@@ -1227,7 +1227,63 @@ class ListMutationRepositoryAndroidTest {
         }
         assertEquals("Local", database.listItemDao().getById(itemId)?.text)
         assertEquals(1, database.listItemDao().getAllByListAnyLifecycle(listId).size)
+
     }
+
+    @Test
+    fun `blocked collection deletion leaves list items and binding unchanged`() = runBlocking {
+        val blockedStates = listOf(
+            "unavailable" to com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity(
+                collectionId = "",
+                remoteHref = "https://cloud.example/tasks/unavailable/",
+                remoteTitle = "",
+                remoteEtag = null,
+                remoteLogicalClock = 0L,
+                updatedAt = 0L,
+                remoteAvailable = false,
+            ),
+            "read-only" to com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity(
+                collectionId = "",
+                remoteHref = "https://cloud.example/tasks/read-only/",
+                remoteTitle = "",
+                remoteEtag = null,
+                remoteLogicalClock = 0L,
+                updatedAt = 0L,
+                remoteWritable = false,
+            ),
+            "stranded" to com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity(
+                collectionId = "",
+                remoteHref = "https://cloud.example/tasks/stranded/",
+                remoteTitle = "",
+                remoteEtag = null,
+                remoteLogicalClock = 0L,
+                updatedAt = 0L,
+                blockedUnsyncedAt = 1L,
+            ),
+        )
+        val bindingDao = database.nextcloudCollectionBindingDao()
+
+        blockedStates.forEach { (state, template) ->
+            val listId = repository.createCollection("Blocked $state")
+            val itemId = repository.addItem(listId, "Keep $state")
+            val list = requireNotNull(database.listNameDao().getById(listId))
+            val binding = template.copy(
+                collectionId = list.collectionId,
+                remoteTitle = list.canonicalTitle,
+            )
+            bindingDao.upsert(binding)
+
+            assertThrows(ListMutationBlockedException::class.java) {
+                runBlocking { repository.deleteCollection(listId) }
+            }
+
+            assertEquals(ListLifecycle.ACTIVE.name, database.listNameDao().getById(listId)?.lifecycle)
+            assertEquals(ListLifecycle.ACTIVE.name, database.listItemDao().getById(itemId)?.lifecycle)
+            assertEquals(binding, bindingDao.get(list.collectionId))
+            assertEquals(1, database.listItemDao().getAllByListAnyLifecycle(listId).size)
+        }
+    }
+
 
     @Test
     fun `copying a bound list locally leaves no provider state on the copy`() = runBlocking {

@@ -22,6 +22,7 @@ import com.kernel.ai.core.memory.lists.ListPackageFailure
 import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.ListMutationRepository
+import com.kernel.ai.core.memory.repository.ListMutationBlockedException
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyProjection
 import com.kernel.ai.core.memory.lists.ListLifecycle
@@ -536,6 +537,9 @@ class ListsViewModel @Inject constructor(
 
     val isListMultiSelectMode: Boolean get() = selectedListIds.isNotEmpty()
 
+    /** Prevents duplicate taps from queuing the same collection delete while sync state can change. */
+    private val listDeletionsInFlight = mutableSetOf<Long>()
+
     fun enterListMultiSelect(id: Long) { selectedListIds = setOf(id) }
 
     fun toggleListSelection(id: Long) {
@@ -546,14 +550,34 @@ class ListsViewModel @Inject constructor(
 
     fun selectAllLists(ids: List<Long>) { selectedListIds = ids.toSet() }
 
-    /** Bulk-deletes selected lists by recording collection and item tombstones. */
+    /** Bulk-deletes allowed lists independently and leaves blocked selections for explicit resolution. */
     fun deleteSelectedLists() {
-        val ids = selectedListIds.toList()
-        selectedListIds = emptySet()
-        viewModelScope.launch(ioDispatcher) {
-            ids.forEach { listId ->
-                dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
-                listMutations.deleteCollection(listId)
+        val ids = selectedListIds.filter { listDeletionsInFlight.add(it) }
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val (deletedIds, blocked) = withContext(ioDispatcher) {
+                    val deleted = mutableListOf<Long>()
+                    val blockedLists = mutableListOf<Pair<Long, String>>()
+                    ids.forEach { listId ->
+                        val reminders = dao.getAllWithNotification(listId)
+                        try {
+                            listMutations.deleteCollection(listId)
+                        } catch (exception: ListMutationBlockedException) {
+                            blockedLists += listId to (
+                                exception.message ?: ListMutationBlockedException.READ_ONLY_MESSAGE
+                                )
+                            return@forEach
+                        }
+                        reminders.forEach { scheduler.cancel(it.id) }
+                        deleted += listId
+                    }
+                    deleted to blockedLists
+                }
+                selectedListIds = selectedListIds - deletedIds.toSet()
+                nextcloudMessage = blockedListsMessage(deletedIds.size, blocked)
+            } finally {
+                listDeletionsInFlight.removeAll(ids.toSet())
             }
         }
     }
@@ -579,16 +603,15 @@ class ListsViewModel @Inject constructor(
         selectedItemIds = selectedItemIds - ids
     }
 
-    /** Bulk-deletes the currently selected list items. */
+    /** Bulk-deletes selected items; reminder cancellation follows the successful mutation commit. */
     fun deleteSelectedItems() {
         val ids = selectedItemIds.toList()
-        selectedItemIds = emptySet()
-        ids.forEach { scheduler.cancel(it) }
-        viewModelScope.launch(ioDispatcher) {
-            // Deleting the last incomplete child can complete its surviving parent, so the delete
-            // seam reports those transitions and they take the same reminder path as any other
-            // checked-state change.
-            applyCheckedStateReminderTransitions(listMutations.deleteItems(ids))
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val mutation = contentMutationOrMessage { listMutations.deleteItems(ids) } ?: return@launch
+            selectedItemIds = selectedItemIds - ids.toSet()
+            // Parent completion changes and deleted-item reminders follow the committed mutation.
+            applyCheckedStateReminderTransitions(mutation, removedItemIds = ids.toSet())
         }
     }
 
@@ -597,32 +620,34 @@ class ListsViewModel @Inject constructor(
         lifecycleTransitions: List<ListItemLifecycleTransition> = emptyList(),
         removedItemIds: Set<Long> = emptySet(),
     ) {
-        val cancellationIds = (
-            mutation.checkedIds +
-                lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId } +
-                removedItemIds
-            ).toSet()
-        cancellationIds.forEach(scheduler::cancel)
+        withContext(ioDispatcher) {
+            val cancellationIds = (
+                mutation.checkedIds +
+                    lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId } +
+                    removedItemIds
+                ).toSet()
+            cancellationIds.forEach(scheduler::cancel)
 
-        val restoredIds = lifecycleTransitions
-            .filter { !it.wasActive && it.isActive }
-            .map { it.itemId }
-            .toSet()
-        val scheduleIds = (mutation.uncheckedIds + restoredIds).toSet()
-        val now = System.currentTimeMillis()
-        scheduleIds.forEach { id ->
-            val item = dao.getById(id) ?: return@forEach
-            if (item.checked || item.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
-            val list = listNameDao.getById(item.listId) ?: return@forEach
-            if (list.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
-            val triggerAtMs = item.notificationTime?.takeIf { it > now } ?: return@forEach
-            scheduler.schedule(
-                itemId = item.id,
-                itemText = item.text,
-                listId = item.listId,
-                listName = list.name,
-                triggerAtMs = triggerAtMs,
-            )
+            val restoredIds = lifecycleTransitions
+                .filter { !it.wasActive && it.isActive }
+                .map { it.itemId }
+                .toSet()
+            val scheduleIds = (mutation.uncheckedIds + restoredIds).toSet()
+            val now = System.currentTimeMillis()
+            scheduleIds.forEach { id ->
+                val item = dao.getById(id) ?: return@forEach
+                if (item.checked || item.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
+                val list = listNameDao.getById(item.listId) ?: return@forEach
+                if (list.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
+                val triggerAtMs = item.notificationTime?.takeIf { it > now } ?: return@forEach
+                scheduler.schedule(
+                    itemId = item.id,
+                    itemText = item.text,
+                    listId = item.listId,
+                    listName = list.name,
+                    triggerAtMs = triggerAtMs,
+                )
+            }
         }
     }
 
@@ -632,9 +657,12 @@ class ListsViewModel @Inject constructor(
      */
     fun markSelectedItemsComplete() {
         val ids = selectedItemIds.toList()
-        selectedItemIds = emptySet()
-        viewModelScope.launch(ioDispatcher) {
-            applyCheckedStateReminderTransitions(listMutations.setItemsChecked(ids, true))
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val mutation = contentMutationOrMessage { listMutations.setItemsChecked(ids, true) }
+                ?: return@launch
+            selectedItemIds = selectedItemIds - ids.toSet()
+            applyCheckedStateReminderTransitions(mutation)
         }
     }
 
@@ -644,9 +672,12 @@ class ListsViewModel @Inject constructor(
      */
     fun unmarkSelectedItemsComplete() {
         val ids = selectedItemIds.toList()
-        selectedItemIds = emptySet()
-        viewModelScope.launch(ioDispatcher) {
-            applyCheckedStateReminderTransitions(listMutations.setItemsChecked(ids, false))
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val mutation = contentMutationOrMessage { listMutations.setItemsChecked(ids, false) }
+                ?: return@launch
+            selectedItemIds = selectedItemIds - ids.toSet()
+            applyCheckedStateReminderTransitions(mutation)
         }
     }
 
@@ -679,9 +710,9 @@ class ListsViewModel @Inject constructor(
             try {
                 val baseline = withContext(ioDispatcher) { visibleOrderBaseline(visibleRowIds) }
                 if (baseline == null && itemSort != ItemSort.MANUAL) return@launch
-                val mutation = withContext(ioDispatcher) {
+                val mutation = contentMutationOrMessage {
                     listMutations.makeSubItem(item.id, precedingRow.itemId, baseline)
-                }
+                } ?: return@launch
                 applyCheckedStateReminderTransitions(mutation)
                 if (baseline != null) selectItemSort(ItemSort.MANUAL)
             } finally {
@@ -703,7 +734,9 @@ class ListsViewModel @Inject constructor(
             try {
                 val baseline = withContext(ioDispatcher) { visibleOrderBaseline(visibleRowIds) }
                 if (baseline == null && itemSort != ItemSort.MANUAL) return@launch
-                val mutation = withContext(ioDispatcher) { listMutations.moveToTopLevel(item.id, baseline) }
+                val mutation = contentMutationOrMessage {
+                    listMutations.moveToTopLevel(item.id, baseline)
+                } ?: return@launch
                 applyCheckedStateReminderTransitions(mutation)
                 if (baseline != null) selectItemSort(ItemSort.MANUAL)
             } finally {
@@ -758,14 +791,14 @@ class ListsViewModel @Inject constructor(
                                 )
                             }
                     }
-                    val mutation = withContext(ioDispatcher) {
+                    val mutation = contentMutationOrMessage {
                         listMutations.applyVisibleHierarchyOrder(listId, baselineRows)
-                    }
+                    } ?: return@launch
                     applyCheckedStateReminderTransitions(mutation)
                     selectItemSort(ItemSort.MANUAL)
                     return@launch
                 }
-                val mutation = withContext(ioDispatcher) {
+                val mutation = contentMutationOrMessage {
                     listMutations.moveItem(
                         dragged.id,
                         pendingPlacement.parentItemId,
@@ -774,7 +807,7 @@ class ListsViewModel @Inject constructor(
                             pendingPlacement.upperOrderKey,
                         ),
                     )
-                }
+                } ?: return@launch
                 applyCheckedStateReminderTransitions(mutation)
             } finally {
                 isHierarchyTransitionPending = false
@@ -827,9 +860,13 @@ class ListsViewModel @Inject constructor(
     fun reorderItems(orderedIds: List<Long>) {
         selectItemSort(ItemSort.MANUAL)
         itemReorderJob?.cancel()
-        itemReorderJob = viewModelScope.launch(ioDispatcher) {
-            val listId = orderedIds.firstOrNull()?.let { dao.getById(it)?.listId } ?: return@launch
-            val all = dao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+        itemReorderJob = viewModelScope.launch {
+            val listId = withContext(ioDispatcher) {
+                orderedIds.firstOrNull()?.let { dao.getById(it)?.listId }
+            } ?: return@launch
+            val all = withContext(ioDispatcher) {
+                dao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+            }
             val groups = EffectiveHierarchyProjection.derive(
                 all,
                 itemId = { it.itemId },
@@ -839,10 +876,9 @@ class ListsViewModel @Inject constructor(
             )
             val completedTop = groups.filter { it.parent.checked }.map { it.parent.id }
             val desired = orderedIds + completedTop.filterNot { it in orderedIds }
-            listMutations.reorderItems(listId, desired)
+            contentMutationOrMessage { listMutations.reorderItems(listId, desired) }
         }
     }
-
 
     // ── Item drag-to-reorder (#917) ───────────────────────────────────────────────────────────────
 
@@ -870,10 +906,11 @@ class ListsViewModel @Inject constructor(
     }
 
     fun toggleChecked(item: ListItemEntity) {
-        viewModelScope.launch(ioDispatcher) {
-            applyCheckedStateReminderTransitions(
-                listMutations.setItemChecked(item.id, !item.checked),
-            )
+        viewModelScope.launch {
+            val mutation = contentMutationOrMessage {
+                listMutations.setItemChecked(item.id, !item.checked)
+            } ?: return@launch
+            applyCheckedStateReminderTransitions(mutation)
         }
     }
 
@@ -889,14 +926,16 @@ class ListsViewModel @Inject constructor(
         val trimmed = itemText.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            val createdItemId = listMutations.addItem(
-                listId,
-                trimmed,
-                dueAt,
-                notificationTime,
-                description,
-                isFavourite,
-            )
+            val createdItemId = contentMutationOrMessage {
+                listMutations.addItem(
+                    listId,
+                    trimmed,
+                    dueAt,
+                    notificationTime,
+                    description,
+                    isFavourite,
+                )
+            } ?: return@launch
             onItemCreated(createdItemId)
             if (notificationTime != null) {
                 val listName = listEntities.value.firstOrNull { it.id == listId }?.name ?: ""
@@ -927,7 +966,7 @@ class ListsViewModel @Inject constructor(
         itemFilter = ItemFilter.ALL
         clearItemSearchQuery()
         viewModelScope.launch {
-            val result = withContext(ioDispatcher) {
+            val result = contentMutationOrMessage {
                 listMutations.addSubItem(
                     listId = listId,
                     parentItemId = parentItemId,
@@ -937,7 +976,7 @@ class ListsViewModel @Inject constructor(
                     description = description,
                     isFavourite = isFavourite,
                 )
-            }
+            } ?: return@launch
             applyCheckedStateReminderTransitions(result.checkedStateMutation)
             if (boundItemListId == listId) {
                 collapsedParentItemIds = collapsedParentItemIds - parentItemId
@@ -970,14 +1009,16 @@ class ListsViewModel @Inject constructor(
     fun updateItem(item: ListItemEntity) {
         val listName = listEntities.value.firstOrNull { it.id == item.listId }?.name ?: ""
         viewModelScope.launch {
-            listMutations.updateItem(
-                item.id,
-                item.text,
-                item.dueAt,
-                item.isFavourite,
-                item.notificationTime,
-                item.description,
-            )
+            contentMutationOrMessage {
+                listMutations.updateItem(
+                    item.id,
+                    item.text,
+                    item.dueAt,
+                    item.isFavourite,
+                    item.notificationTime,
+                    item.description,
+                )
+            } ?: return@launch
             val nt = item.notificationTime
             if (nt != null) scheduler.schedule(itemId = item.id, itemText = item.text, listId = item.listId, listName = listName, triggerAtMs = nt)
             else scheduler.cancel(item.id)
@@ -985,18 +1026,33 @@ class ListsViewModel @Inject constructor(
     }
 
     fun clearChecked(listId: Long) {
-        viewModelScope.launch(ioDispatcher) {
-            val checked = dao.getAllByList(listId).filter { it.checked }
-            checked.forEach { scheduler.cancel(it.id) }
-            applyCheckedStateReminderTransitions(listMutations.deleteItems(checked.map { it.id }))
+        viewModelScope.launch {
+            val checkedIds = withContext(ioDispatcher) {
+                dao.getAllByList(listId).filter { it.checked }.map { it.id }
+            }
+            if (checkedIds.isEmpty()) return@launch
+            val mutation = contentMutationOrMessage { listMutations.deleteItems(checkedIds) }
+                ?: return@launch
+            applyCheckedStateReminderTransitions(mutation, removedItemIds = checkedIds.toSet())
         }
     }
 
-    /** Deletes a list by recording tombstones; rows remain for sync convergence. */
     fun deleteList(listId: Long) {
-        viewModelScope.launch(ioDispatcher) {
-            dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
-            listMutations.deleteCollection(listId)
+        if (!listDeletionsInFlight.add(listId)) return
+        viewModelScope.launch {
+            try {
+                val reminders = withContext(ioDispatcher) {
+                    dao.getAllWithNotification(listId)
+                }
+                contentMutationOrMessage {
+                    listMutations.deleteCollection(listId)
+                } ?: return@launch
+                withContext(ioDispatcher) {
+                    reminders.forEach { scheduler.cancel(it.id) }
+                }
+            } finally {
+                listDeletionsInFlight.remove(listId)
+            }
         }
     }
 
@@ -1004,7 +1060,9 @@ class ListsViewModel @Inject constructor(
     fun renameList(id: Long, newName: String) {
         val trimmed = newName.trim().lowercase()
         if (trimmed.isBlank()) return
-        viewModelScope.launch { listMutations.renameCollection(id, trimmed) }
+        viewModelScope.launch {
+            contentMutationOrMessage { listMutations.renameCollection(id, trimmed) }
+        }
     }
 
     /** Toggles the pinned state of a list atomically, bumping the updatedAt timestamp. */
@@ -1110,6 +1168,33 @@ internal fun formatListShareText(listName: String, items: List<ListItemEntity>):
 
     fun clearNextcloudMessage() {
         nextcloudMessage = null
+    }
+
+    /**
+     * Runs one provider-backed content mutation on IO and converts only the expected #1548 guard
+     * into the existing Lists snackbar feedback. Other failures still surface normally.
+     */
+    private suspend fun <T> contentMutationOrMessage(mutation: suspend () -> T): T? =
+        try {
+            withContext(ioDispatcher) { mutation() }
+        } catch (blocked: ListMutationBlockedException) {
+            nextcloudMessage = blocked.message ?: ListMutationBlockedException.READ_ONLY_MESSAGE
+            null
+        }
+
+    private fun blockedListsMessage(
+        deletedCount: Int,
+        blocked: List<Pair<Long, String>>,
+    ): String? {
+        if (blocked.isEmpty()) return null
+        val failedCount = blocked.size
+        val summary = when {
+            deletedCount == 0 && failedCount == 1 -> return blocked.single().second
+            deletedCount == 0 -> "$failedCount lists could not be deleted."
+            else -> "Deleted $deletedCount ${if (deletedCount == 1) "list" else "lists"}; " +
+                "$failedCount ${if (failedCount == 1) "list" else "lists"} could not be deleted."
+        }
+        return (listOf(summary) + blocked.map { it.second }.distinct()).joinToString("\n")
     }
 
     /**

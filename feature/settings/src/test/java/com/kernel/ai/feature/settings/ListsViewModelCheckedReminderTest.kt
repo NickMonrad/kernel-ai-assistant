@@ -17,6 +17,7 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import kotlin.coroutines.CoroutineContext
 import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -69,6 +71,61 @@ class ListsViewModelCheckedReminderTest {
         preferences,
         nextcloudAdapter,
     ).apply { ioDispatcher = dispatcher }
+
+    @Test
+    fun `checked-state reminder reconciliation stays on IO dispatcher`() {
+        val triggerAtMs = System.currentTimeMillis() + 60_000L
+        val checked = item(1L, checked = false)
+        val restored = item(2L, checked = false, notificationTime = triggerAtMs)
+        val alarmDispatchStates = mutableListOf<Boolean>()
+        val reminderDispatcher = object : CoroutineDispatcher() {
+            var dispatchDepth = 0
+                private set
+
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                dispatchDepth++
+                try {
+                    block.run()
+                } finally {
+                    dispatchDepth--
+                }
+            }
+        }
+        coEvery { listMutations.setItemChecked(checked.id, true) } returns CheckedStateMutation(
+            checkedIds = setOf(checked.id),
+            uncheckedIds = setOf(restored.id),
+        )
+        coEvery { dao.getById(restored.id) } returns restored
+        coEvery { listNameDao.getById(restored.listId) } returns ListNameEntity(
+            id = restored.listId,
+            name = "groceries",
+        )
+        every { scheduler.cancel(checked.id) } answers {
+            alarmDispatchStates += reminderDispatcher.dispatchDepth > 0
+            Unit
+        }
+        every { scheduler.schedule(any(), any(), any(), any(), any()) } answers {
+            alarmDispatchStates += reminderDispatcher.dispatchDepth > 0
+            Unit
+        }
+
+        val viewModel = testViewModel(preferences).apply {
+            ioDispatcher = reminderDispatcher
+        }
+        viewModel.toggleChecked(checked)
+
+        assertEquals(listOf(true, true), alarmDispatchStates)
+        verify(exactly = 1) { scheduler.cancel(checked.id) }
+        verify(exactly = 1) {
+            scheduler.schedule(
+                restored.id,
+                restored.text,
+                restored.listId,
+                "groceries",
+                triggerAtMs,
+            )
+        }
+    }
 
     @Test
     fun `reorder and group entry point switches to manual order`() {
