@@ -578,16 +578,16 @@ class LlamaMealPlanComparisonTest {
                     withTimeout(SESSION_REUSE_TIMEOUT_MS) {
                         generateStreamed(
                             dspark,
-                            """Return {"ok":true} as JSON.""",
+                            """Return {"ok":"done"} as JSON.""",
                             "Return only the requested JSON object.",
-                            """{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}""",
+                            """{"type":"object","properties":{"ok":{"type":"string"}},"required":["ok"],"additionalProperties":false}""",
                             maxTokens = 128,
                             reportProgress = true,
                         )
                     }
                 }
                 dsparkSamples.put("reuse_after_cancel", reuse.toJson(
-                    runCatching { JSONObject(reuse.text).getBoolean("ok") }.getOrDefault(false),
+                    runCatching { JSONObject(reuse.text).getString("ok") == "done" }.getOrDefault(false),
                     reuseStart, ensureMemoryHealthy(context, "DSpark reuse"),
                 ))
             } finally {
