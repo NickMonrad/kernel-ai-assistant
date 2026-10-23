@@ -37,7 +37,7 @@ testRules = "1.5.0"
 litertlm = "0.17.1"
 gson = "2.14.0"
 mediapipeTasksText = "0.10.33"
-tflite = "2.17.0"
+litert = "2.1.0"
 onnxruntime = "1.24.3"
 
 # WorkManager + Hilt Work
@@ -106,9 +106,8 @@ gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 # MediaPipe Tasks Text (TextEmbedder — USE fallback)
 mediapipe-tasks-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeTasksText" }
 
-# TFLite Interpreter (for Arctic Embed / MiniLM raw .tflite models)
-tflite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tflite" }
-tflite-gpu = { group = "org.tensorflow", name = "tensorflow-lite-gpu", version.ref = "tflite" }
+# LiteRT Interpreter (drop-in API for existing .tflite models; 16 KB aligned)
+litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 
 # ONNX Runtime (for OnnxWakeWordDetector — openWakeWord pipeline)
 onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }

@@ -56,7 +56,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Coil | `io.coil-kt.coil3:coil-compose` | Apache-2.0 | Include runtime notice if bundled. |
 | Vosk Android | `com.alphacephei:vosk-android` | Apache-2.0 | Include runtime notice; model files still need their own source/licence if bundled/downloaded. |
 | ONNX Runtime Android | `com.microsoft.onnxruntime:onnxruntime-android` | MIT | Include MIT notice if bundled. |
-| TensorFlow Lite / GPU | `org.tensorflow:tensorflow-lite*` | Apache-2.0 plus bundled third-party notices | Include runtime notices from generated notice/SBOM. |
+| LiteRT Interpreter API | `com.google.ai.edge.litert:litert` | Apache-2.0 plus bundled third-party notices | Include runtime notices from generated notice/SBOM. |
 | MediaPipe Tasks Text | `com.google.mediapipe:tasks-text` | Apache-2.0 | Include runtime notice if bundled. |
 | UIAutomator / AndroidX Test | `androidx.test:*` | Apache-2.0 | Test-only; exclude unless bundled in release. |
 | JUnit / JUnit Platform | `org.junit.*` | Eclipse Public License 2.0 | Test-only; exclude from app notices unless bundled. |

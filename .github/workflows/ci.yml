@@ -34,6 +34,9 @@ jobs:
           python3 -m py_compile scripts/acoustic_wake_reliability_runner.py
           python3 -m unittest scripts.tests.test_acoustic_wake_reliability_runner
 
+      - name: Android 16 KB checker tests
+        run: python3 -m unittest scripts.tests.test_check_android_16kb_artifacts
+
       # ── Android build ──────────────────────────────────────────────
       - name: Set up JDK 21
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
@@ -81,6 +84,27 @@ jobs:
         continue-on-error: true
         id: gradle-build
         run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
+
+      - name: Build release and instrumentation APKs for 16 KB checks
+        run: |
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest \
+            :feature:settings:assembleDebugAndroidTest :app:assembleRelease \
+            :app:bundleRelease -PversionCode=${{ github.run_number }}
+
+      - name: Verify Android 16 KB APK and AAB artifacts
+        run: |
+          BUNDLETOOL="$RUNNER_TEMP/bundletool-all-1.18.3.jar"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            --output "$BUNDLETOOL" \
+            https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          python3 scripts/check_android_16kb_artifacts.py \
+            --sdk-root "$ANDROID_HOME" \
+            --bundletool "$BUNDLETOOL" \
+            --apk app/build/outputs/apk/debug/app-debug.apk \
+            --apk app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            --apk feature/settings/build/outputs/apk/androidTest/debug/settings-debug-androidTest.apk \
+            --apk app/build/outputs/apk/release/app-release-unsigned.apk \
+            --aab app/build/outputs/bundle/release/app-release.aab
 
       - name: Lint
         continue-on-error: true

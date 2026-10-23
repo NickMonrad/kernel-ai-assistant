@@ -97,7 +97,7 @@ class ArcticLiteRtDeviceBenchmarkTest {
             .put("device", android.os.Build.MODEL)
             .put("build", android.os.Build.DISPLAY)
             .put("sdk", android.os.Build.VERSION.SDK_INT)
-            .put("runtime", "org.tensorflow.lite.Interpreter 2.17.0; 4 threads; CPU")
+            .put("runtime", "LiteRT Interpreter API 2.1.0; 4 threads; CPU")
             .put("model_bytes", modelFile.length())
             .put("load_and_allocate_ms", loadAndAllocateMs)
             .put("first_embedding_ms", firstEmbeddingMs)
