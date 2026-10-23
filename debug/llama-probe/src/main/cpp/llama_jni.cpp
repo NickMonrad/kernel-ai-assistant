@@ -814,6 +814,9 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             {"complete", completed},
             {"prompt_tokens", prompt_token_count},
             {"generated_tokens", generated_tokens},
+            {"ttft_ms", ttft_ms},
+            {"decode_ms", decode_ms},
+            {"total_ms", total_ms},
             {"prefill_tokens", prompt_token_count},
             {"prefill_ms", prefill_ms},
             {"prefill_tokens_per_second", prefill_ms > 0
