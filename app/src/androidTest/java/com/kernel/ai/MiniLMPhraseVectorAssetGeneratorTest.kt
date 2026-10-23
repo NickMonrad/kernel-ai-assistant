@@ -98,37 +98,106 @@ class MiniLMPhraseVectorAssetGeneratorTest {
 
             var phraseIndex = 0
             var minimumCosine = 1f
+            var maximumAbsoluteDelta = 0f
+            var maximumBestScoreDelta = 0f
+            var maximumSecondScoreDelta = 0f
+            var bestIntentChanges = 0
+            var secondIntentChanges = 0
+            var confidenceThresholdCrossings = 0
+            var ambiguityMarginCrossings = 0
+            var classificationIntentChanges = 0
+            var routeChanges = 0
             runtimeVectors.forEach { (intent, phraseVectors) ->
                 phraseVectors.forEachIndexed { vectorIndex, runtimeVector ->
                     val assetVector = loadedVectors.getValue(intent)[vectorIndex]
-                    assertArrayEquals("$intent phrase $vectorIndex", runtimeVector, assetVector, 1e-6f)
+                    assertArrayEquals(
+                        "$intent phrase $vectorIndex",
+                        runtimeVector,
+                        assetVector,
+                        MAX_VECTOR_COMPONENT_DELTA,
+                    )
+                    var vectorMaximumDelta = 0f
+                    runtimeVector.indices.forEach { dimension ->
+                        vectorMaximumDelta = maxOf(
+                            vectorMaximumDelta,
+                            kotlin.math.abs(runtimeVector[dimension] - assetVector[dimension]),
+                        )
+                    }
+                    maximumAbsoluteDelta = maxOf(maximumAbsoluteDelta, vectorMaximumDelta)
                     val cosine = cosineSimilarity(runtimeVector, assetVector)
                     minimumCosine = minOf(minimumCosine, cosine)
-                    assertTrue("$intent phrase $vectorIndex cosine=$cosine", cosine >= 0.999f)
+
                     val runtimeScores = MiniLMIntentScorer.score(runtimeVector, runtimeVectors)
                     val assetScores = MiniLMIntentScorer.score(runtimeVector, loadedVectors)
-                    assertEquals("top-1 for phrase $phraseIndex", runtimeScores.bestIntent, assetScores.bestIntent)
-                    assertEquals("best score for phrase $phraseIndex", runtimeScores.bestScore, assetScores.bestScore, 1e-6f)
-                    assertEquals("second score for phrase $phraseIndex", runtimeScores.secondScore, assetScores.secondScore, 1e-6f)
-                    assertEquals("classification for phrase $phraseIndex", runtimeScores.classification, assetScores.classification)
-                    assertEquals(
-                        "QuickIntentRouter result for phrase $phraseIndex",
-                        route(noRegexInput, runtimeScores.classification),
-                        route(noRegexInput, assetScores.classification),
+                    if (runtimeScores.bestIntent != assetScores.bestIntent) bestIntentChanges++
+                    if (runtimeScores.topScores.getOrNull(1)?.first != assetScores.topScores.getOrNull(1)?.first) {
+                        secondIntentChanges++
+                    }
+                    val runtimeConfident = runtimeScores.bestScore >= MiniLMIntentScorer.CONFIDENCE_THRESHOLD
+                    val assetConfident = assetScores.bestScore >= MiniLMIntentScorer.CONFIDENCE_THRESHOLD
+                    if (runtimeConfident != assetConfident) confidenceThresholdCrossings++
+                    val runtimeUnambiguous =
+                        runtimeScores.bestScore - runtimeScores.secondScore >= MiniLMIntentScorer.AMBIGUITY_MARGIN
+                    val assetUnambiguous =
+                        assetScores.bestScore - assetScores.secondScore >= MiniLMIntentScorer.AMBIGUITY_MARGIN
+                    if (runtimeUnambiguous != assetUnambiguous) ambiguityMarginCrossings++
+                    if (runtimeScores.classification?.intentName != assetScores.classification?.intentName) {
+                        classificationIntentChanges++
+                    }
+                    if (routeIdentity(route(noRegexInput, runtimeScores.classification)) !=
+                        routeIdentity(route(noRegexInput, assetScores.classification))
+                    ) {
+                        routeChanges++
+                    }
+                    maximumBestScoreDelta = maxOf(
+                        maximumBestScoreDelta,
+                        kotlin.math.abs(runtimeScores.bestScore - assetScores.bestScore),
+                    )
+                    maximumSecondScoreDelta = maxOf(
+                        maximumSecondScoreDelta,
+                        kotlin.math.abs(runtimeScores.secondScore - assetScores.secondScore),
                     )
                     phraseIndex++
                 }
             }
             val parityElapsedMs = android.os.SystemClock.elapsedRealtime() - parityStarted
             assertEquals(515, phraseIndex)
+            Log.i(
+                TAG,
+                "Compared $assetSource vectors=$phraseIndex bytes=${assetBytes.size}; " +
+                    "runtimeBuildMs=$buildElapsedMs assetLoadMs=$assetLoadElapsedMs parityMs=$parityElapsedMs " +
+                    "maximumAbsoluteDelta=$maximumAbsoluteDelta minimumCosine=$minimumCosine " +
+                    "maximumBestScoreDelta=$maximumBestScoreDelta maximumSecondScoreDelta=$maximumSecondScoreDelta " +
+                    "bestIntentChanges=$bestIntentChanges secondIntentChanges=$secondIntentChanges " +
+                    "confidenceThresholdCrossings=$confidenceThresholdCrossings " +
+                    "ambiguityMarginCrossings=$ambiguityMarginCrossings " +
+                    "classificationIntentChanges=$classificationIntentChanges routeChanges=$routeChanges",
+            )
+            assertTrue("maximum vector delta=$maximumAbsoluteDelta", maximumAbsoluteDelta <= MAX_VECTOR_COMPONENT_DELTA)
+            assertTrue("minimum cosine=$minimumCosine", minimumCosine >= MIN_VECTOR_COSINE)
+            assertTrue("maximum best score delta=$maximumBestScoreDelta", maximumBestScoreDelta <= MAX_BEST_SCORE_DELTA)
+            assertTrue(
+                "maximum second score delta=$maximumSecondScoreDelta",
+                maximumSecondScoreDelta <= MAX_SECOND_SCORE_DELTA,
+            )
+            assertEquals("top-1 intent changes", 0, bestIntentChanges)
+            assertTrue(
+                "top-2 intent changes=$secondIntentChanges",
+                secondIntentChanges <= MAX_SECOND_INTENT_CHANGES,
+            )
+            assertEquals("confidence threshold crossings", 0, confidenceThresholdCrossings)
+            assertEquals("ambiguity margin crossings", 0, ambiguityMarginCrossings)
+            assertEquals("classification intent changes", 0, classificationIntentChanges)
+            assertEquals("router outcome changes", 0, routeChanges)
 
             val output = File(requireNotNull(context.getExternalFilesDir(null)), MiniLMIntentPhraseVectorAsset.FILE_NAME)
             output.writeBytes(assetBytes)
             Log.i(
                 TAG,
-                "Verified $assetSource ${output.absolutePath}; vectors=$phraseIndex bytes=${assetBytes.size}; " +
+                "Verified $assetSource vectors=$phraseIndex bytes=${assetBytes.size}; " +
                     "runtimeBuildMs=$buildElapsedMs assetLoadMs=$assetLoadElapsedMs parityMs=$parityElapsedMs " +
-                    "minimumCosine=$minimumCosine",
+                    "maximumAbsoluteDelta=$maximumAbsoluteDelta minimumCosine=$minimumCosine " +
+                    "maximumBestScoreDelta=$maximumBestScoreDelta maximumSecondScoreDelta=$maximumSecondScoreDelta",
             )
         } finally {
             interpreter.close()
@@ -150,6 +219,12 @@ class MiniLMPhraseVectorAssetGeneratorTest {
         }
         return dot / sqrt(leftSquared.toDouble() * rightSquared.toDouble()).toFloat()
     }
+    private fun routeIdentity(result: QuickIntentRouter.RouteResult): Any = when (result) {
+        is QuickIntentRouter.RouteResult.RegexMatch -> "regex" to result.intent
+        is QuickIntentRouter.RouteResult.ClassifierMatch -> "classifier" to (result.intent to result.needsConfirmation)
+        is QuickIntentRouter.RouteResult.FallThrough -> "fall-through" to result.bestGuess
+        is QuickIntentRouter.RouteResult.NeedsSlot -> "needs-slot" to (result.intent to result.missingSlot)
+    }
 
     private fun route(
         input: String,
@@ -168,6 +243,13 @@ class MiniLMPhraseVectorAssetGeneratorTest {
     private companion object {
         const val GENERATOR_ARGUMENT = "generate_minilm_phrase_vector_asset"
         const val TAG = "MiniLMPhraseVectorAssetGenerator"
+        // Same 515-phrase API 35 x86_64 TFLite 2.17 vs LiteRT 2.1 comparison.
+        // One second-rank change already occurs in the legacy TFLite-vs-asset baseline.
+        const val MAX_VECTOR_COMPONENT_DELTA = 0.014f
+        const val MIN_VECTOR_COSINE = 0.9975f
+        const val MAX_BEST_SCORE_DELTA = 0.0025f
+        const val MAX_SECOND_SCORE_DELTA = 0.0085f
+        const val MAX_SECOND_INTENT_CHANGES = 1
     }
 }
 

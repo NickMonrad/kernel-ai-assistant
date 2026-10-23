@@ -6,7 +6,7 @@ The version-1 file uses big-endian integers and float32 values. Its 152-byte hea
 
 ## Regenerate on an Android device
 
-The opt-in instrumentation generator calls the same `MiniLMPhraseVectorizer` used by production fallback, with the shipped WordPiece tokenizer, TFLite model, pooling, and normalization. It computes all 515 vectors from the model, encodes and reloads the asset, then checks per-vector cosine similarity (at least 0.999), nearest-neighbour scores, top-1 classifications, and `QuickIntentRouter` decisions against the runtime-built vectors. The generator writes the artifact to the target app's external files directory and logs the build and asset-load durations.
+The opt-in instrumentation generator calls the production `MiniLMPhraseVectorizer`, computes all 515 vectors, then compares the output with the committed asset. Float vectors and scores can vary slightly across supported Interpreter runtime versions, so the generator uses bounded component/cosine/score checks (`0.014`, `0.9975`, `0.0025`, and `0.0085`). It requires exact top-one intent, confidence-threshold and ambiguity-margin decisions, classification intent, and router outcome; at most one second-ranked intent difference is allowed because the legacy TFLite 2.17 runtime already differed from the committed asset once in the measured 515-phrase corpus. The numeric bounds are rounded just above the observed TFLite 2.17 to LiteRT 2.1 deltas on API 35 x86_64. The generator is opt-in and not a CI gate; the host freshness test still enforces exact source hashes, asset shape, and payload integrity. It writes the generated artifact only to the target app's external files directory.
 
 Build and install both debug APKs with a version code above the installed app. Use the approved device serial and direct instrumentation; do not run a Gradle `connected*` task, which can remove the target app after testing.
 
@@ -37,4 +37,4 @@ sha256sum app/src/main/assets/minilm-l6-v2-int8.tflite \
 ./gradlew :app:testDebugUnitTest
 ```
 
-`MiniLMPhraseVectorAssetFreshnessTest` fails when the generated asset is absent, its payload is damaged, its shape changes, or any source file changes without regenerating the vectors. Keep the instrumentation parity assertions enabled when regenerating; the host test validates staleness and format, not TFLite model output.
+`MiniLMPhraseVectorAssetFreshnessTest` fails when the generated asset is absent, its payload is damaged, its shape changes, or any source file changes without regenerating the vectors. Keep the bounded numeric, top-one, threshold, classification, and routing assertions enabled when regenerating; the host test validates staleness and format, not Interpreter output.
