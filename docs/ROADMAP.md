@@ -193,6 +193,11 @@ The original inference/prompt-architecture tranche shipped under
 Active follow-on model/runtime investigations now live under
 [#704](https://github.com/NickMonrad/kernel-ai-assistant/issues/704).
 
+The sequence is: baseline numeric/schema/benchmark evidence (#975/#968/#803) → parallel
+LiteRT model spikes (#1641/#1642/#699) and the CPU-first llama.cpp constrained-output spike
+(#1643, using Box as the JNI reference under #702) → post-evidence constrained meal planning
+(#975) → broader chat and import work deferred.
+
 | Sub-Issue | Title | Status | Priority |
 |-----------|-------|--------|----------|
 | [#341](https://github.com/NickMonrad/kernel-ai-assistant/issues/341) | Lazy skill loading (`load_skill` pattern) — refactor monolithic system prompt to on-demand skill instructions | ✅ Done | 🔴 High |
@@ -206,9 +211,12 @@ Active follow-on model/runtime investigations now live under
 | [#692](https://github.com/NickMonrad/kernel-ai-assistant/issues/692) | Inference stalls in Boring AI Mode | ⬜ Pending | 🟡 Medium |
 | [#694](https://github.com/NickMonrad/kernel-ai-assistant/issues/694) | Thinking-mode behavior review vs Edge Gallery | ✅ Done | 🟡 Medium |
 | [#792](https://github.com/NickMonrad/kernel-ai-assistant/issues/792) | MTP speculative decoding for Gemma 4 | ✅ Done — PR #792 | 🔴 High |
-| [#699](https://github.com/NickMonrad/kernel-ai-assistant/issues/699) | Qwen 3.5 0.8B LiteRT evaluation | ⬜ Pending | 🟢 Low |
+| [#699](https://github.com/NickMonrad/kernel-ai-assistant/issues/699) | Low-memory LiteRT model comparison (MiniCPM5-1B, LFM2.5-1.2B, Qwen) | ⬜ Pending | 🟢 Low |
 | [#701](https://github.com/NickMonrad/kernel-ai-assistant/issues/701) | External local-AI Android app review umbrella | ⬜ Pending | 🟢 Low |
 | [#702](https://github.com/NickMonrad/kernel-ai-assistant/issues/702) | Box borrowings + optional `llama.cpp` backend | ⬜ Pending | 🟡 Medium |
+| [#1641](https://github.com/NickMonrad/kernel-ai-assistant/issues/1641) | MiniCPM5-2B LiteRT evaluation | ⬜ Pending | 🟡 Medium |
+| [#1642](https://github.com/NickMonrad/kernel-ai-assistant/issues/1642) | LFM2.5-2.6B LiteRT evaluation | ⬜ Pending | 🟡 Medium |
+| [#1643](https://github.com/NickMonrad/kernel-ai-assistant/issues/1643) | Android llama.cpp GGUF + JSON Schema constrained meal planning | ⬜ Pending | 🟡 Medium |
 
 > **Key insight (from #340 analysis):** Phase 3A delivered the current prompt/tooling shape: concise system rules, `load_skill` for on-demand full instructions, LiteRT-LM native SDK tool calling with constrained decoding, and a legacy text-extraction fallback for the cases where the model emits raw JSON instead of going through the SDK path. PR #382 (#367 + #374) further reduced prompt pressure via a slim identity prompt, YAML structured profile, and NZ knowledge split. topK is now user-configurable via #342 (PR #388).
 

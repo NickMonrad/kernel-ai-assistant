@@ -1,12 +1,36 @@
 import java.io.File
 import java.time.Instant
 import java.util.zip.ZipFile
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+}
+
+abstract class GenerateLlamaProbeAndroidTestVersionManifest : DefaultTask() {
+    @get:Input
+    abstract val versionCode: Property<Int>
+
+    @get:OutputFile
+    abstract val manifestFile: RegularFileProperty
+
+    @TaskAction
+    fun generate() {
+        manifestFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                """<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:versionCode="${versionCode.get()}" />""",
+            )
+        }
+    }
 }
 
 val gitSha: String by lazy {
@@ -17,6 +41,8 @@ val gitSha: String by lazy {
     result.standardOutput.asText.get().trim().ifEmpty { "unknown" }
 }
 
+val candidateVersionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+
 android {
     namespace = "com.kernel.ai"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -25,10 +51,10 @@ android {
         applicationId = "com.kernel.ai"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionCode = candidateVersionCode
         versionName = "0.1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner"
 
         buildConfigField("String", "HF_CLIENT_ID", "\"2607cec6-3d70-4df0-ba39-eb9cef1ba8c8\"")
         buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai://oauth/callback\"")
@@ -59,6 +85,12 @@ android {
             applicationIdSuffix = ".debug"
             signingConfig = signingConfigs.getByName("debugSigning")
             buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai.debug://oauth/callback\"")
+        }
+        create("llamaProbe") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".debug.llamaprobe"
+            signingConfig = signingConfigs.getByName("debugSigning")
+            matchingFallbacks += listOf("debug")
         }
     }
 
@@ -95,6 +127,37 @@ android {
                 "lib/x86/libonnxruntime.so",
                 "lib/x86_64/libonnxruntime.so",
             )
+        }
+    }
+}
+
+androidComponents {
+    beforeVariants { variantBuilder ->
+        if (variantBuilder.buildType == "llamaProbe") {
+            variantBuilder.enableAndroidTest = true
+        }
+    }
+}
+androidComponents {
+    onVariants { variant ->
+        if (variant.buildType == "llamaProbe") {
+            variant.androidTest?.let { androidTest ->
+                val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
+                val manifestTask =
+                    tasks.register<GenerateLlamaProbeAndroidTestVersionManifest>(
+                        "generate${variantName}AndroidTestVersionManifest",
+                    ) {
+                        versionCode.set(candidateVersionCode)
+                        manifestFile.set(
+                            layout.buildDirectory.file(
+                                "generated/androidTestManifest/${variant.name}/AndroidManifest.xml",
+                            ),
+                        )
+                    }
+                androidTest.sources.manifests.addGeneratedManifestFile(manifestTask) {
+                    it.manifestFile
+                }
+            }
         }
     }
 }
@@ -336,6 +399,9 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary)
+    debugImplementation(project(":debug:llama-probe"))
+    add("llamaProbeImplementation", files(inflectSherpaAar.absolutePath))
+    add("llamaProbeImplementation", project(":debug:llama-probe"))
 
     implementation(libs.appauth)
     implementation(libs.security.crypto)
