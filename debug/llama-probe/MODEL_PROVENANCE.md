@@ -7,10 +7,31 @@ The `llamaProbe` debug build type packages this arm64-v8a library in a separate 
 - Upstream: [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)
 - Pin: [`620d2225cc436ab0b001e3200e590e3b286ef9ab`](https://github.com/ggml-org/llama.cpp/tree/620d2225cc436ab0b001e3200e590e3b286ef9ab), release `v0.7.0`.
 - Native constrained decoding: `llama_sampler_init_grammar`; JSON Schema conversion: upstream `common/json-schema-to-grammar.cpp`.
-- The native runtime is CPU-only (`n_gpu_layers=0`). No llama.cpp Android GPU capability is claimed.
 
-The Debug native build adds `-O3` to every C/C++ target in this CMake tree, including fetched llama.cpp/ggml, while retaining the Android Debug configuration and its debug information. This follows the verified Box SmolLM build at [`f27b78d`](https://github.com/jegly/Box/blob/f27b78d3a86b5de0e94ef0bfc8634f5410d6f8eb/Android/src/smollm/build.gradle.kts), which selects CMake Release; [its CMake targets](https://github.com/jegly/Box/blob/f27b78d3a86b5de0e94ef0bfc8634f5410d6f8eb/Android/src/smollm/src/main/cpp/CMakeLists.txt) also use `-O3` for native wrappers. This is a compiler-configuration comparison, not measured performance evidence; the probe remains CPU-only and the existing cancellation/teardown instrumentation is unchanged.
+The default `llamaProbe` native runtime is CPU-only (`n_gpu_layers=0`). The separate `llamaProbeOpencl` build type is an opt-in issue #702 experiment; it does not change the default probe or production inference.
+
+The Debug native build adds `-O3` to every C/C++ target in this CMake tree, including fetched llama.cpp/ggml, while retaining the Android Debug configuration and its debug information. This follows the verified Box SmolLM build at [`f27b78d`](https://github.com/jegly/Box/blob/f27b78d3a86b5de0e94ef0bfc8634f5410d6f8eb/Android/src/smollm/build.gradle.kts), which selects CMake Release; [its CMake targets](https://github.com/jegly/Box/blob/f27b78d3a86b5de0e94ef0bfc8634f5410d6f8eb/Android/src/smollm/src/main/cpp/CMakeLists.txt) also use `-O3` for native wrappers. This is a compiler-configuration comparison, not measured performance evidence; the default `llamaProbe` remains CPU-only and the existing cancellation/teardown instrumentation is unchanged.
 - Upstream license: MIT (`https://github.com/ggml-org/llama.cpp/blob/620d2225cc436ab0b001e3200e590e3b286ef9ab/LICENSE`).
+
+### Opt-in OpenCL feasibility variant
+
+- `llamaProbeOpencl` is a separate build type using the same pinned llama.cpp v0.7.0, LFM2.5 Q4_K_M model, prompts, grammar and Jandal validators. `GGML_OPENCL=ON` is scoped to this variant only.
+- The build requires a link-time copy of the target S23's `libOpenCL.so` plus the pinned Khronos OpenCL-Headers commit `82f60316cc142e7b21dc1d8983b26de18858fbd9`. Supply the device library with `-PopenclSystemLibrary=<absolute-path>`; it is a local build input, not a bundled model/runtime or APK library.
+- The OpenCL variant intentionally shares `com.kernel.ai.debug.llamaprobe` and the test package with CPU `llamaProbe`, preserving the existing isolated model files. They cannot be installed side-by-side; build and install one at a time with the same signer/version. Normal debug/release package IDs, app data, jobs and permissions remain outside this experiment.
+- The dedicated runtime preflight enumerates OpenCL platform/device/driver properties and llama.cpp's registered OpenCL devices. Model loading fails closed unless llama.cpp logs a nonzero `offloaded X/Y layers to GPU`; per-generation graph observation reports GPU, CPU-backend and unassigned node counts. A build flag or `n_gpu_layers` setting alone is not evidence of active GPU execution.
+- This path is an isolated feasibility experiment only. It has no production engine/model option, selector, fallback framework, Vulkan/HTP backend, DSpark path or general GGUF import.
+
+Build and run only after verifying the S23 library/runtime and package gates:
+
+```sh
+./gradlew :app:assembleLlamaProbeOpencl :app:assembleLlamaProbeOpenclAndroidTest \
+  -PversionCode=<monotonic-device-version> \
+  -PopenclSystemLibrary=<absolute-path-to-S23-libOpenCL.so>
+adb shell am instrument -w \
+  -e class 'com.kernel.ai.debug.llamaprobe.LlamaMealPlanComparisonTest#openClRuntimePreflightFindsAdreno740' \
+  -e probeOnly true \
+  com.kernel.ai.debug.llamaprobe.test/com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner
+```
 
 ## Model
 

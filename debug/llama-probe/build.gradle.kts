@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
 }
 
+val openClLinkLibrary = providers.gradleProperty("openclSystemLibrary").orNull.orEmpty()
 android {
     namespace = "com.kernel.ai.debug.llamaprobe"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -35,6 +36,19 @@ android {
             version = "3.22.1"
         }
     }
+    buildTypes {
+        create("llamaProbeOpencl") {
+            matchingFallbacks += listOf("debug")
+            externalNativeBuild {
+                cmake {
+                    arguments += listOf(
+                        "-DGGML_OPENCL=ON",
+                        "-DOPENCL_ANDROID_LIBRARY=$openClLinkLibrary",
+                    )
+                }
+            }
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -48,7 +62,7 @@ android {
 
 androidComponents {
     beforeVariants(selector().all()) { variant ->
-        if (variant.buildType != "debug") variant.enable = false
+        if (variant.buildType !in setOf("debug", "llamaProbeOpencl")) variant.enable = false
     }
 }
 
