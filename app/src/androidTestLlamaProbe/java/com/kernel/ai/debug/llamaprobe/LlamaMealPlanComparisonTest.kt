@@ -83,6 +83,94 @@ class LlamaMealPlanComparisonTest {
     }
 
     @Test
+    fun openClMemoryAndThermalGatesAreScopedToOpenCl() {
+        val lowMemory = JSONObject()
+            .put("avail_mem_bytes", MIN_START_AVAILABLE_MEMORY_BYTES - 1)
+            .put("thermal_status", MAX_THERMAL_STATUS)
+        requireOpenClStartGates(lowMemory, isOpenClProbe = false, stage = "CPU baseline")
+        assertTrue(
+            "OpenCL pairing gate did not reject below-threshold memory",
+            runCatching {
+                requireOpenClStartGates(lowMemory, isOpenClProbe = true, stage = "comparison")
+            }.exceptionOrNull() is IllegalStateException,
+        )
+
+        val highThermal = JSONObject()
+            .put("avail_mem_bytes", MIN_START_AVAILABLE_MEMORY_BYTES)
+            .put("thermal_status", MAX_THERMAL_STATUS + 1)
+        assertTrue(
+            "OpenCL pairing gate did not reject high thermal status",
+            runCatching {
+                requireOpenClStartGates(highThermal, isOpenClProbe = true, stage = "comparison")
+            }.exceptionOrNull() is IllegalStateException,
+        )
+        requireOpenClThermalGate(highThermal, isOpenClProbe = false, stage = "CPU baseline")
+        assertTrue(
+            "OpenCL post-stage gate did not reject high thermal status",
+            runCatching {
+                requireOpenClThermalGate(highThermal, isOpenClProbe = true, stage = "plan")
+            }.exceptionOrNull() is IllegalStateException,
+        )
+    }
+
+    @Test
+    fun pinnedModelVerifierRejectsSizeAndDigestMismatch() {
+        val bytes = "pinned-gguf-fixture".toByteArray()
+        val expectedSha = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        val file = File.createTempFile(
+            "lfm2-probe",
+            ".gguf",
+            InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
+        )
+        try {
+            file.writeBytes(bytes)
+            verifyPinnedModel(file, bytes.size.toLong(), expectedSha, "fixture")
+            assertTrue(
+                "Pinned model verifier accepted the wrong size",
+                runCatching {
+                    verifyPinnedModel(file, bytes.size.toLong() + 1, expectedSha, "fixture")
+                }.exceptionOrNull() is IllegalArgumentException,
+            )
+            assertTrue(
+                "Pinned model verifier accepted the wrong digest",
+                runCatching {
+                    verifyPinnedModel(file, bytes.size.toLong(), "0".repeat(64), "fixture")
+                }.exceptionOrNull() is IllegalArgumentException,
+            )
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun requireOpenClStartGates(snapshot: JSONObject, isOpenClProbe: Boolean, stage: String) {
+        if (!isOpenClProbe) return
+        check(snapshot.getLong("avail_mem_bytes") >= MIN_START_AVAILABLE_MEMORY_BYTES) {
+            "Available memory is below the bounded OpenCL $stage gate"
+        }
+        check(snapshot.getInt("thermal_status") <= MAX_THERMAL_STATUS) {
+            "Thermal status is above the bounded OpenCL $stage gate"
+        }
+    }
+
+    private fun requireOpenClThermalGate(snapshot: JSONObject, isOpenClProbe: Boolean, stage: String) {
+        if (!isOpenClProbe) return
+        check(snapshot.getInt("thermal_status") <= MAX_THERMAL_STATUS) {
+            "Thermal status exceeded the bounded OpenCL gate after $stage"
+        }
+    }
+
+    private suspend fun loadLfmSession(
+        model: File,
+        contextSize: Int = LLAMA_CONTEXT_TOKENS,
+        draftModel: File? = null,
+    ): LlamaCppSession {
+        if (BuildConfig.IS_OPENCL_PROBE) verifyPinnedLfmModel(model)
+        return LlamaCppSession.load(model, contextSize = contextSize, draftModel = draftModel)
+    }
+
+    @Test
     fun boundedLfmFirstTokenStream() = runBlocking {
         assumeTrue(
             "invoke only with -e llamaFirstTokenOnly true",
@@ -98,8 +186,9 @@ class LlamaMealPlanComparisonTest {
         check(!preflight.getBoolean("low_memory")) {
             "Android reports lowMemory before the bounded first-token test"
         }
+        requireOpenClStartGates(preflight, BuildConfig.IS_OPENCL_PROBE, "first-token")
         val session = stage("llama_first_token_load") {
-            LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
+            loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
         }
         var nativeCallTimedOut = false
         try {
@@ -161,8 +250,9 @@ class LlamaMealPlanComparisonTest {
         check(!preflight.getBoolean("low_memory")) {
             "Android reports lowMemory before the bounded prefill cancellation test"
         }
+        requireOpenClStartGates(preflight, BuildConfig.IS_OPENCL_PROBE, "prefill cancellation")
         val session = stage("llama_prefill_cancel_load") {
-            LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
+            loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
         }
         val cancelledRequestChunks = AtomicInteger()
         try {
@@ -245,12 +335,7 @@ class LlamaMealPlanComparisonTest {
         logProbeResults(results)
 
         check(!preflight.getBoolean("low_memory")) { "Android reports lowMemory before inference; stopping preflight" }
-        check(preflight.getLong("avail_mem_bytes") >= MIN_START_AVAILABLE_MEMORY_BYTES) {
-            "Available memory is below the bounded comparison gate"
-        }
-        check(preflight.getInt("thermal_status") <= MAX_THERMAL_STATUS) {
-            "Thermal status is above the bounded comparison gate"
-        }
+        requireOpenClStartGates(preflight, BuildConfig.IS_OPENCL_PROBE, "comparison")
 
         if (!llamaOnly) {
             val gemmaFile = requireNotNull(gemmaFileCandidate)
@@ -325,7 +410,7 @@ class LlamaMealPlanComparisonTest {
         }
 
         val llamaColdStart = System.nanoTime()
-        val llama = stage("llama_load") { LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
+        val llama = stage("llama_load") { loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
         val llamaColdLoadMs = llama.loadMs
         val llamaSamples = JSONObject()
             .put("cold_load_ms", llamaColdLoadMs)
@@ -481,7 +566,7 @@ class LlamaMealPlanComparisonTest {
         }
 
         val reloadStart = System.nanoTime()
-        val reloaded = stage("llama_reload") { LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
+        val reloaded = stage("llama_reload") { loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
         try {
             val reloadedPlan = stage("llama_plan_after_reload") {
                 generateStreamed(
@@ -501,7 +586,7 @@ class LlamaMealPlanComparisonTest {
             val draftFile = requireNotNull(dsparkFile)
             val dsparkLoadStart = System.nanoTime()
             val dspark = stage("dspark_load") {
-                LlamaCppSession.load(
+                loadLfmSession(
                     llamaFile,
                     contextSize = LLAMA_CONTEXT_TOKENS,
                     draftModel = draftFile,
@@ -658,7 +743,7 @@ class LlamaMealPlanComparisonTest {
 
             val dsparkReloadStart = System.nanoTime()
             val dsparkReloaded = stage("dspark_reload") {
-                LlamaCppSession.load(
+                loadLfmSession(
                     llamaFile,
                     contextSize = LLAMA_CONTEXT_TOKENS,
                     draftModel = draftFile,
@@ -966,9 +1051,7 @@ class LlamaMealPlanComparisonTest {
         check(!snapshot.getBoolean("low_memory")) {
             "Android reports lowMemory after $stage; stopping the comparison"
         }
-        check(snapshot.getInt("thermal_status") <= MAX_THERMAL_STATUS) {
-            "Thermal status exceeded the bounded comparison gate after $stage"
-        }
+        requireOpenClThermalGate(snapshot, BuildConfig.IS_OPENCL_PROBE, stage)
         return snapshot
     }
 
