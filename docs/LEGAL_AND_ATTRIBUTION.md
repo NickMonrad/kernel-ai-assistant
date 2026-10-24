@@ -69,7 +69,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 |---|---|---|---|
 | sqlite-vec | Local vector search extension in `core/memory/src/main/cpp` | Dual MIT OR Apache-2.0 upstream | Include chosen licence text/notice if source/native library is bundled. |
 | SQLite amalgamation | SQLite C source referenced by native build | Public domain / blessing text upstream | Confirm bundling; include SQLite public-domain notice/blessing if bundled. |
-| Sherpa-ONNX AAR/runtime | Local STT/TTS runtime when AAR is packaged | Apache-2.0 | Confirm whether packaged in release; include notice if bundled. |
+| Sherpa-ONNX AAR/runtime | Local STT/TTS runtime; release currently wires the custom v1.13.0 Inflect AAR described in `scripts/sherpa-onnx-v1.13.0-inflect-build.md` | Sherpa's project licence does not establish the complete custom AAR's component terms; the build reuses Piper/eSpeak functionality, and exact component revisions/terms remain tracked by #1474 | Do not present the complete runtime bundle as Apache-2.0-only; #1474 still requires source, notice/SBOM, and exact release-artifact reconciliation. |
 | Wake-word ONNX model assets | Bundled wake-word detector/verifier assets | openWakeWord Apache-2.0 lineage for Stage 1/2; Stage 3 `hey_jandal.onnx` generated from local training data recorded in `training/wakeword/README.md` | Keep openWakeWord notice; before final release, maintainer should confirm real-recording ownership/consent for the generated Stage 3 model. |
 | Local model binaries under `models/` | Dev/test local model cache | Not committed / not shipped from source | Keep gitignored; release artefact still needs audit. |
 
