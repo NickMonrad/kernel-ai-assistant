@@ -140,12 +140,25 @@ android {
         }
     }
 }
+fun releaseApkArtifact(buildDirectory: File, isSigned: Boolean): File {
+    val apkName = if (isSigned) "app-release.apk" else "app-release-unsigned.apk"
+    return buildDirectory.resolve("outputs/apk/release").resolve(apkName)
+}
+
+tasks.register("verifyReleaseApkArtifactSelection") {
+    doLast {
+        val buildDirectory = layout.buildDirectory.get().asFile
+        check(releaseApkArtifact(buildDirectory, isSigned = true).name == "app-release.apk")
+        check(releaseApkArtifact(buildDirectory, isSigned = false).name == "app-release-unsigned.apk")
+    }
+}
+
 
 /**
  * Verifies literal variant-specific shortcut metadata in the packaged APKs.
  */
 tasks.register("verifyListsShortcutVariants") {
-    dependsOn("assembleDebug", "assembleRelease")
+    dependsOn("assembleDebug", "assembleRelease", "verifyReleaseApkArtifactSelection")
     doLast {
         val sdkDirectory = sequenceOf(
             System.getenv("ANDROID_HOME"),
@@ -195,14 +208,17 @@ tasks.register("verifyListsShortcutVariants") {
 
         verify(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile, "com.kernel.ai.debug")
         verify(
-            layout.buildDirectory.file("outputs/apk/release/app-release-unsigned.apk").get().asFile,
+            releaseApkArtifact(
+                layout.buildDirectory.get().asFile,
+                isSigned = releaseSigningProperties != null,
+            ),
             "com.kernel.ai",
         )
     }
 }
 
 tasks.register("verifyAcousticStimulusReleaseIsolation") {
-    dependsOn("assembleDebug", "assembleRelease", "bundleRelease")
+    dependsOn("assembleDebug", "assembleRelease", "bundleRelease", "verifyReleaseApkArtifactSelection")
     doLast {
         val buildDirectory = layout.buildDirectory.get().asFile
         val manifests = buildDirectory.walkTopDown()
@@ -227,7 +243,7 @@ tasks.register("verifyAcousticStimulusReleaseIsolation") {
 
         val artifacts = listOf(
             buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),
-            buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk"),
+            releaseApkArtifact(buildDirectory, isSigned = releaseSigningProperties != null),
             buildDirectory.resolve("outputs/bundle/release/app-release.aab"),
         )
         artifacts.forEach { artifact ->
@@ -257,7 +273,7 @@ tasks.register("verifyAcousticStimulusReleaseIsolation") {
 }
 
 tasks.register("verifyTargetEventJournalReleaseIsolation") {
-    dependsOn("assembleDebug", "assembleRelease", "bundleRelease")
+    dependsOn("assembleDebug", "assembleRelease", "bundleRelease", "verifyReleaseApkArtifactSelection")
     doLast {
         val buildDirectory = layout.buildDirectory.get().asFile
         val manifests = buildDirectory.walkTopDown()
@@ -290,7 +306,7 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
 
         val artifacts = listOf(
             buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),
-            buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk"),
+            releaseApkArtifact(buildDirectory, isSigned = releaseSigningProperties != null),
             buildDirectory.resolve("outputs/bundle/release/app-release.aab"),
         )
         val debugMarkers = listOf(
