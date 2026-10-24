@@ -332,7 +332,7 @@ dependencies {
     androidTestImplementation(libs.room.runtime)
     androidTestImplementation(libs.test.rules)
     androidTestImplementation(libs.uiautomator)
-    androidTestImplementation(libs.tflite)
+    androidTestImplementation(libs.litert)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary)

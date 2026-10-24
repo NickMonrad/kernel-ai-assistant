@@ -41,8 +41,8 @@ dependencies {
     // MediaPipe TextEmbedder (USE fallback)
     implementation(libs.mediapipe.tasks.text)
 
-    // TFLite Interpreter (Arctic Embed and MiniLM raw .tflite models, CPU-only)
-    implementation(libs.tflite)
+    // LiteRT Interpreter (Arctic Embed and MiniLM raw .tflite models, CPU-only)
+    implementation(libs.litert)
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

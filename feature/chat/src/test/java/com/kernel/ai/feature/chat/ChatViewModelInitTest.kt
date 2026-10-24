@@ -1258,10 +1258,9 @@ class ChatViewModelInitTest {
     }
 
     private fun clearViewModel(viewModel: ChatViewModel) {
-        val method = androidx.lifecycle.ViewModel::class.java
-            .getDeclaredMethod("clear\$lifecycle_viewmodel_release")
-        method.isAccessible = true
-        method.invoke(viewModel)
+        androidx.lifecycle.ViewModelStore()
+            .apply { put("chat-view-model", viewModel) }
+            .clear()
     }
 
     // Replaced by ChatViewModelRetryStateMachineTest Scenario B — with a real

@@ -65,7 +65,7 @@ dependencies {
     androidTestImplementation("androidx.test:rules:1.5.0")
     androidTestImplementation(libs.uiautomator)
     androidTestImplementation(libs.room.runtime)
-    androidTestImplementation("io.mockk:mockk-android:1.13.16") {
+    androidTestImplementation("io.mockk:mockk-android:1.14.3") {
         exclude(group = "org.junit.jupiter")
         exclude(group = "org.junit.platform")
     }
