@@ -24,6 +24,14 @@
 #include <limits>
 
 #include <vector>
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+#include <CL/cl.h>
+#endif
+
+#include <cstdio>
+#include <cctype>
+#include <cstring>
+
 
 namespace {
 
@@ -38,6 +46,11 @@ struct ProbeSession {
     std::atomic<int64_t> active_request_id{0};
     std::atomic<int64_t> cancelled_request{0};
     std::atomic<bool> abort_logged{false};
+    std::atomic<int32_t> offloaded_gpu_layers{-1};
+    std::atomic<int32_t> total_model_layers{-1};
+    std::atomic<uint64_t> gpu_compute_nodes{0};
+    std::atomic<uint64_t> cpu_compute_nodes{0};
+    std::atomic<uint64_t> unassigned_compute_nodes{0};
 
     ~ProbeSession() {
         speculative.reset();
@@ -70,6 +83,164 @@ struct ActiveRequestGuard {
 };
 
 std::once_flag backend_once;
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+struct OpenClLoadLogState {
+    std::atomic<int32_t> gpu_layers{-1};
+    std::atomic<int32_t> total_layers{-1};
+};
+
+OpenClLoadLogState opencl_load_log_state;
+
+void opencl_llama_log_callback(enum ggml_log_level, const char * text, void * user_data) {
+    if (text == nullptr) return;
+    const char * marker = std::strstr(text, "offloaded ");
+    if (marker == nullptr) return;
+    int32_t gpu_layers = -1;
+    int32_t total_layers = -1;
+    if (std::sscanf(marker, "offloaded %d/%d layers to GPU", &gpu_layers, &total_layers) == 2) {
+        auto * state = static_cast<OpenClLoadLogState *>(user_data);
+        state->gpu_layers.store(gpu_layers, std::memory_order_release);
+        state->total_layers.store(total_layers, std::memory_order_release);
+    }
+}
+
+bool observe_execution_backend(struct ggml_tensor * tensor, bool ask, void * user_data) {
+    if (ask) return true;
+    auto * session = static_cast<ProbeSession *>(user_data);
+    if (tensor == nullptr || tensor->buffer == nullptr) {
+        session->unassigned_compute_nodes.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+    const ggml_backend_buffer_type_t buffer_type =
+        ggml_backend_buffer_get_type(tensor->buffer);
+    const ggml_backend_dev_t device = ggml_backend_buft_get_device(buffer_type);
+    if (device == nullptr) {
+        session->unassigned_compute_nodes.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+    const enum ggml_backend_dev_type type = ggml_backend_dev_type(device);
+    if (type == GGML_BACKEND_DEVICE_TYPE_CPU) {
+        session->cpu_compute_nodes.fetch_add(1, std::memory_order_relaxed);
+    } else if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
+        session->gpu_compute_nodes.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        session->unassigned_compute_nodes.fetch_add(1, std::memory_order_relaxed);
+    }
+    return true;
+}
+
+std::string opencl_platform_string(cl_platform_id platform, cl_platform_info key) {
+    size_t size = 0;
+    if (clGetPlatformInfo(platform, key, 0, nullptr, &size) != CL_SUCCESS || size == 0) return {};
+    std::vector<char> value(size, char{0});
+    if (clGetPlatformInfo(platform, key, size, value.data(), nullptr) != CL_SUCCESS) return {};
+    return std::string(value.data());
+}
+
+std::string opencl_device_string(cl_device_id device, cl_device_info key) {
+    size_t size = 0;
+    if (clGetDeviceInfo(device, key, 0, nullptr, &size) != CL_SUCCESS || size == 0) return {};
+    std::vector<char> value(size, char{0});
+    if (clGetDeviceInfo(device, key, size, value.data(), nullptr) != CL_SUCCESS) return {};
+    return std::string(value.data());
+}
+
+common_json opencl_runtime_info() {
+    common_json info = {
+        {"compiled_opencl", true},
+        {"platforms", common_json::array()},
+        {"llama_backend_registry", common_json::array()},
+    };
+    cl_uint platform_count = 0;
+    const cl_int platform_status = clGetPlatformIDs(0, nullptr, &platform_count);
+    info["platform_status"] = platform_status;
+    if (platform_status != CL_SUCCESS || platform_count == 0) {
+        info["status"] = "no_platform";
+        info["platform_count"] = platform_count;
+        return info;
+    }
+    std::vector<cl_platform_id> platforms(platform_count);
+    if (clGetPlatformIDs(platform_count, platforms.data(), nullptr) != CL_SUCCESS) {
+        info["status"] = "platform_enumeration_failed";
+        info["platform_count"] = platform_count;
+        return info;
+    }
+    for (cl_platform_id platform : platforms) {
+        common_json platform_info = {
+            {"name", opencl_platform_string(platform, CL_PLATFORM_NAME)},
+            {"version", opencl_platform_string(platform, CL_PLATFORM_VERSION)},
+            {"devices", common_json::array()},
+        };
+        cl_uint device_count = 0;
+        const cl_int device_status = clGetDeviceIDs(
+            platform, CL_DEVICE_TYPE_GPU, 0, nullptr, &device_count);
+        platform_info["gpu_device_status"] = device_status;
+        if (device_status == CL_SUCCESS && device_count > 0) {
+            std::vector<cl_device_id> devices(device_count);
+            if (clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, device_count, devices.data(), nullptr) == CL_SUCCESS) {
+                for (cl_device_id device : devices) {
+                    cl_device_type type = 0;
+                    cl_bool available = CL_FALSE;
+                    cl_bool compiler_available = CL_FALSE;
+                    clGetDeviceInfo(device, CL_DEVICE_TYPE, sizeof(type), &type, nullptr);
+                    clGetDeviceInfo(device, CL_DEVICE_AVAILABLE, sizeof(available), &available, nullptr);
+                    clGetDeviceInfo(
+                        device, CL_DEVICE_COMPILER_AVAILABLE, sizeof(compiler_available),
+                        &compiler_available, nullptr);
+                    platform_info["devices"].push_back({
+                        {"name", opencl_device_string(device, CL_DEVICE_NAME)},
+                        {"vendor", opencl_device_string(device, CL_DEVICE_VENDOR)},
+                        {"version", opencl_device_string(device, CL_DEVICE_VERSION)},
+                        {"driver_version", opencl_device_string(device, CL_DRIVER_VERSION)},
+                        {"type_gpu", (type & CL_DEVICE_TYPE_GPU) != 0},
+                        {"available", available == CL_TRUE},
+                        {"compiler_available", compiler_available == CL_TRUE},
+                    });
+                }
+            }
+        }
+        info["platforms"].push_back(std::move(platform_info));
+    }
+
+    std::call_once(backend_once, [] {
+        llama_log_set(opencl_llama_log_callback, &opencl_load_log_state);
+        llama_backend_init();
+    });
+    for (size_t index = 0; index < ggml_backend_reg_count(); ++index) {
+        ggml_backend_reg_t registry = ggml_backend_reg_get(index);
+        const char * name = ggml_backend_reg_name(registry);
+        std::string normalized_name = name == nullptr ? std::string{} : name;
+        std::transform(normalized_name.begin(), normalized_name.end(), normalized_name.begin(),
+                       [](unsigned char value) { return static_cast<char>(std::toupper(value)); });
+        if (normalized_name.find("OPENCL") != std::string::npos) {
+            common_json backend = {{"name", name}, {"devices", common_json::array()}};
+            for (size_t device_index = 0; device_index < ggml_backend_reg_dev_count(registry); ++device_index) {
+                ggml_backend_dev_t device = ggml_backend_reg_dev_get(registry, device_index);
+                backend["devices"].push_back({
+                    {"name", ggml_backend_dev_name(device)},
+                    {"type", static_cast<int>(ggml_backend_dev_type(device))},
+                });
+            }
+            info["llama_backend_registry"].push_back(std::move(backend));
+        }
+    }
+    info["status"] = "enumerated";
+    return info;
+}
+
+void log_opencl_compute_profile(const ProbeSession & session, int64_t request_id) {
+    __android_log_print(
+        ANDROID_LOG_INFO, "LlamaProbeOpenCL",
+        "event=compute_profile request_id=%lld offloaded_layers=%d total_layers=%d gpu_nodes=%llu cpu_fallback_nodes=%llu unassigned_nodes=%llu",
+        static_cast<long long>(request_id),
+        session.offloaded_gpu_layers.load(std::memory_order_acquire),
+        session.total_model_layers.load(std::memory_order_acquire),
+        static_cast<unsigned long long>(session.gpu_compute_nodes.load(std::memory_order_acquire)),
+        static_cast<unsigned long long>(session.cpu_compute_nodes.load(std::memory_order_acquire)),
+        static_cast<unsigned long long>(session.unassigned_compute_nodes.load(std::memory_order_acquire)));
+}
+#endif
+
 
 void throw_java(JNIEnv * env, const char * class_name, const std::string & message) {
     jclass exception_class = env->FindClass(class_name);
@@ -383,19 +554,49 @@ DsparkGenerationResult generate_dspark(
 
 } // namespace
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpenclRuntimeInfo(
+        JNIEnv * env, jobject) {
+    try {
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+        const std::string info = opencl_runtime_info().dump();
+#else
+        const std::string info = common_json{{"compiled_opencl", false}, {"status", "cpu_variant"}}.dump();
+#endif
+        return env->NewStringUTF(info.c_str());
+    } catch (const std::exception & error) {
+        throw_java(env, "java/lang/IllegalStateException", error.what());
+        return nullptr;
+    }
+}
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
         JNIEnv * env, jobject, jstring model_path, jint context_size, jstring draft_model_path) {
     try {
-        std::call_once(backend_once, [] { llama_backend_init(); });
+        std::call_once(backend_once, [] {
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+            llama_log_set(opencl_llama_log_callback, &opencl_load_log_state);
+#endif
+            llama_backend_init();
+        });
         const std::string path = from_java(env, model_path, "modelPath");
         const std::string draft_path = draft_model_path == nullptr
             ? std::string{}
             : from_java(env, draft_model_path, "draftModelPath");
         const bool use_dspark = !draft_path.empty();
 
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+        if (use_dspark) throw std::invalid_argument("DSpark is excluded from the OpenCL feasibility probe");
+#endif
         llama_model_params model_params = llama_model_default_params();
-        model_params.n_gpu_layers = 0; // CPU-only prototype; no GPU offload claim.
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+        opencl_load_log_state.gpu_layers.store(-1, std::memory_order_release);
+        opencl_load_log_state.total_layers.store(-1, std::memory_order_release);
+        model_params.n_gpu_layers = -1;
+#else
+        model_params.n_gpu_layers = 0; // Preserve the default CPU-only probe.
+#endif
         std::unique_ptr<llama_model, decltype(&llama_model_free)> model(
             llama_model_load_from_file(path.c_str(), model_params), &llama_model_free);
         if (model == nullptr) throw std::runtime_error("llama.cpp could not load the GGUF model");
@@ -419,6 +620,18 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
         }
 
         auto session = std::make_unique<ProbeSession>();
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+        session->offloaded_gpu_layers.store(
+            opencl_load_log_state.gpu_layers.load(std::memory_order_acquire),
+            std::memory_order_release);
+        session->total_model_layers.store(
+            opencl_load_log_state.total_layers.load(std::memory_order_acquire),
+            std::memory_order_release);
+        if (session->offloaded_gpu_layers.load(std::memory_order_acquire) <= 0 ||
+            session->total_model_layers.load(std::memory_order_acquire) <= 0) {
+            throw std::runtime_error("OpenCL model load completed without a reported GPU layer offload");
+        }
+#endif
         session->vocab = llama_model_get_vocab(model.get());
         session->model = model.release();
         llama_context_params context_params = llama_context_default_params();
@@ -428,6 +641,12 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
         context_params.n_threads_batch = context_params.n_threads;
         context_params.abort_callback = abort_if_cancelled;
         context_params.abort_callback_data = session.get();
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+        context_params.cb_eval = observe_execution_backend;
+        context_params.cb_eval_user_data = session.get();
+        context_params.offload_kqv = true;
+        context_params.op_offload = true;
+#endif
         if (use_dspark) {
             spec_params.cpuparams.n_threads = static_cast<int32_t>(context_params.n_threads);
             spec_params.cpuparams_batch.n_threads = static_cast<int32_t>(context_params.n_threads);
@@ -451,7 +670,7 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
             session->draft_n_max, context_params.n_rs_seq);
         context_params.no_perf = true;
         session->context = llama_init_from_model(session->model, context_params);
-        if (session->context == nullptr) throw std::runtime_error("llama.cpp could not create the CPU context");
+        if (session->context == nullptr) throw std::runtime_error("llama.cpp could not create the probe context");
 
         if (use_dspark) {
             common_params draft_params = common_base_params_to_speculative(spec_params);
@@ -480,6 +699,30 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_00024Companion_nativeOpen(
     }
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeBackendInfo(
+        JNIEnv * env, jobject, jlong handle) {
+    try {
+        ProbeSession * session = session_from(handle);
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+        const common_json info = {
+            {"compiled_opencl", true},
+            {"offloaded_gpu_layers", session->offloaded_gpu_layers.load(std::memory_order_acquire)},
+            {"total_model_layers", session->total_model_layers.load(std::memory_order_acquire)},
+            {"gpu_compute_nodes", session->gpu_compute_nodes.load(std::memory_order_acquire)},
+            {"cpu_fallback_nodes", session->cpu_compute_nodes.load(std::memory_order_acquire)},
+            {"unassigned_nodes", session->unassigned_compute_nodes.load(std::memory_order_acquire)},
+        };
+#else
+        const common_json info = {{"compiled_opencl", false}, {"backend", "CPU"}};
+#endif
+        return env->NewStringUTF(info.dump().c_str());
+    } catch (const std::exception & error) {
+        throw_java(env, "java/lang/IllegalStateException", error.what());
+        return nullptr;
+    }
+}
+
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
         JNIEnv * env, jobject, jlong handle, jlong request_id, jstring prompt, jstring system_prompt,
@@ -487,6 +730,11 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
     try {
         ProbeSession * session = session_from(handle);
         std::lock_guard<std::mutex> guard(session->generation_mutex);
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+        session->gpu_compute_nodes.store(0, std::memory_order_relaxed);
+        session->cpu_compute_nodes.store(0, std::memory_order_relaxed);
+        session->unassigned_compute_nodes.store(0, std::memory_order_relaxed);
+#endif
         if (max_tokens <= 0 || max_tokens > 2048) throw std::invalid_argument("maxTokens must be between 1 and 2048");
 
         const std::string user_prompt = from_java(env, prompt, "prompt");
@@ -620,6 +868,9 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
                 {"drafted_tokens", dspark_result.drafted_tokens},
                 {"accepted_draft_tokens", dspark_result.accepted_draft_tokens},
             };
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+            log_opencl_compute_profile(*session, request_id);
+#endif
             return to_java_bytes(env, result.dump());
         }
 
@@ -826,6 +1077,9 @@ Java_com_kernel_ai_debug_llamaprobe_LlamaCppSession_nativeGenerate(
             {"accepted_draft_tokens", 0},
         };
         const std::string json_result = result.dump();
+#if defined(JANDAL_LLAMA_OPENCL_PROBE)
+        log_opencl_compute_profile(*session, request_id);
+#endif
         return to_java_bytes(env, json_result);
     } catch (const std::exception & error) {
         if (env->ExceptionCheck()) return nullptr;

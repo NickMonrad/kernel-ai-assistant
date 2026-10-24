@@ -60,6 +60,7 @@ android {
         buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai://oauth/callback\"")
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
         buildConfigField("String", "BUILD_TIMESTAMP", "\"${Instant.now()}\"")
+        buildConfigField("boolean", "IS_OPENCL_PROBE", "false")
     }
 
     signingConfigs {
@@ -91,6 +92,23 @@ android {
             applicationIdSuffix = ".debug.llamaprobe"
             signingConfig = signingConfigs.getByName("debugSigning")
             matchingFallbacks += listOf("debug")
+        }
+        create("llamaProbeOpencl") {
+            initWith(getByName("llamaProbe"))
+            applicationIdSuffix = ".debug.llamaprobe"
+            signingConfig = signingConfigs.getByName("debugSigning")
+            matchingFallbacks += listOf("llamaProbe", "debug")
+            buildConfigField("boolean", "IS_OPENCL_PROBE", "true")
+        }
+    }
+
+    sourceSets {
+        getByName("llamaProbeOpencl") {
+            kotlin.directories.add("src/llamaProbe/java")
+            manifest.srcFile("src/llamaProbe/AndroidManifest.xml")
+        }
+        getByName("androidTestLlamaProbeOpencl") {
+            kotlin.directories.add("src/androidTestLlamaProbe/java")
         }
     }
 
@@ -133,14 +151,17 @@ android {
 
 androidComponents {
     beforeVariants { variantBuilder ->
-        if (variantBuilder.buildType == "llamaProbe") {
+        if (variantBuilder.buildType in setOf("llamaProbe", "llamaProbeOpencl")) {
             variantBuilder.enableAndroidTest = true
         }
     }
 }
 androidComponents {
     onVariants { variant ->
-        if (variant.buildType == "llamaProbe") {
+        if (variant.buildType == "llamaProbeOpencl") {
+            variant.packaging.jniLibs.excludes.add("**/libOpenCL.so")
+        }
+        if (variant.buildType in setOf("llamaProbe", "llamaProbeOpencl")) {
             variant.androidTest?.let { androidTest ->
                 val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
                 val manifestTask =
@@ -402,6 +423,8 @@ dependencies {
     debugImplementation(project(":debug:llama-probe"))
     add("llamaProbeImplementation", files(inflectSherpaAar.absolutePath))
     add("llamaProbeImplementation", project(":debug:llama-probe"))
+    add("llamaProbeOpenclImplementation", files(inflectSherpaAar.absolutePath))
+    add("llamaProbeOpenclImplementation", project(":debug:llama-probe"))
 
     implementation(libs.appauth)
     implementation(libs.security.crypto)

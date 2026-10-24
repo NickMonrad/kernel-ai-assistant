@@ -5,9 +5,11 @@ import android.app.job.JobScheduler
 import android.content.Context
 import android.os.Debug
 import android.os.Process
+import android.os.PowerManager
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.kernel.ai.BuildConfig
 import com.kernel.ai.KernelAIApplication
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.GenerationResult
@@ -46,6 +48,129 @@ class LlamaMealPlanComparisonTest {
     }
 
     @Test
+    fun openClRuntimePreflightFindsAdreno740() {
+        assumeTrue("invoke only with llamaProbeOpencl", BuildConfig.IS_OPENCL_PROBE)
+        val info = JSONObject(LlamaCppSession.openClRuntimeInfo())
+        Log.i(TAG, "opencl_runtime_preflight=$info")
+        assertEquals("enumerated", info.getString("status"))
+        val platforms = info.getJSONArray("platforms")
+        val adreno = (0 until platforms.length())
+            .asSequence()
+            .flatMap { platforms.getJSONObject(it).getJSONArray("devices").let { devices ->
+                (0 until devices.length()).map { deviceIndex -> devices.getJSONObject(deviceIndex) }
+            } }
+            .firstOrNull { it.getString("name").contains("Adreno", ignoreCase = true) }
+        assertTrue("OpenCL GPU device missing: $info", adreno != null)
+        assertTrue("Adreno 740 missing: $adreno", adreno!!.getString("version").contains("Adreno(TM) 740"))
+        assertTrue("OpenCL GPU not available: $adreno", adreno.getBoolean("available"))
+        assertTrue("OpenCL compiler unavailable: $adreno", adreno.getBoolean("compiler_available"))
+        assertTrue(
+            "llama.cpp OpenCL backend was not registered: $info",
+            info.getJSONArray("llama_backend_registry").length() > 0,
+        )
+        val registries = info.getJSONArray("llama_backend_registry")
+        val registeredOpenClGpu = (0 until registries.length())
+            .asSequence()
+            .filter {
+                registries.getJSONObject(it).getString("name").equals("OpenCL", ignoreCase = true)
+            }
+            .flatMap { registryIndex ->
+                val devices = registries.getJSONObject(registryIndex).getJSONArray("devices")
+                (0 until devices.length()).map { deviceIndex -> devices.getJSONObject(deviceIndex) }
+            }
+            .firstOrNull { it.getInt("type") == 1 || it.getInt("type") == 2 }
+        assertTrue("llama.cpp OpenCL registry did not expose a GPU: $info", registeredOpenClGpu != null)
+    }
+
+    @Test
+    fun openClMemoryAndThermalGatesAreScopedToOpenCl() {
+        val lowMemory = JSONObject()
+            .put("avail_mem_bytes", MIN_START_AVAILABLE_MEMORY_BYTES - 1)
+            .put("thermal_status", MAX_THERMAL_STATUS)
+        requireOpenClStartGates(lowMemory, isOpenClProbe = false, stage = "CPU baseline")
+        assertTrue(
+            "OpenCL pairing gate did not reject below-threshold memory",
+            runCatching {
+                requireOpenClStartGates(lowMemory, isOpenClProbe = true, stage = "comparison")
+            }.exceptionOrNull() is IllegalStateException,
+        )
+
+        val highThermal = JSONObject()
+            .put("avail_mem_bytes", MIN_START_AVAILABLE_MEMORY_BYTES)
+            .put("thermal_status", MAX_THERMAL_STATUS + 1)
+        assertTrue(
+            "OpenCL pairing gate did not reject high thermal status",
+            runCatching {
+                requireOpenClStartGates(highThermal, isOpenClProbe = true, stage = "comparison")
+            }.exceptionOrNull() is IllegalStateException,
+        )
+        requireOpenClThermalGate(highThermal, isOpenClProbe = false, stage = "CPU baseline")
+        assertTrue(
+            "OpenCL post-stage gate did not reject high thermal status",
+            runCatching {
+                requireOpenClThermalGate(highThermal, isOpenClProbe = true, stage = "plan")
+            }.exceptionOrNull() is IllegalStateException,
+        )
+    }
+
+    @Test
+    fun pinnedModelVerifierRejectsSizeAndDigestMismatch() {
+        val bytes = "pinned-gguf-fixture".toByteArray()
+        val expectedSha = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        val file = File.createTempFile(
+            "lfm2-probe",
+            ".gguf",
+            InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
+        )
+        try {
+            file.writeBytes(bytes)
+            verifyPinnedModel(file, bytes.size.toLong(), expectedSha, "fixture")
+            assertTrue(
+                "Pinned model verifier accepted the wrong size",
+                runCatching {
+                    verifyPinnedModel(file, bytes.size.toLong() + 1, expectedSha, "fixture")
+                }.exceptionOrNull() is IllegalArgumentException,
+            )
+            assertTrue(
+                "Pinned model verifier accepted the wrong digest",
+                runCatching {
+                    verifyPinnedModel(file, bytes.size.toLong(), "0".repeat(64), "fixture")
+                }.exceptionOrNull() is IllegalArgumentException,
+            )
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun requireOpenClStartGates(snapshot: JSONObject, isOpenClProbe: Boolean, stage: String) {
+        if (!isOpenClProbe) return
+        check(snapshot.getLong("avail_mem_bytes") >= MIN_START_AVAILABLE_MEMORY_BYTES) {
+            "Available memory is below the bounded OpenCL $stage gate"
+        }
+        check(snapshot.getInt("thermal_status") <= MAX_THERMAL_STATUS) {
+            "Thermal status is above the bounded OpenCL $stage gate"
+        }
+    }
+
+    private fun requireOpenClThermalGate(snapshot: JSONObject, isOpenClProbe: Boolean, stage: String) {
+        if (!isOpenClProbe) return
+        check(snapshot.getInt("thermal_status") <= MAX_THERMAL_STATUS) {
+            "Thermal status exceeded the bounded OpenCL gate after $stage"
+        }
+    }
+
+    private suspend fun loadLfmSession(
+        model: File,
+        contextSize: Int = LLAMA_CONTEXT_TOKENS,
+        draftModel: File? = null,
+    ): LlamaCppSession {
+        if (BuildConfig.IS_OPENCL_PROBE) verifyPinnedLfmModel(model)
+        return LlamaCppSession.load(model, contextSize = contextSize, draftModel = draftModel)
+    }
+
+    @Test
     fun boundedLfmFirstTokenStream() = runBlocking {
         assumeTrue(
             "invoke only with -e llamaFirstTokenOnly true",
@@ -61,8 +186,9 @@ class LlamaMealPlanComparisonTest {
         check(!preflight.getBoolean("low_memory")) {
             "Android reports lowMemory before the bounded first-token test"
         }
+        requireOpenClStartGates(preflight, BuildConfig.IS_OPENCL_PROBE, "first-token")
         val session = stage("llama_first_token_load") {
-            LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
+            loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
         }
         var nativeCallTimedOut = false
         try {
@@ -124,8 +250,9 @@ class LlamaMealPlanComparisonTest {
         check(!preflight.getBoolean("low_memory")) {
             "Android reports lowMemory before the bounded prefill cancellation test"
         }
+        requireOpenClStartGates(preflight, BuildConfig.IS_OPENCL_PROBE, "prefill cancellation")
         val session = stage("llama_prefill_cancel_load") {
-            LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
+            loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
         }
         val cancelledRequestChunks = AtomicInteger()
         try {
@@ -208,6 +335,7 @@ class LlamaMealPlanComparisonTest {
         logProbeResults(results)
 
         check(!preflight.getBoolean("low_memory")) { "Android reports lowMemory before inference; stopping preflight" }
+        requireOpenClStartGates(preflight, BuildConfig.IS_OPENCL_PROBE, "comparison")
 
         if (!llamaOnly) {
             val gemmaFile = requireNotNull(gemmaFileCandidate)
@@ -282,13 +410,26 @@ class LlamaMealPlanComparisonTest {
         }
 
         val llamaColdStart = System.nanoTime()
-        val llama = stage("llama_load") { LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
+        val llama = stage("llama_load") { loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
         val llamaColdLoadMs = llama.loadMs
         val llamaSamples = JSONObject()
             .put("cold_load_ms", llamaColdLoadMs)
-            .put("backend", "CPU")
+            .put("backend", if (BuildConfig.IS_OPENCL_PROBE) "OpenCL" else "CPU")
             .put("context_tokens", LLAMA_CONTEXT_TOKENS)
         try {
+            if (BuildConfig.IS_OPENCL_PROBE) {
+                val backendInfo = JSONObject(llama.backendInfo())
+                assertTrue(
+                    "No model layers were offloaded to the OpenCL GPU: $backendInfo",
+                    backendInfo.getInt("offloaded_gpu_layers") > 0,
+                )
+                assertTrue(
+                    "Invalid OpenCL model layer count: $backendInfo",
+                    backendInfo.getInt("total_model_layers") >= backendInfo.getInt("offloaded_gpu_layers"),
+                )
+                llamaSamples.put("backend_observation", backendInfo)
+                Log.i(TAG, "opencl_model_backend=$backendInfo")
+            }
             results.put("after_llama_cold_load", ensureMemoryHealthy(context, "llama.cpp cold load"))
             val plan = generateWithOneRepair(
                 stageName = "llama_plan",
@@ -306,6 +447,9 @@ class LlamaMealPlanComparisonTest {
             )
             retryCount += plan.retries
             repairCount += plan.retries
+            if (BuildConfig.IS_OPENCL_PROBE) {
+                llamaSamples.put("plan_backend_profile", assertOpenClComputeProfile(llama, "plan"))
+            }
             llamaSamples.put(
                 "plan",
                 plan.value.toJson(plan.valid, llamaColdStart, ensureMemoryHealthy(context, "llama plan"), plan.retries),
@@ -325,6 +469,9 @@ class LlamaMealPlanComparisonTest {
             )
             retryCount += recipe.retries
             repairCount += recipe.retries
+            if (BuildConfig.IS_OPENCL_PROBE) {
+                llamaSamples.put("recipe_backend_profile", assertOpenClComputeProfile(llama, "recipe"))
+            }
             llamaSamples.put(
                 "recipe",
                 recipe.value.toJson(recipe.valid, recipeStart, ensureMemoryHealthy(context, "llama recipe"), recipe.retries)
@@ -419,7 +566,7 @@ class LlamaMealPlanComparisonTest {
         }
 
         val reloadStart = System.nanoTime()
-        val reloaded = stage("llama_reload") { LlamaCppSession.load(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
+        val reloaded = stage("llama_reload") { loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS) }
         try {
             val reloadedPlan = stage("llama_plan_after_reload") {
                 generateStreamed(
@@ -439,7 +586,7 @@ class LlamaMealPlanComparisonTest {
             val draftFile = requireNotNull(dsparkFile)
             val dsparkLoadStart = System.nanoTime()
             val dspark = stage("dspark_load") {
-                LlamaCppSession.load(
+                loadLfmSession(
                     llamaFile,
                     contextSize = LLAMA_CONTEXT_TOKENS,
                     draftModel = draftFile,
@@ -596,7 +743,7 @@ class LlamaMealPlanComparisonTest {
 
             val dsparkReloadStart = System.nanoTime()
             val dsparkReloaded = stage("dspark_reload") {
-                LlamaCppSession.load(
+                loadLfmSession(
                     llamaFile,
                     contextSize = LLAMA_CONTEXT_TOKENS,
                     draftModel = draftFile,
@@ -904,6 +1051,7 @@ class LlamaMealPlanComparisonTest {
         check(!snapshot.getBoolean("low_memory")) {
             "Android reports lowMemory after $stage; stopping the comparison"
         }
+        requireOpenClThermalGate(snapshot, BuildConfig.IS_OPENCL_PROBE, stage)
         return snapshot
     }
 
@@ -912,12 +1060,14 @@ class LlamaMealPlanComparisonTest {
         val activityManager = context.getSystemService(ActivityManager::class.java)
         activityManager.getMemoryInfo(memory)
         val pssKb = activityManager.getProcessMemoryInfo(intArrayOf(Process.myPid())).firstOrNull()?.totalPss ?: -1
+        val powerManager = context.getSystemService(PowerManager::class.java)
         return JSONObject()
             .put("avail_mem_bytes", memory.availMem)
             .put("low_memory", memory.lowMemory)
             .put("threshold_bytes", memory.threshold)
             .put("total_mem_bytes", memory.totalMem)
             .put("process_pss_kb", pssKb)
+            .put("thermal_status", powerManager.currentThermalStatus)
             .put("native_heap_bytes", Debug.getNativeHeapAllocatedSize())
     }
 
@@ -974,6 +1124,15 @@ class LlamaMealPlanComparisonTest {
         .put("accepted_draft_tokens", acceptedDraftTokens)
         .put("memory", memory)
 
+    private fun assertOpenClComputeProfile(session: LlamaCppSession, stage: String): JSONObject {
+        val profile = JSONObject(session.backendInfo())
+        assertTrue("$stage did not execute graph nodes on the OpenCL GPU: $profile",
+            profile.getLong("gpu_compute_nodes") > 0)
+        assertTrue("$stage CPU fallback counter missing: $profile", profile.has("cpu_fallback_nodes"))
+        Log.i(TAG, "opencl_compute_$stage=$profile")
+        return profile
+    }
+
     private fun assertProbeIsolation(context: Context) {
         require(InstrumentationRegistry.getArguments().getString(ProbeIsolatedRunner.ARG_PROBE_ONLY) == "true") {
             "Run only with probeOnly=true"
@@ -1007,6 +1166,8 @@ class LlamaMealPlanComparisonTest {
         private const val CONTEXT_TOKENS = 4096
         private const val LLAMA_CONTEXT_TOKENS = 4096
         private const val LFM_FILE_SIZE_BYTES = 1_674_455_040L
+        private const val MIN_START_AVAILABLE_MEMORY_BYTES = 4_800_000_000L
+        private const val MAX_THERMAL_STATUS = 1
         private const val LFM_SHA256 = "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed"
         private const val DSPARK_FILE_NAME = "LFM2.5-2.6B-DSpark-Q4_K_M.gguf"
         private const val DSPARK_FILE_SIZE_BYTES = 199_680_512L

@@ -227,6 +227,9 @@ class LlamaCppSession private constructor(
         reportProgress: Boolean,
     ): ByteArray
 
+    fun backendInfo(): String = nativeBackendInfo(nativeHandle)
+
+    private external fun nativeBackendInfo(handle: Long): String
     private external fun nativeCancel(handle: Long, requestId: Long)
     private external fun nativeClose(handle: Long)
 
@@ -239,6 +242,9 @@ class LlamaCppSession private constructor(
 
         private external fun nativeOpen(modelPath: String, contextSize: Int, draftModelPath: String?): Long
 
+        fun openClRuntimeInfo(): String = nativeOpenclRuntimeInfo()
+
+        private external fun nativeOpenclRuntimeInfo(): String
         suspend fun load(
             model: File,
             contextSize: Int = 2048,
