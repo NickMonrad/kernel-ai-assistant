@@ -1,5 +1,6 @@
 import java.io.File
 import java.time.Instant
+import java.util.Properties
 import java.util.zip.ZipFile
 
 plugins {
@@ -17,6 +18,34 @@ val gitSha: String by lazy {
     result.standardOutput.asText.get().trim().ifEmpty { "unknown" }
 }
 
+val buildTimestamp = (project.findProperty("buildTimestamp") as String?)
+    ?.let { Instant.parse(it).toString() }
+    ?: Instant.now().toString()
+
+val releaseSigningProperties = rootProject.file("keystore.properties")
+    .takeIf { it.isFile }
+    ?.let { propertiesFile ->
+        val properties = Properties().apply {
+            propertiesFile.inputStream().use { load(it) }
+        }
+        val requiredProperties = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        val missingProperties = requiredProperties.filter {
+            properties.getProperty(it).isNullOrBlank()
+        }
+        check(missingProperties.isEmpty()) {
+            "Invalid keystore.properties; missing required entries: ${missingProperties.joinToString()}"
+        }
+        val signingStoreFile = rootProject.file(properties.getProperty("storeFile")).canonicalFile
+        check(signingStoreFile.isFile) {
+            "Invalid keystore.properties; storeFile must point to an existing local keystore."
+        }
+        check(!signingStoreFile.toPath().startsWith(rootProject.projectDir.canonicalFile.toPath())) {
+            "Invalid keystore.properties; keep the release keystore outside the repository checkout."
+        }
+        properties.setProperty("storeFile", signingStoreFile.path)
+        properties
+    }
+
 android {
     namespace = "com.kernel.ai"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -33,7 +62,7 @@ android {
         buildConfigField("String", "HF_CLIENT_ID", "\"2607cec6-3d70-4df0-ba39-eb9cef1ba8c8\"")
         buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai://oauth/callback\"")
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
-        buildConfigField("String", "BUILD_TIMESTAMP", "\"${Instant.now()}\"")
+        buildConfigField("String", "BUILD_TIMESTAMP", "\"$buildTimestamp\"")
     }
 
     signingConfigs {
@@ -42,6 +71,15 @@ android {
             storePassword = "android"
             keyAlias = "debug"
             keyPassword = "android"
+        }
+
+        if (releaseSigningProperties != null) {
+            create("releaseSigning") {
+                storeFile = rootProject.file(releaseSigningProperties.getProperty("storeFile"))
+                storePassword = releaseSigningProperties.getProperty("storePassword")
+                keyAlias = releaseSigningProperties.getProperty("keyAlias")
+                keyPassword = releaseSigningProperties.getProperty("keyPassword")
+            }
         }
     }
 
@@ -53,7 +91,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (releaseSigningProperties != null) {
+                signingConfig = signingConfigs.getByName("releaseSigning")
+            }
         }
+
         debug {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
@@ -98,12 +140,25 @@ android {
         }
     }
 }
+fun releaseApkArtifact(buildDirectory: File, isSigned: Boolean): File {
+    val apkName = if (isSigned) "app-release.apk" else "app-release-unsigned.apk"
+    return buildDirectory.resolve("outputs/apk/release").resolve(apkName)
+}
+
+tasks.register("verifyReleaseApkArtifactSelection") {
+    doLast {
+        val buildDirectory = layout.buildDirectory.get().asFile
+        check(releaseApkArtifact(buildDirectory, isSigned = true).name == "app-release.apk")
+        check(releaseApkArtifact(buildDirectory, isSigned = false).name == "app-release-unsigned.apk")
+    }
+}
+
 
 /**
  * Verifies literal variant-specific shortcut metadata in the packaged APKs.
  */
 tasks.register("verifyListsShortcutVariants") {
-    dependsOn("assembleDebug", "assembleRelease")
+    dependsOn("assembleDebug", "assembleRelease", "verifyReleaseApkArtifactSelection")
     doLast {
         val sdkDirectory = sequenceOf(
             System.getenv("ANDROID_HOME"),
@@ -153,14 +208,17 @@ tasks.register("verifyListsShortcutVariants") {
 
         verify(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile, "com.kernel.ai.debug")
         verify(
-            layout.buildDirectory.file("outputs/apk/release/app-release-unsigned.apk").get().asFile,
+            releaseApkArtifact(
+                layout.buildDirectory.get().asFile,
+                isSigned = releaseSigningProperties != null,
+            ),
             "com.kernel.ai",
         )
     }
 }
 
 tasks.register("verifyAcousticStimulusReleaseIsolation") {
-    dependsOn("assembleDebug", "assembleRelease", "bundleRelease")
+    dependsOn("assembleDebug", "assembleRelease", "bundleRelease", "verifyReleaseApkArtifactSelection")
     doLast {
         val buildDirectory = layout.buildDirectory.get().asFile
         val manifests = buildDirectory.walkTopDown()
@@ -185,7 +243,7 @@ tasks.register("verifyAcousticStimulusReleaseIsolation") {
 
         val artifacts = listOf(
             buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),
-            buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk"),
+            releaseApkArtifact(buildDirectory, isSigned = releaseSigningProperties != null),
             buildDirectory.resolve("outputs/bundle/release/app-release.aab"),
         )
         artifacts.forEach { artifact ->
@@ -215,7 +273,7 @@ tasks.register("verifyAcousticStimulusReleaseIsolation") {
 }
 
 tasks.register("verifyTargetEventJournalReleaseIsolation") {
-    dependsOn("assembleDebug", "assembleRelease", "bundleRelease")
+    dependsOn("assembleDebug", "assembleRelease", "bundleRelease", "verifyReleaseApkArtifactSelection")
     doLast {
         val buildDirectory = layout.buildDirectory.get().asFile
         val manifests = buildDirectory.walkTopDown()
@@ -248,7 +306,7 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
 
         val artifacts = listOf(
             buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),
-            buildDirectory.resolve("outputs/apk/release/app-release-unsigned.apk"),
+            releaseApkArtifact(buildDirectory, isSigned = releaseSigningProperties != null),
             buildDirectory.resolve("outputs/bundle/release/app-release.aab"),
         )
         val debugMarkers = listOf(

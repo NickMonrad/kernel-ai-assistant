@@ -7,7 +7,7 @@ This document describes the release build process for Jandal AI's first Play Sto
 
 Jandal AI uses **Google Play App Signing**. The flow is:
 
-1. Generate an upload keystore and upload key on your local machine.
+1. Nick provides the existing authorized upload keystore and upload key; do not generate a repository or agent-owned release key.
 2. Configure Gradle release signing using local-only `keystore.properties` (see [Signing Setup](#signing-setup)).
 3. Build a **signed** release AAB with the upload key.
 4. Upload the signed AAB to the Play Console.
@@ -44,62 +44,80 @@ Because the Play Store manages the final signing key, the upload key is only use
 
 ### Local builds
 
-For local development builds, create a `keystore.properties` file in the project root with placeholder values:
+For local signed release-candidate APKs, Nick must provide the existing authorized upload keystore and its credentials. This repository does not generate or contain a release private key. Keep the keystore outside the checkout.
+
+Create a project-root `keystore.properties` file locally (already ignored by `.gitignore`) and restrict its permissions:
 
 ```properties
-storePassword=<set-this>
-keyPassword=<set-this>
-keyAlias=upload
-storeFile=../keystore/release.keystore
+storeFile=/absolute/path/to/the/Nick-provided-upload.keystore
+storePassword=<Nick-provided-store-password>
+keyAlias=<Nick-provided-alias>
+keyPassword=<Nick-provided-key-password>
 ```
 
-**Add `keystore.properties` to `.gitignore`.** It must never be committed.
-
-Then add the signing configuration to `app/build.gradle.kts`:
-
-```kotlin
-val keystoreProperties = rootProject.file("keystore.properties")
-    .takeIf { it.exists() }
-    ?.let {
-        val props = java.util.Properties().apply {
-            load(it.inputStream())
-        }
-        mapOf(
-            "storePassword" to props["storePassword"],
-            "keyPassword" to props["keyPassword"],
-            "keyAlias" to props["keyAlias"],
-            "storeFile" to props["storeFile"]
-        )
-    }
-
-android {
-    buildTypes {
-        release {
-            if (keystoreProperties != null) {
-                signingConfig = signingConfigs.create("upload") {
-                    storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
-                    storePassword = keystoreProperties["storePassword"] as String
-                    keyAlias = keystoreProperties["keyAlias"] as String
-                    keyPassword = keystoreProperties["keyPassword"] as String
-                }
-            }
-        }
-    }
-}
+```bash
+chmod 600 keystore.properties
 ```
+
+Gradle uses this file only when present. All four entries and the keystore file are required; incomplete configuration fails without printing credential values. With no file, release builds remain unsigned for CI. The release variant keeps application ID `com.kernel.ai`.
+
+Build from a clean checkout at the approved full source SHA. Nick must approve the monotonically increasing `versionCode`; choose one fixed ISO-8601 UTC `buildTimestamp` and reuse both values exactly for any rebuild. Gradle embeds the timestamp in `BuildConfig`, so fixing it avoids build-time variation in that field.
+
+```bash
+git rev-parse HEAD
+test -z "$(git status --porcelain)"
+read -r -p "Nick-approved versionCode: " RC_VERSION_CODE
+read -r -p "Fixed buildTimestamp (ISO-8601 UTC): " RC_BUILD_TIMESTAMP
+./gradlew clean :app:assembleRelease \
+  -PversionCode="$RC_VERSION_CODE" \
+  -PbuildTimestamp="$RC_BUILD_TIMESTAMP"
+```
+
+With signing configured, the APK is `app/build/outputs/apk/release/app-release.apk`. Record the full source SHA, build timestamp, `versionName`, `versionCode`, signer certificate SHA-256, and APK SHA-256 with the test record. The embedded `BuildConfig.GIT_SHA` is the first eight characters of the source commit.
+
+For bit-for-bit reproducibility, repeat the clean build with the same full source SHA, toolchain, approved version code, fixed timestamp, and signing key; compare the resulting APK SHA-256 values. If they differ, record that reproducibility was not demonstrated.
+
+
+Verify package/version, signature, signer, and artifact digest before treating the APK as an RC candidate:
+
+```bash
+aapt dump badging app/build/outputs/apk/release/app-release.apk
+apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+sha256sum app/build/outputs/apk/release/app-release.apk
+```
+
+Confirm `package: name='com.kernel.ai'` and the approved version values in the `aapt` output. Record the signer certificate digest from `apksigner` and the file digest from `sha256sum`. This creates a locally signed APK only; it does not upload to Play or prove Play-delivered signing/acceptance.
+
+The same local-only signing configuration can sign a release AAB:
+
+```bash
+read -r -p "Nick-approved versionCode: " RC_VERSION_CODE
+read -r -p "Fixed buildTimestamp (ISO-8601 UTC): " RC_BUILD_TIMESTAMP
+./gradlew clean :app:bundleRelease \
+  -PversionCode="$RC_VERSION_CODE" \
+  -PbuildTimestamp="$RC_BUILD_TIMESTAMP"
+```
+
+The AAB is written to `app/build/outputs/bundle/release/app-release.aab`.
 
 ### CI builds
 
-For CI pipelines, use environment variables instead of a properties file:
+CI intentionally does not receive or use release signing material. Its release APK/AAB outputs remain unsigned and are used only for build/packaging checks.
 
-| Variable | Purpose |
-|---|---|
-| `KEYSTORE_PATH` | Absolute path to the keystore file |
-| `KEYSTORE_PASSWORD` | Keystore password |
-| `KEY_ALIAS` | Alias name for the key |
-| `KEY_PASSWORD` | Key password |
 
-Do not pass secrets through `local.properties` in CI — that file is not part of the repository and is not available in pipeline environments.
+## Security Rules
+
+- Keystore files and passwords are never committed; `keystore.properties` is ignored and contains plaintext at rest.
+- Keep the supplied keystore outside the checkout and restrict the properties file to owner read/write.
+- Never pass passwords through command-line arguments or CI/local Gradle properties.
+- Play Console credentials and service-account keys remain outside the repository.
+- CI gets no release signing material and continues producing unsigned release outputs.
+
+## Versioning Convention
+
+`versionCode` is a monotonically increasing integer; Nick must choose and approve the candidate value. `versionName` remains `"0.1.0"` for this release candidate.
+
+
 
 ## Play Console Flow
 
@@ -111,55 +129,15 @@ Do not pass secrets through `local.properties` in CI — that file is not part o
 
 ### Local validation
 
-If you have `bundletool` installed, you can validate the AAB locally:
+If you have `bundletool` installed, you can validate an AAB locally:
 
 ```bash
-bundletool build-apks --bundle=app/build/outputs/bundle/release/app-release.aab \
-    --output=app.apks \
-    --ks=keystore/release.keystore \
-    --ks-pass=pass:<store-password> \
-    --ks-key-alias=upload \
-    --key-pass=pass:<key-password>
-```
-
-## Security Rules
-
-- **Keystore files are not committed** to the repository.
-- **Passwords are not committed** — use environment variables or a local-only properties file.
-- **Play Console secrets are not committed** — API keys, service account keys, and any Play Console credentials remain outside the repository.
-- **`local.properties` is not used for secrets in CI** — it is a per-developer file and unavailable in pipeline environments.
-- **`keystore.properties` must be added to `.gitignore`** — this file contains credentials and must never be committed.
-
-## Versioning Convention
-
-- **`versionCode`**: A monotonically increasing integer. Each release must have a higher `versionCode` than the previous one. Start at `1`.
-- **`versionName`**: A human-readable semantic version string. The initial release uses `"0.1.0"`.
-
-Verify the AAB is signed (not unsigned) by running:
-
-```bash
-# For AABs: verify JAR signature
-jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab
-
-# If bundletool is installed: validate the bundle structure
 bundletool validate --bundle=app/build/outputs/bundle/release/app-release.aab
+jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab
 ```
 
-For APK validation (after extracting APKs from the AAB via bundletool):
 
-```bash
-bundletool build-apks --bundle=app/build/outputs/bundle/release/app-release.aab \
-    --output=app.apks \
-    --ks=<keystore-path> \
-    --ks-pass=pass:<store-password> \
-    --ks-key-alias=upload \
-    --key-pass=pass:<key-password>
-
-# Then verify the generated APK
-apksigner verify --verbose app/signed.apk
-```
-
-Ensure the keystore file exists at the path specified in `keystore.properties` and that the alias is correct. Run `keytool -list -v -keystore <path> -storepass <password>` to verify.
+Confirm the keystore file exists at the path specified in `keystore.properties` and that the alias is correct. Run `keytool -list -v -keystore <path>` without `-storepass`; keytool prompts for the password instead of exposing it in the process arguments.
 
 ### AAB upload rejected by Play Console
 
