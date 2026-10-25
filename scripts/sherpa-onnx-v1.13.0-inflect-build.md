@@ -6,7 +6,7 @@ This manifest records the host-built four-ABI replacement proposed for #1474. Th
 
 - AAR: `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar`
 - Candidate AAR SHA-256: `46a8e806833066bc657d8508e66e35dae8b1a04dff207ebd8538517d58b6567d`
-- Candidate AAR size: 35,935,731 bytes
+- Candidate AAR size: 35,904,895 bytes
 - Replaced AAR SHA-256: `cf35bb1999586fb6c2f5746bfc556504a6ee8407e02ed3047f1274fa8d2008dc`
 - Base stock AAR: `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar`
 - Base stock AAR SHA-256: `233b6b19fb5515c047adebde0dbf873a9fd8ac23f1d2ff6a3701f7ffc923b23c`
