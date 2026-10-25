@@ -100,10 +100,10 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Engine/voice asset | Role | Licence / terms | Launch treatment |
 |---|---|---|---|
 | Android TTS | Platform TTS fallback | Android platform/system service | Safe fallback; document platform dependency. |
-| Piper runtime/project | Source project for Piper voices | MIT | Include MIT notice if Piper runtime/code is bundled. |
-| rhasspy/piper-voices repository | Source for many Piper ONNX voice files | Hugging Face page lists `mit` for repository | Repository-level MIT is not enough for all dataset provenance; keep per-voice review. |
-| en_GB-cori-high Piper voice | Release-safe British English female voice | Sourced from `rhasspy/piper-voices` (MIT-licensed repo). Upstream model card: dataset = LibriVox (public domain). | Release-visible based on the documented upstream licence/provenance reviewed for #1268. |
-| Kokoro experimental voice pack | Experimental TTS path | Exact app asset is Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage is Apache-2.0 | Consider licence trace acceptable if release-exposed, but keep product wording experimental/conservative. |
+| Piper runtime/project | Source project for Piper voices | MIT | Include MIT notice if Piper runtime/code is bundled; the project licence does not establish per-voice dataset provenance. |
+| rhasspy/piper-voices repository | Source for many Piper ONNX voice files | Hugging Face page lists `mit` for repository | Repository-level MIT is not enough for all dataset provenance; only CoriHigh is release-visible for v0.1 pending per-voice review of the remaining catalogue. |
+| en_GB-cori-high Piper voice | Release-visible British English female voice | Sourced from `rhasspy/piper-voices` (MIT-licensed repo); upstream model card identifies LibriVox (public domain) as dataset | Sole release-visible Piper voice for v0.1, based on the documented source and provenance. |
+| Kokoro experimental voice pack | Debug-only/post-launch TTS path for v0.1 | Exact app asset is Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage is recorded as Apache-2.0 | Not release-visible for v0.1 under #1014; this trace is not release sign-off. |
 
 ## External services and data sources
 

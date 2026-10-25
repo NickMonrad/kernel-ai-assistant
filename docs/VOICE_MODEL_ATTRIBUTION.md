@@ -25,10 +25,10 @@ The app downloads TTS voice packs from Sherpa-ONNX GitHub release assets under t
 
 | Voice family | App download source | Approx. size | Licence position | Release action |
 |---|---|---:|---|---|
-| Piper/VITS voices | Sherpa-ONNX GitHub `tts-models/<asset>.tar.bz2` release assets | ~64-116 MB each | Piper project/repository-level licence is permissive, but per-voice/dataset provenance still matters | Record source/licence for every release-exposed voice. |
-| Semaine Piper/VITS | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | ~70 MB | Potential non-commercial licence path | #1268: Hidden from release builds; retained for debug/internal research. Replacement voice: en_GB-cori-high (training data public domain, model permissive MIT). |
-| Cori high-quality (en_GB-cori-high) | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-cori-high.tar.bz2` | ~116 MB | Sourced from `rhasspy/piper-voices` (MIT-licensed repo). Upstream model card: dataset = LibriVox (public domain). | Release-visible based on the documented upstream licence/provenance reviewed for #1268. |
-| Kokoro experimental | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | ~130 MB | Kokoro upstream `hexgrad/Kokoro-82M` is Apache-2.0; NVIDIA's ONNX optimisation card is also Apache-2.0 and points back to `hexgrad/Kokoro-82M` | Kokoro can be considered likely permissive, but release docs should cite the upstream Kokoro model and the exact Sherpa-ONNX asset used by Jandal. |
+| Piper/VITS voices | Sherpa-ONNX GitHub `tts-models/<asset>.tar.bz2` release assets | ~64-116 MB each | Piper project/repository-level licence is permissive, but per-voice/dataset provenance still matters | Only CoriHigh is release-visible for v0.1; other catalogue entries remain debug/internal pending review of each voice's source, dataset provenance, and terms. |
+| Semaine Piper/VITS | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | ~70 MB | Potential non-commercial licence path | Excluded from release builds under #1258; retained for debug/internal use. Replacement: en_GB-cori-high (model card identifies LibriVox as its dataset). |
+| Cori high-quality (en_GB-cori-high) | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-cori-high.tar.bz2` | ~116 MB | Sourced from `rhasspy/piper-voices` (MIT-licensed repo); upstream model card identifies LibriVox (public domain) as dataset | The sole release-visible Piper voice for v0.1, based on the documented source and provenance. |
+| Kokoro experimental | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | ~130 MB | Kokoro upstream `hexgrad/Kokoro-82M` is Apache-2.0; NVIDIA's ONNX optimisation card is also Apache-2.0 and points back to `hexgrad/Kokoro-82M` | Not release-visible for v0.1; #1014 scopes Kokoro to debug/post-launch. This attribution trace is not a release-signoff conclusion. |
 
 ## SenseVoice source notes
 

@@ -395,10 +395,9 @@ class VoiceViewModelTest {
 
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertTrue(
-            releaseViewModel.uiState.value.sherpaVoices.none { row ->
-                row.voice == SherpaPiperVoice.SemaineMedium
-            }
+        assertEquals(
+            listOf(SherpaPiperVoice.CoriHigh),
+            releaseViewModel.uiState.value.sherpaVoices.map { it.voice },
         )
     }
     @Test
