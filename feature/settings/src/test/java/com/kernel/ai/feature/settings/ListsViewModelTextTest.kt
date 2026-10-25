@@ -149,9 +149,69 @@ class ListsViewModelTextTest {
     }
 
     @Test
+    fun `whole-list sharing omits completed items and preserves active details and order`() = runBlocking {
+        val milk = ListItemEntity(
+            id = 11L,
+            listId = 1L,
+            text = "Milk",
+            description = "2 litres\nWhole milk",
+            itemId = "milk",
+        )
+        val butter = ListItemEntity(id = 12L, listId = 1L, text = "Butter", checked = true, itemId = "butter")
+        val eggs = ListItemEntity(
+            id = 13L,
+            listId = 1L,
+            text = "Eggs",
+            description = "Free range",
+            itemId = "eggs",
+        )
+        coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
+        coEvery { dao.getAllByList(1L) } returns listOf(milk, butter, eggs)
+        val viewModel = ListsViewModel(
+            dao = dao,
+            listNameDao = listNameDao,
+            scheduler = scheduler,
+            appContext = context,
+            listMutations = listMutations,
+            listsUiPreferences = preferences,
+            nextcloud = nextcloudAdapter,
+        ).apply { ioDispatcher = dispatcher }
+
+        assertEquals(
+            "Groceries\n\n• Milk\n2 litres\nWhole milk\n• Eggs\nFree range",
+            viewModel.buildShareText(1L),
+        )
+    }
+
+    @Test
+    fun `whole-list sharing returns title only when every item is completed`() = runBlocking {
+        val butter = ListItemEntity(id = 14L, listId = 1L, text = "Butter", checked = true)
+        coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
+        coEvery { dao.getAllByList(1L) } returns listOf(butter)
+        val viewModel = ListsViewModel(
+            dao = dao,
+            listNameDao = listNameDao,
+            scheduler = scheduler,
+            appContext = context,
+            listMutations = listMutations,
+            listsUiPreferences = preferences,
+            nextcloud = nextcloudAdapter,
+        ).apply { ioDispatcher = dispatcher }
+
+        assertEquals("Groceries", viewModel.buildShareText(1L))
+    }
+
+    @Test
     fun `selected sharing keeps dao order and includes only selected descriptions`() = runBlocking {
         val first = ListItemEntity(id = 11L, listId = 1L, text = "first", description = "https://example.com/first?full=true", itemId = "first")
-        val selected = ListItemEntity(id = 12L, listId = 1L, text = "selected", description = "line one\nline two", itemId = "selected")
+        val selected = ListItemEntity(
+            id = 12L,
+            listId = 1L,
+            text = "selected",
+            description = "line one\nline two",
+            checked = true,
+            itemId = "selected",
+        )
         val third = ListItemEntity(id = 13L, listId = 1L, text = "third", itemId = "third")
         coEvery { listNameDao.getById(1L) } returns ListNameEntity(id = 1L, name = "groceries")
         coEvery { dao.getAllByList(1L) } returns listOf(first, selected, third)
@@ -166,7 +226,7 @@ class ListsViewModelTextTest {
         ).apply { ioDispatcher = dispatcher }
 
         assertEquals(
-            "Groceries\n\n• selected\nline one\nline two",
+            "Groceries\n\n✓ selected\nline one\nline two",
             viewModel.buildShareText(1L, setOf(selected.id)),
         )
         viewModel.selectAllItems(listOf(first.id, selected.id, third.id))

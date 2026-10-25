@@ -1135,7 +1135,8 @@ class ListsViewModel @Inject constructor(
     suspend fun buildShareText(listId: Long, selectedItemIds: Set<Long>? = null): String {
         val listName = listNameDao.getById(listId)?.name?.replaceFirstChar { it.uppercase() } ?: "List"
         val items = dao.getAllByList(listId).let { rows ->
-            selectedItemIds?.let { selected -> rows.filter { it.id in selected } } ?: rows
+            if (selectedItemIds == null) rows.filterNot { it.checked }
+            else rows.filter { it.id in selectedItemIds }
         }
         return formatListShareText(listName, items)
     }

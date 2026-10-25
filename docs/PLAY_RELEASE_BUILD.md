@@ -7,7 +7,7 @@ This document describes the release build process for Jandal AI's first Play Sto
 
 Jandal AI uses **Google Play App Signing**. The flow is:
 
-1. Nick provides the existing authorized upload keystore and upload key; do not generate a repository or agent-owned release key.
+1. For the first signed release, Nick creates an upload keystore locally; no existing keystore is required.
 2. Configure Gradle release signing using local-only `keystore.properties` (see [Signing Setup](#signing-setup)).
 3. Build a **signed** release AAB with the upload key.
 4. Upload the signed AAB to the Play Console.
@@ -44,21 +44,36 @@ Because the Play Store manages the final signing key, the upload key is only use
 
 ### Local builds
 
-For local signed release-candidate APKs, Nick must provide the existing authorized upload keystore and its credentials. This repository does not generate or contain a release private key. Keep the keystore outside the checkout.
+For this first signed release, Nick creates a new upload keystore on a trusted local host. Do not create or store release keys in the repository or CI. Keep the keystore outside the checkout and on an encrypted, owner-controlled volume.
 
-Create a project-root `keystore.properties` file locally (already ignored by `.gitignore`) and restrict its permissions:
+Generate the key interactively with the JDK `keytool`; it prompts for passwords, which must not be passed as command-line arguments:
+
+```bash
+umask 077
+mkdir -p "$HOME/.local/share/jandal"
+chmod 700 "$HOME/.local/share/jandal"
+keytool -genkeypair -v -storetype JKS \
+  -keystore "$HOME/.local/share/jandal/jandal-upload.jks" \
+  -alias jandal-upload -keyalg RSA -keysize 2048 -validity 10000
+chmod 600 "$HOME/.local/share/jandal/jandal-upload.jks"
+```
+
+Use strong passwords and keep them in a password manager, separately from the keystore. Make encrypted backups, including one offline. Test a restored backup by running `keytool -list -v -keystore <path> -alias jandal-upload` (interactive password prompt) and comparing the certificate SHA-256 fingerprint.
+
+Create the project-root `keystore.properties` locally. The file is ignored by `.gitignore`, but contains plaintext at rest; protect it with owner-only permissions:
 
 ```properties
-storeFile=/absolute/path/to/the/Nick-provided-upload.keystore
-storePassword=<Nick-provided-store-password>
-keyAlias=<Nick-provided-alias>
-keyPassword=<Nick-provided-key-password>
+storeFile=/absolute/path/outside/checkout/jandal-upload.jks
+storePassword=<set-locally>
+keyAlias=jandal-upload
+keyPassword=<set-locally>
 ```
+
+Replace placeholders locally; never paste password values into chat, GitHub, or repository files. Then run:
 
 ```bash
 chmod 600 keystore.properties
 ```
-
 Gradle uses this file only when present. All four entries and the keystore file are required; incomplete configuration fails without printing credential values. With no file, release builds remain unsigned for CI. The release variant keeps application ID `com.kernel.ai`.
 
 Build from a clean checkout at the approved full source SHA. Nick must approve the monotonically increasing `versionCode`; choose one fixed ISO-8601 UTC `buildTimestamp` and reuse both values exactly for any rebuild. Gradle embeds the timestamp in `BuildConfig`, so fixing it avoids build-time variation in that field.
@@ -108,8 +123,8 @@ CI intentionally does not receive or use release signing material. Its release A
 ## Security Rules
 
 - Keystore files and passwords are never committed; `keystore.properties` is ignored and contains plaintext at rest.
-- Keep the supplied keystore outside the checkout and restrict the properties file to owner read/write.
-- Never pass passwords through command-line arguments or CI/local Gradle properties.
+- Keep the locally generated upload keystore outside the checkout; retain encrypted backups, including one offline, and store passwords separately in a password manager.
+- Never pass passwords in command-line arguments, Gradle `-P`/`-D` properties, or CI. Gradle reads them only from the ignored local `keystore.properties`; restrict it to owner read/write.
 - Play Console credentials and service-account keys remain outside the repository.
 - CI gets no release signing material and continues producing unsigned release outputs.
 
@@ -129,15 +144,16 @@ CI intentionally does not receive or use release signing material. Its release A
 
 ### Local validation
 
-If you have `bundletool` installed, you can validate an AAB locally:
+Use `jarsigner` and `keytool` to verify the AAB signature, signer certificate, and digest. If `bundletool` is installed, validate the bundle structure as well:
 
 ```bash
 bundletool validate --bundle=app/build/outputs/bundle/release/app-release.aab
 jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab
+keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab
+sha256sum app/build/outputs/bundle/release/app-release.aab
 ```
 
-
-Confirm the keystore file exists at the path specified in `keystore.properties` and that the alias is correct. Run `keytool -list -v -keystore <path>` without `-storepass`; keytool prompts for the password instead of exposing it in the process arguments.
+Compare the AAB signer certificate SHA-256 fingerprint with `keytool -list -v -keystore <path> -alias <alias>` output (interactive password prompt). Record that fingerprint and the AAB SHA-256 with the source SHA, `versionName`, Nick-approved `versionCode`, and fixed `buildTimestamp`. Verify the APK separately with `apksigner verify --verbose --print-certs` and `sha256sum`; compare its signer fingerprint with the local keystore listing. These commands do not sign or upload either artifact.
 
 ### AAB upload rejected by Play Console
 
