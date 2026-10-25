@@ -7,11 +7,11 @@ This document captures the release-attribution state after the Semaine release-v
 
 ## Status
 
-This document was updated by #1259 with the first release AAB build and artefact audit. Release runtime dependency evidence has been generated and compared against the existing attribution docs. Formal SBOM (CycloneDX/SPDX) has not been generated — the dependency review is documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.
+The release AAB audit and runtime dependency comparison recorded by #1259 / PR #1273 are historical, not current release acceptance. The current release wiring uses the custom Inflect-enabled Sherpa AAR; #1474 tracks the unresolved Piper/eSpeak provenance, component terms, notices, corresponding-source path, and candidate reconciliation. Formal SBOM (CycloneDX/SPDX) and generated third-party notices have not been produced.
 
 ## Pre-release-candidate status
 
-This is still a **pre-release-candidate attribution snapshot** — Play Console pre-launch report findings may still require changes. Some key gaps identified at creation time (AAB inspection, dependency comparison) have been addressed. Formal SBOM and generated third-party notices remain pending.
+This remains a **pre-release-candidate attribution snapshot**, not a signed release candidate or Play acceptance. The historical AAB inspection does not close #1474; no candidate-linked SBOM/notices or exact release-artefact reconciliation are recorded here.
 
 ## Release scope decisions captured
 
