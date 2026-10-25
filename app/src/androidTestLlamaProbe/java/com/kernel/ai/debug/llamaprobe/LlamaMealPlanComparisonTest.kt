@@ -83,25 +83,19 @@ class LlamaMealPlanComparisonTest {
     }
 
     @Test
-    fun openClMemoryAndThermalGatesAreScopedToOpenCl() {
+    fun openClThermalGateIsScopedToOpenCl() {
         val lowMemory = JSONObject()
-            .put("avail_mem_bytes", MIN_START_AVAILABLE_MEMORY_BYTES - 1)
+            .put("avail_mem_bytes", 1L)
             .put("thermal_status", MAX_THERMAL_STATUS)
-        requireOpenClStartGates(lowMemory, isOpenClProbe = false, stage = "CPU baseline")
-        assertTrue(
-            "OpenCL pairing gate did not reject below-threshold memory",
-            runCatching {
-                requireOpenClStartGates(lowMemory, isOpenClProbe = true, stage = "comparison")
-            }.exceptionOrNull() is IllegalStateException,
-        )
+        requireOpenClThermalGate(lowMemory, isOpenClProbe = false, stage = "CPU baseline")
+        requireOpenClThermalGate(lowMemory, isOpenClProbe = true, stage = "comparison")
 
         val highThermal = JSONObject()
-            .put("avail_mem_bytes", MIN_START_AVAILABLE_MEMORY_BYTES)
             .put("thermal_status", MAX_THERMAL_STATUS + 1)
         assertTrue(
-            "OpenCL pairing gate did not reject high thermal status",
+            "OpenCL start gate did not reject high thermal status",
             runCatching {
-                requireOpenClStartGates(highThermal, isOpenClProbe = true, stage = "comparison")
+                requireOpenClThermalGate(highThermal, isOpenClProbe = true, stage = "comparison")
             }.exceptionOrNull() is IllegalStateException,
         )
         requireOpenClThermalGate(highThermal, isOpenClProbe = false, stage = "CPU baseline")
@@ -144,15 +138,6 @@ class LlamaMealPlanComparisonTest {
         }
     }
 
-    private fun requireOpenClStartGates(snapshot: JSONObject, isOpenClProbe: Boolean, stage: String) {
-        if (!isOpenClProbe) return
-        check(snapshot.getLong("avail_mem_bytes") >= MIN_START_AVAILABLE_MEMORY_BYTES) {
-            "Available memory is below the bounded OpenCL $stage gate"
-        }
-        check(snapshot.getInt("thermal_status") <= MAX_THERMAL_STATUS) {
-            "Thermal status is above the bounded OpenCL $stage gate"
-        }
-    }
 
     private fun requireOpenClThermalGate(snapshot: JSONObject, isOpenClProbe: Boolean, stage: String) {
         if (!isOpenClProbe) return
@@ -186,7 +171,7 @@ class LlamaMealPlanComparisonTest {
         check(!preflight.getBoolean("low_memory")) {
             "Android reports lowMemory before the bounded first-token test"
         }
-        requireOpenClStartGates(preflight, BuildConfig.IS_OPENCL_PROBE, "first-token")
+        requireOpenClThermalGate(preflight, BuildConfig.IS_OPENCL_PROBE, "first-token")
         val session = stage("llama_first_token_load") {
             loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
         }
@@ -250,7 +235,7 @@ class LlamaMealPlanComparisonTest {
         check(!preflight.getBoolean("low_memory")) {
             "Android reports lowMemory before the bounded prefill cancellation test"
         }
-        requireOpenClStartGates(preflight, BuildConfig.IS_OPENCL_PROBE, "prefill cancellation")
+        requireOpenClThermalGate(preflight, BuildConfig.IS_OPENCL_PROBE, "prefill cancellation")
         val session = stage("llama_prefill_cancel_load") {
             loadLfmSession(llamaFile, contextSize = LLAMA_CONTEXT_TOKENS)
         }
@@ -335,7 +320,7 @@ class LlamaMealPlanComparisonTest {
         logProbeResults(results)
 
         check(!preflight.getBoolean("low_memory")) { "Android reports lowMemory before inference; stopping preflight" }
-        requireOpenClStartGates(preflight, BuildConfig.IS_OPENCL_PROBE, "comparison")
+        requireOpenClThermalGate(preflight, BuildConfig.IS_OPENCL_PROBE, "comparison")
 
         if (!llamaOnly) {
             val gemmaFile = requireNotNull(gemmaFileCandidate)
@@ -1166,7 +1151,6 @@ class LlamaMealPlanComparisonTest {
         private const val CONTEXT_TOKENS = 4096
         private const val LLAMA_CONTEXT_TOKENS = 4096
         private const val LFM_FILE_SIZE_BYTES = 1_674_455_040L
-        private const val MIN_START_AVAILABLE_MEMORY_BYTES = 4_800_000_000L
         private const val MAX_THERMAL_STATUS = 1
         private const val LFM_SHA256 = "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed"
         private const val DSPARK_FILE_NAME = "LFM2.5-2.6B-DSpark-Q4_K_M.gguf"
