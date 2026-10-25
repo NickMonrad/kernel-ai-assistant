@@ -5,7 +5,7 @@ This manifest records the host-built four-ABI replacement proposed for #1474. Th
 ## Candidate artifact and source identity
 
 - AAR: `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar`
-- Candidate AAR SHA-256: `403918cd23362e477c7c6ebec3f7a5239a75f21ab4cd28a140f14da71f311e55`
+- Candidate AAR SHA-256: `46a8e806833066bc657d8508e66e35dae8b1a04dff207ebd8538517d58b6567d`
 - Candidate AAR size: 35,935,731 bytes
 - Replaced AAR SHA-256: `cf35bb1999586fb6c2f5746bfc556504a6ee8407e02ed3047f1274fa8d2008dc`
 - Base stock AAR: `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort.aar`
@@ -14,7 +14,7 @@ This manifest records the host-built four-ABI replacement proposed for #1474. Th
 - Sherpa commit: `b0592803468fa98777e328aa38136cf6ec015a05`
 - Sherpa Git tree object: `a52fc3c4bdc6babea7c242048643f7f09aed18c1`
 - Checked-in Inflect patch: `scripts/sherpa-onnx-v1.13.0-inflect.patch`
-- Inflect patch SHA-256: `56120507ca1b57b2214185fdb9c55d8b6dbe85179ef1a57b2555110d9f2b81d1`
+- Inflect patch SHA-256: `4c47b9c172d9849cf9f6f66a4cefefeaee9320197acfec23d8a19328accdcfa4`
 
 The patch adds `sherpa-onnx/jni/inflect-phonemizer.cc`, includes it in the JNI target, and exports `Java_com_kernel_ai_core_voice_InflectPhonemizer_nativePhonemize`. The Kotlin declaration is `InflectPhonemizer.nativePhonemize(String, String): String` in `core/voice/src/main/java/com/kernel/ai/core/voice/InflectPhonemizer.kt`.
 
@@ -59,7 +59,7 @@ bash scripts/build-sherpa-inflect-aar.sh "$WORK" "$WORK/candidate.aar"
 sha256sum "$WORK/candidate.aar"
 ```
 
-`CMAKE_ARCHIVE`, when supplied, is checked against the pinned SHA-256. The script clones the exact Sherpa commit, applies the hash-pinned patch, verifies the ONNX Runtime archive, and uses Sherpa's CMake `URL_HASH` checks for dependency downloads. It isolates `HOME` and `TMPDIR` under the disposable work directory and retains one build log per ABI plus a build manifest there. It refuses an existing work directory or output path.
+`CMAKE_ARCHIVE`, when supplied, is checked against the pinned SHA-256. The script clones the exact Sherpa commit, applies the hash-pinned patch, verifies the ONNX Runtime archive, and uses Sherpa's CMake `URL_HASH` checks for dependency downloads. It isolates `HOME` and `TMPDIR` under the disposable work directory and retains one build log per ABI plus a build manifest there. It refuses an existing work directory or output path. The checked-in patch passes `-g0`, `-ffile-prefix-map=<scratch>/sherpa=/src/sherpa`, and `-Wl,--build-id=none` through each ABI build. Two independent builds using only prefix mapping and `-g0` produced identical stripped sections but different 20-byte GNU build IDs; disabling that build ID made both JNI libraries and packaged AARs byte-identical.
 
 The packager starts from the stock no-ORT AAR and replaces only these entries:
 
@@ -74,14 +74,12 @@ ZIP entry timestamps and metadata are fixed and entries are stored without compr
 
 | ABI | ELF machine | Inflect JNI SHA-256 |
 |---|---|---|
-| `arm64-v8a` | AArch64 | `08d365a376f712bfef6931e8549b718d588b55dd29b8afb418df4f44b45fd87d` |
-| `armeabi-v7a` | ARM | `fd19b0861ca91f30523498b71f1ea8d9218ca38e4464b2f012ca0482ae4afd75` |
-| `x86` | Intel 80386 | `e3a51d05c30cbe681eac220ec5e6f7eb3b5f0e6fd8cc290e10252bbb02a9413c` |
-| `x86_64` | Advanced Micro Devices X86-64 | `aaba816f406a8d6ca67257c18b5cad749b4a667d4a5d0f05335a6e56547591a6` |
+| `arm64-v8a` | AArch64 | `a2115748b48dea4a4352b695903699c4a8026d2d580a962e95fc9185916a0da8` |
+| `armeabi-v7a` | ARM | `977e47c93087247589dcd4ab723c3b87865152d6ec6445705747aea6b1c96d97` |
+| `x86` | Intel 80386 | `48a266545de8455cfd71e48d9b4efcbeb0652def64808f2000b7a53e49cf89db` |
+| `x86_64` | Advanced Micro Devices X86-64 | `f88da1d518c7922d3f032d1807ee7132174b4afac63556aab9c5327d5f48babd` |
 
-The same build outputs were packaged twice; both AARs had SHA-256 `403918cd23362e477c7c6ebec3f7a5239a75f21ab4cd28a140f14da71f311e55`. This demonstrates deterministic packaging of those native outputs, not an independent second source compilation.
-
-All four native builds completed and their outputs passed the packager. The top-level shell driver exited with status 127 after it was edited in-place during execution; I packaged the retained outputs directly. The final driver passes `bash -n`, but was not rerun end-to-end from an empty work directory.
+Two independent clean runs, `/tmp/jandal-1474-noid-h-20261025T033352Z-35281` and `/tmp/jandal-1474-noid-i-20261025T034102Z-35281`, exited 0 and produced byte-identical JNI outputs for all four ABIs and identical AAR SHA-256 `46a8e806833066bc657d8508e66e35dae8b1a04dff207ebd8538517d58b6567d`. Each packager run verified ELF machine type, the required JNI export, `DT_NEEDED`, ZIP CRCs, and byte-for-byte preservation of every non-replaced base-AAR entry. The tracked draft candidate is copied from run H and has that same AAR hash.
 
 ## Open #1474/#1263 release obligations
 

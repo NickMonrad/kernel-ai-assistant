@@ -2,7 +2,7 @@
 set -euo pipefail
 
 readonly SHERPA_COMMIT="b0592803468fa98777e328aa38136cf6ec015a05"
-readonly PATCH_SHA256="56120507ca1b57b2214185fdb9c55d8b6dbe85179ef1a57b2555110d9f2b81d1"
+readonly PATCH_SHA256="4c47b9c172d9849cf9f6f66a4cefefeaee9320197acfec23d8a19328accdcfa4"
 readonly BASE_AAR_SHA256="233b6b19fb5515c047adebde0dbf873a9fd8ac23f1d2ff6a3701f7ffc923b23c"
 readonly ONNXRUNTIME_SHA256="67397e4a970e75617f765d2015ceaf911917e1d822276cfb5792744e8085cbce"
 readonly ONNXRUNTIME_URL="https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.24.3/onnxruntime-android-1.24.3.zip"
@@ -66,7 +66,13 @@ cmake_bin="$work_dir/tools/cmake-4.4.2-linux-x86_64/bin/cmake"
 [[ -x "$cmake_bin" ]] || fail "pinned CMake archive did not contain the expected executable"
 cmake_version_output="$("$cmake_bin" --version)"
 [[ "$cmake_version_output" == "cmake version $CMAKE_VERSION"* ]] || fail "unexpected CMake version: ${cmake_version_output%%$'\n'*}"
+# The patch removes DWARF/path variation and disables the pre-strip linker build ID.
+# Clean builds differed only in that 20-byte ID after stripping.
 sherpa="$work_dir/sherpa"
+
+# The checked-in patch passes -g0 plus a stable prefix map to each ABI build.
+# This excludes scratch paths from DWARF before LLD hashes the unstripped ELF.
+export SHERPA_BUILD_ROOT="$sherpa"
 
 # Keep CMake user caches isolated. Sherpa's FetchContent declarations verify
 # each dependency archive using its pinned URL_HASH before extracting it.
