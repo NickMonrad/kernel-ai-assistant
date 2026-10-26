@@ -28,6 +28,16 @@ private const val TAG = "KernelAI"
 private const val NOTIFICATION_CHANNEL_ID = "kernel_voice_download"
 private const val TMP_SUFFIX = ".tmp"
 
+internal fun openVoicePackDownloadOutput(
+    tmpFile: File,
+    responseCode: Int,
+    resumeFrom: Long,
+): Pair<FileOutputStream, Long> {
+    val resumed = responseCode == HttpURLConnection.HTTP_PARTIAL
+    return FileOutputStream(tmpFile, /* append = */ resumed) to
+        if (resumed) resumeFrom else 0L
+}
+
 // WorkManager Data keys
 const val KEY_VOICE_NAME = "voice_name"
 const val KEY_VOICE_DISPLAY_NAME = "voice_display_name"
@@ -168,7 +178,9 @@ class VoicePackDownloadWorker(
             throw IOException("HTTP $responseCode for $url")
         }
 
-        var downloadedBytes = resumeFrom
+        val (downloadOutput, initialDownloadedBytes) =
+            openVoicePackDownloadOutput(tmpFile, responseCode, resumeFrom)
+        var downloadedBytes = initialDownloadedBytes
         val sizeWindow = ArrayDeque<Long>(5)
         val latencyWindow = ArrayDeque<Long>(5)
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -176,7 +188,7 @@ class VoicePackDownloadWorker(
         var deltaBytes = 0L
 
         connection.inputStream.use { input ->
-            FileOutputStream(tmpFile, /* append */ true).use { output ->
+            downloadOutput.use { output ->
                 var bytesRead: Int
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
