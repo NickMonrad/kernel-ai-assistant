@@ -21,6 +21,7 @@ import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -36,6 +37,18 @@ internal fun openVoicePackDownloadOutput(
     val resumed = responseCode == HttpURLConnection.HTTP_PARTIAL
     return FileOutputStream(tmpFile, /* append = */ resumed) to
         if (resumed) resumeFrom else 0L
+}
+
+internal suspend fun <T> withVoicePackDownloadStreams(
+    openInputStream: () -> InputStream,
+    tmpFile: File,
+    responseCode: Int,
+    resumeFrom: Long,
+    consume: suspend (InputStream, FileOutputStream, Long) -> T,
+): T = openInputStream().use { input ->
+    val (output, initialDownloadedBytes) =
+        openVoicePackDownloadOutput(tmpFile, responseCode, resumeFrom)
+    output.use { consume(input, it, initialDownloadedBytes) }
 }
 
 // WorkManager Data keys
@@ -178,52 +191,54 @@ class VoicePackDownloadWorker(
             throw IOException("HTTP $responseCode for $url")
         }
 
-        val (downloadOutput, initialDownloadedBytes) =
-            openVoicePackDownloadOutput(tmpFile, responseCode, resumeFrom)
-        var downloadedBytes = initialDownloadedBytes
         val sizeWindow = ArrayDeque<Long>(5)
         val latencyWindow = ArrayDeque<Long>(5)
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         var lastProgressTs = 0L
         var deltaBytes = 0L
 
-        connection.inputStream.use { input ->
-            downloadOutput.use { output ->
-                var bytesRead: Int
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
-                    downloadedBytes += bytesRead
-                    deltaBytes += bytesRead
 
-                    val now = System.currentTimeMillis()
-                    if (lastProgressTs == 0L || now - lastProgressTs >= 200) {
-                        var bps = 0L
-                        if (lastProgressTs != 0L) {
-                            if (sizeWindow.size == 5) sizeWindow.removeFirst()
-                            if (latencyWindow.size == 5) latencyWindow.removeFirst()
-                            sizeWindow.addLast(deltaBytes)
-                            latencyWindow.addLast(now - lastProgressTs)
-                            deltaBytes = 0L
-                            val totalMs = latencyWindow.sum()
-                            if (totalMs > 0) bps = sizeWindow.sum() * 1000L / totalMs
-                        }
-                        val remainingMs = if (bps > 0 && totalBytes > 0) {
-                            (totalBytes - downloadedBytes) * 1000L / bps
-                        } else 0L
+        withVoicePackDownloadStreams(
+            openInputStream = { connection.inputStream },
+            tmpFile = tmpFile,
+            responseCode = responseCode,
+            resumeFrom = resumeFrom,
+        ) { input, output, initialDownloadedBytes ->
+            var downloadedBytes = initialDownloadedBytes
+            var bytesRead: Int
+            while (input.read(buffer).also { bytesRead = it } != -1) {
+                output.write(buffer, 0, bytesRead)
+                downloadedBytes += bytesRead
+                deltaBytes += bytesRead
 
-                        // Map download progress to 0–90% of total
-                        val dlFraction = if (totalBytes > 0) downloadedBytes.toFloat() / totalBytes else 0f
-                        val overallPct = (dlFraction * 90).toInt()
-                        setProgress(
-                            Data.Builder()
-                                .putLong(KEY_VOICE_PROGRESS_BYTES, downloadedBytes)
-                                .putLong(KEY_VOICE_DOWNLOAD_RATE, bps)
-                                .putLong(KEY_VOICE_REMAINING_MS, remainingMs)
-                                .build()
-                        )
-                        trySetForeground(buildForegroundInfo(displayName, overallPct))
-                        lastProgressTs = now
+                val now = System.currentTimeMillis()
+                if (lastProgressTs == 0L || now - lastProgressTs >= 200) {
+                    var bps = 0L
+                    if (lastProgressTs != 0L) {
+                        if (sizeWindow.size == 5) sizeWindow.removeFirst()
+                        if (latencyWindow.size == 5) latencyWindow.removeFirst()
+                        sizeWindow.addLast(deltaBytes)
+                        latencyWindow.addLast(now - lastProgressTs)
+                        deltaBytes = 0L
+                        val totalMs = latencyWindow.sum()
+                        if (totalMs > 0) bps = sizeWindow.sum() * 1000L / totalMs
                     }
+                    val remainingMs = if (bps > 0 && totalBytes > 0) {
+                        (totalBytes - downloadedBytes) * 1000L / bps
+                    } else 0L
+
+                    // Map download progress to 0–90% of total
+                    val dlFraction = if (totalBytes > 0) downloadedBytes.toFloat() / totalBytes else 0f
+                    val overallPct = (dlFraction * 90).toInt()
+                    setProgress(
+                        Data.Builder()
+                            .putLong(KEY_VOICE_PROGRESS_BYTES, downloadedBytes)
+                            .putLong(KEY_VOICE_DOWNLOAD_RATE, bps)
+                            .putLong(KEY_VOICE_REMAINING_MS, remainingMs)
+                            .build()
+                    )
+                    trySetForeground(buildForegroundInfo(displayName, overallPct))
+                    lastProgressTs = now
                 }
             }
         }
