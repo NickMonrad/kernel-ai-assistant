@@ -145,12 +145,12 @@ Avoid promising that every feature is offline if a skill may call an external so
 - [x] `models/README.md` documents approximate model sizes and gated-model requirements.
 - [x] `NOTICE` includes source-code adaptation notices and points to this review for runtime/downloadable assets.
 - [x] Direct dependency licence classes are recorded in this document.
-- [x] #1268: Semaine hidden from release; CoriHigh promoted as release-safe British English alternative.
+- [x] #1268: Semaine is excluded from release. CoriHigh is the sole release-visible Piper voice for v0.1; this allowlist is not full #1263/#1474 release sign-off.
 - [x] #1263: release-attribution snapshot added in `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`.
 - [x] Wake-word training/provenance path is traceable through `training/wakeword/README.md` and `NOTICE`.
 - [x] Release runtime dependency evidence generated and compared against this table. Formal SBOM (CycloneDX/SPDX) not generated; Durable dependency review documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.
 - [ ] Confirm exact bundled/downloaded Vosk model provenance if Vosk model files are exposed in the release build.
 - [ ] Confirm maintainer ownership/consent for real recordings used in the generated Hey Jandal Stage 3 wake-word model.
-- [x] Decide whether an in-app open-source licences screen is required after the generated release notice/SBOM is reviewed — Deferred: no dependency licence found that requires in-app reproduction; NOTICE + docs + Play Store listing satisfy first-launch requirements.
+- [ ] #1263: Implement and validate both offline in-app disclosure views required for v0.1 through #1260 Legal & Privacy; this requirement is not conditional on SBOM findings.
 - [ ] Play Store privacy/data disclosures match the actual release build.
 - [ ] Confirm #868's closed state still reflects the final release scope after the SBOM/AAB audit.
