@@ -117,7 +117,7 @@ jobs:
         run: ./gradlew :core:memory:testDebugUnitTest :core:skills:testDebugUnitTest :core:voice:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
 
       - name: Upload test results
-        if: always()
+        if: always() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: test-results-${{ github.sha }}
@@ -125,7 +125,7 @@ jobs:
           retention-days: 14
 
       - name: Upload APK
-        if: success()
+        if: success() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: apk-${{ github.sha }}
@@ -147,7 +147,7 @@ jobs:
             --report "unit_tests=${{ steps.gradle-unit-tests.outcome == 'success' && '0' || '1' }}"
 
       - name: Upload CI test evidence
-        if: always()
+        if: always() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ci-test-evidence-${{ github.sha }}
@@ -155,7 +155,7 @@ jobs:
           retention-days: 30
 
       - name: Publish PR preview APK
-        if: success() && github.event_name == 'pull_request'
+        if: success() && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
