@@ -363,6 +363,8 @@ tasks.register("generateReleaseDependencyInventory") {
     val inventoryFile = reportDirectory.map { it.file("release-runtime-dependency-inventory.json") }
     val metadataGapsFile = reportDirectory.map { it.file("release-runtime-metadata-gaps.json") }
     outputs.files(inventoryFile, metadataGapsFile)
+    // The resolved dependency graph and source commit are read during execution, not modeled as task inputs.
+    outputs.upToDateWhen { false }
 
     doLast {
         val configuration = configurations.getByName("releaseRuntimeClasspath")
