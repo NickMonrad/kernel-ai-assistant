@@ -21,30 +21,27 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Explicit synthetic runtime smoke test. Run only by selecting this exact class; the custom runner
- * then skips KernelAIApplication.onCreate so unrelated scheduling/sync work is not started.
- * Requires already-installed app-private Inflect graphs and an existing app-private eSpeak data
- * directory supplied as the `data_directory` instrumentation argument.
+ * Explicit synthetic runtime smoke test for the isolated Inflect application ID.
+ * Requires model graphs acquired through the app's Settings → Voice → Inflect Micro download flow
+ * and an existing app-private eSpeak data directory supplied as an instrumentation argument.
  */
 @RunWith(AndroidJUnit4::class)
 class InflectSpikeReceiverRuntimeTest {
     @Test
-    fun phonemizesAndSynthesizesSyntheticTextWithoutNormalApplicationStartup() {
+    fun phonemizesAndSynthesizesSyntheticTextWithIsolatedApplicationStartup() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val arguments = InstrumentationRegistry.getArguments()
         assumeTrue(
             "Select only ${InflectProbeStartupIsolation.RUNTIME_TEST_CLASS} to run this probe",
             arguments.getString("class") == InflectProbeStartupIsolation.RUNTIME_TEST_CLASS,
         )
-        val runner = instrumentation as? InflectSpikeAndroidJUnitRunner
-        assertTrue("The Inflect-specific instrumentation runner is required", runner != null)
-        assertTrue(
-            "Target Application.onCreate must be suppressed for this probe",
-            runner!!.targetApplicationOnCreateSuppressed,
-        )
 
         val context = instrumentation.targetContext
-        assertEquals(InflectProbeStartupIsolation.DEBUG_PACKAGE, context.packageName)
+        assertEquals(InflectProbeStartupIsolation.PROBE_PACKAGE, context.packageName)
+        assertTrue(
+            "The test-only startup mode must be enabled",
+            com.kernel.ai.BuildConfig.IS_INFLECT_PROBE,
+        )
         // Mirror the production model-directory resolution without calling modelDirectory(), which
         // creates the directory if absent. This test requires the models to pre-exist.
         val modelDirectory = context.getExternalFilesDir("models")

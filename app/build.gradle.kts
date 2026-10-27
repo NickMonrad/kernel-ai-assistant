@@ -21,6 +21,19 @@ val gitSha: String by lazy {
 val buildTimestamp = (project.findProperty("buildTimestamp") as String?)
     ?.let { Instant.parse(it).toString() }
     ?: Instant.now().toString()
+val isolatedInflectProbe = providers.gradleProperty("isolatedInflectProbe")
+    .map(String::toBooleanStrict)
+    .orElse(false)
+    .get()
+val debugApplicationId = if (isolatedInflectProbe) {
+    "com.kernel.ai.debug.inflectprobe"
+} else {
+    "com.kernel.ai.debug"
+}
+if (isolatedInflectProbe) {
+    // Keep probe APKs separate from the normal app-debug.apk preview/build output.
+    layout.buildDirectory.set(layout.projectDirectory.dir("build/inflectProbe"))
+}
 
 val releaseSigningProperties = rootProject.file("keystore.properties")
     .takeIf { it.isFile }
@@ -63,6 +76,7 @@ android {
         buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai://oauth/callback\"")
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
         buildConfigField("String", "BUILD_TIMESTAMP", "\"$buildTimestamp\"")
+        buildConfigField("boolean", "IS_INFLECT_PROBE", "false")
     }
 
     signingConfigs {
@@ -98,9 +112,10 @@ android {
 
         debug {
             isMinifyEnabled = false
-            applicationIdSuffix = ".debug"
+            applicationIdSuffix = if (isolatedInflectProbe) ".debug.inflectprobe" else ".debug"
             signingConfig = signingConfigs.getByName("debugSigning")
-            buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai.debug://oauth/callback\"")
+            buildConfigField("boolean", "IS_INFLECT_PROBE", isolatedInflectProbe.toString())
+            buildConfigField("String", "HF_REDIRECT_URI", "\"$debugApplicationId://oauth/callback\"")
         }
     }
 
@@ -393,7 +408,10 @@ dependencies {
     androidTestImplementation(libs.litert)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
-    debugImplementation(libs.leakcanary)
+    // Keep LeakCanary's debug-only providers/watchers out of the isolated probe package.
+    if (!isolatedInflectProbe) {
+        debugImplementation(libs.leakcanary)
+    }
 
     implementation(libs.appauth)
     implementation(libs.security.crypto)
