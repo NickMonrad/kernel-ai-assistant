@@ -1,6 +1,6 @@
 # Release Runtime Dependency Evidence
 
-Generated during #1259 / PR #1273. Updated to reflect accurate SBOM/licence evidence status.
+Historical baseline generated during #1259 / PR #1273; it is not a current-main release SBOM or final-candidate compliance audit. The custom Inflect-enabled Sherpa AAR and Piper/eSpeak scope are tracked by #1474.
 
 ## Command Run
 
@@ -49,7 +49,7 @@ All release runtime dependencies come from:
 | ML inference | LiteRT-LM, TensorFlow Lite, MediaPipe Tasks | Apache-2.0 |
 | ONNX runtime | ONNX Runtime Android | MIT |
 | Speech (STT) | Vosk Android | Apache-2.0 |
-| Speech (TTS) | Sherpa-ONNX (AAR) | Apache-2.0 |
+| Speech (TTS) | Sherpa-ONNX custom v1.13.0 Inflect AAR (`third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar`) | Sherpa's project licence does not establish the complete AAR's component terms; Piper/eSpeak provenance, eSpeak data, corresponding source and notices remain open in #1474. |
 | Networking | OkHttp, Okio | Apache-2.0 |
 | Image loading | Coil (Compose Multiplatform) | Apache-2.0 |
 | Auth | AppAuth, Tink | Apache-2.0 |
@@ -64,13 +64,13 @@ All release runtime dependencies come from:
 
 ### `NOTICE`
 - CURRENT: Covers 2 adapted source projects (Google AI Edge Gallery, LiteRT-LM) plus openWakeWord.
-- GAP: Does not list individual runtime library dependencies — but cross-references `docs/LEGAL_AND_ATTRIBUTION.md`.
-- VERDICT: Sufficient for first launch. `NOTICE` is intended for source-code adaptation and bundled notice obligations, not a full dependency manifest. The legal attribution docs provide the comprehensive view.
+- GAP: This historical notice review does not inventory the custom AAR's Piper/eSpeak component provenance or eSpeak data; no generated third-party notice is recorded.
+- VERDICT: Not sufficient to close #1474 or establish the required notices for the current release payload.
 
 ### `docs/LEGAL_AND_ATTRIBUTION.md`
-- Covers all major dependency categories. Lists licence classes in a table.
-- GAP: Minor transitive deps not individually listed (Tink, Gson, Okio, JSpecify). All are Apache-2.0 or MIT.
-- VERDICT: Adequate for first launch.
+- The table covers major categories in the historical inventory but predates the current custom Inflect-enabled Sherpa AAR wired into `:app`.
+- GAP: It does not record exact Piper/eSpeak source revisions, the voice-pack `espeak-ng-data` distribution, or release-linked corresponding source; #1474 tracks these.
+- VERDICT: Not current or complete release evidence; do not use it to claim the complete bundle is permissive or Apache-2.0-only.
 
 ### `docs/VOICE_MODEL_ATTRIBUTION.md`
 - Covers downloadable voice packs (CoriHigh, Kokoro, Semaine provenance).
@@ -84,10 +84,8 @@ All release runtime dependencies come from:
 
 - **Machine-generated SBOM** (CycloneDX / SPDX): **Not generated.** No plugin added for this purpose.
 - **Generated third-party notices**: Not generated as a standalone file.
-- **Current approach**: Manual dependency tree inspection + comparison against authored attribution docs.
+- **Historical approach**: At the time of this report, manual dependency tree inspection + comparison against authored attribution docs.
 
-To close #1263, one of the following is needed:
-1. Add a compatible SBOM generation plugin (CycloneDX Gradle plugin or similar) and commit the output, OR
-2. Document that the project uses manual dependency review with the existing attribution docs as the durable evidence, and explicitly accept that approach.
+This historical report alone cannot close #1263 or #1474. #1263 still needs its SBOM-versus-manual-review decision; #1474 additionally requires exact candidate provenance, source/notice evidence, and reconciliation.
 
-This documentation file serves as the durable, reviewable evidence of the current dependency review state.
+This file preserves the #1259 / PR #1273 review and is not current-main or candidate-linked compliance evidence.
