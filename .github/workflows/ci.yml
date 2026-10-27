@@ -154,6 +154,27 @@ jobs:
           path: /tmp/ci-evidence/
           retention-days: 30
 
+      - name: Retire PR preview comment for validation-only run
+        if: always() && github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          EXISTING_ID=$(gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" \
+            | jq -r '[.[][] | select(.body | startswith("<!-- pr-apk-comment -->"))][0].id // empty')
+          if [ -z "$EXISTING_ID" ]; then
+            echo "No PR preview comment to retire"
+            exit 0
+          fi
+
+          jq -n --arg pr "$PR_NUMBER" --arg sha "$PR_HEAD_SHA" '{
+            body: ("<!-- pr-apk-comment -->\n## Preview retired for validation-only run\n\nPR #" + $pr + " has the `ci-validation-only` label. This run for commit `" + $sha + "` did not publish a debug APK preview. Any previous preview link is stale and must not be used for this head.")
+          }' > /tmp/pr-comment.json
+
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING_ID}" \
+            -X PATCH --input /tmp/pr-comment.json
       - name: Publish PR preview APK
         if: success() && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
         env:
