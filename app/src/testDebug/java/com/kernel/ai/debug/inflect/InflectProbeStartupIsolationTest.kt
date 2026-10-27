@@ -7,9 +7,10 @@ import org.junit.jupiter.api.Test
 
 class InflectProbeStartupIsolationTest {
     @Test
-    fun `runtime probe is allowed only for isolated package and single test selection`() {
+    fun `runtime probe selection is accepted only in runner-supported isolated forms`() {
         val testClass = InflectProbeStartupIsolation.RUNTIME_TEST_CLASS
         val probePackage = InflectProbeStartupIsolation.PROBE_PACKAGE
+        val methodSelection = "$testClass#phonemizesAndSynthesizesSyntheticPhrase"
 
         assertTrue(
             InflectProbeStartupIsolation.shouldAllowRuntimeTest(
@@ -17,10 +18,11 @@ class InflectProbeStartupIsolationTest {
                 selectedTestClass = testClass,
             ),
         )
+        assertTrue(InflectProbeStartupIsolation.isRuntimeTestSelected(methodSelection))
         assertTrue(
             InflectProbeStartupIsolation.shouldAllowRuntimeTest(
                 targetPackage = probePackage,
-                selectedTestClass = "$testClass#phonemizesAndSynthesizesSyntheticPhrase",
+                selectedTestClass = methodSelection,
             ),
         )
         assertFalse(

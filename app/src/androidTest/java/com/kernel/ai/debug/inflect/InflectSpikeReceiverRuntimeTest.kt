@@ -31,12 +31,15 @@ class InflectSpikeReceiverRuntimeTest {
     fun phonemizesAndSynthesizesSyntheticTextWithIsolatedApplicationStartup() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val arguments = InstrumentationRegistry.getArguments()
+        val context = instrumentation.targetContext
         assumeTrue(
-            "Select only ${InflectProbeStartupIsolation.RUNTIME_TEST_CLASS} to run this probe",
-            arguments.getString("class") == InflectProbeStartupIsolation.RUNTIME_TEST_CLASS,
+            "Select the runtime test class or one method on the isolated package",
+            InflectProbeStartupIsolation.shouldAllowRuntimeTest(
+                targetPackage = context.packageName,
+                selectedTestClass = arguments.getString("class"),
+            ),
         )
 
-        val context = instrumentation.targetContext
         assertEquals(InflectProbeStartupIsolation.PROBE_PACKAGE, context.packageName)
         assertTrue(
             "The test-only startup mode must be enabled",
