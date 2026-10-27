@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Debug
 import android.util.Log
+import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.InflectMicroOnnxRunner
 import com.kernel.ai.core.voice.InflectMicroTextFrontend
 import com.kernel.ai.core.voice.InflectOnnxSynthesis
@@ -62,7 +63,7 @@ class InflectSpikeReceiver : BroadcastReceiver() {
     }
 
     private fun runProbe(context: Context, intent: Intent, pendingResult: PendingResult) {
-        val modelDirectory = File(context.filesDir, MODEL_DIRECTORY)
+        val modelDirectory = InflectMicroModelSpec.modelDirectory(context)
         if (!File(modelDirectory, InflectMicroOnnxRunner.DURATION_MODEL_FILE).isFile ||
             !File(modelDirectory, InflectMicroOnnxRunner.DECODE_MODEL_FILE).isFile
         ) {
@@ -113,7 +114,7 @@ class InflectSpikeReceiver : BroadcastReceiver() {
     }
 
     private fun runRuntimeProbe(context: Context, intent: Intent, pendingResult: PendingResult) {
-        val modelDirectory = File(context.filesDir, MODEL_DIRECTORY)
+        val modelDirectory = InflectMicroModelSpec.modelDirectory(context)
         if (!File(modelDirectory, InflectMicroOnnxRunner.DURATION_MODEL_FILE).isFile ||
             !File(modelDirectory, InflectMicroOnnxRunner.DECODE_MODEL_FILE).isFile
         ) {
@@ -337,7 +338,6 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         const val EXTRA_SEED = "seed"
         const val EXTRA_SPEED = "speed"
         const val EXTRA_VARIATION = "variation"
-        const val MODEL_DIRECTORY = "inflect-micro-v2-onnx"
         const val EVIDENCE_DIRECTORY = "inflect-spike"
         const val RUNTIME_EVIDENCE_DIRECTORY = "inflect-validation"
         private const val DEFAULT_PHONEME_TEXT = "həlˈoʊ"
