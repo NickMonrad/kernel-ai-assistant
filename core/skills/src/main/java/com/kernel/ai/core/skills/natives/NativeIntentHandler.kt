@@ -527,10 +527,20 @@ class NativeIntentHandler @Inject constructor(
     private fun cancelTimer(params: Map<String, String>): SkillResult {
         val timers = runBlocking { clockRepository.getAllTimers() }
         val explicitlyCancellingAll = params["all"]?.equals("true", ignoreCase = true) == true
-        if (!explicitlyCancellingAll && timers.size > 1) return timerClarification(timers)
+        val requestedCount = params["count"]?.toIntOrNull()
+        if ("count" in params && requestedCount != 2) {
+            return timerCountClarification(timers, requestedCount)
+        }
+        if (requestedCount == 2 && timers.size != 2) {
+            return timerCountClarification(timers, requestedCount)
+        }
+        if (!explicitlyCancellingAll && requestedCount == null && timers.size > 1) {
+            return timerClarification(timers)
+        }
 
         val cancelled = when {
-            explicitlyCancellingAll -> runBlocking { clockRepository.cancelAllTimers() }
+            explicitlyCancellingAll || requestedCount == 2 ->
+                runBlocking { clockRepository.cancelAllTimers() }
             timers.size == 1 -> {
                 runBlocking { clockRepository.cancelTimer(timers.single().id) }
                 1
@@ -615,8 +625,28 @@ class NativeIntentHandler @Inject constructor(
             "$position $label — ${formatSpokenDuration(remainingSeconds)} remaining"
         }
         return SkillResult.DirectReply(
-            "Which timer should I cancel? Say its name or numbered position: ${choiceDescriptions.joinToString("; ")}.",
+            "Which timer should I cancel? Say a complete command, such as \"cancel the second timer\" or \"cancel the Tea timer\". Active timers: ${choiceDescriptions.joinToString("; ")}.",
         )
+    }
+
+    private fun timerCountClarification(
+        timers: List<ClockTimer>,
+        requestedCount: Int?,
+    ): SkillResult.DirectReply {
+        if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
+
+        val countIssue = when (requestedCount) {
+            2 -> "I found ${timers.size} active timers, so I didn't cancel any: \"both\" requires exactly two."
+            null -> "I couldn't confirm how many timers you meant, so I didn't cancel any."
+            else -> "I found ${timers.size} active timers, so I couldn't cancel exactly $requestedCount; I didn't cancel any."
+        }
+        val nextStep = if (requestedCount == 2) {
+            "To cancel two, issue two complete commands, one at a time."
+        } else {
+            "To choose a timer, use a complete command."
+        }
+        val chooseOne = timerClarification(timers).content
+        return SkillResult.DirectReply("$countIssue $nextStep $chooseOne")
     }
 
     private fun timerOrdinalPosition(index: Int): String {

@@ -17,6 +17,7 @@ import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
+import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.natives.CalendarBirthdayLookup
 import com.kernel.ai.core.skills.natives.ClockAlertController
@@ -155,6 +156,29 @@ class TimerCancellationAcceptanceTest {
 
         assertEquals(SkillResult.Success("Cancelled the Tea timer"), result)
         coVerify(exactly = 1) { clockRepository.cancelTimer("tea") }
+        coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
+    }
+
+    @Test
+    fun completeOrdinalCommandRoutesThroughQuickIntentRouterAndCancelsOnlyThatTimer() = runBlocking {
+        coEvery { clockRepository.getAllTimers() } returns listOf(
+            activeTimer("tea", "Tea", 60_000L),
+            activeTimer("laundry", "Laundry", 120_000L),
+            activeTimer("pasta", "Pasta", 180_000L),
+        )
+
+        val route = QuickIntentRouter().route("cancel the second timer")
+        assertTrue(route is QuickIntentRouter.RouteResult.RegexMatch)
+        val intent = (route as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals("cancel_timer_named", intent.intentName)
+        assertEquals("second", intent.params["name"])
+
+        val result = handler.handle(intent.intentName, intent.params)
+
+        assertEquals(SkillResult.Success("Cancelled the second timer"), result)
+        coVerify(exactly = 1) { clockRepository.cancelTimer("laundry") }
+        coVerify(exactly = 0) { clockRepository.cancelTimer("tea") }
+        coVerify(exactly = 0) { clockRepository.cancelTimer("pasta") }
         coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
     }
 

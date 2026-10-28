@@ -42,7 +42,7 @@ class RunIntentSkill @Inject constructor(
                 RunIntentModelAction("set_alarm", "time, day?, label?"),
                 RunIntentModelAction("cancel_alarm", "label?"),
                 RunIntentModelAction("set_timer", "duration_seconds, label?"),
-                RunIntentModelAction("cancel_timer", "all? true only for explicit bulk wording"),
+                RunIntentModelAction("cancel_timer", "all? true only for explicit all timers; count? 2 for explicit both timers"),
                 RunIntentModelAction("cancel_timer_named", "name? for a specific timer; omit name for a generic request, never for bulk"),
                 RunIntentModelAction("list_timers", ""),
                 RunIntentModelAction("get_timer_remaining", "name?"),

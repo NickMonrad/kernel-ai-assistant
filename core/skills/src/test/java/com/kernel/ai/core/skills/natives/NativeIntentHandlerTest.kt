@@ -2091,6 +2091,8 @@ class NativeIntentHandlerTest {
         val prompt = (result as SkillResult.DirectReply).content
         assertTrue(prompt.contains("1st. Tea"))
         assertTrue(prompt.contains("2nd. Laundry"))
+        assertTrue(prompt.contains("cancel the second timer"))
+        assertTrue(prompt.contains("cancel the Tea timer"))
         coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
         coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
         verify(exactly = 0) { clockAlertController.dismissActiveTimerAlerts() }
@@ -2120,6 +2122,41 @@ class NativeIntentHandlerTest {
         assertEquals(SkillResult.Success("Cancelled 2 timers."), result)
         coVerify(exactly = 1) { clockRepository.cancelAllTimers() }
         coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
+    }
+
+    @Test
+    fun `model routed both count cancels exactly two active timers`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(
+            activeTimer("tea", "Tea", 600_000L),
+            activeTimer("laundry", "Laundry", 1_200_000L),
+        )
+        coEvery { clockRepository.cancelAllTimers() } returns 2
+
+        val result = handleIntent("cancel_timer", mapOf("count" to "2"))
+
+        assertEquals(SkillResult.Success("Cancelled 2 timers."), result)
+        coVerify(exactly = 1) { clockRepository.cancelAllTimers() }
+        coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
+    }
+
+    @Test
+    fun `model routed both count with three active timers clarifies and cancels none`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(
+            activeTimer("tea", "Tea", 600_000L),
+            activeTimer("laundry", "Laundry", 1_200_000L),
+            activeTimer("pasta", "Pasta", 1_800_000L),
+        )
+
+        val result = handleIntent("cancel_timer", mapOf("all" to "true", "count" to "2"))
+
+        assertTrue(result is SkillResult.DirectReply)
+        val prompt = (result as SkillResult.DirectReply).content
+        assertTrue(prompt.contains("I found 3 active timers"))
+        assertTrue(prompt.contains("cancel the second timer"))
+        assertTrue(prompt.contains("complete commands"))
+        coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
+        coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
+        verify(exactly = 0) { clockAlertController.dismissActiveTimerAlerts() }
     }
 
     @Test

@@ -850,13 +850,11 @@ class QuickIntentRouter(
             paramExtractor = { match, _ ->
                 val quantifier = match.groupValues[1]
                 val noun = match.groupValues[2]
-                if (quantifier.equals("all", ignoreCase = true) ||
-                    quantifier.equals("both", ignoreCase = true) ||
-                    noun.endsWith("s", ignoreCase = true)
-                ) {
-                    mapOf("all" to "true")
-                } else {
-                    emptyMap()
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
                 }
             },
         ),
@@ -892,13 +890,11 @@ class QuickIntentRouter(
             paramExtractor = { match, _ ->
                 val quantifier = match.groupValues[1]
                 val noun = match.groupValues[2]
-                if (quantifier.equals("all", ignoreCase = true) ||
-                    quantifier.equals("both", ignoreCase = true) ||
-                    noun.endsWith("s", ignoreCase = true)
-                ) {
-                    mapOf("all" to "true")
-                } else {
-                    emptyMap()
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
                 }
             },
         ),

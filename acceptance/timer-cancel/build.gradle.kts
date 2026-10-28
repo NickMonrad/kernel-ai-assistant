@@ -21,6 +21,7 @@ dependencies {
     implementation(project(":core:memory"))
     implementation(project(":core:inference"))
     implementation(project(":core:permissions"))
+    implementation(libs.androidx.startup)
 
     androidTestImplementation(libs.test.runner)
     androidTestImplementation(libs.work.runtime.ktx)

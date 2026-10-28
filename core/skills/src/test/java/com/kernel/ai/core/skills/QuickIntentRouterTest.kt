@@ -486,15 +486,21 @@ class QuickIntentRouterTest {
         }
 
         @Test
-        fun `only explicit multi timer wording sets the bulk cancellation flag`() {
+        fun `only explicit all wording sets the all flag and both preserves its count`() {
             val singular = regexOnlyRouter.route("cancel timer") as QuickIntentRouter.RouteResult.RegexMatch
             assertNull(singular.intent.params["all"])
 
             val cancelAll = regexOnlyRouter.route("cancel all timers") as QuickIntentRouter.RouteResult.RegexMatch
             assertEquals("true", cancelAll.intent.params["all"])
+            assertNull(cancelAll.intent.params["count"])
 
             val cancelBoth = regexOnlyRouter.route("cancel both timers") as QuickIntentRouter.RouteResult.RegexMatch
-            assertEquals("true", cancelBoth.intent.params["all"])
+            assertEquals("2", cancelBoth.intent.params["count"])
+            assertNull(cancelBoth.intent.params["all"])
+
+            val turnOffBoth = regexOnlyRouter.route("turn off both timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("2", turnOffBoth.intent.params["count"])
+            assertNull(turnOffBoth.intent.params["all"])
 
             val turnOffAll = regexOnlyRouter.route("turn off all timers") as QuickIntentRouter.RouteResult.RegexMatch
             assertEquals("true", turnOffAll.intent.params["all"])
