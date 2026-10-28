@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:versionCode="1"
+    tools:replace="android:versionCode">
+    <!-- AGP output metadata remains 0; verify this packaged code and bump above the installed test APK before later installs. -->
+</manifest>
