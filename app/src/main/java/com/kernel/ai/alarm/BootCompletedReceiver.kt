@@ -36,31 +36,47 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 clockRepository.restoreScheduledEntries()
                 listItemDao.getAllActiveWithNotification().forEach { item ->
                     val listName = listNameDao.getById(item.listId)?.name ?: ""
-                    listNotificationScheduler.schedule(
-                        itemId = item.id,
-                        itemText = item.text,
-                        listId = item.listId,
-                        listName = listName,
-                        triggerAtMs = item.notificationTime!!,
-                    )
+                    scheduleBootReminder {
+                        listNotificationScheduler.schedule(
+                            itemId = item.id,
+                            itemText = item.text,
+                            listId = item.listId,
+                            listName = listName,
+                            triggerAtMs = item.notificationTime!!,
+                        )
+                    }
                 }
 
                 val (hour, minute) = importantDateNotificationPreferences.getNotificationTime()
                 importantDateDao.getAllWithNotificationEnabled().forEach { date ->
-                    importantDateNotificationScheduler.schedule(
-                        dateId = date.id,
-                        label = date.label,
-                        month = date.month,
-                        day = date.day,
-                        year = date.year,
-                        notificationHour = hour,
-                        notificationMinute = minute,
-                    )
+                    scheduleBootReminder {
+                        importantDateNotificationScheduler.schedule(
+                            dateId = date.id,
+                            label = date.label,
+                            month = date.month,
+                            day = date.day,
+                            year = date.year,
+                            notificationHour = hour,
+                            notificationMinute = minute,
+                        )
+                    }
                 }
             } finally {
                 pendingResult.finish()
             }
         }
+    }
+}
+
+/**
+ * Isolates exact-alarm permission races per reminder during boot restoration. The persisted
+ * reminder remains unchanged; a denied schedule does not prevent later reminders from restoring.
+ */
+internal inline fun scheduleBootReminder(schedule: () -> Unit) {
+    try {
+        schedule()
+    } catch (_: SecurityException) {
+        // Do not let one denied exact alarm abort restoration of other reminders.
     }
 }
 
