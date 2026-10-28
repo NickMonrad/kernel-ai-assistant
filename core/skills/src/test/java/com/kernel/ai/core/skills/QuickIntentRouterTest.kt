@@ -485,6 +485,25 @@ class QuickIntentRouterTest {
             assertRegexMatch(result, "cancel_timer", "cancel the timer")
         }
 
+        @Test
+        fun `only explicit multi timer wording sets the bulk cancellation flag`() {
+            val singular = regexOnlyRouter.route("cancel timer") as QuickIntentRouter.RouteResult.RegexMatch
+            assertNull(singular.intent.params["all"])
+
+            val cancelAll = regexOnlyRouter.route("cancel all timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("true", cancelAll.intent.params["all"])
+
+            val cancelBoth = regexOnlyRouter.route("cancel both timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("true", cancelBoth.intent.params["all"])
+
+            val turnOffAll = regexOnlyRouter.route("turn off all timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("true", turnOffAll.intent.params["all"])
+
+            val cancelSecond = regexOnlyRouter.route("cancel the second timer") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("cancel_timer_named", cancelSecond.intent.intentName)
+            assertEquals("second", cancelSecond.intent.params["name"])
+        }
+
         @ParameterizedTest(name = "\"{0}\" should route to cancel_timer")
         @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#pluralCancelTimerPhrases")
         fun `plural and all timer cancellation phrases should route to cancel_timer`(input: String) {
@@ -2580,6 +2599,8 @@ class QuickIntentRouterTest {
             Arguments.of("delete all timers"),
             Arguments.of("cancel my timers"),
             Arguments.of("stop my timers"),
+            Arguments.of("cancel both timers"),
+            Arguments.of("cancel timers"),
         )
 
         // ── Flashlight ON ─────────────────────────────────────────────────────

@@ -173,7 +173,7 @@ class NativeIntentHandler @Inject constructor(
                 "send_sms" -> sendSms(params)
                 "set_alarm" -> setAlarm(params)
                 "set_timer" -> setTimer(params)
-                "cancel_timer" -> cancelTimer()
+                "cancel_timer" -> cancelTimer(params)
                 "list_timers" -> listTimers()
                 "cancel_timer_named" -> cancelTimerNamed(params)
                 "get_timer_remaining" -> getTimerRemaining(params)
@@ -524,8 +524,19 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
-    private fun cancelTimer(): SkillResult {
-        val cancelled = runBlocking { clockRepository.cancelAllTimers() }
+    private fun cancelTimer(params: Map<String, String>): SkillResult {
+        val timers = runBlocking { clockRepository.getAllTimers() }
+        val explicitlyCancellingAll = params["all"]?.equals("true", ignoreCase = true) == true
+        if (!explicitlyCancellingAll && timers.size > 1) return timerClarification(timers)
+
+        val cancelled = when {
+            explicitlyCancellingAll -> runBlocking { clockRepository.cancelAllTimers() }
+            timers.size == 1 -> {
+                runBlocking { clockRepository.cancelTimer(timers.single().id) }
+                1
+            }
+            else -> 0
+        }
         val dismissedActiveAlert = clockAlertController.dismissActiveTimerAlerts()
         return when {
             cancelled > 0 && dismissedActiveAlert ->
@@ -555,14 +566,72 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun cancelTimerNamed(params: Map<String, String>): SkillResult {
-        val name = params["name"] ?: return cancelTimer()
+        val name = params["name"]?.takeIf { it.isNotBlank() } ?: return cancelTimer(emptyMap())
+        val timers = runBlocking { clockRepository.getAllTimers() }
         val durationMs = parseDurationToMs(name)
-        val cancelled = runBlocking { clockRepository.cancelTimersMatching(name, durationMs) }
-        if (cancelled == 0) return SkillResult.Failure("cancel_timer_named", "No timer matching '$name' found")
-        return SkillResult.Success(
-            if (cancelled == 1) "Cancelled the $name timer"
-            else "Cancelled $cancelled timers matching $name"
+        val matches = timers.filter { timer ->
+            timer.label?.equals(name, ignoreCase = true) == true ||
+                (durationMs != null && timer.durationMs == durationMs)
+        }
+        val normalizedName = name.lowercase(Locale.ROOT)
+        val ordinalIndex = when (normalizedName) {
+            "first" -> 0
+            "second" -> 1
+            "third" -> 2
+            "fourth" -> 3
+            "last" -> timers.lastIndex
+            else -> normalizedName
+                .removeSuffix("st")
+                .removeSuffix("nd")
+                .removeSuffix("rd")
+                .removeSuffix("th")
+                .toIntOrNull()
+                ?.minus(1)
+        }
+        val candidates = when {
+            matches.isNotEmpty() -> matches
+            ordinalIndex != null && ordinalIndex in timers.indices -> listOf(timers[ordinalIndex])
+            else -> emptyList()
+        }
+        return when (candidates.size) {
+            0 -> SkillResult.Failure("cancel_timer_named", "No timer matching '$name' found")
+            1 -> {
+                runBlocking { clockRepository.cancelTimer(candidates.single().id) }
+                SkillResult.Success("Cancelled the $name timer")
+            }
+            else -> timerClarification(timers, candidates)
+        }
+    }
+
+    private fun timerClarification(
+        timers: List<ClockTimer>,
+        choices: List<ClockTimer> = timers,
+    ): SkillResult.DirectReply {
+        val now = System.currentTimeMillis()
+        val choiceDescriptions = choices.map { timer ->
+            val position = timerOrdinalPosition(timers.indexOfFirst { it.id == timer.id })
+            val label = timer.label?.takeIf { it.isNotBlank() } ?: "Timer"
+            val remainingSeconds = ((timer.triggerAtMillis - now).coerceAtLeast(0L)) / 1_000L
+            "$position $label — ${formatSpokenDuration(remainingSeconds)} remaining"
+        }
+        return SkillResult.DirectReply(
+            "Which timer should I cancel? Say its name or numbered position: ${choiceDescriptions.joinToString("; ")}.",
         )
+    }
+
+    private fun timerOrdinalPosition(index: Int): String {
+        val number = index + 1
+        val suffix = if (number % 100 in 11..13) {
+            "th"
+        } else {
+            when (number % 10) {
+                1 -> "st"
+                2 -> "nd"
+                3 -> "rd"
+                else -> "th"
+            }
+        }
+        return "$number$suffix."
     }
 
     private fun getTimerRemaining(params: Map<String, String>): SkillResult {
