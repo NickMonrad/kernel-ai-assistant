@@ -47,7 +47,22 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
         with:
-          packages: platform-tools
+          packages: platform-tools ndk;28.2.13676358
+
+      - name: Verify pinned NDK installation
+        env:
+          NDK_VERSION: 28.2.13676358
+        run: |
+          NDK_DIR="$ANDROID_HOME/ndk/$NDK_VERSION"
+          NDK_PROPERTIES="$NDK_DIR/source.properties"
+          if [ ! -f "$NDK_PROPERTIES" ]; then
+            echo "::error::Pinned NDK $NDK_VERSION is incomplete: $NDK_PROPERTIES is missing"
+            exit 1
+          fi
+          if ! grep -Eq "^Pkg\\.Revision[[:space:]]*=[[:space:]]*${NDK_VERSION}$" "$NDK_PROPERTIES"; then
+            echo "::error::Pinned NDK revision does not match $NDK_VERSION in $NDK_PROPERTIES"
+            exit 1
+          fi
 
       - name: Cache Gradle packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
