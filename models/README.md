@@ -92,9 +92,9 @@ These assets are downloaded or bundled by the app rather than manually placed in
 | Sherpa SenseVoice STT | ~100 MB | Hugging Face `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | Offline/final-only ONNX recogniser: model + tokens. |
 | Sherpa Whisper tiny.en STT | ~117 MB | Hugging Face `csukuangfj/sherpa-onnx-whisper-tiny.en` | Offline/final-only ONNX recogniser: encoder, decoder, tokens. |
 | Sherpa Paraformer STT | ~220 MB | Hugging Face `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | Streaming/online ONNX recogniser: encoder, decoder, tokens. |
-| Sherpa Piper/VITS voice packs | ~64-116 MB each | Sherpa-ONNX GitHub `tts-models` release assets | Downloaded per selected voice; exact per-voice/dataset licence must be reviewed before release. |
-| Semaine Piper/VITS voice pack | ~70 MB | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | Launch-blocking decision tracked in #1258. |
-| Kokoro experimental voice pack | ~130 MB | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | Experimental 53-speaker Kokoro pack; verify Kokoro model/voice licence before exposing in release. |
+| Sherpa Piper/VITS voice packs | ~64-116 MB each | Sherpa-ONNX GitHub `tts-models` release assets | Only CoriHigh is release-visible in v0.1; remaining catalogue entries are debug/internal pending per-voice source, dataset, and terms review. |
+| Semaine Piper/VITS voice pack | ~70 MB | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | Excluded from release builds; see completed gating in #1258. |
+| Kokoro experimental voice pack | ~130 MB | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | Debug-only/post-launch for v0.1 under #1014; not release-visible. |
 
 ## Device-specific setup notes
 
@@ -116,6 +116,6 @@ These assets are downloaded or bundled by the app rather than manually placed in
 - Do not imply Jandal owns or sublicenses upstream model files.
 - Keep model source links and approximate sizes current when model choices change.
 - Keep gated-model behaviour aligned with the app UI: `Ready`, `Preparing`, `Action Required`, or `Unavailable`.
-- Resolve #1258 before shipping Semaine in any Play Store release.
-- Verify the Kokoro model/voice licence before exposing Kokoro in release.
+- Semaine remains excluded from Play builds under #1258 unless separately reviewed for release.
+- Kokoro remains debug-only/post-launch for v0.1 under #1014.
 - See [`../docs/LEGAL_AND_ATTRIBUTION.md`](../docs/LEGAL_AND_ATTRIBUTION.md) before release packaging or Play Store publication.

@@ -12,9 +12,9 @@ enum class SherpaPiperVoice(
     val approxDownloadBytes: Long,
     /**
      * Whether this voice can appear in release (Play Store) builds.
-     * `false` = debug/internal only (e.g. Semaine — non-commercial licence).
+     * `false` = debug/internal only; opt in only after per-voice source, dataset, and terms review.
      */
-    val releaseVisible: Boolean = true,
+    val releaseVisible: Boolean = false,
     /**
      * Number of speakers in the Piper model. Single-speaker voices always use sid=0; the stored
      * [activeSpeakerId] preference must not be applied to them.
@@ -55,6 +55,7 @@ enum class SherpaPiperVoice(
         assetDirectoryName = "vits-piper-en_GB-cori-high",
         downloadKey = "en_GB-cori-high",
         approxDownloadBytes = 115_574_061L,
+        releaseVisible = true,
     ),
     AlbaMedium(
         displayName = "Alba",

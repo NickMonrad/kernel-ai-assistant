@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.pm.ServiceInfo
 import android.annotation.SuppressLint
 import android.util.Log
@@ -102,6 +103,15 @@ class VoicePackDownloadWorker(
 
         if (piperVoice == null && kokoroVoice == null) {
             return@withContext Result.failure(errorData("Unknown voice: $voiceName"))
+        }
+
+        val isReleaseBuild =
+            (applicationContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
+        if (piperVoice != null &&
+            !SherpaVoicePackDownloadManager.canDownloadVoice(isReleaseBuild, piperVoice)
+        ) {
+            Log.w(TAG, "Rejecting queued Piper download for non-release-visible voice: $voiceName")
+            return@withContext Result.failure(errorData("Voice is not available in this build"))
         }
 
         val destDir: File
