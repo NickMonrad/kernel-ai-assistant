@@ -79,4 +79,3 @@ internal inline fun scheduleBootReminder(schedule: () -> Unit) {
         // Do not let one denied exact alarm abort restoration of other reminders.
     }
 }
-
