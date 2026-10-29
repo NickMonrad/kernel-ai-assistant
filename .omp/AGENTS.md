@@ -133,6 +133,16 @@ Default: `main`. Feature branches: `feature/<short-name>`. Branch from `main` on
 
 End every implementation handoff with: **Do not merge — wait for review.**
 
+### PR preview APK publication
+
+The CI `Publish PR preview APK` step runs after a successful `pull_request` workflow and publishes
+the debug-variant `app-debug.apk` to the PR-specific prerelease `pr-<number>`, updating its asset
+and sticky PR comment. This normal CI-managed preview generation, upload, publication, and refresh
+is standing-authorised; do not request per-PR approval. It is separate from the `debug-latest`
+debug release published after successful pushes to `main`. This authorisation does not cover
+production signing, production release publication, or Play submission; each still requires
+explicit approval for the exact scope.
+
 ## Testing strategy
 
 - Unit: JUnit 5 + MockK (`src/test/`). Compose UI: `ui-test-junit4` (`src/androidTest/`)
