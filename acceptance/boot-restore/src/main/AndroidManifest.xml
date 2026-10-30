@@ -20,5 +20,13 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name="com.kernel.ai.bootrestore.BootRestoreAcceptanceReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.kernel.ai.debug.bootrestore.action.TEST_BOOT_RESTORE" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

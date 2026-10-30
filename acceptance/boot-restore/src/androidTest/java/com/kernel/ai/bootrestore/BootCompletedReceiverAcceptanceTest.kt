@@ -92,12 +92,15 @@ class BootCompletedReceiverAcceptanceTest {
 
         try {
             val output = instrumentation.uiAutomation.executeShellCommand(
-                "am broadcast -W -a android.intent.action.BOOT_COMPLETED " +
-                    "-n $TARGET_APPLICATION_ID/com.kernel.ai.alarm.BootCompletedReceiver",
+                "am broadcast -W -a ${BootRestoreAcceptanceReceiver.ACTION_TEST_BOOT_RESTORE} " +
+                    "-n $TARGET_APPLICATION_ID/com.kernel.ai.bootrestore.BootRestoreAcceptanceReceiver",
             ).let { descriptor ->
                 ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
             }
-            assertTrue("Boot receiver did not complete: $output", "Broadcast completed" in output)
+            assertTrue(
+                "Test broadcast did not wait for receiver completion: $output",
+                "Broadcast completed" in output,
+            )
             assertNotNull(database.listItemDao().getByItemId(itemId))
             assertNotNull(database.importantDateDao().findByNormalizedLabel(normalizedLabel))
         } finally {

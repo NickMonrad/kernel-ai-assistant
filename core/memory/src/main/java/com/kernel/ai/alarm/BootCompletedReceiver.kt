@@ -17,7 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class BootCompletedReceiver : BroadcastReceiver() {
+open class BootCompletedReceiver : BroadcastReceiver() {
 
     @Inject lateinit var clockRepository: ClockRepository
     @Inject lateinit var listItemDao: ListItemDao
