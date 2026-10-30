@@ -153,7 +153,9 @@ jobs:
       - name: Unit tests
         continue-on-error: true
         id: gradle-unit-tests
-        run: ./gradlew :core:memory:testDebugUnitTest :core:skills:testDebugUnitTest :core:voice:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
+        run: |
+          ./gradlew :core:memory:testDebugUnitTest :core:skills:testDebugUnitTest :core:voice:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
+          ./gradlew :core:inference:testDebugUnitTest --tests com.kernel.ai.core.inference.LiteRtInferenceEngineResponseFormatTest
 
       - name: Upload test results
         if: always() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))

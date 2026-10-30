@@ -66,10 +66,7 @@ class LiteRtInferenceEngineResponseFormatTest {
         } answers {
             capturedResponseFormat = lastArg<ResponseFormat?>()
             val callback = secondArg<MessageCallback>()
-            callback.onMessage(mockk<Message> {
-                every { toolCalls } returns emptyList()
-                every { toString() } returns RESPONSE
-            })
+            callback.onMessage(Message.model(RESPONSE))
             callback.onDone()
         }
         setPrivateField(engine, "engine", runtime)
