@@ -36,7 +36,15 @@ def expected_device_test_version_code(
 def parse_badging(output: str) -> tuple[str, int, str | None]:
     match = PACKAGE_RE.search(output)
     if match is None:
-        raise ValueError("aapt output has no package name/versionCode record")
+        candidates = [
+            line.strip()
+            for line in output.splitlines()
+            if "package" in line.lower() or "versioncode" in line.lower()
+        ]
+        raise ValueError(
+            "aapt output has no package name/versionCode record; "
+            f"candidate lines={candidates!r}"
+        )
     return match.group(1), int(match.group(2)), match.group(3)
 
 
@@ -92,12 +100,13 @@ def find_android_build_tools(sdk_root: Path) -> tuple[Path, Path]:
 def inspect_apk(apk: Path, aapt: Path, apksigner: Path) -> tuple[str, int, str | None, tuple[str, ...]]:
     if not apk.is_file() or apk.stat().st_size == 0:
         raise FileNotFoundError(f"APK is absent or empty: {apk}")
-    badging = subprocess.run(
+    badging_result = subprocess.run(
         [str(aapt), "dump", "badging", str(apk)],
         check=True,
         capture_output=True,
         text=True,
-    ).stdout
+    )
+    badging = badging_result.stdout + "\n" + badging_result.stderr
     signer_result = subprocess.run(
         [str(apksigner), "verify", "--print-certs", str(apk)],
         check=True,
