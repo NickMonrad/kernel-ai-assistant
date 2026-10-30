@@ -161,7 +161,7 @@ class ConstrainedTransitionFixtureHarnessTest {
 
         assertTrue(result is SlotFillResult.Completed)
         assertEquals(
-            mapOf("item" to "call the blinds people", "day" to "monday", "time" to "09:00"),
+            mapOf("item" to "call the blinds people", "day" to "monday", "time" to "9:00"),
             (result as SlotFillResult.Completed).params,
         )
         assertFalse(manager.hasPendingFor("reminder-conversation"))
@@ -170,7 +170,10 @@ class ConstrainedTransitionFixtureHarnessTest {
 
     @Test
     fun `invalid pending-slot replies reach proposal evaluator before re-prompting`() {
-        val manager = SlotFillerManager(IntentContractRegistry())
+        val validationRegistry = SlotValidationRegistry().apply {
+            register("add_reminder", "time", AlarmTimeValidator)
+        }
+        val manager = SlotFillerManager(IntentContractRegistry(), validationRegistry)
         manager.startSlotFill(
             "reminder-conversation",
             PendingSlotRequest(
