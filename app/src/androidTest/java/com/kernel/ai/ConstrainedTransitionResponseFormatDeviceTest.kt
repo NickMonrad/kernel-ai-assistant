@@ -17,6 +17,7 @@ import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -90,6 +91,15 @@ class ConstrainedTransitionResponseFormatDeviceTest {
             expectedDevice == "S21" && isS21 || expectedDevice == "S23U" && isS23U,
         )
 
+        val expectedModel = if (isS21) "E2B" else "E4B"
+        assertEquals("Unexpected model for the requested device lane", expectedModel, requestedModel)
+        val expectedTier = if (isS21) HardwareTier.MID_RANGE else HardwareTier.FLAGSHIP
+        val hardwareProfileDetector = HardwareProfileDetector(context)
+        val hardwareProfile = hardwareProfileDetector.profile
+        assertEquals("Unexpected hardware tier for the requested lane", expectedTier, hardwareProfile.tier)
+        val expectedMaxTokens = if (isS21) 3072 else 8000
+        assertEquals(expectedMaxTokens, hardwareProfile.recommendedMaxTokens)
+
         val model = when (requestedModel) {
             "E2B" -> KernelModel.GEMMA_4_E2B
             else -> KernelModel.GEMMA_4_E4B
@@ -97,7 +107,6 @@ class ConstrainedTransitionResponseFormatDeviceTest {
         val modelFile = model.localFile(context)
         assumeTrue("MODEL_NOT_INSTALLED model=$requestedModel", modelFile.isFile)
         val backend = if (requestedBackend == "CPU") BackendType.CPU else BackendType.GPU
-
         val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) power.currentThermalStatus else 0
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
@@ -110,10 +119,11 @@ class ConstrainedTransitionResponseFormatDeviceTest {
         assumeTrue("MEMORY_GATE_BLOCKED lowMemory=${memoryInfo.lowMemory}", !memoryInfo.lowMemory)
 
         val toolProvider = EntryPointAccessors.fromApplication(context, ToolsEntryPoint::class.java).toolProvider()
-        val engine = LiteRtInferenceEngine(context, HardwareProfileDetector(context))
+        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
         val config = ModelConfig(
             modelPath = modelFile.absolutePath,
             backendType = backend,
+            maxTokens = hardwareProfile.recommendedMaxTokens,
             systemPrompt = "For the transition probe, return only the requested structured decision. For ordinary chat, reply briefly.",
             thinkingEnabled = false,
             toolProvider = toolProvider,
@@ -128,6 +138,7 @@ class ConstrainedTransitionResponseFormatDeviceTest {
             engine.initialize(config)
             val initMs = SystemClock.elapsedRealtime() - initStarted
             assertEquals("Requested backend must not silently fall back", backend, engine.activeBackend.value)
+            assertEquals("Harness must use the lane's safe KV-cache budget", expectedMaxTokens, engine.resolvedMaxTokens.value)
             Log.i(TAG, "ENGINE_READY device=${Build.MODEL} model=$requestedModel backend=${engine.activeBackend.value} initMs=$initMs")
             baselinePeakPssKb.set(Debug.getPss().toLong())
             pssSampler = launch(Dispatchers.Default) {
