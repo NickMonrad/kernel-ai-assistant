@@ -116,6 +116,11 @@ jobs:
             echo "Device-test versionCode exceeds Android's supported maximum" >&2
             exit 1
           fi
+          cat > app/src/androidTest/AndroidManifest.xml <<EOF
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              android:versionCode="$DEVICE_TEST_VERSION_CODE"
+              android:versionName="0.1.0" />
+          EOF
           ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest \
             -PversionCode="$DEVICE_TEST_VERSION_CODE"
           ./gradlew :feature:settings:assembleDebugAndroidTest :app:assembleRelease \
