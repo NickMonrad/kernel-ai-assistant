@@ -9,7 +9,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.ai.edge.litertlm.ToolProvider
-import com.google.gson.JsonParser
+import org.json.JSONObject
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.LiteRtInferenceEngine
@@ -168,14 +168,13 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                     val latency = SystemClock.elapsedRealtime() - started
                     val decoded = decode(raw)
                     val semantic = decoded != null &&
-                        decoded.get("transition").asString == fixture.transition &&
-                        decoded.get("subject").asString.normalized() == fixture.subject.normalized() &&
+                        decoded.get("transition") == fixture.transition &&
+                        decoded.get("subject").toString().normalized() == fixture.subject.normalized() &&
                         nullable(decoded, "slot_name") == fixture.slotName &&
                         nullable(decoded, "slot_value") == fixture.slotValue &&
                         nullable(decoded, "target_id") == fixture.targetId &&
-                        decoded.get("action_id").asString == fixture.actionId &&
-                        decoded.get("revision").asBigDecimal.stripTrailingZeros().scale() <= 0 &&
-                        decoded.get("revision").asInt == 4
+                        decoded.get("action_id") == fixture.actionId &&
+                        decoded.get("revision").toString().toBigDecimal().intValueExact() == 4
                     val pss = Debug.getPss().toLong()
                     transitionPeakPssKb.accumulateAndGet(pss) { previous, current -> maxOf(previous, current) }
                     val sample = Sample(fixture.name, decoded != null, semantic, dispatchCount = 0, latencyMs = latency, pssKb = pss)
@@ -256,23 +255,29 @@ class ConstrainedTransitionResponseFormatDeviceTest {
         return output.toString() to (SystemClock.elapsedRealtime() - started)
     }
 
-    private fun decode(raw: String) = runCatching {
-        val value = JsonParser.parseString(raw).asJsonObject
-        if (value.keySet() != setOf("transition", "subject", "slot_name", "slot_value", "target_id", "action_id", "revision")) return null
-        if (value.get("transition").asString !in TRANSITIONS) return null
-        if (!value.get("subject").isJsonPrimitive || value.get("subject").asString.isBlank()) return null
-        if (!value.get("action_id").isJsonPrimitive || value.get("action_id").asString.isBlank()) return null
-        if (value.get("revision").asBigDecimal.stripTrailingZeros().scale() > 0) return null
+    private fun decode(raw: String): JSONObject? = runCatching {
+        val value = JSONObject(raw)
+        val requiredKeys = setOf("transition", "subject", "slot_name", "slot_value", "target_id", "action_id", "revision")
+        if (value.keys().asSequence().toSet() != requiredKeys) return null
+        val transition = value.opt("transition") as? String ?: return null
+        if (transition !in TRANSITIONS) return null
+        if ((value.opt("subject") as? String).isNullOrBlank()) return null
+        if ((value.opt("action_id") as? String).isNullOrBlank()) return null
+        val revision = value.opt("revision") as? Number ?: return null
+        val revisionNumber = revision.toString().toBigDecimal().stripTrailingZeros()
+        if (revisionNumber.scale() > 0 || revisionNumber.signum() < 0) return null
+        revisionNumber.intValueExact()
         listOf("slot_name", "slot_value", "target_id").forEach { key ->
-            val element = value.get(key)
-            if (!element.isJsonNull && !element.isJsonPrimitive) return null
-            if (!element.isJsonNull && !element.asJsonPrimitive.isString) return null
+            val element = value.opt(key)
+            if (element !== JSONObject.NULL && element !is String) return null
         }
         value
     }.getOrNull()
 
-    private fun nullable(value: com.google.gson.JsonObject, key: String): String? =
-        if (value.get(key).isJsonNull) null else value.get(key).asString
+    private fun nullable(value: JSONObject, key: String): String? {
+        val element = value.get(key)
+        return if (element === JSONObject.NULL) null else element as String
+    }
 
     private fun String.normalized() = trim().lowercase().replace(Regex("\\s+"), " ")
 

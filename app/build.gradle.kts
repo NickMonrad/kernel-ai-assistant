@@ -595,6 +595,7 @@ dependencies {
     androidTestImplementation(libs.test.rules)
     androidTestImplementation(libs.uiautomator)
     androidTestImplementation(libs.litert)
+    androidTestImplementation(libs.litertlm.android)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary)
