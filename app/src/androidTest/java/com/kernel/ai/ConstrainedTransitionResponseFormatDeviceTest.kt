@@ -141,6 +141,8 @@ class ConstrainedTransitionResponseFormatDeviceTest {
             systemPrompt = "For the transition probe, return only the requested structured decision. " +
                 "For ordinary chat, reply briefly.",
             thinkingEnabled = false,
+            // Isolate response-format behavior from the LiteRT-LM #3944 MTP interaction.
+            speculativeDecodingEnabled = false,
             toolProvider = safeToolProvider,
         )
 
