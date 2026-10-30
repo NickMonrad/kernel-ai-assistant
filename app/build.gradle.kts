@@ -51,6 +51,8 @@ val releaseSigningProperties = rootProject.file("keystore.properties")
         properties
     }
 
+val configuredVersionCode =
+    (project.findProperty("versionCode") as String?)?.toInt() ?: 1
 android {
     namespace = "com.kernel.ai"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -59,8 +61,8 @@ android {
         applicationId = "com.kernel.ai"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = "0.1.0"
+        versionCode = configuredVersionCode
+        manifestPlaceholders["deviceTestVersionCode"] = configuredVersionCode.toString()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
