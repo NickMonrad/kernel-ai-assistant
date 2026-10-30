@@ -19,7 +19,7 @@ PACKAGE_RE = re.compile(
     r"^package: name='([^']+)' versionCode='([0-9]+)'(?: versionName='([^']*)')?",
     re.MULTILINE,
 )
-CERT_RE = re.compile(r"Signer #\d+ certificate SHA-256 digest:\s*([0-9a-fA-F:]+)")
+CERT_RE = re.compile(r"certificate SHA-256 digest:\s*([0-9a-fA-F:]+)")
 
 
 def expected_device_test_version_code(

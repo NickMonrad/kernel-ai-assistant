@@ -25,13 +25,17 @@ class ApkMetadataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no package"):
             manifest.parse_badging("application-label:'Jandal'\n")
 
-    def test_normalizes_signer_fingerprint(self) -> None:
-        self.assertEqual(
-            manifest.parse_signer_certificates(
-                "Signer #1 certificate SHA-256 digest: " + ":".join(["AB"] * 32)
-            ),
-            ("ab" * 32,),
-        )
+    def test_normalizes_v1_and_v2_signer_fingerprints(self) -> None:
+        for prefix in ("Signer #1 ", "V2 Signer: "):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(
+                    manifest.parse_signer_certificates(
+                        prefix
+                        + "certificate SHA-256 digest: "
+                        + ":".join(["AB"] * 32)
+                    ),
+                    ("ab" * 32,),
+                )
 
     def test_rejects_signer_fingerprint_that_is_not_sha256(self) -> None:
         with self.assertRaisesRegex(ValueError, "no valid signer"):
