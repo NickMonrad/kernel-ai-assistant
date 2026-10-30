@@ -92,7 +92,7 @@ class BootCompletedReceiverAcceptanceTest {
 
         try {
             val output = instrumentation.uiAutomation.executeShellCommand(
-                "am broadcast -a android.intent.action.BOOT_COMPLETED " +
+                "am broadcast -W -a android.intent.action.BOOT_COMPLETED " +
                     "-n $TARGET_APPLICATION_ID/com.kernel.ai.alarm.BootCompletedReceiver",
             ).let { descriptor ->
                 ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
