@@ -8,8 +8,9 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
+import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.ToolProvider
-import org.json.JSONObject
+import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.LiteRtInferenceEngine
@@ -18,36 +19,28 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.HardwareTier
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /** Run explicitly per supported physical model/backend lane; never part of the default device suite. */
 class ConstrainedTransitionResponseFormatDeviceTest {
-    @EntryPoint
-    @InstallIn(SingletonComponent::class)
-    interface ToolsEntryPoint {
-        fun toolProvider(): ToolProvider
-    }
 
     private data class Fixture(
         val name: String,
@@ -69,11 +62,37 @@ class ConstrainedTransitionResponseFormatDeviceTest {
         val pssKb: Long,
     )
 
+    private val safeToolDispatches = AtomicInteger()
+    private val safeToolProvider: ToolProvider = tool(
+        object : OpenApiTool {
+            private val description = JSONObject().apply {
+                put("name", "j1682_safe_probe")
+                put("description", "Test-only no-effect probe; call only when explicitly requested.")
+                put(
+                    "parameters",
+                    JSONObject(
+                        """{"type":"object","additionalProperties":false,"required":["nonce"],"properties":{"nonce":{"type":"string","enum":["J1682_SAFE"]}}}""",
+                    ),
+                )
+            }.toString()
+
+            override fun getToolDescriptionJsonString(): String = description
+
+            override fun execute(paramsJsonString: String): String {
+                require(JSONObject(paramsJsonString).getString("nonce") == "J1682_SAFE")
+                safeToolDispatches.incrementAndGet()
+                return "J1682_SAFE_TOOL_OK"
+            }
+        },
+    )
+
+
     @Test
     fun nativeResponseFormatRepeatedSemanticFixturesAndLifecycle() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext.applicationContext
         assertEquals("com.kernel.ai.debug", context.packageName)
+        safeToolDispatches.set(0)
 
         val args = InstrumentationRegistry.getArguments()
         val expectedDevice = args.getString("device") ?: error("Pass device=S21 or device=S23U")
@@ -100,10 +119,7 @@ class ConstrainedTransitionResponseFormatDeviceTest {
         val expectedMaxTokens = if (isS21) 3072 else 8000
         assertEquals(expectedMaxTokens, hardwareProfile.recommendedMaxTokens)
 
-        val model = when (requestedModel) {
-            "E2B" -> KernelModel.GEMMA_4_E2B
-            else -> KernelModel.GEMMA_4_E4B
-        }
+        val model = if (requestedModel == "E2B") KernelModel.GEMMA_4_E2B else KernelModel.GEMMA_4_E4B
         val modelFile = model.localFile(context)
         assumeTrue("MODEL_NOT_INSTALLED model=$requestedModel", modelFile.isFile)
         val backend = if (requestedBackend == "CPU") BackendType.CPU else BackendType.GPU
@@ -118,56 +134,78 @@ class ConstrainedTransitionResponseFormatDeviceTest {
         assumeTrue("THERMAL_GATE_BLOCKED status=$thermalStatus", thermalStatus < PowerManager.THERMAL_STATUS_SEVERE)
         assumeTrue("MEMORY_GATE_BLOCKED lowMemory=${memoryInfo.lowMemory}", !memoryInfo.lowMemory)
 
-        val toolProvider = EntryPointAccessors.fromApplication(context, ToolsEntryPoint::class.java).toolProvider()
-        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
         val config = ModelConfig(
             modelPath = modelFile.absolutePath,
             backendType = backend,
             maxTokens = hardwareProfile.recommendedMaxTokens,
-            systemPrompt = "For the transition probe, return only the requested structured decision. For ordinary chat, reply briefly.",
+            systemPrompt = "For the transition probe, return only the requested structured decision. " +
+                "For ordinary chat, reply briefly.",
             thinkingEnabled = false,
-            toolProvider = toolProvider,
+            toolProvider = safeToolProvider,
         )
-        val samples = mutableListOf<Sample>()
+
+        val baselineRuns = mutableListOf<Pair<String, Long>>()
         val baselinePeakPssKb = AtomicLong(0L)
-        val transitionPeakPssKb = AtomicLong(0L)
-        val samplingTransition = AtomicBoolean(false)
-        var pssSampler: Job? = null
+        val baselineEngine = LiteRtInferenceEngine(context, hardwareProfileDetector)
+        var baselinePssSampler: Job? = null
+        var baselineInitMs = 0L
         try {
-            val initStarted = SystemClock.elapsedRealtime()
-            engine.initialize(config)
-            val initMs = SystemClock.elapsedRealtime() - initStarted
-            assertEquals("Requested backend must not silently fall back", backend, engine.activeBackend.value)
-            assertEquals("Harness must use the lane's safe KV-cache budget", expectedMaxTokens, engine.resolvedMaxTokens.value)
-            Log.i(TAG, "ENGINE_READY device=${Build.MODEL} model=$requestedModel backend=${engine.activeBackend.value} initMs=$initMs")
-            baselinePeakPssKb.set(Debug.getPss().toLong())
-            pssSampler = launch(Dispatchers.Default) {
+            baselinePssSampler = launch(Dispatchers.Default) {
                 while (isActive) {
-                    val pss = Debug.getPss().toLong()
-                    val target = if (samplingTransition.get()) transitionPeakPssKb else baselinePeakPssKb
-                    target.accumulateAndGet(pss) { previous, current -> maxOf(previous, current) }
+                    baselinePeakPssKb.accumulateAndGet(Debug.getPss().toLong()) { previous, current ->
+                        maxOf(previous, current)
+                    }
                     delay(100L)
                 }
             }
-
-            val baselineRuns = mutableListOf<Pair<String, Long>>()
+            val initStarted = SystemClock.elapsedRealtime()
+            baselineEngine.initialize(config)
+            baselineInitMs = SystemClock.elapsedRealtime() - initStarted
+            assertEquals("Baseline backend mismatch", backend, baselineEngine.activeBackend.value)
+            assertEquals(expectedMaxTokens, baselineEngine.resolvedMaxTokens.value)
             repeat(repeats) {
-                val baseline = ordinaryGeneration(engine, "Say READY in one word.")
+                val baseline = ordinaryGeneration(baselineEngine, "Say READY in one word.")
                 assertTrue("Ordinary baseline chat returned no text", baseline.first.isNotBlank())
+                assertEquals("Baseline prompt unexpectedly dispatched the safe tool", 0, safeToolDispatches.get())
                 baselineRuns += baseline
-                baselinePeakPssKb.accumulateAndGet(Debug.getPss().toLong()) { previous, current -> maxOf(previous, current) }
             }
-            val baselineWarmLatencies = baselineRuns.drop(1).map { it.second }.sorted()
-            val baselineWarmMedian = baselineWarmLatencies[baselineWarmLatencies.size / 2]
-            val baselinePeakPss = baselinePeakPssKb.get()
-            Log.i(TAG, "BASELINE_CHAT coldLatencyMs=${baselineRuns.first().second} warmMedianLatencyMs=$baselineWarmMedian " +
-                "peakPssKb=$baselinePeakPss chars=${baselineRuns.last().first.length}")
-            transitionPeakPssKb.set(Debug.getPss().toLong())
-            samplingTransition.set(true)
+        } finally {
+            baselinePssSampler?.cancelAndJoin()
+            baselineEngine.shutdown()
+        }
+        val baselineWarmLatencies = baselineRuns.drop(1).map { it.second }.sorted()
+        val baselineWarmMedian = baselineWarmLatencies[baselineWarmLatencies.size / 2]
+        val baselinePeakPss = baselinePeakPssKb.get()
+        Log.i(TAG, "BASELINE_CHAT device=${Build.MODEL} model=$requestedModel backend=$backend " +
+            "initMs=$baselineInitMs coldLatencyMs=${baselineRuns.first().second} " +
+            "warmMedianLatencyMs=$baselineWarmMedian peakPssKb=$baselinePeakPss")
+
+        val samples = mutableListOf<Sample>()
+        val transitionPeakPssKb = AtomicLong(0L)
+        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
+        var transitionPssSampler: Job? = null
+        var transitionInitMs = 0L
+        try {
+            transitionPssSampler = launch(Dispatchers.Default) {
+                while (isActive) {
+                    transitionPeakPssKb.accumulateAndGet(Debug.getPss().toLong()) { previous, current ->
+                        maxOf(previous, current)
+                    }
+                    delay(100L)
+                }
+            }
+            val initStarted = SystemClock.elapsedRealtime()
+            engine.initialize(config)
+            transitionInitMs = SystemClock.elapsedRealtime() - initStarted
+            assertEquals("Requested backend must not silently fall back", backend, engine.activeBackend.value)
+            assertEquals("Harness must use the lane's safe KV-cache budget", expectedMaxTokens, engine.resolvedMaxTokens.value)
+            Log.i(TAG, "ENGINE_READY device=${Build.MODEL} model=$requestedModel backend=${engine.activeBackend.value} " +
+                "initMs=$transitionInitMs")
 
             val fixtures = fixtures()
             repeat(repeats) { repetition ->
                 fixtures.forEach { fixture ->
+                    val dispatchesBefore = safeToolDispatches.get()
                     val started = SystemClock.elapsedRealtime()
                     val raw = engine.generateResponseFormatProbeOnce(
                         prompt = fixture.prompt,
@@ -177,6 +215,7 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                         thinkingEnabled = false,
                     )
                     val latency = SystemClock.elapsedRealtime() - started
+                    val dispatchCount = safeToolDispatches.get() - dispatchesBefore
                     val decoded = decode(raw)
                     val semantic = decoded != null &&
                         decoded.get("transition") == fixture.transition &&
@@ -188,16 +227,17 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                         decoded.get("revision").toString().toBigDecimal().intValueExact() == 4
                     val pss = Debug.getPss().toLong()
                     transitionPeakPssKb.accumulateAndGet(pss) { previous, current -> maxOf(previous, current) }
-                    val sample = Sample(fixture.name, decoded != null, semantic, dispatchCount = 0, latencyMs = latency, pssKb = pss)
+                    val sample = Sample(fixture.name, decoded != null, semantic, dispatchCount, latency, pss)
                     samples += sample
                     Log.i(TAG, "FIXTURE run=${repetition + 1} name=${fixture.name} structural=${sample.structurallyValid} " +
-                        "semantic=${sample.semanticallyCorrect} dispatches=0 latencyMs=$latency pssKb=$pss output=$raw")
+                        "semantic=${sample.semanticallyCorrect} probeToolCalls=$dispatchCount latencyMs=$latency pssKb=$pss")
                     assertNotNull("STRUCTURAL_FAILURE fixture=${fixture.name} raw=$raw", decoded)
                     assertTrue("SEMANTIC_FAILURE fixture=${fixture.name} raw=$raw", semantic)
+                    assertEquals("Tool-free response-format probe dispatched a tool", 0, dispatchCount)
                 }
             }
 
-            val cold = samples.firstOrNull()
+            val cold = samples.first()
             val warmLatencies = samples.drop(1).map { it.latencyMs }.sorted()
             val warmMedian = warmLatencies[warmLatencies.size / 2]
             val peakPss = transitionPeakPssKb.get()
@@ -205,9 +245,11 @@ class ConstrainedTransitionResponseFormatDeviceTest {
             val pssDelta = peakPss - baselinePeakPss
             Log.i(TAG, "SPIKE_SUMMARY device=${Build.MODEL} model=$requestedModel backend=$requestedBackend " +
                 "repeats=$repeats fixtureCount=${fixtures.size} structuralPass=${samples.count { it.structurallyValid }}/${samples.size} " +
-                "semanticPass=${samples.count { it.semanticallyCorrect }}/${samples.size} unsafeDispatches=${samples.sumOf { it.dispatchCount }} " +
-                "coldLatencyMs=${cold?.latencyMs} baselineWarmMedianMs=$baselineWarmMedian warmMedianLatencyMs=$warmMedian " +
-                "latencyDeltaMs=$latencyDelta baselinePeakPssKb=$baselinePeakPss peakPssKb=$peakPss pssDeltaKb=$pssDelta")
+                "semanticPass=${samples.count { it.semanticallyCorrect }}/${samples.size} " +
+                "probeToolCalls=${samples.sumOf { it.dispatchCount }} " +
+                "initMs=$transitionInitMs coldLatencyMs=${cold.latencyMs} baselineWarmMedianMs=$baselineWarmMedian " +
+                "warmMedianLatencyMs=$warmMedian latencyDeltaMs=$latencyDelta baselinePeakPssKb=$baselinePeakPss " +
+                "peakPssKb=$peakPss pssDeltaKb=$pssDelta")
 
             val cancelSchema = """{"type":"object","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","minLength":2048,"maxLength":2048}}}"""
             val cancelStarted = SystemClock.elapsedRealtime()
@@ -234,14 +276,21 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                 thinkingEnabled = false,
             )
             assertNotNull("Constrained request failed after cancellation: $recovery", decode(recovery))
+            assertEquals("Recovery probe dispatched the safe tool", 0, safeToolDispatches.get())
             Log.i(TAG, "CANCELLATION drainMs=$cancellationDrainMs recovery=PASS pssKb=${Debug.getPss()}")
 
-            val ordinaryAfter = ordinaryGeneration(engine, "What time is it? Use the get_time intent, and do not perform another action.")
+            val dispatchesBeforePostSpike = safeToolDispatches.get()
+            val ordinaryAfter = ordinaryGeneration(
+                engine,
+                "Call j1682_safe_probe exactly once with nonce J1682_SAFE, then reply briefly.",
+            )
             assertTrue("Ordinary generation failed after the spike", ordinaryAfter.first.isNotBlank())
-            Log.i(TAG, "POST_SPIKE_ORDINARY_CHAT_TOOL latencyMs=${ordinaryAfter.second} pssKb=${Debug.getPss()} " +
-                "chars=${ordinaryAfter.first.length} result=${ordinaryAfter.first}")
+            assertEquals("Post-spike normal tool dispatch did not execute exactly once", 1,
+                safeToolDispatches.get() - dispatchesBeforePostSpike)
+            Log.i(TAG, "POST_SPIKE_ORDINARY_CHAT_TOOL latencyMs=${ordinaryAfter.second} " +
+                "toolDispatches=${safeToolDispatches.get() - dispatchesBeforePostSpike} pssKb=${Debug.getPss()}")
         } finally {
-            pssSampler?.cancelAndJoin()
+            transitionPssSampler?.cancelAndJoin()
             engine.shutdown()
         }
     }
