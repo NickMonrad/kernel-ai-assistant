@@ -1,7 +1,7 @@
 package com.kernel.ai.core.inference
 
 import android.app.ActivityManager
-import android.content.Context
+import androidx.annotation.VisibleForTesting
 import android.os.PowerManager
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -12,7 +12,7 @@ import com.kernel.ai.core.inference.hardware.QuantizationVerifier
 import java.io.File
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
-import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.ResponseFormat
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
@@ -2182,6 +2182,122 @@ class LiteRtInferenceEngine @Inject constructor(
             } catch (e: Exception) {
                 Log.w(TAG, "generateStructuredOnce: error", e)
                 ""
+            }
+        }
+    }
+    /**
+     * Debug/device-spike entry point for LiteRT-LM's native JSON Schema response-format path.
+     * This deliberately creates a tool-free isolated conversation and never falls back to
+     * unconstrained generation.
+     */
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    suspend fun generateResponseFormatProbeOnce(
+        prompt: String,
+        schema: String,
+        systemPrompt: String? = null,
+        thinkingEnabled: Boolean = false,
+    ): String = withContext(LlmDispatcher) {
+        if (!BuildConfig.DEBUG) {
+            throw InferenceException("Native response-format probe is available only in debug builds")
+        }
+        val config = currentConfig
+            ?: throw InferenceException("Response-format probe requires an initialized engine")
+        val runtime = engine
+            ?: throw InferenceException("Response-format probe has no initialized LiteRT engine")
+        val responseFormat = ResponseFormat.json(schema)
+        val probeConfig = config.copy(
+            systemPrompt = systemPrompt?.takeIf { it.isNotBlank() } ?: config.systemPrompt,
+            thinkingEnabled = thinkingEnabled,
+            toolProvider = null,
+        )
+        val conversationConfig = buildConversationConfig(
+            _activeBackend.value ?: config.backendType,
+            probeConfig,
+        ).copy(
+            tools = emptyList(),
+            automaticToolCalling = false,
+            enableResponseFormat = true,
+        )
+
+        var acquired = false
+        for (attempt in 0 until 20) {
+            if (generationMutex.tryLock()) {
+                acquired = true
+                break
+            }
+            if (attempt < 19) delay(250L)
+        }
+        if (!acquired) {
+            throw InferenceException("Response-format probe could not acquire the inference mutex")
+        }
+
+        var probeConversation: Conversation? = null
+        var serviceStarted = false
+        val processActive = AtomicBoolean(false)
+        try {
+            currentCoroutineContext().ensureActive()
+            val activeConversation = runtime.createConversation(conversationConfig)
+            probeConversation = activeConversation
+            _isGenerating.value = true
+            val response = StringBuilder()
+            val latch = CompletableDeferred<String>()
+            val finished = AtomicBoolean(false)
+            InferenceGenerationService.start(context)
+            serviceStarted = true
+            processActive.set(true)
+            activeConversation.sendMessageAsync(
+                Contents.of(Content.Text(prompt)),
+                object : MessageCallback {
+                    override fun onMessage(message: Message) {
+                        if (finished.get()) return
+                        if (message.toolCalls.isNotEmpty()) {
+                            if (finished.compareAndSet(false, true)) {
+                                latch.completeExceptionally(
+                                    InferenceException("Tool-free response-format probe returned a tool call"),
+                                )
+                            }
+                            processActive.set(false)
+                            safeCancel(probeConversation)
+                            return
+                        }
+                        response.append(message.toString())
+                    }
+
+                    override fun onDone() {
+                        if (finished.compareAndSet(false, true)) {
+                            processActive.set(false)
+                            latch.complete(response.toString())
+                        }
+                    }
+
+                    override fun onError(throwable: Throwable) {
+                        if (finished.compareAndSet(false, true)) {
+                            processActive.set(false)
+                            latch.completeExceptionally(throwable)
+                        }
+                    }
+                },
+                responseFormat = responseFormat,
+            )
+            try {
+                withTimeout(60_000L) { latch.await() }
+            } catch (timeout: TimeoutCancellationException) {
+                processActive.set(false)
+                safeCancel(probeConversation)
+                throw InferenceException("Native response-format probe timed out", timeout)
+            }
+        } catch (cancelled: CancellationException) {
+            processActive.set(false)
+            safeCancel(probeConversation)
+            throw cancelled
+        } finally {
+            _isGenerating.value = false
+            if (processActive.get()) safeCancel(probeConversation)
+            safeClose(probeConversation, "response-format-probe")
+            try {
+                if (serviceStarted) InferenceGenerationService.stop(context)
+            } finally {
+                generationMutex.unlock()
             }
         }
     }
