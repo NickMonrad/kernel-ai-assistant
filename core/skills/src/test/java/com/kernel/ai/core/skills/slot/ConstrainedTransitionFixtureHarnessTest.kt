@@ -23,7 +23,7 @@ class ConstrainedTransitionFixtureHarnessTest {
         val revision: Int,
     )
 
-    private data class Pending(
+    private data class Expected(
         val actionId: String,
         val revision: Int,
         val transition: Transition,
@@ -37,15 +37,18 @@ class ConstrainedTransitionFixtureHarnessTest {
     private data class Fixture(
         val name: String,
         val raw: String,
-        val pending: Pending,
+        val expected: Expected,
         val structuralExpected: Boolean,
         val semanticExpected: Boolean,
+        val transitionExpected: Transition,
+        val userReply: String? = null,
         val dispatchExpected: String? = null,
     )
 
     private data class Result(
         val structuralValid: Boolean,
         val semanticCorrect: Boolean,
+        val transition: Transition,
         val dispatchTarget: String?,
     )
 
@@ -71,58 +74,98 @@ class ConstrainedTransitionFixtureHarnessTest {
 
         val fixtures = listOf(
             fixture("wikipedia exact disputed proposition", "CONTINUE", "prisoners brewing alcohol in toilets", dispatch = "wiki-action"),
-            fixture("cancel pending reminder", "CANCEL", "call the blinds people on Monday"),
-            fixture("unrelated weather replaces pending reminder", "REPLACE", "weather in Sydney"),
+            fixture(
+                "cancel pending reminder",
+                "CANCEL",
+                "call the blinds people on Monday",
+                userReply = "cancel",
+            ),
+            fixture(
+                "unrelated weather replaces pending reminder",
+                "REPLACE",
+                "weather in Sydney",
+                userReply = "What's the weather in Sydney?",
+            ),
             fixture("Sydney weather tomorrow keeps location", "CONTINUE", "weather in Sydney", slotName = "date", slotValue = "tomorrow", dispatch = "weather-action"),
             fixture("same timer target is corrected", "CONTINUE", "20 minute timer", targetId = "timer-42", dispatch = "timer-42"),
             fixture("ambiguous two-timer target clarifies", "CLARIFY", "timer", targetId = null),
             fixture("explicit cancellation does not dispatch", "CANCEL", "pending reminder"),
             fixture("genuine topic change while slot pending", "REPLACE", "weather in Sydney"),
-            fixture("ambiguous reply asks targeted clarification", "CLARIFY", "pending action"),
-            fixture("schema-valid wrong timer target", "CONTINUE", "20 minute timer", targetId = "timer-99", semantic = false),
-            fixture("schema-valid wrong Wikipedia subject", "CONTINUE", "generic brewing", semantic = false),
-            fixture("stale action revision", "CONTINUE", "prisoners brewing alcohol in toilets", revision = 3, semantic = false),
+            fixture(
+                "ambiguous reply asks targeted clarification",
+                "CLARIFY",
+                "pending reminder time",
+                userReply = "which one?",
+            ),
+            fixture(
+                "schema-valid wrong timer target",
+                "CONTINUE",
+                "20 minute timer",
+                targetId = "timer-99",
+                expectedTargetId = "timer-42",
+                semanticExpected = false,
+            ),
+            fixture(
+                "schema-valid wrong Wikipedia subject",
+                "CONTINUE",
+                "generic brewing",
+                expectedSubject = "prisoners brewing alcohol in toilets",
+                semanticExpected = false,
+            ),
+            fixture(
+                "stale action revision",
+                "CONTINUE",
+                "prisoners brewing alcohol in toilets",
+                revision = 3,
+                semanticExpected = false,
+            ),
             Fixture(
                 name = "missing required field",
                 raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null,"slot_value":null,"target_id":null,"action_id":"action-1"}""",
-                pending = pending("CONTINUE", "topic"),
+                expected = expected("CONTINUE", "topic"),
                 structuralExpected = false,
                 semanticExpected = false,
+                transitionExpected = Transition.CLARIFY,
             ),
             Fixture(
                 name = "malformed response",
                 raw = "not-json",
-                pending = pending("CONTINUE", "topic"),
+                expected = expected("CONTINUE", "topic"),
                 structuralExpected = false,
                 semanticExpected = false,
+                transitionExpected = Transition.CLARIFY,
             ),
             Fixture(
                 name = "truncated response",
                 raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null""",
-                pending = pending("CONTINUE", "topic"),
+                expected = expected("CONTINUE", "topic"),
                 structuralExpected = false,
                 semanticExpected = false,
+                transitionExpected = Transition.CLARIFY,
             ),
             Fixture(
                 name = "fractional revision is structurally invalid",
                 raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null,"slot_value":null,"target_id":null,"action_id":"action-1","revision":4.5}""",
-                pending = pending("CONTINUE", "topic"),
+                expected = expected("CONTINUE", "topic"),
                 structuralExpected = false,
                 semanticExpected = false,
+                transitionExpected = Transition.CLARIFY,
             ),
             Fixture(
                 name = "non-string slot value is structurally invalid",
                 raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null,"slot_value":9,"target_id":null,"action_id":"action-1","revision":4}""",
-                pending = pending("CONTINUE", "topic"),
+                expected = expected("CONTINUE", "topic"),
                 structuralExpected = false,
                 semanticExpected = false,
+                transitionExpected = Transition.CLARIFY,
             ),
             Fixture(
                 name = "unexpected property is structurally invalid",
                 raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null,"slot_value":null,"target_id":null,"action_id":"action-1","revision":4,"tool":"execute"}""",
-                pending = pending("CONTINUE", "topic"),
+                expected = expected("CONTINUE", "topic"),
                 structuralExpected = false,
                 semanticExpected = false,
+                transitionExpected = Transition.CLARIFY,
             ),
         )
 
@@ -130,13 +173,19 @@ class ConstrainedTransitionFixtureHarnessTest {
         var semanticPasses = 0
         var unsafeDispatches = 0
         fixtures.forEach { fixture ->
-            val actual = reduce(fixture.raw, fixture.pending)
+            val actual = reduce(fixture.raw, fixture.expected)
             assertEquals(fixture.structuralExpected, actual.structuralValid, fixture.name)
             assertEquals(fixture.semanticExpected, actual.semanticCorrect, fixture.name)
+            assertEquals(fixture.transitionExpected, actual.transition, fixture.name)
             assertEquals(fixture.dispatchExpected, actual.dispatchTarget, fixture.name)
             if (actual.structuralValid) structuralPasses++
             if (actual.semanticCorrect) semanticPasses++
-            if (actual.dispatchTarget != null && actual.dispatchTarget != fixture.dispatchExpected) unsafeDispatches++
+            if (actual.dispatchTarget != null &&
+                (!actual.semanticCorrect || actual.transition != Transition.CONTINUE ||
+                    actual.dispatchTarget != fixture.dispatchExpected)
+            ) {
+                unsafeDispatches++
+            }
         }
         assertEquals(12, structuralPasses, "structural pass count is independent of semantic pass count")
         assertEquals(9, semanticPasses)
@@ -169,29 +218,54 @@ class ConstrainedTransitionFixtureHarnessTest {
     }
 
     @Test
-    fun `invalid pending-slot replies reach proposal evaluator before re-prompting`() {
-        val validationRegistry = SlotValidationRegistry().apply {
-            register("add_reminder", "time", AlarmTimeValidator)
-        }
-        val manager = SlotFillerManager(IntentContractRegistry(), validationRegistry)
-        manager.startSlotFill(
-            "reminder-conversation",
-            PendingSlotRequest(
-                intentName = "add_reminder",
-                existingParams = mapOf("item" to "call the blinds people", "day" to "monday"),
-                missingSlot = SlotSpec("time", "What time on Monday should I remind you?"),
+    fun `failed reminder-slot replies reach the host oracle without mutating manager state`() {
+        val cases = listOf(
+            fixture(
+                "cancel pending reminder",
+                "CANCEL",
+                "call the blinds people on Monday",
+                userReply = "cancel",
+            ),
+            fixture(
+                "unrelated weather replaces pending reminder",
+                "REPLACE",
+                "weather in Sydney",
+                userReply = "What's the weather in Sydney?",
+            ),
+            fixture(
+                "ambiguous reply asks targeted clarification",
+                "CLARIFY",
+                "pending reminder time",
+                userReply = "which one?",
             ),
         )
 
-        val invalid = manager.onUserReply("reminder-conversation", "What's the weather in Sydney?")
-        assertTrue(invalid is SlotFillResult.InvalidSlot)
-        assertTrue(manager.hasPendingFor("reminder-conversation"), "resolver sees the existing manager-owned pending slot")
+        cases.forEach { fixture ->
+            val validationRegistry = SlotValidationRegistry().apply {
+                register("add_reminder", "time", AlarmTimeValidator)
+            }
+            val manager = SlotFillerManager(IntentContractRegistry(), validationRegistry)
+            manager.startSlotFill(
+                "reminder-conversation",
+                PendingSlotRequest(
+                    intentName = "add_reminder",
+                    existingParams = mapOf("item" to "call the blinds people", "day" to "monday"),
+                    missingSlot = SlotSpec("time", "What time on Monday should I remind you?"),
+                ),
+            )
 
-        val replacement = fixture("topic change", "REPLACE", "weather in Sydney")
-        val decision = reduce(replacement.raw, replacement.pending)
-        assertTrue(decision.semanticCorrect)
-        assertNull(decision.dispatchTarget, "the pending reminder must not dispatch under a replacement proposal")
-        assertTrue(manager.hasPendingFor("reminder-conversation"), "host harness does not duplicate or mutate slot-manager state")
+            val userReply = requireNotNull(fixture.userReply)
+            val slotResult = manager.onUserReply("reminder-conversation", userReply)
+            assertTrue(slotResult is SlotFillResult.InvalidSlot, fixture.name)
+            assertTrue(manager.hasPendingFor("reminder-conversation"), "invalid slot remains manager-owned")
+
+            val decision = reduce(fixture.raw, fixture.expected)
+            assertTrue(decision.structuralValid, fixture.name)
+            assertTrue(decision.semanticCorrect, fixture.name)
+            assertEquals(fixture.transitionExpected, decision.transition, fixture.name)
+            assertNull(decision.dispatchTarget, "transition proposals never execute a tool")
+            assertTrue(manager.hasPendingFor("reminder-conversation"), "proposal evaluation does not mutate slot-manager state")
+        }
     }
 
     @Test
@@ -213,24 +287,25 @@ class ConstrainedTransitionFixtureHarnessTest {
         targetId: String? = null,
         actionId: String = "action-1",
         revision: Int = 4,
-        semantic: Boolean = true,
+        semanticExpected: Boolean = true,
+        expectedTransition: String = transition,
+        expectedSubject: String = subject,
+        expectedSlotName: String? = slotName,
+        expectedSlotValue: String? = slotValue,
+        expectedTargetId: String? = targetId,
+        expectedActionId: String = "action-1",
+        expectedRevision: Int = 4,
+        userReply: String? = null,
         dispatch: String? = null,
     ): Fixture {
-        val pending = Pending(
-            actionId = "action-1",
-            revision = 4,
-            transition = Transition.valueOf(transition),
-            subject = when {
-                !semantic && name.contains("Wikipedia") -> "prisoners brewing alcohol in toilets"
-                !semantic && name.contains("timer") -> "20 minute timer"
-                else -> subject
-            },
-            slotName = slotName,
-            slotValue = slotValue,
-            targetId = when {
-                !semantic && name.contains("timer") -> "timer-42"
-                else -> targetId
-            },
+        val expected = Expected(
+            actionId = expectedActionId,
+            revision = expectedRevision,
+            transition = Transition.valueOf(expectedTransition),
+            subject = expectedSubject,
+            slotName = expectedSlotName,
+            slotValue = expectedSlotValue,
+            targetId = expectedTargetId,
             dispatchTarget = dispatch,
         )
         val raw = response(
@@ -242,10 +317,19 @@ class ConstrainedTransitionFixtureHarnessTest {
             actionId = actionId,
             revision = revision,
         )
-        return Fixture(name, raw, pending, structuralExpected = true, semanticExpected = semantic, dispatchExpected = dispatch)
+        return Fixture(
+            name = name,
+            raw = raw,
+            expected = expected,
+            structuralExpected = true,
+            semanticExpected = semanticExpected,
+            transitionExpected = if (semanticExpected) Transition.valueOf(transition) else Transition.CLARIFY,
+            userReply = userReply,
+            dispatchExpected = dispatch,
+        )
     }
 
-    private fun pending(transition: String, subject: String) = Pending(
+    private fun expected(transition: String, subject: String) = Expected(
         actionId = "action-1",
         revision = 4,
         transition = Transition.valueOf(transition),
@@ -274,23 +358,35 @@ class ConstrainedTransitionFixtureHarnessTest {
         if (value == null) add(name, com.google.gson.JsonNull.INSTANCE) else addProperty(name, value)
     }
 
-    private fun reduce(raw: String, pending: Pending): Result {
-        val proposal = parseStructurally(raw) ?: return Result(false, false, null)
-        val semanticallyCorrect = proposal.transition == pending.transition &&
-            proposal.subject.normalized() == pending.subject.normalized() &&
-            proposal.slotName == pending.slotName &&
-            proposal.slotValue == pending.slotValue &&
-            proposal.targetId == pending.targetId &&
-            proposal.actionId == pending.actionId &&
-            proposal.revision == pending.revision
+    private fun reduce(raw: String, expected: Expected): Result {
+        val proposal = parseStructurally(raw)
+            ?: return Result(
+                structuralValid = false,
+                semanticCorrect = false,
+                transition = Transition.CLARIFY,
+                dispatchTarget = null,
+            )
+        val semanticallyCorrect = proposal.transition == expected.transition &&
+            proposal.subject.normalized() == expected.subject.normalized() &&
+            proposal.slotName == expected.slotName &&
+            proposal.slotValue == expected.slotValue &&
+            proposal.targetId == expected.targetId &&
+            proposal.actionId == expected.actionId &&
+            proposal.revision == expected.revision
+        val safeTransition = if (semanticallyCorrect) proposal.transition else Transition.CLARIFY
         val dispatch = if (
-            semanticallyCorrect && proposal.transition == Transition.CONTINUE && pending.dispatchTarget != null
+            semanticallyCorrect && safeTransition == Transition.CONTINUE && expected.dispatchTarget != null
         ) {
-            pending.dispatchTarget
+            expected.dispatchTarget
         } else {
             null
         }
-        return Result(true, semanticallyCorrect, dispatch)
+        return Result(
+            structuralValid = true,
+            semanticCorrect = semanticallyCorrect,
+            transition = safeTransition,
+            dispatchTarget = dispatch,
+        )
     }
 
     private fun parseStructurally(raw: String): Proposal? = runCatching {
