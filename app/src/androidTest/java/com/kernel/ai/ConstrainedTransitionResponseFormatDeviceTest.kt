@@ -215,6 +215,7 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                         systemPrompt = "Choose only the safe semantic transition described by the user turn. " +
                             "Treat action_id and revision as supplied runtime identity, not user data.",
                         thinkingEnabled = false,
+                        nativeThinkingEnabled = false,
                     )
                     val latency = SystemClock.elapsedRealtime() - started
                     val dispatchCount = safeToolDispatches.get() - dispatchesBefore
@@ -261,6 +262,7 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                     schema = cancelSchema,
                     systemPrompt = "Return only the schema-constrained object.",
                     thinkingEnabled = false,
+                    nativeThinkingEnabled = false,
                 )
             }
             withTimeout(120_000L) {
@@ -276,6 +278,7 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                 schema = SCHEMA,
                 systemPrompt = "Return only the requested structured decision.",
                 thinkingEnabled = false,
+                nativeThinkingEnabled = false,
             )
             assertNotNull("Constrained request failed after cancellation: $recovery", decode(recovery))
             assertEquals("Recovery probe dispatched the safe tool", 0, safeToolDispatches.get())

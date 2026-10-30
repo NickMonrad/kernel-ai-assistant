@@ -15,6 +15,7 @@ import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.ResponseFormat
+import com.google.ai.edge.litertlm.ThinkingConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
@@ -2198,6 +2199,7 @@ class LiteRtInferenceEngine @Inject constructor(
         schema: String,
         systemPrompt: String? = null,
         thinkingEnabled: Boolean = false,
+        nativeThinkingEnabled: Boolean? = null,
     ): String = withContext(LlmDispatcher) {
         if (!BuildConfig.DEBUG) {
             throw InferenceException("Native response-format probe is available only in debug builds")
@@ -2279,6 +2281,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         }
                     }
                 },
+                thinkingConfig = nativeThinkingEnabled?.let { ThinkingConfig(enableThinking = it) },
                 responseFormat = responseFormat,
             )
             try {
