@@ -1,6 +1,7 @@
 package com.kernel.ai.core.inference
 
 import android.app.ActivityManager
+import android.content.Context
 import androidx.annotation.VisibleForTesting
 import android.os.PowerManager
 import android.util.Log
@@ -12,6 +13,7 @@ import com.kernel.ai.core.inference.hardware.QuantizationVerifier
 import java.io.File
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.ResponseFormat
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
