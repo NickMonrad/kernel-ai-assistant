@@ -18,11 +18,13 @@ Speech features require microphone access. Vosk and Sherpa-ONNX speech recogniti
 
 If you enable **Listen for Hey Jandal**, the app keeps a microphone foreground service active and analyses audio on-device to detect the wake phrase. When the wake phrase is detected, Jandal starts a voice command using the selected speech-recognition engine. The selected engine therefore determines whether command audio may be handled by an Android-provided recognition service. You can turn off the wake-word feature in the app and revoke microphone permission in Android settings.
 
+On HONOR BKQ-N49 only, wake-word listening also requires the special Usage Access that you grant in Android settings. Jandal reads recent app-foreground events through Android to detect the stock HONOR Camera and release its microphone capture while the camera is in front. The implementation processes those events in memory, retains the resolved foreground package, and does not persist or transmit the usage-event history. You can revoke Usage Access in Android settings.
+
 Spoken responses use the output engine selected in Settings. Android TTS delegates text to the Android text-to-speech engine selected on the device. Sherpa Piper and Inflect Micro use downloaded local voice/model files and can fall back to Android TTS when their local runtime or files are unavailable. Jandal does not control an Android speech engine's processing or retention practices.
 
 ### Weather, location, currency, and Wikipedia
 
-When you request weather for a named place, Jandal sends the place name to Open-Meteo's geocoding service and requests weather for the returned coordinates. When you request GPS-based weather, Jandal obtains the device's last available location through Android's location API and sends the resulting coordinates to Open-Meteo. The app also caches weather responses locally. The location provider used by Android and Open-Meteo's own retention practices are outside Jandal's control.
+When you request weather for a named place, Jandal sends the place name to Open-Meteo's geocoding service and requests weather for the returned coordinates. When you request GPS-based weather and a last location is available, Jandal obtains it through Google Play services' Fused Location Provider, sends the coordinates to Open-Meteo for weather, and sends latitude/longitude to OpenStreetMap Nominatim to obtain a display name. The app also caches weather responses locally. The provider-specific handling of location by Google Play services and the retention practices of Google Play services, Nominatim, and Open-Meteo have not been established by this source review; those services' own policies apply.
 
 When you request a currency conversion, Jandal requests currency and exchange-rate data from Frankfurter, which serves European Central Bank reference rates. When you request a Wikipedia lookup, Jandal sends the search text to Wikipedia. These requests are feature-specific; they are not used to run the on-device language model.
 
@@ -36,7 +38,7 @@ Hugging Face sign-in is not needed for every model or download. The app's requir
 
 If you configure a Nextcloud server and enable sync for a list, Jandal exchanges that list and its task items with the server using CalDAV. The server URL, username, and app password are saved in encrypted preferences backed by Android Keystore. Jandal can create, update, and delete corresponding remote list/task resources as you use sync. The Nextcloud server operator controls server-side access and retention.
 
-HTTPS is used by default. Jandal also permits plain HTTP only when you explicitly enable **Use insecure HTTP** for that account. HTTP does not encrypt the connection. Stopping sync or disconnecting the account does not delete copies already stored on the Nextcloud server; remove those copies using that server's controls.
+Nextcloud addresses default to HTTPS: an address without a scheme is normalized to HTTPS, and explicit HTTP is rejected unless you enable **Use insecure HTTP** for that account. Android's network security configuration permits cleartext at the app level to support user-supplied server hosts; the Nextcloud client applies the per-account opt-in when constructing HTTP URLs and rejects HTTPS-to-HTTP redirects otherwise. HTTP does not encrypt the connection.
 
 ### Actions handed to other apps
 
@@ -60,4 +62,4 @@ Deleting local app data does not delete content already sent to a speech, weathe
 
 ## Review status
 
-This draft must be checked against the exact release candidate, its resolved dependencies and merged manifest, the speech and location services supported for release, provider-specific retention practices, and the publisher's approved privacy contact details before it is published or used for Google Play declarations.
+Before publication or any Google Play declarations, check this draft against the exact release candidate, its merged manifest, and the complete resolved release dependency/SDK inventory; verify provider-specific retention practices and the publisher's approved privacy contact details. The current offline `releaseRuntimeClasspath` includes MediaPipe Tasks Text 0.10.33, with transitive Android DataTransport CCT and Firebase encoder libraries. This source review has not established whether that SDK path sends data or what data it could handle; resolve its runtime/network behavior against the exact release candidate rather than inferring collection or telemetry from dependency names.
