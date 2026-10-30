@@ -41,6 +41,9 @@ def parse_badging(output: str) -> tuple[str, int, str | None]:
 
 
 def parse_signer_certificates(output: str) -> tuple[str, ...]:
+    candidates = [
+        line.strip() for line in output.splitlines() if "SHA-256" in line
+    ]
     certificates = tuple(
         match.replace(":", "").lower()
         for match in CERT_RE.findall(output)
@@ -48,7 +51,10 @@ def parse_signer_certificates(output: str) -> tuple[str, ...]:
     if not certificates or any(
         re.fullmatch(r"[0-9a-f]{64}", value) is None for value in certificates
     ):
-        raise ValueError("apksigner output has no valid signer certificate SHA-256 digest")
+        raise ValueError(
+            "apksigner output has no valid signer certificate SHA-256 digest; "
+            f"SHA-256 lines={candidates!r}"
+        )
     return certificates
 
 
