@@ -233,6 +233,12 @@ class ConstrainedTransitionFixtureHarnessTest {
                 userReply = "What's the weather in Sydney?",
             ),
             fixture(
+                "same pending reminder continues after a non-time reply",
+                "CONTINUE",
+                "call the blinds people reminder",
+                userReply = "I'm still talking about the same reminder",
+            ),
+            fixture(
                 "ambiguous reply asks targeted clarification",
                 "CLARIFY",
                 "pending reminder time",
