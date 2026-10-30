@@ -126,6 +126,13 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def artifact_relative_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError as error:
+        raise ValueError(f"APK must be inside the workspace: {path}") from error
+
+
 def write_manifest(args: argparse.Namespace) -> dict:
     if SHA_RE.fullmatch(args.source_head_sha) is None or SHA_RE.fullmatch(args.merge_sha) is None:
         raise ValueError("source head and merge SHA must be full 40-character Git SHAs")
@@ -158,7 +165,7 @@ def write_manifest(args: argparse.Namespace) -> dict:
         ),
         "artifacts": {
             "app": {
-                "path": args.app_apk.relative_to(Path.cwd()).as_posix(),
+                "path": artifact_relative_path(args.app_apk),
                 "package_id": app[0],
                 "version_code": app[1],
                 "version_name": app[2],
@@ -166,7 +173,7 @@ def write_manifest(args: argparse.Namespace) -> dict:
                 "sha256": sha256_file(args.app_apk),
             },
             "instrumentation": {
-                "path": args.test_apk.relative_to(Path.cwd()).as_posix(),
+                "path": artifact_relative_path(args.test_apk),
                 "package_id": test[0],
                 "version_code": test[1],
                 "version_name": test[2],

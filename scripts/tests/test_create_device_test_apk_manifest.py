@@ -37,6 +37,12 @@ class ApkMetadataTests(unittest.TestCase):
                     ("ab" * 32,),
                 )
 
+    def test_records_workspace_relative_artifact_path(self) -> None:
+        self.assertEqual(
+            manifest.artifact_relative_path(Path("app/build/outputs/app.apk")),
+            "app/build/outputs/app.apk",
+        )
+
     def test_rejects_signer_fingerprint_that_is_not_sha256(self) -> None:
         with self.assertRaisesRegex(ValueError, "no valid signer"):
             manifest.parse_signer_certificates("Signer #1 certificate SHA-256 digest: ab:cd")
