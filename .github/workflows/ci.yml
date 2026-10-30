@@ -98,13 +98,32 @@ jobs:
       - name: Build (debug)
         continue-on-error: true
         id: gradle-build
-        run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
-
-      - name: Build release and instrumentation APKs for 16 KB checks
+        env:
+          DEVICE_TEST_VERSION_CODE_BASE: 1000000000
         run: |
+          DEVICE_TEST_VERSION_CODE=$((DEVICE_TEST_VERSION_CODE_BASE + GITHUB_RUN_NUMBER))
+          if (( DEVICE_TEST_VERSION_CODE >= 2100000000 )); then
+            echo "Device-test versionCode exceeds Android's supported maximum" >&2
+            exit 1
+          fi
+          ./gradlew assembleDebug -PversionCode="$DEVICE_TEST_VERSION_CODE"
+      - name: Build debug instrumentation and release artifacts
+        env:
+          DEVICE_TEST_VERSION_CODE_BASE: 1000000000
+        run: |
+          DEVICE_TEST_VERSION_CODE=$((DEVICE_TEST_VERSION_CODE_BASE + GITHUB_RUN_NUMBER))
+          if (( DEVICE_TEST_VERSION_CODE >= 2100000000 )); then
+            echo "Device-test versionCode exceeds Android's supported maximum" >&2
+            exit 1
+          fi
           ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest \
-            :feature:settings:assembleDebugAndroidTest :app:assembleRelease \
+            -PversionCode="$DEVICE_TEST_VERSION_CODE"
+          ./gradlew :feature:settings:assembleDebugAndroidTest :app:assembleRelease \
             :app:bundleRelease -PversionCode=${{ github.run_number }}
+      - name: Test device APK provenance helper
+        run: |
+          python3 -m py_compile scripts/create_device_test_apk_manifest.py
+          python3 -m unittest scripts.tests.test_create_device_test_apk_manifest
 
       - name: Verify Android 16 KB APK and AAB artifacts
         run: |
@@ -147,6 +166,36 @@ jobs:
           path: app/build/outputs/apk/debug/
           retention-days: 14
 
+      - name: Generate paired device-test APK provenance
+        if: success() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
+        env:
+          DEVICE_TEST_VERSION_CODE_BASE: 1000000000
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 scripts/create_device_test_apk_manifest.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --pull-request "${PR_NUMBER:-0}" \
+            --event "$GITHUB_EVENT_NAME" \
+            --source-head-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --merge-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --version-code-base "$DEVICE_TEST_VERSION_CODE_BASE" \
+            --sdk-root "$ANDROID_HOME" \
+            --app-apk app/build/outputs/apk/debug/app-debug.apk \
+            --test-apk app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            --output device-test-apk-manifest.json
+      - name: Upload paired device-test APKs and provenance
+        if: success() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: device-test-apks-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            device-test-apk-manifest.json
+          if-no-files-found: error
+          retention-days: 30
       # ── CI test evidence ─────────────────────────────────────────────
       - name: Generate CI test evidence
         if: always()
@@ -191,7 +240,7 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING_ID}" \
             -X PATCH --input /tmp/pr-comment.json
       - name: Publish PR preview APK
-        if: success() && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
+        if: ${{ success() && github.event_name == 'pull_request' && !github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'ci-validation-only') }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
