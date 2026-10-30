@@ -92,12 +92,13 @@ def inspect_apk(apk: Path, aapt: Path, apksigner: Path) -> tuple[str, int, str |
         capture_output=True,
         text=True,
     ).stdout
-    signer_output = subprocess.run(
+    signer_result = subprocess.run(
         [str(apksigner), "verify", "--print-certs", str(apk)],
         check=True,
         capture_output=True,
         text=True,
-    ).stdout
+    )
+    signer_output = signer_result.stdout + "\n" + signer_result.stderr
     package, version_code, version_name = parse_badging(badging)
     return package, version_code, version_name, parse_signer_certificates(signer_output)
 
