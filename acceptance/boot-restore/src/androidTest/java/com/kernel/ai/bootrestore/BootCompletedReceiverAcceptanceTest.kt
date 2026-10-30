@@ -9,10 +9,7 @@ import com.kernel.ai.core.memory.KernelDatabase
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
 import java.time.LocalDate
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -22,12 +19,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-
-@EntryPoint
-@InstallIn(SingletonComponent::class)
-interface BootRestoreDatabaseEntryPoint {
-    fun kernelDatabase(): KernelDatabase
-}
 
 @RunWith(AndroidJUnit4::class)
 class BootCompletedReceiverAcceptanceTest {
