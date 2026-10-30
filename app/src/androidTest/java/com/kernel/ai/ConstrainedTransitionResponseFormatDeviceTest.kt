@@ -88,7 +88,7 @@ class ConstrainedTransitionResponseFormatDeviceTest {
 
 
     @Test
-    fun nativeResponseFormatRepeatedSemanticFixturesAndLifecycle() = runBlocking {
+    fun nativeResponseFormatRepeatedSemanticFixturesAndLifecycle(): Unit = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext.applicationContext
         assertEquals("com.kernel.ai.debug", context.packageName)
