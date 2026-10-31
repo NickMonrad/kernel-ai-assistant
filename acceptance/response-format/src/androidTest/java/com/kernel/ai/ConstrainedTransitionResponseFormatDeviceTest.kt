@@ -217,6 +217,8 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                             "The subject field is the canonical action subject. " +
                             "slot_name and slot_value are only for filling an outstanding missing slot; " +
                             "set both to null when no slot is pending. " +
+                            "target_id identifies a separately selected existing object only; set it to null " +
+                            "when no such target is selected, and never copy action_id into target_id. " +
                             "Treat action_id and revision as supplied runtime identity, not user data.",
                         thinkingEnabled = false,
                         nativeThinkingEnabled = false,

@@ -88,6 +88,18 @@ class ConstrainedTransitionFixtureHarnessTest {
                 expectedActionId = "wiki-check-1",
                 semanticExpected = false,
             ),
+            fixture(
+                "observed S23 response copies the action id into an ungrounded target",
+                "REPLACE",
+                "claim",
+                targetId = "wiki-check-1",
+                actionId = "wiki-check-1",
+                expectedTransition = "CONTINUE",
+                expectedSubject = "prisoners brewing alcohol in toilets",
+                expectedTargetId = null,
+                expectedActionId = "wiki-check-1",
+                semanticExpected = false,
+            ),
             fixture("wikipedia exact disputed proposition", "CONTINUE", "prisoners brewing alcohol in toilets", dispatch = "wiki-action"),
             fixture(
                 "cancel pending reminder",
@@ -202,7 +214,7 @@ class ConstrainedTransitionFixtureHarnessTest {
                 unsafeDispatches++
             }
         }
-        assertEquals(13, structuralPasses, "structural pass count is independent of semantic pass count")
+        assertEquals(14, structuralPasses, "structural pass count is independent of semantic pass count")
         assertEquals(9, semanticPasses)
         assertEquals(0, unsafeDispatches)
     }
