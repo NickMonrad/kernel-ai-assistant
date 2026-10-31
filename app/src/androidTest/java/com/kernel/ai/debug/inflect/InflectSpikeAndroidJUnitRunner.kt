@@ -6,8 +6,8 @@ import android.os.Bundle
 import androidx.test.runner.AndroidJUnitRunner
 
 /**
- * Suppresses app startup only when the single synthetic Inflect runtime test is selected by class.
- * The app's regular startup path remains intact for every other instrumentation invocation.
+ * Allows the Inflect runtime probe only on its isolated package, while retaining the main-branch
+ * exact-class guard for Application startup suppression.
  */
 class InflectSpikeAndroidJUnitRunner : AndroidJUnitRunner() {
     private var suppressTargetApplicationOnCreate = false
@@ -17,12 +17,25 @@ class InflectSpikeAndroidJUnitRunner : AndroidJUnitRunner() {
 
     override fun onCreate(arguments: Bundle?) {
         val target = targetContext
-        suppressTargetApplicationOnCreate = InflectProbeStartupIsolation
-            .shouldSuppressApplicationOnCreate(
+        val selectedTestClass = arguments?.getString(ARG_CLASS)
+        val targetIsDebuggable =
+            target.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (InflectProbeStartupIsolation.isRuntimeTestSelected(selectedTestClass)) {
+            check(
+                InflectProbeStartupIsolation.shouldAllowRuntimeTest(
+                    targetPackage = target.packageName,
+                    selectedTestClass = selectedTestClass,
+                ),
+            ) {
+                "InflectSpikeReceiverRuntimeTest requires the isolated " +
+                    "${InflectProbeStartupIsolation.PROBE_PACKAGE} target"
+            }
+        }
+        suppressTargetApplicationOnCreate =
+            InflectProbeStartupIsolation.shouldSuppressApplicationOnCreate(
                 targetPackage = target.packageName,
-                targetIsDebuggable =
-                    target.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
-                selectedTestClass = arguments?.getString(ARG_CLASS),
+                targetIsDebuggable = targetIsDebuggable,
+                selectedTestClass = selectedTestClass,
             )
         super.onCreate(arguments)
     }
@@ -36,7 +49,6 @@ class InflectSpikeAndroidJUnitRunner : AndroidJUnitRunner() {
         }
         super.callApplicationOnCreate(app)
     }
-
     private companion object {
         const val ARG_CLASS = "class"
     }

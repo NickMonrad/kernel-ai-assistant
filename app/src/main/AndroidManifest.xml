@@ -192,9 +192,8 @@
             android:value="On-device AI model inference loading via LiteRT GPU" />
 
         <!--
-            AppAuth redirect receiver — handles com.kernel.ai://oauth/callback (release).
-            The debug scheme (com.kernel.ai.debug://...) is added via app/src/debug/AndroidManifest.xml
-            so it does not pollute the release manifest.
+            AppAuth redirect receiver — scheme follows the final applicationId in every build
+            variant, including the isolated Inflect test package.
         -->
         <activity
             android:name="net.openid.appauth.RedirectUriReceiverActivity"
@@ -206,7 +205,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="com.kernel.ai"
+                    android:scheme="${applicationId}"
                     android:host="oauth"
                     android:pathPrefix="/callback" />
             </intent-filter>
