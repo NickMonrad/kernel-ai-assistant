@@ -121,12 +121,6 @@ jobs:
               android:versionCode="$DEVICE_TEST_VERSION_CODE"
               android:versionName="0.1.0" />
           EOF
-          mkdir -p acceptance/response-format/src/androidTest
-          cat > acceptance/response-format/src/androidTest/AndroidManifest.xml <<EOF
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-              android:versionCode="$DEVICE_TEST_VERSION_CODE"
-              android:versionName="0.1.0" />
-          EOF
           ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest \
             :acceptance:response-format:verifyIsolation \
             :acceptance:response-format:assembleDebug \

@@ -1,3 +1,39 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.TaskAction
+
+abstract class GenerateResponseFormatAndroidTestVersionManifest : DefaultTask() {
+    @get:Input
+    abstract val versionCode: Property<Int>
+
+    @get:OutputFile
+    abstract val manifestFile: RegularFileProperty
+
+    @TaskAction
+    fun generate() {
+        manifestFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                """<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools" android:versionCode="${versionCode.get()}" tools:replace="android:versionCode" />""",
+            )
+        }
+    }
+}
+
+val candidateVersionCode = providers.gradleProperty("versionCode")
+    .map { value ->
+        value.toLongOrNull()
+            ?: error("versionCode must be an integer between 1 and 2100000000.")
+    }
+    .orElse(1L)
+    .get()
+check(candidateVersionCode in 1L..2_100_000_000L) {
+    "versionCode must be between 1 and Android's supported maximum of 2100000000."
+}
+
 plugins {
     alias(libs.plugins.android.application)
 }
@@ -10,7 +46,7 @@ android {
         applicationId = "com.kernel.ai.debug"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionCode = candidateVersionCode.toInt()
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -48,6 +84,28 @@ android {
                 "lib/x86/libonnxruntime.so",
                 "lib/x86_64/libonnxruntime.so",
             )
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        if (variant.name == "debug") {
+            variant.androidTest?.let { androidTest ->
+                val manifestTask = tasks.register<GenerateResponseFormatAndroidTestVersionManifest>(
+                    "generateResponseFormatAndroidTestVersionManifest",
+                ) {
+                    versionCode.set(candidateVersionCode.toInt())
+                    manifestFile.set(
+                        layout.buildDirectory.file(
+                            "generated/androidTestManifest/${variant.name}/AndroidManifest.xml",
+                        ),
+                    )
+                }
+                androidTest.sources.manifests.addGeneratedManifestFile(manifestTask) {
+                    it.manifestFile
+                }
+            }
         }
     }
 }
