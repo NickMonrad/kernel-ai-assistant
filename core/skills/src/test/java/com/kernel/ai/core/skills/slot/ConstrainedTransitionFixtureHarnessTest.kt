@@ -73,6 +73,21 @@ class ConstrainedTransitionFixtureHarnessTest {
     fun `host fixtures separate structural validity semantic correctness and dispatch safety`() {
 
         val fixtures = listOf(
+            fixture(
+                "observed Wikipedia response puts grounded claim in slot",
+                "REPLACE",
+                "Toilets where prisoners brew alcohol",
+                slotName = "grounded_claim",
+                slotValue = "Prisoners brewing alcohol in toilets",
+                targetId = "wiki-check-1",
+                expectedTransition = "CONTINUE",
+                expectedSubject = "prisoners brewing alcohol in toilets",
+                expectedSlotName = null,
+                expectedSlotValue = null,
+                expectedTargetId = null,
+                expectedActionId = "wiki-check-1",
+                semanticExpected = false,
+            ),
             fixture("wikipedia exact disputed proposition", "CONTINUE", "prisoners brewing alcohol in toilets", dispatch = "wiki-action"),
             fixture(
                 "cancel pending reminder",
@@ -187,7 +202,7 @@ class ConstrainedTransitionFixtureHarnessTest {
                 unsafeDispatches++
             }
         }
-        assertEquals(12, structuralPasses, "structural pass count is independent of semantic pass count")
+        assertEquals(13, structuralPasses, "structural pass count is independent of semantic pass count")
         assertEquals(9, semanticPasses)
         assertEquals(0, unsafeDispatches)
     }
