@@ -92,6 +92,7 @@ class ConstrainedTransitionResponseFormatDeviceTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext.applicationContext
         assertEquals("com.kernel.ai.debug", context.packageName)
+        assertEquals("android.app.Application", context.applicationContext.javaClass.name)
         safeToolDispatches.set(0)
 
         val args = InstrumentationRegistry.getArguments()

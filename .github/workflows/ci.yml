@@ -121,7 +121,16 @@ jobs:
               android:versionCode="$DEVICE_TEST_VERSION_CODE"
               android:versionName="0.1.0" />
           EOF
+          mkdir -p acceptance/response-format/src/androidTest
+          cat > acceptance/response-format/src/androidTest/AndroidManifest.xml <<EOF
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              android:versionCode="$DEVICE_TEST_VERSION_CODE"
+              android:versionName="0.1.0" />
+          EOF
           ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest \
+            :acceptance:response-format:verifyIsolation \
+            :acceptance:response-format:assembleDebug \
+            :acceptance:response-format:assembleDebugAndroidTest \
             -PversionCode="$DEVICE_TEST_VERSION_CODE"
           ./gradlew :feature:settings:assembleDebugAndroidTest :app:assembleRelease \
             :app:bundleRelease -PversionCode=${{ github.run_number }}
@@ -142,6 +151,8 @@ jobs:
             --apk app/build/outputs/apk/debug/app-debug.apk \
             --apk app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
             --apk feature/settings/build/outputs/apk/androidTest/debug/settings-debug-androidTest.apk \
+            --apk acceptance/response-format/build/outputs/apk/debug/response-format-debug.apk \
+            --apk acceptance/response-format/build/outputs/apk/androidTest/debug/response-format-debug-androidTest.apk \
             --apk app/build/outputs/apk/release/app-release-unsigned.apk \
             --aab app/build/outputs/bundle/release/app-release.aab
 

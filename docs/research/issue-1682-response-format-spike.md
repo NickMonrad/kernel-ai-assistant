@@ -24,6 +24,11 @@ Accept the mechanism only if all gates below pass on every supported deployed E2
 
 Any structural failure, unsafe/wrong dispatch, ambiguity misdispatch, unstable cancellation/recovery, or ordinary chat/tool regression rejects the constrained path for the affected lane. A lane that cannot execute the constrained API reliably is unsupported for this design; never substitute unconstrained JSON.
 
+## Isolated S23U probe target
+
+Build `:acceptance:response-format:assembleDebug` and `:acceptance:response-format:assembleDebugAndroidTest` for the explicitly selected `ConstrainedTransitionResponseFormatDeviceTest`. This standalone test-only APK uses `applicationId=com.kernel.ai.debug`, preserving `KernelModel.localFile(context)` access to the existing E4B model without copying or migrating app data. Its merged manifest has no Activity, alias, provider or receiver; it removes network permissions and retains only inference loading/generation foreground services. The `verifyIsolation` task checks that boundary, and the test asserts the target uses the platform `android.app.Application`. This excludes `KernelAIApplication`, AndroidX content-provider initializers and WorkManager/Nextcloud scheduling from this target. It does not erase existing app-private data or persisted WorkManager records; those remain a separate device-safety preflight. Install this APK only on the dedicated S23U with `adb install -r`; it replaces debug app code but preserves package data, so do not use it on a personal-use device or restore/launch a normal app build until the device lane owner approves.
+
+
 ## Host reducer/model fixtures
 
 The host harness separates structural acceptance (schema shape/enumeration/required fields) from semantic correctness (expected transition, grounded subject/slot, target identity). It records dispatch intent independently and requires zero dispatch for all non-action outcomes. Cover:
