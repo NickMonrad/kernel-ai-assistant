@@ -844,10 +844,19 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """turn\s+off\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
+                """turn\s+off\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                val quantifier = match.groupValues[1]
+                val noun = match.groupValues[2]
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
+                }
+            },
         ),
         // cancel_timer_named must come before the generic cancel_timer patterns
         IntentPattern(
@@ -875,10 +884,19 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(?:all|my|the|a)\s+)?(?:timers?|countdowns?)""",
+                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                val quantifier = match.groupValues[1]
+                val noun = match.groupValues[2]
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
+                }
+            },
         ),
 
         // ── List Timers ──
