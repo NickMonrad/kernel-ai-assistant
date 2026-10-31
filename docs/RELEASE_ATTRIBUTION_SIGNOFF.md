@@ -54,10 +54,10 @@ This remains a **pre-release-candidate attribution snapshot**, not a signed rele
 | Asset | Release role | Source / terms status | Sign-off status |
 |---|---|---|---|
 | Android TTS | Platform fallback. | Android platform/system service. | OK; describe as platform fallback. |
-| Piper/VITS voice packs | User-selectable Sherpa/Piper voices. | Sherpa-ONNX release assets; per-voice dataset provenance still matters. | Release-visible voices must retain per-voice provenance in docs. |
-| Semaine | Debug/internal only. | Potential non-commercial/share-alike risk. | Hidden from release; not a Play launch blocker after #1268. |
-| CoriHigh | Release-visible replacement for Semaine. | `rhasspy/piper-voices` MIT repo; model card lists LibriVox public-domain dataset. | OK for release-visible catalogue based on #1268. |
-| Kokoro experimental | Optional/experimental Sherpa Kokoro TTS. | Exact app asset is Sherpa-ONNX `kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage recorded as Apache-2.0. | OK from current attribution trace; avoid overclaiming quality/stability in store copy. |
+| Piper/VITS voice packs | User-selectable Sherpa/Piper voices. | Sherpa-ONNX release assets; per-voice dataset provenance still matters. | Only CoriHigh is release-visible in v0.1; other catalogue entries are excluded pending per-voice source, dataset, and terms review. |
+| Semaine | Debug/internal only. | Potential non-commercial/share-alike risk. | Excluded from release under #1258; not a release-visible voice. |
+| CoriHigh | Release-visible replacement for Semaine. | `rhasspy/piper-voices` MIT repo; model card identifies LibriVox as the dataset. | Sole release-visible Piper voice for v0.1 based on the recorded source and provenance. |
+| Kokoro experimental | Debug-only/post-launch Sherpa Kokoro TTS. | Exact app asset is Sherpa-ONNX `kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage recorded as Apache-2.0. | Not release-visible for v0.1 under #1014; no release-signoff conclusion. |
 
 ## Wake-word asset provenance
 
@@ -78,16 +78,18 @@ Release treatment:
 - keep the training README as the source-of-truth provenance for the generated model;
 - before final Play release, the maintainer should confirm that the local real recordings are owned/consented for use in the bundled wake-word model.
 
-## In-app open-source notices decision
+## In-app disclosures required by #1263
 
-For first launch, an in-app open-source licences screen is **deferred** unless the generated release dependency notice/SBOM or bundled SDK notices show a licence that requires in-app reproduction.
+Issue #1263 requires offline in-app Open-source licences and Models, voices & wake word views in the shared Legal & Privacy surface tracked by #1260. This repository snapshot does not yet provide those views. The requirement is not conditional on an SBOM revealing a licence that requires in-app reproduction.
 
-Required first-launch minimum:
+The release still needs the #1260 surface, release-variant content generated or verified against the final artefact, and in-app validation. This sign-off snapshot is evidence, not a substitute for either required view.
+
+Other existing release obligations remain:
 
 - repository `LICENSE` and `NOTICE` remain present;
-- `docs/LEGAL_AND_ATTRIBUTION.md`, `docs/VOICE_MODEL_ATTRIBUTION.md`, and this file remain linked from release/internal launch notes;
-- Play Store copy does not claim ownership of upstream models/voices;
-- final release artefact audit confirms no unexpected bundled model files or debug-only dependencies.
+- release/internal launch notes should link the detailed attribution docs;
+- Play Store copy must not claim ownership of upstream models or voices;
+- final release-artefact audit must confirm bundled model files and debug-only dependencies.
 
 ## Release artefact audit complete
 
@@ -103,5 +105,5 @@ The following items were completed in #1259:
 - [ ] Decide whether to add an SBOM generation plugin or accept manual review as sufficient
 - [ ] Confirm exact bundled/downloaded Vosk model provenance if exposed in release
 - [ ] Confirm maintainer ownership/consent for Stage 3 wake-word training recordings
-- [ ] Decide in-app OSS notices screen — deferred for first launch unless pre-launch review flags it
+- [ ] Implement and validate both offline in-app disclosure views required by #1263 in the shared Legal & Privacy surface tracked by #1260.
 - [ ] Update #868 with final release scope

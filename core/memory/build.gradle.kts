@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "com.kernel.ai.core.memory"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()

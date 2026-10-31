@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-class InflectProbeStartupIsolationTest {
+class InflectProbeBuildIsolationTest {
     @Test
     fun `runtime probe selection is accepted only in runner-supported isolated forms`() {
         val testClass = InflectProbeStartupIsolation.RUNTIME_TEST_CLASS
@@ -35,6 +35,12 @@ class InflectProbeStartupIsolationTest {
             InflectProbeStartupIsolation.shouldAllowRuntimeTest(
                 targetPackage = probePackage,
                 selectedTestClass = "$testClass,OtherTest",
+            ),
+        )
+        assertFalse(
+            InflectProbeStartupIsolation.shouldAllowRuntimeTest(
+                targetPackage = probePackage,
+                selectedTestClass = "$methodSelection,OtherTest",
             ),
         )
         assertTrue(InflectProbeStartupIsolation.isRuntimeTestSelected("$testClass,OtherTest"))

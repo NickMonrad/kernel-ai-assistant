@@ -17,6 +17,7 @@ import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.ClockAlarm
+import com.kernel.ai.core.memory.clock.ClockTimer
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.SchedulingResult
 import com.kernel.ai.core.memory.clock.SchedulingWarning
@@ -110,6 +111,18 @@ class NativeIntentHandlerTest {
         intentName: String,
         params: Map<String, String>,
     ): SkillResult = runBlocking { handler.handle(intentName, params) }
+
+    private fun activeTimer(id: String, label: String?, durationMs: Long): ClockTimer {
+        val startedAtMillis = System.currentTimeMillis()
+        return ClockTimer(
+            id = id,
+            triggerAtMillis = startedAtMillis + durationMs,
+            label = label,
+            createdAtMillis = startedAtMillis,
+            durationMs = durationMs,
+            startedAtMillis = startedAtMillis,
+        )
+    }
 
     private fun handlerWithListMutations(mutations: ListMutationRepository) = NativeIntentHandler(
         context = context,
@@ -2039,19 +2052,19 @@ class NativeIntentHandlerTest {
 
     @Test
     fun `cancel_timer dismisses active timer alert when no running timers remain`() {
-        coEvery { clockRepository.cancelAllTimers() } returns 0
         every { clockAlertController.dismissActiveTimerAlerts() } returns true
 
         val result = handleIntent("cancel_timer", emptyMap())
 
         assertEquals(SkillResult.Success("Dismissed the active timer alert."), result)
-        coVerify(exactly = 1) { clockRepository.cancelAllTimers() }
+        coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
+        coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
         verify(exactly = 1) { clockAlertController.dismissActiveTimerAlerts() }
     }
 
     @Test
-    fun `cancel_timer reports cancelling timers and dismissing active alert`() {
-        coEvery { clockRepository.cancelAllTimers() } returns 1
+    fun `cancel_timer reports cancelling one timer and dismissing active alert`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(activeTimer("tea", "Tea", 600_000L))
         every { clockAlertController.dismissActiveTimerAlerts() } returns true
 
         val result = handleIntent("cancel_timer", emptyMap())
@@ -2060,18 +2073,143 @@ class NativeIntentHandlerTest {
             SkillResult.Success("Cancelled 1 timer and dismissed the active timer alert."),
             result,
         )
-        coVerify(exactly = 1) { clockRepository.cancelAllTimers() }
+        coVerify(exactly = 1) { clockRepository.cancelTimer("tea") }
+        coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
         verify(exactly = 1) { clockAlertController.dismissActiveTimerAlerts() }
     }
 
+    @Test
+    fun `cancel_timer asks which timer when multiple are active`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(
+            activeTimer("tea", "Tea", 600_000L),
+            activeTimer("laundry", "Laundry", 1_200_000L),
+        )
+
+        val result = handleIntent("cancel_timer", emptyMap())
+
+        assertTrue(result is SkillResult.DirectReply)
+        val prompt = (result as SkillResult.DirectReply).content
+        assertTrue(prompt.contains("1st. Tea"))
+        assertTrue(prompt.contains("2nd. Laundry"))
+        assertTrue(prompt.contains("cancel the second timer"))
+        assertTrue(prompt.contains("cancel the Tea timer"))
+        coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
+        coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
+        verify(exactly = 0) { clockAlertController.dismissActiveTimerAlerts() }
+    }
 
     @Test
-    fun `cancel_timer_named matches unlabeled timer by hyphenated duration`() {
-        coEvery { clockRepository.cancelTimersMatching("10-minute", 600_000L) } returns 1
+    fun `cancel_timer cancels the only active timer`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(activeTimer("tea", "Tea", 600_000L))
+
+        val result = handleIntent("cancel_timer", emptyMap())
+
+        assertEquals(SkillResult.Success("Cancelled 1 timer."), result)
+        coVerify(exactly = 1) { clockRepository.cancelTimer("tea") }
+        coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
+    }
+
+    @Test
+    fun `explicit cancel all still cancels every active timer`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(
+            activeTimer("tea", "Tea", 600_000L),
+            activeTimer("laundry", "Laundry", 1_200_000L),
+        )
+        coEvery { clockRepository.cancelAllTimers() } returns 2
+
+        val result = handleIntent("cancel_timer", mapOf("all" to "true"))
+
+        assertEquals(SkillResult.Success("Cancelled 2 timers."), result)
+        coVerify(exactly = 1) { clockRepository.cancelAllTimers() }
+        coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
+    }
+
+    @Test
+    fun `model routed both count cancels exactly two active timers`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(
+            activeTimer("tea", "Tea", 600_000L),
+            activeTimer("laundry", "Laundry", 1_200_000L),
+        )
+        coEvery { clockRepository.cancelAllTimers() } returns 2
+
+        val result = handleIntent("cancel_timer", mapOf("count" to "2"))
+
+        assertEquals(SkillResult.Success("Cancelled 2 timers."), result)
+        coVerify(exactly = 1) { clockRepository.cancelAllTimers() }
+        coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
+    }
+
+    @Test
+    fun `model routed both count with three active timers clarifies and cancels none`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(
+            activeTimer("tea", "Tea", 600_000L),
+            activeTimer("laundry", "Laundry", 1_200_000L),
+            activeTimer("pasta", "Pasta", 1_800_000L),
+        )
+
+        val result = handleIntent("cancel_timer", mapOf("all" to "true", "count" to "2"))
+
+        assertTrue(result is SkillResult.DirectReply)
+        val prompt = (result as SkillResult.DirectReply).content
+        assertTrue(prompt.contains("I found 3 active timers"))
+        assertTrue(prompt.contains("cancel the second timer"))
+        assertTrue(prompt.contains("complete commands"))
+        coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
+        coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
+        verify(exactly = 0) { clockAlertController.dismissActiveTimerAlerts() }
+    }
+
+    @Test
+    fun `cancel_timer_named asks when the identifier matches multiple timers`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(
+            activeTimer("pasta", "Pasta", 300_000L),
+            activeTimer("tea-1", "Tea", 600_000L),
+            activeTimer("tea-2", "Tea", 1_200_000L),
+        )
+
+        val result = handleIntent("cancel_timer_named", mapOf("name" to "Tea"))
+
+        assertTrue(result is SkillResult.DirectReply)
+        val prompt = (result as SkillResult.DirectReply).content
+        assertTrue(prompt.contains("2nd. Tea"))
+        assertTrue(prompt.contains("3rd. Tea"))
+        coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
+        coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
+    }
+
+    @Test
+    fun `cancel_timer_named can select a numbered clarification choice`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(
+            activeTimer("pasta", "Pasta", 300_000L),
+            activeTimer("tea", "Tea", 600_000L),
+            activeTimer("laundry", "Laundry", 1_200_000L),
+        )
+
+        val result = handleIntent("cancel_timer_named", mapOf("name" to "third"))
+
+        assertEquals(SkillResult.Success("Cancelled the third timer"), result)
+        coVerify(exactly = 1) { clockRepository.cancelTimer("laundry") }
+        coVerify(exactly = 0) { clockRepository.cancelAllTimers() }
+    }
+
+    @Test
+    fun `cancel_timer_named cancels one unlabeled timer by hyphenated duration`() {
+        coEvery { clockRepository.getAllTimers() } returns listOf(activeTimer("timer-10", null, 600_000L))
         val result = handleIntent("cancel_timer_named", mapOf("name" to "10-minute"))
         assertEquals(SkillResult.Success("Cancelled the 10-minute timer"), result)
-        coVerify(exactly = 1) { clockRepository.cancelTimersMatching("10-minute", 600_000L) }
+        coVerify(exactly = 1) { clockRepository.cancelTimer("timer-10") }
     }
+
+    @Test
+    fun `cancel_timer_named uses truthful failure when no duration match exists`() {
+        coEvery { clockRepository.getAllTimers() } returns emptyList()
+        val result = handleIntent("cancel_timer_named", mapOf("name" to "10-minute"))
+        assertEquals(SkillResult.Failure("cancel_timer_named", "No timer matching '10-minute' found"), result)
+        coVerify(exactly = 0) { clockRepository.cancelTimer(any()) }
+        coVerify(exactly = 0) { clockRepository.cancelTimersMatching(any(), any()) }
+    }
+
+
 
     @Test
     fun `set_alarm with unparseable explicit day fails instead of shifting dates`() {
@@ -2082,13 +2220,6 @@ class NativeIntentHandlerTest {
         verify(exactly = 0) { context.startActivity(any()) }
     }
 
-    @Test
-    fun `cancel_timer_named uses truthful failure when no duration match exists`() {
-        coEvery { clockRepository.cancelTimersMatching("10-minute", 600_000L) } returns 0
-        val result = handleIntent("cancel_timer_named", mapOf("name" to "10-minute"))
-        assertEquals(SkillResult.Failure("cancel_timer_named", "No timer matching '10-minute' found"), result)
-        coVerify(exactly = 1) { clockRepository.cancelTimersMatching("10-minute", 600_000L) }
-    }
 
     @Test
     fun `cancel_alarm without label cancels next app alarm only`() {

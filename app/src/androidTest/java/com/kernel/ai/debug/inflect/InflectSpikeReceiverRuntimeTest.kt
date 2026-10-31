@@ -16,14 +16,13 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Explicit synthetic runtime smoke test for the isolated Inflect application ID.
- * Requires model graphs acquired through the app's Settings → Voice → Inflect Micro download flow
- * and an existing app-private eSpeak data directory supplied as an instrumentation argument.
+ * Explicit synthetic runtime smoke test for the isolated Inflect application ID. Run only by
+ * selecting this exact class or one method; the runner enforces the isolated package gate.
+ * Requires pre-existing app-private model graphs and eSpeak data directory.
  */
 @RunWith(AndroidJUnit4::class)
 class InflectSpikeReceiverRuntimeTest {
@@ -32,14 +31,13 @@ class InflectSpikeReceiverRuntimeTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val arguments = InstrumentationRegistry.getArguments()
         val context = instrumentation.targetContext
-        assumeTrue(
-            "Select the runtime test class or one method on the isolated package",
+        assertTrue(
+            "Runtime test selection and isolated package must match the runner gate",
             InflectProbeStartupIsolation.shouldAllowRuntimeTest(
                 targetPackage = context.packageName,
                 selectedTestClass = arguments.getString("class"),
             ),
         )
-
         assertEquals(InflectProbeStartupIsolation.PROBE_PACKAGE, context.packageName)
         assertTrue(
             "The test-only startup mode must be enabled",

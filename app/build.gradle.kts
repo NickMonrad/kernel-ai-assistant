@@ -2,6 +2,11 @@ import java.io.File
 import java.time.Instant
 import java.util.Properties
 import java.util.zip.ZipFile
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 
 plugins {
     alias(libs.plugins.android.application)
@@ -358,6 +363,205 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
         }
     }
 }
+
+/**
+ * Writes the resolved release dependency graph as review inputs.
+ *
+ * This inventory is not a CycloneDX/SPDX SBOM or a licence determination. Licence and notice
+ * metadata are deliberately reported as unknown until reviewed source metadata is supplied.
+ */
+tasks.register("generateReleaseDependencyInventory") {
+    group = "verification"
+    description = "Writes a release dependency inventory and explicit licence/notice metadata gaps."
+
+    val reportDirectory = layout.buildDirectory.dir("reports/release-audit")
+    val inventoryFile = reportDirectory.map { it.file("release-runtime-dependency-inventory.json") }
+    val metadataGapsFile = reportDirectory.map { it.file("release-runtime-metadata-gaps.json") }
+    outputs.files(inventoryFile, metadataGapsFile)
+    // The resolved dependency graph and source commit are read during execution, not modeled as task inputs.
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val configuration = configurations.getByName("releaseRuntimeClasspath")
+        val repositoryRoot = rootProject.projectDir.canonicalFile.toPath()
+
+        fun sha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().buffered().use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        val components = configuration.incoming.resolutionResult.allComponents.mapNotNull { component ->
+            when (val id = component.id) {
+                is ModuleComponentIdentifier -> mapOf(
+                    "component_id" to "${id.group}:${id.module}:${id.version}",
+                    "component_type" to "module",
+                    "artifact_file" to null,
+                    "artifact_sha256" to null,
+                    "artifact_hash_status" to "not_resolved_by_dependency_graph",
+                    "license_expression" to null,
+                    "license_status" to "unknown_not_collected",
+                    "copyright_status" to "unknown_not_collected",
+                    "notice_text_status" to "unknown_not_collected",
+                    "source_url_status" to "unknown_not_collected",
+                )
+                is ProjectComponentIdentifier -> if (id.projectPath == project.path) {
+                    null
+                } else {
+                    mapOf(
+                        "component_id" to "project:${id.projectPath}",
+                        "component_type" to "project",
+                        "artifact_file" to null,
+                        "artifact_sha256" to null,
+                        "artifact_hash_status" to "not_resolved_by_dependency_graph",
+                        "license_expression" to null,
+                        "license_status" to "unknown_not_collected",
+                        "copyright_status" to "unknown_not_collected",
+                        "notice_text_status" to "unknown_not_collected",
+                        "source_url_status" to "unknown_not_collected",
+                    )
+                }
+                else -> null
+            }
+        }
+        val fileDependencies = configuration.allDependencies
+            .withType(org.gradle.api.artifacts.FileCollectionDependency::class.java)
+            .flatMap { it.files.files }
+            .filter { it.isFile }
+            .map { file ->
+                val canonicalFile = file.canonicalFile
+                val path = canonicalFile.toPath()
+                    .takeIf { it.startsWith(repositoryRoot) }
+                    ?.let { repositoryRoot.relativize(it).toString().replace(File.separatorChar, '/') }
+                    ?: canonicalFile.name
+                mapOf(
+                    "component_id" to "file:$path",
+                    "component_type" to "file",
+                    "artifact_file" to path,
+                    "artifact_sha256" to sha256(canonicalFile),
+                    "artifact_hash_status" to "computed",
+                    "license_expression" to null,
+                    "license_status" to "unknown_not_collected",
+                    "copyright_status" to "unknown_not_collected",
+                    "notice_text_status" to "unknown_not_collected",
+                    "source_url_status" to "unknown_not_collected",
+                )
+            }
+        val entries = (components + fileDependencies).distinctBy { it.getValue("component_id") }
+            .sortedBy { it.getValue("component_id").toString() }
+        check(entries.isNotEmpty()) { "No dependencies resolved for releaseRuntimeClasspath." }
+
+        val commit = providers.exec {
+            commandLine("git", "rev-parse", "HEAD")
+        }.standardOutput.asText.get().trim()
+        val metadataGaps = entries.map { entry ->
+            mapOf(
+                "component_id" to entry.getValue("component_id"),
+                "status" to "unknown_not_collected",
+                "missing_metadata" to listOf(
+                    "license_expression",
+                    "copyright_attribution",
+                    "required_notice_text",
+                    "source_url",
+                ),
+            )
+        }
+        val inventory = mapOf(
+            "format" to "jandal-release-runtime-dependency-inventory",
+            "schema_version" to 1,
+            "is_formal_sbom" to false,
+            "sbom_note" to "Resolved dependency inventory only; not a CycloneDX/SPDX SBOM or licence determination.",
+            "source_commit" to commit,
+            "version_name" to android.defaultConfig.versionName,
+            "version_code" to android.defaultConfig.versionCode,
+            "configuration" to "releaseRuntimeClasspath",
+            "component_count" to entries.size,
+            "file_dependency_count" to fileDependencies.size,
+            "notice_input_status" to "requires_reviewed_licence_and_notice_metadata",
+            "components" to entries,
+        )
+        val metadataReport = mapOf(
+            "format" to "jandal-release-runtime-metadata-gaps",
+            "schema_version" to 1,
+            "source_commit" to commit,
+            "configuration" to "releaseRuntimeClasspath",
+            "status_note" to "unknown_not_collected means this task does not ingest reviewed licence metadata; it does not assert upstream metadata is absent.",
+            "component_count" to metadataGaps.size,
+            "gaps" to metadataGaps,
+        )
+        val inventoryOutput = inventoryFile.get().asFile
+        val gapsOutput = metadataGapsFile.get().asFile
+        inventoryOutput.parentFile.mkdirs()
+        inventoryOutput.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(inventory)) + "\n")
+        gapsOutput.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(metadataReport)) + "\n")
+    }
+}
+
+tasks.register("verifyReleaseDependencyInventory") {
+    group = "verification"
+    description = "Checks release inventory completeness and fail-closed metadata statuses."
+    dependsOn("generateReleaseDependencyInventory")
+
+    doLast {
+        val reportDirectory = layout.buildDirectory.dir("reports/release-audit").get().asFile
+        val inventory = JsonSlurper().parse(
+            reportDirectory.resolve("release-runtime-dependency-inventory.json"),
+        ) as Map<*, *>
+        val metadataReport = JsonSlurper().parse(
+            reportDirectory.resolve("release-runtime-metadata-gaps.json"),
+        ) as Map<*, *>
+        val components = inventory["components"] as List<*>
+        val gaps = metadataReport["gaps"] as List<*>
+        val componentIds = components.map { (it as Map<*, *>)["component_id"].toString() }
+        val gapIds = gaps.map { (it as Map<*, *>)["component_id"].toString() }
+
+        check(inventory["configuration"] == "releaseRuntimeClasspath")
+        check(inventory["is_formal_sbom"] == false)
+        check(inventory["source_commit"].toString().matches(Regex("[0-9a-f]{40}")))
+        check(inventory["version_name"].toString().isNotBlank())
+        check((inventory["version_code"] as Number).toInt() > 0)
+        check(components.isNotEmpty() && componentIds == componentIds.distinct().sorted())
+        check("project:${project.path}" !in componentIds)
+        check(inventory["component_count"] == components.size)
+        check(inventory["file_dependency_count"] == components.count {
+            (it as Map<*, *>)["component_type"] == "file"
+        })
+        check((inventory["file_dependency_count"] as Number).toInt() > 0)
+        check(componentIds == gapIds && metadataReport["component_count"] == gaps.size)
+        components.forEach { value ->
+            val component = value as Map<*, *>
+            check(component["license_expression"] == null)
+            check(component["license_status"] == "unknown_not_collected")
+            check(component["copyright_status"] == "unknown_not_collected")
+            check(component["notice_text_status"] == "unknown_not_collected")
+            check(component["source_url_status"] == "unknown_not_collected")
+            if (component["component_type"] == "file") {
+                check(component["artifact_hash_status"] == "computed")
+                check(component["artifact_sha256"].toString().matches(Regex("[0-9a-f]{64}")))
+            }
+        }
+        gaps.forEach { value ->
+            val gap = value as Map<*, *>
+            check(gap["status"] == "unknown_not_collected")
+            check(gap["missing_metadata"] == listOf(
+                "license_expression",
+                "copyright_attribution",
+                "required_notice_text",
+                "source_url",
+            ))
+        }
+    }
+}
+
+
+
 
 
 dependencies {

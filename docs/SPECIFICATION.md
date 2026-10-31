@@ -430,6 +430,7 @@ has safe defaults, including current-location behavior and optional forecast fie
 |---------|--------|--------|
 | "turn on/off torch/flashlight" | Torch toggle | `CameraManager.setTorchMode()` |
 | "set a timer for X minutes" | Timer | App-owned clock scheduler + notification pipeline |
+| "cancel timer" / "cancel all timers" | Cancel a uniquely targeted timer; clarify ambiguous multi-timer requests; bulk-cancel only on explicit intent | App-owned clock scheduler |
 | "set an alarm for X:XX" | Alarm | App-owned clock scheduler + notification pipeline |
 | "turn on/off do not disturb/dnd" | DND | `NotificationManager.setInterruptionFilter()` |
 | "turn on/off bluetooth" | Bluetooth | `BluetoothAdapter.enable()/disable()` |
