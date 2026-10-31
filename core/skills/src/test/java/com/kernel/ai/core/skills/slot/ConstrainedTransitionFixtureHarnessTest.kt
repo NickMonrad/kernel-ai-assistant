@@ -120,6 +120,16 @@ class ConstrainedTransitionFixtureHarnessTest {
                 userReply = "cancel",
             ),
             fixture(
+                "observed S23 cancellation with abbreviated subject",
+                "CANCEL",
+                "call",
+                actionId = "reminder-1",
+                expectedTransition = "CANCEL",
+                expectedSubject = "call the blinds people on Monday",
+                expectedActionId = "reminder-1",
+                semanticExpected = false,
+            ),
+            fixture(
                 "unrelated weather replaces pending reminder",
                 "REPLACE",
                 "weather in Sydney",
@@ -226,7 +236,7 @@ class ConstrainedTransitionFixtureHarnessTest {
                 unsafeDispatches++
             }
         }
-        assertEquals(15, structuralPasses, "structural pass count is independent of semantic pass count")
+        assertEquals(16, structuralPasses, "structural pass count is independent of semantic pass count")
         assertEquals(9, semanticPasses)
         assertEquals(0, unsafeDispatches)
     }

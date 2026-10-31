@@ -364,7 +364,9 @@ class ConstrainedTransitionResponseFormatDeviceTest {
         ),
         Fixture(
             name = "reminder-cancel",
-            prompt = "Pending reminder: call the blinds people on Monday; missing slot time. User reply: cancel. Return action_id reminder-1, revision 4.",
+            prompt = "Pending reminder: call the blinds people on Monday; missing slot time. " +
+                "User reply: cancel. For CANCEL, copy the full pending reminder subject exactly; do not abbreviate it. " +
+                "Return action_id reminder-1, revision 4.",
             transition = "CANCEL", subject = "call the blinds people on Monday", actionId = "reminder-1",
         ),
         Fixture(
