@@ -1,6 +1,6 @@
 # Inflect Sherpa AAR rebuild manifest
 
-This manifest records the host-built four-ABI replacement proposed for #1474. The replacement AAR is present in this draft branch only; it has not been merged, signed into an app release, or released. The manifest and build scripts are provenance inputs, not legal approval or a recipient-facing corresponding-source offer.
+This manifest records the host-built four-ABI replacement merged by #1659 as part of #1474. The replacement AAR is tracked on `main`; it has not been signed into an app release or released. The manifest and build scripts are provenance inputs, not legal approval or a recipient-facing corresponding-source offer.
 
 ## Candidate artifact and source identity
 
@@ -79,10 +79,10 @@ ZIP entry timestamps and metadata are fixed and entries are stored without compr
 | `x86` | Intel 80386 | `48a266545de8455cfd71e48d9b4efcbeb0652def64808f2000b7a53e49cf89db` |
 | `x86_64` | Advanced Micro Devices X86-64 | `f88da1d518c7922d3f032d1807ee7132174b4afac63556aab9c5327d5f48babd` |
 
-Two independent clean runs, `/tmp/jandal-1474-noid-h-20261025T033352Z-35281` and `/tmp/jandal-1474-noid-i-20261025T034102Z-35281`, exited 0 and produced byte-identical JNI outputs for all four ABIs and identical AAR SHA-256 `46a8e806833066bc657d8508e66e35dae8b1a04dff207ebd8538517d58b6567d`. Each packager run verified ELF machine type, the required JNI export, `DT_NEEDED`, ZIP CRCs, and byte-for-byte preservation of every non-replaced base-AAR entry. The tracked draft candidate is copied from run H and has that same AAR hash.
+Two independent clean runs, `/tmp/jandal-1474-noid-h-20261025T033352Z-35281` and `/tmp/jandal-1474-noid-i-20261025T034102Z-35281`, exited 0 and produced byte-identical JNI outputs for all four ABIs and identical AAR SHA-256 `46a8e806833066bc657d8508e66e35dae8b1a04dff207ebd8538517d58b6567d`. Each packager run verified ELF machine type, the required JNI export, `DT_NEEDED`, ZIP CRCs, and byte-for-byte preservation of every non-replaced base-AAR entry. The tracked candidate merged by #1659 is copied from run H and has that same AAR hash.
 
 ## Open #1474/#1263 release obligations
 
-The fetched Piper source tree includes `LICENSE.md` and `licenses/uni-algo/LICENSE.md`; the eSpeak-ng tree includes `COPYING`, `COPYING.UCD`, and `COPYING.APACHE`. These are observed source-tree inputs only, not a complete notice inventory. This PR does not generate or add a recipient-facing licence/notice bundle, a complete SBOM, or a corresponding-source download location. The source archives and checked-in patch are build inputs; this record does not make them available to app recipients or determine legal sufficiency. Nick's legal/compliance review and the #1263 release-artifact/notice reconciliation remain required before any signed release or distribution.
+The fetched Piper source tree includes `LICENSE.md` and `licenses/uni-algo/LICENSE.md`; the eSpeak-ng tree includes `COPYING`, `COPYING.UCD`, and `COPYING.APACHE`. These are observed source-tree inputs only, not a complete notice inventory. This rebuild/provenance work does not generate or add a recipient-facing licence/notice bundle, a complete SBOM, or a corresponding-source download location. The source archives and checked-in patch are build inputs; this record does not make them available to app recipients or determine legal sufficiency. Nick's legal/compliance review and the #1263 release-artifact/notice reconciliation remain required before any signed release or distribution.
 
-No Android app release candidate, signed package, device run, Play upload, merge, or legal approval is included in this work.
+This manifest does not by itself establish a signed Android app release candidate, Play publication, recipient-facing source/notice delivery, or legal/release approval.

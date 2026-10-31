@@ -3,6 +3,7 @@ package com.kernel.ai.core.memory.nextcloud
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
@@ -115,7 +116,7 @@ class NextcloudLoginFlowClientTest {
 
 
     @Test
-    fun `initiation sends a real zero length POST body`() = runTest {
+    fun `initiation sends a real zero length POST body`() = runBlocking {
         MockWebServer().use { server ->
             val serverUrl = server.url("/nextcloud").toString().removeSuffix("/")
             val loginUrl = server.url("/nextcloud/login/v2/flow").toString()
@@ -128,23 +129,24 @@ class NextcloudLoginFlowClientTest {
                         """{"poll":{"token":"fixture-token","endpoint":"$pollUrl"},"login":"$loginUrl"}""",
                     ),
             )
-            val authentication = launch {
-                NextcloudLoginFlowClient(
-                    transport = OkHttpCalDavTransport(),
-                    timeoutMillis = 10_000L,
-                    pollIntervalMillis = 1_000L,
-                ).authenticate(serverUrl, allowInsecureHttp = true)
-            }
-            runCurrent()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"server":"$serverUrl","loginName":"fixture-user","appPassword":"fixture-password"}"""),
+            )
+            NextcloudLoginFlowClient(
+                transport = OkHttpCalDavTransport(),
+                timeoutMillis = 10_000L,
+                pollIntervalMillis = 0L,
+            ).authenticate(serverUrl, allowInsecureHttp = true)
 
             val initiation = server.takeRequest(1L, TimeUnit.SECONDS)
                 ?: error("Login Flow initiation request was not received")
-            authentication.cancel()
-            authentication.join()
-
             assertEquals("POST", initiation.method)
             assertEquals(0L, initiation.body.size)
             assertEquals("", initiation.body.readUtf8())
+
         }
     }
 
