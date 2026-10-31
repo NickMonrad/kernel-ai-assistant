@@ -355,7 +355,11 @@ class ConstrainedTransitionResponseFormatDeviceTest {
     private fun fixtures() = listOf(
         Fixture(
             name = "wikipedia-disputed-claim-continuation",
-            prompt = "Pending action: Wikipedia fact-check. Grounded claim: prisoners brewing alcohol in toilets. User reply: The topic we have just been talking about. Continue with the exact claim, not generic brewing. No slot is pending. Return action_id wiki-check-1, revision 4.",
+            prompt = "Action type (metadata only; never use it as subject): Wikipedia fact-check. " +
+                "Canonical grounded claim / subject (copy exactly for CONTINUE): prisoners brewing alcohol in toilets. " +
+                "User reply: The topic we have just been talking about. This continues the pending action; " +
+                "set transition to CONTINUE and subject exactly to the canonical grounded claim. " +
+                "No slot is pending. Return action_id wiki-check-1, revision 4.",
             transition = "CONTINUE", subject = "prisoners brewing alcohol in toilets", actionId = "wiki-check-1",
         ),
         Fixture(
