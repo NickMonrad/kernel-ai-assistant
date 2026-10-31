@@ -12,6 +12,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -95,11 +96,29 @@ class AndroidTextToSpeechController @Inject constructor(
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
 
+    private data class ReadyEngine(
+        val instance: TextToSpeech,
+        val enginePackage: String?,
+    )
+
+    private data class LocaleResolution(
+        val locale: Locale?,
+        val statuses: List<Int>,
+    ) {
+        val definitelyUnsupported: Boolean
+            get() = locale == null && statuses.isNotEmpty() &&
+                statuses.all { it == TextToSpeech.LANG_NOT_SUPPORTED }
+    }
+
     @Volatile
     private var textToSpeech: TextToSpeech? = null
 
     @Volatile
-    private var initDeferred: CompletableDeferred<Int>? = null
+    private var activeEnginePackage: String? = null
+
+    /** Shares the complete default-engine/fallback sequence, not just OnInit callback status. */
+    @Volatile
+    private var initializationDeferred: CompletableDeferred<ReadyEngine?>? = null
 
     @Volatile
     private var nextPlaybackToken: Long = 0L
@@ -222,15 +241,42 @@ class AndroidTextToSpeechController @Inject constructor(
         utteranceId: String?,
         queueMode: Int,
         isFinal: Boolean,
+        allowRecovery: Boolean = true,
     ): VoiceOutputResult {
-        val engine = ensureReady() ?: return VoiceOutputResult.Unavailable(
-            "Text-to-speech is unavailable on this device."
-        )
+        fun unavailable(message: String): VoiceOutputResult {
+            if (isFinal) {
+                synchronized(playbackLock) {
+                    activePlayback
+                        ?.takeIf { it.token == playbackToken }
+                        ?.finalChunkQueued = true
+                }
+                completePlaybackIfDrained(playbackToken)
+            }
+            return VoiceOutputResult.Unavailable(message)
+        }
 
-        val resolvedLocale = resolveAvailableLocale(engine, locale)
-            ?: return VoiceOutputResult.Unavailable(
-                "Text-to-speech voice for ${locale.toLanguageTag()} is not available on this device."
-            )
+        var engine = ensureReady()
+            ?: return unavailable("Text-to-speech is unavailable on this device.")
+        var localeResolution = resolveAvailableLocale(engine, locale)
+        logLocaleResolution(locale, localeResolution, "initial")
+        if (localeResolution.locale == null && !localeResolution.definitelyUnsupported && allowRecovery) {
+            val recovered = reinitializeAfterFailure(engine, "locale_unverified")
+            if (recovered != null) {
+                engine = recovered
+                localeResolution = resolveAvailableLocale(engine, locale)
+                logLocaleResolution(locale, localeResolution, "after_recovery")
+            }
+        }
+
+        val resolvedLocale = localeResolution.locale
+        if (resolvedLocale == null) {
+            val message = if (localeResolution.definitelyUnsupported) {
+                "Text-to-speech voice for ${locale.toLanguageTag()} is not supported by the installed engine."
+            } else {
+                "Text-to-speech could not verify ${locale.toLanguageTag()}; check the TTS engine connection and installed voice data."
+            }
+            return unavailable(message)
+        }
 
         engine.language = resolvedLocale
         requestAudioFocus()
@@ -256,25 +302,41 @@ class AndroidTextToSpeechController @Inject constructor(
             Bundle(),
             resolvedUtteranceId,
         )
-        return if (result == TextToSpeech.ERROR) {
-            synchronized(playbackLock) {
-                activeUtterances.remove(resolvedUtteranceId)
-                activePlayback
-                    ?.takeIf { it.token == playbackToken }
-                    ?.utteranceIds
-                    ?.remove(resolvedUtteranceId)
-            }
-            completePlaybackIfDrained(playbackToken)
-            VoiceOutputResult.Unavailable("Text-to-speech failed to start.")
-        } else {
-            VoiceOutputResult.Spoken
+        if (result != TextToSpeech.ERROR) return VoiceOutputResult.Spoken
+
+        synchronized(playbackLock) {
+            activeUtterances.remove(resolvedUtteranceId)
+            activePlayback
+                ?.takeIf { it.token == playbackToken }
+                ?.utteranceIds
+                ?.remove(resolvedUtteranceId)
         }
+        Log.w(TAG, "AndroidTextToSpeechController: speak failed with ERROR; attempting bounded engine recovery.")
+        releaseAudioFocus()
+        if (allowRecovery) {
+            val recovered = reinitializeAfterFailure(engine, "speak_error")
+            if (recovered != null) {
+                val retry = enqueuePlaybackChunk(
+                    playbackToken = playbackToken,
+                    text = text,
+                    locale = locale,
+                    utteranceId = utteranceId,
+                    queueMode = queueMode,
+                    isFinal = isFinal,
+                    allowRecovery = false,
+                )
+                if (retry is VoiceOutputResult.Unavailable) completePlaybackIfDrained(playbackToken)
+                return retry
+            }
+        }
+        completePlaybackIfDrained(playbackToken)
+        return VoiceOutputResult.Unavailable("Text-to-speech could not start speech. Check the TTS engine and try again.")
     }
 
     private fun resolveAvailableLocale(
         engine: TextToSpeech,
         requested: Locale,
-    ): Locale? {
+    ): LocaleResolution {
         val languageFallback = requested.language
             .takeIf { it.isNotBlank() }
             ?.let(Locale::forLanguageTag)
@@ -284,24 +346,96 @@ class AndroidTextToSpeechController @Inject constructor(
             if (requested.language == Locale.ENGLISH.language) Locale.US else null,
             Locale.getDefault(),
         ).filterNotNull().distinct()
-        return candidates.firstOrNull { candidate ->
-            engine.isLanguageAvailable(candidate) >= TextToSpeech.LANG_AVAILABLE
+        val statuses = mutableListOf<Int>()
+        candidates.forEach { candidate ->
+            val status = runCatching { engine.isLanguageAvailable(candidate) }
+                .onFailure { error ->
+                    Log.w(
+                        TAG,
+                        "AndroidTextToSpeechController: locale check failed for ${candidate.toLanguageTag()} " +
+                            "with ${error.javaClass.simpleName}.",
+                    )
+                }
+                .getOrElse { Int.MIN_VALUE }
+            statuses += status
+            if (status >= TextToSpeech.LANG_AVAILABLE) {
+                return LocaleResolution(locale = candidate, statuses = statuses)
+            }
+        }
+        return LocaleResolution(locale = null, statuses = statuses)
+    }
+
+    private fun logLocaleResolution(
+        requested: Locale,
+        resolution: LocaleResolution,
+        phase: String,
+    ) {
+        if (resolution.locale != null) return
+        val enginePackage = activeEnginePackage ?: defaultEnginePackage ?: "default"
+        Log.w(
+            TAG,
+            "AndroidTextToSpeechController: locale unresolved phase=$phase engine=$enginePackage " +
+                "requested=${requested.toLanguageTag()} statuses=${resolution.statuses.joinToString(",")}.",
+        )
+    }
+
+    private suspend fun ensureReady(
+        reinitialize: Boolean = false,
+        failedEngine: TextToSpeech? = null,
+    ): TextToSpeech? = withContext(Dispatchers.Main.immediate) {
+        initializationDeferred?.let { return@withContext it.await()?.instance }
+        if (!reinitialize) {
+            textToSpeech?.let { return@withContext it }
+        } else if (failedEngine != null && textToSpeech !== failedEngine) {
+            // Another caller already replaced the failed engine; use the current ready instance.
+            return@withContext textToSpeech
+        }
+
+        val currentEngine = textToSpeech
+        val preferredPackage = activeEnginePackage
+        if (reinitialize && synchronized(playbackLock) { activeUtterances.isNotEmpty() }) {
+            Log.w(TAG, "AndroidTextToSpeechController: deferring recovery while another utterance is active.")
+            return@withContext currentEngine
+        }
+        if (reinitialize) {
+            textToSpeech = null
+            activeEnginePackage = null
+            currentEngine?.shutdown()
+            Log.w(
+                TAG,
+                "AndroidTextToSpeechController: reinitializing TTS engine after a bounded runtime failure.",
+            )
+        }
+
+        val deferred = CompletableDeferred<ReadyEngine?>()
+        initializationDeferred = deferred
+        try {
+            val ready = if (reinitialize && preferredPackage != null) {
+                initializeEngine(preferredPackage)
+            } else {
+                initializeDefaultWithFallback()
+            }
+            if (ready != null) {
+                textToSpeech = ready.instance
+                activeEnginePackage = ready.enginePackage
+            }
+            deferred.complete(ready)
+            ready?.instance
+        } catch (cancelled: CancellationException) {
+            deferred.cancel(cancelled)
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w(TAG, "AndroidTextToSpeechController: engine initialization failed (${error.javaClass.simpleName}).")
+            deferred.complete(null)
+            null
+        } finally {
+            if (initializationDeferred === deferred) initializationDeferred = null
         }
     }
 
-    private suspend fun ensureReady(): TextToSpeech? = withContext(Dispatchers.Main.immediate) {
-        textToSpeech?.let { return@withContext it }
-
-        val existingInit = initDeferred
-        if (existingInit != null) {
-            return@withContext waitForInit(existingInit)
-        }
-
+    private suspend fun initializeDefaultWithFallback(): ReadyEngine? {
         // Normal path (#1463): use Android's configured default engine, exactly as before.
-        val defaultEngine = initializeEngine(enginePackage = null)
-        if (defaultEngine != null) {
-            return@withContext defaultEngine
-        }
+        initializeEngine(enginePackage = null)?.let { return it }
 
         // Recovery path (#1463): the configured default engine is stale or missing. Pick an
         // actually installed engine (never the one that just failed) and retry once with the
@@ -313,20 +447,29 @@ class AndroidTextToSpeechController @Inject constructor(
                 "AndroidTextToSpeechController: default TTS engine unavailable and no installed " +
                     "engine found for recovery; reporting Unavailable.",
             )
-            return@withContext null
+            return null
         }
         Log.i(
             TAG,
             "AndroidTextToSpeechController: default TTS engine unavailable; retrying with " +
                 "installed engine package $fallbackPackage.",
         )
-        initializeEngine(enginePackage = fallbackPackage)
+        return initializeEngine(enginePackage = fallbackPackage)
     }
 
-    private suspend fun initializeEngine(enginePackage: String?): TextToSpeech? {
-        val deferred = CompletableDeferred<Int>()
-        initDeferred = deferred
+    /**
+     * Uses the platform's installed-engine order and skips the default package that failed
+     * initialization. The global TTS default is never read or changed.
+     */
+    private fun selectFallbackEngine(): String? =
+        (installedEngines ?: emptyList())
+            .asSequence()
+            .map { it.name }
+            .filter { enginePackage -> enginePackage != null && enginePackage != defaultEnginePackage }
+            .firstOrNull()
 
+    private suspend fun initializeEngine(enginePackage: String?): ReadyEngine? {
+        val deferred = CompletableDeferred<Int>()
         val engine = ttsFactory.create(
             listener = { status ->
                 if (!deferred.isCompleted) deferred.complete(status)
@@ -372,46 +515,35 @@ class AndroidTextToSpeechController @Inject constructor(
                 }
             }
         )
-        textToSpeech = engine
-        val ready = waitForInit(deferred)
-        if (enginePackage == null && ready == null) {
-            // The default-engine attempt failed: capture the engine it targeted and the
-            // installed-engine snapshot so the recovery path can pick a different engine.
+        val status = try {
+            deferred.await()
+        } catch (cancelled: CancellationException) {
+            engine.shutdown()
+            throw cancelled
+        }
+        if (status == TextToSpeech.SUCCESS) {
+            return ReadyEngine(instance = engine, enginePackage = enginePackage)
+        }
+
+        Log.w(
+            TAG,
+            "AndroidTextToSpeechController: TTS initialization callback failed with status=$status.",
+        )
+        if (enginePackage == null) {
+            // Preserve #1463: capture the failing default and installed engines for fallback.
             defaultEnginePackage = engine.defaultEngine
             installedEngines = engine.engines
         }
-        return ready
+        engine.shutdown()
+        return null
     }
 
-    /**
-     * Deterministic recovery selection: [TextToSpeech.getEngines] already returns the
-     * actually installed engines in the platform's own order (engine service priority), so
-     * take the first entry, skipping the package the default-engine attempt just failed on.
-     * Only installed engines are considered; the global TTS default setting is never read
-     * or written here.
-     */
-    private fun selectFallbackEngine(): String? =
-        (installedEngines ?: emptyList())
-            .asSequence()
-            .map { it.name }
-            .filter { enginePackage -> enginePackage != null && enginePackage != defaultEnginePackage }
-            .firstOrNull()
-
-    private suspend fun waitForInit(deferred: CompletableDeferred<Int>): TextToSpeech? {
-        val status = deferred.await()
-        if (status == TextToSpeech.SUCCESS) {
-            return textToSpeech
-        }
-        Log.w(TAG, "AndroidTextToSpeechController: init failed with status=$status")
-        // Only the caller that owns the current attempt performs cleanup, and only if no
-        // newer attempt (the recovery retry) has already replaced it. Concurrent waiters on
-        // a superseded attempt return failure without touching the newer instance.
-        if (initDeferred === deferred) {
-            textToSpeech?.shutdown()
-            textToSpeech = null
-            initDeferred = null
-        }
-        return null
+    private suspend fun reinitializeAfterFailure(
+        failedEngine: TextToSpeech,
+        reason: String,
+    ): TextToSpeech? {
+        Log.w(TAG, "AndroidTextToSpeechController: bounded recovery requested reason=$reason.")
+        return ensureReady(reinitialize = true, failedEngine = failedEngine)
     }
 
     private fun onUtteranceFinished(utteranceId: String?) {
