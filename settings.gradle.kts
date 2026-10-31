@@ -17,6 +17,7 @@ dependencyResolutionManagement {
 rootProject.name = "KernelAI"
 
 include(":app")
+include(":acceptance:timer-cancel")
 include(":core:inference")
 include(":core:memory")
 include(":core:voice")
