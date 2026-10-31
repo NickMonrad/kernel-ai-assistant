@@ -422,7 +422,9 @@ class AndroidTextToSpeechController @Inject constructor(
             deferred.complete(ready)
             ready?.instance
         } catch (cancelled: CancellationException) {
-            deferred.cancel(cancelled)
+            // This deferred is shared with concurrent callers; complete it without propagating
+            // the initiating caller's cancellation to those waiters.
+            deferred.complete(null)
             throw cancelled
         } catch (error: Exception) {
             Log.w(TAG, "AndroidTextToSpeechController: engine initialization failed (${error.javaClass.simpleName}).")

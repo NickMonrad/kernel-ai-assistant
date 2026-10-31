@@ -349,6 +349,37 @@ class AndroidTextToSpeechControllerTest {
     }
 
     @Test
+    fun `cancelling init owner does not cancel concurrent waiter`() = runTest(dispatcher) {
+        val engine = mockk<TextToSpeech>(relaxed = true)
+        val controller = AndroidTextToSpeechController(
+            context,
+            TextToSpeechFactory { _, _ -> engine },
+        )
+        var waiterResult: VoiceOutputResult? = null
+        var waiterFailure: java.util.concurrent.CancellationException? = null
+
+        val initializer = launch { controller.warmUp() }
+        runCurrent()
+        val waiter = launch {
+            try {
+                waiterResult = controller.warmUp()
+            } catch (failure: java.util.concurrent.CancellationException) {
+                waiterFailure = failure
+            }
+        }
+        runCurrent()
+
+        initializer.cancel()
+        runCurrent()
+
+        assertTrue(initializer.isCancelled)
+        assertTrue(waiter.isCompleted)
+        assertNull(waiterFailure)
+        assertTrue(waiterResult is VoiceOutputResult.Unavailable)
+        verify { engine.shutdown() }
+    }
+
+    @Test
     fun `ambiguous locale failure reinitializes once then speaks on recovered engine`() =
         runTest(dispatcher) {
             val (controller, factory) = buildController(
