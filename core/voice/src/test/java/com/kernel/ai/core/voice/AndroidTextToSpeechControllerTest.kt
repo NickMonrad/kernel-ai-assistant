@@ -63,6 +63,7 @@ class AndroidTextToSpeechControllerTest {
         private val languageStatuses: Map<Locale, Int> = emptyMap(),
         private val speakResults: List<Int> = listOf(0),
         private val languageStatus: ((engineIndex: Int, locale: Locale) -> Int?)? = null,
+        private val engineBound: (engineIndex: Int) -> Boolean = { true },
     ) : TextToSpeechFactory {
         val created = mutableListOf<TextToSpeech>()
         val packages = mutableListOf<String?>()
@@ -74,6 +75,11 @@ class AndroidTextToSpeechControllerTest {
                 every { engine.defaultEngine } returns defaultEnginePackage
             }
             every { engine.engines } returns installedEngines
+            if (engineBound(engineIndex)) {
+                every { engine.voices } returns emptySet()
+            } else {
+                every { engine.voices } returns null
+            }
             every { engine.isLanguageAvailable(any()) } answers {
                 languageStatus?.invoke(engineIndex, args[0] as Locale)
                     ?: languageStatuses[args[0] as Locale]
@@ -458,6 +464,53 @@ class AndroidTextToSpeechControllerTest {
         assertTrue(result is VoiceOutputResult.Unavailable)
         assertTrue((result as VoiceOutputResult.Unavailable).message.contains("not supported"))
         assertEquals(1, factory.created.size)
+    }
+
+    @Test
+    fun `unbound engine NOT_SUPPORTED is not treated as definitely unsupported`() = runTest(dispatcher) {
+        val (controller, factory) = buildController(
+            factory = FakeTtsFactory(
+                languageStatus = { engineIndex, _ ->
+                    if (engineIndex == 0) TextToSpeech.LANG_NOT_SUPPORTED else TextToSpeech.LANG_AVAILABLE
+                },
+                engineBound = { engineIndex -> engineIndex != 0 },
+            ),
+        )
+
+        val result = controller.speak(
+            VoiceSpeakRequest(
+                text = "synthetic test phrase",
+                locale = Locale.forLanguageTag("en-AU"),
+            ),
+        )
+
+        assertEquals(VoiceOutputResult.Spoken, result)
+        assertEquals(2, factory.created.size)
+        verify(exactly = 1) { factory.created[1].speak("synthetic test phrase", any(), any(), any()) }
+    }
+
+    @Test
+    fun `unbound engine NOT_SUPPORTED stays unverified after one bounded recovery`() = runTest(dispatcher) {
+        val (controller, factory) = buildController(
+            factory = FakeTtsFactory(
+                languageStatus = { _, _ -> TextToSpeech.LANG_NOT_SUPPORTED },
+                engineBound = { false },
+            ),
+        )
+
+        val result = controller.speak(
+            VoiceSpeakRequest(
+                text = "synthetic test phrase",
+                locale = Locale.forLanguageTag("en-AU"),
+            ),
+        )
+
+        assertTrue(result is VoiceOutputResult.Unavailable)
+        assertTrue((result as VoiceOutputResult.Unavailable).message.contains("could not verify"))
+        assertEquals(2, factory.created.size)
+        factory.created.forEach { engine ->
+            verify(exactly = 0) { engine.speak(any(), any(), any(), any()) }
+        }
     }
 
     @Test

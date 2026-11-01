@@ -104,9 +104,13 @@ class AndroidTextToSpeechController @Inject constructor(
     private data class LocaleResolution(
         val locale: Locale?,
         val statuses: List<Int>,
+        // Only meaningful when locale == null; getVoices() is null when the engine is unbound.
+        val engineBound: Boolean = false,
     ) {
+        // An unbound engine answers LANG_NOT_SUPPORTED for every locale, so that status is
+        // evidence of a missing voice only when the engine is bound.
         val definitelyUnsupported: Boolean
-            get() = locale == null && statuses.isNotEmpty() &&
+            get() = locale == null && engineBound && statuses.isNotEmpty() &&
                 statuses.all { it == TextToSpeech.LANG_NOT_SUPPORTED }
     }
 
@@ -362,8 +366,12 @@ class AndroidTextToSpeechController @Inject constructor(
                 return LocaleResolution(locale = candidate, statuses = statuses)
             }
         }
-        return LocaleResolution(locale = null, statuses = statuses)
+        return LocaleResolution(locale = null, statuses = statuses, engineBound = isEngineBound(engine))
     }
+
+    // getVoices() returns null when the TextToSpeech service is not bound. A query failure counts as unbound.
+    private fun isEngineBound(engine: TextToSpeech): Boolean =
+        runCatching { engine.voices }.getOrNull() != null
 
     private fun logLocaleResolution(
         requested: Locale,
@@ -375,7 +383,7 @@ class AndroidTextToSpeechController @Inject constructor(
         Log.w(
             TAG,
             "AndroidTextToSpeechController: locale unresolved phase=$phase engine=$enginePackage " +
-                "requested=${requested.toLanguageTag()} statuses=${resolution.statuses.joinToString(",")}.",
+                "requested=${requested.toLanguageTag()} statuses=${resolution.statuses.joinToString(",")} engineBound=${resolution.engineBound}.",
         )
     }
 
