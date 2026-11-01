@@ -1007,7 +1007,8 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 | **Sideloaded skills** | Wasm import section audited; user must acknowledge "Accept Risk" |
 | **LeakCanary** | Integrated from day one — model weight leaks caught early |
 | **Nextcloud credentials** | Credentials use the existing Android-backed encrypted credential store and are never emitted to logs or public evidence. |
-| **Nextcloud transport** | HTTPS is the default; insecure HTTP requires explicit opt-in. Redirects that leave the credential origin (host/port) are refused before credentials can be sent. |
+| **Nextcloud transport** | HTTPS only (#1678): `http://` addresses, Login Flow endpoints and redirects are refused, and a previously saved `http://` account must be reconfigured (local lists kept). Redirects that leave the credential origin (host/port) are refused before credentials can be sent. |
+| **Network transport** | The app's network security config denies cleartext for every host; model and voice-pack downloads require HTTPS for the URL and every redirect hop (#1678). |
 | **Private integration identifiers** | Private server identifiers and credentials are excluded from logs and public validation evidence. |
 
 ---

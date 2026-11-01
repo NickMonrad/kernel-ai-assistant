@@ -173,6 +173,65 @@ tasks.register("verifyReleaseApkArtifactSelection") {
     }
 }
 
+fun locateAapt2(): File {
+    val sdkDirectory = sequenceOf(
+        System.getenv("ANDROID_HOME"),
+        System.getenv("ANDROID_SDK_ROOT"),
+    ).filterNotNull()
+        .map(::File)
+        .firstOrNull { it.isDirectory }
+        ?: rootProject.file("local.properties").takeIf { it.isFile }?.readLines()
+            ?.firstOrNull { it.startsWith("sdk.dir=") }
+            ?.substringAfter("sdk.dir=")
+            ?.let(::File)
+        ?: error("Unable to locate the Android SDK")
+    return sdkDirectory.resolve("build-tools")
+        .listFiles()
+        ?.filter { it.isDirectory }
+        ?.maxByOrNull { it.name }
+        ?.resolve("aapt2")
+        ?.takeIf { it.isFile }
+        ?: error("Unable to locate aapt2")
+}
+
+/**
+ * #1678: the packaged release APK must deny cleartext traffic. Checks the merged release manifest
+ * attributes and the network security config actually packaged in the release APK.
+ */
+tasks.register("verifyReleaseNetworkSecurity") {
+    dependsOn("assembleRelease", "verifyReleaseApkArtifactSelection")
+    doLast {
+        val aapt2 = locateAapt2()
+        val apk = releaseApkArtifact(layout.buildDirectory.get().asFile, isSigned = releaseSigningProperties != null)
+        check(apk.isFile) { "Missing release APK: ${apk.path}" }
+        fun xmlTree(path: String): String = providers.exec {
+            commandLine(aapt2.absolutePath, "dump", "xmltree", apk.absolutePath, "--file", path)
+        }.standardOutput.asText.get()
+
+        val manifest = xmlTree("AndroidManifest.xml")
+        check(!Regex("""usesCleartextTraffic(?:\([^)]*\))?="?(true|0xffffffff)""").containsMatchIn(manifest)) {
+            "Release manifest must not set usesCleartextTraffic=true"
+        }
+        check(Regex("""networkSecurityConfig\([^)]*\)=@""").containsMatchIn(manifest)) {
+            "Release manifest must reference a network security config"
+        }
+        val resources = providers.exec {
+            commandLine(aapt2.absolutePath, "dump", "resources", apk.absolutePath)
+        }.standardOutput.asText.get()
+        val configPaths = Regex("""resource \S+ xml/network_security_config\s+\(\) \(file\) (res/\S+) type=XML""")
+            .findAll(resources).map { it.groupValues[1] }.toList()
+        check(configPaths.isNotEmpty()) { "Packaged network_security_config.xml missing from ${apk.name}" }
+        configPaths.forEach { path ->
+            val config = xmlTree(path)
+            // Compiled XML prints `A: cleartextTrafficPermitted=false`; tolerate the quoted form too.
+            val permits = Regex("""cleartextTrafficPermitted(?:\([^)]*\))?="?([^"\s]+)""")
+                .findAll(config).map { it.groupValues[1] }.toList()
+            check(permits.isNotEmpty() && permits.all { it == "false" }) {
+                "Release network security config $path must set cleartextTrafficPermitted=false everywhere (found $permits)"
+            }
+        }
+    }
+}
 
 /**
  * Verifies literal variant-specific shortcut metadata in the packaged APKs.
@@ -180,24 +239,7 @@ tasks.register("verifyReleaseApkArtifactSelection") {
 tasks.register("verifyListsShortcutVariants") {
     dependsOn("assembleDebug", "assembleRelease", "verifyReleaseApkArtifactSelection")
     doLast {
-        val sdkDirectory = sequenceOf(
-            System.getenv("ANDROID_HOME"),
-            System.getenv("ANDROID_SDK_ROOT"),
-        ).filterNotNull()
-            .map(::File)
-            .firstOrNull { it.isDirectory }
-            ?: rootProject.file("local.properties").readLines()
-                .firstOrNull { it.startsWith("sdk.dir=") }
-                ?.substringAfter("sdk.dir=")
-                ?.let(::File)
-            ?: error("Unable to locate the Android SDK")
-        val aapt2 = sdkDirectory.resolve("build-tools")
-            .listFiles()
-            ?.filter { it.isDirectory }
-            ?.maxByOrNull { it.name }
-            ?.resolve("aapt2")
-            ?.takeIf { it.isFile }
-            ?: error("Unable to locate aapt2")
+        val aapt2 = locateAapt2()
 
         fun packagedShortcut(artifact: File): String {
             check(artifact.isFile) { "Missing artifact: ${artifact.path}" }
