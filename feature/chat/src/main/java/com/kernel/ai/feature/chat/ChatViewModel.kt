@@ -4472,6 +4472,9 @@ private fun shouldIndexToolCallResult(skillName: String): Boolean {
 private fun isSystemOnlyToolCall(skillName: String): Boolean = skillName == "load_skill"
 
 private fun ToolCallInfo.toVisibleToolCallInfo(): ToolCallInfo {
+    if (skillName == "query_wikipedia") {
+        return copy(resultText = com.kernel.ai.core.skills.toVisibleWikipediaEvidenceResult(resultText))
+    }
     if (!isSystemOnlyToolCall(skillName)) return this
     val loadedSkillName = runCatching {
         org.json.JSONObject(requestJson).optString("skill_name").takeIf { it.isNotBlank() }

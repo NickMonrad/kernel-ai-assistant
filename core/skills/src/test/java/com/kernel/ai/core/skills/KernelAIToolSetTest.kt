@@ -69,6 +69,9 @@ class KernelAIToolSetTest {
 
         assertFalse(toolSet.lastToolWasDirectReply())
         assertTrue(questionResult["result"]!!.contains("[Early life] Samberg was raised in a Jewish family."))
+        assertTrue(questionResult["result"]!!.contains("Answer the user's question directly, using only this evidence."))
+        assertFalse(toolSet.lastToolResult()!!.contains("Answer the user's question directly"))
+        assertFalse(toolSet.terminalToolResult()!!.contains("Answer the user's question directly"))
 
         toolSet.resetTurnState()
         val summaryResult = toolSet.queryWikipedia("Andy Samberg")

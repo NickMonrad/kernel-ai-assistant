@@ -108,7 +108,7 @@ fun isFactualWikipediaQuestion(text: String): Boolean =
     WIKIPEDIA_FACTUAL_QUESTION_REGEX.containsMatchIn(text)
 
 private val EXPLICIT_WIKIPEDIA_PREFIX_REGEX = Regex(
-    """^\s*(?:(?:search|look\s+up)\s+(?:on\s+)?wikipedia\s+(?:for\s+)?|look\s+up\s+)""",
+    """^\s*(?:(?:search|look\s+up)\s+(?:on\s+)?wikipedia\s+(?:for\s+)?|look\s+up\s+|search\s+|wikipedia\s+)""",
     RegexOption.IGNORE_CASE,
 )
 private val EXPLICIT_WIKIPEDIA_SUFFIX_REGEX = Regex("""\s+on\s+wikipedia\s*[?!.]*\s*$""", RegexOption.IGNORE_CASE)
@@ -138,9 +138,14 @@ internal fun parseWikipediaArticleEvidence(raw: String): WikipediaArticleEvidenc
     }.getOrNull()?.takeIf { it.title.isNotBlank() }
 }
 
-internal const val WIKIPEDIA_MAX_EVIDENCE_PASSAGES = 3
-internal const val WIKIPEDIA_MAX_PASSAGE_CHARS = 700
-private const val WIKIPEDIA_MAX_SUMMARY_CHARS = 800
+internal const val WIKIPEDIA_MAX_EVIDENCE_PASSAGES = 2
+internal const val WIKIPEDIA_MAX_PASSAGE_CHARS = 280
+internal const val WIKIPEDIA_MAX_EVIDENCE_CHARS = 1_500
+private const val WIKIPEDIA_MAX_QUESTION_CHARS = 160
+private const val WIKIPEDIA_MAX_TITLE_CHARS = 60
+private const val WIKIPEDIA_MAX_URL_CHARS = 120
+private const val WIKIPEDIA_MAX_SUMMARY_CHARS = 180
+private const val WIKIPEDIA_MAX_HEADING_CHARS = 32
 
 private val WIKIPEDIA_QUESTION_STOPWORDS = setOf(
     "is", "are", "was", "were", "did", "does", "do", "has", "have", "had", "can", "could", "will",
@@ -222,10 +227,10 @@ internal fun formatWikipediaEvidence(question: String, evidence: WikipediaArticl
         evidence.extract,
         wikipediaQuestionKeywords(question, evidence.title),
     )
-    return buildString {
-        appendLine("Wikipedia evidence for the user's question: \"$question\"")
-        appendLine("Article: ${evidence.title}")
-        if (evidence.url.isNotBlank()) appendLine("Source: ${evidence.url}")
+    val block = buildString {
+        appendLine("Wikipedia evidence for the user's question: \"${question.take(WIKIPEDIA_MAX_QUESTION_CHARS)}\"")
+        appendLine("Article: ${evidence.title.take(WIKIPEDIA_MAX_TITLE_CHARS)}")
+        if (evidence.url.isNotBlank()) appendLine("Source: ${evidence.url.take(WIKIPEDIA_MAX_URL_CHARS)}")
         appendLine()
         appendLine("Summary: ${evidence.summary.trim().take(WIKIPEDIA_MAX_SUMMARY_CHARS)}")
         appendLine()
@@ -234,13 +239,20 @@ internal fun formatWikipediaEvidence(question: String, evidence: WikipediaArticl
         } else {
             appendLine("Relevant passages:")
             passages.forEach { passage ->
-                appendLine("- ${passage.heading?.let { "[$it] " }.orEmpty()}${passage.text}")
+                val heading = passage.heading?.take(WIKIPEDIA_MAX_HEADING_CHARS)
+                appendLine("- ${heading?.let { "[$it] " }.orEmpty()}${passage.text}")
             }
         }
-        appendLine()
-        append(WIKIPEDIA_EVIDENCE_ANSWER_RULE)
-    }
+    }.trimEnd()
+    val instructionSuffix = "\n\n$WIKIPEDIA_EVIDENCE_ANSWER_RULE"
+    return block
+        .take(WIKIPEDIA_MAX_EVIDENCE_CHARS - instructionSuffix.length)
+        .trimEnd() + instructionSuffix
 }
+
+/** Removes model-only guidance from Wikipedia evidence before exposing a tool result to the UI. */
+fun toVisibleWikipediaEvidenceResult(result: String): String =
+    result.removeSuffix("\n\n$WIKIPEDIA_EVIDENCE_ANSWER_RULE")
 
 private const val WIKIPEDIA_EVIDENCE_ANSWER_RULE =
     "Answer the user's question directly, using only this evidence. If it does not establish the " +

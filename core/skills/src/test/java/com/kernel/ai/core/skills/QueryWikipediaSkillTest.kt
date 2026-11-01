@@ -80,6 +80,7 @@ class QueryWikipediaSkillTest {
         assertTrue(content.contains("- [Early life and education] Samberg was born in Berkeley, California. He was raised in a Jewish family."))
         assertTrue(content.contains("- [Personal life] Samberg married musician Joanna Newsom in 2013. He has described his Jewish heritage."))
         assertFalse(content.contains("Saturday Night Live"), "career passage does not answer the question")
+        assertTrue(content.length <= WIKIPEDIA_MAX_EVIDENCE_CHARS)
         assertFalse(content.contains("Jewish comedians"), "reference sections are not evidence")
     }
 
@@ -93,6 +94,36 @@ class QueryWikipediaSkillTest {
 
         assertTrue(content.contains("He was raised in a Jewish family."))
         assertFalse(content.contains("Saturday Night Live"))
+    }
+
+    @Test
+    fun `search question on Wikipedia prefix still returns factual evidence`() = runTest {
+        coEvery {
+            runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg", "mode" to "evidence"))
+        } returns evidenceJson(samberg)
+
+        val result = ask("Andy Samberg", "Search who is Andy Samberg on Wikipedia?")
+
+        assertInstanceOf(SkillResult.Success::class.java, result)
+        assertTrue((result as SkillResult.Success).content.contains("who is Andy Samberg"))
+        coVerify(exactly = 1) {
+            runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg", "mode" to "evidence"))
+        }
+    }
+
+    @Test
+    fun `Wikipedia who is prefix still returns factual evidence`() = runTest {
+        coEvery {
+            runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg", "mode" to "evidence"))
+        } returns evidenceJson(samberg)
+
+        val result = ask("Andy Samberg", "Wikipedia who is Andy Samberg?")
+
+        assertInstanceOf(SkillResult.Success::class.java, result)
+        assertTrue((result as SkillResult.Success).content.contains("who is Andy Samberg"))
+        coVerify(exactly = 1) {
+            runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg", "mode" to "evidence"))
+        }
     }
 
     @Test
@@ -140,9 +171,27 @@ class QueryWikipediaSkillTest {
         val passages = selectWikipediaPassages(extract, listOf("jewish"))
 
         assertEquals(WIKIPEDIA_MAX_EVIDENCE_PASSAGES, passages.size)
-        assertEquals(listOf("Section 1", "Section 2", "Section 3"), passages.map { it.heading })
+        assertEquals(listOf("Section 1", "Section 2"), passages.map { it.heading })
         passages.forEach { assertTrue(it.text.length <= WIKIPEDIA_MAX_PASSAGE_CHARS + 2) }
         assertTrue(passages.first().text.startsWith("…The jewish community"))
+    }
+
+    @Test
+    fun `formatted evidence stays within the whole block character cap`() {
+        val longPassage = "Jewish family evidence. " + "Jewish community details. ".repeat(50)
+        val oversized = samberg.copy(
+            title = "T".repeat(100),
+            url = "https://en.wikipedia.org/wiki/" + "u".repeat(200),
+            summary = "Summary sentence. ".repeat(100),
+            extract = (1..4).joinToString("\n") {
+                "== ${"Long heading ".repeat(5)}$it ==\n$longPassage"
+            },
+        )
+
+        val content = formatWikipediaEvidence("Is Andy Samberg Jewish? ".repeat(20), oversized)
+
+        assertTrue(content.length <= WIKIPEDIA_MAX_EVIDENCE_CHARS)
+        assertEquals(2, content.lineSequence().count { it.startsWith("- ") })
     }
 
     @Test

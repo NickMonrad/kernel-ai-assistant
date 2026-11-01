@@ -768,7 +768,7 @@ class KernelAIToolSet @Inject constructor(
             turnUserMessage?.let { put(QueryWikipediaSkill.QUESTION_ARGUMENT, it) }
         }
         val result = executeSkill("query_wikipedia", skillArgs, diagnosticOrder)
-        lastToolResult = result["result"] ?: result["error"]
+        lastToolResult = (result["result"] ?: result["error"])?.let(::toVisibleWikipediaEvidenceResult)
         captureTerminalResult("query_wikipedia")
         return result
     }
