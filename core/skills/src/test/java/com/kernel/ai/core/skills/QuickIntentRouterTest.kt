@@ -3909,6 +3909,16 @@ class QuickIntentRouterTest {
             Arguments.of("What's the weather this week?", null, "7", null),
             Arguments.of("What's the weather like this week in Auckland?", "Auckland", "7", null),
             Arguments.of("What's the weather in Sydney this week?", "Sydney", "7", null),
+            // #1471 — "how's/how is the weather this week [in <city>]" must reach get_weather
+            // with the same this-week → 7-day contract as the "what's" forms.
+            Arguments.of("How's the weather this week in Sydney", "Sydney", "7", null),
+            Arguments.of("How is the weather this week in Sydney", "Sydney", "7", null),
+            Arguments.of("How's the weather this week?", null, "7", null),
+            // Regression: existing weather phrasings on the same seam must stay unchanged.
+            Arguments.of("What's the weather this week in Sydney", "Sydney", "7", null),
+            Arguments.of("How's the weather", null, null, null),
+            Arguments.of("How's the weather today", null, null, null),
+            Arguments.of("How's the weather in Sydney", "Sydney", null, null),
             // NAMED METRICS — explicit location must not silently fall back to GPS
             Arguments.of("What's the UV index in Sydney?", "Sydney", null, null),
             Arguments.of("What's the air quality in Sydney?", "Sydney", null, null),
