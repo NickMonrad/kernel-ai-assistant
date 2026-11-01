@@ -107,6 +107,16 @@ private val WIKIPEDIA_FACTUAL_QUESTION_REGEX = Regex(
 fun isFactualWikipediaQuestion(text: String): Boolean =
     WIKIPEDIA_FACTUAL_QUESTION_REGEX.containsMatchIn(text)
 
+private val EXPLICIT_WIKIPEDIA_PREFIX_REGEX = Regex(
+    """^\s*(?:(?:search|look\s+up)\s+(?:on\s+)?wikipedia\s+(?:for\s+)?|look\s+up\s+)""",
+    RegexOption.IGNORE_CASE,
+)
+private val EXPLICIT_WIKIPEDIA_SUFFIX_REGEX = Regex("""\s+on\s+wikipedia\s*[?!.]*\s*$""", RegexOption.IGNORE_CASE)
+
+/** Removes the explicit "search/look up [on] Wikipedia" wrapper so the question check sees the question itself (#1689). */
+private fun stripExplicitWikipediaWrapper(text: String): String =
+    text.replace(EXPLICIT_WIKIPEDIA_PREFIX_REGEX, "").replace(EXPLICIT_WIKIPEDIA_SUFFIX_REGEX, "").trim()
+
 internal data class WikipediaArticleEvidence(
     val title: String,
     val url: String,
@@ -296,7 +306,7 @@ class QueryWikipediaSkill @Inject constructor(
     override suspend fun execute(call: SkillCall): SkillResult {
         val query = call.arguments["query"]?.trim()
             ?: return SkillResult.Failure(name, "Missing required parameter: query.")
-        val question = call.arguments[QUESTION_ARGUMENT]?.trim()?.takeIf { isFactualWikipediaQuestion(it) }
+        val question = call.arguments[QUESTION_ARGUMENT]?.let(::stripExplicitWikipediaWrapper)?.takeIf { isFactualWikipediaQuestion(it) }
         if (question == null) {
             val result = runner.execute("query-wikipedia", mapOf("query" to query))
             return SkillResult.DirectReply(filterWikipediaResult(query, result))

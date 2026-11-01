@@ -78,6 +78,65 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `queryWikipedia returns evidence for a search-prefixed question instead of the summary`() = runTest {
+        val runner = mockk<com.kernel.ai.core.skills.js.JsSkillRunner>()
+        coEvery {
+            runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg", "mode" to "evidence"))
+        } returns wikipediaEvidence(
+            title = "Andy Samberg",
+            url = "https://en.wikipedia.org/wiki/Andy_Samberg",
+            extract = "== Early life ==\nSamberg was raised in a Jewish family.",
+        )
+        every { registry.get("query_wikipedia") } returns QueryWikipediaSkill(runner)
+
+        toolSet.resetTurnState(userMessage = "Search Wikipedia for is Andy Samberg Jewish?")
+        val result = toolSet.queryWikipedia("Andy Samberg")
+
+        assertFalse(toolSet.lastToolWasDirectReply())
+        assertTrue(result["result"]!!.contains("Source: https://en.wikipedia.org/wiki/Andy_Samberg"))
+    }
+
+    @Test
+    fun `queryWikipedia returns evidence for a look-up-prefixed question with a trailing on Wikipedia`() = runTest {
+        val runner = mockk<com.kernel.ai.core.skills.js.JsSkillRunner>()
+        coEvery {
+            runner.execute("query-wikipedia", mapOf("query" to "Constantinople", "mode" to "evidence"))
+        } returns wikipediaEvidence(
+            title = "Constantinople",
+            url = "https://en.wikipedia.org/wiki/Constantinople",
+            extract = "== History ==\nConstantinople was founded in 330 AD by Constantine the Great.",
+        )
+        every { registry.get("query_wikipedia") } returns QueryWikipediaSkill(runner)
+
+        toolSet.resetTurnState(userMessage = "Look up when was Constantinople founded on Wikipedia")
+        val result = toolSet.queryWikipedia("Constantinople")
+
+        assertFalse(toolSet.lastToolWasDirectReply())
+        assertTrue(result["result"]!!.contains("Source: https://en.wikipedia.org/wiki/Constantinople"))
+    }
+
+    @Test
+    fun `queryWikipedia keeps the article summary for non-question explicit Wikipedia requests`() = runTest {
+        val runner = mockk<com.kernel.ai.core.skills.js.JsSkillRunner>()
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg")) } returns
+            "Andy Samberg\n\nAndy Samberg is an American comedian."
+        every { registry.get("query_wikipedia") } returns QueryWikipediaSkill(runner)
+
+        for (userMessage in listOf("Look up Andy Samberg on Wikipedia", "Tell me about Andy Samberg on Wikipedia")) {
+            toolSet.resetTurnState(userMessage = userMessage)
+            val result = toolSet.queryWikipedia("Andy Samberg")
+
+            assertTrue(toolSet.lastToolWasDirectReply(), userMessage)
+            assertEquals("Andy Samberg\n\nAndy Samberg is an American comedian.", result["result"], userMessage)
+        }
+    }
+
+    private fun wikipediaEvidence(title: String, url: String, extract: String): String =
+        org.json.JSONObject(
+            mapOf("title" to title, "url" to url, "summary" to "$title is a subject.", "extract" to extract),
+        ).toString()
+
+    @Test
     fun `getSystemInfo delegates to get_system_info skill`() = runTest {
         val skill = mockk<Skill>()
         every { skill.name } returns "get_system_info"
