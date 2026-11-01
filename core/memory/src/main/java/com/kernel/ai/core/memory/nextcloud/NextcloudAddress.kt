@@ -22,10 +22,9 @@ sealed interface NextcloudAddressResult {
 /**
  * Normalizes the free-form "Nextcloud address" field from #1551.
  *
- * HTTPS is always the default: a bare host, a host plus base path, or a host plus port is accepted
- * without a scheme and normalized to `https://`. Plain HTTP is only ever produced for a caller that
- * explicitly opted in through [allowInsecureHttp]; an explicit `http://` address is rejected
- * otherwise rather than being silently rewritten to HTTPS.
+ * Nextcloud is HTTPS-only (#1678): a bare host, a host plus base path, or a host plus port is
+ * accepted without a scheme and normalized to `https://`, and an explicit `http://` address is
+ * rejected rather than being silently rewritten to HTTPS.
  */
 object NextcloudAddress {
     private const val HTTPS = "https"
@@ -34,7 +33,11 @@ object NextcloudAddress {
     private val SCHEME = Regex("^([A-Za-z][A-Za-z0-9+.\\-]*)://")
     private val HOST_LABEL = Regex("^[A-Za-z0-9_.\\-]+$")
 
-    fun normalize(raw: String, allowInsecureHttp: Boolean = false): NextcloudAddressResult {
+    /** True when [url] is an absolute `https://` URL, the only scheme Nextcloud traffic may use. */
+    fun isHttps(url: String): Boolean =
+        runCatching { URI(url.trim()).scheme?.equals(HTTPS, ignoreCase = true) == true }.getOrDefault(false)
+
+    fun normalize(raw: String): NextcloudAddressResult {
         val trimmed = raw.trim()
         if (trimmed.isEmpty()) {
             return reject(NextcloudAddressResult.Rejected.Code.BLANK, "Enter a Nextcloud address, for example cloud.example.com.")
@@ -44,19 +47,19 @@ object NextcloudAddress {
         }
         val schemeMatch = SCHEME.find(trimmed)
         val suppliedScheme = schemeMatch?.groupValues?.get(1)?.lowercase()
-        if (schemeMatch != null && suppliedScheme != HTTP && suppliedScheme != HTTPS) {
+        if (suppliedScheme == HTTP) {
+            return reject(
+                NextcloudAddressResult.Rejected.Code.INSECURE_SCHEME,
+                "Nextcloud requires HTTPS. Enter an https:// address.",
+            )
+        }
+        if (schemeMatch != null && suppliedScheme != HTTPS) {
             return reject(
                 NextcloudAddressResult.Rejected.Code.UNSUPPORTED_SCHEME,
                 "Enter an https:// address or a host name such as cloud.example.com.",
             )
         }
-        if (suppliedScheme == HTTP && !allowInsecureHttp) {
-            return reject(
-                NextcloudAddressResult.Rejected.Code.INSECURE_SCHEME,
-                "Plain HTTP is disabled. Enter an https:// address, or enable \"Use insecure HTTP\".",
-            )
-        }
-        val scheme = suppliedScheme ?: HTTPS
+        val scheme = HTTPS
         val remainder = if (schemeMatch != null) trimmed.substring(schemeMatch.value.length) else trimmed
         val authorityEnd = remainder.indexOf('/')
         val authority = if (authorityEnd == -1) remainder else remainder.substring(0, authorityEnd)
