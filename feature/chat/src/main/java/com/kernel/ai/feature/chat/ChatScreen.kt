@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Repeat
@@ -308,6 +309,7 @@ fun ChatScreen(
             val speakingMessageId by viewModel.speakingMessageId.collectAsStateWithLifecycle()
             val isArchived by viewModel.isArchived.collectAsStateWithLifecycle()
             val copyToolCalls by viewModel.copyToolCalls.collectAsStateWithLifecycle()
+            val currentModel by viewModel.currentModel.collectAsStateWithLifecycle()
             var showVoicePermissionPrompt by remember { mutableStateOf(false) }
             val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
             // Track which voice action is pending while we await the permission result.
@@ -410,6 +412,7 @@ fun ChatScreen(
             }
 
             ChatContent(
+                activeModelName = currentModel?.displayName ?: "unknown",
                 state = state,
                 isSeeding = isSeeding,
                 isArchived = isArchived,
@@ -710,6 +713,7 @@ private fun ChatContent(
     onNavigateToSettings: () -> Unit,
     onCopyAll: () -> Unit,
     showModelSettings: Boolean,
+    activeModelName: String,
     onShowModelSettingsChange: (Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -842,6 +846,19 @@ private fun ChatContent(
                             MessageBubble(
                                 message = message,
                                 onCopy = { content -> onCopyMessage(content) },
+                                onReport = { content ->
+                                    val versionName = runCatching {
+                                        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                                    }.getOrNull() ?: "unknown"
+                                    val intent = buildReportResponseIntent(content, versionName, activeModelName)
+                                    try {
+                                        context.startActivity(intent)
+                                    } catch (_: android.content.ActivityNotFoundException) {
+                                        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AI response", content))
+                                        android.widget.Toast.makeText(context, "No email app found. Response copied.", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                },
                                 showThinkingProcess = state.showThinkingProcess,
                                 isSpeaking = speakingMessageId == message.id,
                                 onSpeak = { onSpeakMessage(message.id, message.toolCall?.spokenSummary ?: message.content) },
@@ -1042,9 +1059,10 @@ private fun ChatContent(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(
+internal fun MessageBubble(
     message: ChatMessage,
     onCopy: (String) -> Unit,
+    onReport: (String) -> Unit,
     showThinkingProcess: Boolean = true,
     isSpeaking: Boolean = false,
     onSpeak: () -> Unit = {},
@@ -1317,6 +1335,18 @@ private fun MessageBubble(
                             Icon(Icons.Default.ContentCopy, contentDescription = null)
                         },
                     )
+                    if (!isUser && !message.isStreaming && message.content.isNotBlank()) {
+                        DropdownMenuItem(
+                            text = { Text("Report response") },
+                            onClick = {
+                                showMenu = false
+                                onReport(message.content)
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Flag, contentDescription = null)
+                            },
+                        )
+                    }
                 }
             }
         }
