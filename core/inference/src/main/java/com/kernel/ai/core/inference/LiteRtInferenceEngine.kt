@@ -1379,7 +1379,9 @@ class LiteRtInferenceEngine @Inject constructor(
         debugLoadSkillProbeMode: DebugLoadSkillProbeMode?,
         debugTraceId: String?,
     ): Flow<GenerationResult> = callbackFlow {
+        val lockRequestedAt = System.currentTimeMillis()
         generationMutex.lock()
+        Log.d(TAG, "TTFT_STAGE engine generation_lock_wait_ms=${System.currentTimeMillis() - lockRequestedAt}")
         val lockReleased = AtomicBoolean(false)
         var serviceStarted = false
 
@@ -2196,8 +2198,11 @@ class LiteRtInferenceEngine @Inject constructor(
             cancelGeneration()
         }
 
+        val resetStartedAt = System.currentTimeMillis()
         generationMutex.withLock {
+            val lockWaitMs = System.currentTimeMillis() - resetStartedAt
             safeClose(conversation, "conversation")
+            val createStartedAt = System.currentTimeMillis()
             try {
                 conversation = eng.createConversation(buildConversationConfig(backend, config))
             } finally {
@@ -2205,6 +2210,13 @@ class LiteRtInferenceEngine @Inject constructor(
             }
             _isGenerating.value = false
             Log.i(TAG, "System prompt updated and conversation reset")
+            // #1618 stage timing: lock wait, close, and createConversation durations.
+            Log.d(
+                TAG,
+                "TTFT_STAGE engine conversation_reset lock_wait_ms=$lockWaitMs " +
+                    "close_ms=${createStartedAt - resetStartedAt - lockWaitMs} " +
+                    "create_ms=${System.currentTimeMillis() - createStartedAt} backend=$backend",
+            )
         }
     }
 
