@@ -98,12 +98,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        adbChatInput.value = intent.getStringExtra("chat_input")
-        // Only seed widget extras on a genuine cold start. On process-death restore,
-        // savedInstanceState is non-null and NavController restores its back stack;
-        // re-seeding here would cause LaunchedEffect to navigate again with a fresh
-        // (unconsumed) entry and re-execute the query unexpectedly.
+        // Only seed one-shot launch extras on a genuine launch. When the activity is recreated
+        // (configuration change, or the task restored after an OS low-memory kill, #1690),
+        // savedInstanceState is non-null, getIntent() is still the original launch intent and
+        // NavController restores its back stack; re-seeding here would cause LaunchedEffect to
+        // navigate again with a fresh (unconsumed) entry and re-execute the query unexpectedly.
         if (savedInstanceState == null) {
+            adbChatInput.value = intent.getStringExtra("chat_input")
             readQuickActionInput(intent)?.let {
                 val voice = intent.getBooleanExtra("quick_action_is_voice", false)
                 adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
@@ -113,9 +114,9 @@ class MainActivity : ComponentActivity() {
                 val prev = adbNavigationRoute.value
                 adbNavigationRoute.value = NavRouteRequest(route, (prev?.serial ?: 0) + 1)
             }
+            adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
+            handleAdbProfileText(intent)
         }
-        adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
-        handleAdbProfileText(intent)
         requestStartupPermissionsIfNeeded()
         setContent {
             val useSystemColorsState = chatPreferences.useSystemColors
