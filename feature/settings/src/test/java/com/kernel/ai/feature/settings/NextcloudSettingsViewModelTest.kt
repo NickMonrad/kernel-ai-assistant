@@ -100,50 +100,57 @@ class NextcloudSettingsViewModelTest {
         advanceUntilIdle()
 
         assertEquals("https://cloud.example", fixture.store.saved?.account?.serverUrl)
-        assertEquals(false, fixture.store.saved?.account?.allowInsecureHttp)
     }
 
     @Test
-    fun `explicit http address is rejected inline while insecure http is disabled`() = runTest {
+    fun `explicit http address is rejected inline and nothing is contacted or saved`() = runTest {
         val fixture = Fixture()
         val viewModel = fixture.viewModel().configured("http://cloud.example", "alice", "fixture-app-password")
+        assertTrue(viewModel.state.value.addressError?.contains("requires HTTPS") == true, "shown as typed")
 
         viewModel.connect()
+        viewModel.connectWithNextcloud()
         advanceUntilIdle()
 
         val message = viewModel.state.value.addressError
-        assertTrue(message != null && message.contains("Plain HTTP is disabled"))
+        assertTrue(message != null && message.contains("requires HTTPS"))
         assertNull(fixture.store.saved)
         assertEquals(0, fixture.store.saveCount)
         assertTrue(fixture.transport.requestedUrls.isEmpty(), "no request should reach the plaintext endpoint")
     }
 
     @Test
-    fun `enabling insecure http permits the explicit http endpoint and records the opt-in`() = runTest {
-        val fixture = Fixture()
+    fun `a saved http account requires reconfiguration without contacting it or losing local lists`() = runTest {
+        val legacy = NextcloudAccountCredentials(NextcloudAccount("http://cloud.example", "alice"), "legacy-password")
+        val fixture = Fixture(
+            store = FakeCredentialStore(legacy),
+            lists = MutableStateFlow(listOf(list(1L, "Shopping", "collection-shopping"))),
+            summaries = MutableStateFlow(listOf(summary("collection-shopping", REMOTE_TASKS_HREF))),
+        )
         val viewModel = fixture.viewModel()
-            .configured("http://cloud.example", "alice", "fixture-app-password")
-            .apply { setAllowInsecureHttp(true) }
+        val sections = fixture.observeSections(viewModel, this)
+        advanceUntilIdle()
 
+        assertTrue(viewModel.state.value.httpsReconfigurationRequired)
+        assertEquals(listOf("Shopping"), sections().connected.map { it.displayName }, "local list is kept")
+        viewModel.refresh()
+        advanceUntilIdle()
+        assertTrue(fixture.transport.requestedUrls.isEmpty(), "a legacy http account is never contacted")
+        assertEquals(legacy, fixture.store.saved, "the stored account is not silently converted")
+
+        viewModel.editAccount()
+        assertEquals("http://cloud.example", viewModel.state.value.address)
+        assertTrue(viewModel.state.value.addressError?.contains("requires HTTPS") == true)
+
+        viewModel.setAddress("https://cloud.example")
+        viewModel.setAppPassword("new-app-password")
         viewModel.connect()
         advanceUntilIdle()
 
-        assertNull(viewModel.state.value.addressError)
-        assertEquals("http://cloud.example", fixture.store.saved?.account?.serverUrl)
-        assertEquals(true, fixture.store.saved?.account?.allowInsecureHttp)
-    }
-
-    @Test
-    fun `enabling insecure http leaves the https default for a bare host`() = runTest {
-        val fixture = Fixture()
-        val viewModel = fixture.viewModel()
-            .configured("cloud.example.com", "alice", "fixture-app-password")
-            .apply { setAllowInsecureHttp(true) }
-
-        viewModel.connect()
-        advanceUntilIdle()
-
-        assertEquals("https://cloud.example.com", fixture.store.saved?.account?.serverUrl)
+        assertEquals("https://cloud.example", fixture.store.saved?.account?.serverUrl)
+        assertTrue(!viewModel.state.value.httpsReconfigurationRequired)
+        assertTrue(fixture.transport.requestedUrls.all { it.startsWith("https://") })
+        assertEquals(listOf("Shopping"), sections().connected.map { it.displayName })
     }
 
     // ── Credential persistence ───────────────────────────────────────────────────────────────────
@@ -893,10 +900,10 @@ class NextcloudSettingsViewModelTest {
 
         override fun read(): NextcloudAccountCredentials? = saved
 
-        override fun save(serverUrl: String, username: String, appPassword: String, allowInsecureHttp: Boolean) {
+        override fun save(serverUrl: String, username: String, appPassword: String) {
             saveCount += 1
             saved = NextcloudAccountCredentials(
-                NextcloudAccount(serverUrl, username, allowInsecureHttp),
+                NextcloudAccount(serverUrl, username),
                 appPassword,
             )
         }
