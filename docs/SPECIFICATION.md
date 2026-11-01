@@ -380,6 +380,12 @@ best-matching intent wins if it clears both a confidence floor and an ambiguity 
 
 If the classifier is absent or returns `null`, the input falls through to Stage 3 (Gemma-4 E4B).
 
+**Deterministic calculator commands:** In addition to symbolic/infix arithmetic, the regex path
+accepts complete `multiply A by B`, `divide A by B`, `add A and/to B`, and `subtract A from B`
+commands when both operands are numeric or simple written-out integers. Subtraction preserves
+English operand order (`subtract A from B` evaluates as `B - A`). This normalization is limited
+to those complete command forms; unrelated text remains on the normal routing path.
+
 **Actions-tab deterministic slot-fill loop:**
 
 For quick actions, pending slot state lives inside `ActionsViewModel`, not a shared
