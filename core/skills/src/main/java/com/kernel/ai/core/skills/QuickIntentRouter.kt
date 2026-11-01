@@ -1199,6 +1199,25 @@ class QuickIntentRouter(
             requiredSlots = slotContract("create_calendar_event"),
         ),
 
+        // "set do not disturb on" / "set dnd mode on" (#1317). The unanchored verb rules below
+        // don't include "set", so it fell through to the smart_home fallback. They also match
+        // "turn do not disturb off" as ON, so the anchored OFF form must come first.
+        IntentPattern(
+            intentName = "toggle_dnd_off",
+            regex = Regex(
+                """^(?:set|turn)\s+(?:do\s+not\s+disturb|dnd)(?:\s+mode)?\s+off$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """^(?:set|turn)\s+(?:do\s+not\s+disturb|dnd)(?:\s+mode)?\s+on$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
         // ── Do Not Disturb ──
         IntentPattern(
             intentName = "toggle_dnd_on",
