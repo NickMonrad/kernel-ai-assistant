@@ -254,8 +254,15 @@ class ModelBakeoffDeviceTest {
             val initStart = SystemClock.elapsedRealtime()
             val created = Engine(engineConfig)
             engine = created
-            created.initialize()
+            try {
+                created.initialize()
+            } catch (failure: Throwable) {
+                val initMs = SystemClock.elapsedRealtime() - initStart
+                Log.e(TAG, "ENGINE_INIT_FAILED model=$model backend=$backendName initMs=$initMs error=${failure.javaClass.simpleName}", failure)
+                throw failure
+            }
             val initMs = SystemClock.elapsedRealtime() - initStart
+            Log.i(TAG, "ENGINE_READY model=$model backend=$backendName initMs=$initMs")
             val config = ConversationConfig(
                 systemInstruction = Contents.of(Content.Text(system)),
                 samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 42),
