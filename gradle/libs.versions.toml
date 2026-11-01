@@ -37,7 +37,6 @@ testRules = "1.5.0"
 # LiteRT
 litertlm = "0.17.1"
 gson = "2.14.0"
-mediapipeTasksText = "0.10.33"
 litert = "2.1.0"
 onnxruntime = "1.24.3"
 
@@ -105,8 +104,6 @@ litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-and
 # Gson-backed serialization preserves LiteRT-LM's numeric tool arguments.
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 
-# MediaPipe Tasks Text (TextEmbedder — USE fallback)
-mediapipe-tasks-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeTasksText" }
 
 # LiteRT Interpreter (drop-in API for existing .tflite models; 16 KB aligned)
 litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }

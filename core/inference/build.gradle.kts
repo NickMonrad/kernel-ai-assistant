@@ -38,9 +38,6 @@ dependencies {
     implementation(libs.litertlm.android)
     implementation(libs.gson)
 
-    // MediaPipe TextEmbedder (USE fallback)
-    implementation(libs.mediapipe.tasks.text)
-
     // LiteRT Interpreter (Arctic Embed and MiniLM raw .tflite models, CPU-only)
     implementation(libs.litert)
 
