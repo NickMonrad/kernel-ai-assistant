@@ -12,7 +12,7 @@ release candidate. These come from a debug build and should be recaptured from t
 | Signer | debug key `CN=Kernel AI Debug, OU=Debug, O=KernelAI, L=Auckland, ST=Auckland, C=NZ`, cert SHA-256 `b55d3efc312478ef19a89f7f54b5c37f841a9d4dbfee0805107c2ddf5d686390` |
 | Device | Samsung Galaxy S21 (SM-G991B), Android 15, 1080 × 2400, 480 dpi, light theme, font scale 1.0 |
 | Captured | 2026-11-02 |
-| Data | Synthetic only: "Camping trip" list, demo memories ("our dog is called Biscuit", "I like my coffee as a flat white"), a 10-minute timer and a 6:30am alarm. No real names, contacts, accounts or device location. |
+| Data | Synthetic only: "Camping trip" list, demo memories ("our dog is called Biscuit", "I like my coffee as a flat white", "The user's notebook has a blue cover."), a 10-minute timer and a 6:30am alarm. No real names, contacts, accounts or device location. |
 
 **Format:** 24-bit RGB PNG (no alpha), 1080 × 2160. That meets Play's 320–3840 px range and its limit that the long side can be at most twice the short side.
 
@@ -32,7 +32,7 @@ release candidate. These come from a debug build and should be recaptured from t
 | `04-lists-camping-trip.png` | A "Camping trip" list: tent, sleeping bags, head torch, marshmallows, sunscreen | "Lists… for shopping, packing or anything else" | A Camping trip list in Jandal with tent, sleeping bags, head torch, marshmallows and sunscreen. |
 | `05-memory.png` | Settings → Memory: three core memories, each with a delete button | "Memory you can see and delete" | Jandal's Memory screen showing saved memories, each with a delete button. |
 | `06-model-management.png` | Model Management: on-device models with sizes (E-2B ready, 2583.1 MB; optional E-4B, 3654.5 MB) | "Chat model runs on your phone"; download sizes | Jandal's Model Management screen showing on-device AI models, their download sizes and storage used. |
-| `07-voice-speech-recognition.png` | Settings → Voice: on-device speech recognition engines (Vosk, Android native, Sherpa-ONNX) | "Speech recognition runs on your phone" | Jandal's Voice settings for choosing an on-device speech recognition engine. |
+| `07-voice-speech-recognition.png` | Settings → Voice: on-device speech recognition engines (Vosk, Android native, Sherpa-ONNX) | "Speech recognition runs on your phone" | Jandal's Voice settings for choosing a speech recognition engine. |
 
 All alt texts are under 140 characters.
 
