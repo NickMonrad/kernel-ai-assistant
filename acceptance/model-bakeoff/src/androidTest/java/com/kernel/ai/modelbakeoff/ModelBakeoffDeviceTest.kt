@@ -88,6 +88,46 @@ class ModelBakeoffDeviceTest {
         Log.i(TAG, "MODEL_PIN model=$model repoRevision=${spec.revision} bytes=${spec.bytes} sha256=$actualSha256 license=${spec.license} sdk=0.17.1")
         Log.i(TAG, "RUN_START model=$model backend=$backendName mtp=$mtp")
 
+        if (args.getString("probe") == "mtp-throughput") {
+            require(model == "gemma" && backendName == "GPU") { "The MTP throughput probe is for Gemma E4B/GPU only" }
+            val peakPss = AtomicLong(0L)
+            val peakGpuKb = AtomicLong(0L)
+            val sampler = launch(Dispatchers.Default) {
+                while (isActive) {
+                    peakPss.accumulateAndGet(Debug.getPss().toLong()) { old, new -> maxOf(old, new) }
+                    readGpuMemoryKb()?.let { peakGpuKb.accumulateAndGet(it) { old, new -> maxOf(old, new) } }
+                    delay(75)
+                }
+            }
+            val run = try {
+                runOne(
+                    context,
+                    file,
+                    backend,
+                    mtp,
+                    "Output plain text only. Continue for approximately 128 words.",
+                    "Describe a clear sky in a long, uninterrupted paragraph.",
+                )
+            } finally {
+                sampler.cancelAndJoin()
+            }
+            val normalChatHealthy = run.output.isNotBlank()
+            val report =
+                "MTP_PROBE model=$model backend=$backendName mtp=$mtp mtpActive=${run.mtpActive} " +
+                    "initMs=${run.initMs} ttftMs=${run.ttftMs} elapsedMs=${run.elapsedMs} " +
+                    "decodeTps=${run.decodeTps ?: "unavailable"} pssKb=${run.pssKb} " +
+                    "peakPssKb=${peakPss.get()} gpuKb=${run.gpuKb ?: "unavailable"} " +
+                    "peakGpuKb=${peakGpuKb.get().takeIf { it > 0L } ?: "unavailable"} " +
+                    "normalChatHealth=$normalChatHealthy output=${run.output.take(120).replace('\n', ' ')}"
+            val reportFile = File(context.filesDir, "J691Bakeoff/results/gemma_gpu_mtp-$mtp-throughput.txt")
+            reportFile.parentFile?.mkdirs()
+            reportFile.writeText("$report\n")
+            Log.i(TAG, report)
+            Log.i(TAG, "LOCAL_REPORT path=${reportFile.absolutePath}")
+            require(normalChatHealthy) { "The MTP throughput chat probe returned no text" }
+            return@runBlocking
+        }
+
         val allResults = mutableListOf<String>()
         var structuralPasses = 0
         var semanticPasses = 0
