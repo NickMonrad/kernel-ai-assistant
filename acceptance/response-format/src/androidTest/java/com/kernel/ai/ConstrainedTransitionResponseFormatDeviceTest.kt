@@ -19,6 +19,7 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -29,6 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.collect
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -42,24 +44,45 @@ import java.util.concurrent.atomic.AtomicLong
 /** Run explicitly per supported physical model/backend lane; never part of the default device suite. */
 class ConstrainedTransitionResponseFormatDeviceTest {
 
+    /** App-owned held state. Only [id] is ever offered to the model as an echoable value. */
+    private data class HeldAction(
+        val id: String,
+        val description: String,
+        val status: String,
+        val slots: List<String> = emptyList(),
+    )
+
     private data class Fixture(
         val name: String,
-        val prompt: String,
+        val held: List<HeldAction>,
+        val context: String?,
+        val userReply: String,
         val transition: String,
-        val subject: String,
+        val actionId: String?,
         val slotName: String? = null,
         val slotValue: String? = null,
-        val targetId: String? = null,
-        val actionId: String,
+        val dispatchTarget: String? = null,
+    )
+
+    private data class Proposal(
+        val transition: String,
+        val actionId: String?,
+        val slotName: String?,
+        val slotValue: String?,
     )
 
     private data class Sample(
+        val run: Int,
         val fixture: String,
         val structurallyValid: Boolean,
         val semanticallyCorrect: Boolean,
+        val slotCorrect: Boolean,
+        val proposalDispatch: String?,
+        val wrongDispatch: Boolean,
         val dispatchCount: Int,
         val latencyMs: Long,
         val pssKb: Long,
+        val raw: String,
     )
 
     private val safeToolDispatches = AtomicInteger()
@@ -210,39 +233,43 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                 fixtures.forEach { fixture ->
                     val dispatchesBefore = safeToolDispatches.get()
                     val started = SystemClock.elapsedRealtime()
-                    val raw = engine.generateResponseFormatProbeOnce(
-                        prompt = fixture.prompt,
-                        schema = SCHEMA,
-                        systemPrompt = "Choose only the safe semantic transition described by the user turn. " +
-                            "The subject field is the canonical action subject. " +
-                            "slot_name and slot_value are only for filling an outstanding missing slot; " +
-                            "set both to null when no slot is pending. " +
-                            "target_id identifies a separately selected existing object only; set it to null " +
-                            "when no such target is selected, and never copy action_id into target_id. " +
-                            "Treat action_id and revision as supplied runtime identity, not user data.",
-                        thinkingEnabled = false,
-                        nativeThinkingEnabled = false,
-                    )
+                    // Constraint setup/generation failure is a failed sample; never retried unconstrained.
+                    val raw = try {
+                        engine.generateResponseFormatProbeOnce(
+                            prompt = promptFor(fixture.held, fixture.context, fixture.userReply),
+                            schema = schemaFor(fixture.held),
+                            systemPrompt = TRANSITION_SYSTEM_PROMPT,
+                            thinkingEnabled = false,
+                            nativeThinkingEnabled = false,
+                        )
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (error: Exception) {
+                        "PROBE_EXCEPTION ${error.javaClass.simpleName}: ${error.message}"
+                    }
                     val latency = SystemClock.elapsedRealtime() - started
                     val dispatchCount = safeToolDispatches.get() - dispatchesBefore
-                    val decoded = decode(raw)
-                    val semantic = decoded != null &&
-                        decoded.get("transition") == fixture.transition &&
-                        decoded.get("subject").toString().normalized() == fixture.subject.normalized() &&
-                        nullable(decoded, "slot_name") == fixture.slotName &&
-                        nullable(decoded, "slot_value") == fixture.slotValue &&
-                        nullable(decoded, "target_id") == fixture.targetId &&
-                        decoded.get("action_id") == fixture.actionId &&
-                        decoded.get("revision").toString().toBigDecimal().intValueExact() == 4
+                    val proposal = decode(raw, fixture.held)
+                    val semantic = proposal != null &&
+                        proposal.transition == fixture.transition && proposal.actionId == fixture.actionId
+                    val slotCorrect = proposal != null && proposal.slotName == fixture.slotName &&
+                        proposal.slotValue?.normalized() == fixture.slotValue?.normalized()
+                    // What a reducer trusting any structurally valid proposal would dispatch.
+                    val proposalDispatch = proposal?.takeIf { it.transition == "CONTINUE" }?.actionId
+                    val wrongDispatch = proposalDispatch != fixture.dispatchTarget ||
+                        (proposalDispatch != null && !slotCorrect)
                     val pss = Debug.getPss().toLong()
                     transitionPeakPssKb.accumulateAndGet(pss) { previous, current -> maxOf(previous, current) }
-                    val sample = Sample(fixture.name, decoded != null, semantic, dispatchCount, latency, pss)
+                    val sample = Sample(
+                        repetition + 1, fixture.name, proposal != null, semantic, slotCorrect,
+                        proposalDispatch, wrongDispatch, dispatchCount, latency, pss, raw,
+                    )
                     samples += sample
-                    Log.i(TAG, "FIXTURE run=${repetition + 1} name=${fixture.name} structural=${sample.structurallyValid} " +
-                        "semantic=${sample.semanticallyCorrect} probeToolCalls=$dispatchCount latencyMs=$latency pssKb=$pss")
-                    assertNotNull("STRUCTURAL_FAILURE fixture=${fixture.name} raw=$raw", decoded)
-                    assertTrue("SEMANTIC_FAILURE fixture=${fixture.name} raw=$raw", semantic)
-                    assertEquals("Tool-free response-format probe dispatched a tool", 0, dispatchCount)
+                    Log.i(TAG, "FIXTURE run=${sample.run} name=${fixture.name} structural=${sample.structurallyValid} " +
+                        "semantic=${sample.semanticallyCorrect} slot=${sample.slotCorrect} " +
+                        "proposalDispatch=$proposalDispatch expectedDispatch=${fixture.dispatchTarget} " +
+                        "wrongDispatch=$wrongDispatch probeToolCalls=$dispatchCount latencyMs=$latency pssKb=$pss " +
+                        "raw=${raw.replace('\n', ' ').take(300)}")
                 }
             }
 
@@ -255,10 +282,13 @@ class ConstrainedTransitionResponseFormatDeviceTest {
             Log.i(TAG, "SPIKE_SUMMARY device=${Build.MODEL} model=$requestedModel backend=$requestedBackend " +
                 "repeats=$repeats fixtureCount=${fixtures.size} structuralPass=${samples.count { it.structurallyValid }}/${samples.size} " +
                 "semanticPass=${samples.count { it.semanticallyCorrect }}/${samples.size} " +
+                "slotPass=${samples.count { it.slotCorrect }}/${samples.size} " +
+                "wrongDispatch=${samples.count { it.wrongDispatch }} " +
                 "probeToolCalls=${samples.sumOf { it.dispatchCount }} " +
                 "initMs=$transitionInitMs coldLatencyMs=${cold.latencyMs} baselineWarmMedianMs=$baselineWarmMedian " +
                 "warmMedianLatencyMs=$warmMedian latencyDeltaMs=$latencyDelta baselinePeakPssKb=$baselinePeakPss " +
                 "peakPssKb=$peakPss pssDeltaKb=$pssDelta")
+
 
             val cancelSchema = """{"type":"object","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","minLength":2048,"maxLength":2048}}}"""
             val cancelStarted = SystemClock.elapsedRealtime()
@@ -279,16 +309,18 @@ class ConstrainedTransitionResponseFormatDeviceTest {
             longGeneration.cancelAndJoin()
             val cancellationDrainMs = SystemClock.elapsedRealtime() - cancelStarted
             assertFalse("Engine remained generating after cancellation", engine.isGenerating.value)
+            val recoveryState = fixtures.single { it.name == "ambiguous-two-timer-target" }
             val recovery = engine.generateResponseFormatProbeOnce(
-                prompt = "Return CLARIFY for an ambiguous target. Use action_id action-recovery and revision 4.",
-                schema = SCHEMA,
-                systemPrompt = "Return only the requested structured decision.",
+                prompt = promptFor(recoveryState.held, recoveryState.context, recoveryState.userReply),
+                schema = schemaFor(recoveryState.held),
+                systemPrompt = TRANSITION_SYSTEM_PROMPT,
                 thinkingEnabled = false,
                 nativeThinkingEnabled = false,
             )
-            assertNotNull("Constrained request failed after cancellation: $recovery", decode(recovery))
+            assertNotNull("Constrained request failed after cancellation: $recovery", decode(recovery, recoveryState.held))
             assertEquals("Recovery probe dispatched the safe tool", 0, safeToolDispatches.get())
             Log.i(TAG, "CANCELLATION drainMs=$cancellationDrainMs recovery=PASS pssKb=${Debug.getPss()}")
+
 
             val dispatchesBeforePostSpike = safeToolDispatches.get()
             val ordinaryAfter = ordinaryGeneration(
@@ -300,6 +332,16 @@ class ConstrainedTransitionResponseFormatDeviceTest {
                 safeToolDispatches.get() - dispatchesBeforePostSpike)
             Log.i(TAG, "POST_SPIKE_ORDINARY_CHAT_TOOL latencyMs=${ordinaryAfter.second} " +
                 "toolDispatches=${safeToolDispatches.get() - dispatchesBeforePostSpike} pssKb=${Debug.getPss()}")
+
+            // Functional gates are asserted after lifecycle evidence so one run records every fixture.
+            samples.filterNot { it.structurallyValid }.firstOrNull()?.let {
+                throw AssertionError("STRUCTURAL_FAILURE run=${it.run} fixture=${it.fixture} raw=${it.raw}")
+            }
+            samples.filterNot { it.semanticallyCorrect && it.slotCorrect }.firstOrNull()?.let {
+                throw AssertionError("SEMANTIC_FAILURE run=${it.run} fixture=${it.fixture} raw=${it.raw}")
+            }
+            assertEquals("Wrong proposal dispatches", 0, samples.count { it.wrongDispatch })
+            assertEquals("Tool-free response-format probe dispatched a tool", 0, samples.sumOf { it.dispatchCount })
         } finally {
             transitionPssSampler?.cancelAndJoin()
             engine.shutdown()
@@ -326,99 +368,116 @@ class ConstrainedTransitionResponseFormatDeviceTest {
         return output.toString() to (SystemClock.elapsedRealtime() - started)
     }
 
-    private fun decode(raw: String): JSONObject? = runCatching {
-        val value = JSONObject(raw)
-        val requiredKeys = setOf("transition", "subject", "slot_name", "slot_value", "target_id", "action_id", "revision")
-        if (value.keys().asSequence().toSet() != requiredKeys) return null
-        val transition = value.opt("transition") as? String ?: return null
-        if (transition !in TRANSITIONS) return null
-        if ((value.opt("subject") as? String).isNullOrBlank()) return null
-        if ((value.opt("action_id") as? String).isNullOrBlank()) return null
-        val revision = value.opt("revision") as? Number ?: return null
-        val revisionNumber = revision.toString().toBigDecimal().stripTrailingZeros()
-        if (revisionNumber.scale() > 0 || revisionNumber.signum() < 0) return null
-        revisionNumber.intValueExact()
-        listOf("slot_name", "slot_value", "target_id").forEach { key ->
-            val element = value.opt(key)
-            if (element !== JSONObject.NULL && element !is String) return null
+    private fun promptFor(held: List<HeldAction>, context: String?, userReply: String): String = buildString {
+        appendLine("Held actions (most recent first):")
+        held.forEach { action ->
+            val slots = if (action.slots.isEmpty()) "" else " (slots: ${action.slots.joinToString()})"
+            appendLine("- id ${action.id} [${action.status}]: ${action.description}$slots")
         }
-        value
-    }.getOrNull()
-
-    private fun nullable(value: JSONObject, key: String): String? {
-        val element = value.get(key)
-        return if (element === JSONObject.NULL) null else element as String
+        context?.let { appendLine(it) }
+        append("User reply: ").append(userReply)
     }
+
+    /** Per-turn schema from app-owned state: enums of held ids and slot names; no free-text subject. */
+    private fun schemaFor(held: List<HeldAction>): String {
+        fun nullableEnum(values: List<String>) = JSONObject().put(
+            "enum",
+            JSONArray().apply { values.forEach { put(it) }; put(JSONObject.NULL) },
+        )
+        val properties = JSONObject()
+            .put("transition", JSONObject().put("type", "string").put("enum", JSONArray(TRANSITIONS)))
+            .put("action_id", nullableEnum(held.map { it.id }))
+            .put("slot_name", nullableEnum(held.flatMap { it.slots }.distinct()))
+            .put("slot_value", JSONObject().put("type", JSONArray(listOf("string", "null"))))
+        return JSONObject()
+            .put("type", "object")
+            .put("additionalProperties", false)
+            .put("required", JSONArray(REQUIRED_KEYS))
+            .put("properties", properties)
+            .toString()
+    }
+
+    private fun decode(raw: String, held: List<HeldAction>): Proposal? = runCatching {
+        val value = JSONObject(raw)
+        if (value.keys().asSequence().toSet() != REQUIRED_KEYS.toSet()) return null
+        fun nullableString(key: String): String? = when (val element = value.opt(key)) {
+            JSONObject.NULL -> null
+            is String -> element
+            else -> throw IllegalArgumentException("$key is not a string or null")
+        }
+        val transition = nullableString("transition")?.takeIf { it in TRANSITIONS } ?: return null
+        val actionId = nullableString("action_id")
+        if (actionId != null && held.none { it.id == actionId }) return null
+        val slotName = nullableString("slot_name")
+        if (slotName != null && held.none { slotName in it.slots }) return null
+        Proposal(transition, actionId, slotName, nullableString("slot_value"))
+    }.getOrNull()
 
     private fun String.normalized() = trim().lowercase().replace(Regex("\\s+"), " ")
 
-    private fun fixtures() = listOf(
-        Fixture(
-            name = "wikipedia-disputed-claim-continuation",
-            prompt = "Action type (metadata only; never use it as subject): Wikipedia fact-check. " +
-                "Canonical grounded claim / subject (copy exactly for CONTINUE): prisoners brewing alcohol in toilets. " +
-                "User reply: The topic we have just been talking about. This continues the pending action; " +
-                "set transition to CONTINUE and subject exactly to the canonical grounded claim. " +
-                "No slot is pending. Return action_id wiki-check-1, revision 4.",
-            transition = "CONTINUE", subject = "prisoners brewing alcohol in toilets", actionId = "wiki-check-1",
-        ),
-        Fixture(
-            name = "reminder-cancel",
-            prompt = "Pending reminder: call the blinds people on Monday; missing slot time. " +
-                "User reply: cancel. For CANCEL, copy the full pending reminder subject exactly; do not abbreviate it. " +
-                "Return action_id reminder-1, revision 4.",
-            transition = "CANCEL", subject = "call the blinds people on Monday", actionId = "reminder-1",
-        ),
-        Fixture(
-            name = "pending-reminder-weather-replacement",
-            prompt = "Pending reminder: call the blinds people on Monday; missing slot time. User reply: What's the weather in Sydney? Do not treat this as a time value. Return action_id reminder-1, revision 4.",
-            transition = "REPLACE", subject = "weather in Sydney", actionId = "reminder-1",
-        ),
-        Fixture(
-            name = "weather-tomorrow-keeps-sydney",
-            prompt = "Recent completed referent: weather lookup for Sydney. User reply: What about tomorrow? Continue the lookup for Sydney with date tomorrow. Return action_id weather-1, revision 4.",
-            transition = "CONTINUE", subject = "weather in Sydney", slotName = "date", slotValue = "tomorrow", actionId = "weather-1",
-        ),
-        Fixture(
-            name = "timer-correction-same-object",
-            prompt = "Existing timer object id timer-42 was set for 20 minutes. User says: Actually make that 15. Continue by changing the same timer; do not create another. Return action_id timer-action-1, revision 4.",
-            transition = "CONTINUE", subject = "20 minute timer", slotName = "duration_minutes", slotValue = "15", targetId = "timer-42", actionId = "timer-action-1",
-        ),
-        Fixture(
-            name = "ambiguous-two-timer-target",
-            prompt = "Two existing timers could be meant: timer-42 for 20 minutes and timer-43 for 25 minutes. User says: Make that one 15. The target is ambiguous; clarify and do not choose a timer. Return action_id timer-action-2, revision 4.",
-            transition = "CLARIFY", subject = "timer", actionId = "timer-action-2",
-        ),
-        Fixture(
-            name = "genuine-topic-change-pending-slot",
-            prompt = "Pending reminder: call the blinds people on Monday; missing slot time. User says: Set a timer for 20 minutes. This is a new topic, not a reminder time. Return action_id reminder-2, revision 4.",
-            transition = "REPLACE", subject = "20 minute timer", actionId = "reminder-2",
-        ),
-        Fixture(
-            name = "ambiguous-reference-clarifies",
-            prompt = "Pending action: modify one of two existing timers timer-51 and timer-52, both active. User reply: change that. No unique target is grounded. Clarify. Return action_id timers-1, revision 4.",
-            transition = "CLARIFY", subject = "timer", actionId = "timers-1",
-        ),
-    )
+    // Mirrors the host ConstrainedTransitionFixtureHarnessTest fixtures. Prompts state the held
+    // actions and the user turn only; they do not dictate the transition or id.
+    private fun fixtures(): List<Fixture> {
+        val wikiCheck = HeldAction("wiki-check-1", "Wikipedia fact-check of the claim that prisoners brew alcohol in toilets", "pending")
+        val sydneyWeather = HeldAction("weather-1", "weather lookup for Sydney, today", "completed", listOf("date"))
+        val reminder = HeldAction("reminder-1", "reminder to call the blinds people on Monday; waiting for the time", "pending", listOf("time"))
+        val timer42 = HeldAction("timer-42", "timer for 20 minutes", "active", listOf("duration_minutes"))
+        val timer43 = HeldAction("timer-43", "timer for 25 minutes", "active", listOf("duration_minutes"))
+        val reminderQuestion = "Assistant's last message: What time on Monday should I remind you?"
+        val weatherAnswer = "Assistant's last message: It is sunny in Sydney today."
+        return listOf(
+            Fixture(
+                "wikipedia-disputed-claim-continuation", listOf(wikiCheck, sydneyWeather),
+                "Assistant's last message: Which claim should I fact-check?", "The topic we have just been talking about.",
+                "CONTINUE", "wiki-check-1", dispatchTarget = "wiki-check-1",
+            ),
+            Fixture("reminder-cancel", listOf(reminder, timer42), reminderQuestion, "cancel", "CANCEL", "reminder-1"),
+            Fixture(
+                "pending-reminder-weather-replacement", listOf(reminder), reminderQuestion,
+                "What's the weather in Sydney?", "REPLACE", "reminder-1",
+            ),
+            Fixture(
+                "weather-tomorrow-keeps-sydney", listOf(sydneyWeather), weatherAnswer, "What about tomorrow?",
+                "CONTINUE", "weather-1", slotName = "date", slotValue = "tomorrow", dispatchTarget = "weather-1",
+            ),
+            Fixture(
+                "timer-correction-same-object", listOf(timer42), "Assistant's last message: Timer set for 20 minutes.",
+                "Actually make that 15.", "CONTINUE", "timer-42",
+                slotName = "duration_minutes", slotValue = "15", dispatchTarget = "timer-42",
+            ),
+            Fixture("ambiguous-two-timer-target", listOf(timer42, timer43), null, "Make that one 15.", "CLARIFY", null),
+            Fixture(
+                "genuine-topic-change-pending-slot", listOf(reminder), reminderQuestion,
+                "Set a timer for 20 minutes.", "REPLACE", "reminder-1",
+            ),
+            Fixture(
+                "ambiguous-reference-clarifies",
+                listOf(
+                    HeldAction("timer-51", "timer for 10 minutes", "active", listOf("duration_minutes")),
+                    HeldAction("timer-52", "timer for 30 minutes", "active", listOf("duration_minutes")),
+                ),
+                null, "Change that.", "CLARIFY", null,
+            ),
+            Fixture(
+                "unrelated-request-after-completed-lookup", listOf(sydneyWeather), weatherAnswer,
+                "Set a timer for 10 minutes.", "NEW_TOPIC", null,
+            ),
+        )
+    }
 
     private companion object {
         const val TAG = "J1682ResponseFormat"
-        val TRANSITIONS = setOf("CONTINUE", "CANCEL", "REPLACE", "CLARIFY")
-        val SCHEMA = """
-            {
-              "type":"object",
-              "additionalProperties":false,
-              "required":["transition","subject","slot_name","slot_value","target_id","action_id","revision"],
-              "properties":{
-                "transition":{"type":"string","enum":["CONTINUE","CANCEL","REPLACE","CLARIFY"]},
-                "subject":{"type":"string","minLength":1},
-                "slot_name":{"type":["string","null"]},
-                "slot_value":{"type":["string","null"]},
-                "target_id":{"type":["string","null"]},
-                "action_id":{"type":"string","minLength":1},
-                "revision":{"type":"integer","minimum":0}
-              }
-            }
+        val TRANSITIONS = listOf("CONTINUE", "CANCEL", "REPLACE", "NEW_TOPIC", "CLARIFY")
+        val REQUIRED_KEYS = listOf("transition", "action_id", "slot_name", "slot_value")
+        val TRANSITION_SYSTEM_PROMPT = """
+            Decide how the user's reply relates to the app's held actions. Return only the structured decision.
+            transition:
+            - CONTINUE: the reply continues or modifies one held action; action_id is that action.
+            - CANCEL: the reply cancels one pending action; action_id is that action.
+            - REPLACE: the reply is a different request that supersedes a pending action; action_id is the superseded pending action.
+            - NEW_TOPIC: the reply is an unrelated request and no pending action is superseded; action_id is null.
+            - CLARIFY: it is unclear which held action is meant or what the user wants; action_id is the single action concerned, or null if more than one could be meant.
+            slot_name and slot_value: set only when the user supplies a new value for a listed slot of the chosen action; slot_value is the user's value only. Otherwise both are null.
         """.trimIndent()
     }
 }

@@ -1,7 +1,10 @@
 package com.kernel.ai.core.skills.slot
 
+import com.google.gson.JsonArray
+import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.google.gson.JsonPrimitive
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -9,244 +12,252 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Host oracle for the accepted reducer seam; proposals never execute a real tool. */
+/**
+ * Host oracle for the accepted reducer seam; proposals never execute a real tool.
+ *
+ * Enum-constrained contract (#1682 retry): the per-turn schema is built from app-owned held
+ * actions. The model chooses a transition and one of the held action ids (or null); it writes no
+ * free-text subject. The app resolves the canonical subject from its own state by id. Only slot
+ * values the user supplies remain typed text fields.
+ */
 class ConstrainedTransitionFixtureHarnessTest {
-    private enum class Transition { CONTINUE, CANCEL, REPLACE, CLARIFY }
+    private enum class Transition { CONTINUE, CANCEL, REPLACE, NEW_TOPIC, CLARIFY }
+
+    /** App-owned state; [subject] is canonical and never shown to the model as an echoable field. */
+    private data class HeldAction(
+        val id: String,
+        val description: String,
+        val subject: String,
+        val pending: Boolean,
+        val slots: List<String> = emptyList(),
+    )
 
     private data class Proposal(
         val transition: Transition,
-        val subject: String,
+        val actionId: String?,
         val slotName: String?,
         val slotValue: String?,
-        val targetId: String?,
-        val actionId: String,
-        val revision: Int,
     )
 
     private data class Expected(
-        val actionId: String,
-        val revision: Int,
         val transition: Transition,
-        val subject: String,
+        val actionId: String?,
         val slotName: String? = null,
         val slotValue: String? = null,
-        val targetId: String? = null,
         val dispatchTarget: String? = null,
     )
 
     private data class Fixture(
         val name: String,
+        val held: List<HeldAction>,
         val raw: String,
         val expected: Expected,
-        val structuralExpected: Boolean,
-        val semanticExpected: Boolean,
-        val transitionExpected: Transition,
+        val structuralExpected: Boolean = true,
+        val semanticExpected: Boolean = true,
+        val slotExpected: Boolean = true,
         val userReply: String? = null,
-        val dispatchExpected: String? = null,
-    )
+    ) {
+        val transitionExpected: Transition
+            get() = if (structuralExpected && semanticExpected && slotExpected) expected.transition else Transition.CLARIFY
+        val dispatchExpected: String?
+            get() = if (transitionExpected == Transition.CONTINUE) expected.dispatchTarget else null
+    }
 
     private data class Result(
         val structuralValid: Boolean,
         val semanticCorrect: Boolean,
+        val slotCorrect: Boolean,
         val transition: Transition,
         val dispatchTarget: String?,
+        val resolvedSubject: String?,
     )
 
-    private val schema = """
-        {
-          "type":"object",
-          "additionalProperties":false,
-          "required":["transition","subject","slot_name","slot_value","target_id","action_id","revision"],
-          "properties":{
-            "transition":{"type":"string","enum":["CONTINUE","CANCEL","REPLACE","CLARIFY"]},
-            "subject":{"type":"string","minLength":1},
-            "slot_name":{"type":["string","null"]},
-            "slot_value":{"type":["string","null"]},
-            "target_id":{"type":["string","null"]},
-            "action_id":{"type":"string","minLength":1},
-            "revision":{"type":"integer","minimum":0}
-          }
+    private val wikiCheck = HeldAction(
+        id = "wiki-check-1",
+        description = "Wikipedia fact-check of the claim that prisoners brew alcohol in toilets",
+        subject = "prisoners brewing alcohol in toilets",
+        pending = true,
+    )
+    private val sydneyWeather = HeldAction(
+        id = "weather-1",
+        description = "weather lookup for Sydney, today",
+        subject = "weather in Sydney",
+        pending = false,
+        slots = listOf("date"),
+    )
+    private val reminder = HeldAction(
+        id = "reminder-1",
+        description = "reminder to call the blinds people on Monday; waiting for the time",
+        subject = "call the blinds people on Monday",
+        pending = true,
+        slots = listOf("time"),
+    )
+    private val timer42 = HeldAction("timer-42", "timer for 20 minutes, running", "20 minute timer", pending = false, slots = listOf("duration_minutes"))
+    private val timer43 = HeldAction("timer-43", "timer for 25 minutes, running", "25 minute timer", pending = false, slots = listOf("duration_minutes"))
+
+    @Test
+    fun `per-turn schema offers only held ids and slot names and no free-text subject`() {
+        val held = listOf(reminder, timer42)
+        val schema = JsonParser.parseString(schemaFor(held)).asJsonObject
+        val properties = schema.getAsJsonObject("properties")
+
+        assertEquals(setOf("transition", "action_id", "slot_name", "slot_value"), properties.keySet())
+        assertEquals(properties.keySet(), schema.getAsJsonArray("required").map { it.asString }.toSet())
+        assertEquals(
+            listOf("CONTINUE", "CANCEL", "REPLACE", "NEW_TOPIC", "CLARIFY"),
+            properties.getAsJsonObject("transition").getAsJsonArray("enum").map { it.asString },
+        )
+        assertEquals(listOf("reminder-1", "timer-42", null), enumValues(properties, "action_id"))
+        assertEquals(listOf("time", "duration_minutes", null), enumValues(properties, "slot_name"))
+        val schemaText = schema.toString()
+        held.forEach { action ->
+            assertFalse(schemaText.contains(action.description), "display description is not an echoable value")
+            assertFalse(schemaText.contains(action.subject), "canonical subject stays app-owned")
         }
-    """.trimIndent()
+        val rendered = renderHeldActions(held)
+        assertFalse(rendered.contains("Pending reminder:"), "no display label resembling a field value")
+        assertTrue(rendered.contains("- id reminder-1 [pending]: ${reminder.description}"))
+    }
 
     @Test
     fun `host fixtures separate structural validity semantic correctness and dispatch safety`() {
-
         val fixtures = listOf(
+            fixture("wikipedia disputed claim continues", listOf(wikiCheck, sydneyWeather), "CONTINUE", "wiki-check-1", dispatch = "wiki-check-1"),
+            fixture("cancel pending reminder", listOf(reminder, timer42), "CANCEL", "reminder-1"),
+            fixture("unrelated weather replaces pending reminder", listOf(reminder), "REPLACE", "reminder-1"),
             fixture(
-                "observed Wikipedia response puts grounded claim in slot",
-                "REPLACE",
-                "Toilets where prisoners brew alcohol",
-                slotName = "grounded_claim",
-                slotValue = "Prisoners brewing alcohol in toilets",
-                targetId = "wiki-check-1",
-                expectedTransition = "CONTINUE",
-                expectedSubject = "prisoners brewing alcohol in toilets",
-                expectedSlotName = null,
-                expectedSlotValue = null,
-                expectedTargetId = null,
-                expectedActionId = "wiki-check-1",
-                semanticExpected = false,
+                "Sydney weather tomorrow keeps location",
+                listOf(sydneyWeather),
+                "CONTINUE",
+                "weather-1",
+                slotName = "date",
+                slotValue = "tomorrow",
+                dispatch = "weather-1",
             ),
             fixture(
-                "observed S23 response copies the action id into an ungrounded target",
-                "REPLACE",
-                "claim",
-                targetId = "wiki-check-1",
-                actionId = "wiki-check-1",
-                expectedTransition = "CONTINUE",
-                expectedSubject = "prisoners brewing alcohol in toilets",
-                expectedTargetId = null,
-                expectedActionId = "wiki-check-1",
-                semanticExpected = false,
+                "same timer target is corrected",
+                listOf(timer42),
+                "CONTINUE",
+                "timer-42",
+                slotName = "duration_minutes",
+                slotValue = "15",
+                dispatch = "timer-42",
             ),
-            fixture(
-                "latest S23 response uses the action label as subject",
-                "REPLACE",
-                "wikipedia_fact_check",
-                targetId = null,
-                actionId = "wiki-check-1",
-                expectedTransition = "CONTINUE",
-                expectedSubject = "prisoners brewing alcohol in toilets",
-                expectedTargetId = null,
-                expectedActionId = "wiki-check-1",
-                semanticExpected = false,
-            ),
-            fixture("wikipedia exact disputed proposition", "CONTINUE", "prisoners brewing alcohol in toilets", dispatch = "wiki-action"),
-            fixture(
-                "cancel pending reminder",
-                "CANCEL",
-                "call the blinds people on Monday",
-                userReply = "cancel",
-            ),
-            fixture(
-                "observed S23 cancellation with abbreviated subject",
-                "CANCEL",
-                "call",
-                actionId = "reminder-1",
-                expectedTransition = "CANCEL",
-                expectedSubject = "call the blinds people on Monday",
-                expectedActionId = "reminder-1",
-                semanticExpected = false,
-            ),
-            fixture(
-                "observed S23 cancellation copies display prefix into subject",
-                "CANCEL",
-                "Pending reminder: call the blinds people on Monday",
-                actionId = "reminder-1",
-                expectedTransition = "CANCEL",
-                expectedSubject = "call the blinds people on Monday",
-                expectedActionId = "reminder-1",
-                semanticExpected = false,
-            ),
-            fixture(
-                "unrelated weather replaces pending reminder",
-                "REPLACE",
-                "weather in Sydney",
-                userReply = "What's the weather in Sydney?",
-            ),
-            fixture("Sydney weather tomorrow keeps location", "CONTINUE", "weather in Sydney", slotName = "date", slotValue = "tomorrow", dispatch = "weather-action"),
-            fixture("same timer target is corrected", "CONTINUE", "20 minute timer", targetId = "timer-42", dispatch = "timer-42"),
-            fixture("ambiguous two-timer target clarifies", "CLARIFY", "timer", targetId = null),
-            fixture("explicit cancellation does not dispatch", "CANCEL", "pending reminder"),
-            fixture("genuine topic change while slot pending", "REPLACE", "weather in Sydney"),
-            fixture(
-                "ambiguous reply asks targeted clarification",
-                "CLARIFY",
-                "pending reminder time",
-                userReply = "which one?",
-            ),
+            fixture("ambiguous two-timer target clarifies", listOf(timer42, timer43), "CLARIFY", null),
+            fixture("genuine topic change while slot pending", listOf(reminder), "REPLACE", "reminder-1"),
+            fixture("unrelated request after completed lookup is a new topic", listOf(sydneyWeather), "NEW_TOPIC", null),
             fixture(
                 "schema-valid wrong timer target",
+                listOf(timer42, timer43),
                 "CONTINUE",
-                "20 minute timer",
-                targetId = "timer-99",
-                expectedTargetId = "timer-42",
+                "timer-43",
+                slotName = "duration_minutes",
+                slotValue = "15",
+                expectedTransition = "CONTINUE",
+                expectedActionId = "timer-42",
+                dispatch = "timer-42",
                 semanticExpected = false,
             ),
             fixture(
-                "schema-valid wrong Wikipedia subject",
+                "ambiguous two-timer target arbitrarily chosen",
+                listOf(timer42, timer43),
                 "CONTINUE",
-                "generic brewing",
-                expectedSubject = "prisoners brewing alcohol in toilets",
+                "timer-42",
+                slotName = "duration_minutes",
+                slotValue = "15",
+                expectedTransition = "CLARIFY",
+                expectedActionId = null,
                 semanticExpected = false,
             ),
             fixture(
-                "stale action revision",
+                "wrong transition REPLACE for a continuation",
+                listOf(wikiCheck, sydneyWeather),
+                "REPLACE",
+                "wiki-check-1",
+                expectedTransition = "CONTINUE",
+                dispatch = "wiki-check-1",
+                semanticExpected = false,
+            ),
+            fixture(
+                "continuation of the wrong held action",
+                listOf(wikiCheck, sydneyWeather),
                 "CONTINUE",
-                "prisoners brewing alcohol in toilets",
-                revision = 3,
+                "weather-1",
+                expectedTransition = "CONTINUE",
+                expectedActionId = "wiki-check-1",
+                dispatch = "wiki-check-1",
+                semanticExpected = false,
+            ),
+            fixture(
+                "right action but wrong slot value does not dispatch",
+                listOf(timer42),
+                "CONTINUE",
+                "timer-42",
+                slotName = "duration_minutes",
+                slotValue = "20",
+                expectedSlotValue = "15",
+                dispatch = "timer-42",
+                slotExpected = false,
+            ),
+            Fixture(
+                name = "display label as action id is outside the enum",
+                held = listOf(reminder),
+                raw = """{"transition":"CANCEL","action_id":"Pending reminder: call the blinds people on Monday","slot_name":null,"slot_value":null}""",
+                expected = Expected(Transition.CANCEL, "reminder-1"),
+                structuralExpected = false,
                 semanticExpected = false,
             ),
             Fixture(
-                name = "missing required field",
-                raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null,"slot_value":null,"target_id":null,"action_id":"action-1"}""",
-                expected = expected("CONTINUE", "topic"),
+                name = "previous free-text subject contract is structurally invalid",
+                held = listOf(reminder),
+                raw = """{"transition":"CANCEL","subject":"call the blinds people on Monday","action_id":"reminder-1","slot_name":null,"slot_value":null}""",
+                expected = Expected(Transition.CANCEL, "reminder-1"),
                 structuralExpected = false,
                 semanticExpected = false,
-                transitionExpected = Transition.CLARIFY,
             ),
             Fixture(
-                name = "malformed response",
-                raw = "not-json",
-                expected = expected("CONTINUE", "topic"),
+                name = "slot name not offered for the turn",
+                held = listOf(reminder),
+                raw = """{"transition":"CONTINUE","action_id":"reminder-1","slot_name":"duration_minutes","slot_value":"15"}""",
+                expected = Expected(Transition.CONTINUE, "reminder-1", "time", "9:00"),
                 structuralExpected = false,
                 semanticExpected = false,
-                transitionExpected = Transition.CLARIFY,
             ),
-            Fixture(
-                name = "truncated response",
-                raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null""",
-                expected = expected("CONTINUE", "topic"),
-                structuralExpected = false,
-                semanticExpected = false,
-                transitionExpected = Transition.CLARIFY,
-            ),
-            Fixture(
-                name = "fractional revision is structurally invalid",
-                raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null,"slot_value":null,"target_id":null,"action_id":"action-1","revision":4.5}""",
-                expected = expected("CONTINUE", "topic"),
-                structuralExpected = false,
-                semanticExpected = false,
-                transitionExpected = Transition.CLARIFY,
-            ),
-            Fixture(
-                name = "non-string slot value is structurally invalid",
-                raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null,"slot_value":9,"target_id":null,"action_id":"action-1","revision":4}""",
-                expected = expected("CONTINUE", "topic"),
-                structuralExpected = false,
-                semanticExpected = false,
-                transitionExpected = Transition.CLARIFY,
-            ),
-            Fixture(
-                name = "unexpected property is structurally invalid",
-                raw = """{"transition":"CONTINUE","subject":"topic","slot_name":null,"slot_value":null,"target_id":null,"action_id":"action-1","revision":4,"tool":"execute"}""",
-                expected = expected("CONTINUE", "topic"),
-                structuralExpected = false,
-                semanticExpected = false,
-                transitionExpected = Transition.CLARIFY,
-            ),
+            invalid("missing required field", """{"transition":"CANCEL","action_id":"reminder-1","slot_name":null}"""),
+            invalid("malformed response", "not-json"),
+            invalid("truncated response", """{"transition":"CANCEL","action_id":"remin"""),
+            invalid("non-string slot value", """{"transition":"CANCEL","action_id":"reminder-1","slot_name":"time","slot_value":9}"""),
+            invalid("unexpected property", """{"transition":"CANCEL","action_id":"reminder-1","slot_name":null,"slot_value":null,"tool":"execute"}"""),
+            invalid("transition outside the enum", """{"transition":"EXECUTE","action_id":"reminder-1","slot_name":null,"slot_value":null}"""),
         )
 
         var structuralPasses = 0
         var semanticPasses = 0
         var unsafeDispatches = 0
         fixtures.forEach { fixture ->
-            val actual = reduce(fixture.raw, fixture.expected)
+            val actual = reduce(fixture.raw, fixture.held, fixture.expected)
             assertEquals(fixture.structuralExpected, actual.structuralValid, fixture.name)
             assertEquals(fixture.semanticExpected, actual.semanticCorrect, fixture.name)
+            assertEquals(fixture.slotExpected, actual.slotCorrect, fixture.name)
             assertEquals(fixture.transitionExpected, actual.transition, fixture.name)
             assertEquals(fixture.dispatchExpected, actual.dispatchTarget, fixture.name)
+            if (actual.semanticCorrect && fixture.expected.actionId != null) {
+                assertEquals(
+                    fixture.held.single { it.id == fixture.expected.actionId }.subject,
+                    actual.resolvedSubject,
+                    "subject is resolved from app state by id: ${fixture.name}",
+                )
+            }
             if (actual.structuralValid) structuralPasses++
             if (actual.semanticCorrect) semanticPasses++
             if (actual.dispatchTarget != null &&
-                (!actual.semanticCorrect || actual.transition != Transition.CONTINUE ||
-                    actual.dispatchTarget != fixture.dispatchExpected)
+                (!actual.semanticCorrect || !actual.slotCorrect || actual.transition != Transition.CONTINUE ||
+                    actual.dispatchTarget != fixture.expected.dispatchTarget)
             ) {
                 unsafeDispatches++
             }
         }
-        assertEquals(17, structuralPasses, "structural pass count is independent of semantic pass count")
+        assertEquals(13, structuralPasses, "structural pass count is independent of semantic pass count")
         assertEquals(9, semanticPasses)
         assertEquals(0, unsafeDispatches)
     }
@@ -279,30 +290,22 @@ class ConstrainedTransitionFixtureHarnessTest {
     @Test
     fun `failed reminder-slot replies reach the host oracle without mutating manager state`() {
         val cases = listOf(
-            fixture(
-                "cancel pending reminder",
-                "CANCEL",
-                "call the blinds people on Monday",
-                userReply = "cancel",
-            ),
+            fixture("cancel pending reminder", listOf(reminder), "CANCEL", "reminder-1", userReply = "cancel"),
             fixture(
                 "unrelated weather replaces pending reminder",
+                listOf(reminder),
                 "REPLACE",
-                "weather in Sydney",
+                "reminder-1",
                 userReply = "What's the weather in Sydney?",
             ),
             fixture(
                 "same pending reminder continues after a non-time reply",
+                listOf(reminder),
                 "CONTINUE",
-                "call the blinds people reminder",
+                "reminder-1",
                 userReply = "I'm still talking about the same reminder",
             ),
-            fixture(
-                "ambiguous reply asks targeted clarification",
-                "CLARIFY",
-                "pending reminder time",
-                userReply = "which one?",
-            ),
+            fixture("ambiguous reply asks targeted clarification", listOf(reminder), "CLARIFY", "reminder-1", userReply = "which one?"),
         )
 
         cases.forEach { fixture ->
@@ -324,10 +327,11 @@ class ConstrainedTransitionFixtureHarnessTest {
             assertTrue(slotResult is SlotFillResult.InvalidSlot, fixture.name)
             assertTrue(manager.hasPendingFor("reminder-conversation"), "invalid slot remains manager-owned")
 
-            val decision = reduce(fixture.raw, fixture.expected)
+            val decision = reduce(fixture.raw, fixture.held, fixture.expected)
             assertTrue(decision.structuralValid, fixture.name)
             assertTrue(decision.semanticCorrect, fixture.name)
             assertEquals(fixture.transitionExpected, decision.transition, fixture.name)
+            assertEquals(reminder.subject, decision.resolvedSubject, fixture.name)
             assertNull(decision.dispatchTarget, "transition proposals never execute a tool")
             assertTrue(manager.hasPendingFor("reminder-conversation"), "proposal evaluation does not mutate slot-manager state")
         }
@@ -345,146 +349,118 @@ class ConstrainedTransitionFixtureHarnessTest {
 
     private fun fixture(
         name: String,
+        held: List<HeldAction>,
         transition: String,
-        subject: String,
+        actionId: String?,
         slotName: String? = null,
         slotValue: String? = null,
-        targetId: String? = null,
-        actionId: String = "action-1",
-        revision: Int = 4,
-        semanticExpected: Boolean = true,
         expectedTransition: String = transition,
-        expectedSubject: String = subject,
-        expectedSlotName: String? = slotName,
+        expectedActionId: String? = actionId,
         expectedSlotValue: String? = slotValue,
-        expectedTargetId: String? = targetId,
-        expectedActionId: String = "action-1",
-        expectedRevision: Int = 4,
-        userReply: String? = null,
         dispatch: String? = null,
-    ): Fixture {
-        val expected = Expected(
-            actionId = expectedActionId,
-            revision = expectedRevision,
-            transition = Transition.valueOf(expectedTransition),
-            subject = expectedSubject,
-            slotName = expectedSlotName,
-            slotValue = expectedSlotValue,
-            targetId = expectedTargetId,
-            dispatchTarget = dispatch,
-        )
-        val raw = response(
-            transition = transition,
-            subject = subject,
-            slotName = slotName,
-            slotValue = slotValue,
-            targetId = targetId,
-            actionId = actionId,
-            revision = revision,
-        )
-        return Fixture(
-            name = name,
-            raw = raw,
-            expected = expected,
-            structuralExpected = true,
-            semanticExpected = semanticExpected,
-            transitionExpected = if (semanticExpected) Transition.valueOf(transition) else Transition.CLARIFY,
-            userReply = userReply,
-            dispatchExpected = dispatch,
-        )
-    }
-
-    private fun expected(transition: String, subject: String) = Expected(
-        actionId = "action-1",
-        revision = 4,
-        transition = Transition.valueOf(transition),
-        subject = subject,
+        semanticExpected: Boolean = true,
+        slotExpected: Boolean = true,
+        userReply: String? = null,
+    ) = Fixture(
+        name = name,
+        held = held,
+        raw = response(transition, actionId, slotName, slotValue),
+        expected = Expected(Transition.valueOf(expectedTransition), expectedActionId, slotName, expectedSlotValue, dispatch),
+        semanticExpected = semanticExpected,
+        slotExpected = slotExpected,
+        userReply = userReply,
     )
 
-    private fun response(
-        transition: String,
-        subject: String,
-        slotName: String?,
-        slotValue: String?,
-        targetId: String?,
-        actionId: String,
-        revision: Int,
-    ): String = JsonObject().apply {
-        addProperty("transition", transition)
-        addProperty("subject", subject)
-        addNullable("slot_name", slotName)
-        addNullable("slot_value", slotValue)
-        addNullable("target_id", targetId)
-        addProperty("action_id", actionId)
-        addProperty("revision", revision)
-    }.toString()
+    private fun invalid(name: String, raw: String) = Fixture(
+        name = name,
+        held = listOf(reminder),
+        raw = raw,
+        expected = Expected(Transition.CANCEL, "reminder-1"),
+        structuralExpected = false,
+        semanticExpected = false,
+    )
+
+    private fun response(transition: String, actionId: String?, slotName: String?, slotValue: String?): String =
+        JsonObject().apply {
+            addProperty("transition", transition)
+            addNullable("action_id", actionId)
+            addNullable("slot_name", slotName)
+            addNullable("slot_value", slotValue)
+        }.toString()
 
     private fun JsonObject.addNullable(name: String, value: String?) {
-        if (value == null) add(name, com.google.gson.JsonNull.INSTANCE) else addProperty(name, value)
+        if (value == null) add(name, JsonNull.INSTANCE) else addProperty(name, value)
     }
 
-    private fun reduce(raw: String, expected: Expected): Result {
-        val proposal = parseStructurally(raw)
-            ?: return Result(
-                structuralValid = false,
-                semanticCorrect = false,
-                transition = Transition.CLARIFY,
-                dispatchTarget = null,
-            )
-        val semanticallyCorrect = proposal.transition == expected.transition &&
-            proposal.subject.normalized() == expected.subject.normalized() &&
-            proposal.slotName == expected.slotName &&
-            proposal.slotValue == expected.slotValue &&
-            proposal.targetId == expected.targetId &&
-            proposal.actionId == expected.actionId &&
-            proposal.revision == expected.revision
-        val safeTransition = if (semanticallyCorrect) proposal.transition else Transition.CLARIFY
-        val dispatch = if (
-            semanticallyCorrect && safeTransition == Transition.CONTINUE && expected.dispatchTarget != null
-        ) {
-            expected.dispatchTarget
-        } else {
-            null
+    private fun enumValues(properties: JsonObject, key: String): List<String?> =
+        properties.getAsJsonObject(key).getAsJsonArray("enum").map { if (it.isJsonNull) null else it.asString }
+
+    /** Mirrors the device probe's per-turn schema builder. */
+    private fun schemaFor(held: List<HeldAction>): String {
+        fun nullableEnum(values: List<String>) = JsonObject().apply {
+            add("enum", JsonArray().apply { values.forEach { add(JsonPrimitive(it)) }; add(JsonNull.INSTANCE) })
         }
+        val properties = JsonObject().apply {
+            add("transition", JsonObject().apply {
+                addProperty("type", "string")
+                add("enum", JsonArray().apply { Transition.entries.forEach { add(it.name) } })
+            })
+            add("action_id", nullableEnum(held.map { it.id }))
+            add("slot_name", nullableEnum(held.flatMap { it.slots }.distinct()))
+            add("slot_value", JsonObject().apply {
+                add("type", JsonArray().apply { add("string"); add("null") })
+            })
+        }
+        return JsonObject().apply {
+            addProperty("type", "object")
+            addProperty("additionalProperties", false)
+            add("required", JsonArray().apply { properties.keySet().forEach { add(it) } })
+            add("properties", properties)
+        }.toString()
+    }
+
+    /** Mirrors the device probe's prompt rendering: opaque id plus plain description. */
+    private fun renderHeldActions(held: List<HeldAction>): String = buildString {
+        appendLine("Held actions (most recent first):")
+        held.forEach { action ->
+            val slots = if (action.slots.isEmpty()) "" else " (slots: ${action.slots.joinToString()})"
+            appendLine("- id ${action.id} [${if (action.pending) "pending" else "completed"}]: ${action.description}$slots")
+        }
+    }
+
+    private fun reduce(raw: String, held: List<HeldAction>, expected: Expected): Result {
+        val proposal = parseStructurally(raw, held)
+            ?: return Result(false, false, true, Transition.CLARIFY, null, null)
+        val semanticallyCorrect = proposal.transition == expected.transition && proposal.actionId == expected.actionId
+        val slotCorrect = proposal.slotName == expected.slotName &&
+            proposal.slotValue?.normalized() == expected.slotValue?.normalized()
+        val safeTransition = if (semanticallyCorrect && slotCorrect) proposal.transition else Transition.CLARIFY
+        val dispatch = if (safeTransition == Transition.CONTINUE) expected.dispatchTarget else null
         return Result(
             structuralValid = true,
             semanticCorrect = semanticallyCorrect,
+            slotCorrect = slotCorrect,
             transition = safeTransition,
             dispatchTarget = dispatch,
+            resolvedSubject = held.firstOrNull { it.id == proposal.actionId }?.subject,
         )
     }
 
-    private fun parseStructurally(raw: String): Proposal? = runCatching {
+    private fun parseStructurally(raw: String, held: List<HeldAction>): Proposal? = runCatching {
         val root = JsonParser.parseString(raw).asJsonObject
-        if (root.keySet() != setOf("transition", "subject", "slot_name", "slot_value", "target_id", "action_id", "revision")) return null
-        fun stringValue(key: String): String? {
-            val value = root.get(key)
-            require(value.isJsonPrimitive && value.asJsonPrimitive.isString)
-            return value.asString
-        }
-        val transition = Transition.valueOf(stringValue("transition") ?: return null)
-        val subject = stringValue("subject")?.takeIf { it.isNotBlank() } ?: return null
-        val actionId = stringValue("action_id")?.takeIf { it.isNotBlank() } ?: return null
-        val revisionValue = root.get("revision")
-        if (!revisionValue.isJsonPrimitive || !revisionValue.asJsonPrimitive.isNumber) return null
-        val revisionNumber = revisionValue.asBigDecimal.stripTrailingZeros()
-        if (revisionNumber.scale() > 0 || revisionNumber.signum() < 0) return null
-        val revision = revisionNumber.intValueExact()
+        if (root.keySet() != setOf("transition", "action_id", "slot_name", "slot_value")) return null
         fun nullableString(key: String): String? {
             val value = root.get(key)
             if (value.isJsonNull) return null
             require(value.isJsonPrimitive && value.asJsonPrimitive.isString)
             return value.asString
         }
-        Proposal(
-            transition = transition,
-            subject = subject,
-            slotName = nullableString("slot_name"),
-            slotValue = nullableString("slot_value"),
-            targetId = nullableString("target_id"),
-            actionId = actionId,
-            revision = revision,
-        )
+        val transition = Transition.valueOf(nullableString("transition") ?: return null)
+        val actionId = nullableString("action_id")
+        if (actionId != null && held.none { it.id == actionId }) return null
+        val slotName = nullableString("slot_name")
+        if (slotName != null && held.none { slotName in it.slots }) return null
+        Proposal(transition, actionId, slotName, nullableString("slot_value"))
     }.getOrNull()
 
     private fun String.normalized(): String = trim().lowercase().replace(Regex("\\s+"), " ")

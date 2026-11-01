@@ -44,6 +44,17 @@ The host harness separates structural acceptance (schema shape/enumeration/requi
 - Malformed and truncated output; schema-valid wrong target/subject/transition; missing fields/slots.
 - Duplicate/stale result identities and late result after replacement/cancellation: no stale state mutation or duplicate dispatch.
 
+## Enum-constrained retry contract (one bounded round)
+
+Earlier native runs failed semantically on free-text fields. The model copied the display label `Pending reminder: …` into `subject`, and chose REPLACE where CONTINUE was correct. The single retry therefore removes all model-written identity text. Each turn's schema is built from app-owned held actions (pending or recent):
+
+- `transition`: enum `CONTINUE` / `CANCEL` / `REPLACE` / `NEW_TOPIC` / `CLARIFY`.
+- `action_id`: enum of the held action ids, or `null` (NEW_TOPIC; CLARIFY when more than one action could be meant).
+- `slot_name`: enum of the held actions' slot names, or `null`. `slot_value`: string or `null`, carrying only a value the user supplies.
+- No `subject`, `target_id` or `revision`. The app resolves the canonical subject and runtime revision from its own state by id.
+
+The prompt lists each held action as `id [status]: plain description`. Fixture prompts state only the held actions, the last assistant message and the user turn; unlike the earlier fixtures, they do not dictate the transition or id. Semantic correctness is the right transition plus the right `action_id`. Slot correctness is scored separately. Structural, semantic, slot and would-dispatch results are reported per fixture. Same LiteRT-LM 0.17.1 `ResponseFormat.json(schema)` path, tool-free conversation and no unconstrained fallback.
+
 ## Evidence record
 
 For each model/backend/device lane record device/build and app commit, LiteRT-LM version, deployed model identifier/package hash, backend, cold/warm baseline and spike latency, peak PSS, cancellation drain/recovery, repetitions, fixture structural and semantic counts, wrong/unsafe dispatch count, and post-spike ordinary chat/tool outcome. Keep raw user/device logs local; publish only sanitized evidence.
