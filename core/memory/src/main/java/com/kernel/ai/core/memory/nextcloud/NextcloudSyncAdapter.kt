@@ -89,9 +89,8 @@ class NextcloudSyncAdapter @Inject constructor(
         serverUrl: String,
         username: String,
         appPassword: String,
-        allowInsecureHttp: Boolean = false,
     ) {
-        accountStore.save(serverUrl, username, appPassword, allowInsecureHttp)
+        accountStore.save(serverUrl, username, appPassword)
         accountConfigured.value = true
     }
 
@@ -117,22 +116,16 @@ class NextcloudSyncAdapter @Inject constructor(
      */
     suspend fun loginFlow(
         serverUrl: String,
-        allowInsecureHttp: Boolean = false,
         onLoginUrl: suspend (String) -> Unit = {},
     ): Result<NextcloudAccountCredentials> {
         return try {
             val result = NextcloudLoginFlowClient(transport).authenticate(
                 serverUrl = serverUrl,
-                allowInsecureHttp = allowInsecureHttp,
                 onLoginUrl = onLoginUrl,
             )
             Result.success(
                 NextcloudAccountCredentials(
-                    account = NextcloudAccount(
-                        serverUrl = result.serverUrl,
-                        username = result.username,
-                        allowInsecureHttp = allowInsecureHttp,
-                    ),
+                    account = NextcloudAccount(serverUrl = result.serverUrl, username = result.username),
                     appPassword = result.appPassword,
                 ),
             )
