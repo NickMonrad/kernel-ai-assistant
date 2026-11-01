@@ -1912,8 +1912,16 @@ class ChatViewModel @Inject constructor(
 
         val commandId = "${UUID.randomUUID().toString().take(8)}-${commandIdSequence.incrementAndGet()}"
         Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId input=${text.take(120)} submitMode=$submitMode")
+        // #1618: per-stage turn timing; ms since the message was accepted. Logcat only.
+        val turnAcceptedAtNanos = System.nanoTime()
+        fun logTurnStage(stage: String) {
+            val elapsedMs = (System.nanoTime() - turnAcceptedAtNanos) / 1_000_000
+            Log.d("KernelAI", "TTFT_STAGE commandId=$commandId stage=$stage t_ms=$elapsedMs")
+        }
+        logTurnStage("accepted")
 
         viewModelScope.launch {
+            logTurnStage("coroutine_started")
             // Hoisted so the streaming section (outside the try/finally) can read them.
             var assistantMsgId = ""
             var accumulatedContent = StringBuilder()
@@ -2002,6 +2010,7 @@ class ChatViewModel @Inject constructor(
             } else {
                 quickIntentRouter.route(text)
             }
+            logTurnStage("route_done")
             val explicitMealPlannerStart = when (mealPlannerRoute) {
                 is QuickIntentRouter.RouteResult.RegexMatch ->
                     mealPlannerRoute.intent.intentName == "start_meal_planner"
@@ -2752,6 +2761,7 @@ class ChatViewModel @Inject constructor(
             // _isLoadingModel is always cleared by the outer finally block below.
 
             Log.d("KernelAI", "ADB_MODEL_STATE commandId=$commandId status=generating route=llm_fallthrough")
+            logTurnStage("model_ready")
             // 2. Gemma-4 streaming inference path.
             // Capture isFirstReply before adding the streaming placeholder — once the placeholder
             // is in _messages the ASSISTANT check would always return false.
@@ -2846,6 +2856,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
 
+            logTurnStage("rag_done")
 
             // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
             // the previous turn to resolve what "that/it/this" refers to. Inject the last
@@ -2911,7 +2922,9 @@ class ChatViewModel @Inject constructor(
                 )
                 systemPromptForPrefill = systemPromptWithHistory
                 shouldMeasureToolDeclarations = true
+                logTurnStage("prompt_reset_start")
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
+                logTurnStage("prompt_reset_done")
                 if (isLoadSkillAbortProbeFollowUp) {
                     val probeReplayed = systemPromptWithHistory.contains(LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT)
                     val failureReplayed = systemPromptWithHistory.contains(HONEST_ACTION_FAILURE)
@@ -3098,6 +3111,8 @@ class ChatViewModel @Inject constructor(
                     Log.i(TAG, "debug_load_skill_abort_probe=follow_up_generation sandbox=active")
                 }
 
+            logTurnStage("generate_called")
+            var firstTokenLogged = false
             val generation = when {
                 loadSkillAbortProbe ->
                     inferenceEngine.generateDebugLoadSkillAbortProbe(debugTraceId = debugGenerationId)
@@ -3112,6 +3127,7 @@ class ChatViewModel @Inject constructor(
             generation.collect { result ->
                     when (result) {
                         is GenerationResult.Token -> {
+                            if (!firstTokenLogged) logTurnStage("first_token")
                             accumulatedContent.append(result.text)
                             streamVoiceToken(result.text)
                             _messages.update { msgs ->
@@ -3120,6 +3136,10 @@ class ChatViewModel @Inject constructor(
                                         msg.copy(content = accumulatedContent.toString())
                                     } else msg
                                 }
+                            }
+                            if (!firstTokenLogged) {
+                                firstTokenLogged = true
+                                logTurnStage("first_ui_update")
                             }
                         }
 

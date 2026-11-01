@@ -18,8 +18,8 @@ internal data class NextcloudLoginFlowCredentials(
  * Client for Nextcloud's documented browser-based Login Flow v2.
  *
  * The login and poll URLs are server-provided, but are still constrained to the requested server's
- * host/port and scheme policy before they are opened or sent a token. Polling never follows a
- * redirect and always uses the exact endpoint returned by the server.
+ * HTTPS host/port before they are opened or sent a token (#1678). Polling never follows a redirect
+ * and always uses the exact endpoint returned by the server.
  */
 internal class NextcloudLoginFlowClient(
     private val transport: CalDavTransport,
@@ -33,13 +33,12 @@ internal class NextcloudLoginFlowClient(
 
     suspend fun authenticate(
         serverUrl: String,
-        allowInsecureHttp: Boolean = false,
         onLoginUrl: suspend (String) -> Unit = {},
     ): NextcloudLoginFlowCredentials {
-        val requestedServer = normalizeServer(serverUrl, allowInsecureHttp)
+        val requestedServer = normalizeServer(serverUrl)
         return try {
             withTimeout(timeoutMillis) {
-                authenticateWithinTimeout(requestedServer, allowInsecureHttp, onLoginUrl)
+                authenticateWithinTimeout(requestedServer, onLoginUrl)
             }
         } catch (error: TimeoutCancellationException) {
             throw NextcloudConnectionException(
@@ -53,7 +52,6 @@ internal class NextcloudLoginFlowClient(
 
     private suspend fun authenticateWithinTimeout(
         requestedServer: String,
-        allowInsecureHttp: Boolean,
         onLoginUrl: suspend (String) -> Unit,
     ): NextcloudLoginFlowCredentials {
         val startUrl = "$requestedServer/index.php/login/v2"
@@ -73,13 +71,11 @@ internal class NextcloudLoginFlowClient(
         val loginUrl = validateServerProvidedUrl(
             raw = start.loginUrl,
             requestedServer = requestedServer,
-            allowInsecureHttp = allowInsecureHttp,
             purpose = "login",
         )
         val pollEndpoint = validateServerProvidedUrl(
             raw = start.pollEndpoint,
             requestedServer = requestedServer,
-            allowInsecureHttp = allowInsecureHttp,
             purpose = "poll",
         )
 
@@ -105,7 +101,6 @@ internal class NextcloudLoginFlowClient(
                 200 -> return parseAndValidateCredentials(
                     body = pollResponse.body,
                     requestedServer = requestedServer,
-                    allowInsecureHttp = allowInsecureHttp,
                 )
                 401, 403 -> throw NextcloudConnectionException(
                     NextcloudFailure.Code.AUTHENTICATION,
@@ -147,7 +142,6 @@ internal class NextcloudLoginFlowClient(
     private fun parseAndValidateCredentials(
         body: String,
         requestedServer: String,
-        allowInsecureHttp: Boolean,
     ): NextcloudLoginFlowCredentials {
         val root = runCatching { JsonObjectParser(body).parse() }.getOrNull()
             ?: throw malformedLoginFlowResponse()
@@ -157,16 +151,16 @@ internal class NextcloudLoginFlowClient(
             ?: throw malformedLoginFlowResponse()
         val appPassword = root.stringValue("appPassword")?.takeIf { it.isNotBlank() }
             ?: throw malformedLoginFlowResponse()
-        val normalizedServer = runCatching { normalizeServer(returnedServer, allowInsecureHttp) }
+        val normalizedServer = runCatching { normalizeServer(returnedServer) }
             .getOrElse { throw loginFlowIdentityFailure() }
-        if (!permitsSameScope(requestedServer, normalizedServer, allowInsecureHttp)) {
+        if (!permitsSameScope(requestedServer, normalizedServer)) {
             throw loginFlowIdentityFailure()
         }
         return NextcloudLoginFlowCredentials(normalizedServer, username, appPassword)
     }
 
-    private fun normalizeServer(raw: String, allowInsecureHttp: Boolean): String {
-        return when (val result = NextcloudAddress.normalize(raw, allowInsecureHttp)) {
+    private fun normalizeServer(raw: String): String {
+        return when (val result = NextcloudAddress.normalize(raw)) {
             is NextcloudAddressResult.Accepted -> result.serverUrl
             is NextcloudAddressResult.Rejected -> throw NextcloudConnectionException(
                 NextcloudFailure.Code.INVALID_URL,
@@ -178,7 +172,6 @@ internal class NextcloudLoginFlowClient(
     private fun validateServerProvidedUrl(
         raw: String,
         requestedServer: String,
-        allowInsecureHttp: Boolean,
         purpose: String,
     ): String {
         val uri = runCatching { URI(raw) }.getOrNull()
@@ -187,34 +180,26 @@ internal class NextcloudLoginFlowClient(
         ) {
             throw malformedLoginFlowResponse()
         }
-        if (permitsSameScope(requestedServer, raw, allowInsecureHttp)) return raw
-        val requested = origin(requestedServer)
-        val target = origin(raw)
-        if (requested != null && target != null && requested.host == target.host &&
-            requested.explicitPort == target.explicitPort &&
-            isDowngrade(requested.scheme, target.scheme) && !allowInsecureHttp
-        ) {
+        if (!NextcloudAddress.isHttps(raw)) {
             throw NextcloudConnectionException(
                 NextcloudFailure.Code.INSECURE_REDIRECT,
-                "Nextcloud browser authentication attempted to use insecure HTTP for the $purpose endpoint.",
+                "Nextcloud browser authentication attempted to use insecure HTTP for the $purpose endpoint. " +
+                    "Nextcloud requires HTTPS.",
             )
         }
+        if (permitsSameScope(requestedServer, raw)) return raw
         throw NextcloudConnectionException(
             NextcloudFailure.Code.CROSS_ORIGIN_REDIRECT,
             "Nextcloud browser authentication returned a $purpose endpoint outside the requested server.",
         )
     }
 
-    private fun permitsSameScope(from: String, to: String, allowInsecureHttp: Boolean): Boolean {
+    /** Same HTTPS host and effective port, and a path inside the requested base path. */
+    private fun permitsSameScope(from: String, to: String): Boolean {
         val origin = origin(from) ?: return false
         val target = origin(to) ?: return false
-        if (origin.host != target.host) return false
-        if (origin.scheme == target.scheme) {
-            if (origin.effectivePort != target.effectivePort) return false
-        } else {
-            if (isDowngrade(origin.scheme, target.scheme) && !allowInsecureHttp) return false
-            if (origin.explicitPort != target.explicitPort) return false
-        }
+        if (origin.scheme != "https" || target.scheme != "https") return false
+        if (origin.host != target.host || origin.effectivePort != target.effectivePort) return false
         return pathWithinRequestedBase(from, to)
     }
 
@@ -241,11 +226,8 @@ internal class NextcloudLoginFlowClient(
             scheme == "http" -> 80
             else -> return null
         }
-        return LoginFlowOrigin(host, scheme, effectivePort, uri.port)
+        return LoginFlowOrigin(host, scheme, effectivePort)
     }
-
-    private fun isDowngrade(fromScheme: String, toScheme: String): Boolean =
-        fromScheme == "https" && toScheme == "http"
 
     private fun loginFlowUnsupported() = NextcloudConnectionException(
         NextcloudFailure.Code.LOGIN_FLOW_UNSUPPORTED,
@@ -277,7 +259,6 @@ internal class NextcloudLoginFlowClient(
         val host: String,
         val scheme: String,
         val effectivePort: Int,
-        val explicitPort: Int,
     )
 
     private sealed interface JsonValue {
