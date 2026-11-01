@@ -149,6 +149,12 @@ class ExternalPromptTrustTest {
         assertEquals(ExternalPromptDelivery(), delivery)
     }
 
+    @Test
+    fun `restored activity does not resolve any external prompt extras`() {
+        assertTrue(shouldResolvePromptExtrasOnActivityCreate(savedInstanceStatePresent = false))
+        assertFalse(shouldResolvePromptExtrasOnActivityCreate(savedInstanceStatePresent = true))
+    }
+
     private fun resolve(
         chatInput: String? = null,
         quickActionInput: String? = null,

@@ -146,6 +146,7 @@ private const val ARG_DRAFT_EXTERNAL = "draftExternal"
 private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
+private const val STATE_ROUTE_DRAFT_CONSUMED = "routeDraftConsumed"
 private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS, ROUTE_TOOLS)
@@ -185,6 +186,9 @@ internal fun buildConvertTabRoute(tab: String): String =
 internal fun buildActionsDraftRoute(draftQuery: String, fromExternalApp: Boolean = false): String =
     "$ROUTE_ACTIONS?openSheet=true&$ARG_DRAFT_QUERY=${encodeRouteQueryValue(draftQuery)}" +
         if (fromExternalApp) "&$ARG_DRAFT_EXTERNAL=true" else ""
+
+internal fun routeDraftForDelivery(draft: String?, consumed: Boolean): String? =
+    draft?.takeUnless { consumed || it.isBlank() }
 
 internal fun encodeRouteQueryValue(value: String): String =
     URLEncoder.encode(value, StandardCharsets.UTF_8)
@@ -562,8 +566,10 @@ fun KernelNavHost(
                     } else false
                     // draftQuery: baked into the route URL for Tools example prompt prefill.
                     // ActionsScreen tracks last-seen draft to prevent re-fire on recomposition.
-                    val draftQuery = backStackEntry.arguments?.getString(ARG_DRAFT_QUERY)
-                        ?.takeIf { it.isNotBlank() }
+                    val draftQuery = routeDraftForDelivery(
+                        backStackEntry.arguments?.getString(ARG_DRAFT_QUERY),
+                        backStackEntry.savedStateHandle.get<Boolean>(STATE_ROUTE_DRAFT_CONSUMED) == true,
+                    )
                     val draftFromExternalApp = backStackEntry.arguments?.getBoolean(ARG_DRAFT_EXTERNAL) ?: false
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
@@ -577,8 +583,7 @@ fun KernelNavHost(
                             externalSlotReplyDraft = externalSlotReplyDraft,
                             externalSlotReplyDraftSerial = externalDraftSerial,
                             onDraftQueryConsumed = {
-                                backStackEntry.arguments?.putString(ARG_DRAFT_QUERY, "")
-                                backStackEntry.arguments?.putBoolean(ARG_DRAFT_EXTERNAL, false)
+                                backStackEntry.savedStateHandle[STATE_ROUTE_DRAFT_CONSUMED] = true
                             },
                             onAutoOpenSheetConsumed = {
                                 backStackEntry.savedStateHandle[STATE_OPEN_SHEET_CONSUMED] = true
@@ -644,15 +649,17 @@ fun KernelNavHost(
                         ?.takeIf { it.isNotBlank() }
                     val speakResponse = backStackEntry.arguments?.getBoolean(ARG_SPEAK_RESPONSE) ?: false
                     // #1604: text from another app, pre-filled into the composer; never auto-sent.
-                    val externalDraft = backStackEntry.arguments?.getString(ARG_DRAFT_QUERY)
-                        ?.takeIf { it.isNotBlank() }
+                    val externalDraft = routeDraftForDelivery(
+                        backStackEntry.arguments?.getString(ARG_DRAFT_QUERY),
+                        backStackEntry.savedStateHandle.get<Boolean>(STATE_ROUTE_DRAFT_CONSUMED) == true,
+                    )
                     ChatScreen(
                         conversationId = null,
                         initialQuery = initialQuery,
                         speakInitialResponse = speakResponse,
                         externalDraft = externalDraft,
                         onExternalDraftConsumed = {
-                            backStackEntry.arguments?.putString(ARG_DRAFT_QUERY, "")
+                            backStackEntry.savedStateHandle[STATE_ROUTE_DRAFT_CONSUMED] = true
                         },
                         onBack = { navController.popBackOrNavigateHome() },
                         onNewConversation = {

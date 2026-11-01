@@ -89,6 +89,10 @@ internal data class ExternalPromptDelivery(
     val profileText: String? = null,
 )
 
+/** One-shot prompt extras belong to a fresh activity launch, never a restored instance. */
+internal fun shouldResolvePromptExtrasOnActivityCreate(savedInstanceStatePresent: Boolean): Boolean =
+    !savedInstanceStatePresent
+
 internal fun resolveExternalPromptDelivery(
     chatInput: String?,
     quickActionInput: String?,

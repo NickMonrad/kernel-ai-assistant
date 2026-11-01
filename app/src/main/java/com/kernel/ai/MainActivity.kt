@@ -113,13 +113,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val delivery = resolvePromptExtras(intent, launchedFromUid)
-        adbChatInput.value = delivery.chatQuery
-        // Only seed widget extras on a genuine cold start. On process-death restore,
-        // savedInstanceState is non-null and NavController restores its back stack;
-        // re-seeding here would cause LaunchedEffect to navigate again with a fresh
-        // (unconsumed) entry and re-execute the query unexpectedly.
-        if (savedInstanceState == null) {
+        if (shouldResolvePromptExtrasOnActivityCreate(savedInstanceState != null)) {
+            val delivery = resolvePromptExtras(intent, launchedFromUid)
+            adbChatInput.value = delivery.chatQuery
             delivery.quickActionQuery?.let {
                 adbQuickActionInput.value = QuickActionRequest(it, delivery.quickActionIsVoice, ++quickActionSerial)
                 adbQuickActionIsVoice.value = delivery.quickActionIsVoice
@@ -128,11 +124,10 @@ class MainActivity : ComponentActivity() {
                 val prev = adbNavigationRoute.value
                 adbNavigationRoute.value = NavRouteRequest(route, (prev?.serial ?: 0) + 1)
             }
-            // External drafts are never re-seeded on restore either.
+            adbSlotReplyInput.value = delivery.slotReply
             publishExternalDraft(delivery)
+            handleAdbProfileText(delivery.profileText)
         }
-        adbSlotReplyInput.value = delivery.slotReply
-        handleAdbProfileText(delivery.profileText)
         requestStartupPermissionsIfNeeded()
         setContent {
             val useSystemColorsState = chatPreferences.useSystemColors

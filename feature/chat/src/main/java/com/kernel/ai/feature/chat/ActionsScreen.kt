@@ -172,8 +172,8 @@ fun ActionsScreen(
             context.startActivity(RuntimePermissionRepair.intentFor(context, permission))
         }
     }
-    var initialSheetText by remember { mutableStateOf("") }
-    var initialSheetFromExternalApp by remember { mutableStateOf(false) }
+    var initialSheetText by rememberSaveable { mutableStateOf("") }
+    var initialSheetFromExternalApp by rememberSaveable { mutableStateOf(false) }
     // #1604: an external slot reply only applies to the slot pending when it arrives.
     var slotReplyDraft by remember(externalSlotReplyDraftSerial) {
         mutableStateOf(externalSlotReplyDraft?.takeIf { it.isNotBlank() && pendingSlot != null })

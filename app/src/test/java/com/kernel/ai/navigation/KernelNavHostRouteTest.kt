@@ -1,6 +1,7 @@
 package com.kernel.ai.navigation
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 class KernelNavHostRouteTest {
@@ -89,5 +90,12 @@ class KernelNavHostRouteTest {
             "actions?openSheet=true&draftQuery=call%20Mum&draftExternal=true",
             buildActionsDraftRoute("call Mum", fromExternalApp = true),
         )
+    }
+
+    @Test
+    fun `consumed route draft is not redelivered after recreation`() {
+        assertEquals("external text", routeDraftForDelivery("external text", consumed = false))
+        assertNull(routeDraftForDelivery("external text", consumed = true))
+        assertNull(routeDraftForDelivery("  ", consumed = false))
     }
 }
