@@ -1776,6 +1776,42 @@ class QuickIntentRouterTest {
             val result = regexOnlyRouter.route("heater off")
             assertRegexMatch(result, "smart_home_off", "heater off")
         }
+
+        // #1317: "set ... on/off" DND forms fell through the terse smart_home fallback
+        // (`^(?!…)(.+?)\s+on$`) and routed to smart_home_on with device "set do not disturb".
+        @ParameterizedTest(name = "DND set-verb ON: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "Set do not disturb on",
+                "set do not disturb mode on",
+                "set dnd on",
+                "turn do not disturb on",
+            ],
+        )
+        fun `set do not disturb on routes to toggle_dnd_on not smart home`(input: String) {
+            assertRegexMatch(regexOnlyRouter.route(input), "toggle_dnd_on", input)
+        }
+
+        @ParameterizedTest(name = "DND set-verb OFF: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "Set do not disturb off",
+                "set do not disturb mode off",
+                "set dnd off",
+                "turn do not disturb off",
+            ],
+        )
+        fun `set do not disturb off routes to toggle_dnd_off not smart home`(input: String) {
+            assertRegexMatch(regexOnlyRouter.route(input), "toggle_dnd_off", input)
+        }
+
+        // Shared-path guard: the new DND rule must not capture ordinary device "set ... on/off".
+        @ParameterizedTest(name = "smart home set-verb: \"{0}\"")
+        @ValueSource(strings = ["set the lamp on", "set the kitchen light on", "turn on bedroom light", "switch on the fan", "turn off bedroom light"])
+        fun `smart home commands still route to smart home after DND set-verb fix`(input: String) {
+            val expected = if (input.contains("off")) "smart_home_off" else "smart_home_on"
+            assertRegexMatch(regexOnlyRouter.route(input), expected, input)
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
