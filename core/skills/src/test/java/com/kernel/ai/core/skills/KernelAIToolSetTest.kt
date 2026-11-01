@@ -48,6 +48,36 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `queryWikipedia returns question evidence to the model and does not leak the question into later turns`() = runTest {
+        val runner = mockk<com.kernel.ai.core.skills.js.JsSkillRunner>()
+        coEvery {
+            runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg", "mode" to "evidence"))
+        } returns org.json.JSONObject(
+            mapOf(
+                "title" to "Andy Samberg",
+                "url" to "https://en.wikipedia.org/wiki/Andy_Samberg",
+                "summary" to "Andy Samberg is an American comedian.",
+                "extract" to "== Early life ==\nSamberg was raised in a Jewish family.",
+            ),
+        ).toString()
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg")) } returns
+            "Andy Samberg\n\nAndy Samberg is an American comedian."
+        every { registry.get("query_wikipedia") } returns QueryWikipediaSkill(runner)
+
+        toolSet.resetTurnState(userMessage = "Is Andy Samberg Jewish?")
+        val questionResult = toolSet.queryWikipedia("Andy Samberg")
+
+        assertFalse(toolSet.lastToolWasDirectReply())
+        assertTrue(questionResult["result"]!!.contains("[Early life] Samberg was raised in a Jewish family."))
+
+        toolSet.resetTurnState()
+        val summaryResult = toolSet.queryWikipedia("Andy Samberg")
+
+        assertTrue(toolSet.lastToolWasDirectReply())
+        assertEquals("Andy Samberg\n\nAndy Samberg is an American comedian.", summaryResult["result"])
+    }
+
+    @Test
     fun `getSystemInfo delegates to get_system_info skill`() = runTest {
         val skill = mockk<Skill>()
         every { skill.name } returns "get_system_info"

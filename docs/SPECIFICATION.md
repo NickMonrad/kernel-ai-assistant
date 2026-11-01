@@ -575,6 +575,12 @@ content through `message.toString()` in the SDK's internal form:
 - follow-up tool turns suppress repeated greetings
 - `query_wikipedia`, `get_system_info`, weather, and memory-search style direct replies are shown
   from the tool result itself when they return `SkillResult.DirectReply`
+- question-shaped turns ("Is X Jewish?", "When was X founded?") make `query_wikipedia` return
+  bounded evidence (summary plus up to 3 question-matching article passages, each ≤700 chars, from
+  the MediaWiki plain-text extract) as `SkillResult.Success`, so the model answers the question in
+  the same native-tool continuation or says Wikipedia does not establish it (#1689). The question
+  is the turn's user message supplied by `KernelAIToolSet`, not a model argument. Question-shaped
+  explicit "look up … on Wikipedia" requests skip the summary fast path for the same reason.
 - leaked raw tool syntax / instruction dumps are filtered by `looksLikeRawToolCall(...)`
 
 **Known open gaps / follow-up issues:**
@@ -812,7 +818,7 @@ and awaits the result with a 15s timeout.
 | Skill name | Description | Status |
 |------------|-------------|--------|
 | `get_system_info` | Device/model/backend/battery stats; returns `DirectReply` so grounded output wins over post-tool narration | ✅ |
-| `query_wikipedia` | Public Wikipedia lookup skill; exposed as direct `queryWikipedia(query)` wrapper and internally bridged to JS; returns `DirectReply` | ✅ |
+| `query_wikipedia` | Public Wikipedia lookup skill; exposed as direct `queryWikipedia(query)` wrapper and internally bridged to JS; returns `DirectReply` summaries, or `Success` question evidence for question-shaped turns (#1689) | ✅ |
 | `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
 | `search_memory` | Semantic search across core memories, episodic memories, and `message_embeddings` | ✅ |
 | `get_weather_gps` / `get_weather` | Weather retrieval with GPS, explicit locations, and indirect-location resolution | ✅ |

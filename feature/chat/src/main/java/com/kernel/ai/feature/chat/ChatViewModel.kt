@@ -3009,7 +3009,7 @@ class ChatViewModel @Inject constructor(
                 if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
                     safeModelTestScope = kernelAIToolSet.beginSafeModelTestSandbox()
                 }
-                kernelAIToolSet.resetTurnState()
+                kernelAIToolSet.resetTurnState(userMessage = text)
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
                 var systemOnlyToolRetryAttempted = false
