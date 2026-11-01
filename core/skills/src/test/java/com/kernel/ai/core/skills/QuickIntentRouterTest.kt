@@ -1030,6 +1030,86 @@ class QuickIntentRouterTest {
             val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals(expectedExpression, intent.params["expression"])
         }
+
+        @Test
+        fun `imperative arithmetic routes only complete numeric commands`() {
+            val cases = listOf(
+                "Multiply 142 by 1.1" to ("142 * 1.1" to "156.2"),
+                "Please multiply -2.5 by 4" to ("-2.5 * 4" to "-10"),
+                "Divide one hundred by ten" to ("100 / 10" to "10"),
+                "Add twenty-five and fifteen" to ("25 + 15" to "40"),
+                "Add twenty-five to fifteen" to ("25 + 15" to "40"),
+                "Subtract twelve from fifty" to ("50 - 12" to "38"),
+            )
+
+            for ((input, expected) in cases) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(expected.first, expression)
+                assertEquals(
+                    expected.second,
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                )
+            }
+        }
+
+        @Test
+        fun `imperative arithmetic does not steal unrelated commands`() {
+            assertRegexMatch(
+                regexOnlyRouter.route("Add milk to shopping list"),
+                "add_to_list",
+                "Add milk to shopping list",
+            )
+            assertFallThrough(regexOnlyRouter.route("divide and conquer"), "divide and conquer")
+        }
+
+        @Test
+        fun `imperative division by zero keeps native evaluator error`() {
+            val result = regexOnlyRouter.route("Divide 10 by 0")
+            assertRegexMatch(result, "calculate_arithmetic", "Divide 10 by 0")
+            val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                .intent.params.getValue("expression")
+
+            val error = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException::class.java,
+            ) {
+                com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator.evaluate(expression)
+            }
+            assertEquals("Division by zero is undefined", error.message)
+        }
+
+        @Test
+        fun `plain binary subtraction routes to calculator`() {
+            for (input in listOf("50 - 12", "50-12")) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(input, expression)
+                assertEquals(
+                    "38",
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                )
+            }
+        }
+
+        @Test
+        fun `hyphenated dates phone numbers and a bare negative do not route to calculator`() {
+            for (input in listOf("2026-11-01", "1-800-555-1234", "-5")) {
+                assertFallThrough(regexOnlyRouter.route(input), input)
+            }
+        }
+
+        @Test
+        fun `single unspaced hyphen between numbers stays arithmetic`() {
+            // A local phone number such as 555-1234 is indistinguishable from 50-12 and still
+            // routes; pinned so any future narrowing is a deliberate decision.
+            assertRegexMatch(regexOnlyRouter.route("555-1234"), "calculate_arithmetic", "555-1234")
+        }
     }
 
     @Nested

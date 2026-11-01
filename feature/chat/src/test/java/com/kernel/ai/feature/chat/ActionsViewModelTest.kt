@@ -85,6 +85,27 @@ class ActionsViewModelTest {
         )
     }
 
+    @Test
+    fun `typed and voice verb-first arithmetic reach native intent execution`() = runTest(dispatcher) {
+        viewModel.executeAction("Add twenty-five and fifteen")
+        advanceUntilIdle()
+
+        viewModel.executeAction("Divide one hundred by ten", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(2, insertedActions.size)
+        assertEquals("calculate_arithmetic", insertedActions[0].skillName)
+        assertEquals("calculate_arithmetic", insertedActions[1].skillName)
+        assertEquals(
+            mapOf("intent_name" to "calculate_arithmetic", "expression" to "25 + 15"),
+            CapturingRunIntentSkill.default.calls[0].arguments,
+        )
+        assertEquals(
+            mapOf("intent_name" to "calculate_arithmetic", "expression" to "100 / 10"),
+            CapturingRunIntentSkill.default.calls[1].arguments,
+        )
+    }
+
     @AfterEach
     fun tearDown() {
         insertedActions.clear()
