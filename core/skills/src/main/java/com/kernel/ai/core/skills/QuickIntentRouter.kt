@@ -4634,6 +4634,32 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    // #1695 — bounded percentage-change phrasing, normalised to "base * (1 ± (pct / 100))".
+    // Only non-negative percents are accepted; a signed percent stays ambiguous and falls through.
+    private val percentOperand = "($imperativeArithmeticOperand)(?:\\s*%|\\s+percent)"
+    private val baseOperand = "($imperativeArithmeticOperand)"
+    private data class PercentChangeForm(val regex: Regex, val baseGroup: Int, val percentGroup: Int, val sign: String)
+    private val percentChangeForms = listOf(
+        PercentChangeForm(Regex("""^add\s+$percentOperand\s+to\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "+"),
+        PercentChangeForm(Regex("""^take\s+$percentOperand\s+off\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "-"),
+        PercentChangeForm(Regex("""^subtract\s+$percentOperand\s+from\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "-"),
+        PercentChangeForm(Regex("""^increase\s+$baseOperand\s+by\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "+"),
+        PercentChangeForm(Regex("""^(?:decrease|reduce)\s+$baseOperand\s+by\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "-"),
+        PercentChangeForm(Regex("""^$baseOperand\s+plus\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "+"),
+        PercentChangeForm(Regex("""^$baseOperand\s+(?:minus|less)\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "-"),
+    )
+
+    private fun normalizePercentChange(input: String): String? {
+        for (form in percentChangeForms) {
+            val match = form.regex.matchEntire(input) ?: continue
+            val base = normalizeArithmeticOperand(match.groupValues[form.baseGroup]) ?: return null
+            val percent = normalizeArithmeticOperand(match.groupValues[form.percentGroup]) ?: return null
+            if (percent.startsWith("-")) return null
+            return "$base * (1 ${form.sign} ($percent / 100))"
+        }
+        return null
+    }
+
     /**
      * Converts only a complete, two-operand imperative calculator command to the expression
      * accepted by the existing arithmetic route. Number-word support is deliberately limited to
@@ -4641,6 +4667,7 @@ class QuickIntentRouter(
      * natural-language number parser.
      */
     private fun normalizeImperativeArithmetic(input: String): String {
+        normalizePercentChange(input)?.let { return it }
         if (input.startsWith("multiply ", ignoreCase = true)) {
             val match = imperativeMultiply.matchEntire(input) ?: return input
             return normalizeArithmeticExpression(match, "*", reverseOperands = false) ?: input
