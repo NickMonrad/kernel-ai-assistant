@@ -2155,7 +2155,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:like\s+)?this\s+week\s+in\s+([\w\s,]+?)[.!?]*$""",
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:like\s+)?this\s+week\s+in\s+([\w\s,]+?)[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
