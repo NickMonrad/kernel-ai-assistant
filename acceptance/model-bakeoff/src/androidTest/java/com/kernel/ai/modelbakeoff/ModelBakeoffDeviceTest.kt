@@ -104,6 +104,8 @@ class ModelBakeoffDeviceTest {
                     context,
                     file,
                     backend,
+                    model,
+                    backendName,
                     mtp,
                     "Output plain text only. Continue for approximately 128 words.",
                     "Describe a clear sky in a long, uninterrupted paragraph.",
@@ -150,7 +152,7 @@ class ModelBakeoffDeviceTest {
             transitions.forEach { fixture ->
                 val prompt = transitionPrompt(fixture)
                 val schema = transitionSchema(fixture.held)
-                val run = runOne(context, file, backend, mtp, TRANSITION_SYSTEM, prompt, schema)
+                val run = runOne(context, file, backend, model, backendName, mtp, TRANSITION_SYSTEM, prompt, schema)
                 val parsed = runCatching { JSONObject(run.output) }.getOrNull()
                 val structural = parsed != null && parsed.keys().asSequence().toSet() == TRANSITION_KEYS.toSet() &&
                     parsed.optString("transition") in TRANSITIONS &&
@@ -178,7 +180,7 @@ class ModelBakeoffDeviceTest {
             }
 
             numericFixtures().forEach { fixture ->
-                val run = runOne(context, file, backend, mtp, NUMERIC_SYSTEM, fixture.prompt, schema = null)
+                val run = runOne(context, file, backend, model, backendName, mtp, NUMERIC_SYSTEM, fixture.prompt, schema = null)
                 val present = fixture.expected.all { numericContains(run.output, it) }
                 val forbiddenClear = fixture.forbidden.none { numericContains(run.output, it) }
                 if (present && forbiddenClear) numericPasses++
@@ -186,7 +188,7 @@ class ModelBakeoffDeviceTest {
                 allResults += line
             }
 
-            toolTranscripts(context, file, backend, mtp).forEach { line ->
+            toolTranscripts(context, file, backend, model, backendName, mtp).forEach { line ->
                 if (line.contains("expectedCallObserved=true")) toolPasses++
                 Log.i(TAG, line)
                 allResults += line
@@ -194,7 +196,7 @@ class ModelBakeoffDeviceTest {
             val qualitySummary = "QUALITY_SUMMARY model=$model backend=$backendName mtp=$mtp transitionStructural=$structuralPasses/${transitions.size} transitionSemantic=$semanticPasses/${transitions.size} dispatchCorrect=$dispatchPasses/$expectedDispatches unexpectedDispatches=$unexpectedDispatches numericExact=$numericPasses/${numericFixtures().size} toolSequences=$toolPasses/5"
             Log.i(TAG, qualitySummary)
 
-            val warmReload = runOne(context, file, backend, mtp, "Reply only READY.", "Say READY.", schema = null)
+            val warmReload = runOne(context, file, backend, model, backendName, mtp, "Reply only READY.", "Say READY.", schema = null)
             val normalChatHealthy = warmReload.output.contains("READY", ignoreCase = true)
             val cancellationOutcome = runCatching {
                 cancellationAndRecovery(context, file, backend, mtp)
@@ -229,6 +231,8 @@ class ModelBakeoffDeviceTest {
         context: Context,
         file: File,
         backend: Backend,
+        model: String,
+        backendName: String,
         mtp: Boolean,
         system: String,
         prompt: String,
@@ -394,7 +398,7 @@ class ModelBakeoffDeviceTest {
         }
     }
 
-    private suspend fun toolTranscripts(context: Context, file: File, backend: Backend, mtp: Boolean): List<String> {
+    private suspend fun toolTranscripts(context: Context, file: File, backend: Backend, model: String, backendName: String, mtp: Boolean): List<String> {
         val cases = listOf(
             "query_wikipedia_natural" to "Look up the history of the Battle of Hastings on Wikipedia for me",
             "save_memory_durable_fact" to "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning",
@@ -431,7 +435,7 @@ class ModelBakeoffDeviceTest {
                     }
                 }
             }
-            val run = runOne(context, file, backend, mtp, TOOL_SYSTEM, prompt, schema = null, tools = tools)
+            val run = runOne(context, file, backend, model, backendName, mtp, TOOL_SYSTEM, prompt, schema = null, tools = tools)
             val callEvents = calls.filter { it.startsWith("call:") }
             val callNames = callEvents.map { it.substringAfter("call:").substringBefore(':') }
             val toolResultCount = calls.count { it.startsWith("result:") }
