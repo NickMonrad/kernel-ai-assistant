@@ -20,7 +20,7 @@ Jandal does not give medical, legal, financial, or other professional advice. Do
 
 ## 4. Actions on your device
 
-Jandal can act on your device when you ask it to — for example, setting alarms and timers, editing lists and notes, syncing lists with a Nextcloud server you configure, starting calls or navigation, or opening a message composer. You are responsible for the actions you ask Jandal to take and for checking that they are correct. Review messages, calls, and other consequential actions before you confirm or send them.
+Jandal can act on your device when you ask it to — for example, setting alarms and timers, editing lists and notes, syncing lists with a Nextcloud server you configure, starting calls or navigation, or opening a message composer. You are responsible for the actions you ask Jandal to take and for checking that they are correct. Message and email composers open for you to review and send yourself. If you turn on hands-free calling, Jandal places calls directly when you ask, without a separate confirmation step, so check the contact before you ask it to call.
 
 ## 5. Acceptable use
 
@@ -30,7 +30,7 @@ Don't use Jandal to break the law, to harm, harass, or deceive others, or to int
 
 Some features you choose to use connect to services that Jandal does not operate, including:
 
-- weather and geocoding (Open-Meteo, OpenStreetMap Nominatim);
+- weather and geocoding (Open-Meteo, OpenStreetMap Nominatim, REST Countries);
 - currency rates (Frankfurter);
 - Wikipedia lookups;
 - model and voice downloads (Hugging Face, GitHub);
@@ -41,7 +41,7 @@ Those services are governed by their own terms and privacy policies. Jandal isn'
 
 ## 7. Open-source licence
 
-Jandal's source code is licensed under the [Apache License 2.0](LICENSE). These terms don't limit any rights that licence gives you. Third-party components and models are covered by their own licences, listed in the app's legal notices.
+Jandal's source code is licensed under the [Apache License 2.0](LICENSE). These terms don't limit any rights that licence gives you. Third-party components and models are covered by their own licences, listed in the [NOTICE](NOTICE) file.
 
 ## 8. Changes
 
