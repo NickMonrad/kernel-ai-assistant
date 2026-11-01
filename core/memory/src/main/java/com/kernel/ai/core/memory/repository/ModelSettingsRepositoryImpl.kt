@@ -1,5 +1,6 @@
 package com.kernel.ai.core.memory.repository
 
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
@@ -37,7 +38,7 @@ class ModelSettingsRepositoryImpl @Inject constructor(
             temperature = 1.0f,
             topP = 0.95f,
             topK = 64,
-            showThinkingProcess = true,
+            showThinkingProcess = hardwareProfileDetector.profile.tier != HardwareTier.MID_RANGE,
             speculativeDecodingEnabled = true,
             updatedAt = System.currentTimeMillis(),
         )

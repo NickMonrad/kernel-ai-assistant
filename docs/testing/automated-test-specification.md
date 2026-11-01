@@ -969,7 +969,7 @@ Each spec includes: screen, pre-conditions, actions, assertions, and complexity.
 | **Pre-condition** | E-4B model active |
 | **Screen** | Settings → Model Settings |
 | **Actions** | Navigate to Model Settings. |
-| **Assertions** | "Thinking mode" toggle visible and defaults ON. |
+| **Assertions** | "Thinking mode" toggle remains visible for E-4B; defaults ON on FLAGSHIP and OFF on MID_RANGE when no preference is saved. |
 | **Complexity** | Low |
 
 #### UI-AUTO-1C-2: Thinking bubble appears when enabled
