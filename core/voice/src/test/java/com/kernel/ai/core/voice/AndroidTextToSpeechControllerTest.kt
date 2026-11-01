@@ -13,8 +13,10 @@ import io.mockk.verify
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
@@ -59,19 +61,32 @@ class AndroidTextToSpeechControllerTest {
         private val defaultEnginePackage: String? = null,
         private val installedEngines: List<TextToSpeech.EngineInfo> = emptyList(),
         private val languageStatuses: Map<Locale, Int> = emptyMap(),
+        private val speakResults: List<Int> = listOf(0),
+        private val languageStatus: ((engineIndex: Int, locale: Locale) -> Int?)? = null,
+        private val engineBound: (engineIndex: Int) -> Boolean = { true },
     ) : TextToSpeechFactory {
         val created = mutableListOf<TextToSpeech>()
         val packages = mutableListOf<String?>()
 
         override fun create(listener: TextToSpeech.OnInitListener, enginePackage: String?): TextToSpeech {
+            val engineIndex = created.size
             val engine = mockk<TextToSpeech>(relaxed = true)
             if (defaultEnginePackage != null) {
                 every { engine.defaultEngine } returns defaultEnginePackage
             }
             every { engine.engines } returns installedEngines
-            every { engine.isLanguageAvailable(any()) } answers {
-                languageStatuses[args[0] as Locale] ?: TextToSpeech.LANG_AVAILABLE
+            if (engineBound(engineIndex)) {
+                every { engine.voices } returns emptySet()
+            } else {
+                every { engine.voices } returns null
             }
+            every { engine.isLanguageAvailable(any()) } answers {
+                languageStatus?.invoke(engineIndex, args[0] as Locale)
+                    ?: languageStatuses[args[0] as Locale]
+                    ?: TextToSpeech.LANG_AVAILABLE
+            }
+            val result = speakResults.getOrElse(engineIndex) { speakResults.last() }
+            every { engine.speak(any(), any(), any(), any()) } returns result
             created += engine
             packages += enginePackage
             // repeat the last configured status for any additional attempts
@@ -299,4 +314,241 @@ class AndroidTextToSpeechControllerTest {
             verify { factory.created.single().language = Locale.ENGLISH }
             verify { factory.created.single().speak("hello", TextToSpeech.QUEUE_FLUSH, any(), any()) }
         }
+
+    @Test
+    fun `concurrent callers await init callback before using the engine`() = runTest(dispatcher) {
+        var initListener: TextToSpeech.OnInitListener? = null
+        val engine = mockk<TextToSpeech>(relaxed = true)
+        every { engine.isLanguageAvailable(any()) } returns TextToSpeech.LANG_AVAILABLE
+        every { engine.speak(any(), any(), any(), any()) } returns 0
+        val controller = AndroidTextToSpeechController(
+            context,
+            TextToSpeechFactory { listener, _ ->
+                initListener = listener
+                engine
+            },
+        )
+        var warmUpResult: VoiceOutputResult? = null
+        var speakResult: VoiceOutputResult? = null
+
+        launch { warmUpResult = controller.warmUp() }
+        runCurrent()
+        launch {
+            speakResult = controller.speak(
+                VoiceSpeakRequest(text = "synthetic test phrase", locale = Locale.US),
+            )
+        }
+        runCurrent()
+
+        assertNull(warmUpResult)
+        assertNull(speakResult)
+        verify(exactly = 0) { engine.isLanguageAvailable(any()) }
+        verify(exactly = 0) { engine.speak(any(), any(), any(), any()) }
+
+        initListener?.onInit(TextToSpeech.SUCCESS)
+        runCurrent()
+
+        assertEquals(VoiceOutputResult.Spoken, warmUpResult)
+        assertEquals(VoiceOutputResult.Spoken, speakResult)
+        verify(exactly = 1) { engine.isLanguageAvailable(any()) }
+        verify(exactly = 1) { engine.speak("synthetic test phrase", any(), any(), any()) }
+    }
+
+    @Test
+    fun `cancelling init owner does not cancel concurrent waiter`() = runTest(dispatcher) {
+        val engine = mockk<TextToSpeech>(relaxed = true)
+        val controller = AndroidTextToSpeechController(
+            context,
+            TextToSpeechFactory { _, _ -> engine },
+        )
+        var waiterResult: VoiceOutputResult? = null
+        var waiterFailure: java.util.concurrent.CancellationException? = null
+
+        val initializer = launch { controller.warmUp() }
+        runCurrent()
+        val waiter = launch {
+            try {
+                waiterResult = controller.warmUp()
+            } catch (failure: java.util.concurrent.CancellationException) {
+                waiterFailure = failure
+            }
+        }
+        runCurrent()
+
+        initializer.cancel()
+        runCurrent()
+
+        assertTrue(initializer.isCancelled)
+        assertTrue(waiter.isCompleted)
+        assertNull(waiterFailure)
+        assertTrue(waiterResult is VoiceOutputResult.Unavailable)
+        verify { engine.shutdown() }
+    }
+
+    @Test
+    fun `ambiguous locale failure reinitializes once then speaks on recovered engine`() =
+        runTest(dispatcher) {
+            val (controller, factory) = buildController(
+                factory = FakeTtsFactory(
+                    languageStatus = { index, _ ->
+                        if (index == 0) TextToSpeech.LANG_MISSING_DATA else TextToSpeech.LANG_AVAILABLE
+                    },
+                ),
+            )
+
+            val result = controller.speak(
+                VoiceSpeakRequest(text = "synthetic test phrase", locale = Locale.US),
+            )
+
+            assertEquals(VoiceOutputResult.Spoken, result)
+            assertEquals(2, factory.created.size)
+            verify { factory.created[0].shutdown() }
+            verify(exactly = 0) { factory.created[0].speak(any(), any(), any(), any()) }
+            verify(exactly = 1) {
+                factory.created[1].speak("synthetic test phrase", any(), any(), any())
+            }
+        }
+
+    @Test
+    fun `ambiguous locale failure stops after one unsuccessful recovery`() = runTest(dispatcher) {
+        val (controller, factory) = buildController(
+            factory = FakeTtsFactory(
+                languageStatus = { _, _ -> TextToSpeech.LANG_MISSING_DATA },
+            ),
+        )
+
+        val result = controller.speak(
+            VoiceSpeakRequest(text = "synthetic test phrase", locale = Locale.US),
+        )
+
+        assertTrue(result is VoiceOutputResult.Unavailable)
+        assertEquals(2, factory.created.size)
+        factory.created.forEach { engine ->
+            verify(exactly = 0) { engine.speak(any(), any(), any(), any()) }
+        }
+    }
+
+    @Test
+    fun `speak error performs one bounded engine recovery and retry`() = runTest(dispatcher) {
+        val (controller, factory) = buildController(
+            factory = FakeTtsFactory(speakResults = listOf(TextToSpeech.ERROR, 0)),
+        )
+
+        val result = controller.speak(
+            VoiceSpeakRequest(text = "synthetic test phrase", locale = Locale.US),
+        )
+
+        assertEquals(VoiceOutputResult.Spoken, result)
+        assertEquals(2, factory.created.size)
+        verify(exactly = 1) { factory.created[0].speak(any(), any(), any(), any()) }
+        verify(exactly = 1) {
+            factory.created[1].speak("synthetic test phrase", any(), any(), any())
+        }
+    }
+
+    @Test
+    fun `definite unsupported locale does not trigger engine recovery`() = runTest(dispatcher) {
+        val (controller, factory) = buildController(
+            factory = FakeTtsFactory(
+                languageStatus = { _, _ -> TextToSpeech.LANG_NOT_SUPPORTED },
+            ),
+        )
+
+        val result = controller.speak(
+            VoiceSpeakRequest(
+                text = "synthetic test phrase",
+                locale = Locale.forLanguageTag("en-AU"),
+            ),
+        )
+
+        assertTrue(result is VoiceOutputResult.Unavailable)
+        assertTrue((result as VoiceOutputResult.Unavailable).message.contains("not supported"))
+        assertEquals(1, factory.created.size)
+    }
+
+    @Test
+    fun `unbound engine NOT_SUPPORTED is not treated as definitely unsupported`() = runTest(dispatcher) {
+        val (controller, factory) = buildController(
+            factory = FakeTtsFactory(
+                languageStatus = { engineIndex, _ ->
+                    if (engineIndex == 0) TextToSpeech.LANG_NOT_SUPPORTED else TextToSpeech.LANG_AVAILABLE
+                },
+                engineBound = { engineIndex -> engineIndex != 0 },
+            ),
+        )
+
+        val result = controller.speak(
+            VoiceSpeakRequest(
+                text = "synthetic test phrase",
+                locale = Locale.forLanguageTag("en-AU"),
+            ),
+        )
+
+        assertEquals(VoiceOutputResult.Spoken, result)
+        assertEquals(2, factory.created.size)
+        verify(exactly = 1) { factory.created[1].speak("synthetic test phrase", any(), any(), any()) }
+    }
+
+    @Test
+    fun `unbound engine NOT_SUPPORTED stays unverified after one bounded recovery`() = runTest(dispatcher) {
+        val (controller, factory) = buildController(
+            factory = FakeTtsFactory(
+                languageStatus = { _, _ -> TextToSpeech.LANG_NOT_SUPPORTED },
+                engineBound = { false },
+            ),
+        )
+
+        val result = controller.speak(
+            VoiceSpeakRequest(
+                text = "synthetic test phrase",
+                locale = Locale.forLanguageTag("en-AU"),
+            ),
+        )
+
+        assertTrue(result is VoiceOutputResult.Unavailable)
+        assertTrue((result as VoiceOutputResult.Unavailable).message.contains("could not verify"))
+        assertEquals(2, factory.created.size)
+        factory.created.forEach { engine ->
+            verify(exactly = 0) { engine.speak(any(), any(), any(), any()) }
+        }
+    }
+
+    @Test
+    fun `speak error recovery is not retried indefinitely`() = runTest(dispatcher) {
+        val (controller, factory) = buildController(
+            factory = FakeTtsFactory(
+                speakResults = listOf(TextToSpeech.ERROR, TextToSpeech.ERROR),
+            ),
+        )
+
+        val result = controller.speak(
+            VoiceSpeakRequest(text = "synthetic test phrase", locale = Locale.US),
+        )
+
+        assertTrue(result is VoiceOutputResult.Unavailable)
+        assertEquals(2, factory.created.size)
+        factory.created.forEach { engine ->
+            verify(exactly = 1) { engine.speak(any(), any(), any(), any()) }
+        }
+    }
+
+    @Test
+    fun `locale missing data is not reported as definitely unsupported`() = runTest(dispatcher) {
+        val (controller, factory) = buildController(
+            factory = FakeTtsFactory(
+                languageStatus = { _, _ -> TextToSpeech.LANG_MISSING_DATA },
+            ),
+        )
+
+        val result = controller.speak(
+            VoiceSpeakRequest(
+                text = "synthetic test phrase",
+                locale = Locale.forLanguageTag("en-AU"),
+            ),
+        )
+
+        assertTrue(result is VoiceOutputResult.Unavailable)
+        assertTrue((result as VoiceOutputResult.Unavailable).message.contains("connection and installed voice data"))
+        assertEquals(2, factory.created.size)
+    }
 }
