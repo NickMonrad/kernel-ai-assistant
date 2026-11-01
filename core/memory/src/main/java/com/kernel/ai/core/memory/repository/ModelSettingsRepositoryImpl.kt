@@ -30,7 +30,7 @@ class ModelSettingsRepositoryImpl @Inject constructor(
     override fun getMaxUserProfileChars(contextWindowSize: Int): Int =
         (contextWindowSize * 0.1).toInt().coerceIn(500, 3000)
 
-    private fun defaultSettings(modelId: String): ModelSettingsEntity {
+    override fun defaultSettings(modelId: String): ModelSettingsEntity {
         val defaultContextWindow = hardwareProfileDetector.profile.recommendedMaxTokens
         return ModelSettingsEntity(
             modelId = modelId,

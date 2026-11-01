@@ -83,6 +83,21 @@ class ModelSettingsRepositoryImplTest {
     }
 
     @Test
+    fun `defaultSettings returns tier-aware thinking defaults without touching saved settings`() {
+        for ((profile, expectedThinking) in listOf(midRangeProfile to false, flagshipProfile to true)) {
+            every { hardwareProfileDetector.profile } returns profile
+
+            val defaults = repository.defaultSettings("gemma_4")
+
+            assertEquals(expectedThinking, defaults.showThinkingProcess)
+            assertEquals(profile.recommendedMaxTokens, defaults.contextWindowSize)
+        }
+
+        coVerify(exactly = 0) { dao.getSettings(any()) }
+        coVerify(exactly = 0) { dao.upsertSettings(any()) }
+    }
+
+    @Test
     fun `getSettings preserves saved thinking choice regardless of hardware tier`() = runTest {
         for (profile in listOf(midRangeProfile, flagshipProfile)) {
             every { hardwareProfileDetector.profile } returns profile
