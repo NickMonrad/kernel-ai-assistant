@@ -3482,10 +3482,12 @@ class QuickIntentRouter(
 
         // ── Calculator / Conversion ──
         // Symbolic expressions and helper functions: "245 * 17", "what is round(sqrt(25^2), 2)"
+        // Minus-only input needs a binary minus that is spaced ("50 - 12") or the only hyphen
+        // ("50-12"), so dates ("2026-11-01"), hyphenated phone numbers and a bare "-5" do not route.
         IntentPattern(
             intentName = "calculate_arithmetic",
             regex = Regex(
-                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[-+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b))(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b)|.*\d\s+-\s*\d|.*\d\s*-\s+\d|[^-]*\d-\d[^-]*$)(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },

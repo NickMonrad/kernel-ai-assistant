@@ -1080,6 +1080,36 @@ class QuickIntentRouterTest {
             }
             assertEquals("Division by zero is undefined", error.message)
         }
+
+        @Test
+        fun `plain binary subtraction routes to calculator`() {
+            for (input in listOf("50 - 12", "50-12")) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(input, expression)
+                assertEquals(
+                    "38",
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                )
+            }
+        }
+
+        @Test
+        fun `hyphenated dates phone numbers and a bare negative do not route to calculator`() {
+            for (input in listOf("2026-11-01", "1-800-555-1234", "-5")) {
+                assertFallThrough(regexOnlyRouter.route(input), input)
+            }
+        }
+
+        @Test
+        fun `single unspaced hyphen between numbers stays arithmetic`() {
+            // A local phone number such as 555-1234 is indistinguishable from 50-12 and still
+            // routes; pinned so any future narrowing is a deliberate decision.
+            assertRegexMatch(regexOnlyRouter.route("555-1234"), "calculate_arithmetic", "555-1234")
+        }
     }
 
     @Nested
