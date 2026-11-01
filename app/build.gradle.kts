@@ -73,7 +73,6 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = "0.1.0"
 
         testInstrumentationRunner = "com.kernel.ai.debug.inflect.InflectSpikeAndroidJUnitRunner"
 
@@ -610,6 +609,7 @@ dependencies {
     androidTestImplementation(libs.test.rules)
     androidTestImplementation(libs.uiautomator)
     androidTestImplementation(libs.litert)
+    androidTestImplementation(libs.litertlm.android)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     // Keep LeakCanary's debug-only providers/watchers out of the isolated probe package.
