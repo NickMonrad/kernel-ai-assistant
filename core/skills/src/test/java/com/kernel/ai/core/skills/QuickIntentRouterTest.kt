@@ -1057,6 +1057,84 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `percent change phrasing routes to an exact expression and value`() {
+            val cases = listOf(
+                "Add 5% to 105" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "add 5 percent to 105" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "105 plus 5%" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "Increase 105 by 5%" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "105 minus 5%" to ("105 * (1 - (5 / 100))" to "99.75"),
+                "105 less 5%" to ("105 * (1 - (5 / 100))" to "99.75"),
+                "Take 10% off 80" to ("80 * (1 - (10 / 100))" to "72"),
+                "take 10 percent off 80" to ("80 * (1 - (10 / 100))" to "72"),
+                "Take ten percent off eighty" to ("80 * (1 - (10 / 100))" to "72"),
+                "Subtract 10% from 80" to ("80 * (1 - (10 / 100))" to "72"),
+                "Decrease 80 by 10%" to ("80 * (1 - (10 / 100))" to "72"),
+                "Reduce 80 by 10%" to ("80 * (1 - (10 / 100))" to "72"),
+                "Add five percent to one hundred" to ("100 * (1 + (5 / 100))" to "105"),
+            )
+            for ((input, expected) in cases) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(expected.first, expression, input)
+                assertEquals(
+                    expected.second,
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                    input,
+                )
+            }
+        }
+
+        @Test
+        fun `ambiguous or signed percent change phrasing falls through to the model`() {
+            for (input in listOf(
+                "Multiply 105 / 5%",
+                "Divide 105 by 5%",
+                "Add 5% and 105",
+                "Add 5% to 105 and 3",
+                "Add -5% to 105",
+                "105 plus 5% plus 3",
+            )) {
+                assertFallThrough(regexOnlyRouter.route(input), input)
+            }
+        }
+
+        @Test
+        fun `existing percent-of arithmetic and verb-first commands keep their expressions and values`() {
+            val cases = listOf(
+                "5% of 105" to ("5% of 105" to "5.25"),
+                "what is 5 percent of 105" to ("5 percent of 105" to "5.25"),
+                "105 * 1.05" to ("105 * 1.05" to "110.25"),
+                "Add twenty-five to fifteen" to ("25 + 15" to "40"),
+                "Subtract twelve from fifty" to ("50 - 12" to "38"),
+                "Multiply 142 by 1.1" to ("142 * 1.1" to "156.2"),
+            )
+            for ((input, expected) in cases) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(expected.first, expression, input)
+                assertEquals(
+                    expected.second,
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                    input,
+                )
+            }
+        }
+
+        @Test
+        fun `percent change forms do not steal volume commands`() {
+            for (input in listOf("increase volume by 10%", "increase the volume by 10%", "set volume to 50%")) {
+                assertRegexMatch(regexOnlyRouter.route(input), "set_volume", input)
+            }
+        }
+
+        @Test
         fun `imperative arithmetic does not steal unrelated commands`() {
             assertRegexMatch(
                 regexOnlyRouter.route("Add milk to shopping list"),
