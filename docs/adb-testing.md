@@ -255,6 +255,29 @@ adb shell monkey -p com.kernel.ai.debug 1
 adb bugreport ~/Desktop/kernel-ai-bugreport.zip
 ```
 
+### 8.1 Prompt extras and the debug harness token (#1604)
+
+`MainActivity` is exported, so its prompt extras (`chat_input`, `quick_action_input`,
+`quick_action_input_encoded`, `slot_reply_input`) only run directly for Jandal's own launches.
+From any other caller the text is pre-filled into the Chat composer, Quick Action sheet or pending
+slot field and waits for the user to send it. `profile_text` is ignored unless the launch is trusted
+in a debug build. Release builds never auto-run external text.
+
+`adb shell am start` cannot share its uid with the app, so debug builds recognise adb launches by a
+token that only `run-as` can place in the app's private files dir. The harness
+(`scripts/adb_harness/device.py` `harness_token_extras()`, `scripts/run_permission_scenarios.py`)
+does this automatically. Manual equivalent:
+
+```bash
+TOKEN=$(openssl rand -hex 16)
+adb shell "run-as com.kernel.ai.debug sh -c 'mkdir -p files && printf %s $TOKEN > files/adb_harness_token'"
+adb shell am start -n com.kernel.ai.debug/com.kernel.ai.MainActivity \
+  --es adb_harness_token "$TOKEN" --es chat_input "'what time is it'"
+```
+
+Without the token (or with a wrong one) the prompt is only pre-filled. Logcat tag `KernelAI` shows
+`external_prompt_trust callerUid=… trust=DIRECT|PREFILL` for each prompt delivery.
+
 ---
 
 ## 9. Running the `llm_tools` Harness

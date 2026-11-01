@@ -1009,6 +1009,7 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 | **Nextcloud credentials** | Credentials use the existing Android-backed encrypted credential store and are never emitted to logs or public evidence. |
 | **Nextcloud transport** | HTTPS is the default; insecure HTTP requires explicit opt-in. Redirects that leave the credential origin (host/port) are refused before credentials can be sent. |
 | **Private integration identifiers** | Private server identifiers and credentials are excluded from logs and public validation evidence. |
+| **Externally supplied prompts** (#1604) | `MainActivity` is exported (launcher). Its `chat_input`, `quick_action_input[_encoded]` and `slot_reply_input` extras run directly only when the platform-reported caller uid (`launchedFromUid` / `ComponentCaller.uid`) is Jandal's own, or — in debug builds only — the launch comes from adb: shell (2000) / root (0) uid, or a token that only `adb shell run-as` can write into the app's private files dir (`am start` cannot share the shell uid). Any other caller's text is pre-filled into the existing Chat composer, Quick Action sheet or pending slot field, labelled as coming from another app, and runs only when the user sends it; Discard / dismissing discards it, and recreation never resubmits it. `quick_action_is_voice` is ignored for untrusted callers. `profile_text` is a debug-build, trusted-caller-only hook. Release builds have no external auto-run path. |
 
 ---
 

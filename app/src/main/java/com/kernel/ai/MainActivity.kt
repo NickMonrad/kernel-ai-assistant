@@ -1,10 +1,13 @@
 package com.kernel.ai
 
 import android.Manifest
+import android.app.ComponentCaller
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Process
+import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -92,30 +95,44 @@ class MainActivity : ComponentActivity() {
     private data class NavRouteRequest(val route: String, val serial: Int)
     private val adbNavigationRoute = mutableStateOf<NavRouteRequest?>(null)
 
+    /**
+     * #1604: prompt text from an untrusted caller, shown in the existing input for review. It is
+     * never submitted by the app; [serial] re-fires delivery for repeated identical text.
+     */
+    private data class ExternalDraftRequest(
+        val chat: String?,
+        val quickAction: String?,
+        val slotReply: String?,
+        val serial: Int,
+    )
+    private val externalDraft = mutableStateOf<ExternalDraftRequest?>(null)
+
     private val requestOnboardingPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* no-op */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        adbChatInput.value = intent.getStringExtra("chat_input")
+        val delivery = resolvePromptExtras(intent, launchedFromUid)
+        adbChatInput.value = delivery.chatQuery
         // Only seed widget extras on a genuine cold start. On process-death restore,
         // savedInstanceState is non-null and NavController restores its back stack;
         // re-seeding here would cause LaunchedEffect to navigate again with a fresh
         // (unconsumed) entry and re-execute the query unexpectedly.
         if (savedInstanceState == null) {
-            readQuickActionInput(intent)?.let {
-                val voice = intent.getBooleanExtra("quick_action_is_voice", false)
-                adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
-                adbQuickActionIsVoice.value = voice
+            delivery.quickActionQuery?.let {
+                adbQuickActionInput.value = QuickActionRequest(it, delivery.quickActionIsVoice, ++quickActionSerial)
+                adbQuickActionIsVoice.value = delivery.quickActionIsVoice
             }
             intent.getStringExtra("navigation_route")?.takeIf { it.isNotBlank() }?.let { route ->
                 val prev = adbNavigationRoute.value
                 adbNavigationRoute.value = NavRouteRequest(route, (prev?.serial ?: 0) + 1)
             }
+            // External drafts are never re-seeded on restore either.
+            publishExternalDraft(delivery)
         }
-        adbSlotReplyInput.value = intent.getStringExtra("slot_reply_input")
-        handleAdbProfileText(intent)
+        adbSlotReplyInput.value = delivery.slotReply
+        handleAdbProfileText(delivery.profileText)
         requestStartupPermissionsIfNeeded()
         setContent {
             val useSystemColorsState = chatPreferences.useSystemColors
@@ -129,6 +146,10 @@ class MainActivity : ComponentActivity() {
                     initialNavigationRoute = adbNavigationRoute.value?.route,
                     navigationRouteSerial = adbNavigationRoute.value?.serial ?: 0,
                     initialSlotReply = adbSlotReplyInput.value,
+                    externalChatDraft = externalDraft.value?.chat,
+                    externalQuickActionDraft = externalDraft.value?.quickAction,
+                    externalSlotReplyDraft = externalDraft.value?.slotReply,
+                    externalDraftSerial = externalDraft.value?.serial ?: 0,
                     favouriteShortcutRepository = favouriteShortcutRepository,
                     recentShortcutTracker = recentShortcutTracker,
                 )
@@ -158,10 +179,13 @@ class MainActivity : ComponentActivity() {
      * aggressive memory management on Android 16 (S23 Ultra, issue #195).
      *
      * Also handles ADB test `--es chat_input` and `--es profile_text` extras for regression testing.
+     * [caller] identifies who re-delivered this intent (#1604): the original launcher's identity
+     * must not vouch for a later intent from another app.
      */
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
+    override fun onNewIntent(intent: Intent, caller: ComponentCaller) {
+        super.onNewIntent(intent, caller)
         setIntent(intent)
+        val delivery = resolvePromptExtras(intent, caller.uid)
         // #1191: Clear one-shot ADB extras before reading new intent extras.
         // When a new `quick_action_input` arrives without `slot_reply_input`, the stale
         // slot reply value would persist and re-fire the LaunchedEffect in ActionsScreen
@@ -172,40 +196,74 @@ class MainActivity : ComponentActivity() {
             val prev = adbNavigationRoute.value
             adbNavigationRoute.value = NavRouteRequest(route, (prev?.serial ?: 0) + 1)
         }
-        intent.getStringExtra("chat_input")?.let { adbChatInput.value = it }
-        readQuickActionInput(intent)?.let {
-            val voice = intent.getBooleanExtra("quick_action_is_voice", false)
-            adbQuickActionInput.value = QuickActionRequest(it, voice, ++quickActionSerial)
-            adbQuickActionIsVoice.value = voice
+        delivery.chatQuery?.let { adbChatInput.value = it }
+        delivery.quickActionQuery?.let {
+            adbQuickActionInput.value = QuickActionRequest(it, delivery.quickActionIsVoice, ++quickActionSerial)
+            adbQuickActionIsVoice.value = delivery.quickActionIsVoice
         }
-        intent.getStringExtra("slot_reply_input")?.let { adbSlotReplyInput.value = it }
-        handleAdbProfileText(intent)
+        delivery.slotReply?.let { adbSlotReplyInput.value = it }
+        publishExternalDraft(delivery)
+        handleAdbProfileText(delivery.profileText)
         if (AuthorizationResponse.fromIntent(intent) != null ||
             AuthorizationException.fromIntent(intent) != null) {
             authRepository.deliverAuthResponse(intent)
         }
     }
 
-    private fun readQuickActionInput(intent: Intent): String? {
-        intent.getStringExtra("quick_action_input")
-            ?.takeIf { it.isNotBlank() }
-            ?.let { return it }
-        return intent.getStringExtra("quick_action_input_encoded")
-            ?.takeIf { it.isNotBlank() }
-            ?.let(Uri::decode)
+    /** Applies the #1604 trust boundary to this intent's prompt extras. */
+    private fun resolvePromptExtras(intent: Intent, callerUid: Int): ExternalPromptDelivery {
+        val trust = classifyExternalPromptCaller(
+            callerUid = callerUid,
+            ownUid = Process.myUid(),
+            isDebugBuild = BuildConfig.DEBUG,
+            harnessTokenValid = BuildConfig.DEBUG && debugHarnessTokenValid(intent),
+        )
+        val delivery = resolveExternalPromptDelivery(
+            chatInput = intent.getStringExtra("chat_input"),
+            quickActionInput = intent.getStringExtra("quick_action_input"),
+            quickActionInputEncoded = intent.getStringExtra("quick_action_input_encoded"),
+            quickActionIsVoice = intent.getBooleanExtra("quick_action_is_voice", false),
+            slotReplyInput = intent.getStringExtra("slot_reply_input"),
+            profileText = intent.getStringExtra("profile_text"),
+            trust = trust,
+            isDebugBuild = BuildConfig.DEBUG,
+            decodeUriComponent = { Uri.decode(it) },
+        )
+        if (delivery != ExternalPromptDelivery()) {
+            // Caller identity and decision only; prompt text is never logged here.
+            Log.i("KernelAI", "external_prompt_trust callerUid=$callerUid trust=$trust")
+        }
+        return delivery
+    }
+
+    /** Debug builds only: does the intent carry the token the adb harness wrote via `run-as`? */
+    private fun debugHarnessTokenValid(intent: Intent): Boolean {
+        val presented = intent.getStringExtra(ADB_HARNESS_TOKEN_EXTRA) ?: return false
+        val stored = runCatching { java.io.File(filesDir, ADB_HARNESS_TOKEN_FILE).readText().trim() }.getOrNull()
+        return harnessTokenMatches(presented, stored)
+    }
+
+    private fun publishExternalDraft(delivery: ExternalPromptDelivery) {
+        if (delivery.chatDraft == null && delivery.quickActionDraft == null && delivery.slotReplyDraft == null) return
+        externalDraft.value = ExternalDraftRequest(
+            chat = delivery.chatDraft,
+            quickAction = delivery.quickActionDraft,
+            slotReply = delivery.slotReplyDraft,
+            serial = (externalDraft.value?.serial ?: 0) + 1,
+        )
     }
 
     /**
-     * ADB test hook: `adb shell am start -n ACTIVITY --es profile_text "..."` saves
-     * the given text as the user profile and logs the parsed YAML to logcat (tag KernelAI)
-     * so device tests can validate extraction quality without manual UI interaction.
+     * Debug-only ADB test hook (`adb shell am start -n ACTIVITY --es profile_text "..."`): saves the
+     * given text as the user profile and logs the parsed YAML to logcat (tag KernelAI) so device
+     * tests can validate extraction quality. [ExternalPromptDelivery.profileText] is null in release
+     * builds and for untrusted callers (#1604).
      */
-    private fun handleAdbProfileText(intent: Intent) {
-        intent.getStringExtra("profile_text")?.let { text ->
-            // ADB extras can't contain literal newlines; accept \n escape sequences from the test harness
-            val normalized = text.replace("\\n", "\n")
-            lifecycleScope.launch { userProfileRepository.save(normalized) }
-        }
+    private fun handleAdbProfileText(text: String?) {
+        text ?: return
+        // ADB extras can't contain literal newlines; accept \n escape sequences from the test harness
+        val normalized = text.replace("\\n", "\n")
+        lifecycleScope.launch { userProfileRepository.save(normalized) }
     }
 
 
