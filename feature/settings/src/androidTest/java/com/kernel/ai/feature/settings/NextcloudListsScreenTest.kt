@@ -8,8 +8,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsOff
-import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -48,21 +46,23 @@ class NextcloudListsScreenTest {
     }
 
     @Test
-    fun initialSetupUsesHttpsByDefaultWithInsecureHttpOff() {
+    fun initialSetupOffersNoInsecureHttpOption() {
         show(state = NextcloudSettingsState())
 
         composeTestRule.onNodeWithTag("nextcloud_address_field").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("nextcloud_insecure_http_toggle").assertIsOff()
-        composeTestRule.onNodeWithText("HTTPS is used unless you enable insecure HTTP.").assertIsDisplayed()
-        composeTestRule.onNodeWithText(INSECURE_HTTP_WARNING).assertDoesNotExist()
+        composeTestRule.onNodeWithTag("nextcloud_insecure_http_toggle").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Nextcloud connections always use HTTPS.").assertIsDisplayed()
     }
 
     @Test
-    fun selectingInsecureHttpShowsTheWarning() {
-        show(state = NextcloudSettingsState(allowInsecureHttp = true))
+    fun aSavedHttpAccountAsksForReconnectAndKeepsListsLocal() {
+        show(state = NextcloudSettingsState(connected = NextcloudAccount("http://cloud.example", "alice")))
 
-        composeTestRule.onNodeWithTag("nextcloud_insecure_http_toggle").assertIsOn()
-        composeTestRule.onNodeWithText(INSECURE_HTTP_WARNING).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_needs_attention").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_needs_attention_reason").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Your Jandal lists are still available on this device.").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_reconnect").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nextcloud_refresh").assertDoesNotExist()
     }
 
     @Test
@@ -331,9 +331,6 @@ class NextcloudListsScreenTest {
     )
 
     private companion object {
-        const val INSECURE_HTTP_WARNING =
-            "Credentials and list traffic will not be encrypted. Use this only when the server cannot use HTTPS."
-        const val HTTP_REJECTION =
-            "Plain HTTP is disabled. Enter an https:// address, or enable \"Use insecure HTTP\"."
+        const val HTTP_REJECTION = "Nextcloud requires HTTPS. Enter an https:// address."
     }
 }
