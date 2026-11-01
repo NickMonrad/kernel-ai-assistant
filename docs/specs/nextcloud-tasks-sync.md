@@ -21,12 +21,15 @@ never exposed in UI state, logs, or public evidence. Manual username/app-passwor
 available as an explicit fallback and for reconnect.
 
 The connection form takes a **Nextcloud address**: a bare host, a host plus base path, a host plus
-port, or an explicit URL. HTTPS is always the default and is applied when no scheme is supplied. An
-explicit `http://` address is rejected inline while the unchecked **Use insecure HTTP** option is
-off, and an HTTPS endpoint is never silently downgraded to HTTP without that opt-in; ports and base
-paths survive normalization.
+port, or an explicit `https://` URL. HTTPS is applied when no scheme is supplied, and ports and base
+paths survive normalization. Nextcloud is HTTPS-only (#1678): an explicit `http://` address is
+rejected inline and never rewritten, and there is no insecure-HTTP option.
 
-Redirects are evaluated hop by hop. A redirect to another host or port is refused before the saved Basic credentials can be sent outside the configured credential origin. Same-origin scheme changes still follow the HTTPS/insecure-HTTP policy above, so an HTTPS-to-HTTP downgrade requires the explicit opt-in.
+Redirects are evaluated hop by hop. A redirect to another host or port is refused before the saved Basic credentials can be sent outside the configured credential origin, and any redirect to plain HTTP is refused. Login Flow login/poll endpoints and the returned server must also be HTTPS on the requested origin.
+
+An account saved by an older build with an `http://` address is not contacted and not converted.
+Settings shows **Nextcloud connection needs attention** with a Reconnect action; local lists and
+their bindings stay on the device until the user reconnects with an `https://` address.
 
 Discovery follows `/.well-known/caldav`, then DAV `current-user-principal`, `calendar-home-set`, and
 calendar collections that advertise VTODO support. A connection failure is surfaced as an actionable
