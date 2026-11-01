@@ -14,6 +14,7 @@ import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.kernel.ai.core.inference.download.openHttpsDownload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -24,7 +25,6 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
-import java.net.URL
 
 private const val TAG = "KernelAI"
 private const val NOTIFICATION_CHANNEL_ID = "kernel_voice_download"
@@ -185,16 +185,16 @@ class VoicePackDownloadWorker(
         totalBytes: Long,
         displayName: String,
     ) {
-        val connection = URL(url).openConnection() as HttpURLConnection
-
         // Resume from partial download if tmp file already has data
         val resumeFrom = tmpFile.length()
-        if (resumeFrom > 0) {
+        val headers = if (resumeFrom > 0) {
             Log.i(TAG, "Resuming voice pack download from byte $resumeFrom for $displayName")
-            connection.setRequestProperty("Range", "bytes=$resumeFrom-")
-            connection.setRequestProperty("Accept-Encoding", "identity")
+            mapOf("Range" to "bytes=$resumeFrom-", "Accept-Encoding" to "identity")
+        } else {
+            emptyMap()
         }
-        connection.connect()
+        // HTTPS only, including every redirect hop (#1678).
+        val connection = openHttpsDownload(url, headers)
 
         val responseCode = connection.responseCode
         if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_PARTIAL) {
