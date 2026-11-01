@@ -3485,7 +3485,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "calculate_arithmetic",
             regex = Regex(
-                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b))(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[-+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b))(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
