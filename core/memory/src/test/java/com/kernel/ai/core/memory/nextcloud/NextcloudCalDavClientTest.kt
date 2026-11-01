@@ -69,19 +69,26 @@ class NextcloudCalDavClientTest {
     }
 
     @Test
-    fun `cleartext redirect failures use an actionable message and preserve cause`() {
+    fun `cleartext policy failures are reported as an https requirement and preserve cause`() {
         val cause = UnknownServiceException(
             "CLEARTEXT communication to redirect target not permitted by network security policy",
         )
 
         val failure = OkHttpCalDavTransport.classifyTransportFailure(cause)
 
-        assertEquals(NextcloudFailure.Code.INSECURE_REDIRECT, failure.code)
-        assertEquals(
-            "Nextcloud CalDAV discovery redirected to insecure HTTP. Configure the server to keep CalDAV discovery on HTTPS.",
-            failure.message,
-        )
+        assertEquals(NextcloudFailure.Code.INSECURE_URL, failure.code)
+        assertEquals("Nextcloud requires HTTPS. Plain HTTP connections are not allowed.", failure.message)
         assertSame(cause, failure.cause)
+    }
+
+    @Test
+    fun `transport refuses a plain http url before opening a connection`() = runTest {
+        val error = runCatching {
+            OkHttpCalDavTransport().execute("GET", "http://cloud.example/.well-known/caldav", emptyMap())
+        }.exceptionOrNull()
+
+        assertEquals(NextcloudFailure.Code.INSECURE_URL, (error as NextcloudConnectionException).code)
+        assertTrue(error.cause == null, "no connection attempt was made")
     }
 
     @Test
@@ -109,10 +116,12 @@ class NextcloudCalDavClientTest {
 
     @Test
     fun `transport sends request-specific media types on the wire`() = runTest {
+        val tls = localhostTls()
         MockWebServer().use { server ->
+            server.useHttps(tls.socketFactory, false)
             server.enqueue(MockResponse().setResponseCode(200))
             server.enqueue(MockResponse().setResponseCode(207))
-            val transport = OkHttpCalDavTransport()
+            val transport = OkHttpCalDavTransport(tls.client)
 
             transport.execute(
                 method = "PUT",
@@ -419,115 +428,18 @@ class NextcloudCalDavClientTest {
     }
 
     @Test
-    fun `discovery follows an http to https upgrade`() = runTest {
-        val transport = FakeTransport(
-            mapOf(
-                "GET http://cloud.example/.well-known/caldav" to CalDavResponse(
-                    status = 301,
-                    headers = mapOf("Location" to "https://cloud.example/remote.php/dav"),
-                    body = "",
-                    finalUrl = "http://cloud.example/.well-known/caldav",
-                ),
-                "GET https://cloud.example/remote.php/dav" to CalDavResponse(
-                    status = 200,
-                    headers = emptyMap(),
-                    body = "",
-                    finalUrl = "https://cloud.example/remote.php/dav",
-                ),
-                "PROPFIND https://cloud.example/remote.php/dav" to response(
-                    """
-                    <d:multistatus xmlns:d="DAV:"><d:response><d:href>/remote.php/dav</d:href><d:propstat><d:prop>
-                    <d:current-user-principal><d:href>/remote.php/dav/principals/users/alice/</d:href></d:current-user-principal>
-                    </d:prop></d:propstat></d:response></d:multistatus>
-                    """,
-                ),
-                "PROPFIND https://cloud.example/remote.php/dav/principals/users/alice/" to response(
-                    """
-                    <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response>
-                    <d:href>/remote.php/dav/principals/users/alice/</d:href><d:propstat><d:prop>
-                    <c:calendar-home-set><d:href>/remote.php/dav/calendars/alice/</d:href></c:calendar-home-set>
-                    </d:prop></d:propstat></d:response></d:multistatus>
-                    """,
-                ),
-                "PROPFIND https://cloud.example/remote.php/dav/calendars/alice/" to response(
-                    """
-                    <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response>
-                    <d:href>/remote.php/dav/calendars/alice/tasks/</d:href><d:propstat><d:prop>
-                    <d:displayname>Tasks</d:displayname>
-                    <d:resourcetype><d:collection/><c:calendar/></d:resourcetype>
-                    <c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>
-                    </d:prop></d:propstat></d:response></d:multistatus>
-                    """,
-                ),
-            ),
-        )
+    fun `a saved http account is not contacted and asks for https reconfiguration`() = runTest {
+        val transport = FakeTransport(emptyMap())
+        val legacy = NextcloudAccount("http://cloud.example", "alice")
 
-        val discovery = NextcloudCalDavClient(
-            NextcloudAccountCredentials(
-                NextcloudAccount("http://cloud.example", "alice", allowInsecureHttp = true),
-                "secret-password",
-            ),
-            transport,
-        ).discover()
+        val error = runCatching {
+            NextcloudCalDavClient(NextcloudAccountCredentials(legacy, "secret-password"), transport).discover()
+        }.exceptionOrNull()
 
-        assertEquals(listOf("Tasks"), discovery.collections.map { it.displayName })
-        assertTrue(transport.requests.any { it.url.startsWith("https://cloud.example/") })
-    }
-
-    @Test
-    fun `an opted-in account follows an https to http downgrade`() = runTest {
-        val transport = FakeTransport(
-            mapOf(
-                "GET https://cloud.example/.well-known/caldav" to CalDavResponse(
-                    status = 301,
-                    headers = mapOf("Location" to "http://cloud.example/remote.php/dav"),
-                    body = "",
-                    finalUrl = "https://cloud.example/.well-known/caldav",
-                ),
-                "GET http://cloud.example/remote.php/dav" to CalDavResponse(
-                    status = 200,
-                    headers = emptyMap(),
-                    body = "",
-                    finalUrl = "http://cloud.example/remote.php/dav",
-                ),
-                "PROPFIND http://cloud.example/remote.php/dav" to response(
-                    """
-                    <d:multistatus xmlns:d="DAV:"><d:response><d:href>/remote.php/dav</d:href><d:propstat><d:prop>
-                    <d:current-user-principal><d:href>/remote.php/dav/principals/users/alice/</d:href></d:current-user-principal>
-                    </d:prop></d:propstat></d:response></d:multistatus>
-                    """,
-                ),
-                "PROPFIND http://cloud.example/remote.php/dav/principals/users/alice/" to response(
-                    """
-                    <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response>
-                    <d:href>/remote.php/dav/principals/users/alice/</d:href><d:propstat><d:prop>
-                    <c:calendar-home-set><d:href>/remote.php/dav/calendars/alice/</d:href></c:calendar-home-set>
-                    </d:prop></d:propstat></d:response></d:multistatus>
-                    """,
-                ),
-                "PROPFIND http://cloud.example/remote.php/dav/calendars/alice/" to response(
-                    """
-                    <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response>
-                    <d:href>/remote.php/dav/calendars/alice/tasks/</d:href><d:propstat><d:prop>
-                    <d:displayname>Tasks</d:displayname>
-                    <d:resourcetype><d:collection/><c:calendar/></d:resourcetype>
-                    <c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>
-                    </d:prop></d:propstat></d:response></d:multistatus>
-                    """,
-                ),
-            ),
-        )
-
-        val discovery = NextcloudCalDavClient(
-            NextcloudAccountCredentials(
-                NextcloudAccount("https://cloud.example", "alice", allowInsecureHttp = true),
-                "secret-password",
-            ),
-            transport,
-        ).discover()
-
-        assertEquals(listOf("Tasks"), discovery.collections.map { it.displayName })
-        assertTrue(transport.requests.any { it.url == "http://cloud.example/remote.php/dav" })
+        assertTrue(legacy.requiresHttpsReconfiguration)
+        assertEquals(NextcloudFailure.Code.INSECURE_URL, (error as NextcloudConnectionException).code)
+        assertTrue(error.message.contains("Reconnect this account with an https:// address"))
+        assertTrue(transport.requests.isEmpty(), "credentials must never be sent over HTTP")
     }
 
     @Test
