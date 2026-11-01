@@ -8,7 +8,7 @@ The public repository copy is `third_party/sherpa-onnx/sherpa-onnx-v1.13.0-infle
 
 The `46a8e806…` candidate AAR contains `libsherpa-onnx-c-api.so`, `libsherpa-onnx-cxx-api.so`, and `libsherpa-onnx-jni.so` for each of `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64`. Before app packaging exclusions, all 12 entries appeared in the unsigned release APK. The C API binaries are stock AAR entries and contain statically linked eSpeak-ng; the C++ wrapper has a `DT_NEEDED` dependency on the C API library.
 
-The app and Sherpa Java classes load `sherpa-onnx-jni` only. The four JNI binaries' `DT_NEEDED` entries do not include either wrapper library. App packaging therefore excludes both unused wrapper libraries for all four ABIs, avoiding a packaged C++ wrapper with its dependency removed. The Sherpa/eSpeak native binaries that remain in the release APK are exactly:
+The app and Sherpa Java classes load `sherpa-onnx-jni` only. The four JNI binaries' `DT_NEEDED` entries do not include either wrapper library. App packaging therefore excludes both unused wrapper libraries for all four ABIs, avoiding a packaged C++ wrapper with its dependency removed. The GPL-bearing Sherpa/eSpeak native binaries that remain in the release APK are exactly:
 
 - `lib/arm64-v8a/libsherpa-onnx-jni.so`
 - `lib/armeabi-v7a/libsherpa-onnx-jni.so`
