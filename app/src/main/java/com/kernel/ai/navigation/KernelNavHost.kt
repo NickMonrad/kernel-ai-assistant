@@ -180,6 +180,16 @@ internal fun buildModelManagementRoute(scrollTo: Boolean = false): String =
 internal fun buildSidePanelTabRoute(tab: String): String =
     "$ROUTE_SIDE_PANEL?tab=$tab"
 
+/** Clock → Stopwatch tab; the destination of the ongoing stopwatch notification body (#1553). */
+internal val ROUTE_CLOCK_STOPWATCH: String = buildSidePanelTabRoute("stopwatch")
+
+/**
+ * Routes [com.kernel.ai.MainActivity] may navigate to from its `navigation_route` extra: the Lists
+ * shortcut/widget deep links and the stopwatch notification. Anything else is ignored.
+ */
+internal fun isAllowedExternalNavigationRoute(route: String): Boolean =
+    route == ROUTE_LISTS || route.matches(LISTS_WIDGET_DEEP_LINK) || route == ROUTE_CLOCK_STOPWATCH
+
 internal fun buildConvertTabRoute(tab: String): String =
     "$ROUTE_CONVERT?tab=$tab"
 
@@ -442,14 +452,14 @@ fun KernelNavHost(
                 }
         }
     }
-    // Launcher shortcut / Lists widget: deep-link to a top-level list route
-    // ("lists" overview, or "lists/{listId}" detail). Reuses the same external-entry
-    // seam as the ADB chat/quick-action hooks — no new routing concept.
+    // Launcher shortcut / Lists widget / stopwatch notification: deep-link to an allowlisted
+    // route. Reuses the same external-entry seam as the ADB chat/quick-action hooks — no new
+    // routing concept.
     LaunchedEffect(initialNavigationRoute, navigationRouteSerial) {
         val route = initialNavigationRoute
-        // Only accept the Lists deep-link seam; external/garbage routes must never reach
-        // navController.navigate (which would throw on an unknown route).
-        if (route != null && (route == ROUTE_LISTS || route.matches(LISTS_WIDGET_DEEP_LINK))) {
+        // External/garbage routes must never reach navController.navigate (which would throw
+        // on an unknown route).
+        if (route != null && isAllowedExternalNavigationRoute(route)) {
             navController.navigate(route) {
                 popUpTo(ROUTE_LIST)
                 launchSingleTop = true
