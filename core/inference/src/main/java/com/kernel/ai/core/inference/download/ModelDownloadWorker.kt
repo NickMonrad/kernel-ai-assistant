@@ -20,7 +20,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URL
 
 private const val TAG = "ModelDownloadWorker"
 private const val NOTIFICATION_CHANNEL_ID = "kernel_model_download"
@@ -111,22 +110,20 @@ class ModelDownloadWorker(
         displayName: String,
         hfAccessToken: String? = null,
     ) {
-        val connection = URL(url).openConnection() as HttpURLConnection
-
-        // Attach Bearer token for gated HuggingFace models
-        if (!hfAccessToken.isNullOrBlank()) {
-            connection.setRequestProperty("Authorization", "Bearer $hfAccessToken")
-        }
-
         // Resume from partial download if tmp file exists
         val resumeFrom = tmpFile.length()
-        if (resumeFrom > 0) {
-            Log.i(TAG, "Resuming from byte $resumeFrom for $displayName")
-            connection.setRequestProperty("Range", "bytes=$resumeFrom-")
-            // Disable compression so Range requests work correctly
-            connection.setRequestProperty("Accept-Encoding", "identity")
+        val headers = buildMap {
+            // Attach Bearer token for gated HuggingFace models
+            if (!hfAccessToken.isNullOrBlank()) put("Authorization", "Bearer $hfAccessToken")
+            if (resumeFrom > 0) {
+                Log.i(TAG, "Resuming from byte $resumeFrom for $displayName")
+                put("Range", "bytes=$resumeFrom-")
+                // Disable compression so Range requests work correctly
+                put("Accept-Encoding", "identity")
+            }
         }
-        connection.connect()
+        // HTTPS only, including every redirect hop (#1678).
+        val connection = openHttpsDownload(url, headers)
 
         val responseCode = connection.responseCode
         if (responseCode == 401 || responseCode == 403) {

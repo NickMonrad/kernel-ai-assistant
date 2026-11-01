@@ -1,6 +1,7 @@
 package com.kernel.ai.core.memory.nextcloud
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -56,28 +57,21 @@ class NextcloudAddressTest {
     }
 
     @Test
-    fun `explicit http is rejected while insecure http is disabled`() {
-        val result = NextcloudAddress.normalize("http://cloud.example.com", allowInsecureHttp = false)
-
-        val rejected = result as NextcloudAddressResult.Rejected
-        assertEquals(NextcloudAddressResult.Rejected.Code.INSECURE_SCHEME, rejected.code)
-        assertTrue(rejected.message.contains("Plain HTTP is disabled"))
+    fun `explicit http is rejected and never rewritten to https`() {
+        for (address in listOf("http://cloud.example.com", "HTTP://cloud.example.com:8080/nextcloud")) {
+            val rejected = NextcloudAddress.normalize(address) as NextcloudAddressResult.Rejected
+            assertEquals(NextcloudAddressResult.Rejected.Code.INSECURE_SCHEME, rejected.code, address)
+            assertTrue(rejected.message.contains("requires HTTPS"), address)
+        }
     }
 
     @Test
-    fun `explicit http is accepted once insecure http is enabled`() {
-        assertEquals(
-            accepted("http://cloud.example.com"),
-            NextcloudAddress.normalize("http://cloud.example.com", allowInsecureHttp = true),
-        )
-    }
-
-    @Test
-    fun `enabling insecure http does not change the https default`() {
-        assertEquals(
-            accepted("https://cloud.example.com"),
-            NextcloudAddress.normalize("cloud.example.com", allowInsecureHttp = true),
-        )
+    fun `isHttps accepts only absolute https urls`() {
+        assertTrue(NextcloudAddress.isHttps("https://cloud.example.com/remote.php/dav"))
+        assertTrue(NextcloudAddress.isHttps("HTTPS://cloud.example.com"))
+        assertFalse(NextcloudAddress.isHttps("http://cloud.example.com"))
+        assertFalse(NextcloudAddress.isHttps("cloud.example.com"))
+        assertFalse(NextcloudAddress.isHttps("not a url"))
     }
 
     @Test
