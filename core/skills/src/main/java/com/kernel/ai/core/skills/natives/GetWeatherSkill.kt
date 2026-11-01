@@ -34,6 +34,19 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+/**
+ * Round coordinates obtained from device location before they are used in outbound
+ * requests. Named-place coordinates must bypass this function.
+ */
+internal fun roundDeviceLocationCoordinate(coordinate: Double): Double =
+    (coordinate * 100).roundToInt() / 100.0
+
+internal fun openMeteoCoordinateQuery(latitude: Double, longitude: Double): String =
+    "latitude=$latitude&longitude=$longitude"
+
+internal fun nominatimReverseCoordinateQuery(latitude: Double, longitude: Double): String =
+    "lat=$latitude&lon=$longitude"
+
 // ── Top-level internal helpers (extracted for JVM testability) ────────────────
 
 /** Format an ISO date string "YYYY-MM-DD" to "EEE d MMM" (e.g. "Mon 1 Jun"). */
@@ -731,19 +744,21 @@ class GetWeatherSkill @Inject constructor(
                 return LiveFetchResult.Failed(WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE)
             }
 
-        val displayName = reverseGeocode(loc.latitude, loc.longitude)
+        val requestLatitude = roundDeviceLocationCoordinate(loc.latitude)
+        val requestLongitude = roundDeviceLocationCoordinate(loc.longitude)
+        val displayName = reverseGeocode(requestLatitude, requestLongitude)
         val result = when {
             targetWeekend -> fetchWeekendForecast(
-                lat = loc.latitude,
-                lon = loc.longitude,
+                lat = requestLatitude,
+                lon = requestLongitude,
                 displayName = displayName,
                 cacheKey = cacheKey,
             )
             forecastDays > 0 -> {
                 if (targetDay) {
                     fetchForecastForDay(
-                        lat = loc.latitude,
-                        lon = loc.longitude,
+                        lat = requestLatitude,
+                        lon = requestLongitude,
                         displayName = displayName,
                         days = forecastDays,
                         dayIndex = 1,
@@ -751,8 +766,8 @@ class GetWeatherSkill @Inject constructor(
                     )
                 } else {
                     fetchForecast(
-                        lat = loc.latitude,
-                        lon = loc.longitude,
+                        lat = requestLatitude,
+                        lon = requestLongitude,
                         displayName = displayName,
                         days = forecastDays,
                         cacheKey = cacheKey,
@@ -761,8 +776,8 @@ class GetWeatherSkill @Inject constructor(
             }
             else -> {
                 fetchWeather(
-                    lat = loc.latitude,
-                    lon = loc.longitude,
+                    lat = requestLatitude,
+                    lon = requestLongitude,
                     displayName = displayName,
                     cacheKey = cacheKey,
                 )
@@ -780,7 +795,7 @@ class GetWeatherSkill @Inject constructor(
     private suspend fun reverseGeocode(lat: Double, lon: Double): String? = withContext(Dispatchers.IO) {
         try {
             val url = "https://nominatim.openstreetmap.org/reverse" +
-                "?lat=$lat&lon=$lon&format=json"
+                "?${nominatimReverseCoordinateQuery(lat, lon)}&format=json"
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", "KernelAI/1.0 (Android)")
@@ -838,7 +853,7 @@ class GetWeatherSkill @Inject constructor(
             }
 
             val url = "https://api.open-meteo.com/v1/forecast" +
-                "?latitude=$lat&longitude=$lon" +
+                "?${openMeteoCoordinateQuery(lat, lon)}" +
                 "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
                 "&timezone=auto&forecast_days=7&wind_speed_unit=ms"
 
@@ -869,7 +884,7 @@ class GetWeatherSkill @Inject constructor(
             }
 
             val url = "https://api.open-meteo.com/v1/forecast" +
-                "?latitude=$lat&longitude=$lon" +
+                "?${openMeteoCoordinateQuery(lat, lon)}" +
                 "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
                 "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
 
@@ -1041,7 +1056,7 @@ class GetWeatherSkill @Inject constructor(
         }
 
         val url = "https://api.open-meteo.com/v1/forecast" +
-            "?latitude=$lat&longitude=$lon" +
+            "?${openMeteoCoordinateQuery(lat, lon)}" +
             "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
             "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
 
@@ -1157,7 +1172,7 @@ class GetWeatherSkill @Inject constructor(
         withContext(Dispatchers.IO) {
             val body = retryWithBackoff("Air Quality API") {
                 val url = "https://air-quality-api.open-meteo.com/v1/air-quality" +
-                    "?latitude=$lat&longitude=$lon&current=us_aqi,pm2_5&timezone=auto"
+                    "?${openMeteoCoordinateQuery(lat, lon)}&current=us_aqi,pm2_5&timezone=auto"
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) throw IllegalStateException("Air quality API returned ${response.code}")
                     response.body?.string() ?: throw IllegalStateException("Empty air quality response")
@@ -1188,7 +1203,7 @@ class GetWeatherSkill @Inject constructor(
 
             // Build URL
             val url = "https://api.open-meteo.com/v1/forecast" +
-                "?latitude=$lat&longitude=$lon" +
+                "?${openMeteoCoordinateQuery(lat, lon)}" +
                 "&current=temperature_2m,apparent_temperature,relative_humidity_2m," +
                 "weather_code,wind_speed_10m,precipitation_probability,precipitation,uv_index" +
                 "&daily=uv_index_max,sunrise,sunset,temperature_2m_max,temperature_2m_min" +
