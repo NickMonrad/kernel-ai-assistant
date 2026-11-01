@@ -104,7 +104,7 @@ jobs:
         run: |
           ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest \
             :feature:settings:assembleDebugAndroidTest :app:assembleRelease \
-            :app:bundleRelease -PversionCode=${{ github.run_number }}
+            :app:bundleRelease :app:verifyReleaseNetworkSecurity -PversionCode=${{ github.run_number }}
 
       - name: Verify Android 16 KB APK and AAB artifacts
         run: |

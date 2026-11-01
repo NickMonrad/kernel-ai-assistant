@@ -57,6 +57,7 @@ sealed class NextcloudFailure(
         TIMEOUT,
         TLS,
         NETWORK,
+        INSECURE_URL,
         INSECURE_REDIRECT,
         CROSS_ORIGIN_REDIRECT,
         CONFLICT,
@@ -132,17 +133,22 @@ data class CalDavResponse(
     val finalUrl: String,
 )
 
+/**
+ * Redirects are deliberately not followed by [client]. [NextcloudCalDavClient] evaluates every hop
+ * so that a credentialed request never leaves the account's HTTPS origin; a client-level policy
+ * cannot be expressed with OkHttp's follow flags alone. Non-HTTPS URLs are refused before any
+ * connection is opened (#1678), so neither CalDAV nor Login Flow traffic can use cleartext.
+ */
 @Singleton
-class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
-    /**
-     * Redirects are deliberately not followed here. [NextcloudCalDavClient] evaluates every hop so
-     * that an HTTPS → HTTP downgrade can be refused for accounts that did not opt in to insecure
-     * HTTP (#1551); a client-level policy cannot be expressed with OkHttp's follow flags alone.
-     */
-    private val client = OkHttpClient.Builder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .build()
+class OkHttpCalDavTransport internal constructor(
+    private val client: OkHttpClient,
+) : CalDavTransport {
+    @Inject constructor() : this(
+        OkHttpClient.Builder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build(),
+    )
 
     override suspend fun execute(method: String, url: String, headers: Map<String, String>, body: String?): CalDavResponse =
         withContext(Dispatchers.IO) {
@@ -162,6 +168,7 @@ class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
                     error,
                 )
             }
+            if (!request.url.isHttps) throw insecureUrlFailure()
             try {
                 client.newCall(request).execute().use { response ->
                     CalDavResponse(
@@ -192,8 +199,8 @@ class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
                 hasCause(error) {
                     it is UnknownServiceException &&
                         it.message?.contains("CLEARTEXT", ignoreCase = true) == true
-                } -> NextcloudFailure.Code.INSECURE_REDIRECT to
-                    "Nextcloud CalDAV discovery redirected to insecure HTTP. Configure the server to keep CalDAV discovery on HTTPS."
+                } -> NextcloudFailure.Code.INSECURE_URL to
+                    "Nextcloud requires HTTPS. Plain HTTP connections are not allowed."
                 hasCause(error) { it is SSLException } -> NextcloudFailure.Code.TLS to
                     "Could not establish a secure connection to Nextcloud. Check the server certificate."
                 else -> NextcloudFailure.Code.NETWORK to
@@ -201,6 +208,12 @@ class OkHttpCalDavTransport @Inject constructor() : CalDavTransport {
             }
             return NextcloudConnectionException(code, message, error)
         }
+
+        fun insecureUrlFailure() = NextcloudConnectionException(
+            NextcloudFailure.Code.INSECURE_URL,
+            "Nextcloud requires HTTPS. Reconnect this account with an https:// address; your Jandal " +
+                "lists stay on this device.",
+        )
 
         private fun hasCause(error: Throwable, predicate: (Throwable) -> Boolean): Boolean {
             var current: Throwable? = error
@@ -563,13 +576,12 @@ class NextcloudCalDavClient(
     }
 
     /**
-     * Sends one CalDAV request and resolves redirects under this account's origin and scheme policy.
+     * Sends one CalDAV request and resolves redirects under this account's HTTPS origin policy.
      *
      * The `Authorization` header is reused for every hop, so a redirect is only followed within the
-     * same origin — the same host and effective port. A cross-origin redirect is refused rather than
-     * forwarded, which is what keeps the Nextcloud Basic credentials from reaching another server.
-     * Within that origin, same-scheme hops and HTTP → HTTPS upgrades are followed, and an
-     * HTTPS → HTTP downgrade is refused unless the account explicitly enabled insecure HTTP (#1551).
+     * same origin: the same host and effective port, over HTTPS. A cross-origin redirect is refused
+     * rather than forwarded, which keeps the Nextcloud Basic credentials from reaching another
+     * server, and any redirect to plain HTTP is refused (#1678).
      */
     private suspend fun send(
         method: String,
@@ -577,6 +589,7 @@ class NextcloudCalDavClient(
         headers: Map<String, String>,
         body: String? = null,
     ): Exchange {
+        if (!NextcloudAddress.isHttps(url)) throw OkHttpCalDavTransport.insecureUrlFailure()
         var current = url
         var hops = 0
         while (true) {
@@ -592,8 +605,8 @@ class NextcloudCalDavClient(
                 ?: return Exchange(response, current)
             val target = runCatching { URI(current).resolve(location).toString() }.getOrNull()
                 ?: return Exchange(response, current)
+            if (!NextcloudAddress.isHttps(target)) throw insecureRedirectFailure()
             if (!permitsRedirect(current, target)) throw crossOriginRedirectFailure()
-            if (isDowngrade(current, target) && !account.account.allowInsecureHttp) throw insecureRedirectFailure()
             hops += 1
             if (hops > MAX_REDIRECT_HOPS) {
                 throw NextcloudConnectionException(
@@ -605,34 +618,22 @@ class NextcloudCalDavClient(
         }
     }
 
-    /**
-     * The part of a URL that may keep receiving this account's credentials.
-     *
-     * [port] is the effective port and [explicitPort] is the port as written, so a redirect can be
-     * judged both on where it really points and on whether it silently changed the port.
-     */
+    /** The part of a URL that may keep receiving this account's credentials; [port] is effective. */
     private data class RedirectOrigin(
         val host: String,
         val scheme: String,
         val port: Int,
-        val explicitPort: Int,
     )
 
     /**
-     * Whether [from] → [to] may keep this account's `Authorization` header.
-     *
-     * Another host is never acceptable, and neither is a port change: both would send the Nextcloud
-     * app password to a different service. A scheme-only change on the same host stays inside the
-     * credential scope and is decided by the downgrade/upgrade policy instead — an HTTP → HTTPS
-     * upgrade is always followed, and an HTTPS → HTTP downgrade only for an account that explicitly
-     * opted in to insecure HTTP (#1551). A scheme change that also moves the port is refused here.
+     * Whether [from] → [to] may keep this account's `Authorization` header: same scheme, host and
+     * effective port. Another host or port would send the Nextcloud app password to a different
+     * service, and a scheme change is either a refused downgrade or impossible from HTTPS.
      */
     private fun permitsRedirect(from: String, to: String): Boolean {
         val origin = redirectOrigin(from) ?: return false
         val target = redirectOrigin(to) ?: return false
-        if (origin.host != target.host) return false
-        if (origin.scheme == target.scheme) return origin.port == target.port
-        return origin.explicitPort == target.explicitPort
+        return origin.host == target.host && origin.scheme == target.scheme && origin.port == target.port
     }
 
     private fun validateCalDavHref(href: String) {
@@ -650,11 +651,8 @@ class NextcloudCalDavClient(
             scheme == "http" -> 80
             else -> return null
         }
-        return RedirectOrigin(host, scheme, port, uri.port)
+        return RedirectOrigin(host, scheme, port)
     }
-
-    private fun isDowngrade(from: String, to: String): Boolean =
-        from.startsWith("https://", ignoreCase = true) && to.startsWith("http://", ignoreCase = true)
 
     private fun crossOriginRedirectFailure() = NextcloudConnectionException(
         NextcloudFailure.Code.CROSS_ORIGIN_REDIRECT,
@@ -663,7 +661,7 @@ class NextcloudCalDavClient(
 
     private fun insecureRedirectFailure() = NextcloudConnectionException(
         NextcloudFailure.Code.INSECURE_REDIRECT,
-        "Nextcloud redirected CalDAV to insecure HTTP. Keep CalDAV on HTTPS, or enable \"Use insecure HTTP\" for this account.",
+        "Nextcloud redirected to insecure HTTP. Nextcloud requires HTTPS; configure the server to keep CalDAV on HTTPS.",
     )
 
     private fun authHeaders(): Map<String, String> = mapOf(
