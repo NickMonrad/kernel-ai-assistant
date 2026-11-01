@@ -81,7 +81,6 @@ data class NextcloudSettingsState(
     val address: String = "",
     val username: String = "",
     val appPassword: String = "",
-    val allowInsecureHttp: Boolean = false,
     /** Inline address validation message shown next to the address field. */
     val addressError: String? = null,
     /** Non-null once an account is stored; the screen then shows a compact summary. */
@@ -114,6 +113,12 @@ data class NextcloudSettingsState(
 ) {
     /** Credential entry is limited to initial connection or explicit edit/reconnect. */
     val showCredentialForm: Boolean get() = connected == null || editingAccount
+
+    /**
+     * True when the stored account still uses the plain-HTTP address allowed before #1678. It is
+     * never contacted or silently converted; the user must reconnect with an https:// address.
+     */
+    val httpsReconfigurationRequired: Boolean get() = connected?.requiresHttpsReconfiguration == true
 }
 
 /**
@@ -146,8 +151,9 @@ class NextcloudSettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NextcloudListSections.EMPTY)
 
     init {
-        // A stored account needs its remote collections before the sections mean anything.
-        if (adapter.account() != null) refresh()
+        // A stored account needs its remote collections before the sections mean anything. A
+        // legacy plain-HTTP account is not contacted; it waits for reconfiguration (#1678).
+        if (adapter.account()?.requiresHttpsReconfiguration == false) refresh()
     }
 
     // ── Address entry ────────────────────────────────────────────────────────────────────────────
@@ -155,7 +161,7 @@ class NextcloudSettingsViewModel @Inject constructor(
     fun setAddress(value: String) {
         // Surface the security-relevant rejection as soon as `http://` is typed; incomplete hosts
         // are only reported when the user submits the form.
-        val rejection = NextcloudAddress.normalize(value, _state.value.allowInsecureHttp)
+        val rejection = NextcloudAddress.normalize(value)
         _state.value = _state.value.copy(
             address = value,
             addressError = insecureSchemeMessage(rejection),
@@ -171,20 +177,12 @@ class NextcloudSettingsViewModel @Inject constructor(
         _state.value = _state.value.copy(appPassword = value, feedback = null)
     }
 
-    fun setAllowInsecureHttp(value: Boolean) {
-        val rejection = NextcloudAddress.normalize(_state.value.address, value)
-        _state.value = _state.value.copy(
-            allowInsecureHttp = value,
-            addressError = insecureSchemeMessage(rejection),
-        )
-    }
-
     // ── Connection lifecycle ─────────────────────────────────────────────────────────────────────
 
     /** Runs the existing manual username/app-password path. */
     fun connect() {
         val current = _state.value
-        val normalized = NextcloudAddress.normalize(current.address, current.allowInsecureHttp)
+        val normalized = NextcloudAddress.normalize(current.address)
         if (normalized is NextcloudAddressResult.Rejected) {
             _state.value = current.copy(addressError = normalized.message)
             return
@@ -207,7 +205,7 @@ class NextcloudSettingsViewModel @Inject constructor(
             null
         } else {
             NextcloudAccountCredentials(
-                account = NextcloudAccount(serverUrl, username, current.allowInsecureHttp),
+                account = NextcloudAccount(serverUrl, username),
                 appPassword = current.appPassword,
             )
         }
@@ -233,7 +231,7 @@ class NextcloudSettingsViewModel @Inject constructor(
     fun connectWithNextcloud() {
         val current = _state.value
         if (current.busy) return
-        val normalized = NextcloudAddress.normalize(current.address, current.allowInsecureHttp)
+        val normalized = NextcloudAddress.normalize(current.address)
         if (normalized is NextcloudAddressResult.Rejected) {
             _state.value = current.copy(addressError = normalized.message)
             return
@@ -252,7 +250,6 @@ class NextcloudSettingsViewModel @Inject constructor(
         loginFlowJob = viewModelScope.launch {
             val result = adapter.loginFlow(
                 serverUrl = serverUrl,
-                allowInsecureHttp = current.allowInsecureHttp,
                 onLoginUrl = { loginUrl ->
                     _state.value = _state.value.copy(browserLoginUrl = loginUrl)
                 },
@@ -266,7 +263,6 @@ class NextcloudSettingsViewModel @Inject constructor(
                         credentials.account.serverUrl,
                         credentials.account.username,
                         credentials.appPassword,
-                        credentials.account.allowInsecureHttp,
                     )
                     completeConnection(
                         credentials = credentials,
@@ -346,7 +342,6 @@ class NextcloudSettingsViewModel @Inject constructor(
                             it.account.serverUrl,
                             it.account.username,
                             it.appPassword,
-                            it.account.allowInsecureHttp,
                         )
                     }
                 }
@@ -405,11 +400,13 @@ class NextcloudSettingsViewModel @Inject constructor(
 
     /** Opens credential entry for the stored account without reading the app password back. */
     fun editAccount() {
+        val address = _state.value.connected?.serverUrl.orEmpty()
         _state.value = _state.value.copy(
             editingAccount = true,
             appPassword = "",
-            addressError = null,
-            address = _state.value.connected?.serverUrl.orEmpty(),
+            // A legacy http:// address is shown as stored, with the HTTPS requirement inline.
+            addressError = insecureSchemeMessage(NextcloudAddress.normalize(address)),
+            address = address,
             username = _state.value.connected?.username.orEmpty(),
             authenticationFailed = false,
             manualFallbackVisible = false,
@@ -453,7 +450,7 @@ class NextcloudSettingsViewModel @Inject constructor(
 
     /** Reconciliation and recovery for immediate needs; automatic sync stays the normal model. */
     fun refresh() {
-        if (adapter.account() == null) return
+        if (adapter.account()?.requiresHttpsReconfiguration != false) return
         viewModelScope.launch {
             _state.value = _state.value.copy(busy = true, feedback = null)
             val discovery = adapter.discoverCollections()

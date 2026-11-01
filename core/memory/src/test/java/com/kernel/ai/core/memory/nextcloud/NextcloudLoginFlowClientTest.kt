@@ -117,7 +117,9 @@ class NextcloudLoginFlowClientTest {
 
     @Test
     fun `initiation sends a real zero length POST body`() = runBlocking {
+        val tls = localhostTls()
         MockWebServer().use { server ->
+            server.useHttps(tls.socketFactory, false)
             val serverUrl = server.url("/nextcloud").toString().removeSuffix("/")
             val loginUrl = server.url("/nextcloud/login/v2/flow").toString()
             val pollUrl = server.url("/nextcloud/login/v2/poll").toString()
@@ -136,10 +138,10 @@ class NextcloudLoginFlowClientTest {
                     .setBody("""{"server":"$serverUrl","loginName":"fixture-user","appPassword":"fixture-password"}"""),
             )
             NextcloudLoginFlowClient(
-                transport = OkHttpCalDavTransport(),
+                transport = OkHttpCalDavTransport(tls.client),
                 timeoutMillis = 10_000L,
                 pollIntervalMillis = 0L,
-            ).authenticate(serverUrl, allowInsecureHttp = true)
+            ).authenticate(serverUrl)
 
             val initiation = server.takeRequest(1L, TimeUnit.SECONDS)
                 ?: error("Login Flow initiation request was not received")
@@ -294,7 +296,7 @@ class NextcloudLoginFlowClientTest {
     }
 
     @Test
-    fun `https downgrade is rejected unless insecure HTTP is explicitly enabled`() = runTest {
+    fun `an http login endpoint is rejected before the browser opens`() = runTest {
         val insecureLogin = "http://cloud.example/nextcloud/login/v2/flow/session"
         val transport = QueueTransport().apply {
             enqueue(
@@ -305,41 +307,71 @@ class NextcloudLoginFlowClientTest {
                 ),
             )
         }
+        val opened = mutableListOf<String>()
+
+        val error = runCatching {
+            NextcloudLoginFlowClient(transport, timeoutMillis = 100L).authenticate(LOGIN_SERVER) { opened += it }
+        }.exceptionOrNull()
+
+        assertEquals(NextcloudFailure.Code.INSECURE_REDIRECT, (error as NextcloudFailure).code)
+        assertTrue(opened.isEmpty())
+        assertEquals(1, transport.requests.size)
+    }
+
+    @Test
+    fun `an http poll endpoint is rejected and the token is never sent`() = runTest {
+        val insecurePoll = "http://cloud.example/nextcloud/login/v2/poll"
+        val transport = QueueTransport().apply {
+            enqueue(
+                "POST",
+                "$LOGIN_SERVER/index.php/login/v2",
+                response(
+                    """{"poll":{"token":"flow-token","endpoint":"$insecurePoll"},"login":"$LOGIN_URL"}""",
+                ),
+            )
+        }
 
         val error = runCatching {
             NextcloudLoginFlowClient(transport, timeoutMillis = 100L).authenticate(LOGIN_SERVER)
         }.exceptionOrNull()
 
         assertEquals(NextcloudFailure.Code.INSECURE_REDIRECT, (error as NextcloudFailure).code)
-        assertEquals(1, transport.requests.size)
+        assertTrue(transport.requests.none { it.url.startsWith("http://") })
     }
 
     @Test
-    fun `explicit insecure opt in permits same-scope HTTP Login Flow endpoints`() = runTest {
-        val insecurePoll = "http://cloud.example/nextcloud/login/v2/poll"
-        val insecureLogin = "http://cloud.example/nextcloud/login/v2/flow/session"
+    fun `an http server address is rejected before any request`() = runTest {
+        val transport = QueueTransport()
+
+        val error = runCatching {
+            NextcloudLoginFlowClient(transport, timeoutMillis = 100L).authenticate("http://cloud.example/nextcloud")
+        }.exceptionOrNull()
+
+        assertEquals(NextcloudFailure.Code.INVALID_URL, (error as NextcloudFailure).code)
+        assertTrue(error.message!!.contains("requires HTTPS"))
+        assertTrue(transport.requests.isEmpty())
+    }
+
+    @Test
+    fun `credentials naming an http server are rejected`() = runTest {
         val transport = QueueTransport().apply {
             enqueue(
                 "POST",
                 "$LOGIN_SERVER/index.php/login/v2",
-                response(
-                    """{"poll":{"token":"flow-token","endpoint":"$insecurePoll"},"login":"$insecureLogin"}""",
-                ),
+                response("""{"poll":{"token":"flow-token","endpoint":"$POLL_URL"},"login":"$LOGIN_URL"}"""),
             )
             enqueue(
                 "POST",
-                insecurePoll,
-                response(
-                    """{"server":"http://cloud.example/nextcloud","loginName":"alice","appPassword":"app-password"}""",
-                ),
+                POLL_URL,
+                response("""{"server":"http://cloud.example/nextcloud","loginName":"alice","appPassword":"app-password"}"""),
             )
         }
 
-        val credentials = NextcloudLoginFlowClient(transport, timeoutMillis = 100L)
-            .authenticate(LOGIN_SERVER, allowInsecureHttp = true)
+        val error = runCatching {
+            NextcloudLoginFlowClient(transport, timeoutMillis = 100L).authenticate(LOGIN_SERVER)
+        }.exceptionOrNull()
 
-        assertEquals("http://cloud.example/nextcloud", credentials.serverUrl)
-        assertEquals(insecurePoll, transport.requests[1].url)
+        assertEquals(NextcloudFailure.Code.LOGIN_FLOW_IDENTITY, (error as NextcloudFailure).code)
     }
 
     @Test
