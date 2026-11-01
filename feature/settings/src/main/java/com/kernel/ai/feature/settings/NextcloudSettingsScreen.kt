@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -105,7 +104,6 @@ fun NextcloudSettingsScreen(
         onAddressChange = viewModel::setAddress,
         onUsernameChange = viewModel::setUsername,
         onAppPasswordChange = viewModel::setAppPassword,
-        onAllowInsecureHttpChange = viewModel::setAllowInsecureHttp,
         onConnect = viewModel::connect,
         onConnectWithNextcloud = viewModel::connectWithNextcloud,
         onShowManualFallback = viewModel::showManualFallback,
@@ -135,7 +133,6 @@ internal fun NextcloudListsContent(
     onAddressChange: (String) -> Unit = {},
     onUsernameChange: (String) -> Unit = {},
     onAppPasswordChange: (String) -> Unit = {},
-    onAllowInsecureHttpChange: (Boolean) -> Unit = {},
     onConnect: () -> Unit = {},
     onConnectWithNextcloud: () -> Unit = {},
     onShowManualFallback: () -> Unit = {},
@@ -165,7 +162,7 @@ internal fun NextcloudListsContent(
                     }
                 },
                 actions = {
-                    if (connected != null) {
+                    if (connected != null && !state.httpsReconfigurationRequired) {
                         IconButton(
                             onClick = onRefresh,
                             enabled = !state.busy,
@@ -193,12 +190,17 @@ internal fun NextcloudListsContent(
                     onAddressChange = onAddressChange,
                     onUsernameChange = onUsernameChange,
                     onAppPasswordChange = onAppPasswordChange,
-                    onAllowInsecureHttpChange = onAllowInsecureHttpChange,
                     onConnect = onConnect,
                     onConnectWithNextcloud = onConnectWithNextcloud,
                     onShowManualFallback = onShowManualFallback,
                     onCancelLoginFlow = onCancelLoginFlow,
                     onCancelEditing = onCancelEditing,
+                )
+                state.httpsReconfigurationRequired -> AccountNeedsAttention(
+                    reason = "This account uses plain HTTP, which Nextcloud sync no longer allows. " +
+                        "Reconnect it with an https:// address.",
+                    onReconnect = onEditAccount,
+                    onDisconnect = onDisconnect,
                 )
                 state.authenticationFailed -> AccountNeedsAttention(
                     onReconnect = onEditAccount,
@@ -212,7 +214,9 @@ internal fun NextcloudListsContent(
                 )
             }
 
-            if (connected != null && !state.editingAccount && !state.authenticationFailed) {
+            if (connected != null && !state.editingAccount && !state.authenticationFailed &&
+                !state.httpsReconfigurationRequired
+            ) {
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = onQueryChange,
@@ -318,7 +322,6 @@ private fun CredentialEntry(
     onAddressChange: (String) -> Unit,
     onUsernameChange: (String) -> Unit,
     onAppPasswordChange: (String) -> Unit,
-    onAllowInsecureHttpChange: (Boolean) -> Unit,
     onConnect: () -> Unit,
     onConnectWithNextcloud: () -> Unit,
     onShowManualFallback: () -> Unit,
@@ -392,28 +395,11 @@ private fun CredentialEntry(
                 Text("Use app password instead")
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(
-                checked = state.allowInsecureHttp,
-                onCheckedChange = onAllowInsecureHttpChange,
-                modifier = Modifier.testTag("nextcloud_insecure_http_toggle"),
-            )
-            Text("Use insecure HTTP")
-        }
-        if (state.allowInsecureHttp) {
-            Text(
-                text = "Credentials and list traffic will not be encrypted. Use this only when the " +
-                    "server cannot use HTTPS.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        } else {
-            Text(
-                text = "HTTPS is used unless you enable insecure HTTP.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            text = "Nextcloud connections always use HTTPS.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         if (!state.loginFlowInProgress) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (state.connected != null) {
@@ -463,12 +449,19 @@ private fun ConnectedAccountSummary(
 }
 
 @Composable
-private fun AccountNeedsAttention(onReconnect: () -> Unit, onDisconnect: () -> Unit) {
+private fun AccountNeedsAttention(
+    onReconnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    reason: String? = null,
+) {
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier.testTag("nextcloud_needs_attention"),
     ) {
         Text("Nextcloud connection needs attention", style = MaterialTheme.typography.titleMedium)
+        if (reason != null) {
+            Text(reason, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("nextcloud_needs_attention_reason"))
+        }
         Text(
             "Your Jandal lists are still available on this device.",
             style = MaterialTheme.typography.bodyMedium,
