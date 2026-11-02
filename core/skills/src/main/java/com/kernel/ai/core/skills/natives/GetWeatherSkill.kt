@@ -65,9 +65,12 @@ internal fun uvIndexLabel(uv: Double): String = when {
     else -> "Extreme"
 }
 
+/** Label used when no place name resolves. Never raw coordinates (#1694). */
+internal const val UNRESOLVED_LOCATION_LABEL = "your location"
+
 /** Strip country/region suffix from location label for speech output. */
 internal fun locationForSpeech(locationLabel: String?): String =
-    locationLabel?.substringBefore(",")?.trim()?.takeIf { it.isNotBlank() } ?: "your location"
+    locationLabel?.substringBefore(",")?.trim()?.takeIf { it.isNotBlank() } ?: UNRESOLVED_LOCATION_LABEL
 
 /** Build a natural-language spoken summary for current weather. */
 internal fun buildCurrentWeatherSpoken(
@@ -331,7 +334,7 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
         return SkillResult.Failure(skillName, "Weekend forecast not available within the forecast horizon.")
     }
 
-    val locationLabel = displayName ?: "GPS location"
+    val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
     val text = buildString {
         append("$locationLabel weekend forecast:\n")
         for (i in indices) {
@@ -786,23 +789,34 @@ class GetWeatherSkill @Inject constructor(
                 .header("User-Agent", "KernelAI/1.0 (Android)")
                 .build()
             httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val body = response.body?.string() ?: return@withContext null
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Reverse geocode failed: HTTP ${response.code}")
+                    return@withContext null
+                }
+                val body = response.body?.string()
+                if (body == null) {
+                    Log.w(TAG, "Reverse geocode failed: empty response body")
+                    return@withContext null
+                }
                 val json = JSONObject(body)
-                val address = json.optJSONObject("address") ?: return@withContext null
+                val address = json.optJSONObject("address")
+                if (address == null) {
+                    Log.w(TAG, "Reverse geocode failed: response has no address object")
+                    return@withContext null
+                }
                 val city = address.optString("city").takeIf { it.isNotBlank() }
                     ?: address.optString("town").takeIf { it.isNotBlank() }
                     ?: address.optString("village").takeIf { it.isNotBlank() }
                     ?: address.optString("suburb").takeIf { it.isNotBlank() }
-                val country = address.optString("country_code").uppercase().takeIf { it.isNotBlank() }
-                when {
-                    city != null && country != null -> "$city, $country"
-                    city != null -> city
-                    else -> null
+                if (city == null) {
+                    Log.w(TAG, "Reverse geocode failed: address has no city, town, village or suburb")
+                    return@withContext null
                 }
+                val country = address.optString("country_code").uppercase().takeIf { it.isNotBlank() }
+                if (country != null) "$city, $country" else city
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Reverse geocode failed", e)
+            Log.w(TAG, "Reverse geocode failed: ${e.javaClass.simpleName}")
             null
         }
     }
@@ -905,7 +919,7 @@ class GetWeatherSkill @Inject constructor(
             return SkillResult.Failure(name, "Incomplete forecast data (mismatched array lengths).")
         }
 
-        val locationLabel = displayName ?: "GPS location"
+        val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val text = buildString {
             append("$locationLabel forecast:\n")
             for (i in 0 until len) {
@@ -1096,7 +1110,7 @@ class GetWeatherSkill @Inject constructor(
             else -> ""
         }
 
-        val locationLabel = displayName ?: "GPS location"
+        val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val text = "$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr"
 
         Log.d(TAG, "GetWeatherSkill: fetched forecast for day $dayIndex ($formattedDate) for $locationLabel")
@@ -1151,7 +1165,7 @@ class GetWeatherSkill @Inject constructor(
 
     // ── Air quality fetch ─────────────────────────────────────────────────────
 
-    private data class AirQualityData(val usAqi: Int?, val pm25: Double?)
+    internal data class AirQualityData(val usAqi: Int?, val pm25: Double?)
 
     private suspend fun fetchAirQuality(lat: Double, lon: Double): AirQualityData? =
         withContext(Dispatchers.IO) {
@@ -1211,7 +1225,7 @@ class GetWeatherSkill @Inject constructor(
             parseWeatherResponse(weatherBody, displayName, airQuality)
         }
 
-    private fun parseWeatherResponse(json: String, displayName: String?, airQuality: AirQualityData?): SkillResult {
+    internal fun parseWeatherResponse(json: String, displayName: String?, airQuality: AirQualityData?): SkillResult {
         val obj = JSONObject(json)
         val current = obj.getJSONObject("current")
 
@@ -1245,8 +1259,7 @@ class GetWeatherSkill @Inject constructor(
         val sunriseTime = sunriseRaw?.substringAfterLast("T")
         val sunsetTime = sunsetRaw?.substringAfterLast("T")
 
-        val locationLabel = displayName
-            ?: "%.4f, %.4f".format(obj.optDouble("latitude"), obj.optDouble("longitude"))
+        val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val emoji = wmoEmoji(weatherCode)
         val description = wmoDescription(weatherCode)
 

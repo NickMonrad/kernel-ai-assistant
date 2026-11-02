@@ -66,6 +66,42 @@ class WeatherConversationReferenceResolverTest {
     }
 
     @Test
+    fun `neutral presentation fallback uses the weather request location`() {
+        val message = ChatMessage(
+            id = "assistant-1",
+            role = ChatMessage.Role.ASSISTANT,
+            content = "Forecast unavailable",
+            toolCall = ToolCallInfo(
+                skillName = "get_weather",
+                requestJson = """{"location":"Brisbane"}""",
+                resultText = "Weather result",
+                isSuccess = true,
+                presentation = ToolPresentation.Weather(
+                    locationName = "your location",
+                    temperatureText = "20°C",
+                    feelsLikeText = null,
+                    description = "Clear",
+                    emoji = "",
+                    highLowText = null,
+                    humidityText = null,
+                    windText = null,
+                    precipText = null,
+                    uvText = null,
+                    airQualityText = null,
+                    sunText = null,
+                ),
+            ),
+        )
+
+        val location = WeatherConversationReferenceResolver.resolveLocation(
+            query = "Will it rain there tomorrow?",
+            messages = listOf(message),
+        )
+
+        assertEquals("Brisbane", location)
+    }
+
+    @Test
     fun `ignores out there local-weather phrasing`() {
         val messages = listOf(
             ChatMessage(

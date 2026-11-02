@@ -511,6 +511,13 @@ class ChatTextUtilsTest {
             assertEquals(null, extractExplicitWikipediaQuery("Search Wikipedia for it"))
             assertEquals(null, extractExplicitWikipediaQuery("Look up this on Wikipedia"))
         }
+
+        @Test
+        fun `returns null for question shaped wikipedia requests so the model answers them`() {
+            assertEquals(null, extractExplicitWikipediaQuery("Search Wikipedia for is Andy Samberg Jewish?"))
+            assertEquals(null, extractExplicitWikipediaQuery("Look up when was Constantinople founded on Wikipedia"))
+            assertEquals("Andy Samberg", extractExplicitWikipediaQuery("Look up Andy Samberg on Wikipedia"))
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
