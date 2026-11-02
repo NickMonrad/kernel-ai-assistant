@@ -19,7 +19,7 @@ class LegalPrivacySurfaceTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun legalPrivacyLinksAndOfflineNoticesAreAvailable() {
+    fun legalPrivacyLinksAreAvailable() {
         var openedLicenses = false
         composeRule.setContent {
             MaterialTheme {
@@ -34,7 +34,10 @@ class LegalPrivacySurfaceTest {
         composeRule.onNodeWithText("Terms of Use").assertIsDisplayed()
         composeRule.onNodeWithText("Open-source licences").performClick()
         assertTrue(openedLicenses)
+    }
 
+    @Test
+    fun openSourceLicensesScreenShowsBundledNotices() {
         composeRule.setContent {
             MaterialTheme {
                 OpenSourceLicensesScreen(onBack = {})
