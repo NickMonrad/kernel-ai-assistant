@@ -214,6 +214,7 @@ androidComponents {
         if (variant.buildType == "llamaProbe") {
             val candidateVersionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
             variant.androidTest?.let { androidTest ->
+                androidTest.instrumentationRunner.set("com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner")
                 val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
                 val manifestTask =
                     tasks.register<GenerateLlamaProbeAndroidTestVersionManifest>(

@@ -249,7 +249,7 @@ class LlamaCppSession private constructor(
         ): LlamaCppSession = withContext(Dispatchers.IO) {
             require(model.isFile) { "GGUF model file is missing: ${model.absolutePath}" }
             require(draftModel == null || draftModel.isFile) { "DSpark GGUF file is missing" }
-            require(contextSize in 512..8192) { "contextSize must be between 512 and 8192" }
+            require(contextSize in 512..16384) { "contextSize must be between 512 and 16384" }
             val start = System.nanoTime()
             val nativeHandle = nativeOpen(model.absolutePath, contextSize, draftModel?.absolutePath)
             val loadMs = (System.nanoTime() - start) / 1_000_000
