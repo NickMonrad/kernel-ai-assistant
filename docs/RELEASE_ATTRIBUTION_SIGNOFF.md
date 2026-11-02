@@ -21,7 +21,7 @@ This remains a **pre-release-candidate attribution snapshot**, not a signed rele
 | Semaine Piper/VITS voice | Hidden from release builds; retained for debug/internal research. | Implemented by #1268 / PR #1269. |
 | CoriHigh Piper/VITS voice | Release-visible British English fallback. Source: `rhasspy/piper-voices` repository listed as MIT; upstream model card lists LibriVox dataset with public-domain dataset licence. | Recorded as release-visible based on #1268 review. |
 | Kokoro experimental voice | Can be considered release-visible from a licence perspective if exposed: Jandal downloads the Sherpa-ONNX `kokoro-int8-multi-lang-v1_0.tar.bz2` asset; upstream Kokoro 82M lineage is recorded as Apache-2.0. | Attribution recorded; keep experimental/product wording conservative. |
-| Hey Jandal wake-word ONNX assets | Runtime uses openWakeWord-derived pipeline. Training README records that Stage 1/2 backbones come from openWakeWord and Stage 3 `hey_jandal.onnx` is trained from local positive clips. | Provenance now traceable in repo; final release should confirm owner consent for real recordings if any were used. |
+| Hey Jandal wake-word ONNX assets | Runtime uses openWakeWord-derived pipeline. Training README records that Stage 1/2 backbones come from openWakeWord and Stage 3 `hey_jandal.onnx` is trained from local positive clips. | Nick confirmed in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577) that the maintainer and his wife consented to the real recordings used; additional synthetic audio was generated with Piper TTS, with no other third-party human recordings. |
 | Runtime/downloader model files | Downloadable models and voices are not committed to the source repo unless explicitly bundled in a release artefact. | Final `.aab` inspection still required in #1259. |
 | Play monetisation | First Play launch remains free-only; no Play Billing, paid app, IAP, or subscriptions. | Captured in #1264. |
 
@@ -76,7 +76,7 @@ Release treatment:
 
 - keep openWakeWord Apache-2.0 attribution in `NOTICE`;
 - keep the training README as the source-of-truth provenance for the generated model;
-- before final Play release, the maintainer should confirm that the local real recordings are owned/consented for use in the bundled wake-word model.
+- Nick confirmed in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577) that the maintainer and his wife consented to the real recordings; additional synthetic audio used Piper TTS, and no other third-party human recordings were used.
 
 ## In-app disclosures required by #1263
 
@@ -104,6 +104,6 @@ The following items were completed in #1259:
 - [ ] Formal SBOM (CycloneDX/SPDX) or generated third-party notices — not yet produced; manual dependency review is the current evidence
 - [ ] Decide whether to add an SBOM generation plugin or accept manual review as sufficient
 - [ ] Confirm exact bundled/downloaded Vosk model provenance if exposed in release
-- [ ] Confirm maintainer ownership/consent for Stage 3 wake-word training recordings
+- [x] Nick's ownership/consent confirmation for Stage 3 wake-word recordings is recorded in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577).
 - [ ] Implement and validate both offline in-app disclosure views required by #1263 in the shared Legal & Privacy surface tracked by #1260.
 - [ ] Update #868 with final release scope

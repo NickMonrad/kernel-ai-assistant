@@ -69,6 +69,8 @@ import com.kernel.ai.feature.convert.ConvertScreen
 import com.kernel.ai.feature.convert.mapQueryParamToConvertTab
 import com.kernel.ai.feature.settings.AppPermissionsScreen
 import com.kernel.ai.feature.settings.AboutScreen
+import com.kernel.ai.feature.settings.LegalPrivacyScreen
+import com.kernel.ai.feature.settings.OpenSourceLicensesScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
 import com.kernel.ai.feature.settings.ImportantDatesScreen
 import com.kernel.ai.feature.settings.ListItemsScreen
@@ -104,6 +106,8 @@ private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
 private const val ARG_SCROLL_TO = "scrollTo"
 internal const val ROUTE_ABOUT = "settings/about"
+private const val ROUTE_LEGAL_PRIVACY = "settings/legal_privacy"
+private const val ROUTE_OPEN_SOURCE_LICENSES = "settings/open_source_licenses"
 internal const val ROUTE_APP_PERMISSIONS = "settings/app_permissions"
 internal const val ROUTE_CHAT_PREFERENCES = "settings/chat_preferences"
 internal const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
@@ -831,11 +835,29 @@ fun KernelNavHost(
                 composable(ROUTE_ABOUT) {
                     AboutScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        onNavigateToLegalPrivacy = {
+                            navController.navigate(ROUTE_LEGAL_PRIVACY)
+                        },
                         versionName = com.kernel.ai.BuildConfig.VERSION_NAME,
                         versionCode = com.kernel.ai.BuildConfig.VERSION_CODE,
                         buildType = com.kernel.ai.BuildConfig.BUILD_TYPE,
                         gitSha = com.kernel.ai.BuildConfig.GIT_SHA,
                         buildTimestamp = com.kernel.ai.BuildConfig.BUILD_TIMESTAMP,
+                    )
+                }
+
+                composable(ROUTE_LEGAL_PRIVACY) {
+                    LegalPrivacyScreen(
+                        onBack = { navController.popBackOrNavigateHome() },
+                        onOpenSourceLicenses = {
+                            navController.navigate(ROUTE_OPEN_SOURCE_LICENSES)
+                        },
+                    )
+                }
+
+                composable(ROUTE_OPEN_SOURCE_LICENSES) {
+                    OpenSourceLicensesScreen(
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
