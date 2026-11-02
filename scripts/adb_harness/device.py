@@ -383,6 +383,7 @@ def check_oracle(
             ACTIVITY,
             "--activity-clear-top",
             "--activity-single-top",
+            *harness_token_extras(),
             "--es",
             "chat_input",
             shlex.quote(prompt),
@@ -474,6 +475,22 @@ def _keep_foreground_until_inference_starts(
         _tap_keepalive()
 
 
+# #1604: debug builds auto-run prompt extras only for Jandal itself or a launch that presents the
+# token stored in the app's private files dir. Only `adb shell run-as` (debuggable builds) can
+# write it, so other apps cannot forge a harness launch. One random token per harness process.
+_HARNESS_TOKEN = uuid.uuid4().hex
+
+
+def harness_token_extras() -> list[str]:
+    """Write the harness token via ``run-as`` and return the matching ``am start`` extras.
+
+    Written on every call because ``pm clear``/reinstalls wipe the app's files dir.
+    """
+    script = f"mkdir -p files && printf %s {_HARNESS_TOKEN} > files/adb_harness_token"
+    run_adb("shell", "run-as", PACKAGE, "sh", "-c", shlex.quote(script))
+    return ["--es", "adb_harness_token", _HARNESS_TOKEN]
+
+
 def send_text(text: str, wait_for_inference: bool = True) -> None:
     """Deliver *text* via ``chat_input`` extra to ChatViewModel."""
     run_adb(
@@ -484,6 +501,7 @@ def send_text(text: str, wait_for_inference: bool = True) -> None:
         ACTIVITY,
         "--activity-clear-top",
         "--activity-single-top",
+        *harness_token_extras(),
         "--es",
         "chat_input",
         shlex.quote(text),
@@ -502,6 +520,7 @@ def send_quick_action(text: str) -> None:
         ACTIVITY,
         "--activity-clear-top",
         "--activity-single-top",
+        *harness_token_extras(),
         "--es",
         "quick_action_input",
         shlex.quote(text),
@@ -518,6 +537,7 @@ def send_slot_reply(text: str) -> None:
         ACTIVITY,
         "--activity-clear-top",
         "--activity-single-top",
+        *harness_token_extras(),
         "--es",
         "slot_reply_input",
         shlex.quote(text),
@@ -1023,6 +1043,7 @@ def send_profile(profile_text: str) -> None:
         ACTIVITY,
         "--activity-clear-top",
         "--activity-single-top",
+        *harness_token_extras(),
         "--es",
         "profile_text",
         shlex.quote(single_line),
