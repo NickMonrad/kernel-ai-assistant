@@ -157,6 +157,16 @@ android {
                 "lib/x86/libonnxruntime.so",
                 "lib/x86_64/libonnxruntime.so",
             )
+            excludes += setOf(
+                "lib/arm64-v8a/libsherpa-onnx-c-api.so",
+                "lib/armeabi-v7a/libsherpa-onnx-c-api.so",
+                "lib/x86/libsherpa-onnx-c-api.so",
+                "lib/x86_64/libsherpa-onnx-c-api.so",
+                "lib/arm64-v8a/libsherpa-onnx-cxx-api.so",
+                "lib/armeabi-v7a/libsherpa-onnx-cxx-api.so",
+                "lib/x86/libsherpa-onnx-cxx-api.so",
+                "lib/x86_64/libsherpa-onnx-cxx-api.so",
+            )
         }
     }
 }
