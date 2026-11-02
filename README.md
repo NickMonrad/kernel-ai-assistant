@@ -89,7 +89,8 @@ Jandal is designed as a local-first assistant:
 - production builds should not include telemetry;
 - external network exchange occurs only for explicit web-backed skills, configured model/voice downloads, or user-enabled integrations, and is limited to the data needed for that integration;
 - explicitly selected Lists may synchronise with a user-configured Nextcloud server while unsynchronised Lists remain local-only;
-- Hugging Face sign-in is used only for gated model access.
+- Hugging Face sign-in is used only for gated model access;
+- when a user chooses **Report response**, Jandal opens a pre-filled email composer containing only that assistant reply, the app version, the active model, and an editable reason prompt. The user reviews and sends the email; Jandal does not transmit reports itself. If the user sends it, the email and included reply are handled by their chosen email provider and delivered to the dedicated support address.
 
 ## Documentation
 
