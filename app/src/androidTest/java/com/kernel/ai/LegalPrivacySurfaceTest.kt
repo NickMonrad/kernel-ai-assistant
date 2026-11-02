@@ -43,7 +43,7 @@ class LegalPrivacySurfaceTest {
                 OpenSourceLicensesScreen(onBack = {})
             }
         }
-        composeRule.onNodeWithText("Bundled third-party notices").assertIsDisplayed()
+        composeRule.onNodeWithText("Third-party software notices").assertIsDisplayed()
         composeRule.onNodeWithText("openWakeWord", substring = true).assertIsDisplayed()
     }
 }

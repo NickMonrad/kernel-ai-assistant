@@ -61,7 +61,7 @@ fun LegalPrivacyScreen(
                     .fillMaxWidth()
                     .clickable { openInAppBrowser(context, PRIVACY_POLICY_URL) },
                 headlineContent = { Text("Privacy Policy") },
-                supportingContent = { Text("View the Privacy Policy on GitHub Pages") },
+                supportingContent = { Text("Opens online") },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
@@ -71,7 +71,7 @@ fun LegalPrivacyScreen(
                     .fillMaxWidth()
                     .clickable { openInAppBrowser(context, TERMS_OF_USE_URL) },
                 headlineContent = { Text("Terms of Use") },
-                supportingContent = { Text("View the Terms of Use on GitHub Pages") },
+                supportingContent = { Text("Opens online") },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()
@@ -81,7 +81,7 @@ fun LegalPrivacyScreen(
                     .fillMaxWidth()
                     .clickable(onClick = onOpenSourceLicenses),
                 headlineContent = { Text("Open-source licences") },
-                supportingContent = { Text("Read bundled third-party notices offline") },
+                supportingContent = { Text("Licences for third-party software in Jandal") },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
         }
@@ -116,7 +116,7 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Text(
-                text = "Bundled third-party notices",
+                text = "Third-party software notices",
                 style = MaterialTheme.typography.titleMedium,
             )
             SelectionContainer {

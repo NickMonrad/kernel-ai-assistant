@@ -1,4 +1,4 @@
-Kernel AI Assistant
+Jandal AI (Kernel AI Assistant)
 Copyright 2026 Nicholas Monrad
 
 This product includes software adapted from or based on the following projects:
