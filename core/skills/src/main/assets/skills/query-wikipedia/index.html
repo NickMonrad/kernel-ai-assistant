@@ -6,26 +6,45 @@
  * Kernel AI — query-wikipedia JS skill
  * Compatible with Google AI Edge Gallery's ai_edge_gallery_get_result() contract.
  *
- * Args: { query: string }
- * Returns: A plain-text Wikipedia summary for the query.
+ * Args: { query: string, mode?: "evidence" }
+ * Returns: A plain-text Wikipedia summary for the query. With mode="evidence", returns JSON
+ * {title, url, summary, extract} where extract is the bounded plain-text article body (section
+ * headings as "== Heading ==") for question-targeted passage selection in QueryWikipediaSkill.
  *
  * Strategy:
  *  1. Try direct summary endpoint (works for exact article titles)
  *  2. If that 404s, search for top result then fetch its full summary
+ *  3. Evidence mode only: fetch the article's plain-text extract via MediaWiki TextExtracts
  */
+const MAX_EVIDENCE_EXTRACT_CHARS = 60000;
+
 async function ai_edge_gallery_get_result(data) {
     const query = (data.query || data.topic || data.search || "").trim();
     if (!query) return "No search query provided.";
 
+    const summary = await fetchSummary(query);
+    if (typeof summary === "string") return summary;
+    if (data.mode !== "evidence") return formatSummary(summary);
+
+    const title = summary.title || "";
+    if (!summary.extract) return "Wikipedia has no summary for: " + title;
+    return JSON.stringify({
+        title: title,
+        url: pageUrlOf(summary),
+        summary: summary.extract,
+        extract: await fetchPlainExtract(title),
+    });
+}
+
+// Returns the REST summary JSON, or a plain-text failure message.
+async function fetchSummary(query) {
     const encoded = encodeURIComponent(query);
 
     // 1. Try direct summary lookup
     const summaryResp = await fetch(
         "https://en.wikipedia.org/api/rest_v1/page/summary/" + encoded
     );
-    if (summaryResp.ok) {
-        return formatSummary(await summaryResp.json());
-    }
+    if (summaryResp.ok) return await summaryResp.json();
 
     // 2. Search for top result, then fetch its summary
     const searchResp = await fetch(
@@ -44,14 +63,36 @@ async function ai_edge_gallery_get_result(data) {
     );
     if (!articleResp.ok) return "Couldn't fetch Wikipedia article for: " + topTitle;
 
-    return formatSummary(await articleResp.json());
+    return await articleResp.json();
+}
+
+// Plain-text article body; empty when unavailable so the caller still has the summary.
+async function fetchPlainExtract(title) {
+    try {
+        const resp = await fetch(
+            "https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1" +
+            "&exsectionformat=wiki&redirects=1&format=json&origin=*&titles=" +
+            encodeURIComponent(title)
+        );
+        if (!resp.ok) return "";
+        const json = await resp.json();
+        const pages = (json && json.query && json.query.pages) || {};
+        const page = Object.values(pages)[0];
+        return ((page && page.extract) || "").slice(0, MAX_EVIDENCE_EXTRACT_CHARS);
+    } catch (e) {
+        return "";
+    }
+}
+
+function pageUrlOf(json) {
+    return json.content_urls && json.content_urls.desktop
+        ? json.content_urls.desktop.page : "";
 }
 
 function formatSummary(json) {
     const title = json.title || "";
     const extract = json.extract || "";
-    const pageUrl = json.content_urls && json.content_urls.desktop
-        ? json.content_urls.desktop.page : "";
+    const pageUrl = pageUrlOf(json);
 
     if (!extract) return "Wikipedia has no summary for: " + title;
 
