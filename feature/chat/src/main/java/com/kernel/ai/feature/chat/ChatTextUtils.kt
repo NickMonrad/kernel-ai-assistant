@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.skills.isFactualWikipediaQuestion
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 
 /**
@@ -510,6 +511,11 @@ private val BARE_WIKIPEDIA_ANAPHORA_REGEX = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+/**
+ * Query for the explicit "look up X on Wikipedia" fast path, which renders the article summary
+ * without the model. Question-shaped requests ("Search Wikipedia for is X Jewish") return null so
+ * the model answers the question from Wikipedia evidence instead (#1689).
+ */
 internal fun extractExplicitWikipediaQuery(text: String): String? {
     val patterns = listOf(
         Regex("""^\s*(?:look\s+up|search)\s+wikipedia\s+(?:for\s+)?(.+?)\s*[?!.]*$""", RegexOption.IGNORE_CASE),
@@ -518,7 +524,9 @@ internal fun extractExplicitWikipediaQuery(text: String): String? {
     )
     return patterns.firstNotNullOfOrNull { regex ->
         regex.matchEntire(text)?.groupValues?.getOrNull(1)?.trim()
-            ?.takeIf { it.isNotBlank() && !BARE_WIKIPEDIA_ANAPHORA_REGEX.matches(it) }
+            ?.takeIf {
+                it.isNotBlank() && !BARE_WIKIPEDIA_ANAPHORA_REGEX.matches(it) && !isFactualWikipediaQuestion(it)
+            }
     }
 }
 
