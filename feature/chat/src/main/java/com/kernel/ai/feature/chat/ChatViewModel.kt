@@ -4191,6 +4191,10 @@ class ChatViewModel @Inject constructor(
     /** Snapshot of the currently active model settings, used by the settings overlay. */
     val activeModelSettings: StateFlow<ModelSettingsEntity?> = _activeModelSettings.asStateFlow()
 
+    /** Returns hardware-aware defaults without persisting them, for the in-chat settings draft. */
+    fun defaultModelSettings(modelId: String): ModelSettingsEntity =
+        modelSettingsRepository.defaultSettings(modelId)
+
     /** True while [applyModelSettingsAndStartNewChat] is in-flight. */
     val isApplyingSettings: StateFlow<Boolean> = _isApplyingSettings.asStateFlow()
 
