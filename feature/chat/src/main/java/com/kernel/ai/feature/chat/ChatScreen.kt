@@ -698,7 +698,7 @@ fun ChatScreen(
                                 temp = 1.0f
                                 topP = 0.95f
                                 topK = 64
-                                showThinking = true
+                                showThinking = viewModel.defaultModelSettings(currentModel!!.modelId).showThinkingProcess
                             },
                         )
                     }
