@@ -88,6 +88,85 @@ jobs:
             --evidence-store-state "${{ steps.evidence_store.outputs.state || 'unavailable' }}" \
             --evidence-store-reason "${{ steps.evidence_store.outputs.reason || 'The evidence store could not be assessed.' }}"
 
+      - name: Stage approved legal documents
+        id: stage_legal
+        run: |
+          set -euo pipefail
+          # Build from a fresh allowlist, never from the repository root.
+          source=repo/.legal-pages-source
+          mkdir -p "$source/_layouts"
+          cat > "$source/_config.yml" <<'EOF'
+          markdown: kramdown
+          EOF
+          cat > "$source/_layouts/legal.html" <<'EOF'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>{{ page.title | escape }} — Jandal AI</title>
+          </head>
+          <body>
+            <main>
+              {{ content }}
+            </main>
+          </body>
+          </html>
+          EOF
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          source = Path("repo/.legal-pages-source")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          repo_name = repo.split("/", 1)[1]
+          pages = (
+              ("PRIVACY.md", "Privacy Policy", "/privacy/"),
+              ("TERMS.md", "Terms of Use", "/terms/"),
+          )
+          staged = []
+          for filename, title, permalink in pages:
+              original = Path("repo") / filename
+              if not original.is_file():
+                  continue
+              content = original.read_text()
+              if filename == "TERMS.md":
+                  content = content.replace(
+                      "(PRIVACY.md)", f"(/{repo_name}/privacy/)"
+                  ).replace(
+                      "(LICENSE)",
+                      f"(https://github.com/{repo}/blob/main/LICENSE)",
+                  )
+              page = source / filename
+              page.write_text(
+                  f"---\nlayout: legal\ntitle: {title}\npermalink: {permalink}\n---\n"
+                  + content
+              )
+              staged.append(filename)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"present={str(bool(staged)).lower()}\n")
+          print("Staged only: " + (", ".join(staged) if staged else "no legal files merged yet"))
+          PY
+
+      - name: Render approved legal documents
+        if: steps.stage_legal.outputs.present == 'true'
+        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
+        with:
+          source: ./repo/.legal-pages-source
+          destination: ./repo/.legal-pages-build
+
+      - name: Add legal documents to Pages artifact
+        if: steps.stage_legal.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          if [[ -d repo/.legal-pages-build/privacy ]]; then
+            cp -R repo/.legal-pages-build/privacy repo/_site/privacy
+          fi
+          if [[ -d repo/.legal-pages-build/terms ]]; then
+            cp -R repo/.legal-pages-build/terms repo/_site/terms
+          fi
+
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
 
