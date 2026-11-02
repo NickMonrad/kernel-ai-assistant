@@ -46,6 +46,7 @@ from adb_harness.model_readiness import (
 )
 from adb_harness.device import (
     _keep_foreground_until_inference_starts,
+    harness_token_extras,
     _filter_lines_after_boundary,
     check_oracle,
     check_logcat_stream,
@@ -416,7 +417,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     # Keep app in foreground until routing completes (Android 15+ constraint).
     # _keep_foreground_until_inference_starts() already proves the model stack is ready
     # by detecting OrchTest: or InferenceGenerationService markers.
-    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
     _keep_foreground_until_inference_starts()
 
     # MiniLM readiness check: send a prompt that exercises MiniLM, wait for classifier result.
@@ -425,7 +426,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     clear_logcat()
     run_adb("shell", "am", "force-stop", PACKAGE)
     time.sleep(1)
-    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
     _keep_foreground_until_inference_starts()
     print("ready")
     # Pre-run cleanup: cancel Jandal clock alerts and silence any fired timers
@@ -1003,7 +1004,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     run_adb("shell", "am", "start", "-n", ACTIVITY)
     time.sleep(3)
     clear_logcat()
-    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
     # Poll logcat until NativeIntentHandler fires (model loaded + QIR dispatched) or 120s timeout
     deadline = time.time() + 120
     warmed = False
@@ -1018,7 +1019,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         # wait an additional 30s before giving up entirely.
         print("no response yet — sending second warmup probe ...", end=" ", flush=True)
         clear_logcat()
-        run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+        run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
         deadline2 = time.time() + 30
         while time.time() < deadline2:
             time.sleep(2)
@@ -1771,7 +1772,7 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     run_adb("shell", "am", "start", "-n", ACTIVITY)
     time.sleep(3)
     clear_logcat()
-    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
     deadline = time.time() + 120
     warmed = False
     while time.time() < deadline:
@@ -1783,7 +1784,7 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     if not warmed:
         print("no response yet — sending second warmup probe ...", end=" ", flush=True)
         clear_logcat()
-        run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+        run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
         deadline2 = time.time() + 30
         while time.time() < deadline2:
             time.sleep(2)

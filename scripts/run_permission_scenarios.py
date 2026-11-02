@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import shlex
 import subprocess
 import sys
@@ -39,6 +40,8 @@ SUITE = "permission_scenarios"
 APP_PACKAGE = "com.kernel.ai.debug"
 MAIN_ACTIVITY = "com.kernel.ai.MainActivity"
 UI_DUMP_REMOTE_PATH = "/sdcard/permission-runner-ui.xml"
+# #1604: debug builds auto-run prompt extras from adb only with a token written via `run-as`.
+HARNESS_TOKEN = secrets.token_hex(16)
 
 SETTINGS_PACKAGE_PREFIXES = (
     "com.android.settings",
@@ -556,8 +559,11 @@ class ScenarioRunner:
             self.wake_and_home()
             query = step["query"]
             encoded = uri_encode(query)
+            token_script = f"mkdir -p files && printf %s {HARNESS_TOKEN} > files/adb_harness_token"
+            self.adb.shell(f"run-as {APP_PACKAGE} sh -c {shlex.quote(token_script)}", timeout=10)
             command = (
                 f"am start -W -S -n {APP_PACKAGE}/{MAIN_ACTIVITY} "
+                f"--es adb_harness_token {HARNESS_TOKEN} "
                 f"--es quick_action_input_encoded {encoded} --ez quick_action_is_voice false"
             )
             self.adb.shell(command, timeout=45)
