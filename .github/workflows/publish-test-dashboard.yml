@@ -88,7 +88,7 @@ jobs:
             --evidence-store-state "${{ steps.evidence_store.outputs.state || 'unavailable' }}" \
             --evidence-store-reason "${{ steps.evidence_store.outputs.reason || 'The evidence store could not be assessed.' }}"
 
-      - name: Stage approved legal documents
+      - name: Stage non-draft legal documents
         id: stage_legal
         run: |
           set -euo pipefail
@@ -130,6 +130,9 @@ jobs:
               if not original.is_file():
                   continue
               content = original.read_text()
+              if "Draft for owner" in content:
+                  print(f"Skipping draft legal document: {filename}")
+                  continue
               if filename == "TERMS.md":
                   content = content.replace(
                       "(PRIVACY.md)", f"(/{repo_name}/privacy/)"
@@ -146,10 +149,10 @@ jobs:
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"present={str(bool(staged)).lower()}\n")
-          print("Staged only: " + (", ".join(staged) if staged else "no legal files merged yet"))
+          print("Staged non-draft documents: " + (", ".join(staged) if staged else "no non-draft legal files are ready yet"))
           PY
 
-      - name: Render approved legal documents
+      - name: Render non-draft legal documents
         if: steps.stage_legal.outputs.present == 'true'
         uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
         with:
