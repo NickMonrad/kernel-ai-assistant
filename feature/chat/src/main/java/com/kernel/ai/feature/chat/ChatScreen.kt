@@ -229,6 +229,9 @@ fun ChatScreen(
     conversationId: String? = null,
     initialQuery: String? = null,
     speakInitialResponse: Boolean = false,
+    /** #1604: text from another app, placed in the composer for review; it is never auto-sent. */
+    externalDraft: String? = null,
+    onExternalDraftConsumed: () -> Unit = {},
     onBack: () -> Unit = {},
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
@@ -275,6 +278,25 @@ fun ChatScreen(
             if (ready != null) {
                 viewModel.submitInitialQueryIfNeeded(initialQuery, speakResponse = speakInitialResponse)
             }
+        }
+    }
+    // #1604: externally supplied text only fills the composer; the user must tap Send.
+    // The notice above the composer stays until the text is sent, cleared or discarded.
+    var showExternalDraftNotice by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(externalDraft) {
+        if (!externalDraft.isNullOrBlank()) {
+            withTimeoutOrNull(30_000L) { viewModel.isConversationReady.first { it } }
+            viewModel.onInputChanged(externalDraft)
+            showExternalDraftNotice = true
+            onExternalDraftConsumed()
+        }
+    }
+    LaunchedEffect(showExternalDraftNotice) {
+        if (showExternalDraftNotice) {
+            // Skip a stale emission from before the draft reached the composer.
+            viewModel.uiState.first { it is ChatUiState.Ready && it.inputText.isNotBlank() }
+            viewModel.uiState.first { it is ChatUiState.Ready && it.inputText.isBlank() }
+            showExternalDraftNotice = false
         }
     }
     var showModelSettings by remember { mutableStateOf(false) }
@@ -438,6 +460,11 @@ fun ChatScreen(
                 speakingMessageId = speakingMessageId,
                 onSpeakMessage = viewModel::speakMessage,
                 snackbarHostState = snackbarHostState,
+                showExternalDraftNotice = showExternalDraftNotice,
+                onDiscardExternalDraft = {
+                    viewModel.onInputChanged("")
+                    showExternalDraftNotice = false
+                },
                 onCopyMessage = { content ->
                     clipboardManager.setText(AnnotatedString(stripMarkdownForClipboard(content)))
                     scope.launch { snackbarHostState.showSnackbar("Message copied") }
@@ -709,6 +736,8 @@ private fun ChatContent(
     speakingMessageId: String?,
     onSpeakMessage: (String, String) -> Unit,
     snackbarHostState: SnackbarHostState,
+    showExternalDraftNotice: Boolean,
+    onDiscardExternalDraft: () -> Unit,
     onCopyMessage: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
     onCopyAll: () -> Unit,
@@ -999,6 +1028,9 @@ private fun ChatContent(
                 }
             }
 
+            if (!isArchived && showExternalDraftNotice) {
+                ExternalDraftNotice(onDiscard = onDiscardExternalDraft)
+            }
             if (!isArchived) {
                 InputBar(
                     text = state.inputText,
@@ -1349,6 +1381,33 @@ internal fun MessageBubble(
                     }
                 }
             }
+        }
+    }
+}
+
+/** #1604: marks composer text that another app supplied; nothing runs until the user sends it. */
+@Composable
+private fun ExternalDraftNotice(onDiscard: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .testTag("chat_external_draft_notice"),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = EXTERNAL_DRAFT_HINT,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onDiscard) { Text("Discard") }
         }
     }
 }
