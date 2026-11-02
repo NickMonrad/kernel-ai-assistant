@@ -1,6 +1,7 @@
 package com.kernel.ai.navigation
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 class KernelNavHostRouteTest {
@@ -68,5 +69,33 @@ class KernelNavHostRouteTest {
     @Test
     fun `encodeRouteQueryValue encodes ampersand`() {
         assertEquals("a%20%26%20b", encodeRouteQueryValue("a & b"))
+    }
+
+    @Test
+    fun `external chat draft is carried as draftQuery, never as the auto-sent initialQuery`() {
+        assertEquals(
+            "chat?draftQuery=delete%20all%20my%20alarms%20%26%20text%20Bob",
+            buildChatRoute(externalDraft = "delete all my alarms & text Bob"),
+        )
+    }
+
+    @Test
+    fun `blank external chat draft yields the plain chat route`() {
+        assertEquals("chat", buildChatRoute(externalDraft = "   "))
+    }
+
+    @Test
+    fun `external actions draft opens the sheet labelled external and carries no widgetQuery`() {
+        assertEquals(
+            "actions?openSheet=true&draftQuery=call%20Mum&draftExternal=true",
+            buildActionsDraftRoute("call Mum", fromExternalApp = true),
+        )
+    }
+
+    @Test
+    fun `consumed route draft is not redelivered after recreation`() {
+        assertEquals("external text", routeDraftForDelivery("external text", consumed = false))
+        assertNull(routeDraftForDelivery("external text", consumed = true))
+        assertNull(routeDraftForDelivery("  ", consumed = false))
     }
 }
