@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills
 
 import com.kernel.ai.core.skills.js.JsSkillRunner
+import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -92,6 +93,176 @@ internal fun filterWikipediaResult(query: String, result: String): String {
         "No confident Wikipedia result found for: $query"
     }
 }
+
+private val WIKIPEDIA_FACTUAL_QUESTION_REGEX = Regex(
+    """^\s*(?:is|are|was|were|did|does|do|has|have|had|can|could|will|would|who|what|when|where|why|how|which|whose)\s+\S+""",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
+ * True when [text] is phrased as a question (auxiliary or wh- word first), e.g. "Is Andy Samberg
+ * Jewish?". Such Wikipedia lookups return question-relevant evidence for the model to answer from
+ * (#1689) instead of a terminal article summary.
+ */
+fun isFactualWikipediaQuestion(text: String): Boolean =
+    WIKIPEDIA_FACTUAL_QUESTION_REGEX.containsMatchIn(text)
+
+private val EXPLICIT_WIKIPEDIA_PREFIX_REGEX = Regex(
+    """^\s*(?:(?:search|look\s+up)\s+(?:on\s+)?wikipedia\s+(?:for\s+)?|look\s+up\s+|search\s+|wikipedia\s+)""",
+    RegexOption.IGNORE_CASE,
+)
+private val EXPLICIT_WIKIPEDIA_SUFFIX_REGEX = Regex("""\s+on\s+wikipedia\s*[?!.]*\s*$""", RegexOption.IGNORE_CASE)
+
+/** Removes the explicit "search/look up [on] Wikipedia" wrapper so the question check sees the question itself (#1689). */
+private fun stripExplicitWikipediaWrapper(text: String): String =
+    text.replace(EXPLICIT_WIKIPEDIA_PREFIX_REGEX, "").replace(EXPLICIT_WIKIPEDIA_SUFFIX_REGEX, "").trim()
+
+internal data class WikipediaArticleEvidence(
+    val title: String,
+    val url: String,
+    val summary: String,
+    val extract: String,
+)
+
+/** Parses the JSON emitted by the JS skill in evidence mode; null for its plain-text no-result messages. */
+internal fun parseWikipediaArticleEvidence(raw: String): WikipediaArticleEvidence? {
+    if (!raw.trimStart().startsWith("{")) return null
+    return runCatching {
+        val json = JSONObject(raw)
+        WikipediaArticleEvidence(
+            title = json.optString("title"),
+            url = json.optString("url"),
+            summary = json.optString("summary"),
+            extract = json.optString("extract"),
+        )
+    }.getOrNull()?.takeIf { it.title.isNotBlank() }
+}
+
+internal const val WIKIPEDIA_MAX_EVIDENCE_PASSAGES = 2
+internal const val WIKIPEDIA_MAX_PASSAGE_CHARS = 280
+internal const val WIKIPEDIA_MAX_EVIDENCE_CHARS = 1_500
+private const val WIKIPEDIA_MAX_QUESTION_CHARS = 160
+private const val WIKIPEDIA_MAX_TITLE_CHARS = 60
+private const val WIKIPEDIA_MAX_URL_CHARS = 120
+private const val WIKIPEDIA_MAX_SUMMARY_CHARS = 180
+private const val WIKIPEDIA_MAX_HEADING_CHARS = 32
+
+private val WIKIPEDIA_QUESTION_STOPWORDS = setOf(
+    "is", "are", "was", "were", "did", "does", "do", "has", "have", "had", "can", "could", "will",
+    "would", "who", "what", "when", "where", "why", "how", "which", "whose", "the", "and", "for",
+    "from", "with", "about", "into", "that", "this", "his", "her", "hers", "him", "she", "they",
+    "them", "their", "its", "any", "ever", "been", "being", "much", "many", "please", "tell",
+    "wikipedia", "there", "not",
+)
+
+private val WIKIPEDIA_SKIPPED_SECTIONS = setOf(
+    "references", "external links", "see also", "further reading", "notes", "bibliography", "sources",
+)
+
+private val WIKIPEDIA_HEADING_REGEX = Regex("""^=+\s*(.+?)\s*=+$""")
+private val WIKIPEDIA_WORD_REGEX = Regex("""[\p{L}\p{N}]+""")
+
+private fun wikipediaWords(text: String): List<String> =
+    WIKIPEDIA_WORD_REGEX.findAll(text.lowercase()).map { it.value }.toList()
+
+private fun isWikipediaWordVariant(a: String, b: String): Boolean =
+    a.startsWith(b) || (b.startsWith(a) && a.length >= 4)
+
+/**
+ * Question terms that can discriminate passages: drops stopwords and anything naming the article
+ * subject itself (including speech-like variants such as "Samberger" for "Samberg").
+ */
+internal fun wikipediaQuestionKeywords(question: String, subject: String): List<String> {
+    val subjectWords = wikipediaWords(subject).filter { it.length >= 3 }
+    return wikipediaWords(question)
+        .filter { it.length >= 3 && it !in WIKIPEDIA_QUESTION_STOPWORDS }
+        .filterNot { word -> subjectWords.any { isWikipediaWordVariant(word, it) || isWikipediaWordVariant(it, word) } }
+        .distinct()
+}
+
+internal data class WikipediaPassage(val heading: String?, val text: String)
+
+/**
+ * Selects at most [WIKIPEDIA_MAX_EVIDENCE_PASSAGES] article paragraphs that mention question
+ * keywords, ranked by distinct keyword hits, then article order. Each excerpt is bounded to
+ * [WIKIPEDIA_MAX_PASSAGE_CHARS] and starts at the sentence containing the first hit.
+ */
+internal fun selectWikipediaPassages(extract: String, keywords: List<String>): List<WikipediaPassage> {
+    if (keywords.isEmpty()) return emptyList()
+    var heading: String? = null
+    val scored = mutableListOf<Triple<Int, Int, WikipediaPassage>>()
+    extract.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
+        val headingMatch = WIKIPEDIA_HEADING_REGEX.matchEntire(line)
+        if (headingMatch != null) {
+            heading = headingMatch.groupValues[1]
+            return@forEach
+        }
+        if (heading?.lowercase() in WIKIPEDIA_SKIPPED_SECTIONS) return@forEach
+        val words = wikipediaWords(line)
+        val hits = keywords.filter { keyword -> words.any { isWikipediaWordVariant(it, keyword) } }
+        if (hits.isEmpty()) return@forEach
+        scored += Triple(hits.size, scored.size, WikipediaPassage(heading, excerptAround(line, hits)))
+    }
+    return scored
+        .sortedWith(compareByDescending<Triple<Int, Int, WikipediaPassage>> { it.first }.thenBy { it.second })
+        .take(WIKIPEDIA_MAX_EVIDENCE_PASSAGES)
+        .map { it.third }
+}
+
+private fun excerptAround(paragraph: String, hits: List<String>): String {
+    if (paragraph.length <= WIKIPEDIA_MAX_PASSAGE_CHARS) return paragraph
+    val lower = paragraph.lowercase()
+    val firstHit = hits.mapNotNull { hit ->
+        Regex("""(?<![\p{L}\p{N}])${Regex.escape(hit)}""").find(lower)?.range?.first
+    }.minOrNull() ?: 0
+    val sentenceStart = lower.lastIndexOf(". ", firstHit).let { if (it < 0) 0 else it + 2 }
+    val end = (sentenceStart + WIKIPEDIA_MAX_PASSAGE_CHARS).coerceAtMost(paragraph.length)
+    return (if (sentenceStart > 0) "…" else "") +
+        paragraph.substring(sentenceStart, end).trim() +
+        (if (end < paragraph.length) "…" else "")
+}
+
+internal fun formatWikipediaEvidence(question: String, evidence: WikipediaArticleEvidence): String {
+    val passages = selectWikipediaPassages(
+        evidence.extract,
+        wikipediaQuestionKeywords(question, evidence.title),
+    )
+    val block = buildString {
+        appendLine("Wikipedia evidence for the user's question: \"${question.take(WIKIPEDIA_MAX_QUESTION_CHARS)}\"")
+        appendLine("Article: ${evidence.title.take(WIKIPEDIA_MAX_TITLE_CHARS)}")
+        if (evidence.url.isNotBlank()) appendLine("Source: ${evidence.url.take(WIKIPEDIA_MAX_URL_CHARS)}")
+        appendLine()
+        appendLine("Summary: ${evidence.summary.trim().take(WIKIPEDIA_MAX_SUMMARY_CHARS)}")
+        appendLine()
+        if (passages.isEmpty()) {
+            appendLine("No other passage in the article mentions the question's terms.")
+        } else {
+            appendLine("Relevant passages:")
+            passages.forEach { passage ->
+                val heading = passage.heading?.take(WIKIPEDIA_MAX_HEADING_CHARS)
+                appendLine("- ${heading?.let { "[$it] " }.orEmpty()}${passage.text}")
+            }
+        }
+    }.trimEnd()
+    val instructionSuffix = "\n\n$WIKIPEDIA_EVIDENCE_ANSWER_RULE"
+    return block
+        .take(WIKIPEDIA_MAX_EVIDENCE_CHARS - instructionSuffix.length)
+        .trimEnd() + instructionSuffix
+}
+
+/** Removes model-only guidance from Wikipedia evidence before exposing a tool result to the UI. */
+fun toVisibleWikipediaEvidenceResult(result: String): String =
+    result.removeSuffix("\n\n$WIKIPEDIA_EVIDENCE_ANSWER_RULE")
+
+private const val WIKIPEDIA_EVIDENCE_ANSWER_RULE =
+    "Answer the user's question directly, using only this evidence. If it does not establish the " +
+        "answer, say Wikipedia does not establish it; do not guess or infer it from unrelated biography."
+
+internal fun wikipediaNoEvidenceResult(query: String, question: String): String =
+    "No confident Wikipedia article found for: $query\n" +
+        "Wikipedia did not provide evidence for the user's question: \"$question\". " +
+        "Say that Wikipedia did not establish an answer; do not guess."
+
 /**
  * Public skill surface for Wikipedia lookups.
  *
@@ -147,7 +318,24 @@ class QueryWikipediaSkill @Inject constructor(
     override suspend fun execute(call: SkillCall): SkillResult {
         val query = call.arguments["query"]?.trim()
             ?: return SkillResult.Failure(name, "Missing required parameter: query.")
-        val result = runner.execute("query-wikipedia", mapOf("query" to query))
-        return SkillResult.DirectReply(filterWikipediaResult(query, result))
+        val question = call.arguments[QUESTION_ARGUMENT]?.let(::stripExplicitWikipediaWrapper)?.takeIf { isFactualWikipediaQuestion(it) }
+        if (question == null) {
+            val result = runner.execute("query-wikipedia", mapOf("query" to query))
+            return SkillResult.DirectReply(filterWikipediaResult(query, result))
+        }
+        // Factual question: return bounded evidence so the model answers it in the same turn (#1689).
+        val raw = runner.execute("query-wikipedia", mapOf("query" to query, "mode" to "evidence"))
+        val evidence = parseWikipediaArticleEvidence(raw)?.takeIf {
+            !isIdentifierLikeWikipediaQuery(query) || hasConfidentWikipediaIdentifierMatch(query, it.title)
+        } ?: return SkillResult.Success(wikipediaNoEvidenceResult(query, question))
+        return SkillResult.Success(formatWikipediaEvidence(question, evidence))
+    }
+
+    companion object {
+        /**
+         * Internal argument carrying the user's original question. Supplied by [KernelAIToolSet]
+         * from the current turn, not by the model.
+         */
+        const val QUESTION_ARGUMENT = "question"
     }
 }

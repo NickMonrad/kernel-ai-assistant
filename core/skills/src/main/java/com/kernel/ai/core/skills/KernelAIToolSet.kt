@@ -213,6 +213,8 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var lastToolPresentation: ToolPresentation? = null
     @Volatile private var lastToolSpokenSummary: String? = null
     @Volatile private var lastToolWasDirectReply: Boolean = false
+    // The current turn's user message; lets queryWikipedia answer the original question (#1689).
+    @Volatile private var turnUserMessage: String? = null
 
     // -------------------------------------------------------------------------
     // Per-attempt tracking (reset before each generation attempt)
@@ -274,7 +276,8 @@ class KernelAIToolSet @Inject constructor(
         )
     }
 
-    fun resetTurnState() {
+    fun resetTurnState(userMessage: String? = null) {
+        turnUserMessage = userMessage
         toolCalledInThisTurn = false
         loadSkillResultBudget.set(null)
         lastToolName = null
@@ -760,8 +763,12 @@ class KernelAIToolSet @Inject constructor(
         }
         val diagnosticOrder = recordToolCall("query_wikipedia", request, arguments)
         Log.d(TAG, "ToolSet: queryWikipedia(${query.take(60)})")
-        val result = executeSkill("query_wikipedia", mapOf("query" to query), diagnosticOrder)
-        lastToolResult = result["result"] ?: result["error"]
+        val skillArgs = buildMap {
+            put("query", query)
+            turnUserMessage?.let { put(QueryWikipediaSkill.QUESTION_ARGUMENT, it) }
+        }
+        val result = executeSkill("query_wikipedia", skillArgs, diagnosticOrder)
+        lastToolResult = (result["result"] ?: result["error"])?.let(::toVisibleWikipediaEvidenceResult)
         captureTerminalResult("query_wikipedia")
         return result
     }
