@@ -380,6 +380,12 @@ best-matching intent wins if it clears both a confidence floor and an ambiguity 
 
 If the classifier is absent or returns `null`, the input falls through to Stage 3 (Gemma-4 E4B).
 
+**Deterministic calculator commands:** In addition to symbolic/infix arithmetic, the regex path
+accepts complete `multiply A by B`, `divide A by B`, `add A and/to B`, and `subtract A from B`
+commands when both operands are numeric or simple written-out integers. Subtraction preserves
+English operand order (`subtract A from B` evaluates as `B - A`). This normalization is limited
+to those complete command forms; unrelated text remains on the normal routing path.
+
 **Actions-tab deterministic slot-fill loop:**
 
 For quick actions, pending slot state lives inside `ActionsViewModel`, not a shared
@@ -430,6 +436,7 @@ has safe defaults, including current-location behavior and optional forecast fie
 |---------|--------|--------|
 | "turn on/off torch/flashlight" | Torch toggle | `CameraManager.setTorchMode()` |
 | "set a timer for X minutes" | Timer | App-owned clock scheduler + notification pipeline |
+| "cancel timer" / "cancel all timers" | Cancel a uniquely targeted timer; clarify ambiguous multi-timer requests; bulk-cancel only on explicit intent | App-owned clock scheduler |
 | "set an alarm for X:XX" | Alarm | App-owned clock scheduler + notification pipeline |
 | "turn on/off do not disturb/dnd" | DND | `NotificationManager.setInterruptionFilter()` |
 | "turn on/off bluetooth" | Bluetooth | `BluetoothAdapter.enable()/disable()` |
@@ -574,6 +581,12 @@ content through `message.toString()` in the SDK's internal form:
 - follow-up tool turns suppress repeated greetings
 - `query_wikipedia`, `get_system_info`, weather, and memory-search style direct replies are shown
   from the tool result itself when they return `SkillResult.DirectReply`
+- question-shaped turns ("Is X Jewish?", "When was X founded?") make `query_wikipedia` return
+  bounded evidence (summary plus up to 3 question-matching article passages, each ≤700 chars, from
+  the MediaWiki plain-text extract) as `SkillResult.Success`, so the model answers the question in
+  the same native-tool continuation or says Wikipedia does not establish it (#1689). The question
+  is the turn's user message supplied by `KernelAIToolSet`, not a model argument. Question-shaped
+  explicit "look up … on Wikipedia" requests skip the summary fast path for the same reason.
 - leaked raw tool syntax / instruction dumps are filtered by `looksLikeRawToolCall(...)`
 
 **Known open gaps / follow-up issues:**
@@ -811,7 +824,7 @@ and awaits the result with a 15s timeout.
 | Skill name | Description | Status |
 |------------|-------------|--------|
 | `get_system_info` | Device/model/backend/battery stats; returns `DirectReply` so grounded output wins over post-tool narration | ✅ |
-| `query_wikipedia` | Public Wikipedia lookup skill; exposed as direct `queryWikipedia(query)` wrapper and internally bridged to JS; returns `DirectReply` | ✅ |
+| `query_wikipedia` | Public Wikipedia lookup skill; exposed as direct `queryWikipedia(query)` wrapper and internally bridged to JS; returns `DirectReply` summaries, or `Success` question evidence for question-shaped turns (#1689) | ✅ |
 | `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
 | `search_memory` | Semantic search across core memories, episodic memories, and `message_embeddings` | ✅ |
 | `get_weather_gps` / `get_weather` | Weather retrieval with GPS, explicit locations, and indirect-location resolution | ✅ |
@@ -1000,8 +1013,10 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 | **Sideloaded skills** | Wasm import section audited; user must acknowledge "Accept Risk" |
 | **LeakCanary** | Integrated from day one — model weight leaks caught early |
 | **Nextcloud credentials** | Credentials use the existing Android-backed encrypted credential store and are never emitted to logs or public evidence. |
-| **Nextcloud transport** | HTTPS is the default; insecure HTTP requires explicit opt-in. Redirects that leave the credential origin (host/port) are refused before credentials can be sent. |
+| **Nextcloud transport** | HTTPS only (#1678): `http://` addresses, Login Flow endpoints and redirects are refused, and a previously saved `http://` account must be reconfigured (local lists kept). Redirects that leave the credential origin (host/port) are refused before credentials can be sent. |
+| **Network transport** | The app's network security config denies cleartext for every host; model and voice-pack downloads require HTTPS for the URL and every redirect hop (#1678). |
 | **Private integration identifiers** | Private server identifiers and credentials are excluded from logs and public validation evidence. |
+| **Externally supplied prompts** (#1604) | `MainActivity` is exported (launcher). Its `chat_input`, `quick_action_input[_encoded]` and `slot_reply_input` extras run directly only when the platform-reported caller uid (`launchedFromUid` / `ComponentCaller.uid`) is Jandal's own, or — in debug builds only — the launch comes from adb: shell (2000) / root (0) uid, or a token that only `adb shell run-as` can write into the app's private files dir (`am start` cannot share the shell uid). Any other caller's text is pre-filled into the existing Chat composer, Quick Action sheet or pending slot field, labelled as coming from another app, and runs only when the user sends it; Discard / dismissing discards it, and recreation never resubmits it. `quick_action_is_voice` is ignored for untrusted callers. `profile_text` is a debug-build, trusted-caller-only hook. Release builds have no external auto-run path. |
 
 ---
 

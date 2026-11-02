@@ -1,5 +1,6 @@
 package com.kernel.ai.debug.journal
 
+import com.kernel.ai.BuildConfig
 import com.kernel.ai.core.voice.AcousticEventType
 
 /**
@@ -37,7 +38,7 @@ internal object TargetEventJournalContract {
     const val ACTION_GET_SEQUENCE = "com.kernel.ai.debug.action.GET_JOURNAL_SEQUENCE"
     const val ACTION_GET_SNAPSHOT = "com.kernel.ai.debug.action.GET_JOURNAL_SNAPSHOT"
 
-    const val PROVIDER_AUTHORITY = "com.kernel.ai.debug.target-event-journal"
+    const val PROVIDER_AUTHORITY = "${BuildConfig.APPLICATION_ID}.target-event-journal"
     const val PROVIDER_URI = "content://$PROVIDER_AUTHORITY"
     const val METHOD_GET_SEQUENCE = "GET_JOURNAL_SEQUENCE"
     const val METHOD_WAIT_FOR_EVENT = "WAIT_FOR_JOURNAL_EVENT"

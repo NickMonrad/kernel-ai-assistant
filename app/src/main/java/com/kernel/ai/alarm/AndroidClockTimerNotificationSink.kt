@@ -40,7 +40,7 @@ class AndroidClockTimerNotificationSink @Inject constructor(
         NotificationCompat.Builder(context, ClockAlertContract.ACTIVE_TIMER_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(timer.label ?: "Timer")
-            .setContentText("${formatDuration(timer.durationMs)} remaining")
+            .setContentText(timerNotificationText(timer.durationMs))
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -93,16 +93,21 @@ class AndroidClockTimerNotificationSink @Inject constructor(
         )
     }
 
-    private fun formatDuration(durationMs: Long): String {
-        val totalSeconds = max(1L, durationMs / 1_000L)
-        val hours = totalSeconds / 3_600
-        val minutes = (totalSeconds % 3_600) / 60
-        val seconds = totalSeconds % 60
-        return buildList {
-            if (hours > 0) add("$hours hour${if (hours == 1L) "" else "s"}")
-            if (minutes > 0) add("$minutes minute${if (minutes == 1L) "" else "s"}")
-            if (seconds > 0 && hours == 0L) add("$seconds second${if (seconds == 1L) "" else "s"}")
-            if (isEmpty()) add("0 seconds")
-        }.joinToString(" ")
-    }
+}
+
+/** Static notification context for the original configured timer duration. */
+internal fun timerNotificationText(durationMs: Long): String =
+    "Duration: ${formatDuration(durationMs)}"
+
+private fun formatDuration(durationMs: Long): String {
+    val totalSeconds = max(1L, durationMs / 1_000L)
+    val hours = totalSeconds / 3_600
+    val minutes = (totalSeconds % 3_600) / 60
+    val seconds = totalSeconds % 60
+    return buildList {
+        if (hours > 0) add("$hours hour${if (hours == 1L) "" else "s"}")
+        if (minutes > 0) add("$minutes minute${if (minutes == 1L) "" else "s"}")
+        if (seconds > 0 && hours == 0L) add("$seconds second${if (seconds == 1L) "" else "s"}")
+        if (isEmpty()) add("0 seconds")
+    }.joinToString(" ")
 }

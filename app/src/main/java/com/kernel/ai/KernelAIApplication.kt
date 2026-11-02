@@ -29,6 +29,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import javax.inject.Provider
 
 /**
  * Application entry point.
@@ -44,9 +45,15 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var inferenceEngine: InferenceEngine
     @Inject lateinit var clockTimerNotificationCoordinator: ClockTimerNotificationCoordinator
     @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
-    @Inject lateinit var nextcloudSyncScheduler: NextcloudSyncScheduler
+    @Inject lateinit var nextcloudSyncScheduler: Provider<NextcloudSyncScheduler>
     @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
 
+    /**
+     * Test-only application variants may retain Hilt/WorkManager setup while avoiding normal
+     * account sync, maintenance, clock, and wake-word startup. Production variants keep this true.
+     */
+    internal val shouldStartNormalBackgroundWork =
+        shouldRunNormalBackgroundWork(BuildConfig.IS_INFLECT_PROBE)
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -68,6 +75,8 @@ class KernelAIApplication : Application(), Configuration.Provider {
         // can resolve OrtGetApiBase at dlopen time. Must happen before any Sherpa TTS or
         // wake word ONNX session init, otherwise OfflineTts.<clinit> fails with UnsatisfiedLinkError.
         try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
+        if (!shouldStartNormalBackgroundWork) return
+
         clockTimerNotificationCoordinator.start()
         clockStopwatchNotificationCoordinator.start()
         WorkManager.getInstance(this).enqueueUniqueWork(
@@ -86,8 +95,10 @@ class KernelAIApplication : Application(), Configuration.Provider {
                 )
                 .build(),
         )
-        nextcloudSyncScheduler.enqueuePeriodic()
-        nextcloudSyncScheduler.enqueueNow()
+        nextcloudSyncScheduler.get().apply {
+            enqueuePeriodic()
+            enqueueNow()
+        }
         // Observe heyJandalEnabled and start/stop WakeWordService accordingly.
         // This runs on a background thread via GlobalScope-equivalent — using a process-lifetime
         // coroutine scope is intentional here (Application lifecycle = process lifetime).
@@ -123,3 +134,5 @@ class KernelAIApplication : Application(), Configuration.Provider {
         }
     }
 }
+internal fun shouldRunNormalBackgroundWork(isInflectProbeBuild: Boolean): Boolean =
+    !isInflectProbeBuild

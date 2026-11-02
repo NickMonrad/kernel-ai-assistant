@@ -485,6 +485,31 @@ class QuickIntentRouterTest {
             assertRegexMatch(result, "cancel_timer", "cancel the timer")
         }
 
+        @Test
+        fun `only explicit all wording sets the all flag and both preserves its count`() {
+            val singular = regexOnlyRouter.route("cancel timer") as QuickIntentRouter.RouteResult.RegexMatch
+            assertNull(singular.intent.params["all"])
+
+            val cancelAll = regexOnlyRouter.route("cancel all timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("true", cancelAll.intent.params["all"])
+            assertNull(cancelAll.intent.params["count"])
+
+            val cancelBoth = regexOnlyRouter.route("cancel both timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("2", cancelBoth.intent.params["count"])
+            assertNull(cancelBoth.intent.params["all"])
+
+            val turnOffBoth = regexOnlyRouter.route("turn off both timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("2", turnOffBoth.intent.params["count"])
+            assertNull(turnOffBoth.intent.params["all"])
+
+            val turnOffAll = regexOnlyRouter.route("turn off all timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("true", turnOffAll.intent.params["all"])
+
+            val cancelSecond = regexOnlyRouter.route("cancel the second timer") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("cancel_timer_named", cancelSecond.intent.intentName)
+            assertEquals("second", cancelSecond.intent.params["name"])
+        }
+
         @ParameterizedTest(name = "\"{0}\" should route to cancel_timer")
         @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#pluralCancelTimerPhrases")
         fun `plural and all timer cancellation phrases should route to cancel_timer`(input: String) {
@@ -1004,6 +1029,164 @@ class QuickIntentRouterTest {
 
             val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals(expectedExpression, intent.params["expression"])
+        }
+
+        @Test
+        fun `imperative arithmetic routes only complete numeric commands`() {
+            val cases = listOf(
+                "Multiply 142 by 1.1" to ("142 * 1.1" to "156.2"),
+                "Please multiply -2.5 by 4" to ("-2.5 * 4" to "-10"),
+                "Divide one hundred by ten" to ("100 / 10" to "10"),
+                "Add twenty-five and fifteen" to ("25 + 15" to "40"),
+                "Add twenty-five to fifteen" to ("25 + 15" to "40"),
+                "Subtract twelve from fifty" to ("50 - 12" to "38"),
+            )
+
+            for ((input, expected) in cases) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(expected.first, expression)
+                assertEquals(
+                    expected.second,
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                )
+            }
+        }
+
+        @Test
+        fun `percent change phrasing routes to an exact expression and value`() {
+            val cases = listOf(
+                "Add 5% to 105" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "add 5 percent to 105" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "105 plus 5%" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "Increase 105 by 5%" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "105 minus 5%" to ("105 * (1 - (5 / 100))" to "99.75"),
+                "105 less 5%" to ("105 * (1 - (5 / 100))" to "99.75"),
+                "Take 10% off 80" to ("80 * (1 - (10 / 100))" to "72"),
+                "take 10 percent off 80" to ("80 * (1 - (10 / 100))" to "72"),
+                "Take ten percent off eighty" to ("80 * (1 - (10 / 100))" to "72"),
+                "Subtract 10% from 80" to ("80 * (1 - (10 / 100))" to "72"),
+                "Decrease 80 by 10%" to ("80 * (1 - (10 / 100))" to "72"),
+                "Reduce 80 by 10%" to ("80 * (1 - (10 / 100))" to "72"),
+                "Add five percent to one hundred" to ("100 * (1 + (5 / 100))" to "105"),
+            )
+            for ((input, expected) in cases) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(expected.first, expression, input)
+                assertEquals(
+                    expected.second,
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                    input,
+                )
+            }
+        }
+
+        @Test
+        fun `ambiguous or signed percent change phrasing falls through to the model`() {
+            for (input in listOf(
+                "Multiply 105 / 5%",
+                "Divide 105 by 5%",
+                "Add 5% and 105",
+                "Add 5% to 105 and 3",
+                "Add -5% to 105",
+                "105 plus 5% plus 3",
+            )) {
+                assertFallThrough(regexOnlyRouter.route(input), input)
+            }
+        }
+
+        @Test
+        fun `existing percent-of arithmetic and verb-first commands keep their expressions and values`() {
+            val cases = listOf(
+                "5% of 105" to ("5% of 105" to "5.25"),
+                "what is 5 percent of 105" to ("5 percent of 105" to "5.25"),
+                "105 * 1.05" to ("105 * 1.05" to "110.25"),
+                "Add twenty-five to fifteen" to ("25 + 15" to "40"),
+                "Subtract twelve from fifty" to ("50 - 12" to "38"),
+                "Multiply 142 by 1.1" to ("142 * 1.1" to "156.2"),
+            )
+            for ((input, expected) in cases) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(expected.first, expression, input)
+                assertEquals(
+                    expected.second,
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                    input,
+                )
+            }
+        }
+
+        @Test
+        fun `percent change forms do not steal volume commands`() {
+            for (input in listOf("increase volume by 10%", "increase the volume by 10%", "set volume to 50%")) {
+                assertRegexMatch(regexOnlyRouter.route(input), "set_volume", input)
+            }
+        }
+
+        @Test
+        fun `imperative arithmetic does not steal unrelated commands`() {
+            assertRegexMatch(
+                regexOnlyRouter.route("Add milk to shopping list"),
+                "add_to_list",
+                "Add milk to shopping list",
+            )
+            assertFallThrough(regexOnlyRouter.route("divide and conquer"), "divide and conquer")
+        }
+
+        @Test
+        fun `imperative division by zero keeps native evaluator error`() {
+            val result = regexOnlyRouter.route("Divide 10 by 0")
+            assertRegexMatch(result, "calculate_arithmetic", "Divide 10 by 0")
+            val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                .intent.params.getValue("expression")
+
+            val error = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException::class.java,
+            ) {
+                com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator.evaluate(expression)
+            }
+            assertEquals("Division by zero is undefined", error.message)
+        }
+
+        @Test
+        fun `plain binary subtraction routes to calculator`() {
+            for (input in listOf("50 - 12", "50-12")) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(input, expression)
+                assertEquals(
+                    "38",
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                )
+            }
+        }
+
+        @Test
+        fun `hyphenated dates phone numbers and a bare negative do not route to calculator`() {
+            for (input in listOf("2026-11-01", "1-800-555-1234", "-5")) {
+                assertFallThrough(regexOnlyRouter.route(input), input)
+            }
+        }
+
+        @Test
+        fun `single unspaced hyphen between numbers stays arithmetic`() {
+            // A local phone number such as 555-1234 is indistinguishable from 50-12 and still
+            // routes; pinned so any future narrowing is a deliberate decision.
+            assertRegexMatch(regexOnlyRouter.route("555-1234"), "calculate_arithmetic", "555-1234")
         }
     }
 
@@ -1592,6 +1775,42 @@ class QuickIntentRouterTest {
         fun `heater off still routes to smart_home_off via fallback`() {
             val result = regexOnlyRouter.route("heater off")
             assertRegexMatch(result, "smart_home_off", "heater off")
+        }
+
+        // #1317: "set ... on/off" DND forms fell through the terse smart_home fallback
+        // (`^(?!…)(.+?)\s+on$`) and routed to smart_home_on with device "set do not disturb".
+        @ParameterizedTest(name = "DND set-verb ON: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "Set do not disturb on",
+                "set do not disturb mode on",
+                "set dnd on",
+                "turn do not disturb on",
+            ],
+        )
+        fun `set do not disturb on routes to toggle_dnd_on not smart home`(input: String) {
+            assertRegexMatch(regexOnlyRouter.route(input), "toggle_dnd_on", input)
+        }
+
+        @ParameterizedTest(name = "DND set-verb OFF: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "Set do not disturb off",
+                "set do not disturb mode off",
+                "set dnd off",
+                "turn do not disturb off",
+            ],
+        )
+        fun `set do not disturb off routes to toggle_dnd_off not smart home`(input: String) {
+            assertRegexMatch(regexOnlyRouter.route(input), "toggle_dnd_off", input)
+        }
+
+        // Shared-path guard: the new DND rule must not capture ordinary device "set ... on/off".
+        @ParameterizedTest(name = "smart home set-verb: \"{0}\"")
+        @ValueSource(strings = ["set the lamp on", "set the kitchen light on", "turn on bedroom light", "switch on the fan", "turn off bedroom light"])
+        fun `smart home commands still route to smart home after DND set-verb fix`(input: String) {
+            val expected = if (input.contains("off")) "smart_home_off" else "smart_home_on"
+            assertRegexMatch(regexOnlyRouter.route(input), expected, input)
         }
     }
 
@@ -2580,6 +2799,8 @@ class QuickIntentRouterTest {
             Arguments.of("delete all timers"),
             Arguments.of("cancel my timers"),
             Arguments.of("stop my timers"),
+            Arguments.of("cancel both timers"),
+            Arguments.of("cancel timers"),
         )
 
         // ── Flashlight ON ─────────────────────────────────────────────────────
@@ -3724,6 +3945,16 @@ class QuickIntentRouterTest {
             Arguments.of("What's the weather this week?", null, "7", null),
             Arguments.of("What's the weather like this week in Auckland?", "Auckland", "7", null),
             Arguments.of("What's the weather in Sydney this week?", "Sydney", "7", null),
+            // #1471 — "how's/how is the weather this week [in <city>]" must reach get_weather
+            // with the same this-week → 7-day contract as the "what's" forms.
+            Arguments.of("How's the weather this week in Sydney", "Sydney", "7", null),
+            Arguments.of("How is the weather this week in Sydney", "Sydney", "7", null),
+            Arguments.of("How's the weather this week?", null, "7", null),
+            // Regression: existing weather phrasings on the same seam must stay unchanged.
+            Arguments.of("What's the weather this week in Sydney", "Sydney", "7", null),
+            Arguments.of("How's the weather", null, null, null),
+            Arguments.of("How's the weather today", null, null, null),
+            Arguments.of("How's the weather in Sydney", "Sydney", null, null),
             // NAMED METRICS — explicit location must not silently fall back to GPS
             Arguments.of("What's the UV index in Sydney?", "Sydney", null, null),
             Arguments.of("What's the air quality in Sydney?", "Sydney", null, null),

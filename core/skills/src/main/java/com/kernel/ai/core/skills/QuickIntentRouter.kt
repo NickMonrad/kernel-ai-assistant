@@ -844,10 +844,19 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """turn\s+off\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
+                """turn\s+off\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                val quantifier = match.groupValues[1]
+                val noun = match.groupValues[2]
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
+                }
+            },
         ),
         // cancel_timer_named must come before the generic cancel_timer patterns
         IntentPattern(
@@ -875,10 +884,19 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(?:all|my|the|a)\s+)?(?:timers?|countdowns?)""",
+                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                val quantifier = match.groupValues[1]
+                val noun = match.groupValues[2]
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
+                }
+            },
         ),
 
         // ── List Timers ──
@@ -1181,6 +1199,25 @@ class QuickIntentRouter(
             requiredSlots = slotContract("create_calendar_event"),
         ),
 
+        // "set do not disturb on" / "set dnd mode on" (#1317). The unanchored verb rules below
+        // don't include "set", so it fell through to the smart_home fallback. They also match
+        // "turn do not disturb off" as ON, so the anchored OFF form must come first.
+        IntentPattern(
+            intentName = "toggle_dnd_off",
+            regex = Regex(
+                """^(?:set|turn)\s+(?:do\s+not\s+disturb|dnd)(?:\s+mode)?\s+off$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """^(?:set|turn)\s+(?:do\s+not\s+disturb|dnd)(?:\s+mode)?\s+on$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
         // ── Do Not Disturb ──
         IntentPattern(
             intentName = "toggle_dnd_on",
@@ -2118,7 +2155,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:like\s+)?this\s+week\s+in\s+([\w\s,]+?)[.!?]*$""",
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:like\s+)?this\s+week\s+in\s+([\w\s,]+?)[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3464,10 +3501,12 @@ class QuickIntentRouter(
 
         // ── Calculator / Conversion ──
         // Symbolic expressions and helper functions: "245 * 17", "what is round(sqrt(25^2), 2)"
+        // Minus-only input needs a binary minus that is spaced ("50 - 12") or the only hyphen
+        // ("50-12"), so dates ("2026-11-01"), hyphenated phone numbers and a bare "-5" do not route.
         IntentPattern(
             intentName = "calculate_arithmetic",
             regex = Regex(
-                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b))(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b)|.*\d\s+-\s*\d|.*\d\s*-\s+\d|[^-]*\d-\d[^-]*$)(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
@@ -4572,6 +4611,157 @@ class QuickIntentRouter(
     }
 
 
+    private val arithmeticUnitWords = "(?:one|two|three|four|five|six|seven|eight|nine)"
+    private val arithmeticWordSeparator = Regex("""[\s-]+""")
+    private val arithmeticSmallWords = "(?:zero|$arithmeticUnitWords|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
+    private val arithmeticTensWords = "(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+    private val arithmeticSpokenOperand = "(?:$arithmeticSmallWords|$arithmeticTensWords(?:[- ]$arithmeticUnitWords)?|$arithmeticUnitWords\\s+hundred)"
+    private val imperativeArithmeticOperand = "(?:-?\\d+(?:\\.\\d+)?|$arithmeticSpokenOperand)"
+    private val imperativeMultiply = Regex(
+        """^multiply\s+($imperativeArithmeticOperand)\s+by\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val imperativeDivide = Regex(
+        """^divide\s+($imperativeArithmeticOperand)\s+by\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val imperativeAdd = Regex(
+        """^add\s+($imperativeArithmeticOperand)\s+(?:and|to)\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val imperativeSubtract = Regex(
+        """^subtract\s+($imperativeArithmeticOperand)\s+from\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    // #1695 — bounded percentage-change phrasing, normalised to "base * (1 ± (pct / 100))".
+    // Only non-negative percents are accepted; a signed percent stays ambiguous and falls through.
+    private val percentOperand = "($imperativeArithmeticOperand)(?:\\s*%|\\s+percent)"
+    private val baseOperand = "($imperativeArithmeticOperand)"
+    private data class PercentChangeForm(val regex: Regex, val baseGroup: Int, val percentGroup: Int, val sign: String)
+    private val percentChangeForms = listOf(
+        PercentChangeForm(Regex("""^add\s+$percentOperand\s+to\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "+"),
+        PercentChangeForm(Regex("""^take\s+$percentOperand\s+off\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "-"),
+        PercentChangeForm(Regex("""^subtract\s+$percentOperand\s+from\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "-"),
+        PercentChangeForm(Regex("""^increase\s+$baseOperand\s+by\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "+"),
+        PercentChangeForm(Regex("""^(?:decrease|reduce)\s+$baseOperand\s+by\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "-"),
+        PercentChangeForm(Regex("""^$baseOperand\s+plus\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "+"),
+        PercentChangeForm(Regex("""^$baseOperand\s+(?:minus|less)\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "-"),
+    )
+
+    private fun normalizePercentChange(input: String): String? {
+        for (form in percentChangeForms) {
+            val match = form.regex.matchEntire(input) ?: continue
+            val base = normalizeArithmeticOperand(match.groupValues[form.baseGroup]) ?: return null
+            val percent = normalizeArithmeticOperand(match.groupValues[form.percentGroup]) ?: return null
+            if (percent.startsWith("-")) return null
+            return "$base * (1 ${form.sign} ($percent / 100))"
+        }
+        return null
+    }
+
+    /**
+     * Converts only a complete, two-operand imperative calculator command to the expression
+     * accepted by the existing arithmetic route. Number-word support is deliberately limited to
+     * small integers, tens with an optional unit, and one-to-nine hundreds; this is not a general
+     * natural-language number parser.
+     */
+    private fun normalizeImperativeArithmetic(input: String): String {
+        normalizePercentChange(input)?.let { return it }
+        if (input.startsWith("multiply ", ignoreCase = true)) {
+            val match = imperativeMultiply.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "*", reverseOperands = false) ?: input
+        }
+        if (input.startsWith("divide ", ignoreCase = true)) {
+            val match = imperativeDivide.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "/", reverseOperands = false) ?: input
+        }
+        if (input.startsWith("add ", ignoreCase = true)) {
+            val match = imperativeAdd.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "+", reverseOperands = false) ?: input
+        }
+        if (input.startsWith("subtract ", ignoreCase = true)) {
+            val match = imperativeSubtract.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "-", reverseOperands = true) ?: input
+        }
+        return input
+    }
+
+    private fun normalizeArithmeticExpression(
+        match: MatchResult,
+        operator: String,
+        reverseOperands: Boolean,
+    ): String? {
+        val first = normalizeArithmeticOperand(match.groupValues[1]) ?: return null
+        val second = normalizeArithmeticOperand(match.groupValues[2]) ?: return null
+        return if (reverseOperands) "$second $operator $first" else "$first $operator $second"
+    }
+
+    private fun normalizeArithmeticOperand(raw: String): String? {
+        if (raw.firstOrNull()?.let { it.isDigit() || it == '-' } == true) return raw
+        val words = raw.lowercase().split(arithmeticWordSeparator)
+        return when (words.size) {
+            1 -> {
+                val word = words.single()
+                arithmeticSmallNumber(word)?.toString() ?: arithmeticTensNumber(word)?.toString()
+            }
+            2 -> {
+                val first = words[0]
+                val second = words[1]
+                val unit = arithmeticUnitNumber(first)
+                when {
+                    second == "hundred" && unit != null -> (unit * 100).toString()
+                    else -> {
+                        val tens = arithmeticTensNumber(first)
+                        val ones = arithmeticUnitNumber(second)
+                        if (tens != null && ones != null) (tens + ones).toString() else null
+                    }
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun arithmeticUnitNumber(word: String): Int? = when (word) {
+        "one" -> 1
+        "two" -> 2
+        "three" -> 3
+        "four" -> 4
+        "five" -> 5
+        "six" -> 6
+        "seven" -> 7
+        "eight" -> 8
+        "nine" -> 9
+        else -> null
+    }
+
+    private fun arithmeticSmallNumber(word: String): Int? = when (word) {
+        "zero" -> 0
+        "ten" -> 10
+        "eleven" -> 11
+        "twelve" -> 12
+        "thirteen" -> 13
+        "fourteen" -> 14
+        "fifteen" -> 15
+        "sixteen" -> 16
+        "seventeen" -> 17
+        "eighteen" -> 18
+        "nineteen" -> 19
+        else -> arithmeticUnitNumber(word)
+    }
+
+    private fun arithmeticTensNumber(word: String): Int? = when (word) {
+        "twenty" -> 20
+        "thirty" -> 30
+        "forty" -> 40
+        "fifty" -> 50
+        "sixty" -> 60
+        "seventy" -> 70
+        "eighty" -> 80
+        "ninety" -> 90
+        else -> null
+    }
+
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
         // Alias + mishearing normalisation scoped to regex pattern matching only — NOT fed to the
@@ -4592,7 +4782,10 @@ class QuickIntentRouter(
 
         // #982 — trailing "lost"/"lust"/"last" → "list" for list-command detection.
         // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
-        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(aliasNormalized) { match ->
+        // #1688 — rewrite only complete verb-first arithmetic commands on the regex path.
+        // The classifier and fall-through continue to receive the original trimmed input.
+        val arithmeticNormalized = normalizeImperativeArithmetic(aliasNormalized)
+        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(arithmeticNormalized) { match ->
             match.groupValues[1].takeIf { it.equals("list", ignoreCase = true) } ?: "list"
         }
 
