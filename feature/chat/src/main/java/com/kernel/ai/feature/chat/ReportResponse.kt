@@ -5,8 +5,8 @@ import android.net.Uri
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-/** Replace with Nick's dedicated Play support address before release. Never use a personal address. */
-internal const val SUPPORT_EMAIL = "REPLACE_WITH_DEDICATED_SUPPORT_EMAIL@example.invalid"
+/** Dedicated Jandal support address, also published in PRIVACY.md and TERMS.md. Never use a personal address. */
+internal const val SUPPORT_EMAIL = "jandal.ai.support@gmail.com"
 
 internal fun reportResponseMailtoUri(
     response: String,
