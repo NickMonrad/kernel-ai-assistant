@@ -460,7 +460,8 @@ class ModelBakeoffDeviceTest {
     }
 
     private fun jandalContextPrompt(targetTokens: Int, needle: String): String {
-        val entries = ((targetTokens - 320) / 18).coerceAtLeast(1)
+        // The S23U LFM3-A tokenizer measured ~27 tokens per repeated entry; the 18-token estimate overfilled 4K.
+        val entries = ((targetTokens - 320) / 27).coerceAtLeast(1)
         val prompt = StringBuilder(entries * 160 + 1_200)
         prompt.append(
             """
