@@ -21,7 +21,8 @@ import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Channel
-import com.google.ai.edge.litertlm.Capabilities
+import com.google.ai.edge.litertlm.LlmCapability
+import com.google.ai.edge.litertlm.ModelInfo
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.OpenApiTool
@@ -187,7 +188,7 @@ internal fun resolveSpeculativeDecodingForInit(
 }
 
 private fun modelSupportsSpeculativeDecoding(modelPath: String): Boolean =
-    Capabilities(modelPath).use { it.hasSpeculativeDecodingSupport() }
+    ModelInfo.from(modelPath).use { info -> (info as? LlmCapability)?.hasSpeculativeDecodingSupport() == true }
 
 @OptIn(ExperimentalApi::class)
 private fun logLiteRtBenchmarkInfo(conversation: Conversation, backend: BackendType?): Int? {
