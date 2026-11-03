@@ -2909,6 +2909,13 @@ class QuickIntentRouterTest {
             Arguments.of("start a 45-second timer", "45"),
             Arguments.of("set a timer for 1 hour and 30 minutes", "5400"),
             Arguments.of("set timer for 2 hours and 15 minutes", "8100"),
+            Arguments.of("set a sixty minute timer", "3600"),
+            Arguments.of("Set a sixty minute timer", "3600"),
+            Arguments.of("set a seventy minute timer", "4200"),
+            Arguments.of("set a six minute timer", "360"),
+            Arguments.of("set a twenty minute timer", "1200"),
+            Arguments.of("set a forty five minute timer", "2700"),
+            Arguments.of("set a forty-five minute timer", "2700"),
         )
 
         @JvmStatic
