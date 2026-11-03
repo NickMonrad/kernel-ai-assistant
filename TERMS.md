@@ -1,7 +1,5 @@
 # Jandal AI Terms of Use
 
-> **Draft for owner review. Not yet published or in effect.** The contact address is a placeholder until the dedicated support address exists.
-
 These terms apply when you use the Jandal AI app ("Jandal"). By using Jandal you agree to them. If you don't agree, don't use the app.
 
 ## 1. Provided as is
@@ -49,6 +47,6 @@ These terms may be updated. The current version is published at this page with i
 
 ## 9. Contact
 
-Questions or reports: **SUPPORT_EMAIL_TBD** (dedicated support address to be confirmed).
+Questions or reports: **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)**
 
-_Effective date: to be set on publication._
+_Effective date: 3 November 2026._

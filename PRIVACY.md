@@ -1,8 +1,6 @@
 # Jandal AI Privacy Policy
 
-> **Draft for owner and release review. This is not the published or effective policy.** Provider-specific practices, the final release dependency set, contact details, and the exact signed release candidate still require review before publication.
-
-Jandal AI is an Android assistant that runs its language-model inference on the device. Some features you choose to use connect to online services or pass information to another app. This policy draft describes those code paths; it does not claim that every voice, location, or third-party service operates offline.
+Jandal AI is an Android assistant that runs its language-model inference on the device. Some features you choose to use connect to online services or pass information to another app. This policy describes those code paths; it does not claim that every voice, location, or third-party service operates offline.
 
 ## Information kept on your device
 
@@ -42,7 +40,7 @@ Nextcloud login and CalDAV sync require HTTPS. Explicit HTTP is rejected before 
 
 ### Actions handed to other apps
 
-When you ask Jandal to use a device capability, it may pass the relevant text or destination to an Android app or service. Email and SMS actions open a composer with the chosen recipient and content; you decide whether to send. A Report response action opens an email composer containing the selected assistant reply, app version, model, and an editable reason. You choose whether to send it through your email app; Jandal does not send or retain the report. The dedicated support address has not been set, so the app still uses a placeholder. Map actions pass a destination or search query to Google Maps or another compatible maps app. A call action can hand a resolved number to Android's call action; media actions may pass a search query to a media app or browser. Those apps and their service providers handle information they receive under their own policies.
+When you ask Jandal to use a device capability, it may pass the relevant text or destination to an Android app or service. Email and SMS actions open a composer with the chosen recipient and content; you decide whether to send. A Report response action opens an email composer containing the selected assistant reply, app version, model, and an editable reason. You choose whether to send it through your email app; Jandal does not send or retain the report. The report is addressed to jandal.ai.support@gmail.com. Map actions pass a destination or search query to Google Maps or another compatible maps app. A call action can hand a resolved number to Android's call action; media actions may pass a search query to a media app or browser. Those apps and their service providers handle information they receive under their own policies.
 
 ### Files and sharing
 
@@ -65,3 +63,13 @@ Deleting local app data does not delete content already sent to a speech, weathe
 ## Provider practices
 
 Jandal does not control third-party services' or user-selected apps' collection, retention, or deletion practices. Their own policies govern information they receive. Provider-specific retention periods have not been verified and are not stated here.
+
+## Changes to this policy
+
+This policy may be updated when Jandal's features or the services it connects to change. The current version is published at this page with its effective date. Significant changes will be noted in the app's release notes.
+
+## Contact
+
+Jandal AI is open-source software developed at [github.com/NickMonrad/kernel-ai-assistant](https://github.com/NickMonrad/kernel-ai-assistant). For privacy questions or requests, email **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)**.
+
+_Effective date: 3 November 2026._
