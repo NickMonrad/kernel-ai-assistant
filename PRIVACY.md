@@ -4,7 +4,7 @@ Jandal AI is an Android assistant that runs its language-model inference on the 
 
 ## Information kept on your device
 
-Jandal stores app data in its local database and app storage. This can include conversations and messages, memories, notes, lists and their items, meal-planning data, preferences, and settings you create or change. Downloaded model and voice files are stored in app-specific storage. The app manifest disables Android app backup (`allowBackup=false`). This is not a promise that information already sent to another service or app is removed there.
+Jandal stores app data in its local database and app storage. This can include conversations and messages, memories, notes, lists and their items, meal-planning data, contact nicknames you set up (with the contact's name, Android contact ID and phone number), preferences, and settings you create or change. Downloaded model and voice files are stored in app-specific storage. The app manifest disables Android app backup (`allowBackup=false`). This is not a promise that information already sent to another service or app is removed there.
 
 Jandal's language-model inference uses models running on your device; the app does not send conversation prompts to a Jandal-operated cloud language-model endpoint. If you invoke a feature that uses an online service, the specific inputs needed for that feature may be sent as described below.
 
@@ -34,7 +34,7 @@ Hugging Face sign-in is optional. No model in the current catalog is marked gate
 
 ### Optional Nextcloud list sync
 
-If you configure a Nextcloud server and enable sync for a list, Jandal exchanges that list and its task items with the server using CalDAV. The server URL, username, and app password are saved in encrypted preferences backed by Android Keystore. Jandal can create, update, and delete corresponding remote list/task resources as you use sync. The Nextcloud server operator controls server-side access and retention.
+If you configure a Nextcloud server and enable sync for a list, Jandal exchanges that list and its task items with the server using CalDAV. The server URL, username, and app password are saved in encrypted preferences backed by Android Keystore. Jandal can create, update, and delete corresponding remote list/task resources as you use sync. If you share a synced list with other Nextcloud users, the name you search for is sent to your server, and the people you share with can see and edit that list. The Nextcloud server operator controls server-side access and retention.
 
 Nextcloud login and CalDAV sync require HTTPS. Explicit HTTP is rejected before a connection is opened. Redirects are followed only to the same HTTPS origin (same host and effective port); redirects to HTTP or another origin are refused. The app's network security policy denies cleartext traffic.
 
@@ -50,13 +50,13 @@ Some features can read contacts or calendar entries when you grant the correspon
 
 ### Logs and sharing
 
-Jandal writes diagnostic messages while features run. Some logs can contain request parameters or bounded results, which may include text you entered. The About screen offers a user-triggered **Export logs** action that can include recent process-exit information and current-process logs. If you choose an app from Android's share sheet, that app receives the export and handles it under its own policy. Review the contents before sharing. The retained last-uncaught-exception file is installed only in debuggable builds, not release builds.
+Jandal writes diagnostic messages while features run. Logs can contain request parameters and results, including text you entered, message recipients and contents, assistant replies, and your Hugging Face account name. Logs stay on your device unless you export them. The About screen offers a user-triggered **Export logs** action that can include recent process-exit information and current-process logs. If you choose an app from Android's share sheet, that app receives the export and handles it under its own policy. Review the contents before sharing. The retained last-uncaught-exception file is installed only in debuggable builds, not release builds.
 
 The current release dependency inventory contains no analytics, advertising, or crash-reporting SDKs. This does not describe data handling by the Android speech provider or other external services.
 
 ## Retention and deletion
 
-Conversation history, notes, lists, and other saved local content remain in app storage until you delete them or use a feature-specific cleanup control. Archived conversations are automatically deleted according to the retention option in Chat preferences: 1, 3, 7, 14, or 30 days, or **Never**. The default is 7 days; cleanup runs periodically, so deletion may not happen at the exact cutoff time. Episodic memories are pruned after 30 days and when the local 500-item limit is exceeded. Core memories are limited to 200 items. Deletion controls are feature-specific; there is no single retention period for every category.
+Conversation history, notes, lists, and other saved local content remain in app storage until you delete them, use a feature-specific cleanup control, or an automatic cleanup described below applies. Archived conversations are automatically deleted according to the retention option in Chat preferences: 1, 3, 7, 14, or 30 days, or **Never**. The default is 7 days; cleanup runs periodically, so deletion may not happen at the exact cutoff time. Episodic memories older than 30 days, and any beyond the local 500-item limit, are pruned when a new memory is saved. Core memories are limited to 200 items. Meal plans and the shopping and recipe lists they create are deleted automatically 30 days after the plan is completed (up to 90 days in some cases) or 7 days after it is cancelled. Deletion controls are feature-specific; there is no single retention period for every category.
 
 Deleting local app data does not delete content already sent to a speech, weather, lookup, maps, messaging, or other provider. For Nextcloud, use the server's controls to remove remote copies. Signing out of Hugging Face removes the locally stored token and account name; it does not delete your Hugging Face account or data held by Hugging Face.
 

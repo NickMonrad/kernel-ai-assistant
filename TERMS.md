@@ -33,7 +33,7 @@ Some features you choose to use connect to services that Jandal does not operate
 - Wikipedia lookups;
 - model and voice downloads (Hugging Face, GitHub);
 - your own Nextcloud server;
-- Android speech, maps, phone, messaging, and other apps Jandal hands requests to.
+- Android speech, maps, phone, messaging, web browser and search, and other apps Jandal hands requests to.
 
 Those services are governed by their own terms and privacy policies. Jandal isn't responsible for their availability, content, or practices. See the [Privacy Policy](PRIVACY.md) for what Jandal sends to them.
 
