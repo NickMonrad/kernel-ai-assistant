@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.settings
 
 import android.content.Intent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,6 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
+    onNavigateToLegalPrivacy: () -> Unit,
     versionName: String,
     versionCode: Int,
     buildType: String,
@@ -105,6 +108,18 @@ fun AboutScreen(
                 modifier = Modifier.fillMaxWidth(),
                 headlineContent = { Text("Built") },
                 supportingContent = { Text(buildTimestamp) },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onNavigateToLegalPrivacy),
+                headlineContent = { Text("Legal & privacy") },
+                supportingContent = { Text("Privacy policy, terms, and open-source licences") },
+                trailingContent = {
+                    Icon(Icons.Default.ChevronRight, contentDescription = null)
+                },
             )
             HorizontalDivider()
 

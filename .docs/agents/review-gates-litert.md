@@ -18,7 +18,7 @@ This gate applies when the PR touches:
 |-------------|-----------------|
 | Session isolation fix | 3 independent intents in sequence, each returns correct intent |
 | Context budget change | Verify budget is applied proportionally, not fixed absolute |
-| Blank response guard | Verify 0-token output → retry without RAG → fallback |
+| Blank response guard | Verify ordinary 0-token output → retry without RAG → fallback; successful non-empty DirectReply with blank model output is returned without retry |
 | Backend fallback change | Verify NPU→GPU→CPU fallback chain with forced failure at each tier |
 | Structured output change | Test `generateStructuredOnce` with varied schema shapes |
 
@@ -42,7 +42,7 @@ This gate applies when the PR touches:
 - `conversation.reset()` clears KV cache (not just state variables)
 - Cross-command contamination: 3+ independent intents with distinct parameters
   all return correct intent with correct parameters
-- Blank-response guard: 0-token output triggers retry without RAG, then fallback
+- Blank-response guard: ordinary 0-token output retries without RAG, then falls back; successful non-empty DirectReply is surfaced without a blank-response retry
 - Structured-output deadlock: `generateStructuredOnce` does not hang on malformed
   schema or empty response
 - Context budget scaling: budget is proportional to window size, not absolute

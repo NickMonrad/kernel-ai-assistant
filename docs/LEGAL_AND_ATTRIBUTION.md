@@ -69,7 +69,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | sqlite-vec | Local vector search extension in `core/memory/src/main/cpp` | Dual MIT OR Apache-2.0 upstream | Include chosen licence text/notice if source/native library is bundled. |
 | SQLite amalgamation | SQLite C source referenced by native build | Public domain / blessing text upstream | Confirm bundling; include SQLite public-domain notice/blessing if bundled. |
 | Sherpa-ONNX AAR/runtime | Local STT/TTS runtime; release currently wires the custom v1.13.0 Inflect AAR described in `scripts/sherpa-onnx-v1.13.0-inflect-build.md` | Sherpa's project licence does not establish the complete custom AAR's component terms; the build reuses Piper/eSpeak functionality, and exact component revisions/terms remain tracked by #1474 | Do not present the complete runtime bundle as Apache-2.0-only; #1474 still requires source, notice/SBOM, and exact release-artifact reconciliation. |
-| Wake-word ONNX model assets | Bundled wake-word detector/verifier assets | openWakeWord Apache-2.0 lineage for Stage 1/2; Stage 3 `hey_jandal.onnx` generated from local training data recorded in `training/wakeword/README.md` | Keep openWakeWord notice; before final release, maintainer should confirm real-recording ownership/consent for the generated Stage 3 model. |
+| Wake-word ONNX model assets | Bundled wake-word detector/verifier assets | openWakeWord Apache-2.0 lineage for Stage 1/2; Stage 3 `hey_jandal.onnx` generated from local training data recorded in `training/wakeword/README.md` | Nick (maintainer) confirmed in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577) that the real recordings are of him and his wife, made with consent for this use; additional synthetic audio was generated with Piper TTS, and no other human recordings were used. |
 | Local model binaries under `models/` | Dev/test local model cache | Not committed / not shipped from source | Keep gitignored; release artefact still needs audit. |
 
 ### Downloaded or bundled model assets
@@ -149,7 +149,7 @@ Avoid promising that every feature is offline if a skill may call an external so
 - [x] Wake-word training/provenance path is traceable through `training/wakeword/README.md` and `NOTICE`.
 - [x] Release runtime dependency evidence generated and compared against this table. Formal SBOM (CycloneDX/SPDX) not generated; Durable dependency review documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.
 - [ ] Confirm exact bundled/downloaded Vosk model provenance if Vosk model files are exposed in the release build.
-- [ ] Confirm maintainer ownership/consent for real recordings used in the generated Hey Jandal Stage 3 wake-word model.
+- [x] Nick confirmed ownership/consent for the real recordings used in the generated Hey Jandal Stage 3 wake-word model in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577).
 - [ ] #1263: Implement and validate both offline in-app disclosure views required for v0.1 through #1260 Legal & Privacy; this requirement is not conditional on SBOM findings.
 - [ ] Play Store privacy/data disclosures match the actual release build.
 - [ ] Confirm #868's closed state still reflects the final release scope after the SBOM/AAB audit.

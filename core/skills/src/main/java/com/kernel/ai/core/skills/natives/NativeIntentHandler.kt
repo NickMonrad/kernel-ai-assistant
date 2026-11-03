@@ -2082,7 +2082,15 @@ class NativeIntentHandler @Inject constructor(
 
     private fun addToList(params: Map<String, String>): SkillResult {
         val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("add_to_list", "No item specified")
+        if (item == null) {
+            if (params["items"]?.isNotBlank() != true) {
+                return SkillResult.Failure("add_to_list", "No item specified")
+            }
+            if (params["list_name"]?.isNotBlank() != true) {
+                return SkillResult.Failure("add_to_list", "No list name specified")
+            }
+            return bulkAddToList(params)
+        }
 
         // Guard against filler phrases like "an item", "something", "it", etc.
         if (isFillerItem(item)) {

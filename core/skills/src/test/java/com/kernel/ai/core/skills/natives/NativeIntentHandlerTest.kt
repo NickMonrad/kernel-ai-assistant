@@ -1238,6 +1238,26 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `add_to_list accepts the run_intent items array shape`() {
+        stubMixedCaseMealPlan()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItems(42L, listOf("kiwi")) } returns listOf(8L)
+        coEvery { listItemDao.getByList(42L) } returns emptyList()
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("items" to """["kiwi"]""", "list_name" to "meal plan"),
+        )
+
+        assertEquals(
+            "Added 1 item to your Meal Plan:\nkiwi",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 1) { mutations.addItems(42L, listOf("kiwi")) }
+    }
+
+    @Test
     fun `add_to_list reports read-only Nextcloud mutation failure instead of success`() {
         stubMixedCaseMealPlan()
         val mutations = mockk<ListMutationRepository>(relaxed = true)

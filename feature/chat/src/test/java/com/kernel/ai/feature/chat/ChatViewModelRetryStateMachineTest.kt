@@ -322,6 +322,34 @@ class ChatViewModelRetryStateMachineTest {
         assertEquals("Alarm set", savedContents.last())
     }
 
+    @Test
+    fun `blank generation after successful DirectReply does not retry`() = runTest(dispatcher) {
+        val systemInfoSkill = mockk<Skill>()
+        every { systemInfoSkill.name } returns "get_system_info"
+        coEvery { systemInfoSkill.execute(any()) } returns SkillResult.DirectReply("Device status")
+        every { skillRegistry.get("get_system_info") } returns systemInfoSkill
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "Tell me a fun fact about kiwi birds.",
+        )
+        coEvery { conversationRepository.addMessage(any(), eq("user"), any(), any(), any()) } returns "user-msg-id"
+        coEvery { inferenceEngine.generate(any()) } returns toolChainFlow(
+            chain = { realToolSet.getSystemInfo() },
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("Tell me a fun fact about kiwi birds.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { inferenceEngine.generate(any()) }
+        assertEquals("get_system_info", realToolSet.terminalToolName())
+        assertTrue(realToolSet.terminalToolWasDirectReply())
+        assertEquals("Device status", savedContents.last())
+    }
+
     // -----------------------------------------------------------------------
     // Scenario B — False confirmation followed by successful continuation
     // -----------------------------------------------------------------------
