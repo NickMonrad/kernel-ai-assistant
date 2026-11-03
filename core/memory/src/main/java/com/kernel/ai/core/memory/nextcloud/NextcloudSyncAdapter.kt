@@ -730,6 +730,10 @@ class NextcloudSyncAdapter @Inject constructor(
                     canonicalTitle = remoteTitle,
                     lifecycle = ListLifecycle.ACTIVE,
                     createdAt = list.createdAt,
+                    // `revision` now starts at the newest local item stamp, so applying it to the
+                    // collection would overwrite a local rename or revive a locally deleted list.
+                    // Only a title the provider set last follows the provider; lifecycle stays local.
+                    // Server-side renames are not detected here yet (see binding.remoteTitle).
                     titleStamp = if (list.titleStampActorId == PROVIDER_ACTOR) {
                         VersionStamp(revision.coerceAtLeast(1L), PROVIDER_ACTOR)
                     } else {
@@ -937,7 +941,14 @@ class NextcloudSyncAdapter @Inject constructor(
             checkedStamp = if (changedChecked || local == null) provider else VersionStamp(local.checkedLogicalClock, local.checkedStampActorId),
             dueAtStamp = if (changedDue || local == null) provider else VersionStamp(local.dueAtLogicalClock, local.dueAtStampActorId),
             placementStamp = if (changedParent || changedOrder || local == null) provider else VersionStamp(local.placementLogicalClock, local.placementStampActorId),
-            lifecycleStamp = if (local == null || local.lifecycle == ListLifecycle.DELETED.name) provider else VersionStamp(local.lifecycleLogicalClock, local.lifecycleStampActorId),
+            // A remote document can revive an item only when the provider deleted it. A deletion
+            // made in Jandal keeps its stamp, so a server edit to another field of the same item
+            // cannot bring it back (#1730).
+            lifecycleStamp = if (local == null || (local.lifecycle == ListLifecycle.DELETED.name && local.lifecycleStampActorId == PROVIDER_ACTOR)) {
+                provider
+            } else {
+                VersionStamp(local.lifecycleLogicalClock, local.lifecycleStampActorId)
+            },
         )
     }
 
