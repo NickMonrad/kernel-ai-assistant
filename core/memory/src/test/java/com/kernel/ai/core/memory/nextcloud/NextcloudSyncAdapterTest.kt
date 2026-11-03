@@ -914,6 +914,111 @@ class NextcloudSyncAdapterTest {
         }
     }
 
+    @Test
+    fun `a local list rename survives a server item edit after another local item edit`() = runTest {
+        val binding = binding("writable")
+        val titleClock = 50L
+        val localItemClock = 60L
+        val locallyRenamedList = list(binding.collectionId).copy(
+            name = "Locally renamed",
+            canonicalTitle = "Locally renamed",
+            titleLogicalClock = titleClock,
+            titleStampActorId = "local",
+            lifecycleLogicalClock = 2L,
+            lifecycleStampActorId = "local",
+        )
+        val localItemUid = "local-item"
+        val serverItemUid = "server-item"
+        val localItemId = "local-item-id"
+        val serverItemId = "server-item-id"
+        val localItemBase = VTodoDocument.new(
+            uid = localItemUid,
+            summary = "Local item",
+            checked = false,
+            dueAt = null,
+            parentUid = null,
+            orderKey = "0",
+        ).render()
+        val serverItemBase = VTodoDocument.new(
+            uid = serverItemUid,
+            summary = "Server item",
+            checked = false,
+            dueAt = null,
+            parentUid = null,
+            orderKey = "1",
+        ).render()
+        val localItem = listItem(binding.collectionId, localItemUid).copy(
+            id = 3L,
+            itemId = localItemId,
+            text = "Locally edited item",
+            textLogicalClock = localItemClock,
+            textStampActorId = "local",
+        )
+        val serverItem = listItem(binding.collectionId, serverItemUid).copy(
+            id = 4L,
+            itemId = serverItemId,
+            text = "Server item",
+        )
+        val serverEdit = "Edited on Nextcloud"
+        val unchangedItemEtag = "\"local-item-etag\""
+        val changedItemEtag = "\"server-item-new-etag\""
+        var importedSnapshot: SharedCollectionSnapshot? = null
+        val transport = RecordingTransport(
+            reportItemUids = listOf(localItemUid, serverItemUid),
+            reportEtags = mapOf(localItemUid to unchangedItemEtag, serverItemUid to changedItemEtag),
+            reportDocument = { uid ->
+                VTodoDocument.new(
+                    uid = uid,
+                    summary = if (uid == localItemUid) "Local item" else serverEdit,
+                    checked = false,
+                    dueAt = null,
+                    parentUid = null,
+                    orderKey = if (uid == localItemUid) "0" else "1",
+                ).render()
+            },
+        )
+        val itemBindings = linkedMapOf(
+            "local-binding" to itemBinding(binding.collectionId, localItemUid).copy(
+                itemId = localItemId,
+                etag = unchangedItemEtag,
+                rawVtodo = localItemBase,
+            ),
+            "server-binding" to itemBinding(binding.collectionId, serverItemUid).copy(
+                itemId = serverItemId,
+                etag = "\"server-item-old-etag\"",
+                rawVtodo = serverItemBase,
+            ),
+        )
+        val rows = linkedMapOf(localItemId to localItem, serverItemId to serverItem)
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            itemBindings,
+            mapOf(binding.collectionId to locallyRenamedList),
+            rows,
+            emptyList(),
+            transport,
+            onImportSnapshot = { importedSnapshot = it },
+        )
+        coEvery { fixture.listItemDao.getByItemId(any()) } answers {
+            rows.values.firstOrNull { it.itemId == firstArg<String>() }
+        }
+
+        fixture.adapter.syncAll()
+
+        val snapshot = requireNotNull(importedSnapshot) { "Expected pull to import a snapshot" }
+        assertEquals(VersionStamp(titleClock, "local"), snapshot.titleStamp)
+        assertEquals(
+            VersionStamp(locallyRenamedList.lifecycleLogicalClock, locallyRenamedList.lifecycleStampActorId),
+            snapshot.lifecycleStamp,
+        )
+        val importedServerItem = snapshot.items.single()
+        assertEquals(serverItemId, importedServerItem.itemId)
+        assertEquals(serverEdit, importedServerItem.text)
+        assertEquals("nextcloud-caldav", importedServerItem.textStamp.actorId)
+        assertTrue(importedServerItem.textStamp > VersionStamp(localItemClock, "local"))
+    }
+
+
     // ── First-time binding rollback (#1551) ─────────────────────────────────────────────────────
 
     @Test
@@ -1226,7 +1331,10 @@ class NextcloudSyncAdapterTest {
         private val reportGate: CompletableDeferred<Unit>? = null,
         /** Held open by the test to suspend an initial push while it is in flight. */
         private val putGate: CompletableDeferred<Unit>? = null,
+
         private val reportDocument: ((String) -> String)? = null,
+        private val reportItemUids: List<String>? = null,
+        private val reportEtags: Map<String, String> = emptyMap(),
         private val readOnlyCollections: Set<String> = emptySet(),
         /** Collections the owner removed: they no longer appear in discovery (#1548). */
         private val absentCollections: Set<String> = emptySet(),
@@ -1287,12 +1395,14 @@ class NextcloudSyncAdapterTest {
                     if (collection == cancelOnReportCollection) {
                         throw CancellationException("cancelled")
                     }
-                    val uid = "$collection-item"
-                    val document = reportDocument?.invoke(uid) ?: remoteDocument(uid)
+                    val reportItems = (reportItemUids ?: listOf("$collection-item")).joinToString("") { uid ->
+                        val document = reportDocument?.invoke(uid) ?: remoteDocument(uid)
+                        val etag = reportEtags[uid] ?: "\\\"$uid-etag\\\""
+                        val encodedDocument = document.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        """<d:response><d:href>/calendars/$collection/$uid.ics</d:href><d:propstat><d:prop><d:getetag>$etag</d:getetag><c:calendar-data>$encodedDocument</c:calendar-data></d:prop></d:propstat></d:response>"""
+                    }
                     response(
-                        """
-                        <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendars/$collection/$uid.ics</d:href><d:propstat><d:prop><d:getetag>\"$uid-etag\"</d:getetag><c:calendar-data>${document.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</c:calendar-data></d:prop></d:propstat></d:response></d:multistatus>
-                        """,
+                        """<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">$reportItems</d:multistatus>""",
                     )
                 }
                 else -> error("Unexpected CalDAV request: $method $url")

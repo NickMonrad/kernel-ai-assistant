@@ -730,8 +730,12 @@ class NextcloudSyncAdapter @Inject constructor(
                     canonicalTitle = remoteTitle,
                     lifecycle = ListLifecycle.ACTIVE,
                     createdAt = list.createdAt,
-                    titleStamp = VersionStamp(revision.coerceAtLeast(1L), PROVIDER_ACTOR),
-                    lifecycleStamp = VersionStamp(revision.coerceAtLeast(1L), PROVIDER_ACTOR),
+                    titleStamp = if (list.titleStampActorId == PROVIDER_ACTOR) {
+                        VersionStamp(revision.coerceAtLeast(1L), PROVIDER_ACTOR)
+                    } else {
+                        VersionStamp(list.titleLogicalClock, list.titleStampActorId)
+                    },
+                    lifecycleStamp = VersionStamp(list.lifecycleLogicalClock, list.lifecycleStampActorId),
                     items = snapshots,
                     checkpoints = emptyList(),
                 ),
