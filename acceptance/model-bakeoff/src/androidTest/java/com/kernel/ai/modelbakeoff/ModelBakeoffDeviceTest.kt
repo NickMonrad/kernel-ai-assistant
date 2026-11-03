@@ -95,10 +95,10 @@ class ModelBakeoffDeviceTest {
         val context = instrumentation.targetContext.applicationContext
         assertEquals("com.kernel.ai.debug.modelbakeoff", context.packageName)
         val args = InstrumentationRegistry.getArguments()
-        val model = requireNotNull(args.getString("model")) { "Pass model=gemma|qwen|agents|nemotron|lfm3-a|lfm3-b" }
+        val model = requireNotNull(args.getString("model")) { "Pass model=gemma|qwen|agents|nemotron|lfm3-a|lfm3-b|lfm3-custom16k" }
         val backendName = requireNotNull(args.getString("backend")) { "Pass backend=GPU|CPU" }
         val mtp = args.getString("mtp")?.toBooleanStrictOrNull() ?: false
-        val expectedModels = setOf("gemma", "qwen", "agents", "nemotron", "lfm3-a", "lfm3-b")
+        val expectedModels = setOf("gemma", "qwen", "agents", "nemotron", "lfm3-a", "lfm3-b", "lfm3-custom16k")
         require(model in expectedModels) { "Unknown model=$model" }
         require(backendName in setOf("GPU", "CPU")) { "Unknown backend=$backendName" }
         val spec = modelSpec(model)
@@ -116,7 +116,7 @@ class ModelBakeoffDeviceTest {
             "context" -> {
                 val contextTokens = requireNotNull(args.getString("contextTokens")) { "Pass contextTokens=4096|8192|16384" }.toInt()
                 require(contextTokens in setOf(4096, 8192, 16384)) { "Unsupported contextTokens=$contextTokens" }
-                require(model in setOf("gemma", "lfm3-a", "lfm3-b")) { "Context probe supports gemma and LFM3 models only" }
+                require(model in setOf("gemma", "lfm3-a", "lfm3-b", "lfm3-custom16k")) { "Context probe supports gemma and LFM3 models only" }
                 require(model != "lfm3-b" || contextTokens <= 8192) { "Model B context probe is limited to 8K" }
                 runContextProbe(context, file, backend, model, backendName, mtp, contextTokens, thinking)
                 return@runBlocking
@@ -839,6 +839,7 @@ class ModelBakeoffDeviceTest {
         "nemotron" -> ModelSpec("NVIDIA-Nemotron-3.5-Bolt-E4B_int4.litertlm", "litert-community/NVIDIA-Nemotron-3.5-Bolt-E4B", "a98def827e7f80e991aa894d2c91d2ec7e865784", 4_404_768_064L, "e24456d06bd9155470593f036d4b63e5b47d53ae7e88d8511c6ba768c6e68d6b", "OpenMDW-1.1")
         "lfm3-a" -> ModelSpec("LFM3-1.7B_int8_32k_fp16.litertlm", "maruel/LFM3-1.7B-LiteRT-INT8-32K", "dcc46e2491394dc6b1780fd5ad60b97c4c7f58f4", 1_787_337_904L, "695e33f821cde8e01d9ecc90edb0273e2a4db7ff40037066d2ea57da373b80a8", "LFM Open License v1.0")
         "lfm3-b" -> ModelSpec("LFM3-1.7B_int8_ekv4096.litertlm", "litert-community/LFM3-1.7B-LiteRT", "9bbda264c623f30c905b9c247761ee7463f2b00d", 1_801_557_456L, "8b83651037fcec23f232e8f4e670683a44cc7097a4d5f74a1abddeb7bc0dae27", "LFM Open License v1.0")
+        "lfm3-custom16k" -> ModelSpec("LFM3-1.7B_int8_16k_fp16.litertlm", "LiquidAI/LFM3-1.7B (maruel/gomode export)", "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd", 1_795_978_992L, "d564c1a68b43489153d7f7b49a758968718f42a06c2220ae8f4c826d6103168a", "LFM Open License v1.0")
         else -> error("Unknown model=$model")
     }
     private fun sha256(file: File): String {

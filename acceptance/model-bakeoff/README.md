@@ -41,7 +41,7 @@ The transition output distinguishes schema/structure validity, intended semantic
 
 ## Model pins and licences
 
-Source repositories are Hugging Face model repositories pinned to immutable commits. The byte count and SHA-256 are checked before each engine load; licence identifiers were checked at the pinned revision. Model files are staging assets, not repository content.
+Upstream model source revisions and locally exported model provenance are pinned below. The byte count and SHA-256 are checked before each engine load; licence identifiers are recorded from the pinned source revisions. Model files are staging assets, not repository content.
 
 | Model | Repository @ revision | File | Bytes | SHA-256 | Licence |
 |---|---|---|---:|---|---|
@@ -51,3 +51,6 @@ Source repositories are Hugging Face model repositories pinned to immutable comm
 | NVIDIA Nemotron 3.5 Bolt E4B int4 | `litert-community/NVIDIA-Nemotron-3.5-Bolt-E4B` @ `a98def827e7f80e991aa894d2c91d2ec7e865784` | `NVIDIA-Nemotron-3.5-Bolt-E4B_int4.litertlm` | 4,404,768,064 | `e24456d06bd9155470593f036d4b63e5b47d53ae7e88d8511c6ba768c6e68d6b` | OpenMDW-1.1 |
 | LFM3-1.7B int8, A (32K-labeled artifact; context unvalidated) | `maruel/LFM3-1.7B-LiteRT-INT8-32K` @ `dcc46e2491394dc6b1780fd5ad60b97c4c7f58f4` | `LFM3-1.7B_int8_32k_fp16.litertlm` | 1,787,337,904 | `695e33f821cde8e01d9ecc90edb0273e2a4db7ff40037066d2ea57da373b80a8` | LFM Open License v1.0 |
 | LFM3-1.7B int8, B (`int8_ekv4096` artifact) | `litert-community/LFM3-1.7B-LiteRT` @ `9bbda264c623f30c905b9c247761ee7463f2b00d` | `LFM3-1.7B_int8_ekv4096.litertlm` | 1,801,557,456 | `8b83651037fcec23f232e8f4e670683a44cc7097a4d5f74a1abddeb7bc0dae27` | LFM Open License v1.0 |
+| LFM3-1.7B custom 16K INT8/FP16 export | `LiquidAI/LFM3-1.7B` @ `40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd`; exporter `maruel/gomode` @ `fa6349e3f6a782a9776b8aba1a1c57c57f8c2fb1` with local 16K/1024-prefill patch | `LFM3-1.7B_int8_16k_fp16.litertlm` | 1,795,978,992 | `d564c1a68b43489153d7f7b49a758968718f42a06c2220ae8f4c826d6103168a` | LFM Open License v1.0 |
+
+The custom export used `scripts/export_lfm_litert.py` from `maruel/gomode` commit `fa6349e3f6a782a9776b8aba1a1c57c57f8c2fb1`, locally changed to expose 8K/16K variants and a 1,024-token prefill signature. Export options: context 16,384; prefill signatures 1, 4, 16, 64, 256, and 1,024. Patched script SHA-256: `7623f2ee447446704f64ee0ad8d8c095412d9499ad2b2f69aebdc7866d1efe54`; lockfile SHA-256: `945cd4de2f604117a9885b8c7682470a098ccc45258fa177a039102044c6363b`. Exporter commit: `f61d0b792013300ae7a1ca215d8c2f9de5ef4adf`; extension commit: `f3b7baad40ec0f6a4b413912a68497bf8c5d8aa3`. The manifest records the output and source pins; inference quality and device performance remain unvalidated.
