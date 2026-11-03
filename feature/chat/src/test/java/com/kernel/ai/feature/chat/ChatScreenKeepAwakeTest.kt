@@ -184,6 +184,50 @@ class ChatScreenKeepAwakeTest {
         )
     }
 
+    @Test
+    fun `follows assistant response through streaming completion`() {
+        assertTrue(
+            shouldAutoScrollToLatest(
+                messageCount = 24,
+                lastVisibleItemIndex = 12,
+                latestAssistantIsStreaming = true,
+                latestAssistantWasStreaming = false,
+            ),
+        )
+        assertTrue(
+            shouldAutoScrollToLatest(
+                messageCount = 24,
+                lastVisibleItemIndex = 12,
+                latestAssistantIsStreaming = false,
+                latestAssistantWasStreaming = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `does not pull idle history browsing to latest`() {
+        assertFalse(
+            shouldAutoScrollToLatest(
+                messageCount = 24,
+                lastVisibleItemIndex = 12,
+                latestAssistantIsStreaming = false,
+                latestAssistantWasStreaming = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `keeps existing near-bottom auto-scroll behavior`() {
+        assertTrue(
+            shouldAutoScrollToLatest(
+                messageCount = 24,
+                lastVisibleItemIndex = 22,
+                latestAssistantIsStreaming = false,
+                latestAssistantWasStreaming = false,
+            ),
+        )
+    }
+
     private fun readyState(
         isGenerating: Boolean = false,
         isLoadingModel: Boolean = false,

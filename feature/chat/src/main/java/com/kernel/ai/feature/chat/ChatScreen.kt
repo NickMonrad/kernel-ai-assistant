@@ -220,6 +220,16 @@ internal fun shouldShowInlineGenerationIndicator(state: ChatUiState.Ready): Bool
         state.messages.lastOrNull()?.role == ChatMessage.Role.USER &&
         state.messages.none { it.role == ChatMessage.Role.ASSISTANT && it.isStreaming }
 
+internal fun shouldAutoScrollToLatest(
+    messageCount: Int,
+    lastVisibleItemIndex: Int,
+    latestAssistantIsStreaming: Boolean,
+    latestAssistantWasStreaming: Boolean,
+): Boolean = messageCount > 0 &&
+    (latestAssistantIsStreaming ||
+        latestAssistantWasStreaming ||
+        lastVisibleItemIndex >= messageCount - 2)
+
 /** Attachment type for the in-chat attachment picker (#962). */
 private enum class AttachmentType { Image, Audio, File }
 @OptIn(ExperimentalMaterial3Api::class)
@@ -749,19 +759,24 @@ private fun ChatContent(
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
     var showAttachmentPicker by remember { mutableStateOf(false) }
+    var latestAssistantWasStreaming by remember { mutableStateOf(false) }
     // LoopListeningCueEffect removed — cue playback is handled by StartListeningCuePlayer
     // in ChatViewModel on VoiceInputEvent.ListeningStarted.
 
-    // Auto-scroll when a new message is appended, but only if the user is already
-    // near the bottom (within 2 items). If they've scrolled up to read history,
-    // the scroll-to-bottom button handles getting back. Uses instant scrollToItem
-    // (not animated) so it never holds the scroll mutex long enough to fight gestures.
-    LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) {
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            if (lastVisible >= state.messages.size - 2) {
-                listState.scrollToItem(state.messages.lastIndex, scrollOffset = Int.MAX_VALUE)
-            }
+    // Follow a new assistant response through completion, but leave idle history browsing
+    // alone. The streaming transition is keyed separately because message count stays fixed.
+    val latestAssistantIsStreaming =
+        state.messages.lastOrNull()?.let { it.role == ChatMessage.Role.ASSISTANT && it.isStreaming } == true
+    LaunchedEffect(state.messages.size, latestAssistantIsStreaming) {
+        val shouldScroll = shouldAutoScrollToLatest(
+            messageCount = state.messages.size,
+            lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0,
+            latestAssistantIsStreaming = latestAssistantIsStreaming,
+            latestAssistantWasStreaming = latestAssistantWasStreaming,
+        )
+        latestAssistantWasStreaming = latestAssistantIsStreaming
+        if (shouldScroll) {
+            listState.scrollToItem(state.messages.lastIndex, scrollOffset = Int.MAX_VALUE)
         }
     }
 
