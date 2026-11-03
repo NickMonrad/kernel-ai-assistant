@@ -45,6 +45,16 @@ Jandal currently includes:
 
 Future roadmap work includes Dreaming Engine background consolidation, Wasm skill extensibility, broader device optimisation, and richer multimodal/vision workflows. These are intentionally separated from the launch plan unless explicitly promoted.
 
+## Screenshots
+
+Current S23U screenshots from a debug build, using synthetic data; these are not final Play Store listing assets. The raw captures and provenance are documented in [`docs/play-store/screenshots/README.md`](docs/play-store/screenshots/README.md). This set is available for [#1262](https://github.com/NickMonrad/kernel-ai-assistant/issues/1262).
+
+| Chat | Quick action | Lists |
+|---|---|---|
+| <img src="docs/play-store/screenshots/08-chat-complete.png" alt="Completed on-device chat answer to a synthetic kiwi bird prompt in Jandal." width="200"> | <img src="docs/play-store/screenshots/09-timer-action.png" alt="Jandal Actions history confirming a synthetic 60-minute timer quick action." width="200"> | <img src="docs/play-store/screenshots/10-lists.png" alt="Jandal showing a synthetic Picnic list with a Water item." width="200"> |
+| Model management | Legal & privacy | |
+| <img src="docs/play-store/screenshots/11-model-management.png" alt="Model Management showing Gemma 4 E-4B ready alongside local model storage details." width="200"> | <img src="docs/play-store/screenshots/12-legal-privacy.png" alt="Jandal's Legal and privacy screen with Privacy Policy, Terms of Use, and Open-source licences." width="200"> | |
+
 ## Tech stack
 
 | Area | Technology |
