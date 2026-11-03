@@ -6,7 +6,8 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Capabilities
+import com.google.ai.edge.litertlm.LlmCapability
+import com.google.ai.edge.litertlm.ModelInfo
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
@@ -26,7 +27,7 @@ import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.toBackend
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -39,6 +40,7 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.io.File
 import java.security.MessageDigest
@@ -47,7 +49,7 @@ import java.util.concurrent.atomic.AtomicLong
 /** Explicit one-model/one-backend run; this class is never selected by the normal device suite. */
 @OptIn(ExperimentalApi::class)
 class ModelBakeoffDeviceTest {
-    private data class ModelSpec(val fileName: String, val revision: String, val bytes: Long, val sha256: String, val license: String)
+    private data class ModelSpec(val fileName: String, val repoId: String, val revision: String, val bytes: Long, val sha256: String, val license: String)
     private data class Held(val id: String, val description: String, val status: String, val slots: List<String> = emptyList())
     private data class TransitionFixture(
         val name: String,
@@ -61,9 +63,29 @@ class ModelBakeoffDeviceTest {
         val dispatchTarget: String? = null,
     )
     private data class NumericFixture(val id: String, val grounding: String, val prompt: String, val expected: List<String>, val forbidden: List<String> = emptyList())
-    private data class RunResult(val output: String, val ttftMs: Long, val elapsedMs: Long, val pssKb: Long, val gpuKb: Long?, val initMs: Long, val decodeTps: Double?, val mtpActive: Boolean)
+    private data class RunResult(val output: String, val ttftMs: Long, val elapsedMs: Long, val pssKb: Long, val gpuKb: Long?, val initMs: Long, val prefillTokens: Int?, val prefillTps: Double?, val decodeTps: Double?, val mtpActive: Boolean)
     private data class FixtureTool(val name: String, val provider: ToolProvider, val execute: (String) -> String)
     private data class TextToolCall(val name: String, val argumentsJson: String)
+
+    @Test
+    fun parseLfm3XmlToolCall() {
+        val parsed = parseXmlToolCall(
+            """
+            <think>Use the local lookup tool.</think>
+            <tool_call>
+            <function=query_wikipedia>
+            <parameter=query>
+            Battle of Hastings
+            </parameter>
+            </function>
+            </tool_call>
+            """.trimIndent(),
+        )
+        requireNotNull(parsed)
+        assertEquals("query_wikipedia", parsed.name)
+        assertEquals("Battle of Hastings", JSONObject(parsed.argumentsJson).getString("query"))
+        assertNull(parseXmlToolCall("Answer directly without a tool call."))
+    }
 
     @Test
     fun runPinnedBakeoffCorpus(): Unit = runBlocking {
@@ -71,10 +93,10 @@ class ModelBakeoffDeviceTest {
         val context = instrumentation.targetContext.applicationContext
         assertEquals("com.kernel.ai.debug.modelbakeoff", context.packageName)
         val args = InstrumentationRegistry.getArguments()
-        val model = requireNotNull(args.getString("model")) { "Pass model=gemma|qwen|agents|nemotron" }
+        val model = requireNotNull(args.getString("model")) { "Pass model=gemma|qwen|agents|nemotron|lfm3-a|lfm3-b" }
         val backendName = requireNotNull(args.getString("backend")) { "Pass backend=GPU|CPU" }
         val mtp = args.getString("mtp")?.toBooleanStrictOrNull() ?: false
-        val expectedModels = setOf("gemma", "qwen", "agents", "nemotron")
+        val expectedModels = setOf("gemma", "qwen", "agents", "nemotron", "lfm3-a", "lfm3-b")
         require(model in expectedModels) { "Unknown model=$model" }
         require(backendName in setOf("GPU", "CPU")) { "Unknown backend=$backendName" }
         val spec = modelSpec(model)
@@ -85,8 +107,23 @@ class ModelBakeoffDeviceTest {
         assertEquals("Model file SHA256 mismatch", spec.sha256, actualSha256)
         val backendType = BackendType.valueOf(backendName)
         val backend = backendType.toBackend(context)
-        Log.i(TAG, "MODEL_PIN model=$model repoRevision=${spec.revision} bytes=${spec.bytes} sha256=$actualSha256 license=${spec.license} sdk=0.17.1")
-        Log.i(TAG, "RUN_START model=$model backend=$backendName mtp=$mtp")
+        val thinking = args.getString("thinking")?.toBooleanStrictOrNull() ?: false
+        Log.i(TAG, "MODEL_PIN model=$model repository=${spec.repoId} repoRevision=${spec.revision} bytes=${spec.bytes} sha256=$actualSha256 license=${spec.license} sdk=0.19.0")
+        Log.i(TAG, "RUN_START model=$model backend=$backendName mtp=$mtp thinking=$thinking")
+        when (args.getString("probe")) {
+            "context" -> {
+                val contextTokens = requireNotNull(args.getString("contextTokens")) { "Pass contextTokens=4096|8192|16384" }.toInt()
+                require(contextTokens in setOf(4096, 8192, 16384)) { "Unsupported contextTokens=$contextTokens" }
+                require(model in setOf("gemma", "lfm3-a", "lfm3-b")) { "Context probe supports gemma and LFM3 models only" }
+                require(model != "lfm3-b" || contextTokens <= 8192) { "Model B context probe is limited to 8K" }
+                runContextProbe(context, file, backend, model, backendName, mtp, contextTokens, thinking)
+                return@runBlocking
+            }
+            "state-leak" -> {
+                runStateLeakProbe(context, file, backend, model, backendName, thinking)
+                return@runBlocking
+            }
+        }
 
         if (args.getString("probe") == "mtp-throughput") {
             require(model == "gemma" && backendName == "GPU") { "The MTP throughput probe is for Gemma E4B/GPU only" }
@@ -152,7 +189,7 @@ class ModelBakeoffDeviceTest {
             transitions.forEach { fixture ->
                 val prompt = transitionPrompt(fixture)
                 val schema = transitionSchema(fixture.held)
-                val run = runOne(context, file, backend, model, backendName, mtp, TRANSITION_SYSTEM, prompt, schema)
+                val run = runOne(context, file, backend, model, backendName, mtp, TRANSITION_SYSTEM, prompt, schema, thinking = thinking)
                 val parsed = runCatching { JSONObject(run.output) }.getOrNull()
                 val structural = parsed != null && parsed.keys().asSequence().toSet() == TRANSITION_KEYS.toSet() &&
                     parsed.optString("transition") in TRANSITIONS &&
@@ -174,29 +211,29 @@ class ModelBakeoffDeviceTest {
                 } else if (proposalDispatch != null) {
                     unexpectedDispatches++
                 }
-                val line = "TRANSITION model=$model backend=$backendName mtp=$mtp mtpActive=${run.mtpActive} fixture=${fixture.name} structural=$structural semantic=$transitionCorrect slot=$slotCorrect proposalDispatch=$proposalDispatch expectedDispatch=${fixture.dispatchTarget} dispatchCorrect=$dispatchCorrect initMs=${run.initMs} ttftMs=${run.ttftMs} elapsedMs=${run.elapsedMs} decodeTps=${run.decodeTps ?: "unavailable"} pssKb=${run.pssKb} gpuKb=${run.gpuKb ?: "unavailable"} output=${run.output.take(280).replace('\n', ' ')}"
+                val line = "TRANSITION model=$model backend=$backendName mtp=$mtp thinking=$thinking mtpActive=${run.mtpActive} fixture=${fixture.name} structural=$structural semantic=$transitionCorrect slot=$slotCorrect proposalDispatch=$proposalDispatch expectedDispatch=${fixture.dispatchTarget} dispatchCorrect=$dispatchCorrect initMs=${run.initMs} ttftMs=${run.ttftMs} elapsedMs=${run.elapsedMs} decodeTps=${run.decodeTps ?: "unavailable"} pssKb=${run.pssKb} gpuKb=${run.gpuKb ?: "unavailable"} output=${run.output.take(280).replace('\n', ' ')}"
                 Log.i(TAG, line)
                 allResults += line
             }
 
             numericFixtures().forEach { fixture ->
-                val run = runOne(context, file, backend, model, backendName, mtp, NUMERIC_SYSTEM, fixture.prompt, schema = null)
+                val run = runOne(context, file, backend, model, backendName, mtp, NUMERIC_SYSTEM, fixture.prompt, schema = null, thinking = thinking)
                 val present = fixture.expected.all { numericContains(run.output, it) }
                 val forbiddenClear = fixture.forbidden.none { numericContains(run.output, it) }
                 if (present && forbiddenClear) numericPasses++
-                val line = "NUMERIC model=$model backend=$backendName mtp=$mtp mtpActive=${run.mtpActive} fixture=${fixture.id} grounding=${fixture.grounding} expected=${fixture.expected.joinToString("|")} forbidden=${fixture.forbidden.joinToString("|")} exactCopy=$present forbiddenClear=$forbiddenClear numericPass=${present && forbiddenClear} initMs=${run.initMs} ttftMs=${run.ttftMs} elapsedMs=${run.elapsedMs} decodeTps=${run.decodeTps ?: "unavailable"} pssKb=${run.pssKb} gpuKb=${run.gpuKb ?: "unavailable"} output=${run.output.take(350).replace('\n', ' ')}"
+                val line = "NUMERIC model=$model backend=$backendName mtp=$mtp thinking=$thinking mtpActive=${run.mtpActive} fixture=${fixture.id} grounding=${fixture.grounding} expected=${fixture.expected.joinToString("|")} forbidden=${fixture.forbidden.joinToString("|")} exactCopy=$present forbiddenClear=$forbiddenClear numericPass=${present && forbiddenClear} initMs=${run.initMs} ttftMs=${run.ttftMs} elapsedMs=${run.elapsedMs} decodeTps=${run.decodeTps ?: "unavailable"} pssKb=${run.pssKb} gpuKb=${run.gpuKb ?: "unavailable"} output=${run.output.take(350).replace('\n', ' ')}"
                 allResults += line
             }
 
-            toolTranscripts(context, file, backend, model, backendName, mtp).forEach { line ->
+            toolTranscripts(context, file, backend, model, backendName, mtp, thinking).forEach { line ->
                 if (line.contains("expectedCallObserved=true")) toolPasses++
                 Log.i(TAG, line)
                 allResults += line
             }
-            val qualitySummary = "QUALITY_SUMMARY model=$model backend=$backendName mtp=$mtp transitionStructural=$structuralPasses/${transitions.size} transitionSemantic=$semanticPasses/${transitions.size} dispatchCorrect=$dispatchPasses/$expectedDispatches unexpectedDispatches=$unexpectedDispatches numericExact=$numericPasses/${numericFixtures().size} toolSequences=$toolPasses/5"
+            val qualitySummary = "QUALITY_SUMMARY model=$model backend=$backendName mtp=$mtp thinking=$thinking transitionStructural=$structuralPasses/${transitions.size} transitionSemantic=$semanticPasses/${transitions.size} dispatchCorrect=$dispatchPasses/$expectedDispatches unexpectedDispatches=$unexpectedDispatches numericExact=$numericPasses/${numericFixtures().size} toolSequences=$toolPasses/5"
             Log.i(TAG, qualitySummary)
 
-            val warmReload = runOne(context, file, backend, model, backendName, mtp, "Reply only READY.", "Say READY.", schema = null)
+            val warmReload = runOne(context, file, backend, model, backendName, mtp, "Reply only READY.", "Say READY.", schema = null, thinking = thinking)
             val normalChatHealthy = warmReload.output.contains("READY", ignoreCase = true)
             val cancellationOutcome = runCatching {
                 cancellationAndRecovery(context, file, backend, mtp)
@@ -204,13 +241,13 @@ class ModelBakeoffDeviceTest {
             val cancellation = cancellationOutcome.getOrElse { -1L to false }
             val cancellationError = cancellationOutcome.exceptionOrNull()?.javaClass?.simpleName ?: "none"
             val lifecycleLine =
-                "LIFECYCLE model=$model backend=$backendName mtp=$mtp warmReloadInitMs=${warmReload.initMs} " +
+                "LIFECYCLE model=$model backend=$backendName mtp=$mtp thinking=$thinking warmReloadInitMs=${warmReload.initMs} " +
                     "warmReloadTtftMs=${warmReload.ttftMs} normalChatHealth=$normalChatHealthy " +
                     "cancellationDrainMs=${cancellation.first} cancellationRecovery=${cancellation.second} " +
                     "cancellationError=$cancellationError peakPssKb=${peakPss.get()} " +
                     "peakGpuKb=${peakGpuKb.get().takeIf { it > 0L } ?: "unavailable"}"
             Log.i(TAG, lifecycleLine)
-            val reportFile = File(context.filesDir, "J691Bakeoff/results/${model}_${backendName.lowercase()}_mtp-$mtp.txt")
+            val reportFile = File(context.filesDir, "J691Bakeoff/results/${model}_${backendName.lowercase()}_mtp-$mtp-thinking-$thinking.txt")
             reportFile.parentFile?.mkdirs()
             reportFile.writeText(
                 qualitySummary + "\n" +
@@ -221,7 +258,7 @@ class ModelBakeoffDeviceTest {
             require(allResults.size == transitions.size + numericFixtures().size + 5) { "Incomplete evidence rows: ${allResults.size}" }
             require(normalChatHealthy) { "Warm-reload normal chat did not return READY: ${warmReload.output.take(200)}" }
             require(cancellation.second) { "Cancellation recovery did not return READY: $cancellationError" }
-            Log.i(TAG, "RUN_COMPLETE model=$model backend=$backendName mtp=$mtp transitionRows=${transitions.size} numericRows=${numericFixtures().size} toolRows=5 peakPssKb=${peakPss.get()} peakGpuKb=${peakGpuKb.get().takeIf { it > 0L } ?: "unavailable"}")
+            Log.i(TAG, "RUN_COMPLETE model=$model backend=$backendName mtp=$mtp thinking=$thinking transitionRows=${transitions.size} numericRows=${numericFixtures().size} toolRows=5 peakPssKb=${peakPss.get()} peakGpuKb=${peakGpuKb.get().takeIf { it > 0L } ?: "unavailable"}")
         } finally {
             sampler.cancelAndJoin()
         }
@@ -238,16 +275,20 @@ class ModelBakeoffDeviceTest {
         prompt: String,
         schema: String? = null,
         tools: List<FixtureTool> = emptyList(),
+        thinking: Boolean = false,
+        maxNumTokens: Int = 2048,
     ): RunResult = withContext(Dispatchers.IO) {
-        val capabilities = runCatching { Capabilities(file.absolutePath).use { it.hasSpeculativeDecodingSupport() } }.getOrDefault(false)
+        val capabilities = runCatching {
+            ModelInfo.from(file.absolutePath).use { info -> (info as? LlmCapability)?.hasSpeculativeDecodingSupport() == true }
+        }.getOrDefault(false)
         val mtpActive = mtp && capabilities
         val engineConfig = EngineConfig(
             modelPath = file.absolutePath,
             backend = backend,
-            maxNumTokens = 2048,
+            maxNumTokens = maxNumTokens,
             cacheDir = context.cacheDir.absolutePath,
         )
-        val textToolCalls = modelFamily(file.name) in setOf("qwen", "agents")
+        val textToolCalls = modelFamily(file.name) in setOf("qwen", "agents", "lfm3")
         var engine: Engine? = null
         var conversation: Conversation? = null
         try {
@@ -272,7 +313,7 @@ class ModelBakeoffDeviceTest {
                 samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 42),
                 tools = tools.map { it.provider },
                 automaticToolCalling = tools.isNotEmpty() && !textToolCalls,
-                thinkingConfig = ThinkingConfig(enableThinking = false),
+                thinkingConfig = ThinkingConfig(enableThinking = thinking),
                 enableResponseFormat = schema != null,
                 maxOutputToken = 256,
             )
@@ -297,7 +338,7 @@ class ModelBakeoffDeviceTest {
                     conv.sendMessageAsync(
                         requireNotNull(contents),
                         callback,
-                        thinkingConfig = ThinkingConfig(enableThinking = false),
+                        thinkingConfig = ThinkingConfig(enableThinking = thinking),
                         responseFormat = schema?.let(ResponseFormat::json),
                     )
                 } else {
@@ -312,7 +353,7 @@ class ModelBakeoffDeviceTest {
             var current = send(contents = Contents.of(Content.Text(prompt)))
             var dispatched = 0
             while (textToolCalls && dispatched < tools.size + 1) {
-                val call = parseNativeTextToolCall(current) ?: break
+                val call = parseXmlToolCall(current) ?: break
                 val tool = tools.firstOrNull { it.name == call.name }
                 if (tool == null) {
                     output.append("UNKNOWN_TEXT_TOOL name=${call.name}\n")
@@ -330,8 +371,10 @@ class ModelBakeoffDeviceTest {
             val elapsed = SystemClock.elapsedRealtime() - start
             val ttft = if (first.get() < 0) elapsed else first.get() - start
             val info = runCatching { conv.getBenchmarkInfo() }.getOrNull()
+            val prefillTokens = info?.lastPrefillTokenCount?.takeIf { it > 0 }
+            val prefillTps = info?.lastPrefillTokensPerSecond?.takeIf { it > 0.0 }
             val decode = info?.lastDecodeTokensPerSecond?.takeIf { it > 0.0 }
-            RunResult(output.toString().trim(), ttft, elapsed, Debug.getPss().toLong(), readGpuMemoryKb(), initMs, decode, mtpActive)
+            RunResult(output.toString().trim(), ttft, elapsed, Debug.getPss().toLong(), readGpuMemoryKb(), initMs, prefillTokens, prefillTps, decode, mtpActive)
         } finally {
             runCatching { conversation?.close() }
             runCatching { engine?.close() }
@@ -341,8 +384,181 @@ class ModelBakeoffDeviceTest {
         }
     }
 
+    private suspend fun runContextProbe(
+        context: Context,
+        file: File,
+        backend: Backend,
+        model: String,
+        backendName: String,
+        mtp: Boolean,
+        contextTokens: Int,
+        thinking: Boolean,
+    ): Unit = coroutineScope {
+        val needle = "JANDAL-NEEDLE-$contextTokens"
+        val prompt = jandalContextPrompt(contextTokens, needle)
+        val peakPssKb = AtomicLong(0L)
+        val peakRssKb = AtomicLong(0L)
+        val peakGpuKb = AtomicLong(0L)
+        var result: RunResult? = null
+        var failure: Throwable? = null
+        val inference = async(Dispatchers.IO) {
+            runOne(
+                context,
+                file,
+                backend,
+                model,
+                backendName,
+                mtp,
+                CONTEXT_SYSTEM,
+                prompt,
+                thinking = thinking,
+                maxNumTokens = contextTokens + 512,
+            )
+        }
+        val sampler = launch(Dispatchers.Default) {
+            while (isActive) {
+                peakPssKb.accumulateAndGet(Debug.getPss().toLong()) { old, new -> maxOf(old, new) }
+                readRssKb()?.let { peakRssKb.accumulateAndGet(it) { old, new -> maxOf(old, new) } }
+                readGpuMemoryKb()?.let { peakGpuKb.accumulateAndGet(it) { old, new -> maxOf(old, new) } }
+                if (peakRssKb.get() >= RSS_LIMIT_KB) {
+                    inference.cancel(CancellationException("STOP: RSS exceeded approximately 4 GB"))
+                    break
+                }
+                delay(75)
+            }
+        }
+        try {
+            result = inference.await()
+        } catch (cancelled: CancellationException) {
+            if (peakRssKb.get() < RSS_LIMIT_KB) throw cancelled
+            failure = cancelled
+        } catch (caught: Throwable) {
+            failure = caught
+        } finally {
+            sampler.cancelAndJoin()
+        }
+        val output = result?.output.orEmpty()
+        val rssLimitHit = peakRssKb.get() >= RSS_LIMIT_KB
+        val line =
+            "CONTEXT model=$model backend=$backendName thinking=$thinking targetPromptTokens=$contextTokens " +
+                "prefillTokens=${result?.prefillTokens ?: "unavailable"} ttftMs=${result?.ttftMs ?: "unavailable"} " +
+                "prefillTps=${result?.prefillTps ?: "unavailable"} decodeTps=${result?.decodeTps ?: "unavailable"} " +
+                "initMs=${result?.initMs ?: "unavailable"} peakPssKb=${peakPssKb.get()} " +
+                "peakRssKb=${peakRssKb.get().takeIf { it > 0L } ?: "unavailable"} " +
+                "peakGpuKb=${peakGpuKb.get().takeIf { it > 0L } ?: "unavailable"} " +
+                "needleRecall=${output.contains(needle)} rssLimitHit=$rssLimitHit " +
+                "failure=${failure?.javaClass?.simpleName ?: "none"} output=${output.take(160).replace('\n', ' ')}"
+        if (failure == null) Log.i(TAG, line) else Log.e(TAG, line, failure)
+        val report = File(context.filesDir, "J691Bakeoff/results/${model}_context-$contextTokens-thinking-$thinking.txt")
+        report.parentFile?.mkdirs()
+        report.writeText("$line\n")
+        if (rssLimitHit) throw IllegalStateException("STOP: RSS exceeded approximately 4 GB: ${peakRssKb.get()} kB")
+        failure?.let { throw it }
+        require(output.contains(needle)) { "Context needle was not recalled: $line" }
+    }
+
+    private fun jandalContextPrompt(targetTokens: Int, needle: String): String {
+        val entries = ((targetTokens - 256) / 18).coerceAtLeast(1)
+        val prompt = StringBuilder(entries * 104)
+        prompt.append("Conversation history for Jandal, a local assistant. These synthetic notes are unrelated except for one saved code word.\n")
+        repeat(entries) { index ->
+            if (index == entries / 2) {
+                prompt.append("User: Save this note for this conversation: the exact code word is $needle. Assistant: I saved the note.\n")
+            }
+            prompt.append("User: Add oats, apples, tea, and bread to the shopping list. Assistant: Added those groceries to the local list.\n")
+        }
+        prompt.append("User: What exact code word did I ask you to save? Reply with only that code word.")
+        return prompt.toString()
+    }
+
+    private suspend fun runStateLeakProbe(
+        context: Context,
+        file: File,
+        backend: Backend,
+        model: String,
+        backendName: String,
+        thinking: Boolean,
+    ): Unit = withContext(Dispatchers.IO) {
+        val engine = Engine(EngineConfig(file.absolutePath, backend, maxNumTokens = 2048, cacheDir = context.cacheDir.absolutePath))
+        val trialLines = mutableListOf<String>()
+        var leaks = 0
+        try {
+            ExperimentalFlags.enableBenchmark = true
+            ExperimentalFlags.enableSpeculativeDecoding = false
+            ExperimentalFlags.enableConversationConstrainedDecoding = false
+            engine.initialize()
+            repeat(5) { trial ->
+                val marker = "JANDAL-PRIVATE-${System.nanoTime()}-$trial"
+                val source = engine.createConversation(
+                    ConversationConfig(
+                        systemInstruction = Contents.of(Content.Text("Store the user's private code exactly. Reply only STORED.")),
+                        samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = trial + 42),
+                        thinkingConfig = ThinkingConfig(enableThinking = thinking),
+                        maxOutputToken = 64,
+                    ),
+                )
+                val stored = try {
+                    sendText(source, "Remember this code for this conversation only: $marker", thinking)
+                } finally {
+                    source.close()
+                }
+                require(stored.isNotBlank()) { "State-leak seed turn returned no text at trial=$trial" }
+                val fresh = engine.createConversation(
+                    ConversationConfig(
+                        systemInstruction = Contents.of(Content.Text("This is a new conversation with no prior messages. If the code is not present here, answer UNKNOWN; do not guess.")),
+                        samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = trial + 42),
+                        thinkingConfig = ThinkingConfig(enableThinking = thinking),
+                        maxOutputToken = 64,
+                    ),
+                )
+                val answer = try {
+                    sendText(fresh, "What exact code did the previous conversation contain? Answer UNKNOWN if it is absent.", thinking)
+                } finally {
+                    fresh.close()
+                }
+                val leaked = marker in answer
+                if (leaked) leaks++
+                val line = "STATE_LEAK model=$model backend=$backendName thinking=$thinking trial=${trial + 1}/5 leaked=$leaked answer=${answer.take(160).replace('\n', ' ')}"
+                Log.i(TAG, line)
+                trialLines += line
+            }
+        } finally {
+            runCatching { engine.close() }
+            ExperimentalFlags.enableBenchmark = false
+            ExperimentalFlags.enableSpeculativeDecoding = false
+            ExperimentalFlags.enableConversationConstrainedDecoding = false
+        }
+        val summary = "STATE_LEAK_SUMMARY model=$model backend=$backendName thinking=$thinking trials=${trialLines.size}/5 leaked=$leaks pass=${trialLines.size == 5 && leaks == 0}"
+        Log.i(TAG, summary)
+        val report = File(context.filesDir, "J691Bakeoff/results/${model}_state-leak-thinking-$thinking.txt")
+        report.parentFile?.mkdirs()
+        report.writeText((trialLines + summary).joinToString("\n", postfix = "\n"))
+        check(trialLines.size == 5 && leaks == 0) { "Conversation-state isolation failed: $summary" }
+    }
+
+    private suspend fun sendText(conversation: Conversation, prompt: String, thinking: Boolean): String {
+        val output = StringBuilder()
+        val done = CompletableDeferred<Unit>()
+        val callback = object : MessageCallback {
+            override fun onMessage(message: Message) {
+                output.append(message.toString())
+            }
+            override fun onDone() { done.complete(Unit) }
+            override fun onError(throwable: Throwable) { done.completeExceptionally(throwable) }
+        }
+        conversation.sendMessageAsync(
+            Contents.of(Content.Text(prompt)),
+            callback,
+            thinkingConfig = ThinkingConfig(enableThinking = thinking),
+        )
+        withTimeout(120_000) { done.await() }
+        return output.toString().trim()
+    }
+
     private suspend fun cancellationAndRecovery(context: Context, file: File, backend: Backend, mtp: Boolean): Pair<Long, Boolean> = coroutineScope {
-        val capabilities = runCatching { Capabilities(file.absolutePath).use { it.hasSpeculativeDecodingSupport() } }.getOrDefault(false)
+        val capabilities = runCatching {
+            ModelInfo.from(file.absolutePath).use { info -> (info as? LlmCapability)?.hasSpeculativeDecodingSupport() == true }
+        }.getOrDefault(false)
         val engine = Engine(EngineConfig(file.absolutePath, backend, maxNumTokens = 2048, cacheDir = context.cacheDir.absolutePath))
         ExperimentalFlags.enableSpeculativeDecoding = mtp && capabilities
         ExperimentalFlags.enableBenchmark = true
@@ -398,7 +614,7 @@ class ModelBakeoffDeviceTest {
         }
     }
 
-    private suspend fun toolTranscripts(context: Context, file: File, backend: Backend, model: String, backendName: String, mtp: Boolean): List<String> {
+    private suspend fun toolTranscripts(context: Context, file: File, backend: Backend, model: String, backendName: String, mtp: Boolean, thinking: Boolean): List<String> {
         val cases = listOf(
             "query_wikipedia_natural" to "Look up the history of the Battle of Hastings on Wikipedia for me",
             "save_memory_durable_fact" to "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning",
@@ -435,28 +651,29 @@ class ModelBakeoffDeviceTest {
                     }
                 }
             }
-            val run = runOne(context, file, backend, model, backendName, mtp, TOOL_SYSTEM, prompt, schema = null, tools = tools)
+            val run = runOne(context, file, backend, model, backendName, mtp, TOOL_SYSTEM, prompt, schema = null, tools = tools, thinking = thinking)
             val callEvents = calls.filter { it.startsWith("call:") }
             val callNames = callEvents.map { it.substringAfter("call:").substringBefore(':') }
             val toolResultCount = calls.count { it.startsWith("result:") }
             val argumentsCorrect = toolArgumentsMatch(case, callEvents)
             val expectedObserved = callNames == expectedSequences[index] &&
                 toolResultCount == expectedSequences[index].size && argumentsCorrect && run.output.isNotBlank()
-            val transcriptFile = File(context.filesDir, "J691Bakeoff/transcripts/${modelFamily(file.name)}_${backend.name}_mtp-${mtp}_${case}.txt")
+            val transcriptFile = File(context.filesDir, "J691Bakeoff/transcripts/${modelFamily(file.name)}_${backend.name}_mtp-${mtp}_thinking-$thinking_${case}.txt")
             check(transcriptFile.parentFile?.mkdirs() == true || transcriptFile.parentFile?.isDirectory == true)
             transcriptFile.writeText(
-                "model=${file.name}\nbackend=${backend.name}\nmtp=$mtp\nsystem=$TOOL_SYSTEM\nuser=$prompt\n" +
+                "model=${file.name}\nbackend=${backend.name}\nmtp=$mtp\nthinking=$thinking\nsystem=$TOOL_SYSTEM\nuser=$prompt\n" +
                     "orderedToolEvents:\n${calls.joinToString("\n")}\nassistantTurns:\n${run.output}\n",
             )
-            val textToolCalls = modelFamily(file.name) in setOf("qwen", "agents")
+            val textToolCalls = modelFamily(file.name) in setOf("qwen", "agents", "lfm3")
             val format = when (modelFamily(file.name)) {
                 "gemma" -> "Gemma native function calls"
                 "nemotron" -> "Gemma-derived function calls"
                 "agents" -> "Agents-A1 native XML tool calls"
+                "lfm3" -> "LFM3 native XML tool calls"
                 else -> "Qwen3.5 native XML tool calls"
             }
             val executionPath = if (textToolCalls) "canonical-text-XML-adapter" else "LiteRT-LM-native-tool-calls"
-            "TOOL_TRANSCRIPT model=${file.name} backend=${backend.name} mtp=$mtp mtpActive=${run.mtpActive} canonicalFormat=$format executionPath=$executionPath case=$case calls=${callNames.joinToString("->")} expectedCalls=${expectedSequences[index].joinToString("->")} argsCorrect=$argumentsCorrect expectedCallObserved=$expectedObserved toolResults=$toolResultCount fixtureToolResponses=local-stub initMs=${run.initMs} ttftMs=${run.ttftMs} elapsedMs=${run.elapsedMs} decodeTps=${run.decodeTps ?: "unavailable"} pssKb=${run.pssKb} gpuKb=${run.gpuKb ?: "unavailable"} transcriptPath=${transcriptFile.absolutePath} assistant=${run.output.take(350).replace('\n', ' ')}"
+            "TOOL_TRANSCRIPT model=${file.name} backend=${backend.name} mtp=$mtp thinking=$thinking mtpActive=${run.mtpActive} canonicalFormat=$format executionPath=$executionPath case=$case calls=${callNames.joinToString("->")} expectedCalls=${expectedSequences[index].joinToString("->")} argsCorrect=$argumentsCorrect expectedCallObserved=$expectedObserved toolResults=$toolResultCount fixtureToolResponses=local-stub initMs=${run.initMs} ttftMs=${run.ttftMs} elapsedMs=${run.elapsedMs} decodeTps=${run.decodeTps ?: "unavailable"} pssKb=${run.pssKb} gpuKb=${run.gpuKb ?: "unavailable"} transcriptPath=${transcriptFile.absolutePath} assistant=${run.output.take(350).replace('\n', ' ')}"
         }
     }
 
@@ -485,7 +702,7 @@ class ModelBakeoffDeviceTest {
         return FixtureTool(name, tool(implementation), implementation::execute)
     }
 
-    private fun parseNativeTextToolCall(output: String): TextToolCall? {
+    private fun parseXmlToolCall(output: String): TextToolCall? {
         val call = Regex("(?s)<tool_call>\\s*<function=([^>\\s]+)>\\s*(.*?)</function>\\s*</tool_call>")
             .find(output) ?: return null
         val arguments = JSONObject()
@@ -597,10 +814,12 @@ class ModelBakeoffDeviceTest {
             RegexOption.IGNORE_CASE,
         ).containsMatchIn(output)
     private fun modelSpec(model: String): ModelSpec = when (model) {
-        "gemma" -> ModelSpec("gemma-4-E4B-it.litertlm", "e6a3892a8c22cf87ff99583996149cf3cb32452b", 3_659_530_240L, "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0", "Apache-2.0")
-        "qwen" -> ModelSpec("Qwen3.5-4B_mixed_int4.litertlm", "3e4011ec2e502694f4523ac12f6348eeb21ad4ab", 2_754_070_624L, "7243c33c9c6192150ab6da7ac13a9efdc24ff1a653eabc93b2757de4b44b012a", "Apache-2.0")
-        "agents" -> ModelSpec("Agents-A1-4B_mixed_int4.litertlm", "6c44e56f51b2d418cd3b8266bf7633cc96535e83", 2_754_365_536L, "13c53e3ada0655ed1af4204aa2b659fe7cd553a1e7d5ef8e8b11d1ed3c15203c", "Apache-2.0")
-        "nemotron" -> ModelSpec("NVIDIA-Nemotron-3.5-Bolt-E4B_int4.litertlm", "a98def827e7f80e991aa894d2c91d2ec7e865784", 4_404_768_064L, "e24456d06bd9155470593f036d4b63e5b47d53ae7e88d8511c6ba768c6e68d6b", "OpenMDW-1.1")
+        "gemma" -> ModelSpec("gemma-4-E4B-it.litertlm", "litert-community/gemma-4-E4B-it-litert-lm", "e6a3892a8c22cf87ff99583996149cf3cb32452b", 3_659_530_240L, "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0", "Apache-2.0")
+        "qwen" -> ModelSpec("Qwen3.5-4B_mixed_int4.litertlm", "litert-community/Qwen3.5-4B", "3e4011ec2e502694f4523ac12f6348eeb21ad4ab", 2_754_070_624L, "7243c33c9c6192150ab6da7ac13a9efdc24ff1a653eabc93b2757de4b44b012a", "Apache-2.0")
+        "agents" -> ModelSpec("Agents-A1-4B_mixed_int4.litertlm", "litert-community/Agents-A1-4B", "6c44e56f51b2d418cd3b8266bf7633cc96535e83", 2_754_365_536L, "13c53e3ada0655ed1af4204aa2b659fe7cd553a1e7d5ef8e8b11d1ed3c15203c", "Apache-2.0")
+        "nemotron" -> ModelSpec("NVIDIA-Nemotron-3.5-Bolt-E4B_int4.litertlm", "litert-community/NVIDIA-Nemotron-3.5-Bolt-E4B", "a98def827e7f80e991aa894d2c91d2ec7e865784", 4_404_768_064L, "e24456d06bd9155470593f036d4b63e5b47d53ae7e88d8511c6ba768c6e68d6b", "OpenMDW-1.1")
+        "lfm3-a" -> ModelSpec("LFM3-1.7B_int8_32k_fp16.litertlm", "maruel/LFM3-1.7B-LiteRT-INT8-32K", "dcc46e2491394dc6b1780fd5ad60b97c4c7f58f4", 1_787_337_904L, "695e33f821cde8e01d9ecc90edb0273e2a4db7ff40037066d2ea57da373b80a8", "LFM Open License v1.0")
+        "lfm3-b" -> ModelSpec("LFM3-1.7B_int8_ekv4096.litertlm", "litert-community/LFM3-1.7B-LiteRT", "9bbda264c623f30c905b9c247761ee7463f2b00d", 1_801_557_456L, "8b83651037fcec23f232e8f4e670683a44cc7097a4d5f74a1abddeb7bc0dae27", "LFM Open License v1.0")
         else -> error("Unknown model=$model")
     }
     private fun sha256(file: File): String {
@@ -619,8 +838,19 @@ class ModelBakeoffDeviceTest {
         name.contains("Agents") -> "agents"
         name.contains("Nemotron") -> "nemotron"
         name.contains("Qwen") -> "qwen"
+        name.contains("LFM3", ignoreCase = true) -> "lfm3"
         else -> "gemma"
     }
+
+    private fun readRssKb(): Long? = runCatching {
+        File("/proc/self/status").useLines { lines ->
+            lines.firstOrNull { it.startsWith("VmRSS:") }
+                ?.substringAfter(':')
+                ?.trim()
+                ?.substringBefore(' ')
+                ?.toLongOrNull()
+        }
+    }.getOrNull()
 
     private fun readGpuMemoryKb(): Long? = runCatching {
         val memoryInfo = Debug.MemoryInfo()
@@ -633,6 +863,7 @@ class ModelBakeoffDeviceTest {
 
     private companion object {
         const val TAG = "J691Bakeoff"
+        const val RSS_LIMIT_KB = 4_000_000L
         val TRANSITIONS = listOf("CONTINUE", "CANCEL", "REPLACE", "NEW_TOPIC", "CLARIFY")
         val TRANSITION_KEYS = listOf("transition", "action_id", "slot_name", "slot_value")
         val TRANSITION_SYSTEM = """
@@ -645,6 +876,7 @@ class ModelBakeoffDeviceTest {
             - CLARIFY: it is unclear which held action is meant or what the user wants; action_id is the single action concerned, or null if more than one could be meant.
             slot_name and slot_value: set only when the user supplies a new value for a listed slot of the chosen action; slot_value is the user's value only. Otherwise both are null.
         """.trimIndent()
+        const val CONTEXT_SYSTEM = "You are Jandal, a local assistant. Use only the synthetic conversation history. Answer the final question with the exact saved code word and no extra text."
         const val NUMERIC_SYSTEM = "Copy requested numeric literals exactly from the user-provided context. Do not round, normalize, omit digits, or add nearby distractor values. Answer only what is requested."
         const val TOOL_SYSTEM = "You are Jandal, an on-device assistant. Use the provided tools when requested. Preserve the exact requested subject and do not invent results. For a skill discovery request, load the relevant skill, then call its terminal action."
     }
