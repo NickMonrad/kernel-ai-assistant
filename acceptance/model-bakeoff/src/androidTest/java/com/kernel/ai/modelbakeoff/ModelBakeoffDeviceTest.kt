@@ -26,15 +26,17 @@ import com.google.ai.edge.litertlm.ToolProvider
 import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.toBackend
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
@@ -393,7 +395,7 @@ class ModelBakeoffDeviceTest {
         mtp: Boolean,
         contextTokens: Int,
         thinking: Boolean,
-    ): Unit = coroutineScope {
+    ): Unit = supervisorScope {
         val needle = "JANDAL-NEEDLE-$contextTokens"
         val prompt = jandalContextPrompt(contextTokens, needle)
         val peakPssKb = AtomicLong(0L)
@@ -458,9 +460,25 @@ class ModelBakeoffDeviceTest {
     }
 
     private fun jandalContextPrompt(targetTokens: Int, needle: String): String {
-        val entries = ((targetTokens - 256) / 18).coerceAtLeast(1)
-        val prompt = StringBuilder(entries * 104)
-        prompt.append("Conversation history for Jandal, a local assistant. These synthetic notes are unrelated except for one saved code word.\n")
+        val entries = ((targetTokens - 320) / 18).coerceAtLeast(1)
+        val prompt = StringBuilder(entries * 160 + 1_200)
+        prompt.append(
+            """
+            [Jandal turn context]
+            [Core memory]
+            - The user prefers concise, direct answers and keeps lists for everyday tasks.
+            - Jandal runs locally on this device; never invent tool results or claim an action was completed without a tool response.
+            [Retrieved memory fragments]
+            - The user is planning groceries and prefers additions to remain in the named shopping list.
+            - The current conversation may contain a saved code word; answer only from this transcript.
+            [Available local skill schemas]
+            add_list_item(list_name: string, item: string): add one item to a local list.
+            get_weather(city: string): look up weather when a location is explicitly supplied.
+            create_timer(duration_seconds: integer, label: string): create a user-requested timer.
+            [Recent conversation transcript]
+            These synthetic turns are unrelated except for one saved code word.
+            """.trimIndent(),
+        ).append('\n')
         repeat(entries) { index ->
             if (index == entries / 2) {
                 prompt.append("User: Save this note for this conversation: the exact code word is $needle. Assistant: I saved the note.\n")
@@ -658,7 +676,7 @@ class ModelBakeoffDeviceTest {
             val argumentsCorrect = toolArgumentsMatch(case, callEvents)
             val expectedObserved = callNames == expectedSequences[index] &&
                 toolResultCount == expectedSequences[index].size && argumentsCorrect && run.output.isNotBlank()
-            val transcriptFile = File(context.filesDir, "J691Bakeoff/transcripts/${modelFamily(file.name)}_${backend.name}_mtp-${mtp}_thinking-$thinking_${case}.txt")
+            val transcriptFile = File(context.filesDir, "J691Bakeoff/transcripts/${modelFamily(file.name)}_${backend.name}_mtp-${mtp}_thinking-${thinking}_${case}.txt")
             check(transcriptFile.parentFile?.mkdirs() == true || transcriptFile.parentFile?.isDirectory == true)
             transcriptFile.writeText(
                 "model=${file.name}\nbackend=${backend.name}\nmtp=$mtp\nthinking=$thinking\nsystem=$TOOL_SYSTEM\nuser=$prompt\n" +
@@ -876,7 +894,10 @@ class ModelBakeoffDeviceTest {
             - CLARIFY: it is unclear which held action is meant or what the user wants; action_id is the single action concerned, or null if more than one could be meant.
             slot_name and slot_value: set only when the user supplies a new value for a listed slot of the chosen action; slot_value is the user's value only. Otherwise both are null.
         """.trimIndent()
-        const val CONTEXT_SYSTEM = "You are Jandal, a local assistant. Use only the synthetic conversation history. Answer the final question with the exact saved code word and no extra text."
+        val CONTEXT_SYSTEM = """
+            You are Jandal, a local-first mobile assistant. Use the supplied conversation, memory fragments, and local skill schemas only.
+            Do not invent tool results or claim a side effect occurred. Answer the final question with the exact saved code word and no extra text.
+        """.trimIndent()
         const val NUMERIC_SYSTEM = "Copy requested numeric literals exactly from the user-provided context. Do not round, normalize, omit digits, or add nearby distractor values. Answer only what is requested."
         const val TOOL_SYSTEM = "You are Jandal, an on-device assistant. Use the provided tools when requested. Preserve the exact requested subject and do not invent results. For a skill discovery request, load the relevant skill, then call its terminal action."
     }
