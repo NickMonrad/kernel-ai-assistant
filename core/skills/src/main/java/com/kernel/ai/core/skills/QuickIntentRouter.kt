@@ -16,6 +16,28 @@ import com.kernel.ai.core.skills.intent.CalendarSlotExtractor
 import com.kernel.ai.core.skills.intent.ExtractionResult
 import com.kernel.ai.core.skills.intent.IntentContract
 import com.kernel.ai.core.skills.intent.IntentRiskLevel
+/** Written-out tens words and tens-plus-unit compounds ("sixty", "forty five", "forty-five") for set_timer. */
+private const val WRITTEN_TENS = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+private const val WRITTEN_UNITS = "one|two|three|four|five|six|seven|eight|nine"
+private const val WRITTEN_TENS_COMPOUND = """(?:$WRITTEN_TENS)(?:[\s-]+(?:$WRITTEN_UNITS))?"""
+
+/** Written-out quantity values for set_timer durations, including the tens words. */
+private val WRITTEN_QUANTITY_VALUES: Map<String, Int> = mapOf(
+    "a" to 1, "an" to 1, "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
+    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10, "fifteen" to 15,
+    "twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50, "sixty" to 60,
+    "seventy" to 70, "eighty" to 80, "ninety" to 90,
+)
+
+/** Sums written-out words: "six" → 6, "sixty" → 60, "forty five" / "forty-five" → 45. Null if any word is unknown. */
+private fun writtenQuantity(phrase: String): Int? {
+    val words = phrase.split(Regex("[\\s-]+")).filter(String::isNotEmpty)
+    if (words.isEmpty()) return null
+    var total = 0
+    for (word in words) total += WRITTEN_QUANTITY_VALUES[word] ?: return null
+    return total
+}
+
 /**
  * Tier 2: Fast Intent Layer — pure Kotlin regex + future BERT-tiny zero-shot classifier.
  *
@@ -1012,19 +1034,14 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """(?:set|start|create)\s+(?:a\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
+                """(?:set|start|create)\s+(?:a\s+)?(?:$WRITTEN_TENS_COMPOUND|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, input ->
-                val wordMap = mapOf(
-                    "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
-                    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,
-                    "fifteen" to 15, "twenty" to 20, "thirty" to 30, "an" to 1, "a" to 1,
-                )
                 val lower = input.lowercase()
-                val numMatch = Regex("""(one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
-                if (numMatch != null) {
-                    val qty = wordMap[numMatch.groupValues[1]] ?: 1
+                val numMatch = Regex("""($WRITTEN_TENS_COMPOUND|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
+                val qty = numMatch?.let { writtenQuantity(it.groupValues[1]) }
+                if (numMatch != null && qty != null) {
                     val unit = numMatch.groupValues[2]
                     val half = lower.contains("and a half") || lower.contains("and-a-half")
                     val seconds = when {
