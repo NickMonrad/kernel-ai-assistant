@@ -848,6 +848,72 @@ class NextcloudSyncAdapterTest {
         }
     }
 
+    @Test
+    fun `remote description edit outranks the stamps of a Jandal-created item`() = runTest {
+        // A Jandal-created item carries local stamps from the device's Lamport clock, far ahead of
+        // the collection's remoteLogicalClock. A description added on the server must still win,
+        // and fields the server left alone must keep their local values and stamps (#1730).
+        val binding = binding("writable")
+        val description = "Ingredients:\n- 500 g beef mince\n\nMethod:\n1. Brown the mince."
+        val localClock = 50L
+        val localRow = listItem(binding.collectionId, "writable-item").copy(
+            text = "beef nachos",
+            textLogicalClock = localClock,
+            textStampActorId = "local",
+            description = "",
+            descriptionLogicalClock = localClock,
+            descriptionStampActorId = "local",
+        )
+        val baseDocument = VTodoDocument.new(
+            uid = "writable-item",
+            summary = "beef nachos",
+            checked = false,
+            dueAt = null,
+            parentUid = null,
+            orderKey = "0",
+        ).render()
+        val transport = RecordingTransport(
+            reportDocument = {
+                VTodoDocument.new(
+                    uid = it,
+                    summary = "beef nachos",
+                    checked = false,
+                    dueAt = null,
+                    parentUid = null,
+                    orderKey = "0",
+                    description = description,
+                ).render()
+            },
+        )
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(
+                binding.collectionId to itemBinding(binding.collectionId, "writable-item")
+                    .copy(etag = "\"old-etag\"", rawVtodo = baseDocument),
+            ),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to localRow),
+            emptyList(),
+            transport,
+        )
+        coEvery { fixture.listItemDao.getByItemId(localRow.itemId) } returns localRow
+
+        fixture.adapter.syncAll()
+
+        coVerify {
+            fixture.mutations.importSnapshot(
+                match { snapshot ->
+                    val item = snapshot.items.single()
+                    item.description == description &&
+                        item.descriptionStamp.actorId == "nextcloud-caldav" &&
+                        item.descriptionStamp > VersionStamp(localClock, "local") &&
+                        item.textStamp == VersionStamp(localClock, "local")
+                },
+                any(),
+            )
+        }
+    }
+
     // ── First-time binding rollback (#1551) ─────────────────────────────────────────────────────
 
     @Test
@@ -1002,6 +1068,7 @@ class NextcloudSyncAdapterTest {
         val mutations: ListMutationRepository,
         val listNameDao: ListNameDao,
         val pendingChanges: MutableList<ListChange>,
+        val listItemDao: ListItemDao,
     )
 
     private fun adapter(
@@ -1084,6 +1151,7 @@ class NextcloudSyncAdapterTest {
             mutations = mutations,
             listNameDao = listNameDao,
             pendingChanges = pendingChanges,
+            listItemDao = listItemDao,
         )
     }
 

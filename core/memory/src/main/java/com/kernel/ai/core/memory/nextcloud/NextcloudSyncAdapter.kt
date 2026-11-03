@@ -524,18 +524,7 @@ class NextcloudSyncAdapter @Inject constructor(
         val list = listNameDao.getByCollectionId(binding.collectionId) ?: return null
         val bindings = itemBindings.getAll(binding.collectionId)
         val itemIdByUid = bindings.associate { it.remoteUid to it.itemId }
-        val newestLocalClock = listItemDao.getAllByListAnyLifecycle(list.id)
-            .maxOfOrNull { row ->
-                maxOf(
-                    row.textLogicalClock,
-                    row.descriptionLogicalClock,
-                    row.checkedLogicalClock,
-                    row.dueAtLogicalClock,
-                    row.placementLogicalClock,
-                    row.lifecycleLogicalClock,
-                )
-            } ?: 0L
-        val revision = maxOf(newestLocalClock, binding.remoteLogicalClock) + 1L
+        val revision = maxOf(newestLocalClock(list.id), binding.remoteLogicalClock) + 1L
         val items = bindings.mapIndexedNotNull { index, itemBinding ->
             val document = runCatching { VTodoDocument.parse(itemBinding.rawVtodo) }.getOrNull()
                 ?: return@mapIndexedNotNull null
@@ -561,6 +550,20 @@ class NextcloudSyncAdapter @Inject constructor(
             checkpoints = emptyList(),
         )
     }
+
+    /** The newest field stamp held locally for any item in the list, including deleted items. */
+    private suspend fun newestLocalClock(listId: Long): Long =
+        listItemDao.getAllByListAnyLifecycle(listId)
+            .maxOfOrNull { row ->
+                maxOf(
+                    row.textLogicalClock,
+                    row.descriptionLogicalClock,
+                    row.checkedLogicalClock,
+                    row.dueAtLogicalClock,
+                    row.placementLogicalClock,
+                    row.lifecycleLogicalClock,
+                )
+            } ?: 0L
 
     private suspend fun syncBoundCollection(client: NextcloudCalDavClient, original: NextcloudCollectionBindingEntity): Boolean {
         return syncMutex.withLock {
@@ -685,7 +688,11 @@ class NextcloudSyncAdapter @Inject constructor(
         val remoteItems = client.fetchTasks(binding.remoteHref)
         val oldBindings = itemBindings.getAll(binding.collectionId).associateBy { it.remoteUid }
         val remoteByUid = remoteItems.associateBy { it.uid() }
-        var revision = binding.remoteLogicalClock
+        // Provider stamps must outrank every local stamp in the list: local stamps come from the
+        // device's Lamport clock, which runs ahead of remoteLogicalClock. Without this a field the
+        // server changed loses the merge to a stale local value and is pushed back over (#1730).
+        // Fields the server did not change keep their local stamps (see toSnapshot).
+        var revision = maxOf(newestLocalClock(list.id), binding.remoteLogicalClock)
         val snapshots = mutableListOf<SharedItemSnapshot>()
         val updates = mutableListOf<NextcloudItemBindingEntity>()
         val itemIds = oldBindings.values.associate { it.remoteUid to it.itemId }.toMutableMap()
