@@ -44,3 +44,34 @@ All alt texts are under 140 characters.
 - `06` shows **Update** on ready models because a newer revision was available on this device. Recapture after updating, or keep it if that's acceptable.
 - `07` includes the app's own warning that Android native recognition may need the network. That is consistent with blocker 2 on #1262; still verify the "speech recognition runs on your phone" claim on the RC.
 - Not captured, per the #1262 shot list: Hey Jandal / wake-word screens, permission and Usage Access prompts, Nextcloud credentials, About/debug/export controls. Weather and meal-plan shots were not captured. The weather quick action produced no result in this session, and the meal plan needs LLM generation.
+
+## S23U screenshot set (#1501; available for #1262)
+
+### Provenance
+
+| Item | Value |
+|---|---|
+| Source commit | `7542533c27b03337f7a48939aa82d555bd2d7591` (`origin/main`) |
+| APK | `app-debug.apk`, SHA-256 `352dd512ede6d20814c85b439d59327e47c2da01fa999becdd4c9e5611bc811f` |
+| Package/version | `com.kernel.ai.debug`, version `0.1.0` (`versionCode 1`) |
+| Signer | `CN=Kernel AI Debug, OU=Debug, O=KernelAI, L=Auckland, ST=Auckland, C=NZ`; certificate SHA-256 `b55d3efc312478ef19a89f7f54b5c37f841a9d4dbfee0805107c2ddf5d686390` |
+| Device | Samsung Galaxy S23 Ultra (SM-S918B, `RFCW11265XH`), Android 16 / API 36, 1080 × 2316, 450 dpi, dark theme |
+| Captured | 2026-11-03 |
+| Model | Gemma 4 E-4B ready; 3,659,530,240-byte model asset present |
+| Data | Synthetic only: “Kiwi bird fact” chat, “Picnic” list with a “Water” item, and a 60-minute quick-action timer. The timer was canceled after capture; no timer remained active. No real contacts, location, or notification content. |
+
+The five unmodified device captures are in [`raw-20261103/`](raw-20261103/). Each is 1080 × 2316. The README images are 24-bit RGB PNGs, 1056 × 2112 (2:1): crop `1056x2112+12+78` removes the status/navigation bars and the left-edge system handle. No resizing, retouching, or compositing.
+
+### Screenshots
+
+| File | Shows | Suggested alt text |
+|---|---|---|
+| `08-chat-complete.png` | Completed on-device answer to a synthetic kiwi-bird prompt | Completed on-device chat answer to a synthetic kiwi bird prompt in Jandal. |
+| `09-timer-action.png` | Actions history: `set_timer` succeeded for a synthetic 60-minute timer | Jandal Actions history confirming a synthetic 60-minute timer quick action. |
+| `10-lists.png` | Synthetic “Picnic” list with a “Water” item | Jandal showing a synthetic Picnic list with a Water item. |
+| `11-model-management.png` | Model Management showing E-4B ready and local model storage | Model Management showing Gemma 4 E-4B ready alongside local model storage details. |
+| `12-legal-privacy.png` | Privacy Policy, Terms of Use, and Open-source licences entries | Jandal's Legal and privacy screen with Privacy Policy, Terms of Use, and Open-source licences. |
+
+Alt texts are under 140 characters. These debug-build crops support the README and may be reused while preparing #1262; recapture from the release candidate before final Play Store publication.
+
+**Capture note:** the spelled-out prompt “Set a sixty minute timer” produced a 6-minute timer despite the chat confirming 60 minutes. A numeric “Set a 60 minute timer” produced the correct 60-minute action. Both timers were canceled, and no code was changed for this observation.
