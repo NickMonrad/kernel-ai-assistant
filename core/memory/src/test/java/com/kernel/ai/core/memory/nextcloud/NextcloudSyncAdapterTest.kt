@@ -10,6 +10,7 @@ import com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity
 import com.kernel.ai.core.memory.entity.NextcloudItemBindingEntity
 import com.kernel.ai.core.memory.lists.ListChange
 import com.kernel.ai.core.memory.lists.ListChangeOperation
+import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
 import com.kernel.ai.core.memory.lists.VersionStamp
 import com.kernel.ai.core.memory.repository.ListMutationRepository
@@ -848,6 +849,208 @@ class NextcloudSyncAdapterTest {
         }
     }
 
+    // ── Remote edits outrank local stamps (#1730) ───────────────────────────────────────────────
+
+    @Test
+    fun `remote description edit outranks the stamps of a Jandal-created item`() = runTest {
+        // A Jandal-created item carries local stamps from the device's Lamport clock, far ahead of
+        // the collection's remoteLogicalClock. A description added on the server must still win,
+        // and fields the server left alone must keep their local values and stamps (#1730).
+        val binding = binding("writable")
+        val description = "Ingredients:\n- 500 g beef mince\n\nMethod:\n1. Brown the mince."
+        val localClock = 50L
+        val localRow = listItem(binding.collectionId, "writable-item").copy(
+            text = "beef nachos",
+            textLogicalClock = localClock,
+            textStampActorId = "local",
+            description = "",
+            descriptionLogicalClock = localClock,
+            descriptionStampActorId = "local",
+        )
+        val baseDocument = vtodo("writable-item", "beef nachos")
+        val transport = RecordingTransport(reportDocument = { vtodo(it, "beef nachos", description = description) })
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(
+                binding.collectionId to itemBinding(binding.collectionId, "writable-item")
+                    .copy(etag = "\"old-etag\"", rawVtodo = baseDocument),
+            ),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to localRow),
+            emptyList(),
+            transport,
+        )
+        coEvery { fixture.listItemDao.getByItemId(localRow.itemId) } returns localRow
+
+        fixture.adapter.syncAll()
+
+        coVerify {
+            fixture.mutations.importSnapshot(
+                match { snapshot ->
+                    val item = snapshot.items.single()
+                    item.description == description &&
+                        item.descriptionStamp.actorId == "nextcloud-caldav" &&
+                        item.descriptionStamp > VersionStamp(localClock, "local") &&
+                        item.textStamp == VersionStamp(localClock, "local")
+                },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `a local list rename survives a server item edit after another local item edit`() = runTest {
+        val binding = binding("writable")
+        val titleClock = 50L
+        val localItemClock = 60L
+        val locallyRenamedList = list(binding.collectionId).copy(
+            name = "Locally renamed",
+            canonicalTitle = "Locally renamed",
+            titleLogicalClock = titleClock,
+            titleStampActorId = "local",
+            lifecycleLogicalClock = 2L,
+            lifecycleStampActorId = "local",
+        )
+        val localItemUid = "local-item"
+        val serverItemUid = "server-item"
+        val localItemId = "local-item-id"
+        val serverItemId = "server-item-id"
+        val localItemBase = vtodo(localItemUid, "Local item")
+        val serverItemBase = vtodo(serverItemUid, "Server item", orderKey = "1")
+        val localItem = listItem(binding.collectionId, localItemUid).copy(
+            id = 3L,
+            itemId = localItemId,
+            text = "Locally edited item",
+            textLogicalClock = localItemClock,
+            textStampActorId = "local",
+        )
+        val serverItem = listItem(binding.collectionId, serverItemUid).copy(
+            id = 4L,
+            itemId = serverItemId,
+            text = "Server item",
+        )
+        val serverEdit = "Edited on Nextcloud"
+        val unchangedItemEtag = "\"local-item-etag\""
+        val changedItemEtag = "\"server-item-new-etag\""
+        var importedSnapshot: SharedCollectionSnapshot? = null
+        val transport = RecordingTransport(
+            reportItemUids = listOf(localItemUid, serverItemUid),
+            reportEtags = mapOf(localItemUid to unchangedItemEtag, serverItemUid to changedItemEtag),
+            reportDocument = { uid ->
+                if (uid == localItemUid) vtodo(uid, "Local item") else vtodo(uid, serverEdit, orderKey = "1")
+            },
+        )
+        val itemBindings = linkedMapOf(
+            "local-binding" to itemBinding(binding.collectionId, localItemUid).copy(
+                itemId = localItemId,
+                etag = unchangedItemEtag,
+                rawVtodo = localItemBase,
+            ),
+            "server-binding" to itemBinding(binding.collectionId, serverItemUid).copy(
+                itemId = serverItemId,
+                etag = "\"server-item-old-etag\"",
+                rawVtodo = serverItemBase,
+            ),
+        )
+        val rows = linkedMapOf(localItemId to localItem, serverItemId to serverItem)
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            itemBindings,
+            mapOf(binding.collectionId to locallyRenamedList),
+            rows,
+            emptyList(),
+            transport,
+            onImportSnapshot = { importedSnapshot = it },
+        )
+        coEvery { fixture.listItemDao.getByItemId(any()) } answers {
+            rows.values.firstOrNull { it.itemId == firstArg<String>() }
+        }
+
+        fixture.adapter.syncAll()
+
+        val snapshot = requireNotNull(importedSnapshot) { "Expected pull to import a snapshot" }
+        assertEquals(VersionStamp(titleClock, "local"), snapshot.titleStamp)
+        assertEquals(
+            VersionStamp(locallyRenamedList.lifecycleLogicalClock, locallyRenamedList.lifecycleStampActorId),
+            snapshot.lifecycleStamp,
+        )
+        val importedServerItem = snapshot.items.single()
+        assertEquals(serverItemId, importedServerItem.itemId)
+        assertEquals(serverEdit, importedServerItem.text)
+        assertEquals("nextcloud-caldav", importedServerItem.textStamp.actorId)
+        assertTrue(importedServerItem.textStamp > VersionStamp(localItemClock, "local"))
+    }
+
+    @Test
+    fun `a server edit to another field cannot revive an item deleted in Jandal`() = runTest {
+        // The user deletes an item in Jandal while the server edits its summary. The DELETE hits a
+        // 412, the conflict path pulls first, and the edited item must stay deleted (#1730).
+        val binding = binding("writable")
+        val localDeleteStamp = VersionStamp(50L, "local")
+        val deletedRow = listItem(binding.collectionId, "writable-item").copy(
+            lifecycle = ListLifecycle.DELETED.name,
+            lifecycleLogicalClock = localDeleteStamp.logicalClock,
+            lifecycleStampActorId = localDeleteStamp.actorId,
+        )
+        var importedSnapshot: SharedCollectionSnapshot? = null
+        val transport = RecordingTransport(
+            reportDocument = { vtodo(it, "Edited on Nextcloud") },
+            deleteConflictsBeforeSuccess = 1,
+        )
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(
+                binding.collectionId to itemBinding(binding.collectionId, "writable-item")
+                    .copy(etag = "\"old-etag\""),
+            ),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to deletedRow),
+            emptyList(),
+            transport,
+            onImportSnapshot = { importedSnapshot = it },
+        )
+        coEvery { fixture.listItemDao.getByItemId(deletedRow.itemId) } returns deletedRow
+
+        val result = fixture.adapter.syncAll()
+
+        assertTrue(result is NextcloudSyncResult.Success)
+        val snapshot = requireNotNull(importedSnapshot) { "Expected the conflict pull to import a snapshot" }
+        assertEquals(localDeleteStamp, snapshot.items.single().lifecycleStamp)
+        assertEquals(2, transport.deleteCalls.size, "the delete must be retried after the conflict pull")
+    }
+
+    @Test
+    fun `an item the server deleted is revived when the server restores it`() = runTest {
+        val binding = binding("writable")
+        val providerDeletedRow = listItem(binding.collectionId, "writable-item").copy(
+            lifecycle = ListLifecycle.DELETED.name,
+            lifecycleLogicalClock = 50L,
+            lifecycleStampActorId = "nextcloud-caldav",
+        )
+        var importedSnapshot: SharedCollectionSnapshot? = null
+        val transport = RecordingTransport(reportDocument = { vtodo(it, "Restored on Nextcloud") })
+        val fixture = adapter(
+            linkedMapOf(binding.collectionId to binding),
+            linkedMapOf(
+                binding.collectionId to itemBinding(binding.collectionId, "writable-item")
+                    .copy(etag = "\"old-etag\"", deletedRemotely = true),
+            ),
+            mapOf(binding.collectionId to list(binding.collectionId)),
+            mapOf(binding.collectionId to providerDeletedRow),
+            emptyList(),
+            transport,
+            onImportSnapshot = { importedSnapshot = it },
+        )
+        coEvery { fixture.listItemDao.getByItemId(providerDeletedRow.itemId) } returns providerDeletedRow
+
+        fixture.adapter.syncAll()
+
+        val item = requireNotNull(importedSnapshot).items.single()
+        assertEquals(ListLifecycle.ACTIVE, item.lifecycle)
+        assertEquals("nextcloud-caldav", item.lifecycleStamp.actorId)
+        assertTrue(item.lifecycleStamp > VersionStamp(50L, "nextcloud-caldav"))
+    }
+
     // ── First-time binding rollback (#1551) ─────────────────────────────────────────────────────
 
     @Test
@@ -1002,6 +1205,7 @@ class NextcloudSyncAdapterTest {
         val mutations: ListMutationRepository,
         val listNameDao: ListNameDao,
         val pendingChanges: MutableList<ListChange>,
+        val listItemDao: ListItemDao,
     )
 
     private fun adapter(
@@ -1049,7 +1253,7 @@ class NextcloudSyncAdapterTest {
 
         val listItemDao = mockk<ListItemDao>()
         coEvery { listItemDao.getByItemId(any()) } returns null
-        coEvery { listItemDao.getAllByListAnyLifecycle(any()) } answers { listOfNotNull(rows.values.firstOrNull { it.listId == firstArg<Long>() }) }
+        coEvery { listItemDao.getAllByListAnyLifecycle(any()) } answers { rows.values.filter { it.listId == firstArg<Long>() } }
 
         val listNameDao = mockk<ListNameDao>()
         coEvery { listNameDao.getByCollectionId(any()) } answers { lists[firstArg()] }
@@ -1084,6 +1288,7 @@ class NextcloudSyncAdapterTest {
             mutations = mutations,
             listNameDao = listNameDao,
             pendingChanges = pendingChanges,
+            listItemDao = listItemDao,
         )
     }
 
@@ -1132,6 +1337,17 @@ class NextcloudSyncAdapterTest {
         orderKey = "0",
     ).render()
 
+    private fun vtodo(uid: String, summary: String, orderKey: String = "0", description: String = ""): String =
+        VTodoDocument.new(
+            uid = uid,
+            summary = summary,
+            checked = false,
+            dueAt = null,
+            parentUid = null,
+            orderKey = orderKey,
+            description = description,
+        ).render()
+
     private fun itemBinding(collectionId: String, uid: String) = NextcloudItemBindingEntity(
         itemId = "$collectionId-item",
         collectionId = collectionId,
@@ -1159,6 +1375,10 @@ class NextcloudSyncAdapterTest {
         /** Held open by the test to suspend an initial push while it is in flight. */
         private val putGate: CompletableDeferred<Unit>? = null,
         private val reportDocument: ((String) -> String)? = null,
+        /** Number of DELETE requests answered 412 before deletes succeed (#1730). */
+        private val deleteConflictsBeforeSuccess: Int = 0,
+        private val reportItemUids: List<String>? = null,
+        private val reportEtags: Map<String, String> = emptyMap(),
         private val readOnlyCollections: Set<String> = emptySet(),
         /** Collections the owner removed: they no longer appear in discovery (#1548). */
         private val absentCollections: Set<String> = emptySet(),
@@ -1167,6 +1387,7 @@ class NextcloudSyncAdapterTest {
         val mkcalendarCalls = mutableListOf<String>()
         val putCalls = mutableListOf<String>()
         val putBodies = mutableListOf<String>()
+        val deleteCalls = mutableListOf<String>()
 
         /** Completes once a REPORT is in flight, so the test never has to sleep. */
         val reportStarted = CompletableDeferred<String>()
@@ -1192,6 +1413,11 @@ class NextcloudSyncAdapterTest {
                         collection == "readonly" -> CalDavResponse(403, emptyMap(), "", url)
                         else -> CalDavResponse(204, emptyMap(), "", url)
                     }
+                }
+                method == "DELETE" -> {
+                    deleteCalls += url
+                    val status = if (deleteCalls.size <= deleteConflictsBeforeSuccess) 412 else 204
+                    CalDavResponse(status, emptyMap(), "", url)
                 }
                 method == "GET" ->
                     CalDavResponse(200, emptyMap(), "", "https://cloud.example/remote.php/dav")
@@ -1219,12 +1445,14 @@ class NextcloudSyncAdapterTest {
                     if (collection == cancelOnReportCollection) {
                         throw CancellationException("cancelled")
                     }
-                    val uid = "$collection-item"
-                    val document = reportDocument?.invoke(uid) ?: remoteDocument(uid)
+                    val reportItems = (reportItemUids ?: listOf("$collection-item")).joinToString("") { uid ->
+                        val document = reportDocument?.invoke(uid) ?: remoteDocument(uid)
+                        val etag = reportEtags[uid] ?: "\\\"$uid-etag\\\""
+                        val encodedDocument = document.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        """<d:response><d:href>/calendars/$collection/$uid.ics</d:href><d:propstat><d:prop><d:getetag>$etag</d:getetag><c:calendar-data>$encodedDocument</c:calendar-data></d:prop></d:propstat></d:response>"""
+                    }
                     response(
-                        """
-                        <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendars/$collection/$uid.ics</d:href><d:propstat><d:prop><d:getetag>\"$uid-etag\"</d:getetag><c:calendar-data>${document.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</c:calendar-data></d:prop></d:propstat></d:response></d:multistatus>
-                        """,
+                        """<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">$reportItems</d:multistatus>""",
                     )
                 }
                 else -> error("Unexpected CalDAV request: $method $url")
