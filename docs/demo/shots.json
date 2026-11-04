@@ -132,7 +132,7 @@
         },
         {
           "do": "tap",
-          "text": "Grocery"
+          "text": "shopping list"
         },
         {
           "do": "wait",

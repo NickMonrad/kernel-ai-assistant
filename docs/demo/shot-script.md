@@ -25,7 +25,7 @@ This script is the source of truth for the shot list. `docs/demo/shots.json` is 
 | Wake word | "Listen for Hey Jandal" on; Vosk STT; approved acoustic setup from #1403/#1410 (built-in speaker, side by side 25 cm–0.6 m, volume 9/15) |
 | Notifications | Do Not Disturb on. Clear the shade before each shot |
 | Status bar | One UI ignores SystemUI demo mode (see `docs/play-store/screenshots/README.md`). Keep the real status bar: it carries the airplane icon that proves the offline claim. Set the device clock to automatic and avoid shots where the time reads oddly |
-| Seed data | A "Grocery" list with milk and bread; no other lists, notes or memories at the start. Calendar seeded with one invented event ("Netball practice", Thursday 5pm) |
+| Seed data | A "shopping list" with milk and bread (the app files "grocery list" under "shopping list", see `NativeIntentHandler`). Seed it by typing "Add milk and bread to my shopping list" before recording. No other lists, notes or memories at the start. Calendar seeded with one invented event ("Netball practice", Thursday 5pm) |
 
 ## Intro video (target 45 s, hard cap 60 s)
 
@@ -35,7 +35,7 @@ Only the first ~30 s autoplay on Play, so the hook and the offline claim land be
 |---|---|---|---|---|---|---|
 | S01 | 0:00–0:05 | Hey Jandal | Spoken by the S21 acoustic source: "Hey Jandal" then "what time is it" (existing `natural_wake.wav` + `qwen_command.wav` fixtures) | Listening indicator, then the Actions card `what time is it` → "It's …" | Deterministic | Offline |
 | S02 | 0:05–0:12 | Quick actions | Typed: "Set a timer for 10 minutes", then "Set an alarm for 7am tomorrow" | Both confirmations; timer visibly counting down. Check the alarm wording first: an earlier build repeated the time ("…at 6:30am — 6:30am."); if it still does, file it and pick another shot | Deterministic | Offline |
-| S03 | 0:12–0:18 | Lists, Kiwi phrasing | Typed: "Chuck bananas on the grocery list", then open the Grocery list | Confirmation, then the list shows milk, bread, bananas | Deterministic | Offline |
+| S03 | 0:12–0:18 | Lists, Kiwi phrasing | Typed: "Chuck bananas on the grocery list", then open the shopping list | Confirmation, then the list shows milk, bread, bananas | Deterministic | Offline |
 | S04 | 0:18–0:30 | Memory and recall | Typed: "Remember that my favourite coffee is a flat white". New chat, typed: "What's my favourite coffee?" | Save confirmation; in the new chat the reply names a flat white | Model (compressed) | Offline |
 | S05 | 0:30–0:40 | Persona chat | Typed, with **Full Jandal**: "Give me three ideas for a rainy Sunday" | A complete streamed reply with Kiwi tone | Model (compressed) | Offline |
 | S06 | 0:40–0:45 | End card | — | App icon, "Jandal AI", "A Kiwi AI assistant that runs on your phone", "Free on Google Play · Open source" | Title card | — |
