@@ -2,7 +2,7 @@
 
 **Status: DRAFT for Nick's review.** Nothing is recorded until Nick approves this script.
 
-This script is the source of truth for the capture runner (`scripts/demo_capture.py`, to come) and the edit pipeline. Each shot has a stable id, so a clip, its caption and its manifest entry can be re-shot for every release without hand editing.
+This script is the source of truth for the shot list. `docs/demo/shots.json` is its machine-readable copy, used by the capture runner (`scripts/demo_capture.py`) and the edit pipeline (`scripts/demo_edit.py`); keep the two in sync. Each shot has a stable id, so a clip, its caption and its manifest entry can be re-shot for every release without hand editing.
 
 ## Rules for every shot
 
@@ -78,13 +78,28 @@ Excluded on purpose: navigation and "near me" searches (they reveal device locat
 |---|---|---|
 | Voiceover voice | Jandal's shipped release-visible voice, Piper `en_GB-cori-high` (repository metadata MIT; LibriVox public-domain dataset, per `docs/VOICE_MODEL_ATTRIBUTION.md`) rendered by the app's own TTS path | **Needs Nick.** Exact package provenance is still open under #1474. Inflect Micro has no recorded licence for promotional use yet, so it is not proposed |
 | Music | None in v1 of the video | — |
-| Device audio | scrcpy records device playback only, not the room. The acoustic source in S01 is not captured; the caption carries "Hey Jandal" | Known limitation |
+| Device audio | Not recorded (`scrcpy --no-audio`). scrcpy can only capture device playback, not the room, so the S01 acoustic source would be missing anyway; the caption carries "Hey Jandal" | Known limitation |
 
 ## Output formats
 
 - Master render: 1080 × 1920 portrait, H.264, 30 fps, AAC audio, from the scrcpy clips without upscaling.
 - Before the final render, check Play's current preview-video guidance for orientation and length; add a 1920 × 1080 landscape variant (portrait footage centred on a branded background) only if Play's guidance favours landscape.
 - Video files are never committed. Raw clips and renders live outside the repo; the manifest (shot id, take, RC commit, APK SHA-256, start/end timestamps, compression spans) is the checked-in record.
+
+## Running the pipeline
+
+Prerequisites on the capture host: `adb`, `scrcpy` 2.2 or newer, `ffmpeg` with `drawtext` (libfreetype), and DejaVu Sans Bold. Offline shots need USB adb, because airplane mode drops wireless adb. Claim the device lane first.
+
+1. Install the RC build, apply the device setup above, turn on airplane mode, then check the plan:
+   `python3 scripts/demo_capture.py --dry-run --shots intro`
+2. Record (one MP4 per shot plus `manifest.json`; `--out` must be outside the repo):
+   `python3 scripts/demo_capture.py --serial RFCW11265XH --package <rc package> --commit <rc sha> --out ~/jandal-demo/<rc> --shots intro`
+   S01 also needs `DEMO_WAKE_CMD`, the host command that plays the wake and command fixtures from the S21 (the #1329 J10 path). Re-take a model shot with `--shots S04 --take 2` (at most 3).
+3. Render:
+   `python3 scripts/demo_edit.py --clips ~/jandal-demo/<rc> --out ~/jandal-demo/<rc>/intro.mp4 [--pick S04=2] [--voiceover vo.wav] [--icon icon.png]`
+   This also writes `intro.edl.json`: every cut, every speed-up and its factor, and the build provenance. Check it with the video.
+
+The runner drives the UI by visible labels (`Actions`, `Chats`, `Tools`, `New conversation`, `Send`, `Cancel response`) through `uiautomator`, so it works on release builds, where the debug harness intents are disabled. If a label changes, fix `shots.json`, not the code.
 
 ## Decisions for Nick
 

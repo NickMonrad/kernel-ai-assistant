@@ -1,0 +1,323 @@
+{
+  "schema": 1,
+  "description": "Machine-readable shot list for #1736. docs/demo/shot-script.md is the human source of truth; keep ids, inputs and captions in sync with it.",
+  "intro_order": [
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05"
+  ],
+  "end_card": {
+    "title": "Jandal AI",
+    "lines": [
+      "A Kiwi AI assistant that runs on your phone",
+      "Free on Google Play · Open source"
+    ],
+    "seconds": 5
+  },
+  "shots": [
+    {
+      "id": "S01",
+      "feature": "Hey Jandal",
+      "caption": "Hey Jandal — hands-free, on your phone",
+      "offline": true,
+      "needs_source_device": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "sleep",
+          "s": 1.5
+        },
+        {
+          "do": "host",
+          "env": "DEMO_WAKE_CMD",
+          "note": "Plays natural_wake + qwen_command from the S21 using the approved #1403/#1410 setup; same path as #1329 J10"
+        },
+        {
+          "do": "sleep",
+          "s": 4
+        }
+      ]
+    },
+    {
+      "id": "S02",
+      "feature": "Quick actions",
+      "caption": "Timers and alarms, instantly",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "type",
+          "text": "Set a timer for 10 minutes"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "sleep",
+          "s": 1.5
+        },
+        {
+          "do": "type",
+          "text": "Set an alarm for 7am tomorrow"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "sleep",
+          "s": 2
+        }
+      ]
+    },
+    {
+      "id": "S03",
+      "feature": "Lists, Kiwi phrasing",
+      "caption": "Speaks Kiwi",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "type",
+          "text": "Chuck bananas on the grocery list"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "sleep",
+          "s": 1.5
+        },
+        {
+          "do": "tap",
+          "text": "Tools"
+        },
+        {
+          "do": "tap",
+          "text": "Lists"
+        },
+        {
+          "do": "tap",
+          "text": "Grocery"
+        },
+        {
+          "do": "wait",
+          "text": "bananas",
+          "timeout": 10
+        },
+        {
+          "do": "sleep",
+          "s": 2
+        }
+      ]
+    },
+    {
+      "id": "S04",
+      "feature": "Memory and recall",
+      "caption": "Remembers what matters — stored on your device",
+      "offline": true,
+      "model": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Chats"
+        },
+        {
+          "do": "tap",
+          "desc": "New conversation"
+        },
+        {
+          "do": "type",
+          "text": "Remember that my favourite coffee is a flat white"
+        },
+        {
+          "do": "wait_gone",
+          "desc": "Cancel response",
+          "timeout": 240,
+          "compress": true
+        },
+        {
+          "do": "sleep",
+          "s": 2
+        },
+        {
+          "do": "tap",
+          "desc": "New conversation"
+        },
+        {
+          "do": "type",
+          "text": "What's my favourite coffee?"
+        },
+        {
+          "do": "wait_gone",
+          "desc": "Cancel response",
+          "timeout": 240,
+          "compress": true
+        },
+        {
+          "do": "wait",
+          "text": "flat white",
+          "timeout": 5
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ]
+    },
+    {
+      "id": "S05",
+      "feature": "Persona chat",
+      "caption": "Chat with a local AI. No cloud AI.",
+      "offline": true,
+      "model": true,
+      "persona": "Full Jandal",
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Chats"
+        },
+        {
+          "do": "tap",
+          "desc": "New conversation"
+        },
+        {
+          "do": "type",
+          "text": "Give me three ideas for a rainy Sunday"
+        },
+        {
+          "do": "wait_gone",
+          "desc": "Cancel response",
+          "timeout": 300,
+          "compress": true
+        },
+        {
+          "do": "sleep",
+          "s": 4
+        }
+      ]
+    },
+    {
+      "id": "M02",
+      "feature": "Flashlight",
+      "caption": "Torch on, torch off",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "type",
+          "text": "Turn on the flashlight"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "type",
+          "text": "Turn off the flashlight"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ]
+    },
+    {
+      "id": "M06",
+      "feature": "Notes",
+      "caption": "Notes, saved on your phone",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "type",
+          "text": "Write down that Sam needs library books tomorrow"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "sleep",
+          "s": 1.5
+        },
+        {
+          "do": "type",
+          "text": "Show my notes"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ]
+    },
+    {
+      "id": "M08",
+      "feature": "Conversions",
+      "caption": "Kitchen conversions",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "type",
+          "text": "Convert 1 cup of flour to grams"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ]
+    }
+  ],
+  "notes": "Deterministic replies are instant, so their shots settle with a fixed sleep: the typed request already contains the words a text wait would look for. Model shots wait for the 'Cancel response' button to disappear and mark that span for compression."
+}
