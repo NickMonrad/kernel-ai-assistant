@@ -60,6 +60,10 @@
           "text": "Actions"
         },
         {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
           "do": "type",
           "text": "Set a timer for 10 minutes"
         },
@@ -70,6 +74,10 @@
         {
           "do": "sleep",
           "s": 1.5
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
         },
         {
           "do": "type",
@@ -97,6 +105,10 @@
         {
           "do": "tap",
           "text": "Actions"
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
         },
         {
           "do": "type",
