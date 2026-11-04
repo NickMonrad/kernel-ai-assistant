@@ -13,8 +13,8 @@ What it does, per intro shot (``intro_order`` in docs/demo/shots.json):
   marked ``start_here``);
 - blurs every screen region the capture runner found holding a ``redact_env`` value
   (the test Nextcloud server and username in S07A/S07B);
-- speeds up every model wait the capture runner marked for compression to at most
-  ``--max-wait`` seconds and shows a "sped up N×" marker for that whole span, so
+- speeds up every span the capture runner marked for compression (model waits, and
+  the typing in S03) to at most ``--max-wait`` seconds, or the step's ``compress_to``, and shows a "sped up N×" marker for that whole span, so
   replies never look instant (shot-script.md rule 3);
 - burns in the shot caption and, for offline shots only, an airplane-mode badge;
 - fits the portrait recording onto a 1080 × 1920 canvas.
@@ -83,19 +83,21 @@ def plan_segments(take: dict, max_wait: float = 2.5, pre_roll: float = 0.6) -> l
         first_input = next((e["start"] for e in take["events"] if e["do"] in INPUT_STEPS), 0.0)
     start = max(0.0, lead + first_input - pre_roll)
 
+    # A span may carry its own ``max_s`` (step ``compress_to``), e.g. typing in S03.
     spans = sorted(
-        (max(start, lead + c["start"]), min(end, lead + c["end"])) for c in take.get("compress", [])
+        (max(start, lead + c["start"]), min(end, lead + c["end"]), float(c.get("max_s", max_wait)))
+        for c in take.get("compress", [])
     )
     segments: list[Segment] = []
     cursor = start
-    for s, e in spans:
+    for s, e, span_max in spans:
         if e <= cursor:
             continue
         s = max(s, cursor)
         if s > cursor:
             segments.append(Segment(cursor, s, 1.0))
         length = e - s
-        speed = max(1.0, length / max_wait)
+        speed = max(1.0, length / span_max)
         segments.append(Segment(s, e, round(speed, 3)))
         cursor = e
     if end > cursor:

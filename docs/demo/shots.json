@@ -131,11 +131,9 @@
         },
         {
           "do": "type",
-          "text": "Set a timer for 10 minutes"
-        },
-        {
-          "do": "sleep",
-          "s": 3
+          "text": "Set a timer for 10 minutes",
+          "compress": true,
+          "compress_to": 0.8
         },
         {
           "do": "sleep",
@@ -143,15 +141,15 @@
         },
         {
           "do": "tap",
-          "desc": "Run quick action"
+          "desc": "Run quick action",
+          "compress": true,
+          "compress_to": 0.3
         },
         {
           "do": "type",
-          "text": "Set an alarm for 7am tomorrow"
-        },
-        {
-          "do": "sleep",
-          "s": 3
+          "text": "Set an alarm for 7am tomorrow",
+          "compress": true,
+          "compress_to": 0.8
         },
         {
           "do": "sleep",
@@ -254,7 +252,7 @@
     {
       "id": "S06",
       "feature": "Weather (online)",
-      "caption": "Weather, Wikipedia, currency: online when you ask, no account needed",
+      "caption": "Online when you ask. No account needed.",
       "offline": false,
       "steps": [
         {

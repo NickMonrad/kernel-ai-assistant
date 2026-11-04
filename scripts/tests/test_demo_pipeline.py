@@ -165,6 +165,18 @@ class PlanTest(unittest.TestCase):
         self.assertIn("[base][b0]overlay=0:0[o0]", graph)
         self.assertTrue(graph.endswith("[o0][b1]overlay=188:288[pre]"))
 
+    def test_span_compress_to_overrides_max_wait(self):
+        segs = edit.plan_segments(self.take([{"start": 3.0, "end": 6.0, "max_s": 0.8}]), max_wait=2.5)
+        self.assertEqual([s.speed for s in segs], [1.0, 3.75, 1.0])
+        self.assertAlmostEqual(segs[1].out_len, 0.8)
+        self.assertEqual(len(edit.marker_windows(segs)), 1)
+
+    def test_s03_typing_is_compressed_and_marked(self):
+        by_id = {s["id"]: s for s in cap.load_shots()["shots"]}
+        typed = [s for s in by_id["S03"]["steps"] if s["do"] == "type"]
+        self.assertEqual(len(typed), 2)  # timer and alarm both stay in the shot
+        self.assertTrue(all(s.get("compress") and s.get("compress_to") for s in typed))
+
     def test_short_wait_is_not_sped_up_but_never_slowed(self):
         segs = edit.plan_segments(self.take([{"start": 6.0, "end": 7.0}]), max_wait=2.5)
         self.assertTrue(all(s.speed == 1.0 for s in segs))

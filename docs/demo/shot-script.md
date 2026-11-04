@@ -8,7 +8,7 @@ This script is the source of truth for the shot list. `docs/demo/shots.json` is 
 
 1. **Real behaviour only.** Every frame comes from the release-candidate build running on a test device. No mock screens, composited replies, or edited reply text.
 2. **Takes.** A model-generated reply may be re-taken up to 3 times; the manifest records the take count. Deterministic shots (timer, alarm, list, conversion) take 1 run unless the harness itself fails.
-3. **Time compression is visible.** Waiting for the model may be cut or sped up, but a visible "⏩ sped up" marker sits on screen for the whole compressed span. App-visible time to first token is long today (#1618), so replies must never look instant.
+3. **Time compression is visible.** Waiting for the model (or a sync), and the typing in S03, may be cut or sped up, but a visible "⏩ sped up" marker sits on screen for the whole compressed span. App-visible time to first token is long today (#1618), so replies must never look instant.
 4. **No real personal data.** Seeded demo data only. Names in shots are invented (Aroha, Sam). No real contacts, accounts, messages, location or photos. Location-revealing hand-offs (Maps, "near me") are excluded from the intro cut.
 5. **Offline is literal.** Shots marked *Offline* run with airplane mode on and Wi-Fi off, and the airplane icon is visible in the status bar. Shots that need the network (weather, Nextcloud) are never shown with an offline caption or under the airplane badge.
 6. **Shipped v0.1 features only.** No roadmap features, no debug screens, no developer-only labels where a user-facing alternative exists.
@@ -38,7 +38,7 @@ Each shot is a separate clip, so the runner turns airplane mode off between S05 
 |---|---|---|---|---|---|---|
 | S01 | 0:00–0:05 | Hey Jandal | Spoken by the S21 acoustic source: "Hey Jandal" then "what time is it" (existing `natural_wake.wav` + `qwen_command.wav` fixtures) | Listening indicator, then the Actions card `what time is it` → "It's …" | Deterministic | Offline |
 | S02 | 0:05–0:14 | Lists, Kiwi phrasing | Typed: "Chuck bananas on the grocery list", then open the shopping list | Confirmation, then the list shows milk, bread, bananas | Deterministic | Offline |
-| S03 | 0:14–0:18 | Timer and alarm | Typed: "Set a timer for 10 minutes", then "Set an alarm for 7am tomorrow" | Both confirmations; timer visibly counting down. Check the alarm wording first: an earlier build repeated the time ("…at 6:30am — 6:30am."); if it still does, file it and pick another shot | Deterministic | Offline |
+| S03 | 0:14–0:18 | Timer and alarm | Typed: "Set a timer for 10 minutes", then "Set an alarm for 7am tomorrow" | Both confirmations; timer visibly counting down. The typing of each command is sped up to under a second, with the sped-up marker, so the shot fits its slot. Check the alarm wording first: an earlier build repeated the time ("…at 6:30am — 6:30am."); if it still does, file it and pick another shot | Deterministic | Offline |
 | S04 | 0:18–0:28 | Memory and recall | Typed: "Remember that my favourite coffee is a flat white". New chat, typed: "What's my favourite coffee?" | Save confirmation; in the new chat the reply names a flat white | Model (compressed) | Offline |
 | S05 | 0:28–0:36 | Persona chat | Typed, with **Full Jandal**: "Give me three ideas for a rainy Sunday" | A complete streamed reply with Kiwi tone | Model (compressed) | Offline |
 | S06 | 0:36–0:41 | Weather | Typed: "What's the weather like in Wellington?" | Weather card for Wellington (Open-Meteo) | Deterministic | **Online** |
@@ -57,7 +57,7 @@ Captions (burned in, one line or two, shown for the shot's length):
 - S03: "Timers and alarms, instantly"
 - S04: "Remembers what matters — stored on your device"
 - S05: "Chat with a local AI. No cloud AI." (plus the ⏩ marker over compressed waits)
-- S06: "Weather, Wikipedia, currency: online when you ask, no account needed"
+- S06: "Online when you ask. No account needed." (shortened from "Weather, Wikipedia, currency: online when you ask, no account needed" so it fits at full caption size)
 - S07: "Optional sync with your own Nextcloud" (on both S07A and S07B)
 - An "✈ Airplane mode" corner badge on S01–S05 only. The weather and Nextcloud captions never sit under it.
 

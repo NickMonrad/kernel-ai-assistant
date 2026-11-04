@@ -380,7 +380,10 @@ class ShotRunner:
                 event[key] = step[key]
         self.log.events.append(event)
         if step.get("compress"):
-            self.log.compress.append({"start": start, "end": end})
+            span = {"start": start, "end": end}
+            if "compress_to" in step:
+                span["max_s"] = float(step["compress_to"])
+            self.log.compress.append(span)
         if self.redact:
             self.log.add_redact(nodes_containing(self.d.dump_ui(), self.redact))
 
