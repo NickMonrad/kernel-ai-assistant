@@ -55,6 +55,7 @@ SHOTS_FILE = REPO / "docs" / "demo" / "shots.json"
 DEFAULT_PACKAGE = "com.kernel.ai.debug"
 ACTIVITY = "com.kernel.ai.MainActivity"
 UI_DUMP = "/sdcard/jandal_demo_ui.xml"
+ROOT_TABS = ("Chats", "Actions", "Tools")
 BOUNDS_RE = re.compile(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]")
 
 
@@ -76,6 +77,10 @@ def load_shots(path: Path = SHOTS_FILE) -> dict:
     for shot in data["shots"]:
         if shot.get("device", "primary") not in ("primary", "second"):
             raise CaptureError(f"{shot['id']}: device must be 'primary' or 'second'")
+        first = shot["steps"][0]["do"] if shot["steps"] else None
+        if first not in ("launch", "restart"):
+            # The launch frame is the anchor that syncs the clip to the runner clock.
+            raise CaptureError(f"{shot['id']}: first step must be launch or restart (sync anchor)")
         if shot.get("device") == "second" and shot.get("offline"):
             # The second client only exists to show a synced change; it is never offline.
             raise CaptureError(f"{shot['id']}: second-device shots cannot be offline")
@@ -160,6 +165,50 @@ def ui_contains(xml_text: str, *, text: str | None = None, desc: str | None = No
     return find_node(xml_text, text=text, desc=desc) is not None
 
 
+def count_matches(xml_text: str, text: str) -> int:
+    """Nodes whose text contains *text* (case-insensitive)."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return 0
+    want = text.lower()
+    return sum(1 for node in root.iter("node") if want in node.get("text", "").lower())
+
+
+def field_text(xml_text: str) -> str:
+    """Text in the first on-screen EditText ('' if none)."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return ""
+    for node in root.iter("node"):
+        if node.get("class") == "android.widget.EditText":
+            return node.get("text", "")
+    return ""
+
+
+def root_size(xml_text: str) -> tuple[int, int] | None:
+    """Screen size in uiautomator pixels, from the root node's bounds."""
+    try:
+        node = next(ET.fromstring(xml_text).iter("node"))
+    except (ET.ParseError, StopIteration):
+        return None
+    m = BOUNDS_RE.fullmatch(node.get("bounds", ""))
+    return (int(m.group(3)), int(m.group(4))) if m else None
+
+
+def redact_needles(values: list[str]) -> list[str]:
+    """The values to blur plus the forms the app may show them in (no scheme, no trailing slash)."""
+    out: list[str] = []
+    for value in values:
+        v = value.strip()
+        bare = re.sub(r"^[a-z]+://", "", v, flags=re.I)
+        for form in (v, bare, bare.rstrip("/")):
+            if form and form not in out:
+                out.append(form)
+    return out
+
+
 def nodes_containing(xml_text: str, needles: list[str]) -> list[tuple[int, int, int, int]]:
     """Bounds ``(x1, y1, x2, y2)`` of every node whose text or desc contains a needle.
 
@@ -190,14 +239,44 @@ def airplane_commands(on: bool) -> list[str]:
     Offline is literal (shot-script.md rule 5): airplane mode on and Wi-Fi off, even if
     the device remembers Wi-Fi as on in airplane mode.
     """
+    # Checked on the S21 (Android 15) and S23U (Android 16); `svc wifi` is the older form.
     if on:
-        return ["cmd connectivity airplane-mode enable", "svc wifi disable"]
-    return ["cmd connectivity airplane-mode disable", "svc wifi enable"]
+        return ["cmd connectivity airplane-mode enable", "cmd wifi set-wifi-enabled disabled"]
+    return ["cmd connectivity airplane-mode disable", "cmd wifi set-wifi-enabled enabled"]
 
 
 def has_validated_network(dumpsys_connectivity: str) -> bool:
-    return any("NetworkAgentInfo" in line and "VALIDATED" in line
-               for line in dumpsys_connectivity.splitlines())
+    """True when the *active default* network is currently validated.
+
+    Other networks (e.g. an IMS-only mobile network) and the ``EVER_VALIDATED`` policy
+    do not count.
+    """
+    m = re.search(r"Active default network: (\d+)", dumpsys_connectivity)
+    if not m:
+        return False
+    tag = f"NetworkAgentInfo{{network{{{m.group(1)}}}"
+    return any(tag in line and "IS_VALIDATED" in line for line in dumpsys_connectivity.splitlines())
+
+
+def scene_changes(showinfo_log: str) -> list[float]:
+    """Frame times picked by ffmpeg's ``select='gt(scene,X)',showinfo``."""
+    return [float(t) for t in re.findall(r"pts_time:([0-9.]+)", showinfo_log)]
+
+
+def lead_in_from_anchor(changes: list[float], anchor: float, max_lead: float = 6.0) -> float | None:
+    """Clip time minus runner time, from the first big screen change.
+
+    Before ``t0`` the runner leaves the device on the home screen, so the first scene
+    change in the clip is the app appearing. ``anchor`` is the runner time at which
+    ``am start -W`` returned, i.e. the app's first frame was drawn. Measured on the S23U
+    this gave 1.38-1.45 s and predicted a later event to within ~0.2 s; the old fixed
+    2.0 s was out by about 0.6 s.
+    """
+    for c in changes:
+        lead = c - anchor
+        if 0.0 <= lead <= max_lead:
+            return round(lead, 3)
+    return None
 
 
 # ── device ─────────────────────────────────────────────────────────────────
@@ -222,9 +301,29 @@ class Device:
     def shell(self, cmd: str, timeout: float = 30) -> str:
         return self.run("shell", cmd, timeout=timeout)
 
-    def dump_ui(self) -> str:
-        self.run("shell", "uiautomator", "dump", UI_DUMP, timeout=20)
-        return self.run("shell", "cat", UI_DUMP)
+    def dump_ui(self, attempts: int = 4) -> str:
+        """Fresh uiautomator dump; never returns a previous screen.
+
+        ``uiautomator dump`` exits 0 even when it fails (e.g. "could not get idle state"
+        while a reply streams), so the old file is removed first and the output checked.
+        """
+        last = ""
+        for _ in range(attempts):
+            self.run("shell", "rm", "-f", UI_DUMP)
+            last = self.run("shell", "uiautomator", "dump", UI_DUMP, timeout=20)
+            if "dumped to" in last:
+                return self.run("shell", "cat", UI_DUMP)
+            time.sleep(0.5)
+        raise CaptureError(f"uiautomator dump failed {attempts}x: {last.strip()}")
+
+    def prepare_screen(self) -> None:
+        """Awake, unlocked, shade closed, on the home screen (the sync anchor needs a change)."""
+        self.run("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+        if "isKeyguardShowing=true" in self.shell("dumpsys window | grep -m1 isKeyguardShowing"):
+            raise CaptureError(f"{self.serial} is locked; unlock it before recording")
+        self.shell("cmd statusbar collapse")
+        self.run("shell", "input", "keyevent", "KEYCODE_HOME")
+        time.sleep(1.2)
 
     def tap_xy(self, x: int, y: int) -> None:
         self.run("shell", "input", "tap", str(x), str(y))
@@ -256,7 +355,8 @@ class Device:
         pkg = safe(lambda: self.shell(f"dumpsys package {self.package}"))
         version_name = re.search(r"versionName=(\S+)", pkg)
         version_code = re.search(r"versionCode=(\d+)", pkg)
-        apk_path = safe(lambda: self.shell(f"pm path {self.package}")).splitlines()
+        # --user 0: the S23U has a second profile that the shell may not query.
+        apk_path = safe(lambda: self.shell(f"pm path --user 0 {self.package}")).splitlines()
         base = next((p.split(":", 1)[1] for p in apk_path if p.endswith("base.apk")), None)
         apk_sha = safe(lambda: self.shell(f"sha256sum {base}")).split()[0] if base else None
         return {
@@ -294,7 +394,18 @@ class ShotRunner:
         self.t0 = t0
         self.log = log
         self.poll = poll
-        self.redact = [r for r in (redact or []) if r]
+        self.redact = redact_needles(redact or [])
+        self.last_xml = ""
+        self.baseline_xml = ""
+        self.anchor: float | None = None
+
+    def dump(self) -> str:
+        """Every screen read goes through here, so redaction sees every screen we look at."""
+        xml = self.d.dump_ui()
+        self.last_xml = xml
+        if self.redact:
+            self.log.add_redact(nodes_containing(xml, self.redact))
+        return xml
 
     def now(self) -> float:
         return round(time.monotonic() - self.t0, 2)
@@ -303,7 +414,7 @@ class ShotRunner:
             cls: str | None = None, timeout: float = 15) -> None:
         deadline = time.monotonic() + timeout
         while True:
-            pos = find_node(self.d.dump_ui(), text=text, desc=desc, cls=cls)
+            pos = find_node(self.dump(), text=text, desc=desc, cls=cls)
             if pos:
                 self.d.tap_xy(*pos)
                 time.sleep(0.6)
@@ -311,6 +422,17 @@ class ShotRunner:
             if time.monotonic() > deadline:
                 raise CaptureError(f"no on-screen node for text={text!r} desc={desc!r} cls={cls!r}")
             time.sleep(self.poll)
+
+    def to_root_tabs(self, attempts: int = 3) -> None:
+        """Leave any open conversation or sub-screen: the app reopens where it was left,
+        and shots start from the bottom tabs (Chats / Actions / Tools)."""
+        for _ in range(attempts):
+            xml = self.dump()
+            if all(find_node(xml, text=t) for t in ROOT_TABS):
+                return
+            self.d.run("shell", "input", "keyevent", "KEYCODE_BACK")
+            time.sleep(0.8)
+        raise CaptureError(f"could not get back to the {'/'.join(ROOT_TABS)} tabs")
 
     def type_and_send(self, text: str) -> None:
         self.tap(cls="android.widget.EditText")
@@ -320,21 +442,50 @@ class ShotRunner:
             chunk = word + (" " if i < len(words) - 1 else "")
             self.d.run("shell", "input", "text", escape_input_text(chunk))
             time.sleep(0.12)
-        time.sleep(0.5)
-        self.tap(desc="Send")
+        time.sleep(0.4)
+        # Read back before sending. Fast chunks can be reordered by the keyboard (seen on
+        # the S23U: "Give me tree ideas for a rainy Sundayh"), and a mangled prompt must
+        # never be sent. This read also finds Send after the keyboard has moved it.
+        xml = self.dump()
+        if field_text(xml) != text:
+            self.d.run("shell", "input", "keyevent", "KEYCODE_MOVE_END")
+            self.d.run("shell", "input", "keyevent", *(["KEYCODE_DEL"] * (len(field_text(xml)) + 5)))
+            self.d.run("shell", "input", "text", escape_input_text(text))
+            time.sleep(0.5)
+            xml = self.dump()
+            if field_text(xml) != text:
+                raise CaptureError(f"text field reads {field_text(xml)!r}, expected {text!r}")
+        pos = find_node(xml, desc="Send")
+        if not pos:
+            raise CaptureError("no Send button after typing")
+        self.d.tap_xy(*pos)
+        time.sleep(0.6)
+
+    def wait_new(self, text: str, timeout: float) -> None:
+        """Wait until more nodes contain *text* than before the last typed request.
+
+        Actions history keeps earlier confirmations ("Timer set for ..."), so a plain wait
+        would pass on a previous take's result.
+        """
+        before = count_matches(self.baseline_xml, text)
+        deadline = time.monotonic() + timeout
+        while count_matches(self.dump(), text) <= before:
+            if time.monotonic() > deadline:
+                raise CaptureError(f"no new {text!r} on screen within {timeout}s (had {before})")
+            time.sleep(self.poll)
 
     def wait_for(self, *, text: str | None, desc: str | None, gone: bool, timeout: float,
                  appear_timeout: float = 20) -> None:
         if gone:
             # The node may not exist yet when the step starts; wait for it first.
             deadline = time.monotonic() + appear_timeout
-            while not ui_contains(self.d.dump_ui(), text=text, desc=desc):
+            while not ui_contains(self.dump(), text=text, desc=desc):
                 if time.monotonic() > deadline:
                     return  # finished before we saw it (e.g. instant reply)
                 time.sleep(self.poll)
         deadline = time.monotonic() + timeout
         while True:
-            present = ui_contains(self.d.dump_ui(), text=text, desc=desc)
+            present = ui_contains(self.dump(), text=text, desc=desc)
             if present != gone:
                 return
             if time.monotonic() > deadline:
@@ -350,16 +501,26 @@ class ShotRunner:
                 self.d.run("shell", "am", "force-stop", self.d.package)
             self.d.run("shell", "am", "start", "-W", "--activity-clear-top",
                        "-n", f"{self.d.package}/{ACTIVITY}")
+            if self.anchor is None:
+                self.anchor = self.now()  # -W returns once the first frame is drawn
             time.sleep(1.5)
+            self.to_root_tabs()
         elif kind == "tap":
             self.tap(text=step.get("text"), desc=step.get("desc"))
         elif kind == "type":
+            self.baseline_xml = self.last_xml
             self.type_and_send(step["text"])
+        elif kind == "wait" and step.get("new"):
+            self.wait_new(step["text"], float(step.get("timeout", 30)))
         elif kind in ("wait", "wait_gone"):
             self.wait_for(text=step.get("text"), desc=step.get("desc"), gone=kind == "wait_gone",
-                          timeout=float(step.get("timeout", 30)))
+                          timeout=float(step.get("timeout", 30)),
+                          appear_timeout=float(step.get("appear_timeout", 20)))
         elif kind == "sleep":
-            time.sleep(float(step["s"]))
+            until = time.monotonic() + float(step["s"])
+            while self.redact and time.monotonic() < until - 0.5:
+                self.dump()  # keep scanning for values to blur while holding on a screen
+            time.sleep(max(0.0, until - time.monotonic()))
         elif kind == "key":
             self.d.run("shell", "input", "keyevent", step["code"])
         elif kind == "shell":
@@ -368,7 +529,10 @@ class ShotRunner:
             cmd = os.environ.get(step["env"], "")
             if not cmd:
                 raise CaptureError(f"step needs {step['env']} (see the shot's note)")
-            res = subprocess.run(shlex.split(cmd), cwd=REPO, timeout=float(step.get("timeout", 180)))
+            try:
+                res = subprocess.run(shlex.split(cmd), cwd=REPO, timeout=float(step.get("timeout", 180)))
+            except (subprocess.TimeoutExpired, OSError) as exc:
+                raise CaptureError(f"host step {step['env']} failed: {exc}") from exc
             if res.returncode != 0:
                 raise CaptureError(f"host step exited {res.returncode}")
         else:
@@ -385,7 +549,7 @@ class ShotRunner:
                 span["max_s"] = float(step["compress_to"])
             self.log.compress.append(span)
         if self.redact:
-            self.log.add_redact(nodes_containing(self.d.dump_ui(), self.redact))
+            self.dump()
 
 
 # ── recording ──────────────────────────────────────────────────────────────
@@ -395,7 +559,8 @@ def scrcpy_cmd(serial: str, out_file: Path, scrcpy: str = "scrcpy") -> list[str]
     return [
         scrcpy, "-s", serial,
         "--record", str(out_file),
-        "--no-playback",          # scrcpy >= 2.2; no window needed
+        "--no-playback",          # scrcpy >= 2.2
+        "--no-window",            # scrcpy >= 3.0; tested with 5.0.1
         "--no-audio",             # device audio is not used in the cut (see shot-script.md)
         "--max-fps", "30",
         "--video-bit-rate", "16M",
@@ -412,15 +577,34 @@ def redact_values(shot: dict) -> list[str]:
     return [os.environ[n] for n in names]
 
 
-def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: str) -> dict:
+def probe(clip: Path, ffmpeg: str = "ffmpeg") -> tuple[tuple[int, int] | None, list[float]]:
+    """Clip frame size and scene-change times (for the sync anchor)."""
+    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    size = None
+    res = subprocess.run([ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "stream=width,height", "-of", "csv=p=0", str(clip)], capture_output=True, text=True)
+    m = re.match(r"(\d+),(\d+)", res.stdout.strip())
+    if m:
+        size = (int(m.group(1)), int(m.group(2)))
+    res = subprocess.run([ffmpeg, "-v", "info", "-i", str(clip), "-vf", "select='gt(scene,0.1)',showinfo",
+                          "-f", "null", "-"], capture_output=True, text=True)
+    return size, scene_changes(res.stderr)
+
+
+def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: str, build: dict) -> dict:
     redact = redact_values(shot)
     airplane = device.set_offline(bool(shot.get("offline")))
+    device.prepare_screen()
     clip = out_dir / f"{shot['id']}_take{take}.mp4"
-    proc = subprocess.Popen(scrcpy_cmd(device.serial, clip, scrcpy),
-                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    time.sleep(2.0)  # let scrcpy start encoding before t0
+    if clip.exists():
+        clip.unlink()
+    scrcpy_log = (out_dir / f"{shot['id']}_take{take}.scrcpy.log").open("w")
+    # Own log file, not a pipe: an unread pipe can fill and stall scrcpy mid-shot.
+    proc = subprocess.Popen(scrcpy_cmd(device.serial, clip, scrcpy), stdout=scrcpy_log, stderr=subprocess.STDOUT)
+    time.sleep(2.0)  # let scrcpy start encoding before t0; the real offset is measured below
     if proc.poll() is not None:
-        raise CaptureError(f"scrcpy exited early: {proc.stderr.read() if proc.stderr else ''}")
+        scrcpy_log.close()
+        raise CaptureError(f"scrcpy exited early; see {scrcpy_log.name}")
     t0 = time.monotonic()
     log = StepLog()
     runner = ShotRunner(device, t0, log, redact=redact)
@@ -432,11 +616,20 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
         status, error = "failed", str(exc)
     finally:
         time.sleep(0.5)
-        proc.send_signal(signal.SIGINT)
+        # SIGTERM, not SIGINT: a runner started from a non-interactive shell can inherit
+        # SIGINT as ignored, and scrcpy then never finalises the MP4.
+        proc.terminate()
         try:
             proc.wait(timeout=20)
         except subprocess.TimeoutExpired:
             proc.kill()
+            status, error = "failed", error or "scrcpy did not stop; clip is not finalised"
+        scrcpy_log.close()
+    clip_size, changes = probe(clip) if clip.exists() else (None, [])
+    lead = lead_in_from_anchor(changes, runner.anchor) if runner.anchor is not None else None
+    if status == "ok" and lead is None:
+        status, error = "failed", "could not sync the clip to the runner clock (no launch frame found)"
+    screen = root_size(runner.last_xml)
     return {
         "id": shot["id"],
         "take": take,
@@ -445,16 +638,22 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
         "airplane_mode": airplane,
         "status": status,
         "error": error,
-        "lead_in_s": 2.0,
+        "lead_in_s": lead,
+        "lead_in_source": "launch frame (am start -W) vs first scene change",
         "duration_s": runner.now(),
+        "screen_size": list(screen) if screen else None,
+        "clip_size": list(clip_size) if clip_size else None,
         "events": log.events,
         "compress": log.compress,
         "redact": log.redact,
+        "build": build,
         "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
     }
 
 
 def update_manifest(path: Path, header: dict, result: dict) -> dict:
+    """Append one take. Build provenance lives on each take, so a retake on a newer
+    build never relabels older takes."""
     manifest = json.loads(path.read_text()) if path.exists() else {"takes": []}
     manifest.update(header)
     manifest["takes"].append(result)
@@ -515,18 +714,20 @@ def main(argv: list[str] | None = None) -> int:
 
     device = Device(args.serial, args.package)
     second = Device(args.second_serial, args.second_package or args.package) if needs_second else None
-    header = {
-        "issue": 1736,
-        "commit": args.commit or None,
-        "device": device.provenance(),
-        "shots_sha256": hashlib.sha256(SHOTS_FILE.read_bytes()).hexdigest(),
-    }
-    if second:
-        header["second_device"] = second.provenance()
-    for key, dev in (("device", device), ("second_device", second)):
-        if dev and header[key]["version_name"] is None:
+    for tool in ("ffmpeg", "ffprobe"):
+        if not shutil.which(tool):
+            ap.error(f"{tool} is needed to sync each clip to the runner clock")
+    shots_sha = hashlib.sha256(SHOTS_FILE.read_bytes()).hexdigest()
+    builds = {}
+    for dev in (device, second):
+        if dev is None:
+            continue
+        prov = dev.provenance()
+        if prov["version_name"] is None:
             print(f"error: {dev.package} is not installed on {dev.serial}", file=sys.stderr)
             return 2
+        builds[dev.serial] = {"commit": args.commit or None, "device": prov, "shots_sha256": shots_sha}
+    header = {"issue": 1736}
 
     failed = 0
     for shot in shots:
@@ -534,7 +735,7 @@ def main(argv: list[str] | None = None) -> int:
         mode = "offline" if shot.get("offline") else "online"
         print(f"recording {shot['id']} take {args.take} on {target.serial} ({mode}) …", flush=True)
         try:
-            result = record_shot(target, shot, out, args.take, args.scrcpy)
+            result = record_shot(target, shot, out, args.take, args.scrcpy, builds[target.serial])
         except CaptureError as exc:
             print(f"  not recorded: {exc}", file=sys.stderr)
             failed += 1

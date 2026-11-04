@@ -8,7 +8,7 @@ This script is the source of truth for the shot list. `docs/demo/shots.json` is 
 
 1. **Real behaviour only.** Every frame comes from the release-candidate build running on a test device. No mock screens, composited replies, or edited reply text.
 2. **Takes.** A model-generated reply may be re-taken up to 3 times; the manifest records the take count. Deterministic shots (timer, alarm, list, conversion) take 1 run unless the harness itself fails.
-3. **Time compression is visible.** Waiting for the model (or a sync), and the typing in S03, may be cut or sped up, but a visible "⏩ sped up" marker sits on screen for the whole compressed span. App-visible time to first token is long today (#1618), so replies must never look instant.
+3. **Time compression is visible.** Waiting for the model (or a sync), and the typing in S03, may be cut or sped up, but a visible "▶▶ sped up N×" marker sits on screen for the whole compressed span. App-visible time to first token is long today (#1618), so replies must never look instant.
 4. **No real personal data.** Seeded demo data only. Names in shots are invented (Aroha, Sam). No real contacts, accounts, messages, location or photos. Location-revealing hand-offs (Maps, "near me") are excluded from the intro cut.
 5. **Offline is literal.** Shots marked *Offline* run with airplane mode on and Wi-Fi off, and the airplane icon is visible in the status bar. Shots that need the network (weather, Nextcloud) are never shown with an offline caption or under the airplane badge.
 6. **Shipped v0.1 features only.** No roadmap features, no debug screens, no developer-only labels where a user-facing alternative exists.
@@ -56,7 +56,7 @@ Captions (burned in, one line or two, shown for the shot's length):
 - S02: "Lists that understand Kiwi"
 - S03: "Timers and alarms, instantly"
 - S04: "Remembers what matters — stored on your device"
-- S05: "Chat with a local AI. No cloud AI." (plus the ⏩ marker over compressed waits)
+- S05: "Chat with a local AI. No cloud AI." (plus the "▶▶ sped up N×" marker over compressed waits)
 - S06: "Online when you ask. No account needed." (shortened from "Weather, Wikipedia, currency: online when you ask, no account needed" so it fits at full caption size)
 - S07: "Optional sync with your own Nextcloud" (on both S07A and S07B)
 - An "✈ Airplane mode" corner badge on S01–S05 only. The weather and Nextcloud captions never sit under it.
@@ -100,7 +100,7 @@ Excluded on purpose: navigation and "near me" searches (they reveal device locat
 
 ## Running the pipeline
 
-Prerequisites on the capture host: `adb`, `scrcpy` 2.2 or newer, `ffmpeg` with `drawtext` (libfreetype), and DejaVu Sans Bold. The S23U needs USB adb: the runner turns airplane mode (and Wi-Fi) on before each offline shot and off before each online shot, and airplane mode drops wireless adb. Claim the device lane first.
+Prerequisites on the capture host: `adb`, `scrcpy` 3.0 or newer (tested with 5.0.1), `ffmpeg` and `ffprobe` with `drawtext` (libfreetype), and DejaVu Sans Bold. Both devices awake and unlocked, Do Not Disturb on. The S23U needs USB adb: the runner turns airplane mode (and Wi-Fi) on before each offline shot and off before each online shot, and airplane mode drops wireless adb. Claim the device lane first.
 
 1. Install the RC build on both devices, apply the device setup above, then check the plan:
    `python3 scripts/demo_capture.py --dry-run --shots intro`
@@ -113,6 +113,14 @@ Prerequisites on the capture host: `adb`, `scrcpy` 2.2 or newer, `ffmpeg` with `
 
 The runner drives the UI by visible labels (`Actions`, `Chats`, `Tools`, `New conversation`, `Send`, `Cancel response`) through `uiautomator`, so it works on release builds, where the debug harness intents are disabled. If a label changes, fix `shots.json`, not the code.
 
+How the runner keeps the cut honest and in sync:
+
+- **Clock sync.** Before each shot the device is left on the home screen, so the first big screen change in the clip is the app appearing. `am start -W` returns when that frame is drawn, and the runner stores the measured offset as `lead_in_s` (S23U: 1.1–1.6 s; a fixed guess was out by ~0.6 s). A take with no launch frame is marked failed.
+- **Fresh screen reads.** `uiautomator dump` can exit 0 without writing a new file; the runner deletes the old dump first, checks the output and retries, so it never acts on a stale screen. Each read takes ~2.5–3 s on the S23U, which is why taps and typing are slow in real time.
+- **Result checks.** Quick-action shots wait for a *new* confirmation (`"new": true`): Actions history keeps earlier takes' results, so a plain text wait would pass on an old one. A missing result fails the take, and the edit step never picks a failed take.
+- **Blur.** For S07A/S07B every screen read (including inside waits and holds) is scanned for the Nextcloud server and username, with and without `https://`. Boxes are stored in screen pixels with the screen and clip sizes; the edit step scales them, or refuses if the clip is rotated.
+- **Length.** `demo_edit.py` refuses a full cut over 60 s (`--allow-over-cap` to override) and lists the longest shots. `--shots S03,S06` renders a preview of some shots without the end card.
+
 ## Decisions for Nick
 
 Recorded from Nick's review (4 Nov 2026):
@@ -124,3 +132,9 @@ Recorded from Nick's review (4 Nov 2026):
 5. **Take rule approved:** up to 3 takes for model replies, recorded in the manifest.
 6. **End card** is a render-time choice: pre-launch "Join the beta", launch "Free on Google Play".
 7. **S01 caption** says `Optional "Hey Jandal" wake word`; no "hands-free" claim.
+
+Later decisions (Nick, 4 Nov 2026):
+
+8. **S03** keeps both the timer and the alarm; the typing is sped up, with the marker, to fit.
+9. **S06 caption** shortened to "Online when you ask. No account needed." so it renders at full size.
+10. **S07's second client** is the Jandal app on the S21 (not the Nextcloud web view).

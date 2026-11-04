@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -115,11 +117,45 @@ class UiHelpersTest(unittest.TestCase):
         self.assertEqual(cap.nodes_containing("not xml", ["x"]), [])
 
     def test_airplane_commands(self):
-        self.assertEqual(cap.airplane_commands(True), ["cmd connectivity airplane-mode enable", "svc wifi disable"])
-        self.assertEqual(cap.airplane_commands(False), ["cmd connectivity airplane-mode disable", "svc wifi enable"])
-        dump = "  NetworkAgentInfo{network{100}  nc{[ Transports: WIFI Capabilities: INTERNET&VALIDATED]}}"
-        self.assertTrue(cap.has_validated_network(dump))
-        self.assertFalse(cap.has_validated_network(dump.replace("&VALIDATED", "")))
+        self.assertEqual(cap.airplane_commands(True),
+                         ["cmd connectivity airplane-mode enable", "cmd wifi set-wifi-enabled disabled"])
+        self.assertEqual(cap.airplane_commands(False),
+                         ["cmd connectivity airplane-mode disable", "cmd wifi set-wifi-enabled enabled"])
+
+    def test_validated_network_is_the_active_default_only(self):
+        # Shapes from the S21 (Android 15): an IMS-only mobile network carries EVER_VALIDATED
+        # and IS_VALIDATED, but only the active default network counts.
+        mobile = ("  NetworkAgentInfo{network{111}  ni{MOBILE[LTE] CONNECTED extra: IMS} "
+                  "Score(Policies : EVER_EVALUATED&EVER_VALIDATED&IS_VALIDATED ; KeepConnected : 0)")
+        wifi = ("  NetworkAgentInfo{network{112}  ni{WIFI CONNECTED extra: } "
+                "Score(Policies : TRANSPORT_PRIMARY&EVER_VALIDATED&IS_VALIDATED ; KeepConnected : 0)")
+        self.assertTrue(cap.has_validated_network(f"Active default network: 112\n{mobile}\n{wifi}"))
+        self.assertFalse(cap.has_validated_network(f"Active default network: none\n{mobile}\n{wifi}"))
+        self.assertFalse(cap.has_validated_network(
+            f"Active default network: 112\n{mobile}\n{wifi.replace('&IS_VALIDATED', '')}"))
+        # network{11} must not match network{112}
+        self.assertFalse(cap.has_validated_network(f"Active default network: 11\n{wifi}"))
+
+    def test_lead_in_from_anchor(self):
+        # S23U measurement: app appeared at 1.573 s in the clip, am start -W returned at 0.122 s.
+        self.assertAlmostEqual(cap.lead_in_from_anchor([1.573, 4.268], 0.122), 1.451)
+        self.assertIsNone(cap.lead_in_from_anchor([], 0.1))
+        self.assertIsNone(cap.lead_in_from_anchor([9.0], 0.1))  # implausible: no launch frame
+        log = "[Parsed_showinfo_1 @ 0x0] n:0 pts:1 pts_time:1.573 duration:1\n... pts_time:4.268 ..."
+        self.assertEqual(cap.scene_changes(log), [1.573, 4.268])
+
+    def test_count_matches_and_root_size(self):
+        self.assertEqual(cap.count_matches(UI_XML, "actions"), 2)
+        self.assertEqual(cap.count_matches("not xml", "x"), 0)
+        self.assertEqual(cap.root_size(UI_XML), (1080, 2316))
+
+    def test_redact_needles(self):
+        self.assertEqual(cap.redact_needles(["https://cloud.example/", "Demo"]),
+                         ["https://cloud.example/", "cloud.example/", "cloud.example", "Demo"])
+
+    def test_every_shot_starts_with_the_sync_anchor(self):
+        for shot in cap.load_shots()["shots"]:
+            self.assertIn(shot["steps"][0]["do"], ("launch", "restart"), shot["id"])
 
 
 class PlanTest(unittest.TestCase):
@@ -177,6 +213,36 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(len(typed), 2)  # timer and alarm both stay in the shot
         self.assertTrue(all(s.get("compress") and s.get("compress_to") for s in typed))
 
+    def test_missing_lead_in_is_refused(self):
+        take = self.take([])
+        take["lead_in_s"] = None
+        with self.assertRaises(edit.EditError):
+            edit.plan_segments(take)
+
+    def test_scale_redact(self):
+        take = {"id": "S07A", "redact": [[100, 200, 300, 260]], "screen_size": [1440, 3088], "clip_size": [1080, 2316]}
+        self.assertEqual(edit.scale_redact(take), [[75, 150, 225, 195]])
+        take["clip_size"] = [2316, 1080]  # rotated
+        with self.assertRaises(edit.EditError):
+            edit.scale_redact(take)
+        take["clip_size"] = None
+        with self.assertRaises(edit.EditError):
+            edit.scale_redact(take)
+        self.assertEqual(edit.scale_redact({"id": "S06", "redact": []}), [])
+
+    def test_quick_action_results_are_checked(self):
+        by_id = {s["id"]: s for s in cap.load_shots()["shots"]}
+        for sid, text in (("S02", "shopping list"), ("S03", "Timer set for"), ("S03", "Alarm set for"),
+                          ("S06", "°"), ("S07A", "shopping list")):
+            self.assertIn({"text": text, "new": True}, [{k: st.get(k) for k in ("text", "new")}
+                                                         for st in by_id[sid]["steps"] if st["do"] == "wait"], sid)
+
+    def test_adjacent_compressed_spans_each_get_a_marker(self):
+        segs = edit.plan_segments(self.take([{"start": 3.0, "end": 4.0, "max_s": 0.3},
+                                             {"start": 4.0, "end": 6.0, "max_s": 0.8}]))
+        self.assertEqual([s.speed for s in segs], [1.0, 3.333, 2.5, 1.0])
+        self.assertEqual(len(edit.marker_windows(segs)), 2)
+
     def test_short_wait_is_not_sped_up_but_never_slowed(self):
         segs = edit.plan_segments(self.take([{"start": 6.0, "end": 7.0}]), max_wait=2.5)
         self.assertTrue(all(s.speed == 1.0 for s in segs))
@@ -202,6 +268,85 @@ class PlanTest(unittest.TestCase):
             wrapped, size = edit.fit_text(caption, 54)
             longest = max(len(line) for line in wrapped.split("\n"))
             self.assertLessEqual(longest * 0.62 * size, 0.9 * edit.W + 1, caption)
+
+
+def screen(*texts: str) -> str:
+    nodes = "".join(f'<node text="{t}" class="android.widget.TextView" content-desc="" bounds="[0,{i * 100}][1080,{i * 100 + 90}]" />'
+                    for i, t in enumerate(texts))
+    return f'<hierarchy rotation="0"><node text="" class="x" content-desc="" bounds="[0,0][1080,2316]">{nodes}</node></hierarchy>'
+
+
+class FakeDevice:
+    """Plays back a list of screens; the last one repeats."""
+
+    def __init__(self, screens):
+        self.screens, self.taps, self.package = list(screens), [], "com.kernel.ai.debug"
+
+    def dump_ui(self):
+        return self.screens.pop(0) if len(self.screens) > 1 else self.screens[0]
+
+    def tap_xy(self, x, y):
+        self.taps.append((x, y))
+
+    def run(self, *args, **kw):
+        return ""
+
+
+class RunnerTest(unittest.TestCase):
+    def test_wait_new_ignores_an_earlier_take(self):
+        old = screen("Timer set for 10 minutes.")
+        dev = FakeDevice([old, old, screen("Timer set for 10 minutes.", "Timer set for 10 minutes.")])
+        runner = cap.ShotRunner(dev, 0.0, cap.StepLog(), poll=0)
+        runner.baseline_xml = old
+        runner.wait_new("Timer set for", timeout=5)
+        with self.assertRaises(cap.CaptureError):
+            runner.baseline_xml = screen("Timer set for", "Timer set for")
+            runner.wait_new("Timer set for", timeout=0)
+
+    def test_mangled_typing_is_retyped_before_send(self):
+        field = '<node text="{}" class="android.widget.EditText" content-desc="" bounds="[0,1000][900,1100]" />'
+        send = '<node text="" class="android.view.View" content-desc="Send" bounds="[900,1000][1080,1100]" />'
+        wrap = '<hierarchy><node text="" class="x" content-desc="" bounds="[0,0][1080,2316]">{}</node></hierarchy>'
+        empty = wrap.format(field.format("") + send)
+        bad = wrap.format(field.format("Give me tree ideas for a rainy Sundayh") + send)
+        good = wrap.format(field.format("Give me three ideas for a rainy Sunday") + send)
+        dev = FakeDevice([empty, bad, good])
+        dev.cmds = []
+        dev.run = lambda *a, **k: dev.cmds.append(a) or ""
+        runner = cap.ShotRunner(dev, 0.0, cap.StepLog(), poll=0)
+        with unittest.mock.patch("time.sleep"):
+            runner.type_and_send("Give me three ideas for a rainy Sunday")
+        self.assertEqual(dev.taps[-1], (990, 1050))  # Send tapped only after the read-back matched
+        self.assertIn(("shell", "input", "text", "Give%sme%sthree%sideas%sfor%sa%srainy%sSunday"), dev.cmds)
+        dev = FakeDevice([empty, bad, bad])
+        dev.run = lambda *a, **k: ""
+        runner = cap.ShotRunner(dev, 0.0, cap.StepLog(), poll=0)
+        with unittest.mock.patch("time.sleep"), self.assertRaises(cap.CaptureError):
+            runner.type_and_send("Give me three ideas for a rainy Sunday")
+        self.assertNotIn((990, 1050), dev.taps)  # never sent
+
+    def test_redaction_scans_every_screen_read_in_wait_loops(self):
+        # The username shows only on an intermediate screen, between steps.
+        dev = FakeDevice([screen("Loading"), screen("Signed in as demo-user"), screen("cheese")])
+        log = cap.StepLog()
+        runner = cap.ShotRunner(dev, 0.0, log, poll=0, redact=["demo-user"])
+        with unittest.mock.patch("time.sleep"):
+            runner.run_step({"do": "wait", "text": "cheese", "timeout": 5})
+        self.assertEqual(log.redact, [[0, 0, 1080, 90]])
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not installed")
+class FfmpegSmokeTest(unittest.TestCase):
+    def test_blur_graph_and_segment_filter_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = Path(tmp) / "src.mp4", Path(tmp) / "out.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=s=1080x2316:r=30:d=1",
+                            "-pix_fmt", "yuv420p", str(src)], check=True)
+            boxes = edit.blur_boxes([[40, 2000, 900, 2100], [1000, 2250, 1080, 2316], [10, 10, 26, 26]])
+            graph = f"{edit.blur_graph(boxes)};[pre]{edit.segment_filter(2.0)}[v]"
+            res = subprocess.run(["ffmpeg", "-v", "error", "-i", str(src), "-filter_complex", graph, "-map", "[v]",
+                                  "-frames:v", "5", str(out)], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
 
 
 if __name__ == "__main__":

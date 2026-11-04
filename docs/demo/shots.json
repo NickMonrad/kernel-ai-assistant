@@ -82,8 +82,11 @@
           "text": "Chuck bananas on the grocery list"
         },
         {
-          "do": "sleep",
-          "s": 3
+          "do": "wait",
+          "text": "shopping list",
+          "new": true,
+          "timeout": 15,
+          "note": "The result is a list card titled with the list name, not a sentence"
         },
         {
           "do": "sleep",
@@ -91,15 +94,21 @@
         },
         {
           "do": "tap",
-          "text": "Tools"
+          "text": "Tools",
+          "compress": true,
+          "compress_to": 0.4
         },
         {
           "do": "tap",
-          "text": "Lists"
+          "text": "Lists",
+          "compress": true,
+          "compress_to": 0.4
         },
         {
           "do": "tap",
-          "text": "shopping list"
+          "text": "shopping list",
+          "compress": true,
+          "compress_to": 0.4
         },
         {
           "do": "wait",
@@ -136,6 +145,12 @@
           "compress_to": 0.8
         },
         {
+          "do": "wait",
+          "text": "Timer set for",
+          "new": true,
+          "timeout": 15
+        },
+        {
           "do": "sleep",
           "s": 1.5
         },
@@ -150,6 +165,12 @@
           "text": "Set an alarm for 7am tomorrow",
           "compress": true,
           "compress_to": 0.8
+        },
+        {
+          "do": "wait",
+          "text": "Alarm set for",
+          "new": true,
+          "timeout": 15
         },
         {
           "do": "sleep",
@@ -176,6 +197,13 @@
           "desc": "New conversation"
         },
         {
+          "do": "wait_gone",
+          "text": "Still loading the on-device model",
+          "appear_timeout": 4,
+          "timeout": 300,
+          "note": "After the app was backgrounded the model reloads; this is before the first input, so it is cut"
+        },
+        {
           "do": "type",
           "text": "Remember that my favourite coffee is a flat white"
         },
@@ -191,7 +219,9 @@
         },
         {
           "do": "tap",
-          "desc": "New conversation"
+          "desc": "New conversation",
+          "compress": true,
+          "compress_to": 0.3
         },
         {
           "do": "type",
@@ -234,6 +264,13 @@
           "desc": "New conversation"
         },
         {
+          "do": "wait_gone",
+          "text": "Still loading the on-device model",
+          "appear_timeout": 4,
+          "timeout": 300,
+          "note": "After the app was backgrounded the model reloads; this is before the first input, so it is cut"
+        },
+        {
           "do": "type",
           "text": "Give me three ideas for a rainy Sunday"
         },
@@ -271,8 +308,14 @@
           "text": "What's the weather like in Wellington?"
         },
         {
+          "do": "wait",
+          "text": "°",
+          "new": true,
+          "timeout": 20
+        },
+        {
           "do": "sleep",
-          "s": 6
+          "s": 3
         }
       ]
     },
@@ -302,8 +345,15 @@
           "text": "Add eggs and cheese to my shopping list"
         },
         {
+          "do": "wait",
+          "text": "shopping list",
+          "new": true,
+          "timeout": 15,
+          "note": "The result is a list card titled with the list name, not a sentence"
+        },
+        {
           "do": "sleep",
-          "s": 3
+          "s": 2
         }
       ]
     },
@@ -361,12 +411,20 @@
           "text": "Actions"
         },
         {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
           "do": "type",
           "text": "Turn on the flashlight"
         },
         {
           "do": "sleep",
           "s": 3
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
         },
         {
           "do": "type",
@@ -392,6 +450,10 @@
           "text": "Actions"
         },
         {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
           "do": "type",
           "text": "Write down that Sam needs library books tomorrow"
         },
@@ -402,6 +464,10 @@
         {
           "do": "sleep",
           "s": 1.5
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
         },
         {
           "do": "type",
@@ -427,6 +493,10 @@
           "text": "Actions"
         },
         {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
           "do": "type",
           "text": "Convert 1 cup of flour to grams"
         },
@@ -441,5 +511,5 @@
       ]
     }
   ],
-  "notes": "Deterministic replies are instant, so their shots settle with a fixed sleep: the typed request already contains the words a text wait would look for. Model shots wait for the 'Cancel response' button to disappear and mark that span for compression. Shots with offline=false run with airplane mode off; the runner switches it per shot over USB adb. device='second' shots record on --second-serial. redact_env names env vars whose values (Nextcloud server and username) are located on screen and blurred by demo_edit.py."
+  "notes": "Quick-action shots wait for a *new* confirmation (wait with new=true counts matching nodes against the screen before the request), because Actions history keeps earlier takes' confirmations. Model shots wait for 'Cancel response' to disappear and mark that span for compression. Every shot starts with launch/restart: that frame syncs the clip to the runner clock. Shots with offline=false run with airplane mode off; the runner switches it per shot over USB adb. device='second' shots record on --second-serial. redact_env names env vars whose values (Nextcloud server and username) are located on screen and blurred by demo_edit.py."
 }

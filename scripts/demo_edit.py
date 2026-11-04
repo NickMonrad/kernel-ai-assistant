@@ -41,6 +41,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SHOTS_FILE = REPO / "docs" / "demo" / "shots.json"
 W, H, FPS = 1080, 1920, 30
+CAP_SECONDS = 60
 BG = "0x101418"
 FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -76,7 +77,9 @@ def plan_segments(take: dict, max_wait: float = 2.5, pre_roll: float = 0.6) -> l
 
     Event times in the manifest are relative to t0, which is ``lead_in_s`` into the clip.
     """
-    lead = float(take.get("lead_in_s", 0.0))
+    if take.get("lead_in_s") is None:
+        raise EditError(f"{take.get('id')}: take has no measured lead_in_s; re-record it")
+    lead = float(take["lead_in_s"])
     end = lead + float(take["duration_s"])
     first_input = next((e["start"] for e in take["events"] if e.get("start_here")), None)
     if first_input is None:
@@ -130,6 +133,25 @@ def marker_windows(segments: list[Segment]) -> list[tuple[float, float, int]]:
             out.append((round(t, 3), round(t + seg.out_len, 3), max(2, math.ceil(seg.speed))))
         t += seg.out_len
     return out
+
+
+def scale_redact(take: dict) -> list[list[int]]:
+    """Redact bounds in clip pixels.
+
+    The runner records them in uiautomator (screen) pixels; scrcpy may record smaller
+    (an encoder fallback, or a WQHD display setting). A rotated or differently shaped clip
+    cannot be mapped safely, so it is refused rather than blurred in the wrong place.
+    """
+    boxes = take.get("redact", [])
+    screen, clip = take.get("screen_size"), take.get("clip_size")
+    if not boxes:
+        return []
+    if not screen or not clip:
+        raise EditError(f"{take['id']}: redact boxes but no screen/clip size in the manifest; re-record it")
+    sx, sy = clip[0] / screen[0], clip[1] / screen[1]
+    if abs(sx - sy) > 0.01:
+        raise EditError(f"{take['id']}: clip {clip} and screen {screen} differ in shape (rotation?); cannot place blur")
+    return [[int(x1 * sx), int(y1 * sy), int(x2 * sx + 0.999), int(y2 * sy + 0.999)] for x1, y1, x2, y2 in boxes]
 
 
 def blur_boxes(redact: list[list[int]], margin: int = 12) -> list[tuple[int, int, int, int]]:
@@ -240,7 +262,7 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     segments = plan_segments(take, max_wait=max_wait)
     if not segments:
         raise EditError(f"{shot['id']}: nothing to render")
-    boxes = blur_boxes(take.get("redact", []))
+    boxes = blur_boxes(scale_redact(take))
     caption = work / f"{shot['id']}_caption.txt"
     caption_text, caption_size = fit_text(shot["caption"], 54)
     caption.write_text(caption_text, encoding="utf-8")
@@ -338,6 +360,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--voiceover", type=Path, help="Audio file mixed under the video")
     ap.add_argument("--icon", type=Path, help="PNG for the end card")
     ap.add_argument("--font", type=Path)
+    ap.add_argument("--shots", default="intro",
+                    help="'intro' (full cut with end card) or comma-separated ids for a preview without one")
+    ap.add_argument("--allow-over-cap", action="store_true", help="Write a cut longer than the 60 s cap anyway")
     args = ap.parse_args(argv)
 
     if not shutil.which("ffmpeg"):
@@ -357,24 +382,37 @@ def main(argv: list[str] | None = None) -> int:
         out.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="jandal-demo-") as tmp:
             work = Path(tmp)
-            parts, edl = [], {"commit": manifest.get("commit"), "device": manifest.get("device"),
-                              "second_device": manifest.get("second_device"),
-                              "end_card": args.end_card, "shots": []}
-            for sid in shots_data["intro_order"]:
+            parts, edl = [], {"end_card": args.end_card, "builds": [], "shots": []}
+            preview = args.shots != "intro"
+            order = shots_data["intro_order"] if not preview else [x.strip() for x in args.shots.split(",") if x.strip()]
+            unknown = [sid for sid in order if sid not in by_id]
+            if unknown:
+                raise EditError(f"unknown shot ids: {', '.join(unknown)}")
+            for sid in order:
                 take = pick_take(manifest, sid, picks)
                 part, shot_edl = render_shot(clips / take["clip"], by_id[sid], take, work, font, args.max_wait)
                 parts.append(part)
+                shot_edl["build"] = take.get("build")
                 edl["shots"].append(shot_edl)
-            parts.append(render_end_card(card, work, font, args.icon))
+                if take.get("build") and take["build"] not in edl["builds"]:
+                    edl["builds"].append(take["build"])
+            planned = sum(s["seconds"] for s in edl["shots"]) + card["seconds"]
+            if planned > CAP_SECONDS and not args.allow_over_cap and not preview:
+                longest = sorted(edl["shots"], key=lambda s: -s["seconds"])[:3]
+                raise EditError(f"cut is {planned:.1f} s, over the {CAP_SECONDS} s cap; longest shots: "
+                                + ", ".join(f"{s['id']} {s['seconds']} s" for s in longest)
+                                + " (or pass --allow-over-cap)")
+            if not preview:
+                parts.append(render_end_card(card, work, font, args.icon))
             join(parts, out, args.voiceover, work)
-        edl["seconds"] = round(sum(s["seconds"] for s in edl["shots"]) + card["seconds"], 2)
+        edl["seconds"] = round(sum(s["seconds"] for s in edl["shots"]) + (0 if preview else card["seconds"]), 2)
         out.with_suffix(".edl.json").write_text(json.dumps(edl, indent=2, ensure_ascii=False) + "\n")
     except EditError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(f"wrote {out} ({edl['seconds']} s); cut list in {out.with_suffix('.edl.json').name}")
-    if edl["seconds"] > 60:
-        print("warning: longer than the 60 s cap in shot-script.md", file=sys.stderr)
+    if edl["seconds"] > CAP_SECONDS:
+        print(f"warning: longer than the {CAP_SECONDS} s cap in shot-script.md", file=sys.stderr)
     return 0
 
 
