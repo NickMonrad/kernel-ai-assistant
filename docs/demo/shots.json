@@ -6,21 +6,35 @@
     "S02",
     "S03",
     "S04",
-    "S05"
+    "S05",
+    "S06",
+    "S07A",
+    "S07B"
   ],
-  "end_card": {
-    "title": "Jandal AI",
-    "lines": [
-      "A Kiwi AI assistant that runs on your phone",
-      "Free on Google Play · Open source"
-    ],
-    "seconds": 5
+  "end_cards": {
+    "beta": {
+      "title": "Jandal AI",
+      "lines": [
+        "A Kiwi AI assistant that runs on your phone",
+        "Join the beta · Open source",
+        "github.com/NickMonrad/kernel-ai-assistant"
+      ],
+      "seconds": 5
+    },
+    "launch": {
+      "title": "Jandal AI",
+      "lines": [
+        "A Kiwi AI assistant that runs on your phone",
+        "Free on Google Play · Open source"
+      ],
+      "seconds": 5
+    }
   },
   "shots": [
     {
       "id": "S01",
       "feature": "Hey Jandal",
-      "caption": "Hey Jandal — hands-free, on your phone",
+      "caption": "Optional \"Hey Jandal\" wake word",
       "offline": true,
       "needs_source_device": true,
       "steps": [
@@ -48,55 +62,8 @@
     },
     {
       "id": "S02",
-      "feature": "Quick actions",
-      "caption": "Timers and alarms, instantly",
-      "offline": true,
-      "steps": [
-        {
-          "do": "launch"
-        },
-        {
-          "do": "tap",
-          "text": "Actions"
-        },
-        {
-          "do": "tap",
-          "desc": "Run quick action"
-        },
-        {
-          "do": "type",
-          "text": "Set a timer for 10 minutes"
-        },
-        {
-          "do": "sleep",
-          "s": 3
-        },
-        {
-          "do": "sleep",
-          "s": 1.5
-        },
-        {
-          "do": "tap",
-          "desc": "Run quick action"
-        },
-        {
-          "do": "type",
-          "text": "Set an alarm for 7am tomorrow"
-        },
-        {
-          "do": "sleep",
-          "s": 3
-        },
-        {
-          "do": "sleep",
-          "s": 2
-        }
-      ]
-    },
-    {
-      "id": "S03",
       "feature": "Lists, Kiwi phrasing",
-      "caption": "Speaks Kiwi",
+      "caption": "Lists that understand Kiwi",
       "offline": true,
       "steps": [
         {
@@ -138,6 +105,53 @@
           "do": "wait",
           "text": "bananas",
           "timeout": 10
+        },
+        {
+          "do": "sleep",
+          "s": 2
+        }
+      ]
+    },
+    {
+      "id": "S03",
+      "feature": "Timer and alarm",
+      "caption": "Timers and alarms, instantly",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Set a timer for 10 minutes"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "sleep",
+          "s": 1.5
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Set an alarm for 7am tomorrow"
+        },
+        {
+          "do": "sleep",
+          "s": 3
         },
         {
           "do": "sleep",
@@ -238,6 +252,104 @@
       ]
     },
     {
+      "id": "S06",
+      "feature": "Weather (online)",
+      "caption": "Weather, Wikipedia, currency: online when you ask, no account needed",
+      "offline": false,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "What's the weather like in Wellington?"
+        },
+        {
+          "do": "sleep",
+          "s": 6
+        }
+      ]
+    },
+    {
+      "id": "S07A",
+      "feature": "Nextcloud sync, add on the S23U",
+      "caption": "Optional sync with your own Nextcloud",
+      "offline": false,
+      "redact_env": [
+        "DEMO_NC_SERVER",
+        "DEMO_NC_USER"
+      ],
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Add eggs and cheese to my shopping list"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ]
+    },
+    {
+      "id": "S07B",
+      "feature": "Nextcloud sync, appears on the second client",
+      "caption": "Optional sync with your own Nextcloud",
+      "offline": false,
+      "device": "second",
+      "redact_env": [
+        "DEMO_NC_SERVER",
+        "DEMO_NC_USER"
+      ],
+      "steps": [
+        {
+          "do": "restart",
+          "note": "App start enqueues an immediate Nextcloud pull"
+        },
+        {
+          "do": "tap",
+          "text": "Tools"
+        },
+        {
+          "do": "tap",
+          "text": "Lists"
+        },
+        {
+          "do": "tap",
+          "text": "shopping list",
+          "start_here": true
+        },
+        {
+          "do": "wait",
+          "text": "cheese",
+          "timeout": 90,
+          "compress": true
+        },
+        {
+          "do": "sleep",
+          "s": 2
+        }
+      ]
+    },
+    {
       "id": "M02",
       "feature": "Flashlight",
       "caption": "Torch on, torch off",
@@ -331,5 +443,5 @@
       ]
     }
   ],
-  "notes": "Deterministic replies are instant, so their shots settle with a fixed sleep: the typed request already contains the words a text wait would look for. Model shots wait for the 'Cancel response' button to disappear and mark that span for compression."
+  "notes": "Deterministic replies are instant, so their shots settle with a fixed sleep: the typed request already contains the words a text wait would look for. Model shots wait for the 'Cancel response' button to disappear and mark that span for compression. Shots with offline=false run with airplane mode off; the runner switches it per shot over USB adb. device='second' shots record on --second-serial. redact_env names env vars whose values (Nextcloud server and username) are located on screen and blurred by demo_edit.py."
 }

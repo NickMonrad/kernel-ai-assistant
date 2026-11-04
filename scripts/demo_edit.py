@@ -3,19 +3,25 @@
 
 One command, no hand editing::
 
-    python3 scripts/demo_edit.py --clips ~/jandal-demo/rc1 --out ~/jandal-demo/rc1/intro.mp4
+    python3 scripts/demo_edit.py --clips ~/jandal-demo/rc1 --out ~/jandal-demo/rc1/intro.mp4 \\
+        --end-card beta
 
 What it does, per intro shot (``intro_order`` in docs/demo/shots.json):
 
 - picks the newest successful take, or the one given with ``--pick S04=2``;
-- cuts the app launch and navigation before the shot's first input;
+- cuts the app launch and navigation before the shot's first input (or the step
+  marked ``start_here``);
+- blurs every screen region the capture runner found holding a ``redact_env`` value
+  (the test Nextcloud server and username in S07A/S07B);
 - speeds up every model wait the capture runner marked for compression to at most
   ``--max-wait`` seconds and shows a "sped up N×" marker for that whole span, so
   replies never look instant (shot-script.md rule 3);
-- burns in the shot caption and, for offline shots, an airplane-mode badge;
+- burns in the shot caption and, for offline shots only, an airplane-mode badge;
 - fits the portrait recording onto a 1080 × 1920 canvas.
 
-It then appends the end card, joins everything, optionally mixes a voiceover file,
+It then appends the end card chosen with ``--end-card`` (``beta``: "Join the beta",
+for recruitment before the Play listing is public; ``launch``: "Free on Google Play"),
+joins everything, optionally mixes a voiceover file,
 and writes ``<out>.edl.json`` listing every cut and speed-up for review.
 """
 
@@ -42,6 +48,9 @@ FONT_CANDIDATES = [
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
 ]
 INPUT_STEPS = {"type", "host"}
+# boxblur needs radius < half the chroma plane; the crop may be clamped at the frame edge,
+# so the radius is worked out by ffmpeg from the cropped size (cw, ch).
+BLUR_RADIUS = "min(20\\,min(cw\\,ch)/2-1)"
 
 
 class EditError(RuntimeError):
@@ -69,7 +78,9 @@ def plan_segments(take: dict, max_wait: float = 2.5, pre_roll: float = 0.6) -> l
     """
     lead = float(take.get("lead_in_s", 0.0))
     end = lead + float(take["duration_s"])
-    first_input = next((e["start"] for e in take["events"] if e["do"] in INPUT_STEPS), 0.0)
+    first_input = next((e["start"] for e in take["events"] if e.get("start_here")), None)
+    if first_input is None:
+        first_input = next((e["start"] for e in take["events"] if e["do"] in INPUT_STEPS), 0.0)
     start = max(0.0, lead + first_input - pre_roll)
 
     spans = sorted(
@@ -117,6 +128,46 @@ def marker_windows(segments: list[Segment]) -> list[tuple[float, float, int]]:
             out.append((round(t, 3), round(t + seg.out_len, 3), max(2, math.ceil(seg.speed))))
         t += seg.out_len
     return out
+
+
+def blur_boxes(redact: list[list[int]], margin: int = 12) -> list[tuple[int, int, int, int]]:
+    """Turn manifest redact bounds into even-sized ``(x, y, w, h)`` crops with a margin.
+
+    Even sizes keep yuv420p chroma aligned; the margin covers text antialiasing.
+    """
+    out = []
+    for x1, y1, x2, y2 in redact:
+        x, y = max(0, x1 - margin) // 2 * 2, max(0, y1 - margin) // 2 * 2
+        w = (x2 + margin - x + 1) // 2 * 2
+        h = (y2 + margin - y + 1) // 2 * 2
+        if w >= 4 and h >= 4 and (x, y, w, h) not in out:
+            out.append((x, y, w, h))
+    return out
+
+
+def blur_graph(boxes: list[tuple[int, int, int, int]]) -> str:
+    """Filtergraph from ``[0:v]`` to ``[pre]`` that blurs each box in source pixels.
+
+    Crops are clamped to the frame by ffmpeg's own iw/ih, so a box at the edge still works.
+    """
+    if not boxes:
+        return "[0:v]null[pre]"
+    parts = [f"[0:v]split={len(boxes) + 1}[base]" + "".join(f"[c{i}]" for i in range(len(boxes)))]
+    last = "base"
+    for i, (x, y, w, h) in enumerate(boxes):
+        parts.append(f"[c{i}]crop=min({w}\\,iw-{x}):min({h}\\,ih-{y}):{x}:{y},"
+                     f"boxblur=lr={BLUR_RADIUS}:lp=2:cr={BLUR_RADIUS}:cp=2[b{i}]")
+        nxt = "pre" if i == len(boxes) - 1 else f"o{i}"
+        parts.append(f"[{last}][b{i}]overlay={x}:{y}[{nxt}]")
+        last = nxt
+    return ";".join(parts)
+
+
+def select_end_card(shots_data: dict, variant: str) -> dict:
+    cards = shots_data.get("end_cards", {})
+    if variant not in cards:
+        raise EditError(f"unknown end card {variant!r}; choose from {', '.join(sorted(cards))}")
+    return cards[variant]
 
 
 def pick_take(manifest: dict, shot_id: str, picks: dict[str, int]) -> dict:
@@ -187,6 +238,7 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     segments = plan_segments(take, max_wait=max_wait)
     if not segments:
         raise EditError(f"{shot['id']}: nothing to render")
+    boxes = blur_boxes(take.get("redact", []))
     caption = work / f"{shot['id']}_caption.txt"
     caption_text, caption_size = fit_text(shot["caption"], 54)
     caption.write_text(caption_text, encoding="utf-8")
@@ -202,7 +254,8 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     for i, seg in enumerate(segments):
         seg_file = work / f"{shot['id']}_seg{i}.mp4"
         run(["ffmpeg", "-y", "-v", "error", "-ss", f"{seg.src_start:.3f}", "-to", f"{seg.src_end:.3f}",
-             "-i", str(clip), "-vf", segment_filter(seg.speed), "-an", *encode_args(), str(seg_file)])
+             "-i", str(clip), "-filter_complex", f"{blur_graph(boxes)};[pre]{segment_filter(seg.speed)}[v]",
+             "-map", "[v]", "-an", *encode_args(), str(seg_file)])
         seg_files.append(seg_file)
     listing = work / f"{shot['id']}_segs.txt"
     listing.write_text("".join(f"file {_concat_q(p)}\n" for p in seg_files), encoding="utf-8")
@@ -218,6 +271,7 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
         "clip": take["clip"],
         "segments": [{"src_start": s.src_start, "src_end": s.src_end, "speed": s.speed} for s in segments],
         "sped_up_windows": [{"start": a, "end": b, "factor": f} for a, b, f in markers],
+        "blurred": [{"x": x, "y": y, "w": w, "h": h} for x, y, w, h in boxes],
         "seconds": round(sum(s.out_len for s in segments), 2),
     }
     return out, edl
@@ -276,6 +330,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--clips", type=Path, required=True, help="Directory with manifest.json and clips")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--pick", action="append", default=[], help="Choose a take, e.g. S04=2")
+    ap.add_argument("--end-card", required=True, choices=("beta", "launch"),
+                    help="beta: 'Join the beta' (pre-launch recruitment); launch: 'Free on Google Play'")
     ap.add_argument("--max-wait", type=float, default=2.5, help="Seconds a model wait is compressed to")
     ap.add_argument("--voiceover", type=Path, help="Audio file mixed under the video")
     ap.add_argument("--icon", type=Path, help="PNG for the end card")
@@ -291,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         clips = args.clips.expanduser().resolve()
         manifest = json.loads((clips / "manifest.json").read_text())
         picks = parse_picks(args.pick)
+        card = select_end_card(shots_data, args.end_card)
         font = find_font(args.font)
         out = args.out.expanduser().resolve()
         if out == REPO or REPO in out.parents:
@@ -298,15 +355,17 @@ def main(argv: list[str] | None = None) -> int:
         out.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="jandal-demo-") as tmp:
             work = Path(tmp)
-            parts, edl = [], {"commit": manifest.get("commit"), "device": manifest.get("device"), "shots": []}
+            parts, edl = [], {"commit": manifest.get("commit"), "device": manifest.get("device"),
+                              "second_device": manifest.get("second_device"),
+                              "end_card": args.end_card, "shots": []}
             for sid in shots_data["intro_order"]:
                 take = pick_take(manifest, sid, picks)
                 part, shot_edl = render_shot(clips / take["clip"], by_id[sid], take, work, font, args.max_wait)
                 parts.append(part)
                 edl["shots"].append(shot_edl)
-            parts.append(render_end_card(shots_data["end_card"], work, font, args.icon))
+            parts.append(render_end_card(card, work, font, args.icon))
             join(parts, out, args.voiceover, work)
-        edl["seconds"] = round(sum(s["seconds"] for s in edl["shots"]) + shots_data["end_card"]["seconds"], 2)
+        edl["seconds"] = round(sum(s["seconds"] for s in edl["shots"]) + card["seconds"], 2)
         out.with_suffix(".edl.json").write_text(json.dumps(edl, indent=2, ensure_ascii=False) + "\n")
     except EditError as exc:
         print(f"error: {exc}", file=sys.stderr)
