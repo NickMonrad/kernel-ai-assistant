@@ -123,6 +123,7 @@ jobs:
           pages = (
               ("PRIVACY.md", "Privacy Policy", "/privacy/"),
               ("TERMS.md", "Terms of Use", "/terms/"),
+              ("BETA.md", "Join the beta", "/beta/"),
           )
           staged = []
           for filename, title, permalink in pages:
@@ -131,15 +132,19 @@ jobs:
                   continue
               content = original.read_text()
               if "Draft for owner" in content:
-                  print(f"Skipping draft legal document: {filename}")
+                  print(f"Skipping draft document: {filename}")
                   continue
-              if filename == "TERMS.md":
-                  content = content.replace(
-                      "(PRIVACY.md)", f"(/{repo_name}/privacy/)"
-                  ).replace(
-                      "(LICENSE)",
-                      f"(https://github.com/{repo}/blob/main/LICENSE)",
-                  )
+              if "TESTER_GROUP_LINK" in content:
+                  print(f"Skipping {filename}: tester group link is still a placeholder")
+                  continue
+              content = content.replace(
+                  "(PRIVACY.md)", f"(/{repo_name}/privacy/)"
+              ).replace(
+                  "(TERMS.md)", f"(/{repo_name}/terms/)"
+              ).replace(
+                  "(LICENSE)",
+                  f"(https://github.com/{repo}/blob/main/LICENSE)",
+              )
               page = source / filename
               page.write_text(
                   f"---\nlayout: legal\ntitle: {title}\npermalink: {permalink}\n---\n"
@@ -168,6 +173,9 @@ jobs:
           fi
           if [[ -d repo/.legal-pages-build/terms ]]; then
             cp -R repo/.legal-pages-build/terms repo/_site/terms
+          fi
+          if [[ -d repo/.legal-pages-build/beta ]]; then
+            cp -R repo/.legal-pages-build/beta repo/_site/beta
           fi
 
       - name: Configure Pages
