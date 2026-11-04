@@ -131,11 +131,14 @@ jobs:
               if not original.is_file():
                   continue
               content = original.read_text()
-              if "Draft for owner" in content:
+              if "draft for owner" in content.lower():
                   print(f"Skipping draft document: {filename}")
                   continue
-              if "TESTER_GROUP_LINK" in content:
-                  print(f"Skipping {filename}: tester group link is still a placeholder")
+              if filename == "BETA.md" and (
+                  "TESTER_GROUP_LINK" in content
+                  or "](https://groups.google.com/" not in content
+              ):
+                  print(f"Skipping {filename}: no tester group link yet")
                   continue
               content = content.replace(
                   "(PRIVACY.md)", f"(/{repo_name}/privacy/)"
@@ -144,6 +147,9 @@ jobs:
               ).replace(
                   "(LICENSE)",
                   f"(https://github.com/{repo}/blob/main/LICENSE)",
+              ).replace(
+                  "(NOTICE)",
+                  f"(https://github.com/{repo}/blob/main/NOTICE)",
               )
               page = source / filename
               page.write_text(
