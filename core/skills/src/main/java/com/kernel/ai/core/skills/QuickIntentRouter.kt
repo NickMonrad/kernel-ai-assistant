@@ -5027,7 +5027,7 @@ class QuickIntentRouter(
             RegexOption.IGNORE_CASE,
         )
         private val ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX = Regex(
-            """^(?:(?:the|this|next|every)(?:\s+|$))+""",
+            """^(?:(?:the|this|next|a|an|each|every(?:\s+other)?)(?:\s+|$))+""",
             RegexOption.IGNORE_CASE,
         )
         private val ALARM_LABEL_ARTICLE_REGEX = Regex(
@@ -5035,7 +5035,7 @@ class QuickIntentRouter(
             RegexOption.IGNORE_CASE,
         )
         private val ALARM_LABEL_TEMPORAL_ONLY_REGEX = Regex(
-            """^(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun|morning|afternoon|evening|nights?|weekend|weekends|weekdays?|week|weeks|day|days|daily|everyday|noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?:morning|afternoon|evening|night))?$""",
+            """^(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun|(?:mon|tues|wednes|thurs|fri|satur|sun)days|morning|afternoon|evening|nights?|weeknight|weeknights|weekend|weekends|weekdays?|week|weeks|day|days|daily|everyday|noon|midnight|now|later|\d+\s+(?:minutes?|hours?|days?|weeks?)|\d{1,2}(?:st|nd|rd|th)|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?:morning|afternoon|evening|night))?$""",
             RegexOption.IGNORE_CASE,
         )
         private fun isTemporalAlarmLabelCandidate(candidate: String): Boolean {

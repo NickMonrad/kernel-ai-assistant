@@ -2947,6 +2947,16 @@ class QuickIntentRouterTest {
             Arguments.of("set an alarm at 7am for nights"),
             Arguments.of("set an alarm at 7am for the day"),
             Arguments.of("set an alarm at 7am for the next day"),
+            Arguments.of("set an alarm at 7am for a week"),
+            Arguments.of("set an alarm at 7am for mondays"),
+            Arguments.of("set an alarm at 7am for weeknights"),
+            Arguments.of("set an alarm at 7am for each day"),
+            Arguments.of("set an alarm at 7am for every other day"),
+            Arguments.of("set an alarm at 7am for 2 days"),
+            Arguments.of("set an alarm at 7am for 6 hours"),
+            Arguments.of("set an alarm at 7am for the 2nd"),
+            Arguments.of("set an alarm at 7am for now"),
+            Arguments.of("set an alarm at 7am for later"),
             Arguments.of("set an alarm at 19:00 friday"),
         )
 
@@ -2973,6 +2983,7 @@ class QuickIntentRouterTest {
             Arguments.of("set an alarm at 7am for Sunday school", "sunday school"),
             Arguments.of("set an alarm at 7am for wednesday yoga", "wednesday yoga"),
             Arguments.of("set an alarm at 7am for Monday's meeting", "monday's meeting"),
+            Arguments.of("set an alarm at 7am for my birthday", "my birthday"),
         )
 
         @JvmStatic
