@@ -1442,6 +1442,12 @@ class ChatTextUtilsTest {
             "Can you remind me to call Mum",
             "please book a table",
             "What's my favourite coffee? Then add it to my list",
+            // A request in a later clause, however it is introduced, must keep tools on.
+            "What did I ask you earlier \u2014 add it to my shopping list",
+            "What did I say just now about eggs? Ok add them to my list",
+            "What did I ask you earlier about the timer? Let me set it",
+            "What did I ask you earlier about the timer? Now set it again",
+            "What did I ask you earlier about milk? I need you to add it to my list",
         )) {
             assertTrue(containsExplicitToolActionVerb(q), q)
         }

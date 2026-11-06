@@ -418,14 +418,25 @@ private val CALL_ACTION_REGEX = Regex("""\bcall\s+""")
 // Only verbs that start a command count: at the start, after "and/then/also/please", or after
 // "can/could/would you". "What did I order last time?" and "my favourite game to play" are
 // questions, not actions.
+private const val TOOL_ACTION_VERBS =
+    """(?:add|put|save|store|create|make|remove|delete|set|send|turn|toggle|open|play|navigate|remind|plan|order|book|buy|cancel|check)"""
 private val EXPLICIT_TOOL_ACTION_VERB_REGEX = Regex(
-    """(?:^|[.,;!?]\s*|\b(?:and|then|also|please|(?:can|could|would|will)\s+you)\s+)(?:please\s+)?""" +
-        """(?:add|put|save|store|create|make|remove|delete|set|send|turn|toggle|open|play|navigate|remind|plan|order|book|buy|cancel|check)\b""",
+    """(?:^|\b(?:and|then|also|please|kindly|ok|okay|now|(?:can|could|would|will)\s+you|let\s+me|""" +
+        """i\s+(?:need|want)\s+you\s+to|hey\s+jandal)\s+)(?:please\s+)?$TOOL_ACTION_VERBS\b""",
     RegexOption.IGNORE_CASE,
 )
+/** Any action verb at all; used for clauses after the first, where a request is likely. */
+private val ANY_TOOL_ACTION_VERB_REGEX = Regex("""\b$TOOL_ACTION_VERBS\b""", RegexOption.IGNORE_CASE)
+private val CLAUSE_SPLIT_REGEX = Regex("""[.,;:!?\u2014\u2013]|\s-\s""")
 
-internal fun containsExplicitToolActionVerb(query: String): Boolean =
-    EXPLICIT_TOOL_ACTION_VERB_REGEX.containsMatchIn(query.trim())
+internal fun containsExplicitToolActionVerb(query: String): Boolean {
+    val clauses = query.split(CLAUSE_SPLIT_REGEX).map { it.trim() }.filter { it.isNotEmpty() }
+    if (clauses.isEmpty()) return false
+    // First clause: the verb must start a command ("What did I order…?" is a question).
+    // Later clauses ("…? Ok add them to my list", "— add it to my list"): any action verb counts.
+    return EXPLICIT_TOOL_ACTION_VERB_REGEX.containsMatchIn(clauses.first()) ||
+        clauses.drop(1).any { EXPLICIT_TOOL_ACTION_VERB_REGEX.containsMatchIn(it) || ANY_TOOL_ACTION_VERB_REGEX.containsMatchIn(it) }
+}
 
 /**
  * Returns true if [query] looks like it involves a device-native tool action

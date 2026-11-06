@@ -197,6 +197,13 @@ class SearchMemoryRelevanceTest {
         assertTrue(!keeps("What's my favourite tea?", "My favourite steaks are rare"))
         assertTrue(!keeps("What's my favourite tea?", "I teased my brother"))
         assertTrue(!keeps("What's my favourite car?", "My favourite cards are aces"))
+        // "-es" only after s/x/z/ch/sh/o stems; singular forms are re-checked against stopwords.
+        assertTrue(!keeps("What's my favourite car?", "Nobody cares about traffic"))
+        assertTrue(!keeps("Which hat do I wear?", "She hates rain"))
+        assertTrue(!keeps("What's my plan?", "The planes were late"))
+        assertTrue(!keeps("What's my news?", "A new kettle"))
+        assertTrue(keeps("What's in my lunch box?", "My lunch boxes are blue"))
+        assertTrue(keeps("When does my bus come?", "The buses leave at 7"))
     }
 
     @Test

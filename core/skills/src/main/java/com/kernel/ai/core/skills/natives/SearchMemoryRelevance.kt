@@ -51,7 +51,8 @@ private fun extractSearchMemoryTerms(query: String): Set<String> =
         .map { stripPossessive(it.value.trim('’', '\'', '-', '–')) }
         .filter { it.length >= 3 && it !in SEARCH_MEMORY_STOPWORDS }
         .flatMap { token -> sequenceOf(token) + singularizeToken(token) }
-        .filter { it.length >= 3 }
+        // Re-check after singularising: "favourites" → "favourite", "yours" → "your".
+        .filter { it.length >= 3 && it !in SEARCH_MEMORY_STOPWORDS }
         .toSet()
 
 /** "dog's" / "dog’s" → "dog"; leaves "kiwis" and plain words alone. */
@@ -67,14 +68,18 @@ private fun hasLexicalOverlap(content: String, terms: Set<String>): Boolean {
 }
 
 /** Plural/possessive endings a stored word may carry beyond the query term ("movie" → "movies"). */
-private val WORD_ENDINGS = listOf("", "s", "es", "'s", "’s")
+private val WORD_ENDINGS = listOf("", "s", "'s", "’s")
+
+/** "-es" plurals only follow these endings ("box" → "boxes", not "car" → "cares"). */
+private val ES_PLURAL_STEM = Regex("""(?:s|x|z|ch|sh|o)$""")
 
 private fun containsWholeTerm(text: String, term: String): Boolean {
+    val endings = if (ES_PLURAL_STEM.containsMatchIn(term)) WORD_ENDINGS + "es" else WORD_ENDINGS
     var index = text.indexOf(term)
     while (index >= 0) {
         val end = index + term.length
         val startsAtBoundary = index == 0 || !text[index - 1].isLetterOrDigit()
-        if (startsAtBoundary && WORD_ENDINGS.any { endsWordAt(text, end, it) }) return true
+        if (startsAtBoundary && endings.any { endsWordAt(text, end, it) }) return true
         index = text.indexOf(term, index + 1)
     }
     // "story" should also find "stories".
@@ -96,7 +101,8 @@ private fun endsWordAt(text: String, end: Int, ending: String): Boolean {
  */
 private fun singularizeToken(token: String): List<String> = when {
     token.endsWith("ies") && token.length > 4 -> listOf(token.dropLast(3) + "y", token.dropLast(1))
-    token.endsWith("es") && token.length > 4 -> listOf(token.dropLast(2), token.dropLast(1))
-    token.endsWith("s") && !token.endsWith("ss") && token.length > 3 -> listOf(token.dropLast(1))
+    token.endsWith("es") && token.length > 4 ->
+        listOfNotNull(token.dropLast(2).takeIf { ES_PLURAL_STEM.containsMatchIn(it) }, token.dropLast(1))
+    token.endsWith("s") && !token.endsWith("ss") && token.length > 4 -> listOf(token.dropLast(1))
     else -> emptyList()
 }

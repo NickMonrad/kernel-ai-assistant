@@ -32,10 +32,18 @@ private val CURRENT_CONVERSATION_RECALL_PHRASE = Regex(
     """\bwhat\s+(?:did\s+(?:i|we)\s+(?:say|ask|tell|mention|discuss|talk(?:\s+about)?)|have\s+(?:i|we)\s+(?:said|asked|told|mentioned|discussed|talked(?:\s+about)?))\b""",
 )
 private val CURRENT_CONVERSATION_WORDS = Regex("""[\p{L}\d]+""")
-/** Explicit references to this chat; with these, a topic word still means "in this conversation". */
+/**
+ * Explicit references to this chat; with these, a topic word still means "in this conversation".
+ * "earlier" must not be a time period ("earlier this week") or an adjective ("my earlier job"),
+ * and "above" counts only at the end of the clause or before "about" ("…what I said above",
+ * "…above about the meeting", not "above all").
+ */
 private val CURRENT_CONVERSATION_SCOPE = Regex(
-    """\b(?:earlier|just\s+now|a\s+(?:minute|moment|second|few\s+minutes)\s+ago|above|in\s+this\s+(?:chat|conversation))\b""",
+    """(?<!\bmy\s)(?<!\bour\s)\bearlier\b(?!\s+(?:this|today|tonight|that|in\s+the|on|last|week|month|year|job|role|life))|""" +
+        """\bjust\s+now\b|\ba\s+(?:minute|moment|second|few\s+minutes)\s+ago\b|""" +
+        """\bin\s+this\s+(?:chat|conversation)\b|\babove\s*(?:$|about\b)""",
 )
+private val CLAUSE_END = Regex("""[.?!;:\u2014\u2013]|\s-\s""")
 private val CURRENT_CONVERSATION_FILLER_WORDS = setOf(
     "about", "above", "before", "earlier", "in", "just", "now", "previously", "the", "this",
     "turn", "chat", "conversation", "you", "i", "we", "me", "us", "to", "that", "it", "today",
@@ -301,8 +309,11 @@ fun isCurrentConversationRecallQuery(query: String): Boolean =
 
 private fun isCurrentConversationRecallQueryNormalized(query: String): Boolean {
     val recallPhrase = CURRENT_CONVERSATION_RECALL_PHRASE.find(query) ?: return false
-    // "What did I ask you earlier about the weather?" is about this chat even with a topic.
-    if (CURRENT_CONVERSATION_SCOPE.containsMatchIn(query)) return true
+    // "What did I ask you earlier about the weather?" is about this chat even with a topic,
+    // but only when the chat-scope words follow the recall phrase in the same clause.
+    val afterPhrase = query.substring(recallPhrase.range.last + 1)
+    val recallClause = CLAUSE_END.find(afterPhrase)?.let { afterPhrase.substring(0, it.range.first) } ?: afterPhrase
+    if (CURRENT_CONVERSATION_SCOPE.containsMatchIn(recallClause.trimEnd())) return true
     val wordsAfterPhrase = CURRENT_CONVERSATION_WORDS
         .findAll(query.substring(recallPhrase.range.last + 1))
         .map { it.value }

@@ -67,6 +67,18 @@ class SearchMemorySelfQueryTest {
             assertTrue(isCurrentConversationRecallQuery(q), q)
             assertFalse(isPersonalMemoryRecallQuery(q, "Nick"), q)
         }
+        // "earlier" as a period or adjective, scope words before the recall phrase, or
+        // "above all" are not chat scope: these are saved-memory questions.
+        for (q in listOf(
+            "What did I tell you about my earlier job?",
+            "What did I say earlier this week about Mum?",
+            "What did I tell you about my job earlier this year?",
+            "Earlier you were wrong. What did I tell you about my job?",
+            "What did I tell you above all about my diet?",
+        )) {
+            assertFalse(isCurrentConversationRecallQuery(q), q)
+        }
+        assertTrue(isCurrentConversationRecallQuery("What did I tell you above?"))
         // No chat-scope words: still a saved-memory question.
         assertFalse(isCurrentConversationRecallQuery("What did I tell you about my job?"))
         assertTrue(isPersonalMemoryRecallQuery("What did I tell you about my job?", "Nick"))
