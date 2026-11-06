@@ -79,6 +79,15 @@ class SearchMemorySelfQueryTest {
             assertFalse(isCurrentConversationRecallQuery(q), q)
         }
         assertTrue(isCurrentConversationRecallQuery("What did I tell you above?"))
+        for (q in listOf(
+            "What did I say earlier on about eggs?",
+            "What did I say earlier in the chat about eggs?",
+            "What did I say earlier in the conversation about eggs?",
+            "What did I ask you earlier today about lunch?",
+            "What did I say above, about eggs?",
+        )) {
+            assertTrue(isCurrentConversationRecallQuery(q), q)
+        }
         // No chat-scope words: still a saved-memory question.
         assertFalse(isCurrentConversationRecallQuery("What did I tell you about my job?"))
         assertTrue(isPersonalMemoryRecallQuery("What did I tell you about my job?", "Nick"))

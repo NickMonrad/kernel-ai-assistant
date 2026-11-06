@@ -1456,6 +1456,11 @@ class ChatTextUtilsTest {
             "What did I order last time?",
             "What did I check in last week?",
             "What's my plan for Saturday?",
+            // A verb later in the sentence that is not a command keeps the recall grounded.
+            "What's my favourite drink, the one I order at the cafe?",
+            "What's my favourite meal, the one I make on Sundays?",
+            "What did I tell you about my sister? I want to check something.",
+            "What's my favourite colour? I need to plan a party.",
             "What did I tell you about my job?",
         )) {
             assertFalse(containsExplicitToolActionVerb(q), q)

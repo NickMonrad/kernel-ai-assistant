@@ -204,6 +204,13 @@ class SearchMemoryRelevanceTest {
         assertTrue(!keeps("What's my news?", "A new kettle"))
         assertTrue(keeps("What's in my lunch box?", "My lunch boxes are blue"))
         assertTrue(keeps("When does my bus come?", "The buses leave at 7"))
+        for ((q, stored) in listOf(
+            "What are my dogs called?" to "My dog named Rex", "Do my cats eat fish?" to "My cat likes fish",
+            "How do I like my eggs?" to "I like my egg runny", "What are my kids' names?" to "My kid is Aroha",
+            "Which cars do I own?" to "My car is a Corolla", "Where are my hats?" to "My hat is on the hook",
+        )) {
+            assertTrue(keeps(q, stored), q)
+        }
     }
 
     @Test

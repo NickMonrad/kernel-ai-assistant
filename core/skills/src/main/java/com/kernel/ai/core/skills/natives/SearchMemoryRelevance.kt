@@ -70,6 +70,9 @@ private fun hasLexicalOverlap(content: String, terms: Set<String>): Boolean {
 /** Plural/possessive endings a stored word may carry beyond the query term ("movie" → "movies"). */
 private val WORD_ENDINGS = listOf("", "s", "'s", "’s")
 
+/** Words ending in "s" that are not plurals of a shorter word ("news" is not "new"). */
+private val NOT_PLURAL = setOf("news", "ours", "yours", "hers", "this", "yes", "plus", "gas", "bus", "does", "goes", "always")
+
 /** "-es" plurals only follow these endings ("box" → "boxes", not "car" → "cares"). */
 private val ES_PLURAL_STEM = Regex("""(?:s|x|z|ch|sh|o)$""")
 
@@ -103,6 +106,7 @@ private fun singularizeToken(token: String): List<String> = when {
     token.endsWith("ies") && token.length > 4 -> listOf(token.dropLast(3) + "y", token.dropLast(1))
     token.endsWith("es") && token.length > 4 ->
         listOfNotNull(token.dropLast(2).takeIf { ES_PLURAL_STEM.containsMatchIn(it) }, token.dropLast(1))
-    token.endsWith("s") && !token.endsWith("ss") && token.length > 4 -> listOf(token.dropLast(1))
+    token.endsWith("s") && !token.endsWith("ss") && token.length > 3 && token !in NOT_PLURAL ->
+        listOf(token.dropLast(1))
     else -> emptyList()
 }

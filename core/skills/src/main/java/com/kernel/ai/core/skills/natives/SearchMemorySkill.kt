@@ -34,16 +34,16 @@ private val CURRENT_CONVERSATION_RECALL_PHRASE = Regex(
 private val CURRENT_CONVERSATION_WORDS = Regex("""[\p{L}\d]+""")
 /**
  * Explicit references to this chat; with these, a topic word still means "in this conversation".
- * "earlier" must not be a time period ("earlier this week") or an adjective ("my earlier job"),
+ * "earlier" must not be a time period ("earlier this week"; "earlier today/on" still mean this chat) or an adjective ("my earlier job"),
  * and "above" counts only at the end of the clause or before "about" ("…what I said above",
  * "…above about the meeting", not "above all").
  */
 private val CURRENT_CONVERSATION_SCOPE = Regex(
-    """(?<!\bmy\s)(?<!\bour\s)\bearlier\b(?!\s+(?:this|today|tonight|that|in\s+the|on|last|week|month|year|job|role|life))|""" +
+    """(?<!\bmy\s)(?<!\bour\s)\bearlier\b(?!\s+(?:this|tonight|that|in\s+the\s+(?!chat\b|conversation\b)|last|week|month|year|job|role|life))|""" +
         """\bjust\s+now\b|\ba\s+(?:minute|moment|second|few\s+minutes)\s+ago\b|""" +
         """\bin\s+this\s+(?:chat|conversation)\b|\babove\s*(?:$|about\b)""",
 )
-private val CLAUSE_END = Regex("""[.?!;:\u2014\u2013]|\s-\s""")
+private val CLAUSE_END = Regex("""[.,?!;:\u2014\u2013]|\s-\s""")
 private val CURRENT_CONVERSATION_FILLER_WORDS = setOf(
     "about", "above", "before", "earlier", "in", "just", "now", "previously", "the", "this",
     "turn", "chat", "conversation", "you", "i", "we", "me", "us", "to", "that", "it", "today",
