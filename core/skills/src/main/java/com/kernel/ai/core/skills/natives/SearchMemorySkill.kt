@@ -17,6 +17,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "KernelAI"
+private val PERSONAL_PREFERENCE_CUE = Regex("""\b(favourite|favorite|prefer|preferred|preference|preferences)\b""", RegexOption.IGNORE_CASE)
+private val QUESTION_LIKE_MEMORY_MESSAGE = Regex(
+    """^(what|which|who|when|where|why|how|do|does|did|is|are|can|could|would|have|has)\b""",
+    RegexOption.IGNORE_CASE,
+)
 
 /**
  * Skill that searches the user's saved memories (core and episodic) as well as their
@@ -83,7 +88,9 @@ Recall rule: ALWAYS call searchMemory BEFORE answering any question that might d
 on the user's name, preferences, prior statements, or user-specific facts.
 If the user references something 'you know' about them, or says 'remember when I told you…',
 call searchMemory first. Do NOT skip this step even if you think you know the answer.
-After calling searchMemory, incorporate its result into your reply naturally.
+After calling searchMemory, answer using only relevant facts in its filtered results. Do not
+add details from unrelated memory/persona context or prior knowledge. For generic "what do you
+remember about me" queries, present the returned saved user facts as a concise list.
     """.trimIndent()
 
     override suspend fun execute(call: SkillCall): SkillResult {
@@ -109,22 +116,26 @@ After calling searchMemory, incorporate its result into your reply naturally.
                     if (coreMemories.isNotEmpty()) {
                         val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
                         val sb = StringBuilder("Here's what I remember about you:\n\n")
-                        coreMemories.forEachIndexed { i, result ->
+                        coreMemories.forEach { result ->
                             val dateStr = if (result.lastAccessedAt > 0L) fmt.format(Date(result.lastAccessedAt)) else "date unknown"
-                            sb.appendLine("${i + 1}. [Core Memory — $dateStr]")
-                            sb.appendLine("   ${result.content.take(300)}")
+                            sb.appendLine("- [Core Memory — $dateStr]")
+                            sb.appendLine("  ${result.content.take(300)}")
                         }
                         Log.d(TAG, "SearchMemorySkill: generic self-query '$query' → ${coreMemories.size} core memories")
                         return@withContext SkillResult.DirectReply(sb.toString().trimEnd())
                     }
-                    // No saved core memories — fall through to the normal search path.
+                    return@withContext SkillResult.DirectReply("No relevant memories found.")
                 }
 
+                val isPreferenceRecall = containsPersonalPreferenceCue(query)
                 val messageResults = runCatching {
                     ragRepository.searchMessages(query, conversationId, topK)
                 }.getOrElse { e ->
                     Log.w(TAG, "searchMessages failed: ${e.message}", e)
                     emptyList()
+                }.filter { result ->
+                    !isPreferenceRecall ||
+                        (result.role == "user" && !isQuestionLikeMemoryMessage(result.content))
                 }
                 val memoryResults = runCatching {
                     ragRepository.searchCoreAndEpisodic(query, topK, includeSiblingContext = false)
@@ -150,30 +161,29 @@ After calling searchMemory, incorporate its result into your reply naturally.
                 }
 
                 val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-                val sb = StringBuilder("Here's what I found in memory:\n\n")
-                var index = 1
+                val sb = StringBuilder("Relevant memory evidence for the user's question:\n\n")
 
                 // Explicitly saved facts first — these are the most direct answer to "what do you remember".
                 filtered.memoryResults.forEach { result ->
-                    val sourceTag = if (result.source == "core") "Core Memory" else "Episodic Memory"
+                    val sourceTag = if (result.source == "episodic") "Episodic Memory" else "Core Memory"
                     val dateStr = if (result.lastAccessedAt > 0L) fmt.format(Date(result.lastAccessedAt)) else "date unknown"
-                    sb.appendLine("${index++}. [$sourceTag — $dateStr]")
-                    sb.appendLine("   ${result.content.take(300)}")
+                    sb.appendLine("- [$sourceTag — $dateStr]")
+                    sb.appendLine("  ${result.content.take(300)}")
                 }
 
                 // Message history results follow.
                 if (filtered.messageResults.isNotEmpty()) {
-                    if (filtered.memoryResults.isNotEmpty()) sb.appendLine()
                     filtered.messageResults.forEach { result ->
                         val role = if (result.role == "user") "You" else "Me"
                         val date = fmt.format(Date(result.timestamp))
-                        sb.appendLine("${index++}. [Message — $date — conversation:${result.conversationId.take(8)}]")
-                        sb.appendLine("   $role: ${result.content.take(300)}")
+                        sb.appendLine("- [Message — $date — conversation:${result.conversationId.take(8)}]")
+                        sb.appendLine("  $role: ${result.content.take(300)}")
                     }
                 }
 
-                // DirectReply: structured list data — bypasses LLM to preserve dates/indices
-                SkillResult.DirectReply(sb.toString().trimEnd())
+                // Return retrieval evidence to the model so it can answer the user's question
+                // naturally instead of exposing the raw search list.
+                SkillResult.Success(sb.toString().trimEnd())
             } catch (e: Exception) {
                 Log.e(TAG, "SearchMemorySkill failed", e)
                 SkillResult.Failure(name, e.message ?: "Failed to search memories")
@@ -211,4 +221,42 @@ internal fun isGenericSelfQuery(query: String, userName: String?): Boolean {
     }
     if (!hasSelfReference) return false
     return tokens.all { it in selfTokens || it.removeSuffix("'s") in selfTokens }
+}
+
+internal fun containsPersonalPreferenceCue(query: String): Boolean =
+    PERSONAL_PREFERENCE_CUE.containsMatchIn(query)
+
+private fun isQuestionLikeMemoryMessage(content: String): Boolean =
+    QUESTION_LIKE_MEMORY_MESSAGE.containsMatchIn(content.trimStart())
+
+/** True when a user turn requests a saved personal fact and must be grounded in memory search. */
+fun isPersonalMemoryRecallQuery(query: String, userName: String?): Boolean {
+    if (isGenericSelfQuery(query, userName)) return true
+    val normalized = query.lowercase().trim()
+    if (normalized.isEmpty()) return false
+
+    val recallPhrases = listOf(
+        "what do you remember",
+        "what did i tell",
+        "what have i told",
+        "what did i say",
+        "what have i said",
+        "do you remember",
+        "can you recall",
+        "what did we discuss",
+        "what did we talk about",
+    )
+    if (recallPhrases.any(normalized::contains)) return true
+
+    val startsAsQuestion = normalized.startsWith("what ") ||
+        normalized.startsWith("what's ") ||
+        normalized.startsWith("whats ") ||
+        normalized.startsWith("which ")
+    if (!startsAsQuestion) return false
+
+    val selfReference = Regex("""\b(my|mine|me|myself|i)\b""").containsMatchIn(normalized) ||
+        userName?.takeIf { it.isNotBlank() }?.let {
+            Regex("""\b${Regex.escape(it.lowercase())}\b""").containsMatchIn(normalized)
+        } == true
+    return selfReference && containsPersonalPreferenceCue(normalized)
 }

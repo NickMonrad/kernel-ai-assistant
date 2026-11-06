@@ -29,4 +29,13 @@ class SearchMemorySelfQueryTest {
         assertFalse(isGenericSelfQuery("about you", "Nick"))
         assertFalse(isGenericSelfQuery("", "Nick"))
     }
+
+    @Test
+    fun `detects personal fact recall requests without capturing unrelated questions`() {
+        assertTrue(isPersonalMemoryRecallQuery("What is my favourite tea?", "Nick"))
+        assertTrue(isPersonalMemoryRecallQuery("What do you remember about my trip to Japan?", "Nick"))
+        assertTrue(isPersonalMemoryRecallQuery("What did I tell you about my job?", "Nick"))
+        assertFalse(isPersonalMemoryRecallQuery("What is the weather today?", "Nick"))
+        assertFalse(isPersonalMemoryRecallQuery("Remember to buy tea", "Nick"))
+    }
 }

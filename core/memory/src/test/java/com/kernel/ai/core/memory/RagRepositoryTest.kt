@@ -8,6 +8,7 @@ import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
 import com.kernel.ai.core.memory.entity.MessageEntity
+import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.MemorySearchResult
@@ -72,6 +73,64 @@ class RagRepositoryTest {
         every { vectorStore.upsert(any(), any(), any()) } just Runs
 
         ragRepository.indexMessage("prime-msg", "prime-conv", "priming content")
+    }
+
+    @Test
+    fun `searchCoreAndEpisodic excludes cultural and identity memories`() = runTest {
+        coEvery { embeddingEngine.embedQuery(any()) } returns floatArrayOf(1.0f, 0.0f, 0.0f)
+        coEvery {
+            memoryRepository.searchMemories(
+                queryVector = any(),
+                coreTopK = any(),
+                episodicTopK = any(),
+                identityTopK = 0,
+                kiwiTopK = 0,
+            )
+        } returns emptyList()
+
+        ragRepository.searchCoreAndEpisodic("favourite coffee")
+
+        coVerify(exactly = 1) {
+            memoryRepository.searchMemories(
+                queryVector = any(),
+                coreTopK = 3,
+                episodicTopK = 3,
+                identityTopK = 0,
+                kiwiTopK = 0,
+            )
+        }
+    }
+
+    @Test
+    fun `getAllUserCoreMemories includes assistant-saved user facts but excludes identity rows`() = runTest {
+        coEvery { memoryRepository.getAllCoreMemories() } returns listOf(
+            CoreMemoryEntity(
+                id = "agent-user",
+                content = "my favourite coffee is a flat white",
+                createdAt = 1L,
+                lastAccessedAt = 1L,
+                source = "agent",
+            ),
+            CoreMemoryEntity(
+                id = "persona",
+                content = "Jandal's NZ identity fact",
+                createdAt = 2L,
+                lastAccessedAt = 2L,
+                source = "jandal_persona",
+                category = "agent_identity",
+            ),
+            CoreMemoryEntity(
+                id = "dreaming",
+                content = "unverified inferred fact",
+                createdAt = 3L,
+                lastAccessedAt = 3L,
+                source = "dreaming",
+            ),
+        )
+
+        val memories = ragRepository.getAllUserCoreMemories()
+
+        assertEquals(listOf("my favourite coffee is a flat white"), memories.map { it.content })
     }
 
     // ─────────────────────────────── getRelevantContext ──────────────────────────────

@@ -66,6 +66,42 @@ class SearchMemoryRelevanceTest {
     }
 
     @Test
+    fun `filter drops weak semantic neighbours without lexical overlap`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite coffee?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "unrelated",
+                    content = "The user's preferred cleaner is Star Dry Cleaning.",
+                    source = "core",
+                    score = 0.25f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
+    fun `preference recall excludes weakly similar different preferences`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite tea?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "coffee",
+                    content = "my favourite coffee is a flat white",
+                    source = "core",
+                    score = 0.445f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
     fun `filter drops results when query is anaphoric save`() {
         val filtered = filterSearchMemoryResults(
             query = "remember that",

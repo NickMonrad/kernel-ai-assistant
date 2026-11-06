@@ -52,6 +52,7 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.toSpokenSummary
+import com.kernel.ai.core.skills.natives.isPersonalMemoryRecallQuery
 import com.kernel.ai.core.skills.intent.IntentCandidate
 import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.SkillResult
@@ -948,6 +949,9 @@ class ChatViewModel @Inject constructor(
             append("   means RESERVE TIME, not remember a fact.\n")
             append("8. Memory vs action: personal facts ('remember that Sarah is vegetarian') \u2192 save_memory.\n")
             append("   Device operations with time/date context \u2192 run_intent.\n")
+            append("CRITICAL — Personal memory recall: Questions about what the user told you, their preferences, or \"what do you remember about me\" MUST call search_memory before answering.\n")
+            append("    Use only that tool's filtered results; do NOT add facts from unrelated retrieved persona/cultural context or prior knowledge.\n")
+            append("    For generic \"what do you remember about me\" requests, present the returned saved facts as a concise list.\n")
             append("9. CRITICAL — Indirect action requests: even if the user does not use imperative language\n")
             append("   ('open X', 'do Y'), if they mention wanting a specific app, function, or device capability\n")
             append("   (calculator, hotspot, flashlight, timer, specific app name), treat it as an action request\n")
@@ -2335,6 +2339,55 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
             }
+            val isPersonalMemoryRecall =
+                !safeRunIntentTest &&
+                    matchedIntent == null &&
+                    isPersonalMemoryRecallQuery(
+                        text,
+                        runCatching { userProfileRepository.getName() }.getOrNull(),
+                    )
+            if (isPersonalMemoryRecall) {
+                val searchMemory = skillRegistry.get("search_memory")
+                if (searchMemory == null) {
+                    appendAssistantMessage(
+                        convId,
+                        "I couldn't retrieve your saved memories just now.",
+                        shouldIndex = false,
+                    )
+                    return@launch
+                }
+                when (val result = searchMemory.execute(SkillCall(searchMemory.name, mapOf("query" to text)))) {
+                    is SkillResult.DirectReply -> {
+                        appendAssistantMessageWithToolCall(
+                            convId = convId,
+                            content = result.content,
+                            skillName = searchMemory.name,
+                            requestJson = mapOf("query" to text).toString(),
+                            isSuccess = true,
+                            presentation = result.presentation,
+                            spokenSummary = spokenSummaryFrom(result),
+                        )
+                        return@launch
+                    }
+                    is SkillResult.Success -> {
+                        systemContext = "[System: Answer the user's personal-memory question using only " +
+                            "the filtered evidence below. If it does not answer the question, say you " +
+                            "do not have that information. Do not add outside facts.]\n${result.content}"
+                    }
+                    is SkillResult.Failure -> {
+                        appendAssistantMessage(convId, result.error, shouldIndex = false)
+                        return@launch
+                    }
+                    else -> {
+                        appendAssistantMessage(
+                            convId,
+                            "I couldn't retrieve your saved memories just now.",
+                            shouldIndex = false,
+                        )
+                        return@launch
+                    }
+                }
+            }
             // ── E2E marker: route decision ────────────────────────────────
             // Emitted after QIR route decision so the harness can verify whether
             // the request was classified by Tier 2 or fell through to Gemma-4.
@@ -2367,7 +2420,11 @@ class ChatViewModel @Inject constructor(
             // ── Intent Recovery Orchestrator ───────────────────────────────────
             // When FallThrough has a bestGuess above the soft threshold, try to
             // recover deterministically before falling back to Gemma.
-            if (matchedIntent == null && routeResult is QuickIntentRouter.RouteResult.FallThrough) {
+            if (
+                !isPersonalMemoryRecall &&
+                matchedIntent == null &&
+                routeResult is QuickIntentRouter.RouteResult.FallThrough
+            ) {
                 val bestGuess = routeResult.bestGuess
                 if (bestGuess != null && routeResult.bestConfidence >= IntentContractRegistry.SOFT_FALLBACK_THRESHOLD) {
                     val recovery = intentRecoveryOrchestrator.recover(
@@ -2800,7 +2857,7 @@ class ChatViewModel @Inject constructor(
             // or the query matches known tool-trigger keywords, strip the Jandal personality
             // and RAG context to free ~1000 tokens for tool-call reasoning. Actions-tab
             // fallthroughs also force this path because the transcript may already be garbled.
-            val priorMessages = if (safeRunIntentTest) {
+            val priorMessages = if (safeRunIntentTest || isPersonalMemoryRecall) {
                 emptyList()
             } else {
                 _messages.value.dropLast(2) // exclude just-added user + placeholder
@@ -2817,6 +2874,7 @@ class ChatViewModel @Inject constructor(
                 savedStateHandle["minimalContext"] = false
             }
             val isToolQuery = safeRunIntentTest ||
+                isPersonalMemoryRecall ||
                 forceMinimalContext ||
                 (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
                 looksLikeToolQuery(text) ||
