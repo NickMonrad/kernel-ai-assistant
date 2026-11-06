@@ -2342,6 +2342,11 @@ class ChatViewModel @Inject constructor(
             }
             val isCurrentConversationRecall =
                 !containsExplicitToolActionVerb(text) && isCurrentConversationRecallQuery(text)
+            if (isCurrentConversationRecall) {
+                // The "answer from history, do not call tools" instruction is part of this turn
+                // only; on CPU the KV cache would keep it, so rebuild from real messages after.
+                restoreFullPromptAfterTurn = true
+            }
             val isPersonalMemoryRecall =
                 !safeRunIntentTest &&
                     matchedIntent == null &&

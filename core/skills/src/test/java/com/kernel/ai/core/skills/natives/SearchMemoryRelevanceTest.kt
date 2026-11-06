@@ -175,6 +175,30 @@ class SearchMemoryRelevanceTest {
         assertTrue(filtered.memoryResults.isEmpty())
     }
 
+    private fun keeps(query: String, content: String): Boolean = filterSearchMemoryResults(
+        query = query,
+        memoryResults = listOf(MemorySearchResult(id = "m", content = content, source = "core", score = 0.25f)),
+        messageResults = emptyList(),
+    ).memoryResults.isNotEmpty()
+
+    @Test
+    fun `singular query matches plural or possessive stored words at a weak score`() {
+        assertTrue(keeps("What's my favourite movie?", "My favourite movies are Alien and Heat"))
+        assertTrue(keeps("What's my favourite story?", "My favourite stories are by Katherine Mansfield"))
+        assertTrue(keeps("What's my dog called?", "My dog's name is Rua"))
+        assertTrue(keeps("What are my favourite movies?", "My favourite movie is Heat"))
+        assertTrue(keeps("What are my favourite stories?", "My favourite story is The Garden Party"))
+        assertTrue(keeps("What do my dogs eat?", "My dog eats biscuits"))
+        assertTrue(keeps("What's in my lunch boxes?", "My lunch box has sushi"))
+    }
+
+    @Test
+    fun `plural endings do not reopen substring matches`() {
+        assertTrue(!keeps("What's my favourite tea?", "My favourite steaks are rare"))
+        assertTrue(!keeps("What's my favourite tea?", "I teased my brother"))
+        assertTrue(!keeps("What's my favourite car?", "My favourite cards are aces"))
+    }
+
     @Test
     fun `our does not lexically overlap favourite`() {
         val filtered = filterSearchMemoryResults(

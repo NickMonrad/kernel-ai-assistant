@@ -48,11 +48,15 @@ internal fun filterSearchMemoryResults(
 private fun extractSearchMemoryTerms(query: String): Set<String> =
     Regex("""[\p{L}\d'’-]+""")
         .findAll(query.lowercase())
-        .map { it.value.trim('’', '\'', '-', '–') }
+        .map { stripPossessive(it.value.trim('’', '\'', '-', '–')) }
         .filter { it.length >= 3 && it !in SEARCH_MEMORY_STOPWORDS }
-        .flatMap { token -> sequenceOf(token, singularizeToken(token)) }
+        .flatMap { token -> sequenceOf(token) + singularizeToken(token) }
         .filter { it.length >= 3 }
         .toSet()
+
+/** "dog's" / "dog’s" → "dog"; leaves "kiwis" and plain words alone. */
+private fun stripPossessive(token: String): String =
+    token.removeSuffix("'s").removeSuffix("’s")
 
 private fun hasLexicalOverlap(content: String, terms: Set<String>): Boolean {
     if (terms.isEmpty()) return false
@@ -62,21 +66,37 @@ private fun hasLexicalOverlap(content: String, terms: Set<String>): Boolean {
     }
 }
 
+/** Plural/possessive endings a stored word may carry beyond the query term ("movie" → "movies"). */
+private val WORD_ENDINGS = listOf("", "s", "es", "'s", "’s")
+
 private fun containsWholeTerm(text: String, term: String): Boolean {
     var index = text.indexOf(term)
     while (index >= 0) {
         val end = index + term.length
         val startsAtBoundary = index == 0 || !text[index - 1].isLetterOrDigit()
-        val endsAtBoundary = end == text.length || !text[end].isLetterOrDigit()
-        if (startsAtBoundary && endsAtBoundary) return true
+        if (startsAtBoundary && WORD_ENDINGS.any { endsWordAt(text, end, it) }) return true
         index = text.indexOf(term, index + 1)
+    }
+    // "story" should also find "stories".
+    if (term.endsWith("y") && term.length > 3) {
+        return containsWholeTerm(text, term.dropLast(1) + "ies")
     }
     return false
 }
 
-private fun singularizeToken(token: String): String = when {
-    token.endsWith("ies") && token.length > 4 -> token.dropLast(3) + "y"
-    token.endsWith("es") && token.length > 4 -> token.dropLast(2)
-    token.endsWith("s") && token.length > 4 -> token.dropLast(1)
-    else -> token
+private fun endsWordAt(text: String, end: Int, ending: String): Boolean {
+    if (!text.startsWith(ending, end)) return false
+    val after = end + ending.length
+    return after == text.length || !text[after].isLetterOrDigit()
+}
+
+/**
+ * Singular candidates for [token]. English plurals are ambiguous ("movies" → "movie",
+ * "stories" → "story", "boxes" → "box"), so every plausible form is returned.
+ */
+private fun singularizeToken(token: String): List<String> = when {
+    token.endsWith("ies") && token.length > 4 -> listOf(token.dropLast(3) + "y", token.dropLast(1))
+    token.endsWith("es") && token.length > 4 -> listOf(token.dropLast(2), token.dropLast(1))
+    token.endsWith("s") && !token.endsWith("ss") && token.length > 3 -> listOf(token.dropLast(1))
+    else -> emptyList()
 }

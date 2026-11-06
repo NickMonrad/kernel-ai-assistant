@@ -32,6 +32,10 @@ private val CURRENT_CONVERSATION_RECALL_PHRASE = Regex(
     """\bwhat\s+(?:did\s+(?:i|we)\s+(?:say|ask|tell|mention|discuss|talk(?:\s+about)?)|have\s+(?:i|we)\s+(?:said|asked|told|mentioned|discussed|talked(?:\s+about)?))\b""",
 )
 private val CURRENT_CONVERSATION_WORDS = Regex("""[\p{L}\d]+""")
+/** Explicit references to this chat; with these, a topic word still means "in this conversation". */
+private val CURRENT_CONVERSATION_SCOPE = Regex(
+    """\b(?:earlier|just\s+now|a\s+(?:minute|moment|second|few\s+minutes)\s+ago|above|in\s+this\s+(?:chat|conversation))\b""",
+)
 private val CURRENT_CONVERSATION_FILLER_WORDS = setOf(
     "about", "above", "before", "earlier", "in", "just", "now", "previously", "the", "this",
     "turn", "chat", "conversation", "you", "i", "we", "me", "us", "to", "that", "it", "today",
@@ -297,6 +301,8 @@ fun isCurrentConversationRecallQuery(query: String): Boolean =
 
 private fun isCurrentConversationRecallQueryNormalized(query: String): Boolean {
     val recallPhrase = CURRENT_CONVERSATION_RECALL_PHRASE.find(query) ?: return false
+    // "What did I ask you earlier about the weather?" is about this chat even with a topic.
+    if (CURRENT_CONVERSATION_SCOPE.containsMatchIn(query)) return true
     val wordsAfterPhrase = CURRENT_CONVERSATION_WORDS
         .findAll(query.substring(recallPhrase.range.last + 1))
         .map { it.value }

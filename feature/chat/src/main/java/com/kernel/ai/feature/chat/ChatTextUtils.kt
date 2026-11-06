@@ -415,13 +415,17 @@ private val REMEMBER_ACTION_REGEX = Regex("""\bremember\b""")
 private val NEGATED_CALL_REGEX =
     Regex("""\b(?:do\s+not|don't|never|cannot|can't|should\s+not|shouldn't|not\s+to)\s+call\b""")
 private val CALL_ACTION_REGEX = Regex("""\bcall\s+""")
+// Only verbs that start a command count: at the start, after "and/then/also/please", or after
+// "can/could/would you". "What did I order last time?" and "my favourite game to play" are
+// questions, not actions.
 private val EXPLICIT_TOOL_ACTION_VERB_REGEX = Regex(
-    """\b(?:add|put|save|store|create|make|remove|delete|set|send|turn|toggle|open|play|navigate|remind|plan|order|book|buy|cancel|check)\b""",
+    """(?:^|[.,;!?]\s*|\b(?:and|then|also|please|(?:can|could|would|will)\s+you)\s+)(?:please\s+)?""" +
+        """(?:add|put|save|store|create|make|remove|delete|set|send|turn|toggle|open|play|navigate|remind|plan|order|book|buy|cancel|check)\b""",
     RegexOption.IGNORE_CASE,
 )
 
 internal fun containsExplicitToolActionVerb(query: String): Boolean =
-    EXPLICIT_TOOL_ACTION_VERB_REGEX.containsMatchIn(query)
+    EXPLICIT_TOOL_ACTION_VERB_REGEX.containsMatchIn(query.trim())
 
 /**
  * Returns true if [query] looks like it involves a device-native tool action

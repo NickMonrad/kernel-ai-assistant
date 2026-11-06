@@ -54,4 +54,21 @@ class SearchMemorySelfQueryTest {
         assertFalse(isPersonalMemoryRecallQuery("Do not call any tools. What did I say earlier?", "Nick"))
         assertFalse(isPersonalMemoryRecallQuery("What did we discuss just now?", "Nick"))
     }
+
+    @Test
+    fun `explicit chat scope keeps topical questions on the current conversation`() {
+        for (q in listOf(
+            "What did I ask you earlier about the weather?",
+            "What did I say just now about the timer?",
+            "What did we discuss a few minutes ago about lunch?",
+            "What did I mention in this chat about my sister?",
+            "What did I tell you above about the meeting?",
+        )) {
+            assertTrue(isCurrentConversationRecallQuery(q), q)
+            assertFalse(isPersonalMemoryRecallQuery(q, "Nick"), q)
+        }
+        // No chat-scope words: still a saved-memory question.
+        assertFalse(isCurrentConversationRecallQuery("What did I tell you about my job?"))
+        assertTrue(isPersonalMemoryRecallQuery("What did I tell you about my job?", "Nick"))
+    }
 }

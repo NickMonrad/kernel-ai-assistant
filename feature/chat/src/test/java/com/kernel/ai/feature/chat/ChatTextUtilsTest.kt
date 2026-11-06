@@ -1432,4 +1432,27 @@ class ChatTextUtilsTest {
             assertTrue(result.contains("sweet potato"))
         }
     }
+
+    @Test
+    fun `action verbs count only when they start a command`() {
+        for (q in listOf(
+            "Add eggs to my shopping list",
+            "what's my favourite coffee and add it to my shopping list",
+            "Set a timer for 10 minutes",
+            "Can you remind me to call Mum",
+            "please book a table",
+            "What's my favourite coffee? Then add it to my list",
+        )) {
+            assertTrue(containsExplicitToolActionVerb(q), q)
+        }
+        for (q in listOf(
+            "What's my favourite game to play?",
+            "What did I order last time?",
+            "What did I check in last week?",
+            "What's my plan for Saturday?",
+            "What did I tell you about my job?",
+        )) {
+            assertFalse(containsExplicitToolActionVerb(q), q)
+        }
+    }
 }
