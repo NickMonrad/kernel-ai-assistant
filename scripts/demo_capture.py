@@ -203,13 +203,23 @@ def root_size(xml_text: str) -> tuple[int, int] | None:
     return (int(m.group(3)), int(m.group(4))) if m else None
 
 
+GENERIC_HOST_LABELS = {"nextcloud", "cloud", "duckdns", "dyndns", "local", "localhost", "files", "drive"}
+
+
 def redact_needles(values: list[str]) -> list[str]:
     """The values to blur plus the forms the app may show them in (no scheme, no trailing slash)."""
     out: list[str] = []
     for value in values:
         v = value.strip()
         bare = re.sub(r"^[a-z]+://", "", v, flags=re.I)
-        for form in (v, bare, bare.rstrip("/")):
+        forms = [v, bare, bare.rstrip("/")]
+        if "://" in v:
+            # A long host can be shown truncated ("nextcloud.example-home.duck…"), so also
+            # match its distinctive labels; generic ones would blur UI like "Sync with Nextcloud".
+            host = bare.split("/", 1)[0]
+            forms += [label for label in host.split(".")
+                      if len(label) >= 5 and label.lower() not in GENERIC_HOST_LABELS]
+        for form in forms:
             if form and form not in out:
                 out.append(form)
     return out

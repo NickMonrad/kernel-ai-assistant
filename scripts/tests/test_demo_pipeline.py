@@ -157,7 +157,11 @@ class UiHelpersTest(unittest.TestCase):
 
     def test_redact_needles(self):
         self.assertEqual(cap.redact_needles(["https://cloud.example/", "Demo"]),
-                         ["https://cloud.example/", "cloud.example/", "cloud.example", "Demo"])
+                         ["https://cloud.example/", "cloud.example/", "cloud.example", "example", "Demo"])
+        needles = cap.redact_needles(["https://nextcloud.someone-home.duckdns.org", "demo-user"])
+        self.assertIn("someone-home", needles)  # survives "nextcloud.someone-home.duck…"
+        self.assertNotIn("nextcloud", needles)  # would blur "Sync with Nextcloud"
+        self.assertNotIn("duckdns", needles)
 
     def test_load_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:
