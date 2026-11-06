@@ -408,12 +408,20 @@ internal fun stripMarkdown(text: String): String {
         .trim()
 }
 
-private val RECALL_QUESTION_REGEX =
-    Regex("""\bwhat\s+did\s+i\s+(?:say|ask|tell|mention)\b|\b(?:do|did)\s+you\s+(?:still\s+)?remember\b""")
+private val RECALL_QUESTION_REGEX = Regex(
+    """\bwhat\s+did\s+i\s+(?:say|ask|tell|mention)\b|\bwhat\s+(?:do\s+you\s+remember|did\s+we\s+(?:say|discuss|talk\s+about))\b|\b(?:do|did)\s+you\s+(?:still\s+)?remember\b|\bcan\s+you\s+recall\b""",
+)
 private val REMEMBER_ACTION_REGEX = Regex("""\bremember\b""")
 private val NEGATED_CALL_REGEX =
     Regex("""\b(?:do\s+not|don't|never|cannot|can't|should\s+not|shouldn't|not\s+to)\s+call\b""")
 private val CALL_ACTION_REGEX = Regex("""\bcall\s+""")
+private val EXPLICIT_TOOL_ACTION_VERB_REGEX = Regex(
+    """\b(?:add|put|save|store|create|make|remove|delete|set|send|turn|toggle|open|play|navigate|remind|plan|order|book|buy|cancel|check)\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+internal fun containsExplicitToolActionVerb(query: String): Boolean =
+    EXPLICIT_TOOL_ACTION_VERB_REGEX.containsMatchIn(query)
 
 /**
  * Returns true if [query] looks like it involves a device-native tool action

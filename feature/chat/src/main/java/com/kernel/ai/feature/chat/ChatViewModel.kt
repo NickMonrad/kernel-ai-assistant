@@ -2342,6 +2342,8 @@ class ChatViewModel @Inject constructor(
             val isPersonalMemoryRecall =
                 !safeRunIntentTest &&
                     matchedIntent == null &&
+                    !looksLikeToolQuery(text) &&
+                    !containsExplicitToolActionVerb(text) &&
                     isPersonalMemoryRecallQuery(
                         text,
                         runCatching { userProfileRepository.getName() }.getOrNull(),
@@ -2375,9 +2377,10 @@ class ChatViewModel @Inject constructor(
                             "personal-memory question using only the filtered evidence below. Do not " +
                             "call any tools or add outside facts. If it does not answer the question, " +
                             "say you do not have that information.]\n${result.content}"
-                        // A personal-memory answer must not inherit earlier KV-cache turns.
-                        if (inferenceEngine.isReady.value) inferenceEngine.resetConversation()
+                        // Replay this recall with a clean prompt, then restore full identity/history
+                        // before the next normal turn without resetting the native engine.
                         needsHistoryReplay = true
+                        restoreFullPromptAfterTurn = true
                         estimatedTokensUsed = 0
                         turnsSinceReset = 0
                     }

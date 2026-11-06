@@ -23,10 +23,19 @@ private val PERSONAL_PREFERENCE_CUE = Regex(
     RegexOption.IGNORE_CASE,
 )
 
-private val PERSONAL_SELF_REFERENCE = Regex("""\b(my|mine|me|myself|i|our|ours|we|us)\b""")
-private val QUESTION_LIKE_MEMORY_MESSAGE = Regex(
-    """^(what|which|who|when|where|why|how|do|does|did|is|are|can|could|would|have|has)\b""",
-    RegexOption.IGNORE_CASE,
+private val PERSONAL_POSSESSIVE_REFERENCE = Regex("""\b(?:my|mine|our|ours)\b""")
+private val PERSONAL_SELF_AS_SUBJECT = Regex(
+    """\b(?:(?:what\s+)?(?:did|have)\s+(?:i|we)\s+(?:tell|told|say|said|ask|asked|mention|mentioned|discuss|discussed|talk(?:\s+about)?|talked(?:\s+about)?)|(?:i|we)\s+(?:told|said|asked|mentioned|discussed|talked(?:\s+about)?))\b""",
+)
+private val ABOUT_SELF_REFERENCE = Regex("""\babout\s+(?:me|myself|us|ourselves)\b""")
+private val CURRENT_CONVERSATION_RECALL_PHRASE = Regex(
+    """\bwhat\s+(?:did\s+(?:i|we)\s+(?:say|ask|tell|mention|discuss|talk(?:\s+about)?)|have\s+(?:i|we)\s+(?:said|asked|told|mentioned|discussed|talked(?:\s+about)?))\b""",
+)
+private val CURRENT_CONVERSATION_WORDS = Regex("""[\p{L}\d]+""")
+private val CURRENT_CONVERSATION_FILLER_WORDS = setOf(
+    "about", "above", "before", "earlier", "in", "just", "now", "previously", "the", "this",
+    "turn", "chat", "conversation", "you", "i", "we", "me", "us", "to", "that", "it", "today",
+    "yesterday",
 )
 private val PERSONAL_RECALL_PHRASES = listOf(
     "what do you remember",
@@ -38,6 +47,10 @@ private val PERSONAL_RECALL_PHRASES = listOf(
     "can you recall",
     "what did we discuss",
     "what did we talk about",
+)
+private val QUESTION_LIKE_MEMORY_MESSAGE = Regex(
+    """^(what|which|who|when|where|why|how|do|does|did|is|are|can|could|would|have|has)\b""",
+    RegexOption.IGNORE_CASE,
 )
 
 /**
@@ -258,24 +271,41 @@ private fun isQuestionLikeMemoryMessage(content: String): Boolean =
 
 /** True when a user turn requests a saved personal fact and must be grounded in memory search. */
 fun isPersonalMemoryRecallQuery(query: String, userName: String?): Boolean {
-    if (isGenericSelfQuery(query, userName)) return true
     val normalized = query.lowercase().trim()
-    if (normalized.isEmpty()) return false
+    if (normalized.isEmpty() || isCurrentConversationRecallQuery(normalized)) return false
+    if (isGenericSelfQuery(normalized, userName)) return true
 
     val hasRecallPhrase = PERSONAL_RECALL_PHRASES.any(normalized::contains)
-    if (hasRecallPhrase) return hasSelfReference(normalized, userName)
+    if (hasRecallPhrase) return hasPersonalRecallReference(normalized, userName)
 
     val startsAsQuestion = normalized.startsWith("what ") ||
         normalized.startsWith("what's ") ||
         normalized.startsWith("whats ") ||
         normalized.startsWith("which ")
     return startsAsQuestion &&
-        hasSelfReference(normalized, userName) &&
+        hasPersonalRecallReference(normalized, userName) &&
         containsPersonalPreferenceCue(normalized)
 }
 
-private fun hasSelfReference(query: String, userName: String?): Boolean =
-    PERSONAL_SELF_REFERENCE.containsMatchIn(query) ||
-        userName?.takeIf { it.isNotBlank() }?.let {
-            Regex("""\b${Regex.escape(it.lowercase())}\b""").containsMatchIn(query)
-        } == true
+private fun isCurrentConversationRecallQuery(query: String): Boolean {
+    val recallPhrase = CURRENT_CONVERSATION_RECALL_PHRASE.find(query) ?: return false
+    val wordsAfterPhrase = CURRENT_CONVERSATION_WORDS
+        .findAll(query.substring(recallPhrase.range.last + 1))
+        .map { it.value }
+    return wordsAfterPhrase.none { it !in CURRENT_CONVERSATION_FILLER_WORDS }
+}
+
+private fun hasPersonalRecallReference(query: String, userName: String?): Boolean {
+    val clauseEnd = query.indexOfFirst { it == '.' || it == '?' || it == '!' }
+    val recallClause = if (clauseEnd < 0) query else query.substring(0, clauseEnd)
+    if (PERSONAL_POSSESSIVE_REFERENCE.containsMatchIn(recallClause) ||
+        PERSONAL_SELF_AS_SUBJECT.containsMatchIn(recallClause) ||
+        ABOUT_SELF_REFERENCE.containsMatchIn(recallClause)
+    ) {
+        return true
+    }
+    val normalizedName = userName?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
+    val escapedName = Regex.escape(normalizedName)
+    return Regex("""\babout\s+$escapedName\b""").containsMatchIn(recallClause) ||
+        Regex("""\b$escapedName(?:['’]s)\b""").containsMatchIn(recallClause)
+}

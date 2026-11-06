@@ -158,6 +158,42 @@ class SearchMemoryRelevanceTest {
     }
 
     @Test
+    fun `tea does not lexically overlap steak`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite tea?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "steak",
+                    content = "My favourite steak is medium rare",
+                    source = "core",
+                    score = 0.25f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
+    fun `our does not lexically overlap favourite`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What did we discuss about our holiday?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "coffee",
+                    content = "My favourite coffee is a flat white",
+                    source = "core",
+                    score = 0.25f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
     fun `filter drops results when query is anaphoric save`() {
         val filtered = filterSearchMemoryResults(
             query = "remember that",

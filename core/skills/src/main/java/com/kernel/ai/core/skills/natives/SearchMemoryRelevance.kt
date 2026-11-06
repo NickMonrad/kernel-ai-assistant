@@ -8,10 +8,11 @@ private const val MIN_MEMORY_SCORE_WITHOUT_LEXICAL_OVERLAP = 0.34f
 private const val MIN_PREFERENCE_MEMORY_SCORE_WITHOUT_LEXICAL_OVERLAP = 0.5f
 private const val MIN_MESSAGE_SCORE_WITHOUT_LEXICAL_OVERLAP = 0.22f
 private val SEARCH_MEMORY_STOPWORDS = setOf(
-    "a", "about", "an", "are", "can", "could", "did", "do", "does", "for", "i", "if", "in",
-    "is", "like", "me", "memory", "my", "of", "remember", "search", "see", "tell", "the", "to",
-    "favourite", "favorite", "prefer", "preferred", "preference", "preferences", "what's", "whats",
-    "we", "what", "you", "your",
+    "a", "about", "all", "an", "and", "any", "are", "can", "could", "did", "do", "does",
+    "favorite", "favourite", "for", "has", "her", "how", "i", "if", "in", "is", "like", "me",
+    "memory", "my", "of", "our", "prefer", "preferred", "preference", "preferences", "remember",
+    "say", "search", "see", "tell", "the", "to", "was", "we", "what", "what's", "whats", "who",
+    "you", "your",
 )
 
 internal data class SearchMemoryFilterResult(
@@ -57,8 +58,20 @@ private fun hasLexicalOverlap(content: String, terms: Set<String>): Boolean {
     if (terms.isEmpty()) return false
     val lower = content.lowercase()
     return terms.any { term ->
-        lower.contains(term) || lower.contains(term.replace('-', ' '))
+        containsWholeTerm(lower, term) || containsWholeTerm(lower, term.replace('-', ' '))
     }
+}
+
+private fun containsWholeTerm(text: String, term: String): Boolean {
+    var index = text.indexOf(term)
+    while (index >= 0) {
+        val end = index + term.length
+        val startsAtBoundary = index == 0 || !text[index - 1].isLetterOrDigit()
+        val endsAtBoundary = end == text.length || !text[end].isLetterOrDigit()
+        if (startsAtBoundary && endsAtBoundary) return true
+        index = text.indexOf(term, index + 1)
+    }
+    return false
 }
 
 private fun singularizeToken(token: String): String = when {

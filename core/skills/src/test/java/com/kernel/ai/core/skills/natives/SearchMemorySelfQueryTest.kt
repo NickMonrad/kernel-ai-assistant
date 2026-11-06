@@ -40,7 +40,15 @@ class SearchMemorySelfQueryTest {
         assertTrue(isPersonalMemoryRecallQuery("Do you remember my favourite cake?", "Nick"))
         assertTrue(isPersonalMemoryRecallQuery("What did we discuss about our holiday?", "Nick"))
         assertFalse(isPersonalMemoryRecallQuery("Do you remember what a pavlova is?", "Nick"))
+        assertFalse(isPersonalMemoryRecallQuery("Do you remember what a pavlova is? Tell me.", "Nick"))
+        assertFalse(
+            isPersonalMemoryRecallQuery("Do you remember what a pavlova is? My sister asked me to check.", "Nick"),
+        )
         assertFalse(isPersonalMemoryRecallQuery("What do you remember about Waitangi Day?", "Nick"))
         assertFalse(isPersonalMemoryRecallQuery("Can you recall what a pavlova is?", "Nick"))
+        assertFalse(isPersonalMemoryRecallQuery("Can you recall the capital of France for me?", "Nick"))
+        assertFalse(isPersonalMemoryRecallQuery("What did I say earlier?", "Nick"))
+        assertFalse(isPersonalMemoryRecallQuery("Do not call any tools. What did I say earlier?", "Nick"))
+        assertFalse(isPersonalMemoryRecallQuery("What did we discuss just now?", "Nick"))
     }
 }
