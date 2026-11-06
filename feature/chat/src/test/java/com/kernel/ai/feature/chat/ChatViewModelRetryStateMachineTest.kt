@@ -1308,7 +1308,7 @@ class ChatViewModelRetryStateMachineTest {
 
         assertTrue(replayedPrompts.last().contains(com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT))
         assertTrue(replayedPrompts.last().contains("HISTORY-RECALL-604"), replayedPrompts.last())
-        assertTrue(generationPrompts.last().contains("What did I say earlier?"))
+        assertTrue(generationPrompts.last().contains("do not call any tools"))
         assertFalse(generationPrompts.last().contains("[Tool Use]"))
         coVerify(exactly = 0) { searchMemory.execute(any()) }
         coVerify(exactly = 2) { ragRepository.getRelevantContext(any(), any(), any()) }

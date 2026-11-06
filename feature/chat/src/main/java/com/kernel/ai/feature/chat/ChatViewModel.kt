@@ -2340,7 +2340,8 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
             }
-            val isCurrentConversationRecall = isCurrentConversationRecallQuery(text)
+            val isCurrentConversationRecall =
+                !containsExplicitToolActionVerb(text) && isCurrentConversationRecallQuery(text)
             val isPersonalMemoryRecall =
                 !safeRunIntentTest &&
                     matchedIntent == null &&
@@ -3045,7 +3046,14 @@ class ChatViewModel @Inject constructor(
                 if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
                 if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
-                if (isToolQuery && !isPersonalMemoryRecall) {
+                if (isCurrentConversationRecall) {
+                    append(
+                        "[System: The user is asking about this conversation's history. Answer from " +
+                            "the prior conversation messages; do not call any tools. If the history " +
+                            "does not answer the question, say so.]\n\n",
+                    )
+                }
+                if (isToolQuery && !isPersonalMemoryRecall && !isCurrentConversationRecall) {
                     buildToolUsePrompt()
                         .takeIf { it.isNotBlank() }
                         ?.let { append("$it\n\n") }
