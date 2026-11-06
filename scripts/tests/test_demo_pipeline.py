@@ -32,7 +32,7 @@ class ShotListTest(unittest.TestCase):
         data = cap.load_shots()
         ids = {s["id"] for s in data["shots"]}
         self.assertEqual(data["intro_order"], ["S01", "S02", "S03", "S04", "S05", "S06", "S07A", "S07B"])
-        kinds = {"launch", "restart", "tap", "type", "wait", "wait_gone", "sleep", "key", "shell", "host"}
+        kinds = {"launch", "restart", "tap", "type", "wait", "wait_gone", "sleep", "key", "shell", "host", "open_url"}
         for shot in data["shots"]:
             self.assertTrue(shot["caption"], shot["id"])
             for step in shot["steps"]:
@@ -52,7 +52,10 @@ class ShotListTest(unittest.TestCase):
         self.assertEqual(by_id["S03"]["caption"], "Timers and alarms, instantly")
         self.assertIn("What's the weather like in Wellington?",
                       [s.get("text") for s in by_id["S06"]["steps"]])
-        self.assertEqual(by_id["S07B"]["device"], "second")
+        # S07B shows the item on the user's own server, in the S23U browser (Nick, 7 Nov 2026).
+        self.assertNotIn("device", by_id["S07B"])
+        self.assertIn({"do": "open_url", "env": "DEMO_NC_SERVER", "path": "/apps/tasks/"},
+                      [{k: st.get(k) for k in ("do", "env", "path")} for st in by_id["S07B"]["steps"]])
 
     def test_airplane_badge_only_on_offline_block(self):
         data = cap.load_shots()
@@ -353,6 +356,30 @@ class RunnerTest(unittest.TestCase):
         with unittest.mock.patch("time.sleep"), self.assertRaises(cap.CaptureError):
             runner.type_and_send("Give me three ideas for a rainy Sunday")
         self.assertNotIn((990, 1050), dev.taps)  # never sent
+
+    def test_open_url_uses_the_env_address_only(self):
+        dev = FakeDevice([screen("x")])
+        dev.cmds = []
+        dev.run = lambda *a, **k: dev.cmds.append(a) or ""
+        runner = cap.ShotRunner(dev, 0.0, cap.StepLog(), poll=0)
+        step = {"do": "open_url", "env": "DEMO_NC_SERVER", "path": "/apps/tasks/"}
+        with unittest.mock.patch("time.sleep"), \
+                unittest.mock.patch.dict("os.environ", {"DEMO_NC_SERVER": "https://cloud.example/"}):
+            runner.run_step(step)
+        self.assertIn(("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+                       "-d", "https://cloud.example/apps/tasks/"), dev.cmds)
+        for bad in ("", "http://cloud.example"):
+            with unittest.mock.patch.dict("os.environ", {"DEMO_NC_SERVER": bad}), self.assertRaises(cap.CaptureError):
+                runner.run_step(step)
+
+    def test_optional_redact_values(self):
+        shot = {"id": "S07B", "redact_env": ["DEMO_NC_SERVER"], "redact_env_optional": ["DEMO_NC_DISPLAY_NAME"]}
+        with unittest.mock.patch.dict("os.environ", {"DEMO_NC_SERVER": "https://c.example"}, clear=False):
+            os_env = __import__("os").environ
+            os_env.pop("DEMO_NC_DISPLAY_NAME", None)
+            self.assertEqual(cap.redact_values(shot), ["https://c.example"])
+            with unittest.mock.patch.dict("os.environ", {"DEMO_NC_DISPLAY_NAME": "Jandal Test"}):
+                self.assertEqual(cap.redact_values(shot), ["https://c.example", "Jandal Test"])
 
     def test_redaction_scans_every_screen_read_in_wait_loops(self):
         # The username shows only on an intermediate screen, between steps.

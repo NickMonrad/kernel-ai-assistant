@@ -329,7 +329,7 @@
     },
     {
       "id": "S07A",
-      "feature": "Nextcloud sync, add on the S23U",
+      "feature": "Nextcloud sync, add in Jandal on the S23U",
       "caption": "Optional sync with your own Nextcloud",
       "offline": false,
       "redact_env": [
@@ -361,40 +361,46 @@
           "timeout": 15,
           "note": "The result is a list card titled with the list name, not a sentence"
         }
+      ],
+      "redact_env_optional": [
+        "DEMO_NC_DISPLAY_NAME"
       ]
     },
     {
       "id": "S07B",
-      "feature": "Nextcloud sync, appears on the second client",
+      "feature": "Nextcloud sync, the item on the user's own server (Nextcloud Tasks web page, S23U browser)",
       "caption": "Optional sync with your own Nextcloud",
       "offline": false,
-      "device": "second",
       "redact_env": [
         "DEMO_NC_SERVER",
         "DEMO_NC_USER"
       ],
+      "redact_env_optional": [
+        "DEMO_NC_DISPLAY_NAME"
+      ],
       "steps": [
         {
-          "do": "restart",
-          "note": "App start enqueues an immediate Nextcloud pull"
+          "do": "launch",
+          "note": "Sync anchor; the cut starts at the browser opening"
         },
         {
-          "do": "tap",
-          "text": "Tools"
-        },
-        {
-          "do": "tap",
-          "text": "Lists"
+          "do": "open_url",
+          "env": "DEMO_NC_SERVER",
+          "path": "/apps/tasks/",
+          "start_here": true,
+          "note": "Jandal lists sync as CalDAV task lists; the S23U browser is signed in by the Jandal browser login"
         },
         {
           "do": "tap",
           "text": "shopping list",
-          "start_here": true
+          "timeout": 30,
+          "compress": true,
+          "compress_to": 0.6
         },
         {
           "do": "wait",
           "text": "cheese",
-          "timeout": 90,
+          "timeout": 60,
           "compress": true,
           "compress_to": 1.5
         },
@@ -518,5 +524,5 @@
       ]
     }
   ],
-  "notes": "Quick-action shots wait for a *new* confirmation (wait with new=true counts matching nodes against the screen before the request), because Actions history keeps earlier takes' confirmations. Model shots wait for 'Cancel response' to disappear and mark that span for compression. Every shot starts with launch/restart: that frame syncs the clip to the runner clock. Shots with offline=false run with airplane mode off; the runner switches it per shot over USB adb. device='second' shots record on --second-serial. redact_env names env vars whose values (Nextcloud server and username) are located on screen and blurred by demo_edit.py."
+  "notes": "Quick-action shots wait for a *new* confirmation (wait with new=true counts matching nodes against the screen before the request), because Actions history keeps earlier takes' confirmations. Model shots wait for 'Cancel response' to disappear and mark that span for compression. Every shot starts with launch/restart: that frame syncs the clip to the runner clock. Shots with offline=false run with airplane mode off; the runner switches it per shot over USB adb. device='second' shots record on --second-serial (none in the intro since S07B moved to the S23U browser). redact_env names env vars whose values (Nextcloud server and username) are located on screen and blurred by demo_edit.py."
 }

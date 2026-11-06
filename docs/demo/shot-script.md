@@ -18,13 +18,13 @@ This script is the source of truth for the shot list. `docs/demo/shots.json` is 
 | Item | Value |
 |---|---|
 | Primary device | S23U `RFCW11265XH`, Gemma 4 E4B, FLAGSHIP, GPU |
-| Second device | S21 `R5CR605B71K`, only as the acoustic source for S01 and as the second Nextcloud client in S07 (recorded as its own clip, S07B) |
+| Second device | S21 `R5CR605B71K`, only as the acoustic source for S01 (`scripts/demo_wake.py`) |
 | Build | Final v0.1 RC build. Record commit, versionName/versionCode and APK SHA-256 in the manifest |
 | Persona | Settings → Persona: **Full Jandal** for S05; default **Half a Jandal** for everything else |
 | Theme | Dark (matches the S23U screenshot set in `docs/play-store/screenshots/`) |
 | Wake word | "Listen for Hey Jandal" on; Vosk STT; approved acoustic setup from #1403/#1410 (built-in speaker, side by side 25 cm–0.6 m, volume 9/15) |
 | Notifications | Do Not Disturb on. Clear the shade before each shot |
-| Nextcloud | Test Nextcloud account only, signed in on both devices, with the seeded "shopping list" synced to it on both. Real accounts never appear on screen |
+| Nextcloud | A dedicated test user on Lokhor's own Nextcloud, signed in on the S23U only: Jandal via its browser login (which also leaves the S23U browser signed in), with the seeded "shopping list" synced. The server needs the Tasks app (Jandal lists sync as CalDAV task lists). Real accounts never appear on screen |
 | Status bar | One UI ignores SystemUI demo mode (see `docs/play-store/screenshots/README.md`). Keep the real status bar: it carries the airplane icon that proves the offline claim. Set the device clock to automatic and avoid shots where the time reads oddly |
 | Seed data | A "shopping list" with milk and bread (the app files "grocery list" under "shopping list", see `NativeIntentHandler`). Seed it by typing "Add milk and bread to my shopping list" before recording. No other lists, notes or memories at the start. Calendar seeded with one invented event ("Netball practice", Thursday 5pm) |
 
@@ -42,7 +42,7 @@ Each shot is a separate clip, so the runner turns airplane mode off between S05 
 | S04 | 0:18–0:28 | Memory and recall | Typed: "Remember that my favourite coffee is a flat white". New chat, typed: "What's my favourite coffee?" | Save confirmation; in the new chat the reply names a flat white | Model (compressed) | Offline |
 | S05 | 0:28–0:36 | Persona chat | Typed, with **Full Jandal**: "Give me three ideas for a rainy Sunday" | A complete streamed reply with Kiwi tone | Model (compressed) | Offline |
 | S06 | 0:36–0:41 | Weather | Typed: "What's the weather like in Wellington?" | Weather card for Wellington (Open-Meteo) | Deterministic | **Online** |
-| S07 | 0:41–0:49 | Nextcloud sync | S07A on the S23U, typed: "Add eggs and cheese to my shopping list". S07B on the S21: the app restarts (app start pulls from Nextcloud), opens the shopping list | The items appear on the second client. Server URL and username blurred | Deterministic (sync wait compressed) | **Online** |
+| S07 | 0:41–0:49 | Nextcloud sync | S07A on the S23U, typed: "Add eggs and cheese to my shopping list". S07B on the S23U: the browser opens the user's Nextcloud Tasks page (`/apps/tasks/`) and the shopping list | The new items are on the user's own server. Server address, username and display name blurred | Deterministic (sync wait compressed) | **Online** |
 | S08 | 0:49–0:54 | End card | — | App icon, "Jandal AI", "A Kiwi AI assistant that runs on your phone", then the variant line (below) | Title card | — |
 
 End card variants, chosen at render time (`--end-card`):
@@ -75,7 +75,7 @@ These reuse the same runner. They are listed so the pipeline is built for them n
 | M02 | Flashlight | Typed: "Turn on the flashlight", then "Turn off the flashlight" | Both confirmations | Offline. The torch itself is not visible in a screen recording; caption it, or add a second-camera insert later |
 | M03 | Calendar | Typed: "Add dentist appointment next Tuesday" | Jandal hands off to the device calendar's new-event screen, prefilled for next Tuesday (`ACTION_INSERT`); the runner taps Save | Offline. Shows the OEM calendar app; check its UI carries no real account name |
 | M04 | Weather | Now intro shot S06 | — | **Online** (Open-Meteo). Caption must not say offline |
-| M05 | Nextcloud sync | Now intro shot S07 (S07A + S07B) | — | **Online.** Test Nextcloud account only; server URL and username blurred. Check which device is already logged in before setting up the other |
+| M05 | Nextcloud sync | Now intro shot S07 (S07A + S07B) | — | **Online.** Test Nextcloud user only; server address, username and display name blurred |
 | M06 | Notes | Typed: "Write down that Sam needs library books tomorrow", then "Show my notes" | Note saved, then listed | Offline |
 | M07 | Meal planning | Typed: "Plan vegetarian dinners for next week" | Meal plan generated | Offline, model (compressed) |
 | M08 | Conversions | Typed: "Convert 1 cup of flour to grams" | Instant answer | Offline |
@@ -118,8 +118,8 @@ Prerequisites on the capture host: `adb`, `scrcpy` 3.0 or newer (tested with 5.0
 
    `scripts/demo_wake.py` plays the approved `natural_wake` then `qwen_command` fixtures from the S21's debug app at volume 9/15 (`docs/testing/acoustic-stimulus-source.md`). For S01 the S21 sits beside the S23U as in #1403/#1410, with "Listen for Hey Jandal" on.
 3. Record (one MP4 per shot plus `manifest.json`; `--out` must be outside the repo):
-   `python3 scripts/demo_capture.py --serial RFCW11265XH --second-serial R5CR605B71K --package <rc package> --commit <rc sha> --out ~/jandal-demo/<rc> --shots intro`
-   S01 needs `DEMO_WAKE_CMD`, and S07A/S07B need `DEMO_NC_SERVER` and `DEMO_NC_USER`, from the env file above. S07A/S07B refuse to record without `DEMO_NC_SERVER` and `DEMO_NC_USER`; the runner records the screen bounds of every node showing either value, and the edit step blurs them. Re-take a model shot with `--shots S04 --take 2` (at most 3).
+   `python3 scripts/demo_capture.py --serial RFCW11265XH --package <rc package> --commit <rc sha> --out ~/jandal-demo/<rc> --shots intro`
+   S01 needs `DEMO_WAKE_CMD`, and S07A/S07B need `DEMO_NC_SERVER` and `DEMO_NC_USER`, from the env file above. Add `DEMO_NC_DISPLAY_NAME` too if the test user's display name differs from the username: the Nextcloud web page shows it. S07A/S07B refuse to record without `DEMO_NC_SERVER` and `DEMO_NC_USER`; the runner records the screen bounds of every node showing either value, and the edit step blurs them. Re-take a model shot with `--shots S04 --take 2` (at most 3).
 4. Render, choosing the end card:
    `python3 scripts/demo_edit.py --clips ~/jandal-demo/<rc> --out ~/jandal-demo/<rc>/intro.mp4 --end-card beta [--pick S04=2] [--icon icon.png]`
    Use `--end-card launch` once the Play listing is public. This also writes `intro.edl.json`: every cut, every speed-up and its factor, every blurred region, the end-card variant and the build provenance. Check it with the video, and check S07 frame by frame for anything the blur missed.
@@ -150,6 +150,6 @@ Later decisions (Nick, 4 Nov 2026):
 
 8. **S03** keeps both the timer and the alarm; the typing is sped up, with the marker, to fit.
 9. **S06 caption** shortened to "Online when you ask. No account needed." so it renders at full size.
-10. **S07's second client** is the Jandal app on the S21 (not the Nextcloud web view).
+10. **S07's second view** was first the Jandal app on the S21; changed (7 Nov 2026) to the user's own Nextcloud Tasks web page in the S23U browser. One sign-in instead of two, and it shows the item landing on the user's own server.
 11. **Typing is sped up in every shot** (to about 1 s, with the marker), as are the weather and sync waits, to shorten the cut. Measured on the S23U, real-time typing alone took ~8 s per request.
 12. **Cap raised to 70 s.** With typing sped up, the measured shots put the full cut at about 70 s (each screen read takes ~2.5 s on the S23U). The offline block now runs to about 0:48, but the airplane-mode badge and the S01-S03 hook are on screen within the first 30 s that autoplay on Play. The Time column in the table above is the original plan; measured shot lengths (S23U, Nov 2026) are about S01 8 s, S02 11 s, S03 8 s, S04 12 s, S05 9 s, S06 6 s, S07 11 s, end card 5 s.

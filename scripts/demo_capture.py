@@ -551,6 +551,14 @@ class ShotRunner:
             while self.redact and time.monotonic() < until - 0.5:
                 self.dump()  # keep scanning for values to blur while holding on a screen
             time.sleep(max(0.0, until - time.monotonic()))
+        elif kind == "open_url":
+            # The server address comes from the env file, never from shots.json.
+            base = os.environ.get(step["env"], "").rstrip("/")
+            if not base.startswith("https://"):
+                raise CaptureError(f"open_url needs {step['env']} set to an https:// address")
+            self.d.run("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+                       "-d", base + step.get("path", "/"))
+            time.sleep(1.5)
         elif kind == "key":
             self.d.run("shell", "input", "keyevent", step["code"])
         elif kind == "shell":
@@ -633,7 +641,9 @@ def redact_values(shot: dict) -> list[str]:
     missing = [n for n in names if not os.environ.get(n)]
     if missing:
         raise CaptureError(f"{shot['id']} needs {', '.join(missing)} set so the server and username can be blurred")
-    return [os.environ[n] for n in names]
+    # Optional extras, e.g. the account's display name shown by the Nextcloud web UI.
+    optional = [os.environ[n] for n in shot.get("redact_env_optional", []) if os.environ.get(n)]
+    return [os.environ[n] for n in names] + optional
 
 
 def probe(clip: Path, ffmpeg: str = "ffmpeg") -> tuple[tuple[int, int] | None, list[float]]:
