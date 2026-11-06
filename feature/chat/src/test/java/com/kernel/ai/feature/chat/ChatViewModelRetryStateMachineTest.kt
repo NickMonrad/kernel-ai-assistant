@@ -1266,6 +1266,56 @@ class ChatViewModelRetryStateMachineTest {
     }
 
     @Test
+    fun `current conversation recall ignores memory classifier guess and preserves full history`() = runTest(dispatcher) {
+        val searchMemory = setupSearchMemory(SkillResult.DirectReply("No relevant memories found."))
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
+        every { jandalPersona.nzTruths } returns emptyList()
+        every { quickIntentRouter.route(any()) } answers {
+            val input = firstArg<String>()
+            if (input == "What did I say earlier?") {
+                QuickIntentRouter.RouteResult.FallThrough(
+                    input = input,
+                    bestGuess = QuickIntentRouter.MatchedIntent(
+                        intentName = "search_memory",
+                        params = emptyMap(),
+                        source = "classifier",
+                    ),
+                    bestConfidence = 0.9f,
+                )
+            } else {
+                QuickIntentRouter.RouteResult.FallThrough(input = input)
+            }
+        }
+
+        val replayedPrompts = mutableListOf<String>()
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            replayedPrompts += firstArg<String>()
+        }
+        val generationPrompts = mutableListOf<String>()
+        every { inferenceEngine.generate(capture(generationPrompts)) } returns toolChainFlow(
+            tokens = listOf("You said the marker was HISTORY-RECALL-604."),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("Earlier marker: HISTORY-RECALL-604")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("What did I say earlier?")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(replayedPrompts.last().contains(com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT))
+        assertTrue(replayedPrompts.last().contains("HISTORY-RECALL-604"), replayedPrompts.last())
+        assertTrue(generationPrompts.last().contains("What did I say earlier?"))
+        assertFalse(generationPrompts.last().contains("[Tool Use]"))
+        coVerify(exactly = 0) { searchMemory.execute(any()) }
+        coVerify(exactly = 2) { ragRepository.getRelevantContext(any(), any(), any()) }
+        verify(exactly = 0) { intentRecoveryOrchestrator.recover(any(), any(), any()) }
+    }
+
+    @Test
     fun `CPU personal recall restores full prompt and history before the next normal turn`() = runTest(dispatcher) {
         val searchMemory = setupSearchMemory(
             SkillResult.Success("Relevant filtered evidence:\nmy favourite coffee is a flat white"),

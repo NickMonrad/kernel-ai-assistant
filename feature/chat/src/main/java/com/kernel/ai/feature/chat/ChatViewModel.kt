@@ -53,6 +53,7 @@ import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.natives.isPersonalMemoryRecallQuery
+import com.kernel.ai.core.skills.natives.isCurrentConversationRecallQuery
 import com.kernel.ai.core.skills.intent.IntentCandidate
 import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.SkillResult
@@ -2339,6 +2340,7 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
             }
+            val isCurrentConversationRecall = isCurrentConversationRecallQuery(text)
             val isPersonalMemoryRecall =
                 !safeRunIntentTest &&
                     matchedIntent == null &&
@@ -2432,6 +2434,7 @@ class ChatViewModel @Inject constructor(
             // recover deterministically before falling back to Gemma.
             if (
                 !isPersonalMemoryRecall &&
+                !isCurrentConversationRecall &&
                 matchedIntent == null &&
                 routeResult is QuickIntentRouter.RouteResult.FallThrough
             ) {
@@ -2884,12 +2887,12 @@ class ChatViewModel @Inject constructor(
                 forceMinimalContextForNextMessage = false
                 savedStateHandle["minimalContext"] = false
             }
-            val isToolQuery = safeRunIntentTest ||
-                isPersonalMemoryRecall ||
-                forceMinimalContext ||
-                (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
-                looksLikeToolQuery(text) ||
-                isToolFollowUp
+            val isToolQuery = safeRunIntentTest || forceMinimalContext ||
+                (!isCurrentConversationRecall &&
+                    (isPersonalMemoryRecall ||
+                        (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
+                        looksLikeToolQuery(text) ||
+                        isToolFollowUp))
             isToolQueryForTurn = isToolQuery
             val preferImmediateContext =
                 !safeRunIntentTest && prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()

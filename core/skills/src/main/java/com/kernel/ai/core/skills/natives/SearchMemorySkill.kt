@@ -272,7 +272,7 @@ private fun isQuestionLikeMemoryMessage(content: String): Boolean =
 /** True when a user turn requests a saved personal fact and must be grounded in memory search. */
 fun isPersonalMemoryRecallQuery(query: String, userName: String?): Boolean {
     val normalized = query.lowercase().trim()
-    if (normalized.isEmpty() || isCurrentConversationRecallQuery(normalized)) return false
+    if (normalized.isEmpty() || isCurrentConversationRecallQueryNormalized(normalized)) return false
     if (isGenericSelfQuery(normalized, userName)) return true
 
     val hasRecallPhrase = PERSONAL_RECALL_PHRASES.any(normalized::contains)
@@ -287,7 +287,15 @@ fun isPersonalMemoryRecallQuery(query: String, userName: String?): Boolean {
         containsPersonalPreferenceCue(normalized)
 }
 
-private fun isCurrentConversationRecallQuery(query: String): Boolean {
+/**
+ * Identifies questions about the current chat rather than facts saved in memory.
+ *
+ * @return true when the recall phrase has no stored-topic words after it.
+ */
+fun isCurrentConversationRecallQuery(query: String): Boolean =
+    isCurrentConversationRecallQueryNormalized(query.lowercase().trim())
+
+private fun isCurrentConversationRecallQueryNormalized(query: String): Boolean {
     val recallPhrase = CURRENT_CONVERSATION_RECALL_PHRASE.find(query) ?: return false
     val wordsAfterPhrase = CURRENT_CONVERSATION_WORDS
         .findAll(query.substring(recallPhrase.range.last + 1))
