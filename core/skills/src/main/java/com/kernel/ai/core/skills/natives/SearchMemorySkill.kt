@@ -2,6 +2,7 @@ package com.kernel.ai.core.skills.natives
 
 import android.util.Log
 import com.kernel.ai.core.memory.rag.RagRepository
+import com.kernel.ai.core.memory.repository.MemorySearchResult
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillCall
@@ -17,10 +18,26 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "KernelAI"
-private val PERSONAL_PREFERENCE_CUE = Regex("""\b(favourite|favorite|prefer|preferred|preference|preferences)\b""", RegexOption.IGNORE_CASE)
+private val PERSONAL_PREFERENCE_CUE = Regex(
+    """\b(favourite|favorite|prefer|preferred|preference|preferences)\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+private val PERSONAL_SELF_REFERENCE = Regex("""\b(my|mine|me|myself|i|our|ours|we|us)\b""")
 private val QUESTION_LIKE_MEMORY_MESSAGE = Regex(
     """^(what|which|who|when|where|why|how|do|does|did|is|are|can|could|would|have|has)\b""",
     RegexOption.IGNORE_CASE,
+)
+private val PERSONAL_RECALL_PHRASES = listOf(
+    "what do you remember",
+    "what did i tell",
+    "what have i told",
+    "what did i say",
+    "what have i said",
+    "do you remember",
+    "can you recall",
+    "what did we discuss",
+    "what did we talk about",
 )
 
 /**
@@ -113,18 +130,22 @@ remember about me" queries, present the returned saved user facts as a concise l
                         Log.w(TAG, "getAllUserCoreMemories failed: ${e.message}", e)
                         emptyList()
                     }
-                    if (coreMemories.isNotEmpty()) {
-                        val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-                        val sb = StringBuilder("Here's what I remember about you:\n\n")
-                        coreMemories.forEach { result ->
-                            val dateStr = if (result.lastAccessedAt > 0L) fmt.format(Date(result.lastAccessedAt)) else "date unknown"
-                            sb.appendLine("- [Core Memory — $dateStr]")
-                            sb.appendLine("  ${result.content.take(300)}")
+                    val savedMemories = if (coreMemories.isNotEmpty()) {
+                        coreMemories
+                    } else {
+                        val episodicFallback = runCatching {
+                            ragRepository.searchCoreAndEpisodic(query, topK, includeSiblingContext = false)
+                        }.getOrElse { e ->
+                            Log.w(TAG, "generic self-query episodic fallback failed: ${e.message}", e)
+                            emptyList()
                         }
-                        Log.d(TAG, "SearchMemorySkill: generic self-query '$query' → ${coreMemories.size} core memories")
-                        return@withContext SkillResult.DirectReply(sb.toString().trimEnd())
+                        filterSearchMemoryResults(query, episodicFallback, emptyList()).memoryResults
                     }
-                    return@withContext SkillResult.DirectReply("No relevant memories found.")
+                    if (savedMemories.isEmpty()) {
+                        return@withContext SkillResult.DirectReply("No relevant memories found.")
+                    }
+                    Log.d(TAG, "SearchMemorySkill: generic self-query '$query' → ${savedMemories.size} saved memories")
+                    return@withContext SkillResult.DirectReply(buildSavedMemoryList(savedMemories))
                 }
 
                 val isPreferenceRecall = containsPersonalPreferenceCue(query)
@@ -192,6 +213,12 @@ remember about me" queries, present the returned saved user facts as a concise l
     }
 }
 
+private fun buildSavedMemoryList(memories: List<MemorySearchResult>): String = buildString {
+    appendLine("Here's what I remember about you:")
+    appendLine()
+    memories.forEach { memory -> appendLine("• ${memory.content.take(300)}") }
+}.trimEnd()
+
 /**
  * True when [query] is a generic self-referential request with no topical content words — e.g.
  * "about me", "myself", "everything about Nick" — for which a similarity search has nothing to
@@ -235,28 +262,20 @@ fun isPersonalMemoryRecallQuery(query: String, userName: String?): Boolean {
     val normalized = query.lowercase().trim()
     if (normalized.isEmpty()) return false
 
-    val recallPhrases = listOf(
-        "what do you remember",
-        "what did i tell",
-        "what have i told",
-        "what did i say",
-        "what have i said",
-        "do you remember",
-        "can you recall",
-        "what did we discuss",
-        "what did we talk about",
-    )
-    if (recallPhrases.any(normalized::contains)) return true
+    val hasRecallPhrase = PERSONAL_RECALL_PHRASES.any(normalized::contains)
+    if (hasRecallPhrase) return hasSelfReference(normalized, userName)
 
     val startsAsQuestion = normalized.startsWith("what ") ||
         normalized.startsWith("what's ") ||
         normalized.startsWith("whats ") ||
         normalized.startsWith("which ")
-    if (!startsAsQuestion) return false
-
-    val selfReference = Regex("""\b(my|mine|me|myself|i)\b""").containsMatchIn(normalized) ||
-        userName?.takeIf { it.isNotBlank() }?.let {
-            Regex("""\b${Regex.escape(it.lowercase())}\b""").containsMatchIn(normalized)
-        } == true
-    return selfReference && containsPersonalPreferenceCue(normalized)
+    return startsAsQuestion &&
+        hasSelfReference(normalized, userName) &&
+        containsPersonalPreferenceCue(normalized)
 }
+
+private fun hasSelfReference(query: String, userName: String?): Boolean =
+    PERSONAL_SELF_REFERENCE.containsMatchIn(query) ||
+        userName?.takeIf { it.isNotBlank() }?.let {
+            Regex("""\b${Regex.escape(it.lowercase())}\b""").containsMatchIn(query)
+        } == true

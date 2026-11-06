@@ -82,15 +82,19 @@ class SearchMemorySkillTest {
 
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result).content
         assertTrue(reply.contains("flat white"))
-        assertTrue(reply.contains("- [Core Memory"))
-        assertFalse(reply.contains("1. ["))
+        assertTrue(reply.contains("• Nick's favourite coffee is a flat white"))
+        assertFalse(reply.contains("Core Memory"))
+        assertFalse(reply.contains("Nov"))
         coVerify(exactly = 0) { ragRepository.searchCoreAndEpisodic(any(), any(), any()) }
     }
 
     @Test
-    fun `generic self recall with no saved facts stays a direct reply`() = runTest {
+    fun `generic self recall with no memories stays a direct reply`() = runTest {
         coEvery { userProfileRepository.getName() } returns "Nick"
         coEvery { ragRepository.getAllUserCoreMemories() } returns emptyList()
+        coEvery {
+            ragRepository.searchCoreAndEpisodic(any(), any(), includeSiblingContext = false)
+        } returns emptyList()
 
         val result = skill.execute(
             SkillCall("search_memory", mapOf("query" to "What do you remember about me?")),
@@ -99,7 +103,33 @@ class SearchMemorySkillTest {
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result).content
         assertEquals("No relevant memories found.", reply)
         coVerify(exactly = 0) { ragRepository.searchMessages(any(), any(), any()) }
-        coVerify(exactly = 0) { ragRepository.searchCoreAndEpisodic(any(), any(), any()) }
+        coVerify(exactly = 1) {
+            ragRepository.searchCoreAndEpisodic("What do you remember about me?", 5, includeSiblingContext = false)
+        }
+    }
+
+    @Test
+    fun `generic self recall falls back to episodic memories when core is empty`() = runTest {
+        coEvery { userProfileRepository.getName() } returns "Nick"
+        coEvery { ragRepository.getAllUserCoreMemories() } returns emptyList()
+        coEvery {
+            ragRepository.searchCoreAndEpisodic(any(), any(), includeSiblingContext = false)
+        } returns listOf(
+            MemorySearchResult(
+                id = "episode",
+                content = "Nick said his sister lives in Wellington",
+                source = "episodic",
+                score = 0.8f,
+            ),
+        )
+
+        val result = skill.execute(
+            SkillCall("search_memory", mapOf("query" to "What do you remember about me?")),
+        )
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result).content
+        assertTrue(reply.contains("• Nick said his sister lives in Wellington"))
+        assertFalse(reply.contains("Episodic Memory"))
     }
 
     @Test

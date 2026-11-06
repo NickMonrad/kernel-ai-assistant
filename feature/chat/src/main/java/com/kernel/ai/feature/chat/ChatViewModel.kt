@@ -2347,6 +2347,7 @@ class ChatViewModel @Inject constructor(
                         runCatching { userProfileRepository.getName() }.getOrNull(),
                     )
             if (isPersonalMemoryRecall) {
+                pendingConfirmationIntent = null
                 val searchMemory = skillRegistry.get("search_memory")
                 if (searchMemory == null) {
                     appendAssistantMessage(
@@ -2370,9 +2371,15 @@ class ChatViewModel @Inject constructor(
                         return@launch
                     }
                     is SkillResult.Success -> {
-                        systemContext = "[System: Answer the user's personal-memory question using only " +
-                            "the filtered evidence below. If it does not answer the question, say you " +
-                            "do not have that information. Do not add outside facts.]\n${result.content}"
+                        systemContext = "[System: Memory search is already complete. Answer the user's " +
+                            "personal-memory question using only the filtered evidence below. Do not " +
+                            "call any tools or add outside facts. If it does not answer the question, " +
+                            "say you do not have that information.]\n${result.content}"
+                        // A personal-memory answer must not inherit earlier KV-cache turns.
+                        if (inferenceEngine.isReady.value) inferenceEngine.resetConversation()
+                        needsHistoryReplay = true
+                        estimatedTokensUsed = 0
+                        turnsSinceReset = 0
                     }
                     is SkillResult.Failure -> {
                         appendAssistantMessage(convId, result.error, shouldIndex = false)
@@ -2784,6 +2791,7 @@ class ChatViewModel @Inject constructor(
             // This must happen before Gemma init to avoid memory pressure on S23U with E-4B.
             if (!safeRunIntentTest &&
                 !isLoadSkillAbortProbeFollowUp &&
+                !isPersonalMemoryRecall &&
                 explicitWikipediaQuery == null &&
                 matchedIntent == null
             ) {
@@ -2945,11 +2953,16 @@ class ChatViewModel @Inject constructor(
                 // Independent commands (conversation_reset) must NOT see previous independent
                 // commands' history — the injected tool calls bias the model toward the
                 // previously used tool (#1190).
-                val allMessages = if (wasConversationReset) {
-                    Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId history_replay_skipped=true")
-                    emptyList()
-                } else {
-                    _messages.value.dropLast(2) // exclude just-added user + placeholder
+                val allMessages = when {
+                    wasConversationReset || isPersonalMemoryRecall -> {
+                        if (isPersonalMemoryRecall) {
+                            Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId personal_memory_history_skipped=true")
+                        } else {
+                            Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId history_replay_skipped=true")
+                        }
+                        emptyList()
+                    }
+                    else -> _messages.value.dropLast(2) // exclude just-added user + placeholder
                 }
                 val rawTurns = contextWindowManager.extractTurns(
                     allMessages.map { it.content to (it.role == ChatMessage.Role.USER) }
@@ -3026,7 +3039,7 @@ class ChatViewModel @Inject constructor(
                 if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
                 if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
-                if (isToolQuery) {
+                if (isToolQuery && !isPersonalMemoryRecall) {
                     buildToolUsePrompt()
                         .takeIf { it.isNotBlank() }
                         ?.let { append("$it\n\n") }

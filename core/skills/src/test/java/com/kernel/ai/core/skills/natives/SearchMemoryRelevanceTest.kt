@@ -84,6 +84,25 @@ class SearchMemoryRelevanceTest {
     }
 
     @Test
+    fun `preference recall keeps exact topic with realistic moderate embedding score`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite coffee?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "coffee",
+                    content = "my favourite coffee is a flat white",
+                    source = "core",
+                    score = 0.445f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertEquals(1, filtered.memoryResults.size)
+        assertEquals("coffee", filtered.memoryResults.single().id)
+    }
+
+    @Test
     fun `preference recall excludes weakly similar different preferences`() {
         val filtered = filterSearchMemoryResults(
             query = "What's my favourite tea?",
@@ -93,6 +112,43 @@ class SearchMemoryRelevanceTest {
                     content = "my favourite coffee is a flat white",
                     source = "core",
                     score = 0.445f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
+    fun `three letter preference topic retains exact fact at moderate score`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite tea?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "tea",
+                    content = "my favourite tea is earl grey",
+                    source = "core",
+                    score = 0.445f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertEquals(1, filtered.memoryResults.size)
+        assertEquals("tea", filtered.memoryResults.single().id)
+    }
+
+    @Test
+    fun `whats token does not create lexical overlap for unrelated memory`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite coffee?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "unrelated",
+                    content = "I remember what's happening this afternoon",
+                    source = "core",
+                    score = 0.25f,
                 ),
             ),
             messageResults = emptyList(),

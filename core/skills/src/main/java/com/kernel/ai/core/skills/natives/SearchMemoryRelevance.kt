@@ -4,11 +4,13 @@ import com.kernel.ai.core.memory.rag.MessageSearchResult
 import com.kernel.ai.core.memory.repository.MemorySearchResult
 
 private const val MIN_MEMORY_SCORE_WITHOUT_LEXICAL_OVERLAP = 0.34f
+// Cross-preference neighbours can score 0.445; exact-topic lower-score matches use lexical overlap.
+private const val MIN_PREFERENCE_MEMORY_SCORE_WITHOUT_LEXICAL_OVERLAP = 0.5f
 private const val MIN_MESSAGE_SCORE_WITHOUT_LEXICAL_OVERLAP = 0.22f
 private val SEARCH_MEMORY_STOPWORDS = setOf(
     "a", "about", "an", "are", "can", "could", "did", "do", "does", "for", "i", "if", "in",
     "is", "like", "me", "memory", "my", "of", "remember", "search", "see", "tell", "the", "to",
-    "favourite", "favorite", "prefer", "preferred", "preference", "preferences",
+    "favourite", "favorite", "prefer", "preferred", "preference", "preferences", "what's", "whats",
     "we", "what", "you", "your",
 )
 
@@ -24,7 +26,7 @@ internal fun filterSearchMemoryResults(
 ): SearchMemoryFilterResult {
     val terms = extractSearchMemoryTerms(query)
     val minimumMemoryScore = if (containsPersonalPreferenceCue(query)) {
-        MIN_MEMORY_SCORE_WITHOUT_LEXICAL_OVERLAP.coerceAtLeast(0.5f)
+        MIN_PREFERENCE_MEMORY_SCORE_WITHOUT_LEXICAL_OVERLAP
     } else {
         MIN_MEMORY_SCORE_WITHOUT_LEXICAL_OVERLAP
     }
@@ -46,9 +48,9 @@ private fun extractSearchMemoryTerms(query: String): Set<String> =
     Regex("""[\p{L}\d'’-]+""")
         .findAll(query.lowercase())
         .map { it.value.trim('’', '\'', '-', '–') }
-        .filter { it.length >= 4 && it !in SEARCH_MEMORY_STOPWORDS }
+        .filter { it.length >= 3 && it !in SEARCH_MEMORY_STOPWORDS }
         .flatMap { token -> sequenceOf(token, singularizeToken(token)) }
-        .filter { it.length >= 4 }
+        .filter { it.length >= 3 }
         .toSet()
 
 private fun hasLexicalOverlap(content: String, terms: Set<String>): Boolean {
