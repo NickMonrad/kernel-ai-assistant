@@ -187,6 +187,12 @@ def field_text(xml_text: str) -> str:
     return ""
 
 
+def shade_open(xml_text: str) -> bool:
+    """True when the screen read is dominated by System UI (the notification shade)."""
+    pkgs = re.findall(r'package="([^"]*)"', xml_text)
+    return bool(pkgs) and sum(p == "com.android.systemui" for p in pkgs) > len(pkgs) / 2
+
+
 def root_size(xml_text: str) -> tuple[int, int] | None:
     """Screen size in uiautomator pixels, from the root node's bounds."""
     try:
@@ -402,6 +408,9 @@ class ShotRunner:
     def dump(self) -> str:
         """Every screen read goes through here, so redaction sees every screen we look at."""
         xml = self.d.dump_ui()
+        if shade_open(xml):
+            # The shade shows real notifications (names, locations); never keep recording it.
+            raise CaptureError("notification shade or system UI in front; take discarded")
         self.last_xml = xml
         if self.redact:
             self.log.add_redact(nodes_containing(xml, self.redact))
@@ -434,8 +443,9 @@ class ShotRunner:
             time.sleep(0.8)
         raise CaptureError(f"could not get back to the {'/'.join(ROOT_TABS)} tabs")
 
-    def type_and_send(self, text: str) -> None:
+    def type_and_send(self, text: str, retries: int = 3) -> None:
         self.tap(cls="android.widget.EditText")
+        time.sleep(0.6)  # let the keyboard bind to the field before the first key
         # Type in short chunks so the recording shows the text being entered.
         words = text.split(" ")
         for i, word in enumerate(words):
@@ -446,15 +456,20 @@ class ShotRunner:
         # Read back before sending. Fast chunks can be reordered by the keyboard (seen on
         # the S23U: "Give me tree ideas for a rainy Sundayh"), and a mangled prompt must
         # never be sent. This read also finds Send after the keyboard has moved it.
+        # Seen in the chat composer right after the model loads ("tat" for "that"),
+        # intermittently and even for a single-call retype, so retry a few times.
         xml = self.dump()
-        if field_text(xml) != text:
+        for _ in range(retries):
+            if field_text(xml) == text:
+                break
             self.d.run("shell", "input", "keyevent", "KEYCODE_MOVE_END")
             self.d.run("shell", "input", "keyevent", *(["KEYCODE_DEL"] * (len(field_text(xml)) + 5)))
+            time.sleep(1.0)
             self.d.run("shell", "input", "text", escape_input_text(text))
-            time.sleep(0.5)
+            time.sleep(0.8)
             xml = self.dump()
-            if field_text(xml) != text:
-                raise CaptureError(f"text field reads {field_text(xml)!r}, expected {text!r}")
+        if field_text(xml) != text:
+            raise CaptureError(f"text field reads {field_text(xml)!r}, expected {text!r}")
         pos = find_node(xml, desc="Send")
         if not pos:
             raise CaptureError("no Send button after typing")
@@ -526,6 +541,7 @@ class ShotRunner:
         elif kind == "shell":
             self.d.shell(step["cmd"])
         elif kind == "host":
+            self.baseline_xml = self.last_xml
             cmd = os.environ.get(step["env"], "")
             if not cmd:
                 raise CaptureError(f"step needs {step['env']} (see the shot's note)")
@@ -566,6 +582,34 @@ def scrcpy_cmd(serial: str, out_file: Path, scrcpy: str = "scrcpy") -> list[str]
         "--video-bit-rate", "16M",
         "--stay-awake",
     ]
+
+
+DEFAULT_ENV_FILE = Path("~/.config/jandal-demo/demo.env")
+
+
+def load_env_file(path: Path, environ: dict | None = None) -> list[str]:
+    """Load ``KEY=VALUE`` lines into the environment without overriding what is already set.
+
+    Keeps the test Nextcloud server/username and the wake command out of the repo and out
+    of shell history. Returns the keys it set.
+    """
+    environ = os.environ if environ is None else environ
+    path = path.expanduser()
+    if not path.exists():
+        return []
+    loaded = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip().removeprefix("export ").strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        if key and key not in environ:
+            environ[key] = value
+            loaded.append(key)
+    return loaded
 
 
 def redact_values(shot: dict) -> list[str]:
@@ -684,7 +728,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--take", type=int, default=1, help="Take number to record (max 3 for model shots)")
     ap.add_argument("--scrcpy", default=shutil.which("scrcpy") or "scrcpy")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE,
+                    help="KEY=VALUE file for DEMO_NC_SERVER, DEMO_NC_USER, DEMO_WAKE_CMD (default %(default)s)")
     args = ap.parse_args(argv)
+    loaded = load_env_file(args.env_file)
+    if loaded:
+        print(f"loaded {', '.join(loaded)} from {args.env_file}")
 
     data = load_shots()
     shots = select_shots(data, args.shots)

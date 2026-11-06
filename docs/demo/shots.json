@@ -52,11 +52,19 @@
         {
           "do": "host",
           "env": "DEMO_WAKE_CMD",
-          "note": "Plays natural_wake + qwen_command from the S21 using the approved #1403/#1410 setup; same path as #1329 J10"
+          "note": "Plays natural_wake + qwen_command from the S21 using the approved #1403/#1410 setup; same path as #1329 J10. Device audio is not recorded and the Actions screen shows no listening indicator, so the spoken part plays sped up with the marker",
+          "compress": true,
+          "compress_to": 2.0
+        },
+        {
+          "do": "wait",
+          "text": "It's",
+          "new": true,
+          "timeout": 20
         },
         {
           "do": "sleep",
-          "s": 4
+          "s": 1.5
         }
       ]
     },
@@ -79,7 +87,9 @@
         },
         {
           "do": "type",
-          "text": "Chuck bananas on the grocery list"
+          "text": "Chuck bananas on the grocery list",
+          "compress": true,
+          "compress_to": 1.0
         },
         {
           "do": "wait",
@@ -87,10 +97,6 @@
           "new": true,
           "timeout": 15,
           "note": "The result is a list card titled with the list name, not a sentence"
-        },
-        {
-          "do": "sleep",
-          "s": 1.5
         },
         {
           "do": "tap",
@@ -117,7 +123,7 @@
         },
         {
           "do": "sleep",
-          "s": 2
+          "s": 1.5
         }
       ]
     },
@@ -151,10 +157,6 @@
           "timeout": 15
         },
         {
-          "do": "sleep",
-          "s": 1.5
-        },
-        {
           "do": "tap",
           "desc": "Run quick action",
           "compress": true,
@@ -171,10 +173,6 @@
           "text": "Alarm set for",
           "new": true,
           "timeout": 15
-        },
-        {
-          "do": "sleep",
-          "s": 2
         }
       ]
     },
@@ -205,7 +203,9 @@
         },
         {
           "do": "type",
-          "text": "Remember that my favourite coffee is a flat white"
+          "text": "Remember that my favourite coffee is a flat white",
+          "compress": true,
+          "compress_to": 1.0
         },
         {
           "do": "wait_gone",
@@ -215,7 +215,7 @@
         },
         {
           "do": "sleep",
-          "s": 2
+          "s": 1
         },
         {
           "do": "tap",
@@ -225,7 +225,9 @@
         },
         {
           "do": "type",
-          "text": "What's my favourite coffee?"
+          "text": "What's my favourite coffee?",
+          "compress": true,
+          "compress_to": 1.0
         },
         {
           "do": "wait_gone",
@@ -272,7 +274,9 @@
         },
         {
           "do": "type",
-          "text": "Give me three ideas for a rainy Sunday"
+          "text": "Give me three ideas for a rainy Sunday",
+          "compress": true,
+          "compress_to": 1.0
         },
         {
           "do": "wait_gone",
@@ -305,17 +309,21 @@
         },
         {
           "do": "type",
-          "text": "What's the weather like in Wellington?"
+          "text": "What's the weather like in Wellington?",
+          "compress": true,
+          "compress_to": 1.0
         },
         {
           "do": "wait",
           "text": "°",
           "new": true,
-          "timeout": 20
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 1.0
         },
         {
           "do": "sleep",
-          "s": 3
+          "s": 2
         }
       ]
     },
@@ -342,7 +350,9 @@
         },
         {
           "do": "type",
-          "text": "Add eggs and cheese to my shopping list"
+          "text": "Add eggs and cheese to my shopping list",
+          "compress": true,
+          "compress_to": 1.0
         },
         {
           "do": "wait",
@@ -350,10 +360,6 @@
           "new": true,
           "timeout": 15,
           "note": "The result is a list card titled with the list name, not a sentence"
-        },
-        {
-          "do": "sleep",
-          "s": 2
         }
       ]
     },
@@ -389,7 +395,8 @@
           "do": "wait",
           "text": "cheese",
           "timeout": 90,
-          "compress": true
+          "compress": true,
+          "compress_to": 1.5
         },
         {
           "do": "sleep",

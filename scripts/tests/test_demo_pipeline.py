@@ -149,9 +149,34 @@ class UiHelpersTest(unittest.TestCase):
         self.assertEqual(cap.count_matches("not xml", "x"), 0)
         self.assertEqual(cap.root_size(UI_XML), (1080, 2316))
 
+    def test_shade_open(self):
+        self.assertFalse(cap.shade_open('<node package="com.kernel.ai.debug" /><node package="com.kernel.ai.debug" />'))
+        self.assertTrue(cap.shade_open('<node package="com.android.systemui" /><node package="com.android.systemui" />'
+                                       '<node package="com.kernel.ai.debug" />'))
+        self.assertFalse(cap.shade_open(UI_XML))
+
     def test_redact_needles(self):
         self.assertEqual(cap.redact_needles(["https://cloud.example/", "Demo"]),
                          ["https://cloud.example/", "cloud.example/", "cloud.example", "Demo"])
+
+    def test_load_env_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "demo.env"
+            f.write_text("# test account\nDEMO_NC_SERVER=https://cloud.example\nexport DEMO_NC_USER='demo'\n"
+                         "DEMO_WAKE_CMD=\"python3 scripts/demo_wake.py --source X\"\n\nnot a line\n")
+            env = {"DEMO_NC_USER": "already-set"}
+            self.assertEqual(cap.load_env_file(f, env), ["DEMO_NC_SERVER", "DEMO_WAKE_CMD"])
+            self.assertEqual(env, {"DEMO_NC_USER": "already-set", "DEMO_NC_SERVER": "https://cloud.example",
+                                   "DEMO_WAKE_CMD": "python3 scripts/demo_wake.py --source X"})
+            self.assertEqual(cap.load_env_file(Path(tmp) / "missing.env", {}), [])
+
+    def test_intro_typing_is_sped_up_with_a_marker(self):
+        data = cap.load_shots()
+        by_id = {s["id"]: s for s in data["shots"]}
+        for sid in data["intro_order"]:
+            for st in by_id[sid]["steps"]:
+                if st["do"] == "type":
+                    self.assertTrue(st.get("compress") and st.get("compress_to", 9) <= 1.0, sid)
 
     def test_every_shot_starts_with_the_sync_anchor(self):
         for shot in cap.load_shots()["shots"]:
@@ -333,6 +358,25 @@ class RunnerTest(unittest.TestCase):
         with unittest.mock.patch("time.sleep"):
             runner.run_step({"do": "wait", "text": "cheese", "timeout": 5})
         self.assertEqual(log.redact, [[0, 0, 1080, 90]])
+
+
+class WakeScriptTest(unittest.TestCase):
+    def test_broadcast_uses_the_debug_receiver_and_approved_volume(self):
+        import demo_wake
+        args = demo_wake.broadcast_args("demo-s01-1-wake", "natural_wake", 9)
+        self.assertEqual(args[:7], ["shell", "am", "broadcast", "-n", demo_wake.RECEIVER, "-a", demo_wake.ACTION])
+        self.assertIn("natural_wake", args)
+        self.assertEqual(args[args.index("volume_index") + 1], "9")
+        self.assertTrue(demo_wake.RECEIVER.startswith("com.kernel.ai.debug/"))
+
+    def test_broadcast_outcome(self):
+        import demo_wake
+        # Shape seen on the S21 when the app was in the background.
+        self.assertEqual(demo_wake.broadcast_outcome(
+            'Broadcasting: Intent { ... }\nBroadcast completed: result=1, data="audio_focus_denied"\n'),
+            (1, "audio_focus_denied"))
+        self.assertEqual(demo_wake.broadcast_outcome("Broadcast completed: result=0\n"), (0, ""))
+        self.assertEqual(demo_wake.broadcast_outcome("garbage")[0], None)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not installed")

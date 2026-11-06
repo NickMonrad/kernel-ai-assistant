@@ -104,10 +104,23 @@ Prerequisites on the capture host: `adb`, `scrcpy` 3.0 or newer (tested with 5.0
 
 1. Install the RC build on both devices, apply the device setup above, then check the plan:
    `python3 scripts/demo_capture.py --dry-run --shots intro`
-2. Record (one MP4 per shot plus `manifest.json`; `--out` must be outside the repo):
-   `DEMO_NC_SERVER=<test server host> DEMO_NC_USER=<test username> python3 scripts/demo_capture.py --serial RFCW11265XH --second-serial R5CR605B71K --package <rc package> --commit <rc sha> --out ~/jandal-demo/<rc> --shots intro`
-   S01 also needs `DEMO_WAKE_CMD`, the host command that plays the wake and command fixtures from the S21 (the #1329 J10 path). S07A/S07B refuse to record without `DEMO_NC_SERVER` and `DEMO_NC_USER`; the runner records the screen bounds of every node showing either value, and the edit step blurs them. Re-take a model shot with `--shots S04 --take 2` (at most 3).
-3. Render, choosing the end card:
+2. Put the private values in `~/.config/jandal-demo/demo.env` (outside the repo; the runner loads it, and anything already set in the environment wins):
+
+   ```sh
+   mkdir -p ~/.config/jandal-demo && chmod 700 ~/.config/jandal-demo
+   cat > ~/.config/jandal-demo/demo.env <<'EOF'
+   DEMO_NC_SERVER=https://<test nextcloud host>
+   DEMO_NC_USER=<test nextcloud username>
+   DEMO_WAKE_CMD=python3 scripts/demo_wake.py --source R5CR605B71K
+   EOF
+   chmod 600 ~/.config/jandal-demo/demo.env
+   ```
+
+   `scripts/demo_wake.py` plays the approved `natural_wake` then `qwen_command` fixtures from the S21's debug app at volume 9/15 (`docs/testing/acoustic-stimulus-source.md`). For S01 the S21 sits beside the S23U as in #1403/#1410, with "Listen for Hey Jandal" on.
+3. Record (one MP4 per shot plus `manifest.json`; `--out` must be outside the repo):
+   `python3 scripts/demo_capture.py --serial RFCW11265XH --second-serial R5CR605B71K --package <rc package> --commit <rc sha> --out ~/jandal-demo/<rc> --shots intro`
+   S01 needs `DEMO_WAKE_CMD`, and S07A/S07B need `DEMO_NC_SERVER` and `DEMO_NC_USER`, from the env file above. S07A/S07B refuse to record without `DEMO_NC_SERVER` and `DEMO_NC_USER`; the runner records the screen bounds of every node showing either value, and the edit step blurs them. Re-take a model shot with `--shots S04 --take 2` (at most 3).
+4. Render, choosing the end card:
    `python3 scripts/demo_edit.py --clips ~/jandal-demo/<rc> --out ~/jandal-demo/<rc>/intro.mp4 --end-card beta [--pick S04=2] [--icon icon.png]`
    Use `--end-card launch` once the Play listing is public. This also writes `intro.edl.json`: every cut, every speed-up and its factor, every blurred region, the end-card variant and the build provenance. Check it with the video, and check S07 frame by frame for anything the blur missed.
 
@@ -138,3 +151,4 @@ Later decisions (Nick, 4 Nov 2026):
 8. **S03** keeps both the timer and the alarm; the typing is sped up, with the marker, to fit.
 9. **S06 caption** shortened to "Online when you ask. No account needed." so it renders at full size.
 10. **S07's second client** is the Jandal app on the S21 (not the Nextcloud web view).
+11. **Typing is sped up in every shot** (to about 1 s, with the marker), as are the weather and sync waits, so the cut fits 60 s. Measured on the S23U, real-time typing alone took ~8 s per request.
