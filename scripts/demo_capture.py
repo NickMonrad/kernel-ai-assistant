@@ -438,6 +438,11 @@ class ShotRunner:
         for _ in range(attempts):
             xml = self.dump()
             if all(find_node(xml, text=t) for t in ROOT_TABS):
+                # Always start from Actions: on the S23U the Chats tab ignores taps while
+                # Tools is selected (#1743), and both other tabs work from Actions.
+                if not find_node(xml, desc="Run quick action"):
+                    self.d.tap_xy(*find_node(xml, text="Actions"))
+                    time.sleep(0.8)
                 return
             self.d.run("shell", "input", "keyevent", "KEYCODE_BACK")
             time.sleep(0.8)
