@@ -5022,6 +5022,23 @@ class QuickIntentRouter(
     // ── Parameter parsing helpers ─────────────────────────────────────────────
 
     companion object {
+        private val TRAILING_ALARM_LABEL_REGEX = Regex(
+            """\bfor\s+(.+?)(?=\s+(?:at|on|by|from|for|tomorrow|today|tonight|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|$)""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX = Regex(
+            """^(?:(?:the|this|next|every)(?:\s+|$))+""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_ARTICLE_REGEX = Regex(
+            """^(?:the|an?)\s+""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_TEMPORAL_PREFIX_REGEX = Regex(
+            """^(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun|morning|afternoon|evening|night|weekend|weekdays?|week|noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\b|$)""",
+            RegexOption.IGNORE_CASE,
+        )
+
         /**
          * Intent names that carry no user-supplied parameters and are safe to execute
          * without confirmation once the classifier confidence is at or above [FAST_PATH_THRESHOLD].
@@ -5164,17 +5181,21 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             )
             val labelMatch = labelRegex.find(cleaned)
-            val trailingForLabelCandidate = Regex(
-                """\bfor\s+(.+?)(?=\s+(?:at|on|by|from|for|tomorrow|today|tonight|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|$)""",
-                RegexOption.IGNORE_CASE,
-            ).findAll(cleaned).lastOrNull { it.range.first > match.range.last }?.groupValues?.get(1)?.trim()
-            val trailingForLabel = trailingForLabelCandidate?.takeIf { candidate ->
-                val startsWithDay = dayRegex.find(candidate)?.range?.first == 0
-                val startsWithTime = Regex(
-                    """^\d{1,2}(?::\d{2})?\s*(?:am|pm)?(?:\b|$)""",
-                    RegexOption.IGNORE_CASE,
-                ).containsMatchIn(candidate)
-                !startsWithDay && !startsWithTime
+            val trailingForLabelCandidate = TRAILING_ALARM_LABEL_REGEX
+                .findAll(cleaned)
+                .firstOrNull { it.range.first > match.range.last }
+                ?.groupValues?.get(1)?.trim()
+            val trailingForLabel = trailingForLabelCandidate?.let { candidate ->
+                val temporalCandidate = candidate
+                    .replace(ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX, "")
+                    .trim()
+                val normalizedLabel = candidate
+                    .replace(ALARM_LABEL_ARTICLE_REGEX, "")
+                    .trim()
+                normalizedLabel.takeIf {
+                    temporalCandidate.isNotEmpty() &&
+                        !ALARM_LABEL_TEMPORAL_PREFIX_REGEX.containsMatchIn(temporalCandidate)
+                }
             }
             val namedLabel = labelMatch?.groupValues?.get(1)?.trim()
             when {

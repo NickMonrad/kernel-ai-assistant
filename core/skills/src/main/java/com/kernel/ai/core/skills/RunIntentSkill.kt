@@ -181,8 +181,8 @@ class RunIntentSkill @Inject constructor(
         }
         appendLine("Excluded:")
         MODEL_EXCLUDED_INTENTS.forEach { (intent, reason) -> appendLine("$intent: $reason") }
-        appendLine("Alarm: use set_alarm for clock-time alarms, wake-ups, or reminders at a time; pass time/day as said, and include label only when the user explicitly names the alarm. Reminders in X minutes/seconds use set_timer.")
-        appendLine("Never infer an alarm label from its time or date; omit label when the user does not name one.")
+        appendLine("Alarm: use set_alarm for clock-time alarms, wake-ups, or reminders at a time; pass time/day as said. A label may be a name given with called/named/labelled or a purpose after 'for' (for example, for work, for my flight, or for meds); never infer one from a time, day, or part of day. Reminders in X minutes/seconds use set_timer.")
+        appendLine("Never use a time, day, or part of day as an alarm label.")
         appendLine("Calendar: create_calendar_event for event requests; preserve relative dates, use HH:MM, and set duration_minutes from start/end.")
         appendLine("Never claim alarm/calendar success without a successful tool result; for alarms, issue only the tool call.")
         appendLine("Lists and notes: retrieve saved contents with get_list_items/list_notes; never use search_memory to answer list-content requests.")
@@ -194,7 +194,7 @@ class RunIntentSkill @Inject constructor(
     override val compactInstructions: String = buildString {
         appendLine("run_intent: use one exact catalogue intent_name and a JSON object string of parameters.")
         appendLine("After successful load_skill, call run_intent once for the original request before replying.")
-        appendLine("For set_alarm, include label only when the user explicitly names the alarm; never infer it from the time or date.")
+        appendLine("For set_alarm, label may be a name given with called/named/labelled or a purpose after 'for'; never use a time, day, or part of day as the label.")
         appendLine("bulk_add_to_list: include all items in one JSON array and the requested list_name.")
         appendLine("Callable intents and parameter hints:")
         MODEL_ACTION_CATEGORIES.forEach { category ->

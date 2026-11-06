@@ -349,38 +349,27 @@ class QuickIntentRouterTest {
             assertEquals("gym", intent.params["label"])
         }
 
-        @Test
-        fun `should omit inferred alarm labels and preserve named or trailing labels`() {
-            val unlabeled = regexOnlyRouter.route("set an alarm for 7am tomorrow")
-            assertRegexMatch(unlabeled, "set_alarm", "set an alarm for 7am tomorrow")
+        @ParameterizedTest(name = "No inferred label: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#alarmPhrasesWithoutLabels")
+        fun `should not infer alarm labels from time or date phrases`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_alarm", input)
             assertFalse(
-                (unlabeled as QuickIntentRouter.RouteResult.RegexMatch).intent.params.containsKey("label"),
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params.containsKey("label"),
+                "Expected no alarm label for '$input'",
             )
-            assertFalse(QuickIntentRouter.parseAlarmTime("for 7am tomorrow").containsKey("label"))
+        }
 
-            val wakeAlarm = regexOnlyRouter.route("wake me up at 6:30")
-            assertRegexMatch(wakeAlarm, "set_alarm", "wake me up at 6:30")
-            assertFalse((wakeAlarm as QuickIntentRouter.RouteResult.RegexMatch).intent.params.containsKey("label"))
-            listOf("alarm at 7 for tomorrow", "alarm at 7 for Monday").forEach { phrase ->
-                val dateAfterFor = regexOnlyRouter.route(phrase)
-                assertRegexMatch(dateAfterFor, "set_alarm", phrase)
-                assertFalse((dateAfterFor as QuickIntentRouter.RouteResult.RegexMatch).intent.params.containsKey("label"))
-            }
-            assertFalse(QuickIntentRouter.parseAlarmTime("7am for tomorrow").containsKey("label"))
-
-            val called = regexOnlyRouter.route("set an alarm for 7am tomorrow called gym")
-            assertRegexMatch(called, "set_alarm", "set an alarm for 7am tomorrow called gym")
-            assertEquals("gym", (called as QuickIntentRouter.RouteResult.RegexMatch).intent.params["label"])
-
-            val trailingForPhrase = "set an alarm for 6:30am for work"
-            val trailingFor = regexOnlyRouter.route(trailingForPhrase)
-            assertRegexMatch(trailingFor, "set_alarm", trailingForPhrase)
-            assertEquals("work", (trailingFor as QuickIntentRouter.RouteResult.RegexMatch).intent.params["label"])
-            assertEquals("work", QuickIntentRouter.parseAlarmTime("for 6:30am for work")["label"])
-
-            val labelled = regexOnlyRouter.route("alarm at 7 tomorrow labelled school run")
-            assertRegexMatch(labelled, "set_alarm", "alarm at 7 tomorrow labelled school run")
-            assertEquals("school run", (labelled as QuickIntentRouter.RouteResult.RegexMatch).intent.params["label"])
+        @ParameterizedTest(name = "Alarm label: \"{0}\" → {1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#alarmPhrasesWithLabels")
+        fun `should preserve named and purpose alarm labels`(input: String, expectedLabel: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_alarm", input)
+            assertEquals(
+                expectedLabel,
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["label"],
+                "label for '$input'",
+            )
         }
 
         @Test
@@ -2924,7 +2913,39 @@ class QuickIntentRouterTest {
             Arguments.of("set alarm for 9am sat", "9", "0", "saturday"),
             Arguments.of("set an alarm for 7:30am wed", "7", "30", "wednesday"),
             Arguments.of("remind me tomorrow at 9", "9", "0", "tomorrow"),
+            Arguments.of("set an alarm at 19:00 friday", "19", "0", "friday"),
+            Arguments.of("wake me up at 6:30 tomorrow", "6", "30", "tomorrow"),
         )
+
+        @JvmStatic
+        fun alarmPhrasesWithoutLabels(): Stream<Arguments> = Stream.of(
+            Arguments.of("Set an alarm for 7am tomorrow"),
+            Arguments.of("wake me up at 6:30"),
+            Arguments.of("wake me up at 6:30 tomorrow"),
+            Arguments.of("set an alarm at 7 for the morning"),
+            Arguments.of("set an alarm at 7 for tonight"),
+            Arguments.of("set an alarm at 7am for the weekend"),
+            Arguments.of("set an alarm at 7am for next week"),
+            Arguments.of("set an alarm at 7am for weekdays"),
+            Arguments.of("set an alarm at 7am for next monday"),
+            Arguments.of("set an alarm at 7am for this friday"),
+            Arguments.of("set an alarm at 19:00 friday"),
+        )
+
+        @JvmStatic
+        fun alarmPhrasesWithLabels(): Stream<Arguments> = Stream.of(
+            Arguments.of("Set an alarm for 7am called gym", "gym"),
+            Arguments.of("set an alarm for 7am tomorrow called gym", "gym"),
+            Arguments.of("set an alarm at 7 named gym", "gym"),
+            Arguments.of("set an alarm at 7 labelled school run", "school run"),
+            Arguments.of("alarm at 7 tomorrow labelled school run", "school run"),
+            Arguments.of("set an alarm for 6:30am for work", "work"),
+            Arguments.of("set an alarm at 8 for the school run", "school run"),
+            Arguments.of("wake me at 5 for the airport", "airport"),
+            Arguments.of("set an alarm at 7am for my flight", "my flight"),
+            Arguments.of("set an alarm at 7am for work for the team", "work"),
+        )
+
 
         // ── Timer ─────────────────────────────────────────────────────────────
 
