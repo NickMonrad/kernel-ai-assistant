@@ -372,6 +372,17 @@ class QuickIntentRouterTest {
             )
         }
 
+        @ParameterizedTest(name = "Weekday in purpose is not a date: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#alarmPhrasesWithWeekdayLabels")
+        fun `should not extract weekdays from purpose labels`(input: String, expectedLabel: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_alarm", input)
+
+            val params = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+            assertEquals(expectedLabel, params["label"])
+            assertFalse(params.containsKey("day"), "Expected no alarm day from purpose '$input'")
+        }
+
         @Test
         fun `should recover compact alarm times`() {
             val result = regexOnlyRouter.route("set an alarm for 730am")
@@ -2929,6 +2940,13 @@ class QuickIntentRouterTest {
             Arguments.of("set an alarm at 7am for weekdays"),
             Arguments.of("set an alarm at 7am for next monday"),
             Arguments.of("set an alarm at 7am for this friday"),
+            Arguments.of("set an alarm at 7am for every day"),
+            Arguments.of("set an alarm at 7am for daily"),
+            Arguments.of("set an alarm at 7am for everyday"),
+            Arguments.of("set an alarm at 7am for weekends"),
+            Arguments.of("set an alarm at 7am for nights"),
+            Arguments.of("set an alarm at 7am for the day"),
+            Arguments.of("set an alarm at 7am for the next day"),
             Arguments.of("set an alarm at 19:00 friday"),
         )
 
@@ -2944,6 +2962,24 @@ class QuickIntentRouterTest {
             Arguments.of("wake me at 5 for the airport", "airport"),
             Arguments.of("set an alarm at 7am for my flight", "my flight"),
             Arguments.of("set an alarm at 7am for work for the team", "work"),
+            Arguments.of("set an alarm at 7am for the morning run", "morning run"),
+            Arguments.of("set an alarm at 7am for morning run", "morning run"),
+            Arguments.of("set an alarm at 7am for night shift", "night shift"),
+            Arguments.of("set an alarm at 7am for weekend brunch", "weekend brunch"),
+            Arguments.of("set an alarm at 7am for the noon meeting", "noon meeting"),
+            Arguments.of("set an alarm at 7am for the evening flight", "evening flight"),
+            Arguments.of("set an alarm at 7am for midnight feed", "midnight feed"),
+            Arguments.of("set an alarm at 7am for the 8am train", "8am train"),
+            Arguments.of("set an alarm at 7am for Sunday school", "sunday school"),
+            Arguments.of("set an alarm at 7am for wednesday yoga", "wednesday yoga"),
+            Arguments.of("set an alarm at 7am for Monday's meeting", "monday's meeting"),
+        )
+
+        @JvmStatic
+        fun alarmPhrasesWithWeekdayLabels(): Stream<Arguments> = Stream.of(
+            Arguments.of("set an alarm at 7am for Sunday school", "sunday school"),
+            Arguments.of("set an alarm at 7am for wednesday yoga", "wednesday yoga"),
+            Arguments.of("set an alarm at 7am for Monday's meeting", "monday's meeting"),
         )
 
 

@@ -5023,7 +5023,7 @@ class QuickIntentRouter(
 
     companion object {
         private val TRAILING_ALARM_LABEL_REGEX = Regex(
-            """\bfor\s+(.+?)(?=\s+(?:at|on|by|from|for|tomorrow|today|tonight|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|$)""",
+            """\bfor\s+(.+?)(?=\s+(?:at|on|by|from|for|tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|$)""",
             RegexOption.IGNORE_CASE,
         )
         private val ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX = Regex(
@@ -5034,10 +5034,16 @@ class QuickIntentRouter(
             """^(?:the|an?)\s+""",
             RegexOption.IGNORE_CASE,
         )
-        private val ALARM_LABEL_TEMPORAL_PREFIX_REGEX = Regex(
-            """^(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun|morning|afternoon|evening|night|weekend|weekdays?|week|noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\b|$)""",
+        private val ALARM_LABEL_TEMPORAL_ONLY_REGEX = Regex(
+            """^(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun|morning|afternoon|evening|nights?|weekend|weekends|weekdays?|week|weeks|day|days|daily|everyday|noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?:morning|afternoon|evening|night))?$""",
             RegexOption.IGNORE_CASE,
         )
+        private fun isTemporalAlarmLabelCandidate(candidate: String): Boolean {
+            val temporalCandidate = candidate
+                .replace(ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX, "")
+                .trim()
+            return temporalCandidate.isEmpty() || ALARM_LABEL_TEMPORAL_ONLY_REGEX.matches(temporalCandidate)
+        }
 
         /**
          * Intent names that carry no user-supplied parameters and are safe to execute
@@ -5168,10 +5174,20 @@ class QuickIntentRouter(
                 """\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun)\b""",
                 RegexOption.IGNORE_CASE,
             )
-            val dayMatch = dayRegex.find(cleaned)
+            val trailingForLabelMatch = TRAILING_ALARM_LABEL_REGEX
+                .findAll(cleaned)
+                .firstOrNull { it.range.first > match.range.last }
+            val trailingForLabelCandidate = trailingForLabelMatch?.groups?.get(1)?.value?.trim()
+            val trailingForLabelRange = trailingForLabelMatch?.groups?.get(1)?.range
+            val dayMatch = dayRegex.findAll(cleaned).firstOrNull { candidateDay ->
+                val isInsidePurpose = trailingForLabelRange?.contains(candidateDay.range.first) == true
+                !isInsidePurpose ||
+                    trailingForLabelCandidate?.let { isTemporalAlarmLabelCandidate(it) } == true
+            }
             if (dayMatch != null) {
                 params["day"] = normalizeDayName(dayMatch.groupValues[1].lowercase())
             }
+
 
             // Extract label from "called X", "named X", "labeled X", "labelled X" — mirrors parseTimerDuration.
             // Non-greedy capture with lookahead to stop before time/date keywords so
@@ -5181,22 +5197,10 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             )
             val labelMatch = labelRegex.find(cleaned)
-            val trailingForLabelCandidate = TRAILING_ALARM_LABEL_REGEX
-                .findAll(cleaned)
-                .firstOrNull { it.range.first > match.range.last }
-                ?.groupValues?.get(1)?.trim()
-            val trailingForLabel = trailingForLabelCandidate?.let { candidate ->
-                val temporalCandidate = candidate
-                    .replace(ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX, "")
-                    .trim()
-                val normalizedLabel = candidate
-                    .replace(ALARM_LABEL_ARTICLE_REGEX, "")
-                    .trim()
-                normalizedLabel.takeIf {
-                    temporalCandidate.isNotEmpty() &&
-                        !ALARM_LABEL_TEMPORAL_PREFIX_REGEX.containsMatchIn(temporalCandidate)
-                }
-            }
+            val trailingForLabel = trailingForLabelCandidate
+                ?.takeUnless { isTemporalAlarmLabelCandidate(it) }
+                ?.replace(ALARM_LABEL_ARTICLE_REGEX, "")
+                ?.trim()
             val namedLabel = labelMatch?.groupValues?.get(1)?.trim()
             when {
                 !namedLabel.isNullOrBlank() -> params["label"] = namedLabel
