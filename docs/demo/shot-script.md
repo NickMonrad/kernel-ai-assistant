@@ -28,7 +28,7 @@ This script is the source of truth for the shot list. `docs/demo/shots.json` is 
 | Status bar | One UI ignores SystemUI demo mode (see `docs/play-store/screenshots/README.md`). Keep the real status bar: it carries the airplane icon that proves the offline claim. Set the device clock to automatic and avoid shots where the time reads oddly |
 | Seed data | A "shopping list" with milk and bread (the app files "grocery list" under "shopping list", see `NativeIntentHandler`). Seed it by typing "Add milk and bread to my shopping list" before recording. No other lists, notes or memories at the start. Calendar seeded with one invented event ("Netball practice", Thursday 5pm) |
 
-## Intro video (target ~55 s, hard cap 60 s)
+## Intro video (about 70 s, hard cap 70 s)
 
 Only the first ~30 s autoplay on Play. The offline block comes first so the hook and the offline claim land inside it; the online shots follow. Framing: the assistant and its AI run entirely on the phone, and Jandal can also reach online services when you ask, with no account or login (weather, Wikipedia, currency rates). Lists are a headline feature, so they come second and come back in S07 with optional, self-hosted Nextcloud sync.
 
@@ -132,13 +132,13 @@ How the runner keeps the cut honest and in sync:
 - **Fresh screen reads.** `uiautomator dump` can exit 0 without writing a new file; the runner deletes the old dump first, checks the output and retries, so it never acts on a stale screen. Each read takes ~2.5–3 s on the S23U, which is why taps and typing are slow in real time.
 - **Result checks.** Quick-action shots wait for a *new* confirmation (`"new": true`): Actions history keeps earlier takes' results, so a plain text wait would pass on an old one. A missing result fails the take, and the edit step never picks a failed take.
 - **Blur.** For S07A/S07B every screen read (including inside waits and holds) is scanned for the Nextcloud server and username, with and without `https://`. Boxes are stored in screen pixels with the screen and clip sizes; the edit step scales them, or refuses if the clip is rotated.
-- **Length.** `demo_edit.py` refuses a full cut over 60 s (`--allow-over-cap` to override) and lists the longest shots. `--shots S03,S06` renders a preview of some shots without the end card.
+- **Length.** `demo_edit.py` refuses a full cut over 70 s (`--allow-over-cap` to override) and lists the longest shots. `--shots S03,S06` renders a preview of some shots without the end card.
 
 ## Decisions for Nick
 
 Recorded from Nick's review (4 Nov 2026):
 
-1. **Intro order:** offline block first (S01 Hey Jandal, S02 lists, S03 timer and alarm, S04 memory, S05 persona chat), then online (S06 weather, S07 Nextcloud sync), then the S08 end card. Target ~55 s, cap 60 s.
+1. **Intro order:** offline block first (S01 Hey Jandal, S02 lists, S03 timer and alarm, S04 memory, S05 persona chat), then online (S06 weather, S07 Nextcloud sync), then the S08 end card. Target ~55 s, cap 60 s (raised to 70 s, decision 12).
 2. **Weather goes in the intro.** Framing: the assistant and AI run entirely on the phone; Jandal can also reach online services when you ask, with no account or login needed (weather, Wikipedia, currency rates).
 3. **Lists are a headline feature:** more time early in the cut, plus Nextcloud sync framed as optional and self-hosted.
 4. **Captions only** for the first cut; add the Cori voiceover once #1474 clears provenance.
@@ -151,4 +151,5 @@ Later decisions (Nick, 4 Nov 2026):
 8. **S03** keeps both the timer and the alarm; the typing is sped up, with the marker, to fit.
 9. **S06 caption** shortened to "Online when you ask. No account needed." so it renders at full size.
 10. **S07's second client** is the Jandal app on the S21 (not the Nextcloud web view).
-11. **Typing is sped up in every shot** (to about 1 s, with the marker), as are the weather and sync waits, so the cut fits 60 s. Measured on the S23U, real-time typing alone took ~8 s per request.
+11. **Typing is sped up in every shot** (to about 1 s, with the marker), as are the weather and sync waits, to shorten the cut. Measured on the S23U, real-time typing alone took ~8 s per request.
+12. **Cap raised to 70 s.** With typing sped up, the measured shots put the full cut at about 70 s (each screen read takes ~2.5 s on the S23U). The offline block now runs to about 0:48, but the airplane-mode badge and the S01-S03 hook are on screen within the first 30 s that autoplay on Play. The Time column in the table above is the original plan; measured shot lengths (S23U, Nov 2026) are about S01 8 s, S02 11 s, S03 8 s, S04 12 s, S05 9 s, S06 6 s, S07 11 s, end card 5 s.
