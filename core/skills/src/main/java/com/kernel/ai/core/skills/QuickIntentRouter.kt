@@ -5164,22 +5164,37 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             )
             val labelMatch = labelRegex.find(cleaned)
-            if (labelMatch != null) {
-                params["label"] = labelMatch.groupValues[1].trim()
-            } else {
-                val earliestStructuredIndex = listOfNotNull(
-                    dayMatch?.range?.first,
-                    match.range.first.takeIf { it > 0 },
-                ).minOrNull()
-                val implicitLabel = earliestStructuredIndex
-                    ?.let { cleaned.substring(0, it).trim() }
-                    ?.replace(Regex("""^(?:for|on|at|by)\s+"""), "")
-                    ?.replace(Regex("""\s+(?:for|on|at|by)$"""), "")
-                    ?.replace(Regex("""^(?:the|an?)\s+"""), "")
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                if (implicitLabel != null) {
-                    params["label"] = implicitLabel
+            val trailingForLabelCandidate = Regex(
+                """\bfor\s+(.+?)(?=\s+(?:at|on|by|from|for|tomorrow|today|tonight|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|$)""",
+                RegexOption.IGNORE_CASE,
+            ).findAll(cleaned).lastOrNull { it.range.first > match.range.last }?.groupValues?.get(1)?.trim()
+            val trailingForLabel = trailingForLabelCandidate?.takeIf { candidate ->
+                val startsWithDay = dayRegex.find(candidate)?.range?.first == 0
+                val startsWithTime = Regex(
+                    """^\d{1,2}(?::\d{2})?\s*(?:am|pm)?(?:\b|$)""",
+                    RegexOption.IGNORE_CASE,
+                ).containsMatchIn(candidate)
+                !startsWithDay && !startsWithTime
+            }
+            val namedLabel = labelMatch?.groupValues?.get(1)?.trim()
+            when {
+                !namedLabel.isNullOrBlank() -> params["label"] = namedLabel
+                !trailingForLabel.isNullOrBlank() -> params["label"] = trailingForLabel
+                match.range.first > 0 -> {
+                    val earliestStructuredIndex = listOfNotNull(
+                        dayMatch?.range?.first,
+                        match.range.first,
+                    ).minOrNull()
+                    val implicitLabel = earliestStructuredIndex
+                        ?.let { cleaned.substring(0, it).trim() }
+                        ?.replace(Regex("""^(?:for|on|at|by)(?:\s+|$)"""), "")
+                        ?.replace(Regex("""\s+(?:for|on|at|by)$"""), "")
+                        ?.replace(Regex("""^(?:the|an?)\s+"""), "")
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                    if (implicitLabel != null) {
+                        params["label"] = implicitLabel
+                    }
                 }
             }
 

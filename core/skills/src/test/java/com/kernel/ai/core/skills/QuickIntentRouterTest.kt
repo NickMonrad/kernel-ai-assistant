@@ -350,6 +350,40 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `should omit inferred alarm labels and preserve named or trailing labels`() {
+            val unlabeled = regexOnlyRouter.route("set an alarm for 7am tomorrow")
+            assertRegexMatch(unlabeled, "set_alarm", "set an alarm for 7am tomorrow")
+            assertFalse(
+                (unlabeled as QuickIntentRouter.RouteResult.RegexMatch).intent.params.containsKey("label"),
+            )
+            assertFalse(QuickIntentRouter.parseAlarmTime("for 7am tomorrow").containsKey("label"))
+
+            val wakeAlarm = regexOnlyRouter.route("wake me up at 6:30")
+            assertRegexMatch(wakeAlarm, "set_alarm", "wake me up at 6:30")
+            assertFalse((wakeAlarm as QuickIntentRouter.RouteResult.RegexMatch).intent.params.containsKey("label"))
+            listOf("alarm at 7 for tomorrow", "alarm at 7 for Monday").forEach { phrase ->
+                val dateAfterFor = regexOnlyRouter.route(phrase)
+                assertRegexMatch(dateAfterFor, "set_alarm", phrase)
+                assertFalse((dateAfterFor as QuickIntentRouter.RouteResult.RegexMatch).intent.params.containsKey("label"))
+            }
+            assertFalse(QuickIntentRouter.parseAlarmTime("7am for tomorrow").containsKey("label"))
+
+            val called = regexOnlyRouter.route("set an alarm for 7am tomorrow called gym")
+            assertRegexMatch(called, "set_alarm", "set an alarm for 7am tomorrow called gym")
+            assertEquals("gym", (called as QuickIntentRouter.RouteResult.RegexMatch).intent.params["label"])
+
+            val trailingForPhrase = "set an alarm for 6:30am for work"
+            val trailingFor = regexOnlyRouter.route(trailingForPhrase)
+            assertRegexMatch(trailingFor, "set_alarm", trailingForPhrase)
+            assertEquals("work", (trailingFor as QuickIntentRouter.RouteResult.RegexMatch).intent.params["label"])
+            assertEquals("work", QuickIntentRouter.parseAlarmTime("for 6:30am for work")["label"])
+
+            val labelled = regexOnlyRouter.route("alarm at 7 tomorrow labelled school run")
+            assertRegexMatch(labelled, "set_alarm", "alarm at 7 tomorrow labelled school run")
+            assertEquals("school run", (labelled as QuickIntentRouter.RouteResult.RegexMatch).intent.params["label"])
+        }
+
+        @Test
         fun `should recover compact alarm times`() {
             val result = regexOnlyRouter.route("set an alarm for 730am")
             assertRegexMatch(result, "set_alarm", "set an alarm for 730am")
