@@ -270,6 +270,8 @@ class ChatViewModel @Inject constructor(
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     private val _inputText = MutableStateFlow("")
+    private val _inputTextReplacementRevision =
+        MutableStateFlow(savedStateHandle["inputTextReplacementRevision"] ?: 0L)
     private val _error = MutableStateFlow<String?>(null)
     private val _modelInitializationError = MutableStateFlow<String?>(null)
     private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
@@ -486,6 +488,7 @@ class ChatViewModel @Inject constructor(
     private data class InputState(
         val messages: List<ChatMessage>,
         val inputText: String,
+        val inputTextReplacementRevision: Long,
         val error: String?,
         val conversationTitle: String?,
         val isSpeakingResponse: Boolean,
@@ -501,13 +504,13 @@ class ChatViewModel @Inject constructor(
     }
 
     private val inputState = combine(
-        _messages,
-        _inputText,
-        _error,
-        _conversationTitle,
+        combine(_messages, _inputText, _inputTextReplacementRevision, _error, _conversationTitle) {
+                messages, inputText, inputTextReplacementRevision, error, title ->
+            InputState(messages, inputText, inputTextReplacementRevision, error, title, false)
+        },
         _isSpeakingResponse,
-    ) { messages, inputText, error, title, isSpeakingResponse ->
-        InputState(messages, inputText, error, title, isSpeakingResponse)
+    ) { state, isSpeakingResponse ->
+        state.copy(isSpeakingResponse = isSpeakingResponse)
     }
 
     private val gatedModels: List<KernelModel> = KernelModel.entries.filter { it.isGated && it.isRequired }
@@ -595,6 +598,7 @@ class ChatViewModel @Inject constructor(
                 isGenerating = engine.isGenerating,
                 isSpeakingResponse = input.isSpeakingResponse,
                 inputText = input.inputText,
+                inputTextReplacementRevision = input.inputTextReplacementRevision,
                 error = input.error,
                 isLoadingModel = engine.isLoadingModel,
                 showThinkingProcess = showThinking,
@@ -1431,15 +1435,24 @@ class ChatViewModel @Inject constructor(
         if (_error.value != null) _error.value = null
     }
 
+    /** Applies a ViewModel-originated draft change; typing updates use [onInputChanged] instead. */
+    fun replaceInputText(text: String) {
+        onInputChanged(text)
+        val nextRevision = _inputTextReplacementRevision.value + 1L
+        _inputTextReplacementRevision.value = nextRevision
+        savedStateHandle["inputTextReplacementRevision"] = nextRevision
+    }
+
     /** Prefills the composer from a planner smart reply chip; chips never auto-submit. */
     fun onSmartReplySelected(suggestion: MealPlannerSuggestion) {
-        when (suggestion.composeMode) {
-            MealPlannerSuggestionComposeMode.REPLACE -> onInputChanged(suggestion.command)
+        val replacement = when (suggestion.composeMode) {
+            MealPlannerSuggestionComposeMode.REPLACE -> suggestion.command
             MealPlannerSuggestionComposeMode.APPEND_COMMA ->
-                onInputChanged(appendSmartReplyValue(_inputText.value, suggestion.command))
+                appendSmartReplyValue(_inputText.value, suggestion.command)
             MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING ->
-                onInputChanged(appendSmartReplyValue(stripNegationPrefixes(_inputText.value), suggestion.command))
+                appendSmartReplyValue(stripNegationPrefixes(_inputText.value), suggestion.command)
         }
+        replaceInputText(replacement)
     }
 
     private fun appendSmartReplyValue(current: String, command: String): String {
@@ -1818,7 +1831,7 @@ class ChatViewModel @Inject constructor(
         // Signal sendMessage to reset the LiteRT conversation before processing,
         // preventing stale KV-cache state from contaminating the new independent command (#1190)
         needsConversationReset = true
-        onInputChanged(normalized)
+        replaceInputText(normalized)
         sendMessage(if (speakResponse) SubmitMode.Voice else SubmitMode.Text)
     }
 
@@ -1889,7 +1902,7 @@ class ChatViewModel @Inject constructor(
         }
         stopVoicePlayback()
         suppressVoiceOutputForCurrentResponse = false
-        _inputText.value = ""
+        replaceInputText("")
         val convId = conversationId ?: return
         val isLoadSkillAbortProbeFollowUp = BuildConfig.DEBUG &&
             pendingLoadSkillAbortProbeFollowUpConversationId == convId &&
@@ -3696,7 +3709,7 @@ class ChatViewModel @Inject constructor(
                         _inputText.value.isBlank()
                     if (canInjectFollowUp) {
                         pendingLoadSkillAbortProbeFollowUpConversationId = convId
-                        _inputText.value = LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP
+                        replaceInputText(LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP)
                         Log.i(TAG, "debug_load_skill_abort_probe=follow_up_injected same_conversation=true")
                         sendMessage()
                     } else {
@@ -4112,7 +4125,7 @@ class ChatViewModel @Inject constructor(
             return
         }
         _voiceCaptureState.value = VoiceCaptureState.Processing(transcript)
-        onInputChanged(transcript)
+        replaceInputText(transcript)
         sendMessage(SubmitMode.Voice)
     }
 
@@ -4293,7 +4306,7 @@ class ChatViewModel @Inject constructor(
 
                 // 7. Clear all transient chat state for the new conversation
                 _messages.value = emptyList()
-                _inputText.value = ""
+                replaceInputText("")
                 _error.value = null
                 _conversationTitle.value = null
                 titleGenerationStarted = false

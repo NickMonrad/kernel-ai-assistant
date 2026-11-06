@@ -20,6 +20,8 @@ sealed interface ChatUiState {
         val isGenerating: Boolean,
         val isSpeakingResponse: Boolean,
         val inputText: String,
+        /** Advances only for ViewModel-originated composer replacements, not typing echoes. */
+        val inputTextReplacementRevision: Long = 0L,
         val error: String?,
         val isLoadingModel: Boolean = false,
         /** Whether to show the model's thinking process tokens in the chat UI. */

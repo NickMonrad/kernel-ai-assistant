@@ -43,6 +43,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.MutableState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -102,6 +103,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -122,8 +124,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -296,7 +300,7 @@ fun ChatScreen(
     LaunchedEffect(externalDraft) {
         if (!externalDraft.isNullOrBlank()) {
             withTimeoutOrNull(30_000L) { viewModel.isConversationReady.first { it } }
-            viewModel.onInputChanged(externalDraft)
+            viewModel.replaceInputText(externalDraft)
             showExternalDraftNotice = true
             onExternalDraftConsumed()
         }
@@ -472,7 +476,7 @@ fun ChatScreen(
                 snackbarHostState = snackbarHostState,
                 showExternalDraftNotice = showExternalDraftNotice,
                 onDiscardExternalDraft = {
-                    viewModel.onInputChanged("")
+                    viewModel.replaceInputText("")
                     showExternalDraftNotice = false
                 },
                 onCopyMessage = { content ->
@@ -1049,6 +1053,7 @@ private fun ChatContent(
             if (!isArchived) {
                 InputBar(
                     text = state.inputText,
+                    textRevision = state.inputTextReplacementRevision,
                     isGenerating = state.isGenerating,
                     voiceCaptureState = voiceCaptureState,
                     voicePlaybackState = voicePlaybackState,
@@ -1430,8 +1435,29 @@ private fun ExternalDraftNotice(onDiscard: () -> Unit) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
+internal fun rememberChatComposerDraft(
+    text: String,
+    replacementRevision: Long,
+): MutableState<TextFieldValue> {
+    val draftValue = rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(text, selection = TextRange(text.length)))
+    }
+    var appliedRevision by rememberSaveable { mutableLongStateOf(replacementRevision) }
+    LaunchedEffect(replacementRevision) {
+        if (replacementRevision != appliedRevision) {
+            if (draftValue.value.text != text) {
+                draftValue.value = TextFieldValue(text, selection = TextRange(text.length))
+            }
+            appliedRevision = replacementRevision
+        }
+    }
+    return draftValue
+}
+
+@Composable
 private fun InputBar(
     text: String,
+    textRevision: Long,
     isGenerating: Boolean,
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
@@ -1666,10 +1692,8 @@ private fun InputBar(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    var draftText by rememberSaveable { mutableStateOf(text) }
-                    LaunchedEffect(text) {
-                        if (draftText != text) draftText = text
-                    }
+                    var draftValue by rememberChatComposerDraft(text, textRevision)
+                    val draftText = draftValue.text
                     val sendEnabled = draftText.isNotBlank()
                     val showControlRow =
                         draftText.isBlank() ||
@@ -1807,10 +1831,10 @@ private fun InputBar(
                     }
                     // Primary row: full-width text field with send/cancel trailing icon
                     TextField(
-                        value = draftText,
-                        onValueChange = { newText ->
-                            draftText = newText
-                            onTextChanged(newText)
+                        value = draftValue,
+                        onValueChange = { newValue ->
+                            draftValue = newValue
+                            onTextChanged(newValue.text)
                         },
                         placeholder = { Text("Message Jandal…") },
                         modifier = Modifier.fillMaxWidth(),

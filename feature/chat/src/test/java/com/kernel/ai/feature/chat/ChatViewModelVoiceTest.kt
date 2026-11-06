@@ -275,6 +275,9 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals("You: Hello there\nJandal: Hi back", viewModel.getConversationAsText())
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals("", state.inputText)
+        assertEquals(1L, state.inputTextReplacementRevision)
         coVerify(exactly = 0) { voiceOutputController.speak(any()) }
     }
 
@@ -1092,7 +1095,30 @@ class ChatViewModelVoiceTest {
         try {
             val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
             assertEquals("generate recipes", state.inputText)
+            assertEquals(1L, state.inputTextReplacementRevision)
             coVerify(exactly = 0) { conversationRepository.addMessage(any(), any(), any(), any(), any()) }
+        } finally {
+            clearViewModel(viewModel)
+        }
+    }
+
+    @Test
+    fun `explicit draft replacement advances revision but typing echoes do not`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        try {
+            viewModel.replaceInputText("External draft")
+            advanceUntilIdle()
+            var state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals("External draft", state.inputText)
+            assertEquals(1L, state.inputTextReplacementRevision)
+
+            viewModel.onInputChanged("Typed text")
+            state = viewModel.uiState.first {
+                it is ChatUiState.Ready && it.inputText == "Typed text"
+            } as ChatUiState.Ready
+            assertEquals(1L, state.inputTextReplacementRevision)
         } finally {
             clearViewModel(viewModel)
         }
@@ -1113,6 +1139,7 @@ class ChatViewModelVoiceTest {
         try {
             val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
             assertEquals("gluten free, nut free", state.inputText)
+            assertEquals(2L, state.inputTextReplacementRevision)
         } finally {
             clearViewModel(viewModel)
         }
