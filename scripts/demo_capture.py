@@ -737,7 +737,9 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
     except CaptureError as exc:
         status, error = "failed", str(exc)
     finally:
-        time.sleep(0.5)
+        # scrcpy's clip can end up to ~3 s before the last step (measured on the S23U: static
+        # screens and the stop drop the tail), which cut the end holds; keep recording longer.
+        time.sleep(3.0)
         # SIGTERM, not SIGINT: a runner started from a non-interactive shell can inherit
         # SIGINT as ignored, and scrcpy then never finalises the MP4.
         proc.terminate()

@@ -305,6 +305,15 @@ class PlanTest(unittest.TestCase):
         self.assertEqual([s.speed for s in segs], [1.0, 3.333, 2.5, 1.0])
         self.assertEqual(len(edit.marker_windows(segs)), 2)
 
+    def test_tail_pad_fills_a_clip_that_ends_early(self):
+        seg = edit.Segment(10.0, 16.0, 1.0)
+        self.assertEqual(edit.tail_pad(seg, 14.5), 1.5)
+        self.assertEqual(edit.tail_pad(seg, 17.0), 0.0)
+        self.assertEqual(edit.tail_pad(seg, None), 0.0)
+        self.assertEqual(edit.tail_pad(edit.Segment(10.0, 16.0, 2.0), 14.0), 1.0)
+        self.assertIn("tpad=stop_mode=clone:stop_duration=1.5", edit.segment_filter(1.0, 1.5))
+        self.assertNotIn("tpad", edit.segment_filter(1.0))
+
     def test_short_wait_is_not_sped_up_but_never_slowed(self):
         segs = edit.plan_segments(self.take([{"start": 6.0, "end": 7.0}]), max_wait=2.5)
         self.assertTrue(all(s.speed == 1.0 for s in segs))

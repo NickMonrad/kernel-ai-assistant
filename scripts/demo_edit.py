@@ -239,10 +239,30 @@ def overlay_filter(caption_file: Path, caption_size: int,
     return ",".join(chain)
 
 
-def segment_filter(speed: float) -> str:
-    """Retime one segment and fit it onto the 1080 x 1920 canvas."""
+def clip_duration(clip: Path) -> float | None:
+    res = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(clip)],
+                         capture_output=True, text=True)
+    try:
+        return float(res.stdout.strip())
+    except ValueError:
+        return None
+
+
+def tail_pad(seg: "Segment", clip_end: float | None) -> float:
+    """Output seconds missing when the clip ends before the segment's planned end.
+
+    The screen is static by then (a hold), so the last frame is repeated for that time.
+    """
+    if clip_end is None or seg.src_end <= clip_end:
+        return 0.0
+    return round((seg.src_end - max(clip_end, seg.src_start)) / seg.speed, 3)
+
+
+def segment_filter(speed: float, pad: float = 0.0) -> str:
+    """Retime one segment, pad a short tail with its last frame, and fit it onto the canvas."""
+    tpad = f"tpad=stop_mode=clone:stop_duration={pad}," if pad > 0 else ""
     return (
-        f"setpts=(PTS-STARTPTS)/{speed},fps={FPS},"
+        f"setpts=(PTS-STARTPTS)/{speed},{tpad}fps={FPS},"
         f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
         f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color={BG},setsar=1"
     )
@@ -263,6 +283,7 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     if not segments:
         raise EditError(f"{shot['id']}: nothing to render")
     boxes = blur_boxes(scale_redact(take))
+    clip_end = clip_duration(clip)
     caption = work / f"{shot['id']}_caption.txt"
     caption_text, caption_size = fit_text(shot["caption"], 54)
     caption.write_text(caption_text, encoding="utf-8")
@@ -278,7 +299,7 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     for i, seg in enumerate(segments):
         seg_file = work / f"{shot['id']}_seg{i}.mp4"
         run(["ffmpeg", "-y", "-v", "error", "-ss", f"{seg.src_start:.3f}", "-to", f"{seg.src_end:.3f}",
-             "-i", str(clip), "-filter_complex", f"{blur_graph(boxes)};[pre]{segment_filter(seg.speed)}[v]",
+             "-i", str(clip), "-filter_complex", f"{blur_graph(boxes)};[pre]{segment_filter(seg.speed, tail_pad(seg, clip_end))}[v]",
              "-map", "[v]", "-an", *encode_args(), str(seg_file)])
         seg_files.append(seg_file)
     listing = work / f"{shot['id']}_segs.txt"
