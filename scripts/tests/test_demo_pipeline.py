@@ -110,6 +110,13 @@ class ShotListTest(unittest.TestCase):
             badge = edit.corner_layer("Airplane mode", "✈", font, Path(tmp) / "b.png", right=True)
             self.assertGreater(Image.open(badge).getpixel((edit.W - 60, 96))[3], 0)  # top-right pill
 
+    def test_caption_fades_in_and_out(self):
+        args = edit.styled_overlay_args(Path("j.mp4"), Path("c.png"), None, {}, seconds=8.0)
+        graph = args[args.index("-filter_complex") + 1]
+        self.assertIn("fade=in:st=0:d=0.25:alpha=1", graph)
+        self.assertIn("fade=out:st=7.750:d=0.25:alpha=1", graph)
+        self.assertNotIn("fade=out", edit.styled_overlay_args(Path("j.mp4"), Path("c.png"), None, {})[-3])
+
     def test_end_card_variants(self):
         data = json.loads(edit.SHOTS_FILE.read_text())
         beta = edit.select_end_card(data, "beta")

@@ -316,10 +316,15 @@ def corner_layer(text: str, symbol: str, symbol_font: Path, out: Path, right: bo
 
 
 def styled_overlay_args(joined: Path, caption_png: Path, badge_png: Path | None,
-                        markers: dict[tuple[float, float, int], Path]) -> list[str]:
-    """ffmpeg inputs + filter_complex placing the PNG layers over one shot."""
+                        markers: dict[tuple[float, float, int], Path], seconds: float | None = None) -> list[str]:
+    """ffmpeg inputs + filter_complex placing the PNG layers over one shot.
+
+    The caption fades in at the start and, when the shot length is known, out at the end.
+    """
     inputs = ["-i", str(joined), "-loop", "1", "-framerate", str(FPS), "-i", str(caption_png)]
-    graph = [f"[1:v]format=rgba,fade=in:st=0:d={FADE_IN}:alpha=1[cap]",
+    fade_out = (f",fade=out:st={max(0.0, seconds - FADE_IN):.3f}:d={FADE_IN}:alpha=1"
+                if seconds and seconds > 2 * FADE_IN else "")
+    graph = [f"[1:v]format=rgba,fade=in:st=0:d={FADE_IN}:alpha=1{fade_out}[cap]",
              "[0:v][cap]overlay=0:0:shortest=1[v1]"]
     last, idx = "v1", 2
     if badge_png:
@@ -415,7 +420,8 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
                      if shot.get("offline") else None)
         marker_pngs = {w: corner_layer(f"sped up {w[2]}×", "▶▶", font, work / f"{shot['id']}_marker{i}.png", right=False)
                        for i, w in enumerate(markers)}
-        run(["ffmpeg", "-y", "-v", "error", *styled_overlay_args(joined, cap_png, badge_png, marker_pngs),
+        shot_seconds = sum(s.out_len + tail_pad(s, clip_end) for s in segments)
+        run(["ffmpeg", "-y", "-v", "error", *styled_overlay_args(joined, cap_png, badge_png, marker_pngs, shot_seconds),
              "-an", *encode_args(), str(out)])
     else:  # plain drawtext captions
         run(["ffmpeg", "-y", "-v", "error", "-i", str(joined),
