@@ -24,7 +24,7 @@ This script is the source of truth for the shot list. `docs/demo/shots.json` is 
 | Theme | Dark (matches the S23U screenshot set in `docs/play-store/screenshots/`) |
 | Wake word | "Listen for Hey Jandal" on; Vosk STT; approved acoustic setup from #1403/#1410 (built-in speaker, side by side 25 cm–0.6 m, volume 9/15) |
 | Notifications | Do Not Disturb on. Clear the shade before each shot |
-| Nextcloud | A dedicated test user on Lokhor's own Nextcloud, signed in on the S23U only: Jandal via its browser login (which also leaves the S23U browser signed in), with the seeded "shopping list" synced. The server needs the Tasks app (Jandal lists sync as CalDAV task lists). Real accounts never appear on screen |
+| Nextcloud | A dedicated test user on Lokhor's own Nextcloud, signed in on the S23U only: Jandal via its browser login (Login Flow v2 ends its browser session after granting access), and separately Chrome on the S23U, signed in to the Nextcloud web UI with "Remember me" for S07B; the seeded "shopping list" synced. The server needs the Tasks app (Jandal lists sync as CalDAV task lists). Real accounts never appear on screen |
 | Status bar | One UI ignores SystemUI demo mode (see `docs/play-store/screenshots/README.md`). Keep the real status bar: it carries the airplane icon that proves the offline claim. Set the device clock to automatic and avoid shots where the time reads oddly |
 | Seed data | A "shopping list" with milk and bread (the app files "grocery list" under "shopping list", see `NativeIntentHandler`). Seed it by typing "Add milk and bread to my shopping list" before recording. No other lists, notes or memories at the start. Calendar seeded with one invented event ("Netball practice", Thursday 5pm) |
 

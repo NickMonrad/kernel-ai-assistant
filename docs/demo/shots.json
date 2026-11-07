@@ -388,7 +388,7 @@
           "env": "DEMO_NC_SERVER",
           "path": "/apps/tasks/",
           "start_here": true,
-          "note": "Jandal lists sync as CalDAV task lists; the S23U browser is signed in by the Jandal browser login"
+          "note": "Jandal lists sync as CalDAV task lists; Chrome must be signed in to the Nextcloud web UI separately (Login Flow v2 does not leave a browser session)"
         },
         {
           "do": "tap",
