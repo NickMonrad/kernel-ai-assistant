@@ -94,6 +94,22 @@ class ShotListTest(unittest.TestCase):
         self.assertIn('viewBox="0 0 108 108"', svg)  # whole jandal, not the 72-unit safe zone
         self.assertIn("#4F7942", svg)  # the launcher background green
 
+    @unittest.skipUnless(edit.pillow_available(), "Pillow not installed")
+    def test_style_b_caption_layer(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            font = edit.find_font(None)
+            out = edit.caption_layer("Remembers what matters — stored on your device", font, Path(tmp) / "c.png")
+            im = Image.open(out)
+            self.assertEqual((im.mode, im.size), ("RGBA", (edit.W, edit.H)))
+            self.assertEqual(im.getpixel((5, 5))[3], 0)  # transparent outside the pill
+            row = edit.H - 215
+            pixels = [im.getpixel((x, row)) for x in range(0, edit.W, 4)]
+            self.assertTrue(any(p[:3] == edit.GREEN and p[3] == 255 for p in pixels))  # accent bar
+            self.assertTrue(any(p[3] >= 200 and p[:3] != (255, 255, 255) for p in pixels))  # glass fill
+            badge = edit.corner_layer("Airplane mode", "✈", font, Path(tmp) / "b.png", right=True)
+            self.assertGreater(Image.open(badge).getpixel((edit.W - 60, 96))[3], 0)  # top-right pill
+
     def test_end_card_variants(self):
         data = json.loads(edit.SHOTS_FILE.read_text())
         beta = edit.select_end_card(data, "beta")

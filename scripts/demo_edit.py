@@ -239,6 +239,108 @@ def overlay_filter(caption_file: Path, caption_size: int,
     return ",".join(chain)
 
 
+# ── caption style B (Lokhor, 7 Nov 2026): dark glass pill + Jandal-green accent bar ──
+
+GREEN = (79, 121, 66)          # launcher icon background #4F7942
+GLASS = (30, 36, 42, 215)       # a touch lighter than the app's dark UI so the pill reads
+OUTLINE = (255, 255, 255, 46)  # faint hairline so the pill's shape shows on dark screens
+CAPTION_FONTS = [
+    "/usr/share/fonts/TTF/OpenSans-ExtraBold.ttf",
+    "/usr/share/fonts/truetype/open-sans/OpenSans-ExtraBold.ttf",
+    "/usr/share/fonts/open-sans/OpenSans-ExtraBold.ttf",
+]
+FADE_IN = 0.25
+
+
+def _font(paths: list[str], size: int, fallback: Path):
+    from PIL import ImageFont
+    for path in paths:
+        if Path(path).exists():
+            return ImageFont.truetype(path, size)
+    return ImageFont.truetype(str(fallback), size)
+
+
+def _pill(size: tuple[int, int], box: list[float], radius: int, shadow: bool = True):
+    from PIL import Image, ImageDraw, ImageFilter
+    layer = Image.new("RGBA", size, (0, 0, 0, 0))
+    if shadow:
+        sh = Image.new("RGBA", size, (0, 0, 0, 0))
+        ImageDraw.Draw(sh).rounded_rectangle([box[0] + 4, box[1] + 10, box[2] + 4, box[3] + 10], radius, fill=(0, 0, 0, 120))
+        layer = Image.alpha_composite(layer, sh.filter(ImageFilter.GaussianBlur(12)))
+    ImageDraw.Draw(layer).rounded_rectangle(box, radius, fill=GLASS, outline=OUTLINE, width=2)
+    return layer
+
+
+def caption_layer(text: str, symbol_font: Path, out: Path) -> Path:
+    """Full-frame transparent PNG: the caption in a glass pill with a green accent bar."""
+    from PIL import ImageDraw
+    wrapped, size = fit_text(text, 56)
+    lines = wrapped.split("\n")
+    font = _font(CAPTION_FONTS, size, symbol_font)
+    probe = ImageDraw.Draw(_pill((W, H), [0, 0, 1, 1], 1, shadow=False))
+    while max(probe.textlength(ln, font=font) for ln in lines) > W * 0.80 and font.size > 30:
+        font = _font(CAPTION_FONTS, font.size - 2, symbol_font)
+    spacing = 6
+    tw = max(probe.textlength(ln, font=font) for ln in lines)
+    th = len(lines) * (font.size + spacing) - spacing
+    bottom = H - 200
+    box = [(W - tw) / 2 - 52, bottom - th - 34, (W + tw) / 2 + 40, bottom + 30]
+    img = _pill((W, H), box, 36)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([box[0] + 18, box[1] + 22, box[0] + 28, box[3] - 22], 5, fill=GREEN)
+    y = bottom - th
+    for ln in lines:
+        lw = d.textlength(ln, font=font)
+        d.text(((W - lw) / 2 + 6, y - font.size * 0.12), ln, font=font, fill=(255, 255, 255))
+        y += font.size + spacing
+    img.save(out)
+    return out
+
+
+def corner_layer(text: str, symbol: str, symbol_font: Path, out: Path, right: bool, tint=(255, 255, 255)) -> Path:
+    """A small glass pill in a top corner: the airplane badge (right) or a sped-up marker (left)."""
+    from PIL import ImageDraw
+    font = _font(CAPTION_FONTS, 34, symbol_font)
+    sym = _font([str(symbol_font)], 34, symbol_font)  # DejaVu has ✈ and ▶
+    probe = ImageDraw.Draw(_pill((W, H), [0, 0, 1, 1], 1, shadow=False))
+    sw, tw = probe.textlength(symbol, font=sym), probe.textlength(text, font=font)
+    width = sw + 14 + tw + 56
+    x0 = W - 40 - width if right else 40
+    box = [x0, 64, x0 + width, 64 + 64]
+    img = _pill((W, H), box, 32, shadow=False)
+    d = ImageDraw.Draw(img)
+    d.text((x0 + 28, 74), symbol, font=sym, fill=GREEN if not right else tint)
+    d.text((x0 + 28 + sw + 14, 72), text, font=font, fill=tint)
+    img.save(out)
+    return out
+
+
+def styled_overlay_args(joined: Path, caption_png: Path, badge_png: Path | None,
+                        markers: dict[tuple[float, float, int], Path]) -> list[str]:
+    """ffmpeg inputs + filter_complex placing the PNG layers over one shot."""
+    inputs = ["-i", str(joined), "-loop", "1", "-framerate", str(FPS), "-i", str(caption_png)]
+    graph = [f"[1:v]format=rgba,fade=in:st=0:d={FADE_IN}:alpha=1[cap]",
+             "[0:v][cap]overlay=0:0:shortest=1[v1]"]
+    last, idx = "v1", 2
+    if badge_png:
+        inputs += ["-loop", "1", "-framerate", str(FPS), "-i", str(badge_png)]
+        graph.append(f"[{last}][{idx}:v]overlay=0:0:shortest=1[v{idx}]")
+        last, idx = f"v{idx}", idx + 1
+    for (start, end, _factor), png in markers.items():
+        inputs += ["-loop", "1", "-framerate", str(FPS), "-i", str(png)]
+        graph.append(f"[{last}][{idx}:v]overlay=0:0:shortest=1:enable='between(t,{start},{end})'[v{idx}]")
+        last, idx = f"v{idx}", idx + 1
+    return [*inputs, "-filter_complex", ";".join(graph), "-map", f"[{last}]"]
+
+
+def pillow_available() -> bool:
+    try:
+        import PIL  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def clip_duration(clip: Path) -> float | None:
     res = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(clip)],
                          capture_output=True, text=True)
@@ -307,9 +409,18 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     joined = work / f"{shot['id']}_joined.mp4"
     run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(joined)])
     out = work / f"{shot['id']}.mp4"
-    run(["ffmpeg", "-y", "-v", "error", "-i", str(joined),
-         "-vf", overlay_filter(caption, caption_size, markers, font, bool(shot.get("offline")), badge),
-         "-an", *encode_args(), str(out)])
+    if pillow_available():
+        cap_png = caption_layer(shot["caption"], font, work / f"{shot['id']}_caption.png")
+        badge_png = (corner_layer("Airplane mode", "✈", font, work / "badge.png", right=True, tint=(200, 235, 190))
+                     if shot.get("offline") else None)
+        marker_pngs = {w: corner_layer(f"sped up {w[2]}×", "▶▶", font, work / f"{shot['id']}_marker{i}.png", right=False)
+                       for i, w in enumerate(markers)}
+        run(["ffmpeg", "-y", "-v", "error", *styled_overlay_args(joined, cap_png, badge_png, marker_pngs),
+             "-an", *encode_args(), str(out)])
+    else:  # plain drawtext captions
+        run(["ffmpeg", "-y", "-v", "error", "-i", str(joined),
+             "-vf", overlay_filter(caption, caption_size, markers, font, bool(shot.get("offline")), badge),
+             "-an", *encode_args(), str(out)])
     edl = {
         "id": shot["id"],
         "take": take["take"],
