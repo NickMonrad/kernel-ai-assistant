@@ -337,7 +337,11 @@ class Device:
         self.run("shell", "input", "keyevent", "KEYCODE_WAKEUP")
         self.run("shell", "input", "swipe", "540", "1900", "540", "600", "250")
         time.sleep(1.0)
-        self.run("shell", "input", "text", pin)
+        try:
+            self.run("shell", "input", "text", pin)
+        except CaptureError:
+            # run() quotes the command in its error, which would put the PIN in logs.
+            raise CaptureError(f"{self.serial}: entering the unlock PIN failed") from None
         self.run("shell", "input", "keyevent", "KEYCODE_ENTER")
         time.sleep(1.5)
 

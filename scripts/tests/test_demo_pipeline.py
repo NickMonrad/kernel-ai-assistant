@@ -188,6 +188,21 @@ class UiHelpersTest(unittest.TestCase):
             f.write_text("S23U_PIN=not-a-pin\n")
             self.assertIsNone(cap.unlock_pin(env))
 
+    def test_unlock_failure_does_not_leak_the_pin(self):
+        dev = cap.Device("SERIAL", "pkg", adb="adb")
+
+        def fake_run(*args, timeout=30):
+            if args[:3] == ("shell", "input", "text"):
+                raise cap.CaptureError(f"adb failed ({' '.join(args)}): boom")
+            return ""
+
+        dev.run = fake_run
+        with self.assertRaises(cap.CaptureError) as ctx:
+            with unittest.mock.patch.object(cap.time, "sleep"):
+                dev.unlock("98765")
+        self.assertNotIn("98765", str(ctx.exception))
+        self.assertIsNone(ctx.exception.__cause__)
+
     def test_intro_typing_is_sped_up_with_a_marker(self):
         data = cap.load_shots()
         by_id = {s["id"]: s for s in data["shots"]}
