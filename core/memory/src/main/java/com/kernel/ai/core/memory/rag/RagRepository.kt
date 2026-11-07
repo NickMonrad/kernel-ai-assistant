@@ -433,14 +433,15 @@ class RagRepository @Inject constructor(
      *
      * Used for generic self-referential recall (e.g. "what do you remember about me") where a
      * topical similarity search has no content words to match against. Filtered to user facts
-     * (category=="user", source=="user") so agent-identity / NZ-truth / persona-seed rows are not
-     * surfaced. Returns up to [limit] entries.
+     * (category=="user") saved by the user or by the assistant on their behalf (source=="user"
+     * or "agent"), so agent-identity / NZ-truth / persona-seed rows are not surfaced. Returns
+     * up to [limit] entries.
      */
     suspend fun getAllUserCoreMemories(limit: Int = 20): List<MemorySearchResult> = withContext(Dispatchers.IO) {
         runCatching {
             memoryRepository.getAllCoreMemories()
                 .asSequence()
-                .filter { it.category == "user" && it.source == "user" }
+                .filter { it.category == "user" && (it.source == "user" || it.source == "agent") }
                 .sortedByDescending { it.lastAccessedAt }
                 .take(limit.coerceAtLeast(1))
                 .map { entity ->
@@ -472,6 +473,8 @@ class RagRepository @Inject constructor(
                 queryVector = queryVector,
                 coreTopK = topK,
                 episodicTopK = topK,
+                identityTopK = 0,
+                kiwiTopK = 0,
             )
             if (!includeSiblingContext) return@runCatching initialResults
 

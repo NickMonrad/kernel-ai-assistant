@@ -229,6 +229,14 @@ class ChatViewModelRetryStateMachineTest {
         every { skillRegistry.get("run_intent") } returns skill
     }
 
+    private fun setupSearchMemory(result: SkillResult): Skill {
+        val skill = mockk<Skill>()
+        every { skill.name } returns "search_memory"
+        coEvery { skill.execute(any()) } returns result
+        every { skillRegistry.get("search_memory") } returns skill
+        return skill
+    }
+
     /**
      * Build a generation flow that first runs [chain] (invoking real tool methods)
      * then emits the given tokens and a Complete event.
@@ -1209,6 +1217,278 @@ class ChatViewModelRetryStateMachineTest {
         coVerify(exactly = 0) {
             conversationRepository.addMessage(any(), eq("assistant"), any(), any(), any())
         }
+    }
+
+    @Test
+    fun `personal memory pre-route isolates prior history without resetting engine or enabling tools`() = runTest(dispatcher) {
+        val searchMemory = setupSearchMemory(
+            SkillResult.Success("Relevant filtered evidence:\nmy favourite coffee is a flat white"),
+        )
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
+        every { jandalPersona.nzTruths } returns emptyList()
+        every {
+            quickIntentRouter.route(any())
+        } answers { QuickIntentRouter.RouteResult.FallThrough(input = firstArg()) }
+
+        val replayedPrompts = mutableListOf<String>()
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            replayedPrompts += firstArg<String>()
+        }
+        val generationPrompts = mutableListOf<String>()
+        var generationCount = 0
+        every { inferenceEngine.generate(capture(generationPrompts)) } answers {
+            generationCount++
+            if (generationCount == 1) {
+                toolChainFlow(tokens = listOf("Earlier answer mentions Pineapple Lumps."))
+            } else {
+                toolChainFlow(tokens = listOf("Your favourite coffee is a flat white."))
+            }
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("Tell me about trains")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("What's my favourite coffee?")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val recallPrompt = generationPrompts.last()
+        assertTrue(recallPrompt.contains("Memory search is already complete"))
+        assertTrue(recallPrompt.contains("Do not call any tools"))
+        assertFalse(recallPrompt.contains("[Tool Use]"))
+        assertFalse(recallPrompt.contains("Pineapple Lumps"))
+        assertFalse(replayedPrompts.last().contains("Pineapple Lumps"))
+        coVerify(exactly = 0) { inferenceEngine.resetConversation() }
+        coVerify(exactly = 1) { searchMemory.execute(any()) }
+    }
+
+    @Test
+    fun `current conversation recall ignores memory classifier guess and preserves full history`() = runTest(dispatcher) {
+        val searchMemory = setupSearchMemory(SkillResult.DirectReply("No relevant memories found."))
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
+        every { jandalPersona.nzTruths } returns emptyList()
+        every { quickIntentRouter.route(any()) } answers {
+            val input = firstArg<String>()
+            if (input == "What did I say earlier?") {
+                QuickIntentRouter.RouteResult.FallThrough(
+                    input = input,
+                    bestGuess = QuickIntentRouter.MatchedIntent(
+                        intentName = "search_memory",
+                        params = emptyMap(),
+                        source = "classifier",
+                    ),
+                    bestConfidence = 0.9f,
+                )
+            } else {
+                QuickIntentRouter.RouteResult.FallThrough(input = input)
+            }
+        }
+
+        val replayedPrompts = mutableListOf<String>()
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            replayedPrompts += firstArg<String>()
+        }
+        val generationPrompts = mutableListOf<String>()
+        every { inferenceEngine.generate(capture(generationPrompts)) } returns toolChainFlow(
+            tokens = listOf("You said the marker was HISTORY-RECALL-604."),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("Earlier marker: HISTORY-RECALL-604")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("What did I say earlier?")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(replayedPrompts.last().contains(com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT))
+        assertTrue(replayedPrompts.last().contains("HISTORY-RECALL-604"), replayedPrompts.last())
+        assertTrue(generationPrompts.last().contains("do not call any tools"))
+        assertFalse(generationPrompts.last().contains("[Tool Use]"))
+        coVerify(exactly = 0) { searchMemory.execute(any()) }
+        coVerify(exactly = 2) { ragRepository.getRelevantContext(any(), any(), any()) }
+        verify(exactly = 0) { intentRecoveryOrchestrator.recover(any(), any(), any()) }
+    }
+
+    @Test
+    fun `CPU personal recall restores full prompt and history before the next normal turn`() = runTest(dispatcher) {
+        val searchMemory = setupSearchMemory(
+            SkillResult.Success("Relevant filtered evidence:\nmy favourite coffee is a flat white"),
+        )
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.CPU)
+        every { jandalPersona.nzTruths } returns emptyList()
+        every {
+            quickIntentRouter.route(any())
+        } answers { QuickIntentRouter.RouteResult.FallThrough(input = firstArg()) }
+
+        val replayedPrompts = mutableListOf<String>()
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            replayedPrompts += firstArg<String>()
+        }
+        val generationPrompts = mutableListOf<String>()
+        var generationCount = 0
+        every { inferenceEngine.generate(capture(generationPrompts)) } answers {
+            generationCount++
+            val response = when (generationCount) {
+                1 -> "Earlier turn answer."
+                2 -> "Your favourite coffee is a flat white."
+                else -> "Coffee pairs well with a biscuit."
+            }
+            toolChainFlow(tokens = listOf(response))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("Earlier turn marker: CPU-HISTORY-928")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("What's my favourite coffee?")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        viewModel.onInputChanged("And what should I have with it?")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val restoredPrompt = replayedPrompts.last()
+        assertTrue(restoredPrompt.contains(com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT))
+        assertTrue(restoredPrompt.contains("CPU-HISTORY-928"), restoredPrompt)
+        assertTrue(restoredPrompt.contains("What's my favourite coffee?"), restoredPrompt)
+        assertTrue(restoredPrompt.contains("Your favourite coffee is a flat white."), restoredPrompt)
+        assertTrue(generationPrompts.last().contains("And what should I have with it?"))
+        coVerify(exactly = 0) { inferenceEngine.resetConversation() }
+        coVerify(exactly = 1) { searchMemory.execute(any()) }
+    }
+
+    @Test
+    fun `combined personal recall and list action remains tool-routable`() = runTest(dispatcher) {
+        val searchMemory = setupSearchMemory(
+            SkillResult.Success("Relevant filtered evidence:\nmy favourite coffee is a flat white"),
+        )
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Added flat white to your shopping list.")
+        every { skillRegistry.get("run_intent") } returns runIntent
+        every { skillRegistry.buildNativeDeclarations() } returns "run_intent: list actions"
+        every { jandalPersona.nzTruths } returns emptyList()
+        every {
+            quickIntentRouter.route(any())
+        } answers { QuickIntentRouter.RouteResult.FallThrough(input = firstArg()) }
+
+        val generationPrompts = mutableListOf<String>()
+        every { inferenceEngine.generate(capture(generationPrompts)) } returns toolChainFlow(
+            tokens = listOf("Added flat white to your shopping list."),
+            chain = {
+                realToolSet.runIntent(
+                    "add_to_list",
+                    """{"item":"flat white","list_name":"shopping list"}""",
+                )
+            },
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("What's my favourite coffee and add it to my shopping list")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(generationPrompts.single().contains("[Tool Use]"))
+        assertFalse(generationPrompts.single().contains("Memory search is already complete"))
+        coVerify(exactly = 0) { searchMemory.execute(any()) }
+        coVerify(exactly = 1) { runIntent.execute(any()) }
+    }
+
+    @Test
+    fun `non-personal remember questions use normal retrieval instead of memory pre-route`() = runTest(dispatcher) {
+        val searchMemory = setupSearchMemory(SkillResult.DirectReply("No relevant memories found."))
+        every { jandalPersona.nzTruths } returns emptyList()
+        every {
+            quickIntentRouter.route(any())
+        } answers { QuickIntentRouter.RouteResult.FallThrough(input = firstArg()) }
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            toolChainFlow(tokens = listOf("A pavlova is a meringue-based dessert.")),
+            toolChainFlow(tokens = listOf("Waitangi Day marks the signing of Te Tiriti o Waitangi.")),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        listOf(
+            "Do you remember what a pavlova is?",
+            "What do you remember about Waitangi Day?",
+        ).forEach { query ->
+            viewModel.onInputChanged(query)
+            viewModel.sendMessage()
+            advanceUntilIdle()
+        }
+
+        assertEquals(
+            listOf(
+                "A pavlova is a meringue-based dessert.",
+                "Waitangi Day marks the signing of Te Tiriti o Waitangi.",
+            ),
+            savedContents,
+        )
+        coVerify(exactly = 0) { searchMemory.execute(any()) }
+        coVerify(exactly = 2) { ragRepository.getRelevantContext(any(), any(), any()) }
+    }
+
+    @Test
+    fun `personal recall clears a classifier confirmation before later affirmation`() = runTest(dispatcher) {
+        val searchMemory = setupSearchMemory(
+            SkillResult.Success("Filtered evidence:\nmy favourite coffee is a flat white"),
+        )
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Flashlight toggled")
+        every { skillRegistry.get("run_intent") } returns runIntent
+        every { jandalPersona.nzTruths } returns emptyList()
+
+        val uncertainIntent = QuickIntentRouter.MatchedIntent(
+            intentName = "toggle_flashlight_on",
+            params = emptyMap(),
+            source = "classifier",
+        )
+        every { quickIntentRouter.route(any()) } answers {
+            if (firstArg<String>() == "What do you remember about me?") {
+                QuickIntentRouter.RouteResult.ClassifierMatch(
+                    intent = uncertainIntent,
+                    confidence = 0.7f,
+                    needsConfirmation = true,
+                )
+            } else {
+                QuickIntentRouter.RouteResult.FallThrough(input = firstArg())
+            }
+        }
+        val generationPrompts = mutableListOf<String>()
+        var generationCount = 0
+        every { inferenceEngine.generate(capture(generationPrompts)) } answers {
+            generationCount++
+            toolChainFlow(
+                tokens = listOf(if (generationCount == 1) "I remember the saved fact." else "Yes is understood."),
+            )
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("What do you remember about me?")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        viewModel.onInputChanged("yes")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(generationPrompts.first().contains("Memory search is already complete"))
+        assertFalse(generationPrompts.first().contains("Offer to do it for you"))
+        assertFalse(generationPrompts.first().contains("toggle_flashlight_on"))
+        coVerify(exactly = 1) { searchMemory.execute(any()) }
+        coVerify(exactly = 0) { runIntent.execute(any()) }
+        assertEquals("Yes is understood.", savedContents.last())
     }
 
 }
