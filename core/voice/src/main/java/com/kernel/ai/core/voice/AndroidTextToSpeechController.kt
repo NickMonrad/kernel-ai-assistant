@@ -495,15 +495,17 @@ class AndroidTextToSpeechController @Inject constructor(
         engine.setOnUtteranceProgressListener(
             object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
-                    val speakingText = synchronized(playbackLock) {
+                    val started = synchronized(playbackLock) {
                         val resolvedUtteranceId = utteranceId ?: return@synchronized null
                         val meta = activeUtterances[resolvedUtteranceId] ?: return@synchronized null
                         val playback = activePlayback?.takeIf { it.token == meta.playbackToken }
                             ?: return@synchronized null
-                        playback.firstChunkText ?: meta.text
+                        (playback.firstChunkText ?: meta.text) to meta.text
                     }
-                    speakingText?.let { text ->
-                        _events.tryEmit(VoiceOutputEvent.SpeakingStarted(text))
+                    started?.let { (eventText, chunkText) ->
+                        // The trace wants the chunk that is starting now, not the first one.
+                        VoiceOutputTrace.speakingStarted("android_tts", chunkText)
+                        _events.tryEmit(VoiceOutputEvent.SpeakingStarted(eventText))
                     }
                 }
 
