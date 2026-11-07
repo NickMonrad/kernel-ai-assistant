@@ -726,6 +726,33 @@ def redact_values(shot: dict) -> list[str]:
     return [os.environ[n] for n in names] + optional
 
 
+def first_big_change(frames: list[bytes], fps: float, threshold: float = 25.0) -> list[float]:
+    """Times of frames that differ a lot from the opening frame (mean absolute difference).
+
+    Catches smooth transitions (e.g. a dark home page zooming into the dark app) that never
+    trip ffmpeg's frame-to-frame scene score. Small changes such as the status-bar clock
+    stay far below the threshold.
+    """
+    if not frames:
+        return []
+    ref = frames[0]
+    out = []
+    for i, frame in enumerate(frames[1:], start=1):
+        diff = sum(abs(a - b) for a, b in zip(frame, ref)) / max(1, len(ref))
+        if diff >= threshold:
+            out.append(round(i / fps, 3))
+            break
+    return out
+
+
+def gray_frames(clip: Path, seconds: float = 20.0, ffmpeg: str = "ffmpeg", fps: int = 15) -> list[bytes]:
+    w, h = 54, 96
+    res = subprocess.run([ffmpeg, "-v", "error", "-t", str(seconds), "-i", str(clip), "-vf",
+                          f"fps={fps},scale={w}:{h},format=gray", "-f", "rawvideo", "-"], capture_output=True)
+    data = res.stdout
+    return [data[i:i + w * h] for i in range(0, len(data) - w * h + 1, w * h)]
+
+
 def probe(clip: Path, ffmpeg: str = "ffmpeg") -> tuple[tuple[int, int] | None, list[float]]:
     """Clip frame size and scene-change times (for the sync anchor)."""
     ffprobe = shutil.which("ffprobe") or "ffprobe"
@@ -788,6 +815,9 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
         scrcpy_log.close()
     clip_size, changes = probe(clip) if clip.exists() else (None, [])
     lead = lead_in_from_anchor(changes, runner.anchor) if runner.anchor is not None else None
+    if lead is None and runner.anchor is not None and clip.exists():
+        # Smooth launch animation: fall back to the first frame that differs a lot from the start.
+        lead = lead_in_from_anchor(first_big_change(gray_frames(clip), 15), runner.anchor)
     if status == "ok" and lead is None:
         status, error = "failed", "could not sync the clip to the runner clock (no launch frame found)"
     screen = root_size(runner.last_xml)
@@ -800,6 +830,7 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
         "status": status,
         "error": error,
         "lead_in_s": lead,
+        "anchor_s": runner.anchor,  # runner time the launch frame was drawn (sync anchor)
         "lead_in_source": "launch frame (am start -W) vs first scene change",
         "duration_s": steps_end,
         "screen_size": list(screen) if screen else None,

@@ -183,6 +183,14 @@ class UiHelpersTest(unittest.TestCase):
         log = "[Parsed_showinfo_1 @ 0x0] n:0 pts:1 pts_time:1.573 duration:1\n... pts_time:4.268 ..."
         self.assertEqual(cap.scene_changes(log), [1.573, 4.268])
 
+    def test_first_big_change_ignores_small_changes(self):
+        base = bytes([20] * 100)
+        clock_tick = bytes([20] * 98 + [200, 200])        # a couple of pixels change
+        app = bytes([20] * 40 + [120] * 60)               # most of the frame changes
+        self.assertEqual(cap.first_big_change([base, clock_tick, clock_tick, app, app], 15), [0.2])
+        self.assertEqual(cap.first_big_change([base, clock_tick], 15), [])
+        self.assertEqual(cap.first_big_change([], 15), [])
+
     def test_count_matches_and_root_size(self):
         self.assertEqual(cap.count_matches(UI_XML, "actions"), 2)
         self.assertEqual(cap.count_matches("not xml", "x"), 0)
