@@ -21,7 +21,12 @@ internal object SherpaSpeechText {
     private const val TAG = "KernelAI"
 
     private val months = "January|February|March|April|May|June|July|August|September|October|November|December"
-    private val dayMonth = Regex("""\b([1-9]|[12]\d|3[01]) ($months)\b""")
+    private val day = "[1-9]|[12]\\d|3[01]"
+    private val dayRange = Regex("""\b($day) ?(?:-|–|to) ?($day) ($months)\b""")
+    private val dayMonth = Regex("""(?<![\d\-–] ?)\b($day) ($months)\b""")
+    /** "5–10", "9-5": a short number range reads "five to ten" (a dash would become a pause). */
+    private val numberRange = Regex("""(?<![\d.,:/\-–])(\d{1,3}) ?[-–] ?(\d{1,3})(?![\d.,:/\-–])""")
+    private val citation = Regex("""\s*\[\d{1,3}]""")
     private val brackets = Regex("""\s*[(\[]\s*([^()\[\]]*?)\s*[)\]]""")
     private val dashes = Regex("""\s*[—–]\s*""")
 
@@ -33,7 +38,7 @@ internal object SherpaSpeechText {
      * so eSpeak reads them as years.
      */
     private val plainInteger = Regex(
-        """(?<![\w.,:/$£€#+\-])(?<!\d )([1-9]\d{0,2}(?:,\d{3}){1,2}|[1-9]\d{0,5})(?![\w%°:/]|[.,]\d|-\d| \d)""",
+        """(?<![\w.,:/$£€¥₹#+\-−])(?<!\d )([1-9]\d{0,2}(?:,\d{3}){1,2}|[1-9]\d{0,5})(?![\w%°:/]|[.,]\d|-\d| \d)""",
     )
     private val terminalPause = Regex("""[.!?]["')\]]*$""")
     private val trailingSoftPause = Regex("""[,;:]+(["')\]]*)$""")
@@ -60,8 +65,15 @@ internal object SherpaSpeechText {
     internal fun prepareUnchecked(text: String, chunkEnd: Boolean): String {
         var value = text.trim()
         if (value.isEmpty()) return value
-        value = dayMonth.replace(value) { m -> "the ${m.groupValues[1]}${ordinalSuffix(m.groupValues[1].toInt())} of ${m.groupValues[2]}" }
-        value = brackets.replace(value) { m -> if (m.groupValues[1].isBlank()) "" else ", ${m.groupValues[1]}," }
+        value = dayRange.replace(value) { m ->
+            "${ordinalDay(m.groupValues[1])} to ${ordinalDay(m.groupValues[2])} of ${m.groupValues[3]}"
+        }
+        value = dayMonth.replace(value) { m -> "${ordinalDay(m.groupValues[1])} of ${m.groupValues[2]}" }
+        value = numberRange.replace(value, "$1 to $2")
+        value = citation.replace(value, "")
+        repeat(3) { // nested brackets, innermost first
+            value = brackets.replace(value) { m -> if (m.groupValues[1].isBlank()) "" else ", ${m.groupValues[1]}," }
+        }
         value = dashes.replace(value, ", ")
         value = plainInteger.replace(value) { m ->
             val raw = m.groupValues[1]
@@ -69,7 +81,8 @@ internal object SherpaSpeechText {
             if (!raw.contains(',') && raw.length == 4 && n in 1100..2099) raw else words(n)
         }
         value = value.replace(Regex(""",\s*,+"""), ",").replace(Regex("""\s+([,.;:!?])"""), "$1")
-            .replace(Regex(""",([.!?])"""), "$1").replace(Regex("""\s+"""), " ").trim()
+            .replace(Regex(""",([.!?])"""), "$1").replace(Regex("""([.!?;:]),"""), "$1")
+            .replace(Regex("""\s+"""), " ").trim().removePrefix(",").trim()
         if (chunkEnd && !terminalPause.containsMatchIn(value)) {
             value = if (trailingSoftPause.containsMatchIn(value)) {
                 trailingSoftPause.replace(value) { m -> ".${m.groupValues[1]}" }
@@ -79,6 +92,8 @@ internal object SherpaSpeechText {
         }
         return value
     }
+
+    private fun ordinalDay(raw: String): String = "the $raw${ordinalSuffix(raw.toInt())}"
 
     private fun ordinalSuffix(day: Int): String = when {
         day in 11..13 -> "th"

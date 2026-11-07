@@ -186,7 +186,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 if (verboseLoggingEnabled.value) Log.d(
                     TAG,
                     "Sherpa synthesis: ${System.currentTimeMillis() - synthStart}ms for " +
-                        "${request.text.length} chars, sid=$effectiveSid",
+                        "${spokenText.length} chars, sid=$effectiveSid",
                 )
 
                 val samples = reflectGetSamples(audioResult)
@@ -441,7 +441,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                                 break
                             }
                             if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
-                                "for ${chunk.text.length} chars, sid=$effectiveSid")
+                                "for ${spokenText.length} chars, sid=$effectiveSid")
                             audioQueue.send(
                                 SynthesizedChunk(spokenText, reflectGetSamples(audioResult), reflectGetSampleRate(audioResult)),
                             )
