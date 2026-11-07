@@ -563,7 +563,7 @@ Every feature that has user-configurable behaviour gets a dedicated settings scr
 ### 5.1 Input bar
 
 - The input bar lives at the bottom of the chat screen, docked above the navigation bar.
-- Draft text uses `rememberSaveable` local state (`draftText`) and syncs back to `ChatViewModel.onInputChanged()` on every edit. This prevents cursor jumps from whole-screen recomposition.
+- The input bar stores its draft as a saveable `TextFieldValue` (including selection) and syncs edits to `ChatViewModel.onInputChanged()`. Only explicit ViewModel replacement events (send-clear, smart replies, external drafts, voice transcripts) replace the local field; ordinary state echoes must not overwrite in-progress typing.
 - `showControlRow` (PTT / voice controls row visibility) is driven by `draftText.isBlank()`.
 - Attachment picker state lives in `InputBar` scope, not `ChatContent`.
 

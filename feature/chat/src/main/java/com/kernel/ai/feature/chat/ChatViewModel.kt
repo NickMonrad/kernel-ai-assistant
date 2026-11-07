@@ -271,7 +271,18 @@ class ChatViewModel @Inject constructor(
     private var forceMinimalContextForNextMessage: Boolean = savedStateHandle["minimalContext"] ?: false
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
-    private val _inputText = MutableStateFlow("")
+    // Saved with the replacement so a restored composer and the ViewModel agree after process
+    // death; otherwise the field would show restored text while sendMessage sees "" (#1747).
+    private val _inputText = MutableStateFlow(savedStateHandle["inputText"] ?: "")
+
+    /** A ViewModel-originated draft: the composer applies exactly [text] when [revision] changes. */
+    private data class InputTextReplacement(val revision: Long, val text: String)
+    private val _inputTextReplacement = MutableStateFlow(
+        InputTextReplacement(
+            revision = savedStateHandle["inputTextReplacementRevision"] ?: 0L,
+            text = savedStateHandle["inputTextReplacementText"] ?: "",
+        ),
+    )
     private val _error = MutableStateFlow<String?>(null)
     private val _modelInitializationError = MutableStateFlow<String?>(null)
     private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
@@ -488,6 +499,7 @@ class ChatViewModel @Inject constructor(
     private data class InputState(
         val messages: List<ChatMessage>,
         val inputText: String,
+        val inputTextReplacement: InputTextReplacement,
         val error: String?,
         val conversationTitle: String?,
         val isSpeakingResponse: Boolean,
@@ -503,13 +515,13 @@ class ChatViewModel @Inject constructor(
     }
 
     private val inputState = combine(
-        _messages,
-        _inputText,
-        _error,
-        _conversationTitle,
+        combine(_messages, _inputText, _inputTextReplacement, _error, _conversationTitle) {
+                messages, inputText, inputTextReplacement, error, title ->
+            InputState(messages, inputText, inputTextReplacement, error, title, false)
+        },
         _isSpeakingResponse,
-    ) { messages, inputText, error, title, isSpeakingResponse ->
-        InputState(messages, inputText, error, title, isSpeakingResponse)
+    ) { state, isSpeakingResponse ->
+        state.copy(isSpeakingResponse = isSpeakingResponse)
     }
 
     private val gatedModels: List<KernelModel> = KernelModel.entries.filter { it.isGated && it.isRequired }
@@ -597,6 +609,8 @@ class ChatViewModel @Inject constructor(
                 isGenerating = engine.isGenerating,
                 isSpeakingResponse = input.isSpeakingResponse,
                 inputText = input.inputText,
+                inputTextReplacementRevision = input.inputTextReplacement.revision,
+                inputTextReplacementText = input.inputTextReplacement.text,
                 error = input.error,
                 isLoadingModel = engine.isLoadingModel,
                 showThinkingProcess = showThinking,
@@ -1433,18 +1447,29 @@ class ChatViewModel @Inject constructor(
 
     fun onInputChanged(text: String) {
         _inputText.value = text
+        savedStateHandle["inputText"] = text
         if (_error.value != null) _error.value = null
+    }
+
+    /** Applies a ViewModel-originated draft change; typing updates use [onInputChanged] instead. */
+    fun replaceInputText(text: String) {
+        onInputChanged(text)
+        val next = InputTextReplacement(_inputTextReplacement.value.revision + 1L, text)
+        _inputTextReplacement.value = next
+        savedStateHandle["inputTextReplacementRevision"] = next.revision
+        savedStateHandle["inputTextReplacementText"] = next.text
     }
 
     /** Prefills the composer from a planner smart reply chip; chips never auto-submit. */
     fun onSmartReplySelected(suggestion: MealPlannerSuggestion) {
-        when (suggestion.composeMode) {
-            MealPlannerSuggestionComposeMode.REPLACE -> onInputChanged(suggestion.command)
+        val replacement = when (suggestion.composeMode) {
+            MealPlannerSuggestionComposeMode.REPLACE -> suggestion.command
             MealPlannerSuggestionComposeMode.APPEND_COMMA ->
-                onInputChanged(appendSmartReplyValue(_inputText.value, suggestion.command))
+                appendSmartReplyValue(_inputText.value, suggestion.command)
             MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING ->
-                onInputChanged(appendSmartReplyValue(stripNegationPrefixes(_inputText.value), suggestion.command))
+                appendSmartReplyValue(stripNegationPrefixes(_inputText.value), suggestion.command)
         }
+        replaceInputText(replacement)
     }
 
     private fun appendSmartReplyValue(current: String, command: String): String {
@@ -1823,7 +1848,7 @@ class ChatViewModel @Inject constructor(
         // Signal sendMessage to reset the LiteRT conversation before processing,
         // preventing stale KV-cache state from contaminating the new independent command (#1190)
         needsConversationReset = true
-        onInputChanged(normalized)
+        replaceInputText(normalized)
         sendMessage(if (speakResponse) SubmitMode.Voice else SubmitMode.Text)
     }
 
@@ -1894,7 +1919,7 @@ class ChatViewModel @Inject constructor(
         }
         stopVoicePlayback()
         suppressVoiceOutputForCurrentResponse = false
-        _inputText.value = ""
+        replaceInputText("")
         val convId = conversationId ?: return
         val isLoadSkillAbortProbeFollowUp = BuildConfig.DEBUG &&
             pendingLoadSkillAbortProbeFollowUpConversationId == convId &&
@@ -3788,7 +3813,7 @@ class ChatViewModel @Inject constructor(
                         _inputText.value.isBlank()
                     if (canInjectFollowUp) {
                         pendingLoadSkillAbortProbeFollowUpConversationId = convId
-                        _inputText.value = LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP
+                        replaceInputText(LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP)
                         Log.i(TAG, "debug_load_skill_abort_probe=follow_up_injected same_conversation=true")
                         sendMessage()
                     } else {
@@ -4204,7 +4229,7 @@ class ChatViewModel @Inject constructor(
             return
         }
         _voiceCaptureState.value = VoiceCaptureState.Processing(transcript)
-        onInputChanged(transcript)
+        replaceInputText(transcript)
         sendMessage(SubmitMode.Voice)
     }
 
@@ -4385,7 +4410,7 @@ class ChatViewModel @Inject constructor(
 
                 // 7. Clear all transient chat state for the new conversation
                 _messages.value = emptyList()
-                _inputText.value = ""
+                replaceInputText("")
                 _error.value = null
                 _conversationTitle.value = null
                 titleGenerationStarted = false

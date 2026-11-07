@@ -275,6 +275,9 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals("You: Hello there\nJandal: Hi back", viewModel.getConversationAsText())
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals("", state.inputText)
+        assertEquals(1L, state.inputTextReplacementRevision)
         coVerify(exactly = 0) { voiceOutputController.speak(any()) }
     }
 
@@ -1092,7 +1095,68 @@ class ChatViewModelVoiceTest {
         try {
             val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
             assertEquals("generate recipes", state.inputText)
+            assertEquals(1L, state.inputTextReplacementRevision)
             coVerify(exactly = 0) { conversationRepository.addMessage(any(), any(), any(), any(), any()) }
+        } finally {
+            clearViewModel(viewModel)
+        }
+    }
+
+    @Test
+    fun `typed and replaced drafts are saved and restored after process death`() = runTest(dispatcher) {
+        val handle = SavedStateHandle(mapOf("conversationId" to "conv-existing"))
+        val viewModel = createViewModel(handle)
+        advanceUntilIdle()
+        try {
+            viewModel.onInputChanged("hello")
+            assertEquals("hello", handle.get<String>("inputText"))
+            viewModel.replaceInputText("Smart reply")
+            assertEquals("Smart reply", handle.get<String>("inputText"))
+            assertEquals("Smart reply", handle.get<String>("inputTextReplacementText"))
+            assertEquals(1L, handle.get<Long>("inputTextReplacementRevision"))
+        } finally {
+            clearViewModel(viewModel)
+        }
+
+        // A new ViewModel built from the saved state (process death) sees the same draft, so
+        // the restored composer and sendMessage agree instead of Send silently doing nothing.
+        val restored = createViewModel(
+            SavedStateHandle(
+                mapOf(
+                    "conversationId" to "conv-existing",
+                    "inputText" to "hello again",
+                    "inputTextReplacementRevision" to 3L,
+                    "inputTextReplacementText" to "",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        try {
+            val state = restored.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals("hello again", state.inputText)
+            assertEquals(3L, state.inputTextReplacementRevision)
+        } finally {
+            clearViewModel(restored)
+        }
+    }
+
+    @Test
+    fun `explicit draft replacement advances revision but typing echoes do not`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        try {
+            viewModel.replaceInputText("External draft")
+            advanceUntilIdle()
+            var state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals("External draft", state.inputText)
+            assertEquals(1L, state.inputTextReplacementRevision)
+
+            viewModel.onInputChanged("Typed text")
+            state = viewModel.uiState.first {
+                it is ChatUiState.Ready && it.inputText == "Typed text"
+            } as ChatUiState.Ready
+            assertEquals(1L, state.inputTextReplacementRevision)
         } finally {
             clearViewModel(viewModel)
         }
@@ -1113,6 +1177,7 @@ class ChatViewModelVoiceTest {
         try {
             val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
             assertEquals("gluten free, nut free", state.inputText)
+            assertEquals(2L, state.inputTextReplacementRevision)
         } finally {
             clearViewModel(viewModel)
         }
@@ -1357,7 +1422,9 @@ class ChatViewModelVoiceTest {
             .apply { put("chat-view-model", viewModel) }
             .clear()
     }
-    private fun createViewModel(): ChatViewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences, authRepository = authRepository,
+    private fun createViewModel(
+        savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+    ): ChatViewModel = ChatViewModel(savedStateHandle = savedStateHandle, chatPreferences = chatPreferences, authRepository = authRepository,
     inferenceEngine = inferenceEngine,
     downloadManager = downloadManager,
     conversationRepository = conversationRepository,
