@@ -350,9 +350,10 @@
         },
         {
           "do": "type",
-          "text": "Add eggs and cheese to my shopping list",
+          "text": "Add cheese to my shopping list",
           "compress": true,
-          "compress_to": 1.0
+          "compress_to": 1.0,
+          "note": "One item: multi-item adds split on commas only, so 'eggs and cheese' would be a single item"
         },
         {
           "do": "wait",
@@ -386,16 +387,10 @@
         {
           "do": "open_url",
           "env": "DEMO_NC_SERVER",
+          "path_env": "DEMO_NC_TASKS_PATH",
           "path": "/apps/tasks/",
           "start_here": true,
-          "note": "Jandal lists sync as CalDAV task lists; Chrome must be signed in to the Nextcloud web UI separately (Login Flow v2 does not leave a browser session)"
-        },
-        {
-          "do": "tap",
-          "text": "shopping list",
-          "timeout": 30,
-          "compress": true,
-          "compress_to": 0.6
+          "note": "DEMO_NC_TASKS_PATH opens the shopping list directly, so the Tasks sidebar (other accounts' shared lists) is never shown"
         },
         {
           "do": "wait",

@@ -573,8 +573,10 @@ class ShotRunner:
             base = os.environ.get(step["env"], "").rstrip("/")
             if not base.startswith("https://"):
                 raise CaptureError(f"open_url needs {step['env']} set to an https:// address")
+            path = os.environ.get(step["path_env"], "") if step.get("path_env") else ""
+            path = path or step.get("path", "/")
             self.d.run("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
-                       "-d", base + step.get("path", "/"))
+                       "-d", base + path)
             time.sleep(1.5)
         elif kind == "key":
             self.d.run("shell", "input", "keyevent", step["code"])

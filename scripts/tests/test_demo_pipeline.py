@@ -54,8 +54,10 @@ class ShotListTest(unittest.TestCase):
                       [s.get("text") for s in by_id["S06"]["steps"]])
         # S07B shows the item on the user's own server, in the S23U browser (Nick, 7 Nov 2026).
         self.assertNotIn("device", by_id["S07B"])
-        self.assertIn({"do": "open_url", "env": "DEMO_NC_SERVER", "path": "/apps/tasks/"},
-                      [{k: st.get(k) for k in ("do", "env", "path")} for st in by_id["S07B"]["steps"]])
+        self.assertIn({"do": "open_url", "env": "DEMO_NC_SERVER", "path_env": "DEMO_NC_TASKS_PATH"},
+                      [{k: st.get(k) for k in ("do", "env", "path_env")} for st in by_id["S07B"]["steps"]])
+        # Opening the list directly keeps the Tasks sidebar (other accounts' lists) off camera.
+        self.assertNotIn("tap", [st["do"] for st in by_id["S07B"]["steps"]])
 
     def test_airplane_badge_only_on_offline_block(self):
         data = cap.load_shots()
@@ -394,6 +396,11 @@ class RunnerTest(unittest.TestCase):
             runner.run_step(step)
         self.assertIn(("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
                        "-d", "https://cloud.example/apps/tasks/"), dev.cmds)
+        with unittest.mock.patch("time.sleep"), unittest.mock.patch.dict(
+                "os.environ", {"DEMO_NC_SERVER": "https://cloud.example", "DEMO_NC_TASKS_PATH": "/apps/tasks/calendars/x"}):
+            runner.run_step(dict(step, path_env="DEMO_NC_TASKS_PATH"))
+        self.assertIn(("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+                       "-d", "https://cloud.example/apps/tasks/calendars/x"), dev.cmds)
         for bad in ("", "http://cloud.example"):
             with unittest.mock.patch.dict("os.environ", {"DEMO_NC_SERVER": bad}), self.assertRaises(cap.CaptureError):
                 runner.run_step(step)

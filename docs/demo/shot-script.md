@@ -26,7 +26,7 @@ This script is the source of truth for the shot list. `docs/demo/shots.json` is 
 | Notifications | Do Not Disturb on. Clear the shade before each shot |
 | Nextcloud | A dedicated test user on Lokhor's own Nextcloud, signed in on the S23U only: Jandal via its browser login (Login Flow v2 ends its browser session after granting access), and separately Chrome on the S23U, signed in to the Nextcloud web UI with "Remember me" for S07B; the seeded "shopping list" synced. The server needs the Tasks app (Jandal lists sync as CalDAV task lists). Real accounts never appear on screen |
 | Status bar | One UI ignores SystemUI demo mode (see `docs/play-store/screenshots/README.md`). Keep the real status bar: it carries the airplane icon that proves the offline claim. Set the device clock to automatic and avoid shots where the time reads oddly |
-| Seed data | A "shopping list" with milk and bread (the app files "grocery list" under "shopping list", see `NativeIntentHandler`). Seed it by typing "Add milk and bread to my shopping list" before recording. No other lists, notes or memories at the start. Calendar seeded with one invented event ("Netball practice", Thursday 5pm) |
+| Seed data | A "shopping list" with milk and bread (the app files "grocery list" under "shopping list", see `NativeIntentHandler`). Seed it by typing "Add milk to my shopping list" and then "Add bread to my shopping list" before recording (one request with "and" makes a single item "milk and bread"; multi-item adds split on commas only). Remove leftover test items first. No other lists, notes or memories at the start. Calendar seeded with one invented event ("Netball practice", Thursday 5pm) |
 
 ## Intro video (about 70 s, hard cap 70 s)
 
@@ -42,7 +42,7 @@ Each shot is a separate clip, so the runner turns airplane mode off between S05 
 | S04 | 0:18–0:28 | Memory and recall | Typed: "Remember that my favourite coffee is a flat white". New chat, typed: "What's my favourite coffee?" | Save confirmation; in the new chat the reply names a flat white | Model (compressed) | Offline |
 | S05 | 0:28–0:36 | Persona chat | Typed, with **Full Jandal**: "Give me three ideas for a rainy Sunday" | A complete streamed reply with Kiwi tone | Model (compressed) | Offline |
 | S06 | 0:36–0:41 | Weather | Typed: "What's the weather like in Wellington?" | Weather card for Wellington (Open-Meteo) | Deterministic | **Online** |
-| S07 | 0:41–0:49 | Nextcloud sync | S07A on the S23U, typed: "Add eggs and cheese to my shopping list". S07B on the S23U: the browser opens the user's Nextcloud Tasks page (`/apps/tasks/`) and the shopping list | The new items are on the user's own server. Server address, username and display name blurred | Deterministic (sync wait compressed) | **Online** |
+| S07 | 0:41–0:49 | Nextcloud sync | S07A on the S23U, typed: "Add cheese to my shopping list". S07B on the S23U: Chrome opens the shopping list directly on the user's Nextcloud Tasks page (`DEMO_NC_TASKS_PATH`, so the sidebar with other accounts' shared lists never shows) | The new items are on the user's own server. Server address, username and display name blurred | Deterministic (sync wait compressed) | **Online** |
 | S08 | 0:49–0:54 | End card | — | App icon, "Jandal AI", "A Kiwi AI assistant that runs on your phone", then the variant line (below) | Title card | — |
 
 End card variants, chosen at render time (`--end-card`):
@@ -111,7 +111,10 @@ Prerequisites on the capture host: `adb`, `scrcpy` 3.0 or newer (tested with 5.0
    cat > ~/.config/jandal-demo/demo.env <<'EOF'
    DEMO_NC_SERVER=https://<test nextcloud host>
    DEMO_NC_USER=<test nextcloud username>
-   DEMO_WAKE_CMD=python3 scripts/demo_wake.py --source R5CR605B71K
+   DEMO_NC_TASKS_PATH=/apps/tasks/calendars/<shopping list id>   # from Chrome's address bar on the list
+   DEMO_UNLOCK_PIN_FILE=<file holding the device PIN>              # only if the S23U has a PIN lock
+   DEMO_UNLOCK_PIN_VAR=<variable name in that file>
+   DEMO_WAKE_CMD="python3 scripts/demo_wake.py --source R5CR605B71K"
    EOF
    chmod 600 ~/.config/jandal-demo/demo.env
    ```
