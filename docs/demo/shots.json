@@ -19,7 +19,7 @@
         "Join the beta · Open source",
         "github.com/NickMonrad/kernel-ai-assistant"
       ],
-      "seconds": 5
+      "seconds": 4
     },
     "launch": {
       "title": "Jandal AI",
@@ -27,7 +27,7 @@
         "A Kiwi AI assistant that runs on your phone",
         "Free on Google Play · Open source"
       ],
-      "seconds": 5
+      "seconds": 4
     }
   },
   "shots": [
@@ -123,7 +123,7 @@
         },
         {
           "do": "sleep",
-          "s": 1.5
+          "s": 1.0
         }
       ]
     },

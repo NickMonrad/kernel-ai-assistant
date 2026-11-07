@@ -44,7 +44,7 @@ Each shot is a separate clip, so the runner turns airplane mode off between S05 
 | S05 | 0:28–0:36 | Persona chat | Typed, with **Full Jandal**: "Give me three ideas for a rainy Sunday" | A complete streamed reply with Kiwi tone | Model (compressed) | Offline |
 | S06 | 0:36–0:41 | Weather | Typed: "What's the weather like in Wellington?" | Weather card for Wellington (Open-Meteo) | Deterministic | **Online** |
 | S07 | 0:41–0:49 | Nextcloud sync | S07A on the S23U, typed: "Add cheese to my shopping list". S07B on the S23U: Chrome opens the shopping list directly on the user's Nextcloud Tasks page (`DEMO_NC_TASKS_PATH`, so the sidebar with other accounts' shared lists never shows) | The new items are on the user's own server. Server address, username and display name blurred | Deterministic (sync wait compressed) | **Online** |
-| S08 | 0:49–0:54 | End card | — | App icon, "Jandal AI", "A Kiwi AI assistant that runs on your phone", then the variant line (below) | Title card | — |
+| S08 | 0:49–0:53 | End card (4 s) | — | App icon, "Jandal AI", "A Kiwi AI assistant that runs on your phone", then the variant line (below) | Title card | — |
 
 End card variants, chosen at render time (`--end-card`):
 
