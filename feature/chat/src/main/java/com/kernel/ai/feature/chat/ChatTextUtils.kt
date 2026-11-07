@@ -408,12 +408,32 @@ internal fun stripMarkdown(text: String): String {
         .trim()
 }
 
-private val RECALL_QUESTION_REGEX =
-    Regex("""\bwhat\s+did\s+i\s+(?:say|ask|tell|mention)\b|\b(?:do|did)\s+you\s+(?:still\s+)?remember\b""")
+private val RECALL_QUESTION_REGEX = Regex(
+    """\bwhat\s+did\s+i\s+(?:say|ask|tell|mention)\b|\bwhat\s+(?:do\s+you\s+remember|did\s+we\s+(?:say|discuss|talk\s+about))\b|\b(?:do|did)\s+you\s+(?:still\s+)?remember\b|\bcan\s+you\s+recall\b""",
+)
 private val REMEMBER_ACTION_REGEX = Regex("""\bremember\b""")
 private val NEGATED_CALL_REGEX =
     Regex("""\b(?:do\s+not|don't|never|cannot|can't|should\s+not|shouldn't|not\s+to)\s+call\b""")
 private val CALL_ACTION_REGEX = Regex("""\bcall\s+""")
+// Only verbs that start a command count: at the start, after "and/then/also/please", or after
+// "can/could/would you". "What did I order last time?" and "my favourite game to play" are
+// questions, not actions.
+private const val TOOL_ACTION_VERBS =
+    """(?:add|put|save|store|create|make|remove|delete|set|send|turn|toggle|open|play|navigate|remind|plan|order|book|buy|cancel|check)"""
+private val EXPLICIT_TOOL_ACTION_VERB_REGEX = Regex(
+    """(?:^|\b(?:and|then|also|please|kindly|ok|okay|now|(?:can|could|would|will)\s+you|let\s+me|""" +
+        """i\s+(?:need|want)\s+you\s+to|hey\s+jandal)\s+)(?:please\s+)?$TOOL_ACTION_VERBS\b""",
+    RegexOption.IGNORE_CASE,
+)
+private val CLAUSE_SPLIT_REGEX = Regex("""[.,;:!?\u2014\u2013]|\s-\s""")
+
+internal fun containsExplicitToolActionVerb(query: String): Boolean {
+    val clauses = query.split(CLAUSE_SPLIT_REGEX).map { it.trim() }.filter { it.isNotEmpty() }
+    if (clauses.isEmpty()) return false
+    // In every clause the verb must start a command: "…? Ok add them to my list" and
+    // "— add it to my list" are requests; "the one I order at the cafe" is not.
+    return clauses.any { EXPLICIT_TOOL_ACTION_VERB_REGEX.containsMatchIn(it) }
+}
 
 /**
  * Returns true if [query] looks like it involves a device-native tool action

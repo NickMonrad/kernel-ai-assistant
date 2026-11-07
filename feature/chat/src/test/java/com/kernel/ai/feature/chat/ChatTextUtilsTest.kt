@@ -604,6 +604,7 @@ class ChatTextUtilsTest {
                 "Remember that my booking reference is ABC123",
                 "Can you remember that I have a dog named Xena",
                 "Could you remember that I prefer dark mode",
+                "What's my favourite coffee and add it to my shopping list",
                 "add milk to my shopping list",
                 "set alarm for 7am",
                 "set a timer for 5 minutes",
@@ -667,6 +668,9 @@ class ChatTextUtilsTest {
                 "Do you remember the restaurant I mentioned?",
                 "Did you remember what I told you?",
                 "Recall what I said earlier?",
+                "What do you remember about me?",
+                "What do you remember about Waitangi Day?",
+                "Can you recall the capital of France for me?",
                 "tell me a joke",
                 "explain quantum physics",
                 "write me a poem",
@@ -1426,6 +1430,40 @@ class ChatTextUtilsTest {
             val result = buildKnownNzContextReply(entry)
             assertTrue(result.contains("Kumara"))
             assertTrue(result.contains("sweet potato"))
+        }
+    }
+
+    @Test
+    fun `action verbs count only when they start a command`() {
+        for (q in listOf(
+            "Add eggs to my shopping list",
+            "what's my favourite coffee and add it to my shopping list",
+            "Set a timer for 10 minutes",
+            "Can you remind me to call Mum",
+            "please book a table",
+            "What's my favourite coffee? Then add it to my list",
+            // A request in a later clause, however it is introduced, must keep tools on.
+            "What did I ask you earlier \u2014 add it to my shopping list",
+            "What did I say just now about eggs? Ok add them to my list",
+            "What did I ask you earlier about the timer? Let me set it",
+            "What did I ask you earlier about the timer? Now set it again",
+            "What did I ask you earlier about milk? I need you to add it to my list",
+        )) {
+            assertTrue(containsExplicitToolActionVerb(q), q)
+        }
+        for (q in listOf(
+            "What's my favourite game to play?",
+            "What did I order last time?",
+            "What did I check in last week?",
+            "What's my plan for Saturday?",
+            // A verb later in the sentence that is not a command keeps the recall grounded.
+            "What's my favourite drink, the one I order at the cafe?",
+            "What's my favourite meal, the one I make on Sundays?",
+            "What did I tell you about my sister? I want to check something.",
+            "What's my favourite colour? I need to plan a party.",
+            "What did I tell you about my job?",
+        )) {
+            assertFalse(containsExplicitToolActionVerb(q), q)
         }
     }
 }
