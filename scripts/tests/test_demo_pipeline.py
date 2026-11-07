@@ -31,8 +31,9 @@ class ShotListTest(unittest.TestCase):
     def test_shots_json_is_consistent(self):
         data = cap.load_shots()
         ids = {s["id"] for s in data["shots"]}
-        self.assertEqual(data["intro_order"], ["S01", "S02", "S03", "S04", "S05", "S06", "S07A", "S07B"])
-        kinds = {"launch", "restart", "tap", "type", "wait", "wait_gone", "sleep", "key", "shell", "host", "open_url"}
+        self.assertEqual(data["intro_order"], ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07A", "S07B"])
+        kinds = {"launch", "restart", "tap", "type", "wait", "wait_gone", "sleep", "key", "shell", "host", "open_url",
+                 "home_page", "tap_xy"}
         for shot in data["shots"]:
             self.assertTrue(shot["caption"], shot["id"])
             for step in shot["steps"]:
@@ -63,7 +64,7 @@ class ShotListTest(unittest.TestCase):
         data = cap.load_shots()
         by_id = {s["id"]: s for s in data["shots"]}
         offline = [sid for sid in data["intro_order"] if by_id[sid].get("offline")]
-        self.assertEqual(offline, ["S01", "S02", "S03", "S04", "S05"])
+        self.assertEqual(offline, ["S00", "S01", "S02", "S03", "S04", "S05"])
         for sid in ("S06", "S07A", "S07B"):
             self.assertFalse(by_id[sid].get("offline"), f"{sid} needs the network; never under the badge")
 
@@ -223,9 +224,15 @@ class UiHelpersTest(unittest.TestCase):
                 if st["do"] == "type":
                     self.assertTrue(st.get("compress") and st.get("compress_to", 9) <= 1.0, sid)
 
+    def test_s00_navigates_off_camera(self):
+        s00 = next(s for s in cap.load_shots()["shots"] if s["id"] == "S00")
+        self.assertEqual([st["do"] for st in s00["setup"]], ["home_page"])
+        self.assertNotIn("home_page", [st["do"] for st in s00["steps"]])
+
     def test_every_shot_starts_with_the_sync_anchor(self):
         for shot in cap.load_shots()["shots"]:
-            self.assertIn(shot["steps"][0]["do"], ("launch", "restart"), shot["id"])
+            first_active = next(st["do"] for st in shot["steps"] if st["do"] != "sleep")
+            self.assertIn(first_active, ("launch", "restart"), shot["id"])
 
 
 class PlanTest(unittest.TestCase):

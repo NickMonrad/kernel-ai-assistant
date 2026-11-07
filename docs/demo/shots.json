@@ -2,6 +2,7 @@
   "schema": 1,
   "description": "Machine-readable shot list for #1736. docs/demo/shot-script.md is the human source of truth; keep ids, inputs and captions in sync with it.",
   "intro_order": [
+    "S00",
     "S01",
     "S02",
     "S03",
@@ -38,6 +39,36 @@
     }
   },
   "shots": [
+    {
+      "id": "S00",
+      "feature": "Home screen: Jandal widgets, icon and Lists shortcut",
+      "caption": "Jandal AI on your home screen",
+      "offline": true,
+      "steps": [
+        {
+          "do": "sleep",
+          "s": 2.5,
+          "start_here": true,
+          "note": "Hold on the demo home page"
+        },
+        {
+          "do": "launch",
+          "note": "Jandal opens (sync anchor); S01 handles the tabs, so S00 ends as the app appears",
+          "tabs": false
+        },
+        {
+          "do": "sleep",
+          "s": 0.3
+        }
+      ],
+      "setup": [
+        {
+          "do": "home_page",
+          "swipes_env": "DEMO_HOME_SWIPES",
+          "note": "Not recorded: the other home pages hold personal widgets"
+        }
+      ]
+    },
     {
       "id": "S01",
       "feature": "Hey Jandal",

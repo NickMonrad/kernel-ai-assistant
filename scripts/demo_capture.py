@@ -77,10 +77,12 @@ def load_shots(path: Path = SHOTS_FILE) -> dict:
     for shot in data["shots"]:
         if shot.get("device", "primary") not in ("primary", "second"):
             raise CaptureError(f"{shot['id']}: device must be 'primary' or 'second'")
-        first = shot["steps"][0]["do"] if shot["steps"] else None
-        if first not in ("launch", "restart"):
-            # The launch frame is the anchor that syncs the clip to the runner clock.
-            raise CaptureError(f"{shot['id']}: first step must be launch or restart (sync anchor)")
+        kinds = [st["do"] for st in shot["steps"]]
+        first_active = next((k for k in kinds if k != "sleep"), None)
+        if first_active not in ("launch", "restart"):
+            # The launch frame is the anchor that syncs the clip to the runner clock, so it must
+            # be the first thing that changes the screen (holds before it are fine).
+            raise CaptureError(f"{shot['id']}: the first non-hold step must be launch or restart (sync anchor)")
         if shot.get("device") == "second" and shot.get("offline"):
             # The second client only exists to show a synced change; it is never offline.
             raise CaptureError(f"{shot['id']}: second-device shots cannot be offline")
@@ -565,7 +567,8 @@ class ShotRunner:
             if self.anchor is None:
                 self.anchor = self.now()  # -W returns once the first frame is drawn
             time.sleep(1.5)
-            self.to_root_tabs()
+            if step.get("tabs", True):
+                self.to_root_tabs()
         elif kind == "tap":
             self.tap(text=step.get("text"), desc=step.get("desc"))
         elif kind == "type":
@@ -584,6 +587,24 @@ class ShotRunner:
             while self.redact and float(step["s"]) > 2.5 and time.monotonic() < until - 0.5:
                 self.dump()  # keep scanning for values to blur while holding on a screen
             time.sleep(max(0.0, until - time.monotonic()))
+        elif kind == "home_page":
+            # The launcher can't be read with uiautomator (its live wallpaper never idles), so
+            # the page is reached by swipes counted from the main page (DEMO_HOME_SWIPES).
+            swipes = int(os.environ.get(step.get("swipes_env", "DEMO_HOME_SWIPES"), step.get("swipes", 0)))
+            self.d.run("shell", "input", "keyevent", "KEYCODE_HOME")
+            time.sleep(1.0)
+            for i in range(swipes):
+                if i == swipes - 1 and self.anchor is None:
+                    self.anchor = self.now() + 0.35  # the last page swipe is the sync anchor
+                self.d.run("shell", "input", "swipe", "900", "1200", "150", "1200", "200")
+                time.sleep(0.7)
+        elif kind == "tap_xy":
+            raw = os.environ.get(step["env"], "")
+            m = re.fullmatch(r"\s*(\d+)\s*,\s*(\d+)\s*", raw)
+            if not m:
+                raise CaptureError(f"{step['env']} must be 'x,y' (e.g. the Jandal icon on the demo home page)")
+            self.d.tap_xy(int(m.group(1)), int(m.group(2)))
+            time.sleep(0.8)
         elif kind == "open_url":
             # The server address comes from the env file, never from shots.json.
             base = os.environ.get(step["env"], "").rstrip("/")
@@ -717,6 +738,13 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
     redact = redact_values(shot)
     airplane = device.set_offline(bool(shot.get("offline")))
     device.prepare_screen()
+    if shot.get("setup"):
+        # Unrecorded setup (e.g. swiping past the user's other home pages, which hold
+        # personal widgets) so the clip opens on the demo page itself.
+        setup_runner = ShotRunner(device, time.monotonic(), StepLog())
+        for step in shot["setup"]:
+            setup_runner.run_step(step)
+        time.sleep(1.0)
     clip = out_dir / f"{shot['id']}_take{take}.mp4"
     if clip.exists():
         clip.unlink()
@@ -731,12 +759,15 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
     log = StepLog()
     runner = ShotRunner(device, t0, log, redact=redact)
     status, error = "ok", None
+    steps_end = None
     try:
         for step in shot["steps"]:
             runner.run_step(step)
     except CaptureError as exc:
         status, error = "failed", str(exc)
     finally:
+        # The shot ends here; the extra recording below is only a buffer for scrcpy's tail.
+        steps_end = runner.now()
         # scrcpy's clip can end up to ~3 s before the last step (measured on the S23U: static
         # screens and the stop drop the tail), which cut the end holds; keep recording longer.
         time.sleep(3.0)
@@ -764,7 +795,7 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
         "error": error,
         "lead_in_s": lead,
         "lead_in_source": "launch frame (am start -W) vs first scene change",
-        "duration_s": runner.now(),
+        "duration_s": steps_end,
         "screen_size": list(screen) if screen else None,
         "clip_size": list(clip_size) if clip_size else None,
         "events": log.events,
