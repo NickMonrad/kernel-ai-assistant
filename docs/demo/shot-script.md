@@ -27,7 +27,7 @@ This script is the source of truth for the shot list. `docs/demo/shots.json` is 
 | Actions history | Clear it (trash icon on the Actions tab) before recording, so earlier test cards don't appear behind the new ones and the result checks start from an empty list |
 | Nextcloud | A dedicated test user on Lokhor's own Nextcloud, signed in on the S23U only: Jandal via its browser login (Login Flow v2 ends its browser session after granting access), and separately Chrome on the S23U, signed in to the Nextcloud web UI with "Remember me" for S07B; the seeded "shopping list" synced. The server needs the Tasks app (Jandal lists sync as CalDAV task lists). Real accounts never appear on screen |
 | Status bar | One UI ignores SystemUI demo mode (see `docs/play-store/screenshots/README.md`). Keep the real status bar: it carries the airplane icon that proves the offline claim. Set the device clock to automatic and avoid shots where the time reads oddly |
-| Seed data | A "shopping list" with milk and bread (the app files "grocery list" under "shopping list", see `NativeIntentHandler`). Seed it by typing "Add milk to my shopping list" and then "Add bread to my shopping list" before recording (one request with "and" makes a single item "milk and bread"; multi-item adds split on commas only). Remove leftover test items first. No other lists, notes or memories at the start. Calendar seeded with one invented event ("Netball practice", Thursday 5pm) |
+| Seed data | A "shopping list" with milk and bread (the app files "grocery list" under "shopping list", see `NativeIntentHandler`). Seed it by typing "Add milk to my shopping list" and then "Add bread to my shopping list" before recording (one request with "and" makes a single item "milk and bread"; multi-item adds split on commas only). Remove leftover test items first. Also seed one important date with "Save my wife's birthday as 14 March" (an invented date; S04 asks "When is my wife's birthday?"). No other lists, notes or memories at the start. Calendar seeded with one invented event ("Netball practice", Thursday 5pm) |
 
 ## Intro video (about 72 s, hard cap 75 s)
 
@@ -40,7 +40,7 @@ Each shot is a separate clip, so the runner turns airplane mode off between S05 
 | S01 | 0:00–0:05 | Hey Jandal | Spoken by the S21 acoustic source: "Hey Jandal" then "what time is it" (existing `natural_wake.wav` + `qwen_command.wav` fixtures) | Listening indicator, then the Actions card `what time is it` → "It's …" | Deterministic | Offline |
 | S02 | 0:05–0:14 | Lists, Kiwi phrasing | Typed: "Chuck bananas on the grocery list", then open the shopping list | Confirmation, then the list shows milk, bread, bananas | Deterministic | Offline |
 | S03 | 0:14–0:18 | Timer and alarm | Typed: "Set a timer for 10 minutes", then "Set an alarm for 7am tomorrow" | Both confirmations; timer visibly counting down. The typing of each command is sped up to under a second, with the sped-up marker, so the shot fits its slot. Check the alarm wording first: an earlier build repeated the time ("…at 6:30am — 6:30am."); if it still does, file it and pick another shot | Deterministic | Offline |
-| S04 | 0:18–0:28 | Memory and recall | Typed: "Remember that my favourite coffee is a flat white". New chat, typed: "What's my favourite coffee?" | Save confirmation; in the new chat the reply names a flat white | Model (compressed) | Offline |
+| S04 | 0:18–0:28 | Memory and recall | Typed: "Remember that my favourite coffee is a flat white". New chat, typed: "What's my favourite coffee?", then "When is my wife's birthday?" | Save confirmation; the reply names a flat white; a countdown card to the seeded birthday ("127 days — Until …") | Model (compressed) | Offline |
 | S05 | 0:28–0:36 | Persona chat | Typed, with **Full Jandal**: "Give me three ideas for a rainy Sunday" | A complete streamed reply with Kiwi tone | Model (compressed) | Offline |
 | S06 | 0:36–0:41 | Weather | Typed: "What's the weather like in Wellington?" | Weather card for Wellington (Open-Meteo) | Deterministic | **Online** |
 | S07 | 0:41–0:49 | Nextcloud sync | S07A on the S23U, typed: "Add cheese to my shopping list". S07B on the S23U: Chrome opens the shopping list directly on the user's Nextcloud Tasks page (`DEMO_NC_TASKS_PATH`, so the sidebar with other accounts' shared lists never shows) | The new items are on the user's own server. Server address, username and display name blurred | Deterministic (sync wait compressed) | **Online** |
@@ -57,7 +57,7 @@ Captions (burned in, one line or two, shown for the shot's length):
 - S02: "Lists that understand Kiwi"
 - S03: "Timers and alarms, instantly"
 - S04: "Remembers what matters — stored on your device"
-- S05: "Chat with a local AI. No cloud AI." (plus the "▶▶ sped up N×" marker over compressed waits)
+- S05: "Chat with your local AI. No cloud required." (plus the "▶▶ sped up N×" marker over compressed waits)
 - S06: "Online when you ask. No account needed." (shortened from "Weather, Wikipedia, currency: online when you ask, no account needed" so it fits at full caption size)
 - S07: "Optional sync with your own Nextcloud" (on both S07A and S07B)
 - An "✈ Airplane mode" corner badge on S01–S05 only. The weather and Nextcloud captions never sit under it.

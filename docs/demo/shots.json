@@ -158,10 +158,6 @@
           "do": "wait",
           "text": "bananas",
           "timeout": 10
-        },
-        {
-          "do": "sleep",
-          "s": 1.0
         }
       ]
     },
@@ -279,6 +275,20 @@
           "timeout": 5
         },
         {
+          "do": "type",
+          "text": "When is my wife's birthday?",
+          "compress": true,
+          "compress_to": 1.0,
+          "note": "Seeded important date (invented): 'Save my wife's birthday as 14 March'"
+        },
+        {
+          "do": "wait",
+          "text": "Until",
+          "new": true,
+          "timeout": 30,
+          "note": "get_date_diff card: '127 days — Until …'"
+        },
+        {
           "do": "sleep",
           "s": 1.5
         }
@@ -287,7 +297,7 @@
     {
       "id": "S05",
       "feature": "Persona chat",
-      "caption": "Chat with a local AI. No cloud AI.",
+      "caption": "Chat with your local AI. No cloud required.",
       "offline": true,
       "model": true,
       "persona": "Full Jandal",
