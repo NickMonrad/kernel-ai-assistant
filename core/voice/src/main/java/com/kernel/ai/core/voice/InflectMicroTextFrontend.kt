@@ -52,7 +52,18 @@ object InflectMicroTextFrontend {
     private val scales = arrayOf("", "thousand", "million", "billion", "trillion", "quadrillion")
     private val scaleOrdinals = arrayOf("", "thousandth", "millionth", "billionth", "trillionth", "quadrillionth")
 
-    fun normalize(text: String): String {
+    /**
+     * @param spellUppercaseWords read 2+ letter capitalised words letter by letter ("NZ" →
+     *   "en zee"). Inflect needs it; eSpeak-based voices already handle acronyms and would
+     *   otherwise spell out shouted words.
+     * @param longNumbersAsDigits read 5+ digit numbers not starting with "20" digit by digit
+     *   (phone-number style). Off reads them as cardinals ("15,000" → "fifteen thousand").
+     */
+    fun normalize(
+        text: String,
+        spellUppercaseWords: Boolean = true,
+        longNumbersAsDigits: Boolean = true,
+    ): String {
         var value = text
             .replace('‘', '\'')
             .replace('’', '\'')
@@ -112,10 +123,16 @@ object InflectMicroTextFrontend {
         }
         value = value.replace(Regex("\\b\\d[\\d,]*\\b")) { match ->
             val raw = match.value.replace(",", "")
-            if (raw.length >= 5 && !raw.startsWith("20")) expandDigits(raw) else numberToWords(raw.toLong())
+            when {
+                raw.length > 18 -> expandDigits(raw) // too big for a Long / the scale words
+                longNumbersAsDigits && raw.length >= 5 && !raw.startsWith("20") -> expandDigits(raw)
+                else -> numberToWords(raw.toLong())
+            }
         }
-        value = value.replace(Regex("\\b[A-Z]{2,}\\b")) { match ->
-            match.value.map { letterNames[it] ?: it.toString() }.joinToString(" ")
+        if (spellUppercaseWords) {
+            value = value.replace(Regex("\\b[A-Z]{2,}\\b")) { match ->
+                match.value.map { letterNames[it] ?: it.toString() }.joinToString(" ")
+            }
         }
 
         value = value.replace(Regex(",(?:\\s*,)+"), ",")
