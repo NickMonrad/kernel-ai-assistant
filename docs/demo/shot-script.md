@@ -37,8 +37,8 @@ Each shot is a separate clip, so the runner turns airplane mode off between S05 
 
 | Shot | Time | Feature | Input (exact) | Expected on screen | Mode | Network |
 |---|---|---|---|---|---|---|
-| S01 | 0:00–0:05 | Hey Jandal | Spoken by the S21 acoustic source: "Hey Jandal" then "what time is it" (existing `natural_wake.wav` + `qwen_command.wav` fixtures) | Listening indicator, then the Actions card `what time is it` → "It's …" | Deterministic | Offline |
-| S02 | 0:05–0:14 | Lists, Kiwi phrasing | Spoken (push-to-talk on Actions): "Chuck bananas on the grocery list", then open the shopping list | Confirmation, then the list shows milk, bread, bananas | Deterministic | Offline |
+| S01 | 0:00–0:05 | Hey Jandal | Spoken by the S21 acoustic source: "Hey Jandal" then "What time is it?" in Lokhor's cloned voice (`demo_s01_wake` + `demo_s01_time`; the private `natural_wake` fixture is not used in public footage) | Listening indicator, then the Actions card `what time is it` → "It's …" | Deterministic | Offline |
+| S02 | 0:05–0:14 | Lists, Kiwi phrasing | Spoken (push-to-talk on Actions): "Stick bananas on the grocery list" (offline, the on-device recogniser hears "chuck" as "check"), then open the shopping list | Confirmation, then the list shows milk, bread, bananas | Deterministic | Offline |
 | S03 | 0:14–0:18 | Timer and alarm | Typed: "Set a timer for 10 minutes", then "Set an alarm for 7am tomorrow" | Both confirmations; timer visibly counting down. The typing of each command is sped up to under a second, with the sped-up marker, so the shot fits its slot. Check the alarm wording first: an earlier build repeated the time ("…at 6:30am — 6:30am."); if it still does, file it and pick another shot | Deterministic | Offline |
 | S04 | 0:18–0:28 | Memory and recall | Spoken (the chat's PTT chip): "Remember that my favourite coffee is a flat white". New chat, spoken: "What's my favourite coffee?", then "When is my wife's birthday?" | Save confirmation; the reply names a flat white; a countdown card to the seeded birthday ("127 days — Until …") | Model (compressed) | Offline |
 | S05 | 0:28–0:36 | Persona chat | Typed, with **Full Jandal**: "Give me three ideas for a rainy Sunday" | A complete streamed reply with Kiwi tone | Model (compressed) | Offline |
@@ -120,9 +120,9 @@ Prerequisites on the capture host: `adb`, `scrcpy` 3.0 or newer (tested with 5.0
    chmod 600 ~/.config/jandal-demo/demo.env
    ```
 
-   `scripts/demo_wake.py` plays fixtures from the S21's debug app (`docs/testing/acoustic-stimulus-source.md`): `natural_wake` then `qwen_command` for S01, and one `demo_*` command per `voice` step. The S21 sits beside the S23U as in #1403/#1410, with "Listen for Hey Jandal" on. Volume 12/15 with a 2.2 s gap: at 9/15 the S23U missed the wake word.
+   `scripts/demo_wake.py` plays fixtures from the S21's debug app (`docs/testing/acoustic-stimulus-source.md`): `demo_s01_wake` then `demo_s01_time` for S01, and one `demo_*` command per `voice` step. The S21 sits beside the S23U as in #1403/#1410, with "Listen for Hey Jandal" on. Volume 12/15 with a 2.2 s gap: at 9/15 the S23U missed the wake word.
 
-   The `demo_*` fixtures are Lokhor's cloned voice (Qwen3-TTS 1.7B Base, Apache-2.0), used **only for what the user says**. They are 48 kHz mono, loudness-normalised, with 0.5 s of leading silence (the S21's speaker fades in and swallowed the first word). Takes were picked by playing them at the S23U: "Chuck" is still heard as "check" about half the time offline, so S02 may need a retake.
+   The `demo_*` fixtures are Lokhor's cloned voice (Qwen3-TTS 1.7B Base, Apache-2.0), used **only for what the user says**. They are 48 kHz mono, loudness-normalised, with 0.5 s of leading silence (the S21's speaker fades in and swallowed the first word). Takes were picked by playing them at the S23U: offline, "Chuck" was heard as "check" every time, so S02 says "Stick" instead.
 
    A `voice` step taps the mic ("Start voice action" on Actions, or the chat's "PTT" chip), waits 1.5 s, and plays the fixture. The source is woken before the tap, otherwise the mic sat open for ~5 s before the speech. Each fixture's start time is saved in the take's `audio` list in `manifest.json` (runner clock), so the edit can lay the same WAV under the video. Voice spans play at real speed.
 3. Record (one MP4 per shot plus `manifest.json`; `--out` must be outside the repo):

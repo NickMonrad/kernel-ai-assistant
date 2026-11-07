@@ -90,13 +90,25 @@
         {
           "do": "host",
           "env": "DEMO_WAKE_CMD",
-          "note": "Plays natural_wake + qwen_command from the S21 using the approved #1403/#1410 setup; same path as #1329 J10. Device audio is not recorded; the fixtures' start times go into the manifest and the same WAVs are mixed in, so this span plays at real speed"
+          "note": "Plays \"Hey Jandal\" then \"What time is it?\" in Lokhor's cloned voice from the S21, the same path as #1329 J10 (not the private natural_wake fixture, which must not appear in a public video). Device audio is not recorded; the fixtures' start times go into the manifest and the same WAVs are mixed in, so this span plays at real speed",
+          "args": [
+            "--sequence",
+            "demo_s01_wake,demo_s01_time"
+          ]
         },
         {
           "do": "wait",
           "text": "It's",
           "new": true,
           "timeout": 20
+        },
+        {
+          "do": "wait_speech",
+          "until_done": false,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
         },
         {
           "do": "sleep",
@@ -120,8 +132,8 @@
         {
           "do": "voice",
           "fixture": "demo_s02_bananas",
-          "says": "Chuck bananas on the grocery list",
-          "note": "Cloned-voice fixture played from the S21 at real speed; its start time goes into the manifest's audio list for the mix. Needs the Android native input engine (Settings → Voice): the bundled Vosk model mishears 'chuck' through a speaker"
+          "says": "Stick bananas on the grocery list",
+          "note": "Cloned-voice fixture played from the S21 at real speed; its start time goes into the manifest's audio list for the mix. 'Chuck' was dropped: offline, Android's on-device recogniser heard it as 'check' every time (online 4/4), and Vosk worse. 'Stick', 'pop' and 'toss' were each heard 2/2 offline"
         },
         {
           "do": "wait",
@@ -129,6 +141,14 @@
           "new": true,
           "timeout": 15,
           "note": "The result is a list card titled with the list name, not a sentence"
+        },
+        {
+          "do": "wait_speech",
+          "until_done": false,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
         },
         {
           "do": "tap",
@@ -243,6 +263,14 @@
           "compress": true
         },
         {
+          "do": "wait_speech",
+          "until_done": true,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
+        },
+        {
           "do": "sleep",
           "s": 1
         },
@@ -270,6 +298,14 @@
           "timeout": 5
         },
         {
+          "do": "wait_speech",
+          "until_done": true,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
+        },
+        {
           "do": "voice",
           "fixture": "demo_s04_ask_birthday",
           "says": "When is my wife's birthday?",
@@ -282,6 +318,14 @@
           "new": true,
           "timeout": 30,
           "note": "get_date_diff card: '127 days — Until …'"
+        },
+        {
+          "do": "wait_speech",
+          "until_done": false,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
         },
         {
           "do": "sleep",
@@ -360,6 +404,14 @@
           "timeout": 20,
           "compress": true,
           "compress_to": 1.0
+        },
+        {
+          "do": "wait_speech",
+          "until_done": false,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
         },
         {
           "do": "sleep",

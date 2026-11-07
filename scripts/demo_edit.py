@@ -30,6 +30,8 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -48,7 +50,7 @@ FONT_CANDIDATES = [
     "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",  # Arch / CachyOS
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
 ]
-INPUT_STEPS = {"type", "host"}
+INPUT_STEPS = {"type", "host", "voice"}
 # boxblur needs radius < half the chroma plane; the crop may be clamped at the frame edge,
 # so the radius is worked out by ffmpeg from the cropped size (cw, ch).
 BLUR_RADIUS = "min(20\\,min(cw\\,ch)/2-1)"
@@ -72,10 +74,30 @@ class Segment:
 # ── planning (pure, unit-tested) ───────────────────────────────────────────
 
 
-def plan_segments(take: dict, max_wait: float = 2.0, pre_roll: float = 0.6) -> list[Segment]:
+def subtract(span: tuple[float, float], holes: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """``span`` minus every interval in ``holes``."""
+    parts = [span]
+    for hs, he in sorted(holes):
+        nxt = []
+        for s, e in parts:
+            if he <= s or hs >= e:
+                nxt.append((s, e))
+                continue
+            if hs > s:
+                nxt.append((s, hs))
+            if he < e:
+                nxt.append((he, e))
+        parts = nxt
+    return parts
+
+
+def plan_segments(take: dict, max_wait: float = 2.0, pre_roll: float = 0.6,
+                  keep_real: list[tuple[float, float]] | None = None) -> list[Segment]:
     """Turn one manifest take into real-time and sped-up segments in clip time.
 
     Event times in the manifest are relative to t0, which is ``lead_in_s`` into the clip.
+    ``keep_real`` holds runner-time intervals that must play at real speed (speech), even
+    inside a span marked for compression.
     """
     if take.get("lead_in_s") is None:
         raise EditError(f"{take.get('id')}: take has no measured lead_in_s; re-record it")
@@ -87,9 +109,12 @@ def plan_segments(take: dict, max_wait: float = 2.0, pre_roll: float = 0.6) -> l
     start = max(0.0, lead + first_input - pre_roll)
 
     # A span may carry its own ``max_s`` (step ``compress_to``), e.g. typing in S03.
+    holes = [(lead + a, lead + b) for a, b in (keep_real or [])]
     spans = sorted(
-        (max(start, lead + c["start"]), min(end, lead + c["end"]), float(c.get("max_s", max_wait)))
+        (ps, pe, float(c.get("max_s", max_wait)))
         for c in take.get("compress", [])
+        for ps, pe in subtract((max(start, lead + c["start"]), min(end, lead + c["end"])), holes)
+        if pe - ps > 0.05
     )
     segments: list[Segment] = []
     cursor = start
@@ -133,6 +158,58 @@ def marker_windows(segments: list[Segment]) -> list[tuple[float, float, int]]:
             out.append((round(t, 3), round(t + seg.out_len, 3), max(2, math.ceil(seg.speed))))
         t += seg.out_len
     return out
+
+
+def out_time(segments: list[Segment], clip_t: float) -> float | None:
+    """Where clip time ``clip_t`` lands in the rendered shot (None if it was cut)."""
+    t = 0.0
+    for seg in segments:
+        if clip_t < seg.src_start:
+            return None if t == 0.0 else round(t, 3)
+        if clip_t <= seg.src_end:
+            return round(t + (clip_t - seg.src_start) / seg.speed, 3)
+        t += seg.out_len
+    return round(t + (clip_t - segments[-1].src_end), 3) if segments else None
+
+
+@dataclass(frozen=True)
+class Sound:
+    path: Path
+    t: float  # runner time it started on the device
+    seconds: float
+    kind: str  # "input" (cloned voice fixture) or "jandal" (Cori reply)
+
+
+def place_sounds(sounds: list[Sound], segments: list[Segment], lead: float) -> list[tuple[Sound, float]]:
+    """Output start times for each sound. Jandal's chunks never overlap each other: a chunk
+    whose regenerated audio runs long pushes the next one back."""
+    placed, jandal_end = [], 0.0
+    for snd in sorted(sounds, key=lambda x: x.t):
+        at = out_time(segments, lead + snd.t)
+        if at is None:
+            continue
+        if snd.kind == "jandal":
+            at = max(at, jandal_end)
+            jandal_end = at + snd.seconds + 0.05
+        placed.append((snd, round(at, 3)))
+    return placed
+
+
+def hold_for_sound(placed: list[tuple[Sound, float]], shot_seconds: float, tail: float = 0.4) -> float:
+    """Extra seconds to hold the last frame so the last sound finishes inside the shot."""
+    if not placed:
+        return 0.0
+    need = max(at + snd.seconds for snd, at in placed) + tail
+    return round(max(0.0, need - shot_seconds), 3)
+
+
+def speech_cmd(template: str, text: str, out: Path) -> list[str]:
+    """``DEMO_CORI_CMD`` with ``{text}`` and ``{out}`` filled in, one argument each."""
+    import shlex
+    args = [a.replace("{text}", text).replace("{out}", str(out)) for a in shlex.split(template)]
+    if not any("{out}" in a for a in shlex.split(template)):
+        raise EditError("DEMO_CORI_CMD must contain {out} (and {text})")
+    return [str(Path(a).expanduser()) if a.startswith("~") else a for a in args]
 
 
 def scale_redact(take: dict) -> list[list[int]]:
@@ -385,12 +462,21 @@ def encode_args() -> list[str]:
     return ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(FPS)]
 
 
-def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_wait: float) -> tuple[Path, dict]:
-    segments = plan_segments(take, max_wait=max_wait)
+def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_wait: float,
+                sounds: list[Sound] | None = None) -> tuple[Path, dict]:
+    sounds = sounds or []
+    # Speech plays at real speed, so the screen is never sped up under it.
+    keep_real = [(snd.t, snd.t + snd.seconds) for snd in sounds]
+    segments = plan_segments(take, max_wait=max_wait, keep_real=keep_real)
     if not segments:
         raise EditError(f"{shot['id']}: nothing to render")
     boxes = blur_boxes(scale_redact(take))
     clip_end = clip_duration(clip)
+    pads = [tail_pad(seg, clip_end) for seg in segments]
+    placed = place_sounds(sounds, segments, float(take["lead_in_s"]))
+    # Hold the last frame until the last reply has finished (the cut may run longer for speech).
+    extra_hold = hold_for_sound(placed, sum(seg.out_len for seg in segments) + sum(pads))
+    pads[-1] = round(pads[-1] + extra_hold, 3)
     caption = work / f"{shot['id']}_caption.txt"
     caption_text, caption_size = fit_text(shot["caption"], 54)
     caption.write_text(caption_text, encoding="utf-8")
@@ -406,7 +492,7 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     for i, seg in enumerate(segments):
         seg_file = work / f"{shot['id']}_seg{i}.mp4"
         run(["ffmpeg", "-y", "-v", "error", "-ss", f"{seg.src_start:.3f}", "-to", f"{seg.src_end:.3f}",
-             "-i", str(clip), "-filter_complex", f"{blur_graph(boxes)};[pre]{segment_filter(seg.speed, tail_pad(seg, clip_end))}[v]",
+             "-i", str(clip), "-filter_complex", f"{blur_graph(boxes)};[pre]{segment_filter(seg.speed, pads[i])}[v]",
              "-map", "[v]", "-an", *encode_args(), str(seg_file)])
         seg_files.append(seg_file)
     listing = work / f"{shot['id']}_segs.txt"
@@ -420,7 +506,7 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
                      if shot.get("offline") else None)
         marker_pngs = {w: corner_layer(f"sped up {w[2]}×", "▶▶", font, work / f"{shot['id']}_marker{i}.png", right=False)
                        for i, w in enumerate(markers)}
-        shot_seconds = sum(s.out_len + tail_pad(s, clip_end) for s in segments)
+        shot_seconds = sum(s.out_len for s in segments) + sum(pads)
         run(["ffmpeg", "-y", "-v", "error", *styled_overlay_args(joined, cap_png, badge_png, marker_pngs, shot_seconds),
              "-an", *encode_args(), str(out)])
     else:  # plain drawtext captions
@@ -434,8 +520,12 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
         "segments": [{"src_start": s.src_start, "src_end": s.src_end, "speed": s.speed} for s in segments],
         "sped_up_windows": [{"start": a, "end": b, "factor": f} for a, b, f in markers],
         "blurred": [{"x": x, "y": y, "w": w, "h": h} for x, y, w, h in boxes],
-        "seconds": round(sum(s.out_len for s in segments), 2),
+        "seconds": round(sum(s.out_len for s in segments) + sum(pads), 2),
+        "held_for_speech_s": extra_hold,
+        "sounds": [{"kind": snd.kind, "file": snd.path.name, "at": at, "seconds": snd.seconds} for snd, at in placed],
     }
+    shot_len = clip_duration(out) or edl["seconds"]
+    edl["audio"] = str(render_shot_audio(placed, shot_len, work / f"{shot['id']}_audio.wav"))
     return out, edl
 
 
@@ -501,12 +591,116 @@ def render_card(card: dict, work: Path, font: Path, icon: Path | None, name: str
     return out
 
 
-def join(parts: list[Path], out: Path, voiceover: Path | None, work: Path) -> None:
+AUDIO_FMT = ["-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le"]
+SPEECH_LUFS = -16.0  # each voice item is levelled to this before mixing
+MUSIC_LUFS = -27.0   # music bed under speech, before ducking
+
+
+def loudness(path: Path) -> float | None:
+    """Integrated loudness (LUFS) of a file, from ffmpeg's loudnorm analysis."""
+    res = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-af",
+                          "loudnorm=print_format=json", "-f", "null", "-"], capture_output=True, text=True)
+    # ffmpeg prints the JSON block followed by its usual summary lines.
+    m = re.search(r'"input_i"\s*:\s*"(-?(?:\d+(?:\.\d+)?|inf))"', res.stderr)
+    if not m:
+        return None
+    value = float(m.group(1))
+    return value if math.isfinite(value) else None
+
+
+def silence(seconds: float, out: Path) -> Path:
+    run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+         "-t", f"{seconds:.3f}", *AUDIO_FMT, str(out)])
+    return out
+
+
+def render_shot_audio(placed: list[tuple[Sound, float]], seconds: float, out: Path) -> Path:
+    """One shot's voice track: each sound levelled and placed at its output time."""
+    if not placed:
+        return silence(seconds, out)
+    inputs, graph = ["-f", "lavfi", "-t", f"{seconds:.3f}", "-i", "anullsrc=r=48000:cl=stereo"], []
+    for i, (snd, at) in enumerate(placed, start=1):
+        inputs += ["-i", str(snd.path)]
+        lufs = loudness(snd.path)
+        gain = 0.0 if lufs is None else SPEECH_LUFS - lufs
+        ms = int(round(at * 1000))
+        graph.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo,volume={gain:.2f}dB,"
+                     f"adelay={ms}|{ms}[a{i}]")
+    mix = "".join(f"[a{i}]" for i in range(1, len(placed) + 1))
+    graph.append(f"[0:a]{mix}amix=inputs={len(placed) + 1}:normalize=0:duration=first[out]")
+    run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", ";".join(graph), "-map", "[out]",
+         "-t", f"{seconds:.3f}", *AUDIO_FMT, str(out)])
+    return out
+
+
+def final_mix(voice: Path, music: Path | None, seconds: float, out: Path) -> Path:
+    """Voice plus music ducked under it, levelled to -14 LUFS with a -1.5 dBTP ceiling."""
+    pre = out.with_name("premix.wav")
+    if music:
+        m_lufs = loudness(music)
+        m_gain = 0.0 if m_lufs is None else MUSIC_LUFS - m_lufs
+        fade_out = max(0.0, seconds - 2.5)
+        graph = (f"[1:a]aresample=48000,aformat=channel_layouts=stereo,volume={m_gain:.2f}dB,"
+                 f"atrim=0:{seconds:.3f},afade=in:d=0.6,afade=out:st={fade_out:.3f}:d=2.5[m];"
+                 "[0:a]asplit[v][key];"
+                 "[m][key]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=450[duck];"
+                 "[v][duck]amix=inputs=2:normalize=0:duration=first[out]")
+        run(["ffmpeg", "-y", "-v", "error", "-i", str(voice), "-stream_loop", "-1", "-i", str(music),
+             "-filter_complex", graph, "-map", "[out]", "-t", f"{seconds:.3f}", *AUDIO_FMT, str(pre)])
+    else:
+        shutil.copy(voice, pre)
+    lufs = loudness(pre)
+    gain = 0.0 if lufs is None else -14.0 - lufs
+    run(["ffmpeg", "-y", "-v", "error", "-i", str(pre), "-af",
+         f"volume={gain:.2f}dB,alimiter=limit=0.84:level=disabled", *AUDIO_FMT, str(out)])
+    return out
+
+
+def concat_audio(parts: list[Path], out: Path) -> Path:
+    listing = out.with_suffix(".txt")
+    listing.write_text("".join(f"file {_concat_q(p)}\n" for p in parts), encoding="utf-8")
+    run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing), *AUDIO_FMT, str(out)])
+    return out
+
+
+def shot_sounds(take: dict, voice_dir: Path | None, cori_cmd: str | None, cache: Path) -> list[Sound]:
+    """The spoken input fixtures and Jandal's re-rendered Cori replies for one take."""
+    sounds = []
+    for ev in take.get("audio", []):
+        if voice_dir is None:
+            raise EditError(f"{take['id']}: take has spoken input; pass --voice-dir (or set DEMO_VOICE_DIR)")
+        wav = voice_dir / f"{ev['fixture']}.wav"
+        if not wav.exists():
+            raise EditError(f"{take['id']}: missing fixture {wav}")
+        sounds.append(Sound(wav, float(ev["t"]), clip_duration(wav) or float(ev.get("seconds") or 0), "input"))
+    for ev in take.get("speech", []):
+        if ev.get("text_incomplete"):
+            raise EditError(f"{take['id']}: a spoken reply was cut off in logcat; re-take the shot")
+        if not ev["text"].strip():
+            continue
+        if not cori_cmd:
+            raise EditError(f"{take['id']}: take has Jandal speech; set DEMO_CORI_CMD (see shot-script.md)")
+        import hashlib
+        wav = cache / f"cori_{hashlib.sha256(ev['text'].encode()).hexdigest()[:16]}.wav"
+        if not wav.exists():
+            cache.mkdir(parents=True, exist_ok=True)
+            res = subprocess.run(speech_cmd(cori_cmd, ev["text"], wav), capture_output=True, text=True)
+            if res.returncode != 0 or not wav.exists():
+                raise EditError(f"DEMO_CORI_CMD failed for {ev['text'][:40]!r}: {res.stderr[-500:]}")
+        sounds.append(Sound(wav, float(ev["t"]), clip_duration(wav) or 0.0, "jandal"))
+    return sounds
+
+
+def join(parts: list[Path], out: Path, voiceover: Path | None, work: Path,
+         audio_parts: list[Path] | None = None, music: Path | None = None) -> None:
     listing = work / "concat.txt"
     listing.write_text("".join(f"file {_concat_q(p)}\n" for p in parts), encoding="utf-8")
     joined = work / "joined.mp4"
     run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
          "-c", "copy", str(joined)])
+    if audio_parts:
+        voice = concat_audio(audio_parts, work / "voice.wav")
+        voiceover = final_mix(voice, music, clip_duration(joined) or 0.0, work / "mix.wav")
     audio = ["-i", str(voiceover)] if voiceover else ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
     run(["ffmpeg", "-y", "-v", "error", "-i", str(joined), *audio, "-map", "0:v", "-map", "1:a",
          "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)])
@@ -537,7 +731,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--end-card", required=True, choices=("beta", "launch"),
                     help="beta: 'Join the beta' (pre-launch recruitment); launch: 'Free on Google Play'")
     ap.add_argument("--max-wait", type=float, default=2.0, help="Seconds a model wait is compressed to")
-    ap.add_argument("--voiceover", type=Path, help="Audio file mixed under the video")
+    ap.add_argument("--voiceover", type=Path, help="Audio file used as the whole soundtrack (skips the voice mix)")
+    ap.add_argument("--music", type=Path, help="Music bed, looped/trimmed to the cut and ducked under speech")
+    ap.add_argument("--voice-dir", type=Path, help="Directory with the demo_*.wav input fixtures (or DEMO_VOICE_DIR)")
+    ap.add_argument("--silent", action="store_true", help="No voice mix (as before spoken input)")
+    ap.add_argument("--env-file", type=Path, default=Path("~/.config/jandal-demo/demo.env"),
+                    help="KEY=VALUE file for DEMO_CORI_CMD and DEMO_VOICE_DIR")
     ap.add_argument("--icon", type=Path, help="PNG for the title and end cards (default: the app's launcher icon)")
     ap.add_argument("--font", type=Path)
     ap.add_argument("--shots", default="intro",
@@ -548,6 +747,12 @@ def main(argv: list[str] | None = None) -> int:
     if not shutil.which("ffmpeg"):
         print("error: ffmpeg not found", file=sys.stderr)
         return 2
+    from demo_capture import load_env_file
+    load_env_file(args.env_file)
+    voice_dir = args.voice_dir or (Path(os.environ["DEMO_VOICE_DIR"]) if os.environ.get("DEMO_VOICE_DIR") else None)
+    voice_dir = voice_dir.expanduser() if voice_dir else None
+    cori_cmd = os.environ.get("DEMO_CORI_CMD")
+    mix = not (args.silent or args.voiceover)
     try:
         shots_data = json.loads(SHOTS_FILE.read_text(encoding="utf-8"))
         by_id = {s["id"]: s for s in shots_data["shots"]}
@@ -563,6 +768,8 @@ def main(argv: list[str] | None = None) -> int:
         with tempfile.TemporaryDirectory(prefix="jandal-demo-") as tmp:
             work = Path(tmp)
             parts, edl = [], {"end_card": args.end_card, "builds": [], "shots": []}
+            audio_parts: list[Path] = []
+            cache = clips / "speech_cache"  # Cori renders, keyed by text, reused across edits
             preview = args.shots != "intro"
             order = shots_data["intro_order"] if not preview else [x.strip() for x in args.shots.split(",") if x.strip()]
             unknown = [sid for sid in order if sid not in by_id]
@@ -572,11 +779,14 @@ def main(argv: list[str] | None = None) -> int:
             title_card = shots_data.get("title_card")
             if title_card and not preview:
                 parts.append(render_card(title_card, work, font, icon, "title_card"))
+                audio_parts.append(silence(clip_duration(parts[-1]) or title_card["seconds"], work / "title.wav"))
                 edl["title_card"] = {"seconds": title_card["seconds"]}
             for sid in order:
                 take = pick_take(manifest, sid, picks)
-                part, shot_edl = render_shot(clips / take["clip"], by_id[sid], take, work, font, args.max_wait)
+                sounds = shot_sounds(take, voice_dir, cori_cmd, cache) if mix else []
+                part, shot_edl = render_shot(clips / take["clip"], by_id[sid], take, work, font, args.max_wait, sounds)
                 parts.append(part)
+                audio_parts.append(Path(shot_edl.pop("audio")))
                 shot_edl["build"] = take.get("build")
                 edl["shots"].append(shot_edl)
                 if take.get("build") and take["build"] not in edl["builds"]:
@@ -590,7 +800,10 @@ def main(argv: list[str] | None = None) -> int:
                                 + " (or pass --allow-over-cap)")
             if not preview:
                 parts.append(render_card(card, work, font, icon, "end_card"))
-            join(parts, out, args.voiceover, work)
+                audio_parts.append(silence(clip_duration(parts[-1]) or card["seconds"], work / "end.wav"))
+            join(parts, out, args.voiceover, work, audio_parts if mix else None, args.music)
+            if args.music:
+                edl["music"] = args.music.name
         edl["seconds"] = round(sum(s["seconds"] for s in edl["shots"])
                                + (0 if preview else card["seconds"] + edl.get("title_card", {}).get("seconds", 0)), 2)
         out.with_suffix(".edl.json").write_text(json.dumps(edl, indent=2, ensure_ascii=False) + "\n")

@@ -419,6 +419,45 @@ class Device:
 # ── step execution ─────────────────────────────────────────────────────────
 
 
+TTS_TAG = "KernelAI_TTS"
+_TTS_LINE = re.compile(
+    r"^\s*(\d+\.\d+)\s+\d+\s+\d+\s+D\s+" + TTS_TAG
+    + r"\s*:\s*speaking_started engine=(\S+) chars=(\d+) part=(\d+)/(\d+) text=(.*)$")
+
+
+def speech_events(logcat: str, device_t0: float, until: float | None = None) -> list[dict]:
+    """Jandal's spoken chunks from ``logcat -v epoch``, on the runner clock.
+
+    ``device_t0`` is the device's epoch time at the runner's t0. Long text arrives in numbered
+    parts on consecutive lines; they are joined back into one chunk.
+    """
+    out: list[dict] = []
+    pending: dict | None = None
+    for line in logcat.splitlines():
+        m = _TTS_LINE.match(line)
+        if not m:
+            continue
+        epoch, engine, chars, part, parts, text = m.groups()
+        t = round(float(epoch) - device_t0, 3)
+        if t < 0 or (until is not None and t > until):
+            continue
+        if int(part) == 1:
+            pending = {"t": t, "engine": engine, "text": text, "parts": int(parts)}
+        elif pending is not None:
+            pending["text"] += text
+        if pending is not None and int(part) == pending["parts"]:
+            if len(pending["text"]) != int(chars):
+                pending["text_incomplete"] = True  # a part was lost; re-check this take
+            out.append({k: v for k, v in pending.items() if k != "parts"})
+            pending = None
+    return out
+
+
+def assistant_playing(dumpsys_audio: str) -> bool:
+    """True while a USAGE_ASSISTANT player (Jandal's voice) is playing, per ``dumpsys audio``."""
+    return any("USAGE_ASSISTANT" in line and "state:started" in line for line in dumpsys_audio.splitlines())
+
+
 def audio_events(stdout: str, t0: float) -> list[dict]:
     """Fixture start lines from demo_wake.py, on the runner clock (seconds since ``t0``)."""
     out = []
@@ -439,6 +478,7 @@ class StepLog:
     compress: list[dict] = field(default_factory=list)
     redact: list[list[int]] = field(default_factory=list)
     audio: list[dict] = field(default_factory=list)
+    speech: list[dict] = field(default_factory=list)
 
     def add_redact(self, boxes: list[tuple[int, int, int, int]]) -> None:
         for box in boxes:
@@ -457,6 +497,8 @@ class ShotRunner:
         self.last_xml = ""
         self.baseline_xml = ""
         self.anchor: float | None = None
+        self.device_t0: float | None = None  # device epoch time at t0, for logcat times
+        self.last_input: float = 0.0  # runner time the last spoken input (voice/host step) began
 
     def dump(self) -> str:
         """Every screen read goes through here, so redaction sees every screen we look at."""
@@ -551,6 +593,13 @@ class ShotRunner:
             if time.monotonic() > deadline:
                 raise CaptureError(f"no new {text!r} on screen within {timeout}s (had {before})")
             time.sleep(self.poll)
+
+    def speech(self) -> list[dict]:
+        """What Jandal has started speaking since t0 (needs the KernelAI_TTS log property)."""
+        if self.device_t0 is None:
+            return []
+        raw = self.d.run("logcat", "-d", "-v", "epoch", "-s", f"{TTS_TAG}:D")
+        return speech_events(raw or "", self.device_t0)
 
     def run_host(self, env: str, extra: list[str], timeout: float) -> None:
         """Run a host command from the env file; keep the fixture start times it prints."""
@@ -654,7 +703,30 @@ class ShotRunner:
             self.d.run("shell", "input", "keyevent", step["code"])
         elif kind == "shell":
             self.d.shell(step["cmd"])
+        elif kind == "wait_speech":
+            # Jandal speaks a reply only after synthesis (up to ~6 s on a cold engine), which
+            # can be after the result is on screen; wait for it to start so it is in the take.
+            # The edit holds the last frame until the regenerated reply has finished.
+            # Then wait for it to finish, so the next spoken input doesn't talk over it.
+            deadline = time.monotonic() + float(step.get("timeout", 15))
+            while not any(e["t"] >= self.last_input for e in self.speech()):
+                if time.monotonic() > deadline:
+                    raise CaptureError(f"Jandal did not start speaking within {step.get('timeout', 15)}s "
+                                       f"(is log.tag.{TTS_TAG} set and the build a debug build?)")
+                time.sleep(0.5)
+            if step.get("until_done", True):
+                deadline = time.monotonic() + float(step.get("max_s", 60))
+                quiet_since = None
+                while time.monotonic() < deadline:
+                    if assistant_playing(self.d.shell("dumpsys audio")):
+                        quiet_since = None
+                    elif quiet_since is None:
+                        quiet_since = time.monotonic()
+                    elif time.monotonic() - quiet_since >= 1.5:  # streamed chunks leave short gaps
+                        break
+                    time.sleep(0.3)
         elif kind == "host":
+            self.last_input = start
             self.baseline_xml = self.last_xml
             self.run_host(step["env"], list(step.get("args", [])), float(step.get("timeout", 180)))
         elif kind == "voice":
@@ -663,11 +735,17 @@ class ShotRunner:
             self.baseline_xml = self.last_xml
             env = step.get("env", "DEMO_WAKE_CMD")
             # Wake the source first: done after the tap, it left ~5 s of silence while listening.
+            prep = self.now()
             self.run_host(env, ["--sequence", step["fixture"], "--prepare-only"], 60)
             if step.get("mic_text"):
                 self.tap(text=step["mic_text"])  # chat composer: the "PTT" chip
             else:
                 self.tap(desc=step.get("mic_desc", "Start voice action"))  # Actions tab
+            # The step starts once the mic is open. The source wake-up and the screen read
+            # before the tap (~5 s on a static screen) are cut down, like any other wait.
+            start = self.now()
+            self.last_input = start
+            self.log.compress.append({"start": prep, "end": start, "max_s": 0.5})
             time.sleep(float(step.get("pre_s", 1.5)))
             self.run_host(env, ["--sequence", step["fixture"], "--no-prepare"], float(step.get("timeout", 60)))
         else:
@@ -801,6 +879,17 @@ def probe(clip: Path, ffmpeg: str = "ffmpeg") -> tuple[tuple[int, int] | None, l
     return size, scene_changes(res.stderr)
 
 
+def device_epoch_at(device, t0: float) -> float | None:
+    """The device's epoch time at host monotonic time ``t0`` (logcat stamps use it)."""
+    before = time.monotonic()
+    raw = device.shell("date +%s.%N")
+    after = time.monotonic()
+    try:
+        return float(raw.strip()) - ((before + after) / 2 - t0)
+    except ValueError:
+        return None
+
+
 def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: str, build: dict) -> dict:
     redact = redact_values(shot)
     airplane = device.set_offline(bool(shot.get("offline")))
@@ -825,6 +914,7 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
     t0 = time.monotonic()
     log = StepLog()
     runner = ShotRunner(device, t0, log, redact=redact)
+    runner.device_t0 = device_epoch_at(device, t0)
     status, error = "ok", None
     steps_end = None
     try:
@@ -847,6 +937,10 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
             proc.kill()
             status, error = "failed", error or "scrcpy did not stop; clip is not finalised"
         scrcpy_log.close()
+    try:
+        log.speech = runner.speech()
+    except CaptureError:
+        log.speech = []
     clip_size, changes = probe(clip) if clip.exists() else (None, [])
     lead = lead_in_from_anchor(changes, runner.anchor) if runner.anchor is not None else None
     if lead is None and runner.anchor is not None and clip.exists():
@@ -873,6 +967,7 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
         "compress": log.compress,
         "redact": log.redact,
         "audio": log.audio,  # cloned-voice fixtures played at the device, on the runner clock
+        "speech": log.speech,  # what Jandal started speaking (KernelAI_TTS), on the runner clock
         "build": build,
         "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
     }
@@ -968,12 +1063,15 @@ def main(argv: list[str] | None = None) -> int:
     for dev in (device, second):
         if dev:
             dev.set_dnd("alarms")
+            # Debug builds log what Jandal starts speaking only while this is set (#1750).
+            dev.shell(f"setprop log.tag.{TTS_TAG} DEBUG")
     try:
         return record_all(shots, device, second, out, args, builds, header)
     finally:
         for dev in (device, second):
             if dev:
                 dev.set_dnd(zen_names.get(previous_zen.get(dev.serial, "0"), "off"))
+                dev.shell(f"setprop log.tag.{TTS_TAG} ''")
 
 
 def record_all(shots, device, second, out, args, builds, header) -> int:

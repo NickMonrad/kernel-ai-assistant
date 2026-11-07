@@ -33,7 +33,7 @@ class ShotListTest(unittest.TestCase):
         ids = {s["id"] for s in data["shots"]}
         self.assertEqual(data["intro_order"], ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07A", "S07B"])
         kinds = {"launch", "restart", "tap", "type", "wait", "wait_gone", "sleep", "key", "shell", "host", "open_url",
-                 "home_page", "tap_xy", "voice"}
+                 "home_page", "tap_xy", "voice", "wait_speech"}
         for shot in data["shots"]:
             self.assertTrue(shot["caption"], shot["id"])
             for step in shot["steps"]:
@@ -52,10 +52,13 @@ class ShotListTest(unittest.TestCase):
         # Spoken in Lokhor's cloned voice (input only), recognised by the Android native engine.
         spoken = {sid: [(st["fixture"], st["says"]) for st in by_id[sid]["steps"] if st["do"] == "voice"]
                   for sid in ("S02", "S04", "S06")}
-        self.assertEqual(spoken["S02"], [("demo_s02_bananas", "Chuck bananas on the grocery list")])
+        self.assertEqual(spoken["S02"], [("demo_s02_bananas", "Stick bananas on the grocery list")])
         self.assertEqual([f for f, _ in spoken["S04"]],
                          ["demo_s04_remember_coffee", "demo_s04_ask_coffee", "demo_s04_ask_birthday"])
         self.assertEqual(spoken["S06"], [("demo_s06_weather", "What's the weather like in Wellington?")])
+        # S01 uses the cloned voice too, never the private natural_wake recording.
+        s01 = next(st for st in by_id["S01"]["steps"] if st["do"] == "host")
+        self.assertEqual(s01["args"], ["--sequence", "demo_s01_wake,demo_s01_time"])
         for sid in ("S01", "S02", "S04", "S06"):
             self.assertTrue(by_id[sid].get("needs_source_device"), sid)
             # Voice plays at real speed so the mixed-in audio stays in sync.
@@ -543,6 +546,61 @@ class VoiceStepTest(unittest.TestCase):
             self.assertEqual(first[-3:], ["--sequence", step["fixture"], "--prepare-only"])  # before the tap
             self.assertEqual(second[-3:], ["--sequence", step["fixture"], "--no-prepare"])
             self.assertEqual(log.audio, [{"fixture": step["fixture"], "t": 5.0, "seconds": 2}])
+
+
+class AudioPlanTest(unittest.TestCase):
+    def test_compression_skips_speech(self):
+        take = {"id": "S", "lead_in_s": 1.0, "duration_s": 30.0, "events": [{"do": "voice", "start": 2.0}],
+                "compress": [{"start": 10.0, "end": 25.0}]}
+        segs = edit.plan_segments(take, max_wait=2.0, keep_real=[(15.0, 18.0)])
+        # 10-15 sped up, 15-18 real time (speech), 18-25 sped up
+        self.assertEqual([(round(s.src_start, 2), round(s.src_end, 2), s.speed > 1) for s in segs],
+                         [(2.4, 11.0, False), (11.0, 16.0, True), (16.0, 19.0, False), (19.0, 26.0, True), (26.0, 31.0, False)])
+
+    def test_sounds_are_placed_in_output_time_and_hold_the_end(self):
+        segs = [edit.Segment(0.0, 10.0, 1.0), edit.Segment(10.0, 20.0, 5.0), edit.Segment(20.0, 22.0, 1.0)]
+        self.assertEqual(edit.out_time(segs, 5.0), 5.0)
+        self.assertEqual(edit.out_time(segs, 15.0), 11.0)
+        self.assertEqual(edit.out_time(segs, 21.0), 13.0)
+        a = edit.Sound(Path("a.wav"), 20.5, 3.0, "jandal")
+        b = edit.Sound(Path("b.wav"), 21.0, 2.0, "jandal")  # starts before a has finished
+        placed = edit.place_sounds([b, a], segs, lead=0.0)
+        self.assertEqual([(snd.path.name, at) for snd, at in placed], [("a.wav", 12.5), ("b.wav", 15.55)])
+        self.assertAlmostEqual(edit.hold_for_sound(placed, shot_seconds=14.0), 3.95, places=2)
+
+    def test_speech_cmd_fills_one_argument_each(self):
+        cmd = edit.speech_cmd("py cori_say.py {text} {out}", "It's 6:03 am; rm -rf x", Path("/tmp/o.wav"))
+        self.assertEqual(cmd, ["py", "cori_say.py", "It's 6:03 am; rm -rf x", "/tmp/o.wav"])
+        with self.assertRaises(edit.EditError):
+            edit.speech_cmd("py cori_say.py {text}", "x", Path("/tmp/o.wav"))
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not installed")
+    def test_loudness_reads_ffmpeg_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = Path(tmp) / "tone.wav"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=440:d=2", "-ar", "48000", str(wav)], check=True)
+            self.assertIsNotNone(edit.loudness(wav))
+
+
+class SpeechLogTest(unittest.TestCase):
+    def test_speech_events_from_logcat_epoch(self):
+        raw = ("--------- beginning of main\n"
+               "1794000005.250   492 26030 D KernelAI_TTS: speaking_started engine=sherpa chars=12 part=1/1 text=It's 6:03 am\n"
+               "1794000001.000   492 26030 D KernelAI_TTS: speaking_started engine=sherpa chars=3 part=1/1 text=old\n"
+               "1794000009.000   492 26030 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=8 part=1/2 text=abcd\n"
+               "1794000009.001   492 26030 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=8 part=2/2 text=efgh\n"
+               "1794000012.000   492 26030 D KernelAI_TTS: speaking_started engine=android_tts chars=9 part=1/1 text=short\n")
+        events = cap.speech_events(raw, 1794000002.0)
+        self.assertEqual(events[0], {"t": 3.25, "engine": "sherpa", "text": "It's 6:03 am"})  # before t0 dropped
+        self.assertEqual(events[1], {"t": 7.0, "engine": "sherpa_stream", "text": "abcdefgh"})  # parts joined
+        self.assertTrue(events[2]["text_incomplete"])  # chars says 9, text has 5
+        self.assertEqual(len(cap.speech_events(raw, 1794000002.0, until=5.0)), 1)
+
+    def test_assistant_playing(self):
+        line = "  AudioPlaybackConfiguration piid:9 type:android.media.AudioTrack u/pid:10933/19030 state:{} attr:AudioAttributes: usage=USAGE_ASSISTANT content=CONTENT_TYPE_SPEECH"
+        sonification = "  AudioPlaybackConfiguration piid:1 state:started attr:AudioAttributes: usage=USAGE_ASSISTANCE_SONIFICATION"
+        self.assertTrue(cap.assistant_playing(line.format("started")))
+        self.assertFalse(cap.assistant_playing(line.format("idle") + "\n" + sonification))
 
 
 class WakeScriptTest(unittest.TestCase):
