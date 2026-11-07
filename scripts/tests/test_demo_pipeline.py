@@ -177,6 +177,17 @@ class UiHelpersTest(unittest.TestCase):
                                    "DEMO_WAKE_CMD": "python3 scripts/demo_wake.py --source X"})
             self.assertEqual(cap.load_env_file(Path(tmp) / "missing.env", {}), [])
 
+    def test_unlock_pin_is_read_privately(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "device.env"
+            f.write_text("S23U_PIN=1234\n")
+            env = {"DEMO_UNLOCK_PIN_FILE": str(f)}
+            self.assertEqual(cap.unlock_pin(env), "1234")
+            self.assertNotIn("S23U_PIN", env)  # never copied into the environment
+            self.assertIsNone(cap.unlock_pin({}))
+            f.write_text("S23U_PIN=not-a-pin\n")
+            self.assertIsNone(cap.unlock_pin(env))
+
     def test_intro_typing_is_sped_up_with_a_marker(self):
         data = cap.load_shots()
         by_id = {s["id"]: s for s in data["shots"]}

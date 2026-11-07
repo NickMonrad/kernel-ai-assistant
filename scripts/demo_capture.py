@@ -332,11 +332,24 @@ class Device:
             time.sleep(0.5)
         raise CaptureError(f"uiautomator dump failed {attempts}x: {last.strip()}")
 
+    def unlock(self, pin: str) -> None:
+        """Unlock a PIN-locked device. The PIN is passed to adb only, never logged."""
+        self.run("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+        self.run("shell", "input", "swipe", "540", "1900", "540", "600", "250")
+        time.sleep(1.0)
+        self.run("shell", "input", "text", pin)
+        self.run("shell", "input", "keyevent", "KEYCODE_ENTER")
+        time.sleep(1.5)
+
     def prepare_screen(self) -> None:
         """Awake, unlocked, shade closed, on the home screen (the sync anchor needs a change)."""
         self.run("shell", "input", "keyevent", "KEYCODE_WAKEUP")
         if "isKeyguardShowing=true" in self.shell("dumpsys window | grep -m1 isKeyguardShowing"):
-            raise CaptureError(f"{self.serial} is locked; unlock it before recording")
+            pin = unlock_pin()
+            if pin:
+                self.unlock(pin)
+            if "isKeyguardShowing=true" in self.shell("dumpsys window | grep -m1 isKeyguardShowing"):
+                raise CaptureError(f"{self.serial} is locked; unlock it (or set DEMO_UNLOCK_PIN_FILE) before recording")
         self.shell("cmd statusbar collapse")
         self.run("shell", "input", "keyevent", "KEYCODE_HOME")
         time.sleep(1.2)
@@ -633,6 +646,21 @@ def load_env_file(path: Path, environ: dict | None = None) -> list[str]:
             environ[key] = value
             loaded.append(key)
     return loaded
+
+
+def unlock_pin(environ: dict | None = None) -> str | None:
+    """The device PIN from the file named by DEMO_UNLOCK_PIN_FILE (variable DEMO_UNLOCK_PIN_VAR).
+
+    Read into a private dict, not os.environ, so it never reaches child processes or logs.
+    """
+    environ = os.environ if environ is None else environ
+    path = environ.get("DEMO_UNLOCK_PIN_FILE")
+    if not path:
+        return None
+    values: dict[str, str] = {}
+    load_env_file(Path(path), values)
+    pin = values.get(environ.get("DEMO_UNLOCK_PIN_VAR", "S23U_PIN"), "")
+    return pin if pin.isdigit() else None
 
 
 def redact_values(shot: dict) -> list[str]:
