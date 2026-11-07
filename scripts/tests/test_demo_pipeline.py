@@ -353,6 +353,9 @@ class FakeDevice:
     def run(self, *args, **kw):
         return ""
 
+    def shell(self, cmd, **kw):
+        return getattr(self, "shell_reply", "mInputShown=false")
+
 
 class RunnerTest(unittest.TestCase):
     def test_wait_new_ignores_an_earlier_take(self):
@@ -415,6 +418,19 @@ class RunnerTest(unittest.TestCase):
             self.assertEqual(cap.redact_values(shot), ["https://c.example"])
             with unittest.mock.patch.dict("os.environ", {"DEMO_NC_DISPLAY_NAME": "Jandal Test"}):
                 self.assertEqual(cap.redact_values(shot), ["https://c.example", "Jandal Test"])
+
+    def test_keyboard_is_hidden_after_send_only_when_shown(self):
+        field = '<node text="{}" class="android.widget.EditText" content-desc="" bounds="[0,1000][900,1100]" />'
+        send = '<node text="" class="android.view.View" content-desc="Send" bounds="[900,1000][1080,1100]" />'
+        wrap = '<hierarchy><node text="" class="x" content-desc="" bounds="[0,0][1080,2316]">{}</node></hierarchy>'
+        for shown, expect_back in (("mInputShown=true", True), ("mInputShown=false", False)):
+            dev = FakeDevice([wrap.format(field.format("") + send), wrap.format(field.format("hi") + send)])
+            dev.cmds, dev.shell_reply = [], shown
+            dev.run = lambda *a, **k: dev.cmds.append(a) or ""
+            runner = cap.ShotRunner(dev, 0.0, cap.StepLog(), poll=0)
+            with unittest.mock.patch("time.sleep"):
+                runner.type_and_send("hi")
+            self.assertEqual(("shell", "input", "keyevent", "KEYCODE_BACK") in dev.cmds, expect_back, shown)
 
     def test_redaction_scans_every_screen_read_in_wait_loops(self):
         # The username shows only on an intermediate screen, between steps.

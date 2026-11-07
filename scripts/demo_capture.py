@@ -380,6 +380,13 @@ class Device:
                 raise CaptureError(f"{self.serial} did not go {mode} within {timeout:.0f}s")
             time.sleep(1.0)
 
+    def zen_mode(self) -> str:
+        return self.shell("settings get global zen_mode").strip()
+
+    def set_dnd(self, mode: str) -> None:
+        """mode: 'alarms' (only alarms break through), 'priority', 'none' or 'off'."""
+        self.shell(f"cmd notification set_dnd {mode}")
+
     def provenance(self) -> dict:
         def safe(fn: Callable[[], str]) -> str:
             try:
@@ -509,6 +516,11 @@ class ShotRunner:
             raise CaptureError("no Send button after typing")
         self.d.tap_xy(*pos)
         time.sleep(0.6)
+        # The chat composer keeps the keyboard open after Send, covering the reply. Back only
+        # when it is actually shown, so it can never navigate away instead.
+        if "mInputShown=true" in self.d.shell("dumpsys input_method | grep -m1 mInputShown"):
+            self.d.run("shell", "input", "keyevent", "KEYCODE_BACK")
+            time.sleep(0.4)
 
     def wait_new(self, text: str, timeout: float) -> None:
         """Wait until more nodes contain *text* than before the last typed request.
@@ -844,6 +856,22 @@ def main(argv: list[str] | None = None) -> int:
         builds[dev.serial] = {"commit": args.commit or None, "device": prov, "shots_sha256": shots_sha}
     header = {"issue": 1736}
 
+    # Do Not Disturb (alarms only) for the run, so no heads-up notification lands in a clip;
+    # the previous setting is restored afterwards.
+    zen_names = {"0": "off", "1": "priority", "2": "none", "3": "alarms"}
+    previous_zen = {dev.serial: dev.zen_mode() for dev in (device, second) if dev}
+    for dev in (device, second):
+        if dev:
+            dev.set_dnd("alarms")
+    try:
+        return record_all(shots, device, second, out, args, builds, header)
+    finally:
+        for dev in (device, second):
+            if dev:
+                dev.set_dnd(zen_names.get(previous_zen.get(dev.serial, "0"), "off"))
+
+
+def record_all(shots, device, second, out, args, builds, header) -> int:
     failed = 0
     for shot in shots:
         target = second if shot.get("device") == "second" else device

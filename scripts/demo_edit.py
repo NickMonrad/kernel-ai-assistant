@@ -72,7 +72,7 @@ class Segment:
 # ── planning (pure, unit-tested) ───────────────────────────────────────────
 
 
-def plan_segments(take: dict, max_wait: float = 2.5, pre_roll: float = 0.6) -> list[Segment]:
+def plan_segments(take: dict, max_wait: float = 2.0, pre_roll: float = 0.6) -> list[Segment]:
     """Turn one manifest take into real-time and sped-up segments in clip time.
 
     Event times in the manifest are relative to t0, which is ``lead_in_s`` into the clip.
@@ -356,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pick", action="append", default=[], help="Choose a take, e.g. S04=2")
     ap.add_argument("--end-card", required=True, choices=("beta", "launch"),
                     help="beta: 'Join the beta' (pre-launch recruitment); launch: 'Free on Google Play'")
-    ap.add_argument("--max-wait", type=float, default=2.5, help="Seconds a model wait is compressed to")
+    ap.add_argument("--max-wait", type=float, default=2.0, help="Seconds a model wait is compressed to")
     ap.add_argument("--voiceover", type=Path, help="Audio file mixed under the video")
     ap.add_argument("--icon", type=Path, help="PNG for the end card")
     ap.add_argument("--font", type=Path)
