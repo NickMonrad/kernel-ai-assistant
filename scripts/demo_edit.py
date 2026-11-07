@@ -43,7 +43,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SHOTS_FILE = REPO / "docs" / "demo" / "shots.json"
 W, H, FPS = 1080, 1920, 30
-CAP_SECONDS = 85  # Lokhor, 7 Nov 2026: fine slightly over 80 s with the title card and home-screen opening
+CAP_SECONDS = 150  # Lokhor, 8 Nov 2026: fine at ~140 s now that speech plays at real speed
 BG = "0x101418"
 FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -741,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--font", type=Path)
     ap.add_argument("--shots", default="intro",
                     help="'intro' (full cut with end card) or comma-separated ids for a preview without one")
-    ap.add_argument("--allow-over-cap", action="store_true", help="Write a cut longer than the 85 s cap anyway")
+    ap.add_argument("--allow-over-cap", action="store_true", help="Write a cut longer than the 150 s cap anyway")
     args = ap.parse_args(argv)
 
     if not shutil.which("ffmpeg"):

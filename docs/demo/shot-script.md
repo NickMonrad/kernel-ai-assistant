@@ -140,7 +140,7 @@ How the runner keeps the cut honest and in sync:
 - **Fresh screen reads.** `uiautomator dump` can exit 0 without writing a new file; the runner deletes the old dump first, checks the output and retries, so it never acts on a stale screen. Each read takes ~2.5–3 s on the S23U, which is why taps and typing are slow in real time.
 - **Result checks.** Quick-action shots wait for a *new* confirmation (`"new": true`): Actions history keeps earlier takes' results, so a plain text wait would pass on an old one. A missing result fails the take, and the edit step never picks a failed take.
 - **Blur.** For S07A/S07B every screen read (including inside waits and holds) is scanned for the Nextcloud server and username, with and without `https://`. Boxes are stored in screen pixels with the screen and clip sizes; the edit step scales them, or refuses if the clip is rotated.
-- **Length.** `demo_edit.py` refuses a full cut over 85 s (`--allow-over-cap` to override) and lists the longest shots. `--shots S03,S06` renders a preview of some shots without the end card.
+- **Length.** `demo_edit.py` refuses a full cut over 150 s (`--allow-over-cap` to override) and lists the longest shots. `--shots S03,S06` renders a preview of some shots without the end card.
 
 ## Decisions for Nick
 
@@ -164,3 +164,4 @@ Later decisions (Nick, 4 Nov 2026):
 13. **Cap raised to 75 s** (7 Nov 2026). The full rehearsal measured 72.5 s once the end holds were no longer being dropped; Lokhor will watch a full cut and decide whether to trim further.
 14. **Cap raised to 85 s** (7 Nov 2026). The title card and home-screen opening put the cut at about 80 s; Lokhor is fine with it running slightly longer.
 15. **Spoken input and Jandal's voice** (8 Nov 2026). S01, S02, S04 and S06 use spoken input in Lokhor's cloned voice; that voice is never used for Jandal. Jandal's replies use the shipped Cori voice (Piper `en_GB-cori-high`, the app's own settings), re-rendered on the PC from the reply text the debug build logs (`KernelAI_TTS`, #1750), because Android does not let scrcpy capture assistant audio. No narrator. Music under everything. The cut may run longer to fit the speech.
+16. **Cap raised to 150 s** (8 Nov 2026). Speech at real speed puts the full cut at about 140 s; Lokhor is fine with that. Music: "Optimistic Electronic Music - Air Light" by Sonican (Pixabay Content License; Content ID registered, so keep the signed-in download certificate for disputing YouTube claims).
