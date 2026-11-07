@@ -61,6 +61,9 @@ class KernelAIApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Debug builds only (#1736): log what the voice engines start speaking, so the showcase
+        // capture runner can regenerate replies with the same voice. Release builds never log it.
+        com.kernel.ai.core.voice.VoiceOutputTrace.enabled = BuildConfig.DEBUG
         // Debug-build-only diagnostic capture (#1461): retain the most recent uncaught
         // managed exception across process restart for the Settings -> About export.
         // Never installed in release builds and never alters normal crash handling —

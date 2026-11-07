@@ -503,6 +503,7 @@ class AndroidTextToSpeechController @Inject constructor(
                         playback.firstChunkText ?: meta.text
                     }
                     speakingText?.let { text ->
+                        VoiceOutputTrace.speakingStarted("android_tts", text)
                         _events.tryEmit(VoiceOutputEvent.SpeakingStarted(text))
                     }
                 }

@@ -193,6 +193,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
                 if (!stopped) {
                     requestAudioFocus()
+                    VoiceOutputTrace.speakingStarted("sherpa", request.text)
                     _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
                     speakingStarted = true
                     playOnAudioTrack(samples, sampleRate, myGeneration)
@@ -452,6 +453,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     for ((samples, sampleRate) in audioQueue) {
                         if (stopped || !isStreamingPlaybackActive(playbackToken)) break
                         if (!emittedStarted) {
+                            VoiceOutputTrace.speakingStarted("sherpa_stream", request.text)
                             _events.emit(VoiceOutputEvent.SpeakingStarted(request.text.ifBlank { "" }))
                             emittedStarted = true
                         }
