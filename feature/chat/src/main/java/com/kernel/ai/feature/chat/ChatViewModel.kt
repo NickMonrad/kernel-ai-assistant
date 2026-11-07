@@ -269,9 +269,18 @@ class ChatViewModel @Inject constructor(
     private var forceMinimalContextForNextMessage: Boolean = savedStateHandle["minimalContext"] ?: false
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
-    private val _inputText = MutableStateFlow("")
-    private val _inputTextReplacementRevision =
-        MutableStateFlow(savedStateHandle["inputTextReplacementRevision"] ?: 0L)
+    // Saved with the replacement so a restored composer and the ViewModel agree after process
+    // death; otherwise the field would show restored text while sendMessage sees "" (#1747).
+    private val _inputText = MutableStateFlow(savedStateHandle["inputText"] ?: "")
+
+    /** A ViewModel-originated draft: the composer applies exactly [text] when [revision] changes. */
+    private data class InputTextReplacement(val revision: Long, val text: String)
+    private val _inputTextReplacement = MutableStateFlow(
+        InputTextReplacement(
+            revision = savedStateHandle["inputTextReplacementRevision"] ?: 0L,
+            text = savedStateHandle["inputTextReplacementText"] ?: "",
+        ),
+    )
     private val _error = MutableStateFlow<String?>(null)
     private val _modelInitializationError = MutableStateFlow<String?>(null)
     private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
@@ -488,7 +497,7 @@ class ChatViewModel @Inject constructor(
     private data class InputState(
         val messages: List<ChatMessage>,
         val inputText: String,
-        val inputTextReplacementRevision: Long,
+        val inputTextReplacement: InputTextReplacement,
         val error: String?,
         val conversationTitle: String?,
         val isSpeakingResponse: Boolean,
@@ -504,9 +513,9 @@ class ChatViewModel @Inject constructor(
     }
 
     private val inputState = combine(
-        combine(_messages, _inputText, _inputTextReplacementRevision, _error, _conversationTitle) {
-                messages, inputText, inputTextReplacementRevision, error, title ->
-            InputState(messages, inputText, inputTextReplacementRevision, error, title, false)
+        combine(_messages, _inputText, _inputTextReplacement, _error, _conversationTitle) {
+                messages, inputText, inputTextReplacement, error, title ->
+            InputState(messages, inputText, inputTextReplacement, error, title, false)
         },
         _isSpeakingResponse,
     ) { state, isSpeakingResponse ->
@@ -598,7 +607,8 @@ class ChatViewModel @Inject constructor(
                 isGenerating = engine.isGenerating,
                 isSpeakingResponse = input.isSpeakingResponse,
                 inputText = input.inputText,
-                inputTextReplacementRevision = input.inputTextReplacementRevision,
+                inputTextReplacementRevision = input.inputTextReplacement.revision,
+                inputTextReplacementText = input.inputTextReplacement.text,
                 error = input.error,
                 isLoadingModel = engine.isLoadingModel,
                 showThinkingProcess = showThinking,
@@ -1432,15 +1442,17 @@ class ChatViewModel @Inject constructor(
 
     fun onInputChanged(text: String) {
         _inputText.value = text
+        savedStateHandle["inputText"] = text
         if (_error.value != null) _error.value = null
     }
 
     /** Applies a ViewModel-originated draft change; typing updates use [onInputChanged] instead. */
     fun replaceInputText(text: String) {
         onInputChanged(text)
-        val nextRevision = _inputTextReplacementRevision.value + 1L
-        _inputTextReplacementRevision.value = nextRevision
-        savedStateHandle["inputTextReplacementRevision"] = nextRevision
+        val next = InputTextReplacement(_inputTextReplacement.value.revision + 1L, text)
+        _inputTextReplacement.value = next
+        savedStateHandle["inputTextReplacementRevision"] = next.revision
+        savedStateHandle["inputTextReplacementText"] = next.text
     }
 
     /** Prefills the composer from a planner smart reply chip; chips never auto-submit. */

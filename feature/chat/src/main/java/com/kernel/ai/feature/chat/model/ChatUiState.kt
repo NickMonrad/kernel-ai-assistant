@@ -22,6 +22,8 @@ sealed interface ChatUiState {
         val inputText: String,
         /** Advances only for ViewModel-originated composer replacements, not typing echoes. */
         val inputTextReplacementRevision: Long = 0L,
+        /** Text of the latest ViewModel-originated replacement (paired with the revision). */
+        val inputTextReplacementText: String = "",
         val error: String?,
         val isLoadingModel: Boolean = false,
         /** Whether to show the model's thinking process tokens in the chat UI. */

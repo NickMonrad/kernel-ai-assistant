@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.MutableState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1054,6 +1055,7 @@ private fun ChatContent(
                 InputBar(
                     text = state.inputText,
                     textRevision = state.inputTextReplacementRevision,
+                    replacementText = state.inputTextReplacementText,
                     isGenerating = state.isGenerating,
                     voiceCaptureState = voiceCaptureState,
                     voicePlaybackState = voicePlaybackState,
@@ -1434,21 +1436,38 @@ private fun ExternalDraftNotice(onDiscard: () -> Unit) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The composer owns its text and selection; the ViewModel's text only replaces it when a new
+ * [replacementRevision] arrives (send-clear, smart-reply chips, voice, external drafts).
+ *
+ * The replacement's own [replacementText] is applied, not the latest [text]: a keystroke that
+ * lands between the ViewModel replacement and this effect would otherwise make the two
+ * disagree. After applying, and after a restore, the field's text is pushed back through
+ * [onTextChanged] so the ViewModel (which `sendMessage` reads) always matches what is shown.
+ */
 @Composable
 internal fun rememberChatComposerDraft(
     text: String,
     replacementRevision: Long,
+    replacementText: String = text,
+    onTextChanged: (String) -> Unit = {},
 ): MutableState<TextFieldValue> {
     val draftValue = rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(text, selection = TextRange(text.length)))
     }
     var appliedRevision by rememberSaveable { mutableLongStateOf(replacementRevision) }
+    val latestOnTextChanged by rememberUpdatedState(onTextChanged)
+    LaunchedEffect(Unit) {
+        // Restored after rotation or process death: make the ViewModel match the field.
+        if (draftValue.value.text != text) latestOnTextChanged(draftValue.value.text)
+    }
     LaunchedEffect(replacementRevision) {
         if (replacementRevision != appliedRevision) {
-            if (draftValue.value.text != text) {
-                draftValue.value = TextFieldValue(text, selection = TextRange(text.length))
+            if (draftValue.value.text != replacementText) {
+                draftValue.value = TextFieldValue(replacementText, selection = TextRange(replacementText.length))
             }
             appliedRevision = replacementRevision
+            if (text != replacementText) latestOnTextChanged(replacementText)
         }
     }
     return draftValue
@@ -1458,6 +1477,7 @@ internal fun rememberChatComposerDraft(
 private fun InputBar(
     text: String,
     textRevision: Long,
+    replacementText: String,
     isGenerating: Boolean,
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
@@ -1692,7 +1712,7 @@ private fun InputBar(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    var draftValue by rememberChatComposerDraft(text, textRevision)
+                    var draftValue by rememberChatComposerDraft(text, textRevision, replacementText, onTextChanged)
                     val draftText = draftValue.text
                     val sendEnabled = draftText.isNotBlank()
                     val showControlRow =
