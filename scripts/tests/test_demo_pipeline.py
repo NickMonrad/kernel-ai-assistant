@@ -85,6 +85,14 @@ class ShotListTest(unittest.TestCase):
             with self.assertRaises(cap.CaptureError):
                 cap.load_shots(path)
 
+    def test_title_card_slogan_and_icon(self):
+        data = json.loads(edit.SHOTS_FILE.read_text())
+        self.assertEqual(data["title_card"]["lines"], ["Can you handle the Jandal?"])
+        svg = edit.icon_svg()
+        self.assertIsNotNone(svg)
+        self.assertIn('viewBox="0 0 108 108"', svg)  # whole jandal, not the 72-unit safe zone
+        self.assertIn("#4F7942", svg)  # the launcher background green
+
     def test_end_card_variants(self):
         data = json.loads(edit.SHOTS_FILE.read_text())
         beta = edit.select_end_card(data, "beta")

@@ -11,6 +11,13 @@
     "S07A",
     "S07B"
   ],
+  "title_card": {
+    "title": "Jandal AI",
+    "lines": [
+      "Can you handle the Jandal?"
+    ],
+    "seconds": 2.5
+  },
   "end_cards": {
     "beta": {
       "title": "Jandal AI",

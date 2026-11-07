@@ -322,13 +322,55 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     return out, edl
 
 
-def render_end_card(card: dict, work: Path, font: Path, icon: Path | None) -> Path:
-    out = work / "end_card.mp4"
-    title = work / "end_title.txt"
+ICON_DRAWABLES = REPO / "app" / "src" / "main" / "res" / "drawable"
+
+
+def icon_svg(drawables: Path = ICON_DRAWABLES) -> str | None:
+    """The launcher icon (background + foreground VectorDrawables) as a rounded-square SVG.
+
+    The whole 108-unit canvas is shown: the jandal is drawn larger than the adaptive-icon
+    safe zone, so the usual 72-unit crop would cut it off.
+    """
+    import xml.etree.ElementTree as ET
+    android = "{http://schemas.android.com/apk/res/android}"
+    paths = []
+    for name in ("ic_launcher_background.xml", "ic_launcher_foreground.xml"):
+        f = drawables / name
+        if not f.exists():
+            return None
+        for node in ET.parse(f).getroot().iter("path"):
+            attrs = [f'd="{" ".join(node.get(android + "pathData", "").split())}"',
+                     f'fill="{node.get(android + "fillColor") or "none"}"']
+            if node.get(android + "fillType", "").lower() == "evenodd":
+                attrs.append('fill-rule="evenodd"')
+            if node.get(android + "strokeColor"):
+                attrs.append(f'stroke="{node.get(android + "strokeColor")}" '
+                             f'stroke-width="{node.get(android + "strokeWidth", "1")}"')
+            paths.append("<path " + " ".join(attrs) + "/>")
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512">'
+            '<defs><clipPath id="m"><rect width="108" height="108" rx="24" ry="24"/></clipPath></defs>'
+            f'<g clip-path="url(#m)">{"".join(paths)}</g></svg>')
+
+
+def default_icon(work: Path) -> Path | None:
+    """Render the app's own launcher icon to PNG (needs rsvg-convert); None if unavailable."""
+    svg = icon_svg()
+    if not svg or not shutil.which("rsvg-convert"):
+        return None
+    src, png = work / "icon.svg", work / "icon.png"
+    src.write_text(svg, encoding="utf-8")
+    res = subprocess.run(["rsvg-convert", "-w", "512", "-h", "512", str(src), "-o", str(png)], capture_output=True)
+    return png if res.returncode == 0 else None
+
+
+def render_card(card: dict, work: Path, font: Path, icon: Path | None, name: str) -> Path:
+    """A title or end card: icon, title and lines on the dark background."""
+    out = work / f"{name}.mp4"
+    title = work / f"{name}_title.txt"
     title.write_text(card["title"], encoding="utf-8")
     filt = f"[0:v]drawtext=fontfile={_q(font)}:fontcolor=white:textfile={_q(title)}:fontsize=96:x=(w-tw)/2:y=h*0.52"
     for i, line in enumerate(card["lines"]):
-        p = work / f"end_line{i}.txt"
+        p = work / f"{name}_line{i}.txt"
         _, size = fit_text(line, 44, max_chars=60)
         p.write_text(line, encoding="utf-8")
         filt += f",drawtext=fontfile={_q(font)}:fontcolor=white@0.85:textfile={_q(p)}:fontsize={size}:x=(w-tw)/2:y=h*0.52+150+{i}*80"
@@ -379,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="beta: 'Join the beta' (pre-launch recruitment); launch: 'Free on Google Play'")
     ap.add_argument("--max-wait", type=float, default=2.0, help="Seconds a model wait is compressed to")
     ap.add_argument("--voiceover", type=Path, help="Audio file mixed under the video")
-    ap.add_argument("--icon", type=Path, help="PNG for the end card")
+    ap.add_argument("--icon", type=Path, help="PNG for the title and end cards (default: the app's launcher icon)")
     ap.add_argument("--font", type=Path)
     ap.add_argument("--shots", default="intro",
                     help="'intro' (full cut with end card) or comma-separated ids for a preview without one")
@@ -409,6 +451,11 @@ def main(argv: list[str] | None = None) -> int:
             unknown = [sid for sid in order if sid not in by_id]
             if unknown:
                 raise EditError(f"unknown shot ids: {', '.join(unknown)}")
+            icon = args.icon or default_icon(work)
+            title_card = shots_data.get("title_card")
+            if title_card and not preview:
+                parts.append(render_card(title_card, work, font, icon, "title_card"))
+                edl["title_card"] = {"seconds": title_card["seconds"]}
             for sid in order:
                 take = pick_take(manifest, sid, picks)
                 part, shot_edl = render_shot(clips / take["clip"], by_id[sid], take, work, font, args.max_wait)
@@ -417,16 +464,18 @@ def main(argv: list[str] | None = None) -> int:
                 edl["shots"].append(shot_edl)
                 if take.get("build") and take["build"] not in edl["builds"]:
                     edl["builds"].append(take["build"])
-            planned = sum(s["seconds"] for s in edl["shots"]) + card["seconds"]
+            title_seconds = title_card["seconds"] if (title_card and not preview) else 0
+            planned = sum(s["seconds"] for s in edl["shots"]) + card["seconds"] + title_seconds
             if planned > CAP_SECONDS and not args.allow_over_cap and not preview:
                 longest = sorted(edl["shots"], key=lambda s: -s["seconds"])[:3]
                 raise EditError(f"cut is {planned:.1f} s, over the {CAP_SECONDS} s cap; longest shots: "
                                 + ", ".join(f"{s['id']} {s['seconds']} s" for s in longest)
                                 + " (or pass --allow-over-cap)")
             if not preview:
-                parts.append(render_end_card(card, work, font, args.icon))
+                parts.append(render_card(card, work, font, icon, "end_card"))
             join(parts, out, args.voiceover, work)
-        edl["seconds"] = round(sum(s["seconds"] for s in edl["shots"]) + (0 if preview else card["seconds"]), 2)
+        edl["seconds"] = round(sum(s["seconds"] for s in edl["shots"])
+                               + (0 if preview else card["seconds"] + edl.get("title_card", {}).get("seconds", 0)), 2)
         out.with_suffix(".edl.json").write_text(json.dumps(edl, indent=2, ensure_ascii=False) + "\n")
     except EditError as exc:
         print(f"error: {exc}", file=sys.stderr)
