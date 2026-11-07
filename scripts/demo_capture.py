@@ -244,6 +244,8 @@ def nodes_containing(xml_text: str, needles: list[str]) -> list[tuple[int, int, 
             m = BOUNDS_RE.fullmatch(node.get("bounds", ""))
             if m:
                 box = tuple(map(int, m.groups()))
+                if box[2] <= box[0] or box[3] <= box[1]:
+                    continue  # zero-size (off-screen) node: nothing visible to blur
                 if box not in found:
                     found.append(box)
     return found
@@ -565,7 +567,9 @@ class ShotRunner:
                           appear_timeout=float(step.get("appear_timeout", 20)))
         elif kind == "sleep":
             until = time.monotonic() + float(step["s"])
-            while self.redact and time.monotonic() < until - 0.5:
+            # A screen read takes ~2.5 s; short holds after a wait (which just read the
+            # screen) skip it, longer holds keep scanning for values to blur.
+            while self.redact and float(step["s"]) > 2.5 and time.monotonic() < until - 0.5:
                 self.dump()  # keep scanning for values to blur while holding on a screen
             time.sleep(max(0.0, until - time.monotonic()))
         elif kind == "open_url":
@@ -606,7 +610,10 @@ class ShotRunner:
             if "compress_to" in step:
                 span["max_s"] = float(step["compress_to"])
             self.log.compress.append(span)
-        if self.redact:
+        # A wait's last screen read already shows the final screen; re-reading only adds a
+        # ~2 s static hold to the clip. Every other step changes the screen, so scan again.
+        short_hold = kind == "sleep" and float(step["s"]) <= 2.5
+        if self.redact and kind not in ("wait", "wait_gone") and not short_hold:
             self.dump()
 
 

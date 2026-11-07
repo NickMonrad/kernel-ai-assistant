@@ -401,7 +401,8 @@
         },
         {
           "do": "sleep",
-          "s": 2
+          "s": 1.2,
+          "note": "Real-time hold so the shot does not end under the sped-up marker"
         }
       ]
     },

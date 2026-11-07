@@ -119,6 +119,8 @@ class UiHelpersTest(unittest.TestCase):
         xml = UI_XML.replace('text="Actions history"', 'text="Signed in as Demo-User on cloud.example"')
         self.assertEqual(cap.nodes_containing(xml, ["demo-user", "cloud.example"]), [(0, 100, 500, 200)])
         self.assertEqual(cap.nodes_containing(xml, [""]), [])
+        hidden = xml.replace('bounds="[0,100][500,200]"', 'bounds="[0,0][0,0]"')
+        self.assertEqual(cap.nodes_containing(hidden, ["demo-user"]), [])  # zero-size node
         self.assertEqual(cap.nodes_containing("not xml", ["x"]), [])
 
     def test_airplane_commands(self):
