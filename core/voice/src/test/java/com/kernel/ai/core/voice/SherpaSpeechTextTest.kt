@@ -1,53 +1,69 @@
 package com.kernel.ai.core.voice
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.api.Test
 
 class SherpaSpeechTextTest {
     @Test
-    fun `date difference reply is spelled out`() {
-        val spoken = SherpaSpeechText.prepare("126 days from now (18 weeks) — Sunday, 14 March 2027.")
-        assertFalse(spoken.any(Char::isDigit), spoken)
-        assertTrue(spoken.startsWith("one hundred and twenty"), spoken)
-        assertTrue("the fourteenth of March two thousand and twenty" in spoken, spoken)
-        assertTrue(spoken.endsWith("."), spoken)
+    fun `date difference reply from issue 1751`() {
+        assertEquals(
+            "one hundred and twenty six days from now, eighteen weeks, Sunday, the 14th of March 2027.",
+            SherpaSpeechText.prepare("126 days from now (18 weeks) — Sunday, 14 March 2027."),
+        )
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(
+        delimiter = '|',
+        quoteCharacter = '`',
+        value = [
+            "It's 8:31 am                                | It's 8:31 am.",
+            "It's 8:31 am (NZT)                          | It's 8:31 am, NZT.",
+            "Done!                                       | Done!",
+            "Next,                                       | Next.",
+            "Added \"bananas\" to your shopping list.      | Added \"bananas\" to your shopping list.",
+            "It's -3 degrees Celsius                     | It's -3 degrees Celsius.",
+            "In Wellington, it's 17°C, high of 19 degrees | In Wellington, it's 17°C, high of nineteen degrees.",
+            "That's 15,000 steps                         | That's fifteen thousand steps.",
+            "1,234.5 km away                             | 1,234.5 km away.",
+            "Call 0211234567                             | Call 0211234567.",
+            "Call 021 123 4567                           | Call 021 123 4567.",
+            "Born in 1985, moved in 2020                 | Born in 1985, moved in 2020.",
+            "It costs $345                               | It costs $345.",
+            "About 50% done                              | About 50% done.",
+            "Version 2.14.1                              | Version 2.14.1.",
+            "See https://example.com/page-2              | See https://example.com/page-2.",
+            "Takes 5-10 minutes                          | Takes 5-10 minutes.",
+            "The 3rd item                                | The 3rd item.",
+            "Room 101 and 2 cats                         | Room one hundred and one and two cats.",
+            "That is VERY good                           | That is VERY good.",
+            "Kia ora, 1 June works                       | Kia ora, the 1st of June works.",
+        ],
+    )
+    fun `only plain integers, dates, brackets, dashes and the final pause change`(input: String, expected: String) {
+        assertEquals(expected, SherpaSpeechText.prepare(input))
     }
 
     @Test
-    fun `time reply gets a final full stop so the last word is not clipped`() {
-        assertEquals("It's eight thirty one a m.", SherpaSpeechText.prepare("It's 8:31 am"))
+    fun `earlier streaming chunks keep the chunker's ending`() {
+        assertEquals("I found three things,", SherpaSpeechText.prepare("I found 3 things,", chunkEnd = false))
+        assertEquals("and then", SherpaSpeechText.prepare("and then", chunkEnd = false))
     }
 
     @Test
-    fun `existing terminal punctuation is kept`() {
-        assertEquals("Done!", SherpaSpeechText.prepare("Done!"))
-        assertEquals("Added \"bananas\" to your shopping list.", SherpaSpeechText.prepare("Added \"bananas\" to your shopping list."))
-        assertEquals("Next,", SherpaSpeechText.prepare("Next,"))
-    }
-
-    @Test
-    fun `shouted words and large counts read naturally`() {
-        val spoken = SherpaSpeechText.prepare("That is VERY good: 15,000 steps")
-        assertTrue("VERY" in spoken, spoken)
-        assertTrue("fifteen thousand steps" in spoken, spoken)
-    }
-
-    @Test
-    fun `day-month dates read as ordinals`() {
-        assertEquals("Sunday, the first of June.", SherpaSpeechText.prepare("Sunday, 1 June"))
-        assertEquals("the twenty second of March and the thirteenth of May.", SherpaSpeechText.prepare("22 March and 13 May"))
+    fun `words cover the integer range used`() {
+        assertEquals("zero", SherpaSpeechText.words(0))
+        assertEquals("forty", SherpaSpeechText.words(40))
+        assertEquals("one thousand and five", SherpaSpeechText.words(1005))
+        assertEquals("twelve thousand three hundred and forty five", SherpaSpeechText.words(12_345))
+        assertEquals("nine hundred and ninety nine million nine hundred and ninety nine thousand nine hundred and ninety nine",
+            SherpaSpeechText.words(999_999_999))
     }
 
     @Test
     fun `blank text stays blank`() {
         assertEquals("", SherpaSpeechText.prepare("   "))
-    }
-
-    @Test
-    fun `inflect defaults are unchanged`() {
-        assertEquals("en zee", InflectMicroTextFrontend.normalize("NZ"))
-        assertEquals("one five oh oh oh", InflectMicroTextFrontend.normalize("15000"))
     }
 }

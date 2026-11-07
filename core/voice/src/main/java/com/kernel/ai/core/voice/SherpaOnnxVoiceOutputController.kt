@@ -432,7 +432,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                         for (chunk in chunks) {
                             if (stopped || !isStreamingPlaybackActive(playbackToken)) break
                             val synthStart = System.currentTimeMillis()
-                            val spokenText = SherpaSpeechText.prepare(chunk.text)
+                            val spokenText = SherpaSpeechText.prepare(chunk.text, chunkEnd = chunk.isFinal)
                             val audioResult = try {
                                 genMethod.invoke(tts, spokenText, effectiveSid, sherpaSpeed.value)
                                     ?: break
