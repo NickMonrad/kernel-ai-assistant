@@ -33,7 +33,7 @@ class ShotListTest(unittest.TestCase):
         ids = {s["id"] for s in data["shots"]}
         self.assertEqual(data["intro_order"], ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07A", "S07B"])
         kinds = {"launch", "restart", "tap", "type", "wait", "wait_gone", "sleep", "key", "shell", "host", "open_url",
-                 "home_page", "tap_xy"}
+                 "home_page", "tap_xy", "voice"}
         for shot in data["shots"]:
             self.assertTrue(shot["caption"], shot["id"])
             for step in shot["steps"]:
@@ -48,11 +48,19 @@ class ShotListTest(unittest.TestCase):
         self.assertEqual(by_id["S01"]["caption"], 'Optional "Hey Jandal" wake word')
         self.assertNotIn("hands-free", by_id["S01"]["caption"].lower())
         self.assertEqual(by_id["S02"]["caption"], "Lists that understand Kiwi")
-        self.assertIn("Chuck bananas on the grocery list",
-                      [s.get("text") for s in by_id["S02"]["steps"]])
         self.assertEqual(by_id["S03"]["caption"], "Timers and alarms, instantly")
-        self.assertIn("What's the weather like in Wellington?",
-                      [s.get("text") for s in by_id["S06"]["steps"]])
+        # Spoken in Lokhor's cloned voice (input only), recognised by the Android native engine.
+        spoken = {sid: [(st["fixture"], st["says"]) for st in by_id[sid]["steps"] if st["do"] == "voice"]
+                  for sid in ("S02", "S04", "S06")}
+        self.assertEqual(spoken["S02"], [("demo_s02_bananas", "Chuck bananas on the grocery list")])
+        self.assertEqual([f for f, _ in spoken["S04"]],
+                         ["demo_s04_remember_coffee", "demo_s04_ask_coffee", "demo_s04_ask_birthday"])
+        self.assertEqual(spoken["S06"], [("demo_s06_weather", "What's the weather like in Wellington?")])
+        for sid in ("S01", "S02", "S04", "S06"):
+            self.assertTrue(by_id[sid].get("needs_source_device"), sid)
+            # Voice plays at real speed so the mixed-in audio stays in sync.
+            self.assertFalse(any(st.get("compress") for st in by_id[sid]["steps"]
+                                 if st["do"] in ("voice", "host")), sid)
         # S07B shows the item on the user's own server, in the S23U browser (Nick, 7 Nov 2026).
         self.assertNotIn("device", by_id["S07B"])
         self.assertIn({"do": "open_url", "env": "DEMO_NC_SERVER", "path_env": "DEMO_NC_TASKS_PATH"},
@@ -506,6 +514,35 @@ class RunnerTest(unittest.TestCase):
         with unittest.mock.patch("time.sleep"):
             runner.run_step({"do": "wait", "text": "cheese", "timeout": 5})
         self.assertEqual(log.redact, [[0, 0, 1080, 90]])
+
+
+class VoiceStepTest(unittest.TestCase):
+    def test_audio_events_use_the_runner_clock(self):
+        out = ('not json\n{"fixture": "natural_wake", "t": 0.0, "mono": 1000.5, "seconds": 1.2}\n'
+               '{"fixture": "qwen_command", "t": 3.4, "mono": 1003.9, "seconds": 2.0}\n{"other": 1}\n')
+        self.assertEqual(cap.audio_events(out, 990.0), [
+            {"fixture": "natural_wake", "t": 10.5, "seconds": 1.2},
+            {"fixture": "qwen_command", "t": 13.9, "seconds": 2.0}])
+
+    def test_voice_taps_the_mic_then_plays_the_fixture(self):
+        mic = '<node text="" class="android.view.View" content-desc="Start voice action" bounds="[900,1400][1000,1500]" />'
+        ptt = '<node text="PTT" class="android.widget.TextView" content-desc="" bounds="[100,2000][200,2100]" />'
+        wrap = '<hierarchy><node text="" class="x" content-desc="" bounds="[0,0][1080,2316]">{}</node></hierarchy>'
+        for step, tap in (({"do": "voice", "fixture": "demo_s02_bananas"}, (950, 1450)),
+                          ({"do": "voice", "fixture": "demo_s04_ask_coffee", "mic_text": "PTT"}, (150, 2050))):
+            dev = FakeDevice([wrap.format(mic + ptt)])
+            log = cap.StepLog()
+            runner = cap.ShotRunner(dev, 0.0, log, poll=0)
+            done = unittest.mock.Mock(returncode=0, stdout=f'{{"fixture": "{step["fixture"]}", "mono": 5.0, "seconds": 2}}\n')
+            with unittest.mock.patch("time.sleep"), \
+                    unittest.mock.patch("subprocess.run", side_effect=[unittest.mock.Mock(returncode=0, stdout=""), done]) as run, \
+                    unittest.mock.patch.dict("os.environ", {"DEMO_WAKE_CMD": "python3 scripts/demo_wake.py --source S"}):
+                runner.run_step(step)
+            self.assertEqual(dev.taps, [tap])
+            first, second = (c.args[0] for c in run.call_args_list)
+            self.assertEqual(first[-3:], ["--sequence", step["fixture"], "--prepare-only"])  # before the tap
+            self.assertEqual(second[-3:], ["--sequence", step["fixture"], "--no-prepare"])
+            self.assertEqual(log.audio, [{"fixture": step["fixture"], "t": 5.0, "seconds": 2}])
 
 
 class WakeScriptTest(unittest.TestCase):

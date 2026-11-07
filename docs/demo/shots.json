@@ -90,9 +90,7 @@
         {
           "do": "host",
           "env": "DEMO_WAKE_CMD",
-          "note": "Plays natural_wake + qwen_command from the S21 using the approved #1403/#1410 setup; same path as #1329 J10. Device audio is not recorded and the Actions screen shows no listening indicator, so the spoken part plays sped up with the marker",
-          "compress": true,
-          "compress_to": 2.0
+          "note": "Plays natural_wake + qwen_command from the S21 using the approved #1403/#1410 setup; same path as #1329 J10. Device audio is not recorded; the fixtures' start times go into the manifest and the same WAVs are mixed in, so this span plays at real speed"
         },
         {
           "do": "wait",
@@ -120,14 +118,10 @@
           "text": "Actions"
         },
         {
-          "do": "tap",
-          "desc": "Run quick action"
-        },
-        {
-          "do": "type",
-          "text": "Chuck bananas on the grocery list",
-          "compress": true,
-          "compress_to": 1.0
+          "do": "voice",
+          "fixture": "demo_s02_bananas",
+          "says": "Chuck bananas on the grocery list",
+          "note": "Cloned-voice fixture played from the S21 at real speed; its start time goes into the manifest's audio list for the mix. Needs the Android native input engine (Settings → Voice): the bundled Vosk model mishears 'chuck' through a speaker"
         },
         {
           "do": "wait",
@@ -159,7 +153,8 @@
           "text": "bananas",
           "timeout": 10
         }
-      ]
+      ],
+      "needs_source_device": true
     },
     {
       "id": "S03",
@@ -236,10 +231,10 @@
           "note": "After the app was backgrounded the model reloads; this is before the first input, so it is cut"
         },
         {
-          "do": "type",
-          "text": "Remember that my favourite coffee is a flat white",
-          "compress": true,
-          "compress_to": 1.0
+          "do": "voice",
+          "fixture": "demo_s04_remember_coffee",
+          "says": "Remember that my favourite coffee is a flat white",
+          "mic_text": "PTT"
         },
         {
           "do": "wait_gone",
@@ -258,10 +253,10 @@
           "compress_to": 0.3
         },
         {
-          "do": "type",
-          "text": "What's my favourite coffee?",
-          "compress": true,
-          "compress_to": 1.0
+          "do": "voice",
+          "fixture": "demo_s04_ask_coffee",
+          "says": "What's my favourite coffee?",
+          "mic_text": "PTT"
         },
         {
           "do": "wait_gone",
@@ -275,10 +270,10 @@
           "timeout": 5
         },
         {
-          "do": "type",
-          "text": "When is my wife's birthday?",
-          "compress": true,
-          "compress_to": 1.0,
+          "do": "voice",
+          "fixture": "demo_s04_ask_birthday",
+          "says": "When is my wife's birthday?",
+          "mic_text": "PTT",
           "note": "Seeded important date (invented): 'Save my wife's birthday as 14 March'"
         },
         {
@@ -292,7 +287,8 @@
           "do": "sleep",
           "s": 1.5
         }
-      ]
+      ],
+      "needs_source_device": true
     },
     {
       "id": "S05",
@@ -352,14 +348,10 @@
           "text": "Actions"
         },
         {
-          "do": "tap",
-          "desc": "Run quick action"
-        },
-        {
-          "do": "type",
-          "text": "What's the weather like in Wellington?",
-          "compress": true,
-          "compress_to": 1.0
+          "do": "voice",
+          "fixture": "demo_s06_weather",
+          "says": "What's the weather like in Wellington?",
+          "note": "Cloned-voice fixture played from the S21 at real speed; its start time goes into the manifest's audio list for the mix"
         },
         {
           "do": "wait",
@@ -373,7 +365,8 @@
           "do": "sleep",
           "s": 2
         }
-      ]
+      ],
+      "needs_source_device": true
     },
     {
       "id": "S07A",

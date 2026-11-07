@@ -88,22 +88,37 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--volume", type=int, default=9, help="Media volume index (approved setup: 9/15)")
     ap.add_argument("--gap", type=float, default=1.5,
                     help="Seconds between the end of the wake word and the command (listening cue + margin)")
+    ap.add_argument("--sequence", default="natural_wake,qwen_command",
+                    help="Comma-separated fixture ids to play in order, e.g. a single push-to-talk command")
+    ap.add_argument("--prepare-only", action="store_true",
+                    help="Wake the source and bring the debug app to the front, then exit (before a push-to-talk tap)")
+    ap.add_argument("--no-prepare", action="store_true",
+                    help="Skip waking the source (already done with --prepare-only), so playback starts at once")
     args = ap.parse_args(argv)
     if not args.source:
         ap.error("--source (or DEMO_WAKE_SOURCE) is required")
     durations = fixture_durations(args.source)
-    for needed in ("natural_wake", "qwen_command"):
+    sequence = [f.strip() for f in args.sequence.split(",") if f.strip()]
+    for needed in sequence:
         if needed not in durations:
             raise SystemExit(f"fixture {needed!r} is not installed on {args.source}")
-    prepare_source(args.source)
+    if not args.no_prepare:
+        prepare_source(args.source)
+    if args.prepare_only:
+        return 0
     stamp = time.strftime("%Y%m%d%H%M%S")
-    start = time.monotonic()
-    play(args.source, f"demo-s01-{stamp}-wake", "natural_wake", args.volume)
-    # The receiver may answer before or after playback ends; wait out the clip either way.
-    time.sleep(max(0.0, durations["natural_wake"] - (time.monotonic() - start)) + args.gap)
-    start = time.monotonic()
-    play(args.source, f"demo-s01-{stamp}-cmd", "qwen_command", args.volume)
-    time.sleep(max(0.0, durations["qwen_command"] - (time.monotonic() - start)) + 0.5)
+    t0 = time.monotonic()
+    for i, fixture in enumerate(sequence):
+        start = time.monotonic()
+        # One JSON line per fixture: when it started, so the capture runner can lay the same
+        # audio into the video at the moment it was played. "mono" is CLOCK_MONOTONIC, which
+        # the runner's clock shares; "t" is relative to this script's start.
+        print(json.dumps({"fixture": fixture, "t": round(start - t0, 3), "mono": round(start, 3),
+                          "seconds": durations[fixture]}), flush=True)
+        play(args.source, f"demo-{stamp}-{i}-{fixture}", fixture, args.volume)
+        # The receiver may answer before or after playback ends; wait out the clip either way.
+        last = i == len(sequence) - 1
+        time.sleep(max(0.0, durations[fixture] - (time.monotonic() - start)) + (0.5 if last else args.gap))
     return 0
 
 

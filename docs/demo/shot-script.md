@@ -18,11 +18,11 @@ This script is the source of truth for the shot list. `docs/demo/shots.json` is 
 | Item | Value |
 |---|---|
 | Primary device | S23U `RFCW11265XH`, Gemma 4 E4B, FLAGSHIP, GPU |
-| Second device | S21 `R5CR605B71K`, only as the acoustic source for S01 (`scripts/demo_wake.py`) |
+| Second device | S21 `R5CR605B71K`, only as the acoustic source for the spoken input in S01, S02, S04 and S06 (`scripts/demo_wake.py`) |
 | Build | Final v0.1 RC build. Record commit, versionName/versionCode and APK SHA-256 in the manifest |
 | Persona | Settings → Persona: **Full Jandal** for S05; default **Half a Jandal** for everything else |
 | Theme | Dark (matches the S23U screenshot set in `docs/play-store/screenshots/`) |
-| Wake word | "Listen for Hey Jandal" on; Vosk STT; approved acoustic setup from #1403/#1410 (built-in speaker, side by side 25 cm–0.6 m, volume 9/15) |
+| Wake word and voice input | "Listen for Hey Jandal" on; voice input engine **Android native** (Settings → Voice; the bundled Vosk model mishears the cloned voice through a speaker, e.g. "flat white" → "flag watch"); Google's on-device recogniser works in airplane mode; approved acoustic setup from #1403/#1410 (built-in speaker, side by side 25 cm–0.6 m, volume 9/15) |
 | Notifications | The runner turns Do Not Disturb (alarms only) on for the run and restores the previous setting. Close the shade before recording |
 | Actions history | Clear it (trash icon on the Actions tab) before recording, so earlier test cards don't appear behind the new ones and the result checks start from an empty list |
 | Nextcloud | A dedicated test user on Lokhor's own Nextcloud, signed in on the S23U only: Jandal via its browser login (Login Flow v2 ends its browser session after granting access), and separately Chrome on the S23U, signed in to the Nextcloud web UI with "Remember me" for S07B; the seeded "shopping list" synced. The server needs the Tasks app (Jandal lists sync as CalDAV task lists). Real accounts never appear on screen |
@@ -38,11 +38,11 @@ Each shot is a separate clip, so the runner turns airplane mode off between S05 
 | Shot | Time | Feature | Input (exact) | Expected on screen | Mode | Network |
 |---|---|---|---|---|---|---|
 | S01 | 0:00–0:05 | Hey Jandal | Spoken by the S21 acoustic source: "Hey Jandal" then "what time is it" (existing `natural_wake.wav` + `qwen_command.wav` fixtures) | Listening indicator, then the Actions card `what time is it` → "It's …" | Deterministic | Offline |
-| S02 | 0:05–0:14 | Lists, Kiwi phrasing | Typed: "Chuck bananas on the grocery list", then open the shopping list | Confirmation, then the list shows milk, bread, bananas | Deterministic | Offline |
+| S02 | 0:05–0:14 | Lists, Kiwi phrasing | Spoken (push-to-talk on Actions): "Chuck bananas on the grocery list", then open the shopping list | Confirmation, then the list shows milk, bread, bananas | Deterministic | Offline |
 | S03 | 0:14–0:18 | Timer and alarm | Typed: "Set a timer for 10 minutes", then "Set an alarm for 7am tomorrow" | Both confirmations; timer visibly counting down. The typing of each command is sped up to under a second, with the sped-up marker, so the shot fits its slot. Check the alarm wording first: an earlier build repeated the time ("…at 6:30am — 6:30am."); if it still does, file it and pick another shot | Deterministic | Offline |
-| S04 | 0:18–0:28 | Memory and recall | Typed: "Remember that my favourite coffee is a flat white". New chat, typed: "What's my favourite coffee?", then "When is my wife's birthday?" | Save confirmation; the reply names a flat white; a countdown card to the seeded birthday ("127 days — Until …") | Model (compressed) | Offline |
+| S04 | 0:18–0:28 | Memory and recall | Spoken (the chat's PTT chip): "Remember that my favourite coffee is a flat white". New chat, spoken: "What's my favourite coffee?", then "When is my wife's birthday?" | Save confirmation; the reply names a flat white; a countdown card to the seeded birthday ("127 days — Until …") | Model (compressed) | Offline |
 | S05 | 0:28–0:36 | Persona chat | Typed, with **Full Jandal**: "Give me three ideas for a rainy Sunday" | A complete streamed reply with Kiwi tone | Model (compressed) | Offline |
-| S06 | 0:36–0:41 | Weather | Typed: "What's the weather like in Wellington?" | Weather card for Wellington (Open-Meteo) | Deterministic | **Online** |
+| S06 | 0:36–0:41 | Weather | Spoken (push-to-talk on Actions): "What's the weather like in Wellington?" | Weather card for Wellington (Open-Meteo) | Deterministic | **Online** |
 | S07 | 0:41–0:49 | Nextcloud sync | S07A on the S23U, typed: "Add cheese to my shopping list". S07B on the S23U: Chrome opens the shopping list directly on the user's Nextcloud Tasks page (`DEMO_NC_TASKS_PATH`, so the sidebar with other accounts' shared lists never shows) | The new items are on the user's own server. Server address, username and display name blurred | Deterministic (sync wait compressed) | **Online** |
 | S08 | 0:49–0:53 | End card (4 s) | — | App icon, "Jandal AI", "A Kiwi AI assistant that runs on your phone", then the variant line (below) | Title card | — |
 
@@ -91,7 +91,7 @@ Excluded on purpose: navigation and "near me" searches (they reveal device locat
 |---|---|---|
 | Voiceover voice | Jandal's shipped release-visible voice, Piper `en_GB-cori-high` (repository metadata MIT; LibriVox public-domain dataset, per `docs/VOICE_MODEL_ATTRIBUTION.md`) rendered by the app's own TTS path | **Decided: captions only for the first cut.** Add Cori once its package provenance clears under #1474. Inflect Micro has no recorded licence for promotional use yet, so it is not proposed |
 | Music | None in v1 of the video | — |
-| Device audio | Not recorded (`scrcpy --no-audio`). scrcpy can only capture device playback, not the room, so the S01 acoustic source would be missing anyway; the caption carries "Hey Jandal" | Known limitation |
+| Device audio | Not recorded (`scrcpy --no-audio`): scrcpy cannot capture the room, and Android blocks capture of Jandal's assistant audio. The edit mixes the input fixtures and re-rendered Cori replies instead (decision 15) | Mixed in the edit |
 
 ## Output formats
 
@@ -115,12 +115,16 @@ Prerequisites on the capture host: `adb`, `scrcpy` 3.0 or newer (tested with 5.0
    DEMO_NC_TASKS_PATH=/apps/tasks/calendars/<shopping list id>   # from Chrome's address bar on the list
    DEMO_UNLOCK_PIN_FILE=<file holding the device PIN>              # only if the S23U has a PIN lock
    DEMO_UNLOCK_PIN_VAR=<variable name in that file>
-   DEMO_WAKE_CMD="python3 scripts/demo_wake.py --source R5CR605B71K"
+   DEMO_WAKE_CMD="python3 scripts/demo_wake.py --source R5CR605B71K --volume 12 --gap 2.2"
    EOF
    chmod 600 ~/.config/jandal-demo/demo.env
    ```
 
-   `scripts/demo_wake.py` plays the approved `natural_wake` then `qwen_command` fixtures from the S21's debug app at volume 9/15 (`docs/testing/acoustic-stimulus-source.md`). For S01 the S21 sits beside the S23U as in #1403/#1410, with "Listen for Hey Jandal" on.
+   `scripts/demo_wake.py` plays fixtures from the S21's debug app (`docs/testing/acoustic-stimulus-source.md`): `natural_wake` then `qwen_command` for S01, and one `demo_*` command per `voice` step. The S21 sits beside the S23U as in #1403/#1410, with "Listen for Hey Jandal" on. Volume 12/15 with a 2.2 s gap: at 9/15 the S23U missed the wake word.
+
+   The `demo_*` fixtures are Lokhor's cloned voice (Qwen3-TTS 1.7B Base, Apache-2.0), used **only for what the user says**. They are 48 kHz mono, loudness-normalised, with 0.5 s of leading silence (the S21's speaker fades in and swallowed the first word). Takes were picked by playing them at the S23U: "Chuck" is still heard as "check" about half the time offline, so S02 may need a retake.
+
+   A `voice` step taps the mic ("Start voice action" on Actions, or the chat's "PTT" chip), waits 1.5 s, and plays the fixture. The source is woken before the tap, otherwise the mic sat open for ~5 s before the speech. Each fixture's start time is saved in the take's `audio` list in `manifest.json` (runner clock), so the edit can lay the same WAV under the video. Voice spans play at real speed.
 3. Record (one MP4 per shot plus `manifest.json`; `--out` must be outside the repo):
    `python3 scripts/demo_capture.py --serial RFCW11265XH --package <rc package> --commit <rc sha> --out ~/jandal-demo/<rc> --shots intro`
    S01 needs `DEMO_WAKE_CMD`, and S07A/S07B need `DEMO_NC_SERVER` and `DEMO_NC_USER`, from the env file above. Add `DEMO_NC_DISPLAY_NAME` too if the test user's display name differs from the username: the Nextcloud web page shows it. S07A/S07B refuse to record without `DEMO_NC_SERVER` and `DEMO_NC_USER`; the runner records the screen bounds of every node showing either value, and the edit step blurs them. Re-take a model shot with `--shots S04 --take 2` (at most 3).
@@ -159,3 +163,4 @@ Later decisions (Nick, 4 Nov 2026):
 12. **Cap raised to 70 s.** With typing sped up, the measured shots put the full cut at about 70 s (each screen read takes ~2.5 s on the S23U). The offline block now runs to about 0:48, but the airplane-mode badge and the S01-S03 hook are on screen within the first 30 s that autoplay on Play. The Time column in the table above is the original plan; measured shot lengths (S23U, Nov 2026) are about S01 8 s, S02 11 s, S03 8 s, S04 12 s, S05 9 s, S06 6 s, S07 11 s, end card 5 s.
 13. **Cap raised to 75 s** (7 Nov 2026). The full rehearsal measured 72.5 s once the end holds were no longer being dropped; Lokhor will watch a full cut and decide whether to trim further.
 14. **Cap raised to 85 s** (7 Nov 2026). The title card and home-screen opening put the cut at about 80 s; Lokhor is fine with it running slightly longer.
+15. **Spoken input and Jandal's voice** (8 Nov 2026). S01, S02, S04 and S06 use spoken input in Lokhor's cloned voice; that voice is never used for Jandal. Jandal's replies use the shipped Cori voice (Piper `en_GB-cori-high`, the app's own settings), re-rendered on the PC from the reply text the debug build logs (`KernelAI_TTS`, #1750), because Android does not let scrcpy capture assistant audio. No narrator. Music under everything. The cut may run longer to fit the speech.

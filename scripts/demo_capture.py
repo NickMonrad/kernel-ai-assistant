@@ -419,11 +419,26 @@ class Device:
 # ── step execution ─────────────────────────────────────────────────────────
 
 
+def audio_events(stdout: str, t0: float) -> list[dict]:
+    """Fixture start lines from demo_wake.py, on the runner clock (seconds since ``t0``)."""
+    out = []
+    for line in stdout.splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict) and "fixture" in row and "mono" in row:
+            out.append({"fixture": row["fixture"], "t": round(float(row["mono"]) - t0, 3),
+                        "seconds": row.get("seconds")})
+    return out
+
+
 @dataclass
 class StepLog:
     events: list[dict] = field(default_factory=list)
     compress: list[dict] = field(default_factory=list)
     redact: list[list[int]] = field(default_factory=list)
+    audio: list[dict] = field(default_factory=list)
 
     def add_redact(self, boxes: list[tuple[int, int, int, int]]) -> None:
         for box in boxes:
@@ -537,6 +552,20 @@ class ShotRunner:
                 raise CaptureError(f"no new {text!r} on screen within {timeout}s (had {before})")
             time.sleep(self.poll)
 
+    def run_host(self, env: str, extra: list[str], timeout: float) -> None:
+        """Run a host command from the env file; keep the fixture start times it prints."""
+        cmd = os.environ.get(env, "")
+        if not cmd:
+            raise CaptureError(f"step needs {env} (see the shot's note)")
+        try:
+            res = subprocess.run(shlex.split(cmd) + extra, cwd=REPO, timeout=timeout,
+                                 stdout=subprocess.PIPE, text=True)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise CaptureError(f"host step {env} failed: {exc}") from exc
+        self.log.audio.extend(audio_events(res.stdout, self.t0))
+        if res.returncode != 0:
+            raise CaptureError(f"host step exited {res.returncode}")
+
     def wait_for(self, *, text: str | None, desc: str | None, gone: bool, timeout: float,
                  appear_timeout: float = 20) -> None:
         if gone:
@@ -627,15 +656,20 @@ class ShotRunner:
             self.d.shell(step["cmd"])
         elif kind == "host":
             self.baseline_xml = self.last_xml
-            cmd = os.environ.get(step["env"], "")
-            if not cmd:
-                raise CaptureError(f"step needs {step['env']} (see the shot's note)")
-            try:
-                res = subprocess.run(shlex.split(cmd), cwd=REPO, timeout=float(step.get("timeout", 180)))
-            except (subprocess.TimeoutExpired, OSError) as exc:
-                raise CaptureError(f"host step {step['env']} failed: {exc}") from exc
-            if res.returncode != 0:
-                raise CaptureError(f"host step exited {res.returncode}")
+            self.run_host(step["env"], list(step.get("args", [])), float(step.get("timeout", 180)))
+        elif kind == "voice":
+            # Push-to-talk: tap the mic, give the recogniser time to open, then play the
+            # cloned-voice fixture from the source phone (DEMO_WAKE_CMD) at the device.
+            self.baseline_xml = self.last_xml
+            env = step.get("env", "DEMO_WAKE_CMD")
+            # Wake the source first: done after the tap, it left ~5 s of silence while listening.
+            self.run_host(env, ["--sequence", step["fixture"], "--prepare-only"], 60)
+            if step.get("mic_text"):
+                self.tap(text=step["mic_text"])  # chat composer: the "PTT" chip
+            else:
+                self.tap(desc=step.get("mic_desc", "Start voice action"))  # Actions tab
+            time.sleep(float(step.get("pre_s", 1.5)))
+            self.run_host(env, ["--sequence", step["fixture"], "--no-prepare"], float(step.get("timeout", 60)))
         else:
             raise CaptureError(f"unknown step kind {kind!r}")
         end = self.now()
@@ -838,6 +872,7 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
         "events": log.events,
         "compress": log.compress,
         "redact": log.redact,
+        "audio": log.audio,  # cloned-voice fixtures played at the device, on the runner clock
         "build": build,
         "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
     }
