@@ -590,7 +590,13 @@ class ShotRunner:
         elif kind == "home_page":
             # The launcher can't be read with uiautomator (its live wallpaper never idles), so
             # the page is reached by swipes counted from the main page (DEMO_HOME_SWIPES).
-            swipes = int(os.environ.get(step.get("swipes_env", "DEMO_HOME_SWIPES"), step.get("swipes", 0)))
+            name = step.get("swipes_env", "DEMO_HOME_SWIPES")
+            raw = os.environ.get(name, str(step["swipes"]) if "swipes" in step else "")
+            if not raw.strip().isdigit():
+                # Fail closed: a missing count would leave the main home page (personal
+                # widgets) on screen for the recording.
+                raise CaptureError(f"{name} must be set to the number of swipes to the demo home page")
+            swipes = int(raw)
             self.d.run("shell", "input", "keyevent", "KEYCODE_HOME")
             time.sleep(1.0)
             for i in range(swipes):

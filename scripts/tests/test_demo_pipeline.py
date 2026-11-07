@@ -229,6 +229,17 @@ class UiHelpersTest(unittest.TestCase):
         self.assertEqual([st["do"] for st in s00["setup"]], ["home_page"])
         self.assertNotIn("home_page", [st["do"] for st in s00["steps"]])
 
+    def test_home_page_without_swipe_count_fails_closed(self):
+        calls = []
+        dev = cap.Device("SERIAL", "pkg", adb="adb")
+        dev.run = lambda *args, timeout=30: calls.append(args) or ""
+        runner = cap.ShotRunner(dev, 0.0, cap.StepLog())
+        with unittest.mock.patch.dict(cap.os.environ, {}, clear=False):
+            cap.os.environ.pop("DEMO_HOME_SWIPES", None)
+            with self.assertRaises(cap.CaptureError):
+                runner.run_step({"do": "home_page", "swipes_env": "DEMO_HOME_SWIPES"})
+        self.assertEqual(calls, [])  # nothing done on the device
+
     def test_every_shot_starts_with_the_sync_anchor(self):
         for shot in cap.load_shots()["shots"]:
             first_active = next(st["do"] for st in shot["steps"] if st["do"] != "sleep")
