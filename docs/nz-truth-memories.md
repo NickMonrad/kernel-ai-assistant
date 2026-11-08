@@ -10,7 +10,7 @@ Jandal's NZ cultural knowledge lives in a structured JSON corpus that is embedde
 ```
 core/inference/src/main/assets/nz_truth_memories.json
 ```
-Contains all 144 (and growing) NZ truth entries. Edit this to add, change, or remove entries.
+Contains all 142 NZ truth entries. Edit this to add, change, or remove entries.
 
 ### 2. The seed guard key
 ```
@@ -18,7 +18,7 @@ core/inference/src/main/java/com/kernel/ai/core/inference/JandalPersona.kt
 ```
 Line near the top:
 ```kotlin
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v33"
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v35"
 ```
 **Bump the version number every time you change the corpus.** On next app launch, the app clears existing `jandal_persona` NZ entries from the Kiwi and legacy core-memory tables, resets the Kiwi vector index, and reseeds the corpus.
 
@@ -29,12 +29,12 @@ private const val KEY_TRUTHS_SEEDED = "truths_seeded_v33"
 ```json
 {
   "id": "nz_010",
-  "term": "Monique says you're dumb",
+  "term": "Monique says you're dumb for even asking",
   "category": "meme",
-  "definition": "What you say when someone does something dumb. Straight from the iconic 2011 NZTA Ghost Chips ad.",
-  "trigger_context": "When the user mentions Monique, or does something dumb/silly.",
-  "vibe_level": 3,
-  "vector_text": "Monique says you're dumb. NZTA Ghost Chips ad 2011. Calling someone out for being silly. Iconic Kiwi phrase.",
+  "definition": "A line from the 2011 NZTA Ghost Chips drink-driving ad.",
+  "trigger_context": "When the user mentions Monique or makes a harmless mistake, respond with 'Monique says you're dumb for even asking' and say it with Kiwi flair.",
+  "vibe_level": 2,
+  "vector_text": "Monique. Monique says you're dumb for even asking. NZTA Ghost Chips drink-driving ad 2011. Kiwi catchphrase.",
   "metadata": {
     "tags": ["ghost-chips", "nzta", "banter", "catchphrase"],
     "era": "2011"
@@ -144,9 +144,9 @@ The vibe level controls how loosely the RAG will match this entry. Lower = stric
 
 5. **Build and install** the app. On first launch after update, logcat will show:
    ```
-   JandalPersona: Loaded 144 NZ truth entries
+   JandalPersona: Loaded 142 NZ truth entries
    ChatViewModel: Seeding NZ truth memories...
-   ChatViewModel: Seeded 144 NZ truth memories
+   ChatViewModel: Seeded 142 NZ truth memories
    ```
 
 5. **Test** by asking Jandal something related to your new entry. Check logcat for:
@@ -232,7 +232,7 @@ The `vector_text` is what the MiniLM model embeds. A better embedding = better R
 - Use short phrases and keywords separated by periods
 - Include common ways the topic might be mentioned ("pavlova", "pav", "meringue dessert")
 - Include related concepts ("Ghost Chips", "NZTA ad", "drink driving", "looking out for mates")
-- Include the term itself — **including phonetic or alternate spellings** (e.g. "Good aftabull constanoon. Good afternoon constable.")
+- Include the term itself — **including phonetic or alternate spellings** (e.g. "Good Aftable Constanoon. Good Aftabull Constanoon. Good afternoon constable.")
 - For indirect-trigger entries, **include the scenario phrases** from `trigger_context` (e.g. Bugger: add "something went wrong, error, setback, oops")
 
 **Don't:**
@@ -291,3 +291,5 @@ The `definition` is injected directly into Jandal's prompt as:
 | `truths_seeded_v31` | #736: Added nz_145 (Yeah nah) corpus entry; added kumara, chocka, hundies to jandal_vocab.json (vocab←→corpus sync). Corpus 143 → 144 |
 | `truths_seeded_v32` | Reindexed nz_140–nz_145 embeddings after the sweet potato/kumara recall fix |
 | `truths_seeded_v33` | #1595: Corrected the Dairy definition for a New Zealand neighbourhood shop |
+| `truths_seeded_v34` | #1596: corrected NZ cultural corpus facts, merged duplicate Yeah-nah/Bugger entries, and checked the vocabulary |
+| `truths_seeded_v35` | #1596/#1764: moved direct-reply behavior instructions out of NZ memory definitions |
