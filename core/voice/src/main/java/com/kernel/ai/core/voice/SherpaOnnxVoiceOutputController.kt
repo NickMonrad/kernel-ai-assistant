@@ -180,12 +180,13 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 // Synthesis can take 1-3s for medium models, longer for high-quality ones;
                 // only emit SpeakingStarted once audio is ready and playback is about to begin.
                 val synthStart = System.currentTimeMillis()
-                val audioResult = genMethod.invoke(tts, request.text, effectiveSid, sherpaSpeed.value)
+                val spokenText = SherpaSpeechText.prepare(request.text)
+                val audioResult = genMethod.invoke(tts, spokenText, effectiveSid, sherpaSpeed.value)
                     ?: return@withContext VoiceOutputResult.Unavailable("Sherpa returned null audio.")
                 if (verboseLoggingEnabled.value) Log.d(
                     TAG,
                     "Sherpa synthesis: ${System.currentTimeMillis() - synthStart}ms for " +
-                        "${request.text.length} chars, sid=$effectiveSid",
+                        "${spokenText.length} chars, sid=$effectiveSid",
                 )
 
                 val samples = reflectGetSamples(audioResult)
@@ -193,7 +194,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
                 if (!stopped) {
                     requestAudioFocus()
-                    VoiceOutputTrace.speakingStarted("sherpa", request.text)
+                    VoiceOutputTrace.speakingStarted("sherpa", spokenText)
                     _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
                     speakingStarted = true
                     playOnAudioTrack(samples, sampleRate, myGeneration)
@@ -431,17 +432,18 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                         for (chunk in chunks) {
                             if (stopped || !isStreamingPlaybackActive(playbackToken)) break
                             val synthStart = System.currentTimeMillis()
+                            val spokenText = SherpaSpeechText.prepare(chunk.text, chunkEnd = chunk.isFinal)
                             val audioResult = try {
-                                genMethod.invoke(tts, chunk.text, effectiveSid, sherpaSpeed.value)
+                                genMethod.invoke(tts, spokenText, effectiveSid, sherpaSpeed.value)
                                     ?: break
                             } catch (e: Exception) {
                                 Log.e(TAG, "Sherpa streaming generate() failed", e)
                                 break
                             }
                             if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
-                                "for ${chunk.text.length} chars, sid=$effectiveSid")
+                                "for ${spokenText.length} chars, sid=$effectiveSid")
                             audioQueue.send(
-                                SynthesizedChunk(chunk.text, reflectGetSamples(audioResult), reflectGetSampleRate(audioResult)),
+                                SynthesizedChunk(spokenText, reflectGetSamples(audioResult), reflectGetSampleRate(audioResult)),
                             )
                             if (chunk.isFinal) break
                         }
