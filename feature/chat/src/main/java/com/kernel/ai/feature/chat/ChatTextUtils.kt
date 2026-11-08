@@ -780,17 +780,20 @@ internal fun detectKnownNzTerm(
         }
     }
 
+    // Keep short labels out of ambiguous matches, but allow the intentional two-letter entry "Eh".
     val requestedTerm = DIRECT_NZ_DEFINITION_QUERY.matchEntire(query)?.groupValues?.get(1)?.trim()
         ?: return null
     val exactMatch = nzTruths.singleOrNull { entry ->
-        entry.term.trim().length >= 3 && entry.term.equals(requestedTerm, ignoreCase = true)
+        (entry.term.trim().length >= 3 || entry.term.equals("Eh", ignoreCase = true)) &&
+            entry.term.equals(requestedTerm, ignoreCase = true)
     }
     if (exactMatch != null) return exactMatch
 
     val fallbackTerm = LEADING_NZ_DEFINITION_ARTICLE.replaceFirst(requestedTerm, "").trim()
     if (fallbackTerm == requestedTerm) return null
     return nzTruths.singleOrNull { entry ->
-        entry.term.trim().length >= 3 && entry.term.equals(fallbackTerm, ignoreCase = true)
+        (entry.term.trim().length >= 3 || entry.term.equals("Eh", ignoreCase = true)) &&
+            entry.term.equals(fallbackTerm, ignoreCase = true)
     }
 }
 
@@ -800,9 +803,17 @@ internal fun detectKnownNzTerm(
  * cultural terms locally without calling query_wikipedia or the inference engine.
  *
  * @param entry the matched NZ truth entry with term and definition.
+ * @param question the user's original text, used to format direct speech queries.
  * @return a complete assistant reply string.
  */
-internal fun buildKnownNzContextReply(entry: JandalPersona.NzTruthEntry): String {
+internal fun buildKnownNzContextReply(
+    entry: JandalPersona.NzTruthEntry,
+    question: String = "",
+): String {
     val definition = entry.definition.trim().trimEnd('.')
-    return "${entry.term}: $definition."
+    return if (DIRECT_NZ_SAY_QUERY.matches(question.trim())) {
+        "\"${entry.term.trim()}.\" $definition."
+    } else {
+        "${entry.term}: $definition."
+    }
 }
