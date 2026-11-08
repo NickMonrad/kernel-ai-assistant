@@ -477,6 +477,11 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     if not segments:
         raise EditError(f"{shot['id']}: nothing to render")
     boxes = blur_boxes(scale_redact(take))
+    if shot.get("redact_required") and not boxes:
+        # Fail closed: this shot always shows the test server (S07B's address bar). No box
+        # means the capture runner never read it on screen, not that there is nothing to hide.
+        raise EditError(f"{shot['id']}: no regions to blur were recorded, but the shot always shows "
+                        "the test server; re-take it")
     clip_end = clip_duration(clip)
     # A tail pad only fills frames the clip is missing inside a segment's planned length.
     pads = [tail_pad(seg, clip_end) for seg in segments]

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Play "Hey Jandal" then "what time is it" from the source phone for showcase shot S01 (#1736).
+"""Play spoken-input fixtures from the source phone for the showcase shots (#1736).
 
 Uses the debug-only acoustic stimulus receiver (docs/testing/acoustic-stimulus-source.md)
-with the approved fixtures already installed on the source device (``natural_wake``,
-``qwen_command``) and the approved #1403/#1410 volume (9/15). The demo runner calls it as
-``DEMO_WAKE_CMD``::
+with fixtures already installed on the source device. By default it plays S01's
+"Hey Jandal" then "What time is it?" in Lokhor's cloned voice (``demo_s01_wake``,
+``demo_s01_time``); ``--sequence`` picks others. The private ``natural_wake`` recording is
+not used for public footage. The demo runner calls it as ``DEMO_WAKE_CMD``::
 
-    DEMO_WAKE_CMD="python3 scripts/demo_wake.py --source R5CR605B71K"
+    DEMO_WAKE_CMD="python3 scripts/demo_wake.py --source R5CR605B71K --volume 12 --gap 2.2"
 
 Unlike the reliability runner, it does not wait for the target's listening cue: it waits a
 fixed gap after the wake word (``--gap``). If the command misses the listening window, the
@@ -88,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--volume", type=int, default=9, help="Media volume index (approved setup: 9/15)")
     ap.add_argument("--gap", type=float, default=1.5,
                     help="Seconds between the end of the wake word and the command (listening cue + margin)")
-    ap.add_argument("--sequence", default="natural_wake,qwen_command",
+    ap.add_argument("--sequence", default="demo_s01_wake,demo_s01_time",
                     help="Comma-separated fixture ids to play in order, e.g. a single push-to-talk command")
     ap.add_argument("--prepare-only", action="store_true",
                     help="Wake the source and bring the debug app to the front, then exit (before a push-to-talk tap)")

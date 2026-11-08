@@ -36,7 +36,7 @@ class ShotListTest(unittest.TestCase):
                  "home_page", "tap_xy", "voice", "wait_speech"}
         for shot in data["shots"]:
             self.assertTrue(shot["caption"], shot["id"])
-            for step in shot["steps"]:
+            for step in shot["steps"] + shot.get("teardown", []) + shot.get("setup", []):
                 self.assertIn(step["do"], kinds, shot["id"])
             if shot.get("model"):
                 self.assertTrue(any(s.get("compress") for s in shot["steps"]),
@@ -47,6 +47,10 @@ class ShotListTest(unittest.TestCase):
             self.assertTrue(set(order) <= ids, name)
             self.assertEqual(len(order), len(data["intro_order"]), name)
         self.assertIn("S05K", data["intro_variants"]["kiwi"])
+        # S03 must not leave its timer and alarm behind (review of #1737).
+        s03 = next(s for s in data["shots"] if s["id"] == "S03")
+        self.assertEqual([st["text"] for st in s03["teardown"] if st["do"] == "type"],
+                         ["Cancel the timer", "Cancel my 7am alarm"])
 
     def test_intro_order_and_captions_match_review(self):
         by_id = {s["id"]: s for s in cap.load_shots()["shots"]}
@@ -617,6 +621,27 @@ class SpeechLogTest(unittest.TestCase):
         sonification = "  AudioPlaybackConfiguration piid:1 state:started attr:AudioAttributes: usage=USAGE_ASSISTANCE_SONIFICATION"
         self.assertTrue(cap.assistant_playing(line.format("started")))
         self.assertFalse(cap.assistant_playing(line.format("idle") + "\n" + sonification))
+
+
+class RedactRequiredTest(unittest.TestCase):
+    def test_s07b_must_have_a_blur(self):
+        shot = next(s for s in cap.load_shots()["shots"] if s["id"] == "S07B")
+        self.assertTrue(shot.get("redact_required"))
+        take = {"id": "S07B", "take": 1, "clip": "x.mp4", "lead_in_s": 0.0, "duration_s": 5.0,
+                "events": [{"do": "open_url", "start": 0.5}], "compress": [], "redact": [],
+                "screen_size": [1080, 2316], "clip_size": [1080, 2316]}
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(edit.EditError):
+            edit.render_shot(Path(tmp) / "x.mp4", shot, take, Path(tmp), Path("font.ttf"), 2.0)
+
+
+class RadioRestoreTest(unittest.TestCase):
+    def test_radios_are_put_back(self):
+        self.assertEqual(cap.restore_radio_commands(False, True),
+                         ["cmd connectivity airplane-mode disable", "cmd wifi set-wifi-enabled enabled"])
+        self.assertEqual(cap.restore_radio_commands(True, True),  # Wi-Fi on in airplane mode
+                         ["cmd connectivity airplane-mode enable", "cmd wifi set-wifi-enabled enabled"])
+        self.assertTrue(cap.wifi_enabled("Wifi is enabled\nWifi is connected to x"))
+        self.assertFalse(cap.wifi_enabled("Wifi is disabled"))
 
 
 class WakeScriptTest(unittest.TestCase):

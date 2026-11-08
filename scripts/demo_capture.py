@@ -25,8 +25,8 @@ Network per shot: the runner turns airplane mode on (and Wi-Fi off) before every
 ``offline`` shot and off again before every online shot, so the whole intro records
 in one run. That needs USB adb, because airplane mode drops wireless adb.
 
-``device: "second"`` shots (S07B) record on ``--second-serial``, the second Nextcloud
-client. Shots with ``redact_env`` (S07A/S07B) need those env vars set to the test
+``device: "second"`` shots record on ``--second-serial`` (none in the current list: S07B
+opens the user's Nextcloud in the S23U's browser). Shots with ``redact_env`` (S07A/S07B) need those env vars set to the test
 Nextcloud server host and username; every on-screen node containing either value is
 recorded in the manifest and blurred by ``scripts/demo_edit.py``.
 """
@@ -263,6 +263,17 @@ def airplane_commands(on: bool) -> list[str]:
     if on:
         return ["cmd connectivity airplane-mode enable", "cmd wifi set-wifi-enabled disabled"]
     return ["cmd connectivity airplane-mode disable", "cmd wifi set-wifi-enabled enabled"]
+
+
+def restore_radio_commands(airplane_on: bool, wifi_on: bool) -> list[str]:
+    """Commands that put the radios back as they were before the run (airplane first, so
+    a Wi-Fi-in-airplane-mode setup is kept)."""
+    return [f"cmd connectivity airplane-mode {'enable' if airplane_on else 'disable'}",
+            f"cmd wifi set-wifi-enabled {'enabled' if wifi_on else 'disabled'}"]
+
+
+def wifi_enabled(cmd_wifi_status: str) -> bool:
+    return "wifi is enabled" in cmd_wifi_status.lower()
 
 
 def has_validated_network(dumpsys_connectivity: str) -> bool:
@@ -696,8 +707,12 @@ class ShotRunner:
                 raise CaptureError(f"open_url needs {step['env']} set to an https:// address")
             path = os.environ.get(step["path_env"], "") if step.get("path_env") else ""
             path = path or step.get("path", "/")
-            self.d.run("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
-                       "-d", base + path)
+            try:
+                self.d.run("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+                           "-d", base + path)
+            except CaptureError:
+                # The adb error repeats the URL (the test server); keep it out of logs and the manifest.
+                raise CaptureError(f"open_url failed for {step['env']} (address not shown)") from None
             time.sleep(1.5)
         elif kind == "key":
             self.d.run("shell", "input", "keyevent", step["code"])
@@ -941,6 +956,17 @@ def record_shot(device: Device, shot: dict, out_dir: Path, take: int, scrcpy: st
         log.speech = runner.speech()
     except CaptureError:
         log.speech = []
+    if shot.get("teardown"):
+        # Unrecorded cleanup, e.g. S03's timer and 7am alarm, which would otherwise ring during
+        # later shots (DND lets alarms through) or the next morning.
+        cleanup = ShotRunner(device, time.monotonic(), StepLog())
+        for step in shot["teardown"]:
+            try:
+                cleanup.run_step(step)
+            except CaptureError as exc:
+                print(f"  warning: {shot['id']} teardown step {step.get('do')} failed: {exc}; "
+                      "clean up on the device by hand", file=sys.stderr)
+                break
     clip_size, changes = probe(clip) if clip.exists() else (None, [])
     lead = lead_in_from_anchor(changes, runner.anchor) if runner.anchor is not None else None
     if lead is None and runner.anchor is not None and clip.exists():
@@ -999,7 +1025,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--shots", default="intro", help="'intro', 'all', or comma-separated ids")
     ap.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL", ""))
     ap.add_argument("--package", default=DEFAULT_PACKAGE)
-    ap.add_argument("--second-serial", default="", help="Second Nextcloud client for device='second' shots (S07B)")
+    ap.add_argument("--second-serial", default="", help="Second device for device='second' shots (none in the current shot list)")
     ap.add_argument("--second-package", default="", help="Package on the second device (default: --package)")
     ap.add_argument("--commit", default="", help="RC commit SHA the installed APK was built from")
     ap.add_argument("--out", type=Path, help="Output directory (must be outside the repo)")
@@ -1060,6 +1086,10 @@ def main(argv: list[str] | None = None) -> int:
     # the previous setting is restored afterwards.
     zen_names = {"0": "off", "1": "priority", "2": "none", "3": "alarms"}
     previous_zen = {dev.serial: dev.zen_mode() for dev in (device, second) if dev}
+    # Offline shots turn on airplane mode and turn off Wi-Fi; put both back afterwards.
+    previous_radio = {dev.serial: (dev.shell("settings get global airplane_mode_on").strip() == "1",
+                                   wifi_enabled(dev.shell("cmd wifi status")))
+                      for dev in (device, second) if dev}
     for dev in (device, second):
         if dev:
             dev.set_dnd("alarms")
@@ -1072,6 +1102,9 @@ def main(argv: list[str] | None = None) -> int:
             if dev:
                 dev.set_dnd(zen_names.get(previous_zen.get(dev.serial, "0"), "off"))
                 dev.shell(f"setprop log.tag.{TTS_TAG} ''")
+                if dev.serial in previous_radio:
+                    for cmd in restore_radio_commands(*previous_radio[dev.serial]):
+                        dev.shell(cmd)
 
 
 def record_all(shots, device, second, out, args, builds, header) -> int:

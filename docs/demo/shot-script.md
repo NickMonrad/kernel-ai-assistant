@@ -60,7 +60,7 @@ Captions (burned in, one line or two, shown for the shot's length):
 - S05: "Chat with your local AI. No cloud required." (plus the "▶▶ sped up N×" marker over compressed waits)
 - S06: "Online when you ask. No account needed." (shortened from "Weather, Wikipedia, currency: online when you ask, no account needed" so it fits at full caption size)
 - S07: "Optional sync with your own Nextcloud" (on both S07A and S07B)
-- An "✈ Airplane mode" corner badge on S01–S05 only. The weather and Nextcloud captions never sit under it.
+- An "✈ Airplane mode" corner badge on the offline shots, S00–S05, only. The weather and Nextcloud captions never sit under it.
 
 Voiceover: **none in the first cut** (captions only; the cut must work muted anyway, because Play preview autoplays without sound). Add the Cori voiceover once #1474 clears its provenance. Draft wording for then, to be re-timed to the order above:
 
@@ -97,7 +97,7 @@ Excluded on purpose: navigation and "near me" searches (they reveal device locat
 
 - Master render: 1080 × 1920 portrait, H.264, 30 fps, AAC audio, from the scrcpy clips without upscaling.
 - Before the final render, check Play's current preview-video guidance for orientation and length; add a 1920 × 1080 landscape variant (portrait footage centred on a branded background) only if Play's guidance favours landscape.
-- Video files are never committed. Raw clips and renders live outside the repo; the manifest (shot id, take, RC commit, APK SHA-256, start/end timestamps, compression spans) is the checked-in record.
+- Video files are never committed. Raw clips and renders live outside the repo; the manifest (shot id, take, RC commit, APK SHA-256, start/end timestamps, compression spans, audio and speech timings) is written next to the clips in `--out` and is the record of each take; keep it with the release assets.
 
 ## Running the pipeline
 
@@ -129,8 +129,15 @@ Prerequisites on the capture host: `adb`, `scrcpy` 3.0 or newer (tested with 5.0
    `python3 scripts/demo_capture.py --serial RFCW11265XH --package <rc package> --commit <rc sha> --out ~/jandal-demo/<rc> --shots intro`
    S01 needs `DEMO_WAKE_CMD`, and S07A/S07B need `DEMO_NC_SERVER` and `DEMO_NC_USER`, from the env file above. Add `DEMO_NC_DISPLAY_NAME` too if the test user's display name differs from the username: the Nextcloud web page shows it. S07A/S07B refuse to record without `DEMO_NC_SERVER` and `DEMO_NC_USER`; the runner records the screen bounds of every node showing either value, and the edit step blurs them. Re-take a model shot with `--shots S04 --take 2` (at most 3).
 4. Render, choosing the end card:
-   `python3 scripts/demo_edit.py --clips ~/jandal-demo/<rc> --out ~/jandal-demo/<rc>/intro.mp4 --end-card beta [--pick S04=2] [--icon icon.png]`
-   Use `--end-card launch` once the Play listing is public. This also writes `intro.edl.json`: every cut, every speed-up and its factor, every blurred region, the end-card variant and the build provenance. Check it with the video, and check S07 frame by frame for anything the blur missed.
+   `python3 scripts/demo_edit.py --clips ~/jandal-demo/<rc> --out ~/jandal-demo/<rc>/intro.mp4 --end-card beta --music <track.mp3> [--variant kiwi] [--pick S04=2] [--icon icon.png]`
+   Use `--end-card launch` once the Play listing is public. `--variant kiwi` swaps S05 for S05K (decision 17).
+
+   Sound (decision 15) needs two more env-file entries:
+   ```sh
+   DEMO_VOICE_DIR=<folder with the demo_*.wav input fixtures>        # or --voice-dir
+   DEMO_CORI_CMD="<python> <cori_say.py> {text} {out}"              # renders one Cori line to a WAV
+   ```
+   `DEMO_CORI_CMD` must reproduce the app's Sherpa Piper Cori output: sherpa-onnx 1.13.0, `en_GB-cori-high`, sid 0, speed 0.85, PCM ×1.5 clamped. Each `{text}` is one line Jandal spoke, read from the take's `speech` list (the `KernelAI_TTS` debug log, #1750, already prepared as the app speaks it). Renders are cached in `<clips>/speech_cache`. `--music` loops or trims the track to the cut and ducks it under speech; voices land at about −15.5 LUFS, the music 8–10 LU under. `--silent` renders without sound. This also writes `intro.edl.json`: every cut, every speed-up and its factor, every blurred region, the end-card variant and the build provenance. Check it with the video, and check S07 frame by frame for anything the blur missed.
 
 The runner drives the UI by visible labels (`Actions`, `Chats`, `Tools`, `New conversation`, `Send`, `Cancel response`) through `uiautomator`, so it works on release builds, where the debug harness intents are disabled. If a label changes, fix `shots.json`, not the code.
 

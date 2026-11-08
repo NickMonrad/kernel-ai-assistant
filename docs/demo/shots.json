@@ -223,7 +223,34 @@
           "new": true,
           "timeout": 15
         }
-      ]
+      ],
+      "teardown": [
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Cancel the timer"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Cancel my 7am alarm"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ],
+      "teardown_note": "Cancels the shot's timer and alarm after recording. 'Cancel my 7am alarm' cancels the next app alarm, which is the one S03 just set"
     },
     {
       "id": "S04",
@@ -544,7 +571,8 @@
           "s": 1.2,
           "note": "Real-time hold so the shot does not end under the sped-up marker"
         }
-      ]
+      ],
+      "redact_required": true
     },
     {
       "id": "M02",
