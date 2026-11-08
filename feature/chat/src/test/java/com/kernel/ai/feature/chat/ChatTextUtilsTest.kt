@@ -65,7 +65,7 @@ class ChatTextUtilsTest {
             id = "nz_009",
             term = "Nek Minnit",
             category = "meme",
-            definition = "A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video.",
+            definition = "A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video. Kiwis use it to set up a sudden comic twist, e.g. 'Left my scooter outside the dairy. Nek minnit, gone.'",
             triggerContext = "When the user says 'nek minnit' or describes leaving something unattended and something goes wrong.",
             vibeLevel = 4,
             vectorText = "Nek minnit. Levi Hawken. Scooter meme. Sudden change.",
@@ -75,7 +75,7 @@ class ChatTextUtilsTest {
             id = "nz_010",
             term = "Monique says you're dumb for even asking",
             category = "meme",
-            definition = "A line from the 2011 NZTA Ghost Chips drink-driving ad.",
+            definition = "A line from the 2011 NZTA Ghost Chips drink-driving ad, used as a cheeky comeback to a silly question.",
             triggerContext = "When the user mentions Monique or makes a harmless mistake, respond with the quoted catchphrase and Kiwi flair.",
             vibeLevel = 2,
             vectorText = "Monique says you're dumb for even asking. Ghost Chips NZTA ad 2011.",
@@ -1454,7 +1454,7 @@ class ChatTextUtilsTest {
             val entry = detectKnownNzTerm(question, sampleEntries)!!
 
             assertEquals(
-                "\"Monique says you're dumb for even asking.\" A line from the 2011 NZTA Ghost Chips drink-driving ad.",
+                "\"Monique says you're dumb for even asking.\" A line from the 2011 NZTA Ghost Chips drink-driving ad, used as a cheeky comeback to a silly question.",
                 buildKnownNzContextReply(entry, question),
             )
         }
@@ -1466,7 +1466,7 @@ class ChatTextUtilsTest {
             val reply = buildKnownNzContextReply(entry, question)
 
             assertEquals(
-                "Nek Minnit: A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video.",
+                "Nek Minnit: A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video. Kiwis use it to set up a sudden comic twist, e.g. 'Left my scooter outside the dairy. Nek minnit, gone.'.",
                 reply,
             )
             assertFalse(reply.contains("trigger"))

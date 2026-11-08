@@ -105,7 +105,7 @@
     "id": "nz_009",
     "term": "Nek Minnit",
     "category": "meme",
-    "definition": "A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video.",
+    "definition": "A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video. Kiwis use it to set up a sudden comic twist, e.g. 'Left my scooter outside the dairy. Nek minnit, gone.'",
     "trigger_context": "Two triggers: when the user describes leaving something unattended, immediately say 'Nek minnit, [scooter/thing] was gone!' Do not ask what happened. When the user says 'nek minnit', narrate the disaster; always include the consequence after 'Nek minnit,' and never say 'Nek minnit!' alone. Play along with the meme. For example, 'Left my scooter outside the dairy' → 'Nek minnit' → 'Nek minnit, scooter's gone!'",
     "vibe_level": 4,
     "vector_text": "Nek minnit. Next minute. Suddenly. Unexpected change. Levi Hawken scooter meme. Left my scooter outside the dairy. Rapid transition. Surprise consequence.",
@@ -122,7 +122,7 @@
     "id": "nz_010",
     "term": "Monique says you're dumb for even asking",
     "category": "meme",
-    "definition": "A line from the 2011 NZTA Ghost Chips drink-driving ad.",
+    "definition": "A line from the 2011 NZTA Ghost Chips drink-driving ad, used as a cheeky comeback to a silly question.",
     "trigger_context": "When the user mentions Monique or makes a harmless mistake, respond with 'Monique says you're dumb for even asking' and say it with Kiwi flair.",
     "vibe_level": 2,
     "vector_text": "Monique. Monique says you're dumb for even asking. NZTA Ghost Chips drink-driving ad 2011. Kiwi catchphrase.",
@@ -135,13 +135,13 @@
     "id": "nz_011",
     "term": "Say sorry to the kids",
     "category": "meme",
-    "definition": "A line from a 1995 LTSA drink-driving ad after a fatal crash: 'Don't say sorry to me, say sorry to his kids.' Its original context is serious.",
-    "trigger_context": "When discussing the 1995 LTSA road-safety ad or its line about taking responsibility for harm caused.",
+    "definition": "A line from an LTSA drink-driving ad after a fatal crash: 'Don't say sorry to me, say sorry to his kids.' Its original context is serious.",
+    "trigger_context": "When discussing the LTSA road-safety ad or its line about taking responsibility for harm caused.",
     "vibe_level": 4,
-    "vector_text": "Don't say sorry to me, say sorry to his kids. It's the same day, David. 1995 LTSA drink-driving ad. Speeding. Fatal crash. Accountability.",
+    "vector_text": "Don't say sorry to me, say sorry to his kids. It's the same day, David. LTSA drink-driving ad. Speeding. Fatal crash. Accountability.",
     "metadata": {
       "tags": [
-        "1995-road-safety-ad",
+        "road-safety-ad",
         "accountability",
         "fatal-crash"
       ],
@@ -1681,10 +1681,10 @@
     "id": "nz_103",
     "term": "Beached as",
     "category": "meme",
-    "definition": "An Australian-made animated series, created by Jarod Green, Nick Boshier, and Anthony MacFarlane, that heavily sends up the New Zealand accent through a beached whale and his seagull mate. It aired on ABC in 2008.",
+    "definition": "An Australian-made animated series, first released online in 2008; its ABC2 series followed in 2009. It heavily sends up the Kiwi accent through a beached whale and his seagull mate.",
     "trigger_context": "When the user is stuck, stranded, can't move or make progress on something.",
     "vibe_level": 3,
-    "vector_text": "Beached Az. Beached as. Australian-made animated series. ABC 2008. Kiwi accent parody. Jarod Green. Nick Boshier. Anthony MacFarlane. Stuck. Stranded. Beached whale.",
+    "vector_text": "Beached Az. Beached as. Australian-made animated series. First released online 2008. ABC2 series 2009. Kiwi accent parody. Jarod Green. Nick Boshier. Anthony MacFarlane. Stuck. Stranded. Beached whale.",
     "metadata": {
       "tags": [
         "meme",
