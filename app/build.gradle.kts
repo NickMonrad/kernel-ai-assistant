@@ -7,12 +7,36 @@ import groovy.json.JsonSlurper
 import java.security.MessageDigest
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+}
+
+abstract class GenerateLlamaProbeAndroidTestVersionManifest : DefaultTask() {
+    @get:Input
+    abstract val versionCode: Property<Int>
+
+    @get:OutputFile
+    abstract val manifestFile: RegularFileProperty
+
+    @TaskAction
+    fun generate() {
+        manifestFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(
+                """<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:versionCode="${versionCode.get()}" />""",
+            )
+        }
+    }
 }
 
 val gitSha: String by lazy {
@@ -122,6 +146,12 @@ android {
             buildConfigField("boolean", "IS_INFLECT_PROBE", isolatedInflectProbe.toString())
             buildConfigField("String", "HF_REDIRECT_URI", "\"$debugApplicationId://oauth/callback\"")
         }
+        create("llamaProbe") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".debug.llamaprobe"
+            signingConfig = signingConfigs.getByName("debugSigning")
+            matchingFallbacks += listOf("debug")
+        }
     }
 
     buildFeatures {
@@ -169,6 +199,48 @@ android {
             )
         }
     }
+}
+
+androidComponents {
+    beforeVariants { variantBuilder ->
+        if (variantBuilder.buildType == "llamaProbe") {
+            variantBuilder.enableAndroidTest = true
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        if (variant.buildType == "llamaProbe") {
+            val candidateVersionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+            variant.androidTest?.let { androidTest ->
+                androidTest.instrumentationRunner.set("com.kernel.ai.debug.llamaprobe.ProbeIsolatedRunner")
+                val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
+                val manifestTask =
+                    tasks.register<GenerateLlamaProbeAndroidTestVersionManifest>(
+                        "generate${variantName}AndroidTestVersionManifest",
+                    ) {
+                        versionCode.set(candidateVersionCode)
+                        manifestFile.set(
+                            layout.buildDirectory.file(
+                                "generated/androidTestManifest/${variant.name}/AndroidManifest.xml",
+                            ),
+                        )
+                    }
+                androidTest.sources.manifests.addGeneratedManifestFile(manifestTask) {
+                    it.manifestFile
+                }
+            }
+        }
+    }
+}
+
+// The llamaProbe androidTest APK runs only ProbeIsolatedRunner. Main's shared androidTest tree also contains
+// debug/inflect instrumentation that references debug-only classes this build type does not compile, so exclude it here.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().matching {
+    it.name == "compileLlamaProbeAndroidTestKotlin"
+}.configureEach {
+    exclude("**/com/kernel/ai/debug/inflect/**")
 }
 fun releaseApkArtifact(buildDirectory: File, isSigned: Boolean): File {
     val apkName = if (isSigned) "app-release.apk" else "app-release-unsigned.apk"
@@ -635,6 +707,8 @@ dependencies {
         rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar")
     releaseImplementation(files(inflectSherpaAar.absolutePath))
     debugImplementation(files(inflectSherpaAar.absolutePath))
+    add("llamaProbeImplementation", files(inflectSherpaAar.absolutePath))
+    add("llamaProbeImplementation", project(":debug:llama-probe"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
