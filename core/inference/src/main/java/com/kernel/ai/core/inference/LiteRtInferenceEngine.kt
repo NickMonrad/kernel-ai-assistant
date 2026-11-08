@@ -21,7 +21,8 @@ import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Channel
-import com.google.ai.edge.litertlm.Capabilities
+import com.google.ai.edge.litertlm.LlmCapability
+import com.google.ai.edge.litertlm.ModelInfo
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.OpenApiTool
@@ -66,7 +67,7 @@ private const val GPU_INIT_TIMEOUT_MS = 60_000L
  *  resets (pre-existing, GPU-independent). Threshold 5 fires the full restart
  *  before that point to keep routing reliable. */
 private const val GPU_ENGINE_RESTART_INTERVAL = 5
-/** Mirrors LiteRT-LM 0.17.1's per-conversation tool-call limit. */
+/** Mirrors LiteRT-LM's per-conversation tool-call limit. */
 private const val RECURRING_TOOL_CALL_LIMIT = 25
 private const val LITERT_STATUS_MARKER = "Status Code:"
 private enum class DebugLoadSkillProbeMode {
@@ -187,7 +188,7 @@ internal fun resolveSpeculativeDecodingForInit(
 }
 
 private fun modelSupportsSpeculativeDecoding(modelPath: String): Boolean =
-    Capabilities(modelPath).use { it.hasSpeculativeDecodingSupport() }
+    ModelInfo.from(modelPath).use { info -> (info as? LlmCapability)?.hasSpeculativeDecodingSupport() == true }
 
 @OptIn(ExperimentalApi::class)
 private fun logLiteRtBenchmarkInfo(conversation: Conversation, backend: BackendType?): Int? {
@@ -1001,7 +1002,7 @@ class LiteRtInferenceEngine @Inject constructor(
         fun isActive(): Boolean = synchronized(terminalLock) { !terminal }
 
         /**
-         * Ends the caller flow without native cancellation. LiteRT-LM 0.17.1 can submit a pending
+         * Ends the caller flow without native cancellation. LiteRT-LM can submit a pending
          * tool response after the synchronous provider callback returns, so the caller must not
          * cancel from that callback; the conversation is closed and replaced by the flow finalizer.
          */
@@ -1232,7 +1233,7 @@ class LiteRtInferenceEngine @Inject constructor(
      * Discard the partially processed conversation after a tool result was withheld.
      *
      * Called by generate() while it still owns generationMutex. Conversation.close() deletes the
-     * native conversation; LiteRT-LM 0.17.1's SessionAdvanced destructor waits for its session
+     * native conversation; LiteRT-LM's SessionAdvanced destructor waits for its session
      * tasks before releasing the session, so the next generation cannot reuse this partial turn.
      */
     private suspend fun resetConversationAfterToolAbort() {
@@ -2263,7 +2264,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 )
                 // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
                 // Gallery pattern: the flag is compiled into the engine at init time, not at
-                // createConversation() time. Check Capabilities first to guard unsupported models.
+                // createConversation() time. Check ModelInfo/LlmCapability first to guard unsupported models.
                 val speculativeDecoding = resolveSpeculativeDecodingForInit(
                     requested = config.speculativeDecodingEnabled,
                     modelPath = config.modelPath,
