@@ -48,7 +48,7 @@ img { display: block; max-width: 100%; }
 .brand img { border-radius: 12px; }
 .brand span { font-size: 1.18rem; }
 .site-header nav, .site-footer nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
-.site-header nav a, .site-footer nav a { color: var(--muted); text-decoration: none; font-size: .94rem; font-weight: 600; }
+.site-header nav a, .site-footer nav a { display: inline-flex; min-height: 48px; align-items: center; color: var(--muted); text-decoration: none; font-size: .94rem; font-weight: 600; }
 
 .hero { min-height: 570px; display: grid; grid-template-columns: 1.15fr .85fr; align-items: center; gap: 36px; padding-block: 76px 84px; }
 .hero-copy { max-width: 660px; }
@@ -83,7 +83,7 @@ h1 span { color: var(--green); }
 .privacy-inner { width: min(900px, calc(100% - 40px)); min-height: 300px; margin-inline: auto; display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 24px; padding-block: 52px; }
 .privacy-mark { display: grid; width: 64px; height: 64px; place-items: center; border-radius: 22px; background: var(--green); color: #fff; font-size: 2rem; font-weight: 800; }
 .privacy-inner > div:last-child > p:not(.eyebrow) { max-width: 700px; color: var(--muted); font-size: 1.05rem; }
-.text-link { display: inline-block; font-weight: 750; }
+.text-link { display: inline-flex; min-height: 48px; align-items: center; font-weight: 750; }
 
 .screenshots-section { padding-bottom: 94px; }
 .screenshots { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; align-items: start; }
