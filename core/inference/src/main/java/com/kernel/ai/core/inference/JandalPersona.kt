@@ -14,7 +14,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v34"  // #1596: NZ cultural corpus corrections
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v35"  // #1596/#1764: corrected NZ definitions and instructions
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val KEY_PERSONA_MODE = "persona_mode"
 private const val SESSION_VOCAB_COUNT_FULL = 2

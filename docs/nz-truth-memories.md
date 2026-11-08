@@ -18,7 +18,7 @@ core/inference/src/main/java/com/kernel/ai/core/inference/JandalPersona.kt
 ```
 Line near the top:
 ```kotlin
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v34"
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v35"
 ```
 **Bump the version number every time you change the corpus.** On next app launch, the app clears existing `jandal_persona` NZ entries from the Kiwi and legacy core-memory tables, resets the Kiwi vector index, and reseeds the corpus.
 
@@ -292,3 +292,4 @@ The `definition` is injected directly into Jandal's prompt as:
 | `truths_seeded_v32` | Reindexed nz_140–nz_145 embeddings after the sweet potato/kumara recall fix |
 | `truths_seeded_v33` | #1595: Corrected the Dairy definition for a New Zealand neighbourhood shop |
 | `truths_seeded_v34` | #1596: corrected NZ cultural corpus facts, merged duplicate Yeah-nah/Bugger entries, and checked the vocabulary |
+| `truths_seeded_v35` | #1596/#1764: moved direct-reply behavior instructions out of NZ memory definitions |
