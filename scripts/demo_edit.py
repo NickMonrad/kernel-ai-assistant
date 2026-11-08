@@ -468,6 +468,16 @@ def encode_args() -> list[str]:
     return ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(FPS)]
 
 
+def still_clip(source: Path, seconds: float, out: Path, png: Path) -> Path:
+    """A clip of ``seconds`` showing ``source``'s last frame."""
+    # Decode the whole (short) segment and keep its final frame; seeking from the end gives
+    # no frame when the segment is shorter than the seek.
+    run(["ffmpeg", "-y", "-v", "error", "-i", str(source), "-update", "1", str(png)])
+    run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-framerate", str(FPS), "-i", str(png),
+         "-t", f"{seconds:.3f}", "-vf", "setsar=1", *encode_args(), str(out)])
+    return out
+
+
 def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_wait: float,
                 sounds: list[Sound] | None = None) -> tuple[Path, dict]:
     sounds = sounds or []
@@ -499,6 +509,12 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     seg_files = []
     for i, seg in enumerate(segments):
         seg_file = work / f"{shot['id']}_seg{i}.mp4"
+        if seg_files and clip_end is not None and seg.src_start >= clip_end - 0.05:
+            # The clip ended before this segment starts (scrcpy drops the tail of static
+            # screens): hold the previous segment's last frame for the planned length.
+            still_clip(seg_files[-1], seg.out_len, seg_file, work / f"{shot['id']}_seg{i}.png")
+            seg_files.append(seg_file)
+            continue
         run(["ffmpeg", "-y", "-v", "error", "-ss", f"{seg.src_start:.3f}", "-to", f"{seg.src_end:.3f}",
              "-i", str(clip), "-filter_complex", f"{blur_graph(boxes)};[pre]{segment_filter(seg.speed, pads[i])}[v]",
              "-map", "[v]", "-an", *encode_args(), str(seg_file)])
@@ -511,11 +527,8 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     # A shot can ask for a longer end hold, e.g. so a reply can be read (S05K).
     extra_hold = max(extra_hold, float(shot.get("extra_hold_s", 0)))
     if extra_hold > 0:
-        still = work / f"{shot['id']}_last.png"
-        run(["ffmpeg", "-y", "-v", "error", "-sseof", "-0.2", "-i", str(seg_files[-1]), "-update", "1", "-frames:v", "1", str(still)])
         hold = work / f"{shot['id']}_hold.mp4"
-        run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-framerate", str(FPS), "-i", str(still),
-             "-t", f"{extra_hold:.3f}", "-vf", "setsar=1", *encode_args(), str(hold)])
+        still_clip(seg_files[-1], extra_hold, hold, work / f"{shot['id']}_last.png")
         seg_files.append(hold)
         lengths.append(clip_duration(hold) or extra_hold)
     shot_seconds = round(sum(lengths), 3)
