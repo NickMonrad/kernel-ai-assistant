@@ -9,7 +9,7 @@ Before Jandal can go on Google Play for everyone, it needs testers to stay in a 
 ## What you need
 
 - An Android phone running **Android 15 or newer**.
-- About **3 GB of free storage** and **Wi-Fi for the first run**: the app downloads its on-device AI model then (Gemma 4 E2B, about 2.4 GB), plus room for the app. Flagship phones can choose the larger E4B model (about 3.4 GB).
+- About **3.5 GB of free storage** and **Wi-Fi for the first run**: the app downloads its on-device AI model then (Gemma 4 E2B, about 2.4 GB), plus its search and voice models and room for the app. Flagship phones can choose the larger E4B model (about 3.4 GB); allow about 4.5 GB for that.
 - A Google account, which you use to join the tester group and install from Google Play.
 
 Older or low-memory phones may run slowly or not run the AI model at all. That's useful to hear about too.

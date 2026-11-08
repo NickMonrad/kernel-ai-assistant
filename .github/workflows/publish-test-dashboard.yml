@@ -131,14 +131,14 @@ jobs:
               if not original.is_file():
                   continue
               content = original.read_text()
-              if "draft for owner" in content.lower():
+              # Only the leading banner marks a draft, so a document quoting the phrase still publishes.
+              if content.lstrip().startswith("> **Draft for owner"):
                   print(f"Skipping draft document: {filename}")
                   continue
-              if filename == "BETA.md" and (
-                  "TESTER_GROUP_LINK" in content
-                  or "](https://groups.google.com/" not in content
-              ):
-                  print(f"Skipping {filename}: no tester group link yet")
+              # Any tester-list option works (Google Group, Play email list, form); the page waits
+              # only for the placeholder to be replaced.
+              if filename == "BETA.md" and "TESTER_GROUP_LINK" in content:
+                  print(f"Skipping {filename}: tester link placeholder still present")
                   continue
               content = content.replace(
                   "(PRIVACY.md)", f"(/{repo_name}/privacy/)"
