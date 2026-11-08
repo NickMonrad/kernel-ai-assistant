@@ -593,7 +593,8 @@ def render_card(card: dict, work: Path, font: Path, icon: Path | None, name: str
 
 AUDIO_FMT = ["-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le"]
 SPEECH_LUFS = -16.0  # each voice item is levelled to this before mixing
-MUSIC_LUFS = -27.0   # music bed under speech, before ducking
+MUSIC_LUFS = -24.0   # music bed, before ducking: ~8 LU under speech, so music-only shots still carry
+VOICE_TARGET_LUFS = -13.5  # the master gain puts the voices here; the music follows
 
 
 def loudness(path: Path) -> float | None:
@@ -634,7 +635,12 @@ def render_shot_audio(placed: list[tuple[Sound, float]], seconds: float, out: Pa
 
 
 def final_mix(voice: Path, music: Path | None, seconds: float, out: Path) -> Path:
-    """Voice plus music ducked under it, levelled to -14 LUFS with a -1.5 dBTP ceiling."""
+    """Voice plus music ducked under it, with a -1.5 dBFS ceiling.
+
+    The master gain is set from the voice track alone. Set from the whole mix, long
+    music-only stretches pulled the average down, the gain went up, and the limiter then
+    flattened the speech while the music rose to the same level.
+    """
     pre = out.with_name("premix.wav")
     if music:
         m_lufs = loudness(music)
@@ -643,14 +649,14 @@ def final_mix(voice: Path, music: Path | None, seconds: float, out: Path) -> Pat
         graph = (f"[1:a]aresample=48000,aformat=channel_layouts=stereo,volume={m_gain:.2f}dB,"
                  f"atrim=0:{seconds:.3f},afade=in:d=0.6,afade=out:st={fade_out:.3f}:d=2.5[m];"
                  "[0:a]asplit[v][key];"
-                 "[m][key]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=450[duck];"
+                 "[m][key]sidechaincompress=threshold=0.015:ratio=10:attack=15:release=500[duck];"
                  "[v][duck]amix=inputs=2:normalize=0:duration=first[out]")
         run(["ffmpeg", "-y", "-v", "error", "-i", str(voice), "-stream_loop", "-1", "-i", str(music),
              "-filter_complex", graph, "-map", "[out]", "-t", f"{seconds:.3f}", *AUDIO_FMT, str(pre)])
     else:
         shutil.copy(voice, pre)
-    lufs = loudness(pre)
-    gain = 0.0 if lufs is None else -14.0 - lufs
+    lufs = loudness(voice)
+    gain = 0.0 if lufs is None else VOICE_TARGET_LUFS - lufs
     run(["ffmpeg", "-y", "-v", "error", "-i", str(pre), "-af",
          f"volume={gain:.2f}dB,alimiter=limit=0.84:level=disabled", *AUDIO_FMT, str(out)])
     return out
