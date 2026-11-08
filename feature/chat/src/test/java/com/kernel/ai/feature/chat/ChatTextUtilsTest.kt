@@ -25,10 +25,10 @@ class ChatTextUtilsTest {
             id = "nz_141",
             term = "Wharepaku",
             category = "culture",
-            definition = "Wharepaku is the te reo Māori term for a toilet, restroom, or bathroom. It's a compound word literally meaning 'small house' (whare = building/house, paku = small). Standard term found on public signage, schools, and government buildings across New Zealand.",
+            definition = "The te reo Māori term for toilet, restroom, bathroom, or lavatory.",
             triggerContext = "When the user asks about wharepaku, bathroom, toilet, or restroom",
             vibeLevel = 3,
-            vectorText = "Wharepaku. Toilet. Restroom. Bathroom. Māori language. New Zealand. Small house. Public signage. Māori culture. Te reo Māori.",
+            vectorText = "Wharepaku. Toilet. Restroom. Bathroom. Lavatory. Loo.",
             metadataJson = """{}""",
         ),
         JandalPersona.NzTruthEntry(
@@ -45,10 +45,10 @@ class ChatTextUtilsTest {
             id = "nz_143",
             term = "Taniwha",
             category = "culture",
-            definition = "Taniwha are powerful supernatural beings in Māori mythology that dwell in deep rivers, dark caves, lakes, or the ocean. They can be protective guardians (kaitiaki) for an iwi or dangerous predatory monsters that kidnap women or eat people. They are complex figures that enforce respect for natural boundaries and waterways.",
-            triggerContext = "When the user asks about taniwha, Māori mythology, or supernatural beings in New Zealand",
+            definition = "Taniwha are beings in Māori oral traditions associated with particular places and genealogies. Accounts and roles vary by iwi, hapū, and rohe; some are kaitiaki, while others are dangerous or adversarial.",
+            triggerContext = "When the user asks about taniwha or a specific Māori oral tradition, place, or kaitiaki",
             vibeLevel = 4,
-            vectorText = "Taniwha. Māori mythology. Supernatural beings. Kaitiaki. Guardians. Water spirits. New Zealand. Māori culture. Iwi. Natural boundaries. Waterways.",
+            vectorText = "Taniwha. Māori oral traditions. Place and whakapapa. Iwi, hapū, rohe. Kaitiaki. Guardian. Dangerous or adversarial being.",
             metadataJson = """{}""",
         ),
         JandalPersona.NzTruthEntry(
@@ -65,10 +65,10 @@ class ChatTextUtilsTest {
             id = "nz_010",
             term = "Monique says you're dumb",
             category = "meme",
-            definition = "NZ cultural phrase from the 2011 NZTA Ghost Chips ad. Whenever the user mentions Monique, respond with: 'Monique says you're dumb.'",
-            triggerContext = "When the user mentions Monique.",
+            definition = "Jandal's cheeky response: 'Monique says you're dumb for even asking.' This is not a line from the Ghost Chips advertisement.",
+            triggerContext = "When the user mentions Monique or asks for Jandal's cheeky catchphrase after a harmless mistake.",
             vibeLevel = 2,
-            vectorText = "Monique. Ghost Chips NZTA ad. Monique says you are dumb. Kiwi catchphrase.",
+            vectorText = "Monique. Monique says you're dumb for even asking. Jandal catchphrase. Banter.",
             metadataJson = """{}""",
         ),
         JandalPersona.NzTruthEntry(
@@ -85,10 +85,40 @@ class ChatTextUtilsTest {
             id = "nz_033",
             term = "The Haka",
             category = "te_ao_maori",
-            definition = "A traditional Māori posture dance. While used in many contexts, the All Blacks' version is world-renowned.",
+            definition = "Haka is a Māori performance tradition with many forms for different occasions; it is not only a war dance. Ka Mate, performed by the All Blacks, is one internationally recognised haka, not the sole form.",
             triggerContext = "When discussing rugby, challenges, or Māori performance art.",
             vibeLevel = 2,
-            vectorText = "Haka. Ka Mate. All Blacks pre-match. Rugby. Māori challenge. Respect and power. New Zealand rugby tradition. What do All Blacks do before a match.",
+            vectorText = "Haka. Māori performance. Many forms and occasions. Ka Mate. All Blacks pre-match. Rugby.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_126",
+            term = "Eh",
+            category = "slang",
+            definition = "A sentence-final New Zealand English tag inviting agreement or confirmation.",
+            triggerContext = "When the user asks about sentence-final eh.",
+            vibeLevel = 1,
+            vectorText = "Eh. Aye. Sentence-final tag. Agreement. Confirmation.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_145",
+            term = "Yeah nah",
+            category = "nz_slang",
+            definition = "An informal expression for polite disagreement or hesitation.",
+            triggerContext = "When the user asks about yeah nah.",
+            vibeLevel = 2,
+            vectorText = "Yeah nah. Yeah-nah. Polite disagreement. Soft refusal.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_139",
+            term = "Bugger",
+            category = "slang",
+            definition = "A common mild exclamation expressing frustration, sympathy, or disappointment.",
+            triggerContext = "When the user asks what bugger means.",
+            vibeLevel = 3,
+            vectorText = "Bugger. Bugger! Oh bugger. Bugger that. Kiwi exclamation.",
             metadataJson = """{}""",
         ),
     )
@@ -1339,6 +1369,12 @@ class ChatTextUtilsTest {
         fun `matches article-prefixed NZ terms before stripping the article`() {
             assertEquals("The Haka", detectKnownNzTerm("what is the haka?", sampleEntries)?.term)
         }
+        @Test
+        fun `detects direct questions for rekeyed and merged Kiwi terms`() {
+            assertEquals("Eh", detectKnownNzTerm("what is eh", sampleEntries)?.term)
+            assertEquals("Yeah nah", detectKnownNzTerm("what is yeah nah", sampleEntries)?.term)
+            assertEquals("Bugger", detectKnownNzTerm("what is bugger", sampleEntries)?.term)
+        }
 
         @Test
         fun `maps direct Monique speech questions to the catchphrase`() {
@@ -1380,7 +1416,7 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `does not match short terms under 3 chars`() {
+        fun `does not match generic two-letter terms`() {
             val shortEntry = JandalPersona.NzTruthEntry(
                 id = "nz_short",
                 term = "NZ",

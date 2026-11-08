@@ -780,17 +780,20 @@ internal fun detectKnownNzTerm(
         }
     }
 
+    // Keep short labels out of ambiguous matches, but allow the intentional two-letter entry "Eh".
     val requestedTerm = DIRECT_NZ_DEFINITION_QUERY.matchEntire(query)?.groupValues?.get(1)?.trim()
         ?: return null
     val exactMatch = nzTruths.singleOrNull { entry ->
-        entry.term.trim().length >= 3 && entry.term.equals(requestedTerm, ignoreCase = true)
+        (entry.term.trim().length >= 3 || entry.term.equals("Eh", ignoreCase = true)) &&
+            entry.term.equals(requestedTerm, ignoreCase = true)
     }
     if (exactMatch != null) return exactMatch
 
     val fallbackTerm = LEADING_NZ_DEFINITION_ARTICLE.replaceFirst(requestedTerm, "").trim()
     if (fallbackTerm == requestedTerm) return null
     return nzTruths.singleOrNull { entry ->
-        entry.term.trim().length >= 3 && entry.term.equals(fallbackTerm, ignoreCase = true)
+        (entry.term.trim().length >= 3 || entry.term.equals("Eh", ignoreCase = true)) &&
+            entry.term.equals(fallbackTerm, ignoreCase = true)
     }
 }
 
