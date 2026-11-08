@@ -1,7 +1,0 @@
-{
-  "kotlin-lsp": {
-    "command": ".omp/bin/kotlin-lsp",
-    "disabled": false,
-    "warmupTimeoutMs": 90000
-  }
-}
