@@ -29,14 +29,15 @@ private const val KEY_TRUTHS_SEEDED = "truths_seeded_v34"
 ```json
 {
   "id": "nz_010",
-  "term": "Monique says you're dumb",
+  "term": "Monique says you're dumb for even asking",
   "category": "meme",
-  "definition": "Jandal's cheeky response: 'Monique says you're dumb for even asking.' This is not a line from the Ghost Chips advertisement.",
-  "trigger_context": "When the user mentions Monique or asks for Jandal's cheeky catchphrase after a harmless mistake.",
+  "definition": "A line from the 2011 NZTA Ghost Chips drink-driving ad.",
+  "trigger_context": "When the user mentions Monique or makes a harmless mistake, respond with 'Monique says you're dumb for even asking' and say it with Kiwi flair.",
   "vibe_level": 2,
-  "vector_text": "Monique. Monique says you're dumb for even asking. Jandal catchphrase. Banter.",
+  "vector_text": "Monique. Monique says you're dumb for even asking. NZTA Ghost Chips drink-driving ad 2011. Kiwi catchphrase.",
   "metadata": {
-    "tags": ["banter", "catchphrase"]
+    "tags": ["ghost-chips", "nzta", "banter", "catchphrase"],
+    "era": "2011"
   }
 }
 ```

@@ -62,13 +62,23 @@ class ChatTextUtilsTest {
             metadataJson = """{}""",
         ),
         JandalPersona.NzTruthEntry(
-            id = "nz_010",
-            term = "Monique says you're dumb",
+            id = "nz_009",
+            term = "Nek Minnit",
             category = "meme",
-            definition = "Jandal's cheeky response: 'Monique says you're dumb for even asking.' This is not a line from the Ghost Chips advertisement.",
-            triggerContext = "When the user mentions Monique or asks for Jandal's cheeky catchphrase after a harmless mistake.",
+            definition = "A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video.",
+            triggerContext = "When the user says 'nek minnit' or describes leaving something unattended and something goes wrong.",
+            vibeLevel = 4,
+            vectorText = "Nek minnit. Levi Hawken. Scooter meme. Sudden change.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_010",
+            term = "Monique says you're dumb for even asking",
+            category = "meme",
+            definition = "A line from the 2011 NZTA Ghost Chips drink-driving ad.",
+            triggerContext = "When the user mentions Monique or makes a harmless mistake, respond with the quoted catchphrase and Kiwi flair.",
             vibeLevel = 2,
-            vectorText = "Monique. Monique says you're dumb for even asking. Jandal catchphrase. Banter.",
+            vectorText = "Monique says you're dumb for even asking. Ghost Chips NZTA ad 2011.",
             metadataJson = """{}""",
         ),
         JandalPersona.NzTruthEntry(
@@ -1378,9 +1388,12 @@ class ChatTextUtilsTest {
 
         @Test
         fun `maps direct Monique speech questions to the catchphrase`() {
-            assertEquals("Monique says you're dumb", detectKnownNzTerm("what does monique say", sampleEntries)?.term)
             assertEquals(
-                "Monique says you're dumb",
+                "Monique says you're dumb for even asking",
+                detectKnownNzTerm("what does monique say", sampleEntries)?.term,
+            )
+            assertEquals(
+                "Monique says you're dumb for even asking",
                 detectKnownNzTerm("what did Monique say when I left my scooter outside the dairy", sampleEntries)?.term,
             )
         }
@@ -1434,6 +1447,31 @@ class ChatTextUtilsTest {
 
     @Nested
     inner class BuildKnownNzContextReplyTests {
+
+        @Test
+        fun `quotes Monique first with ad context for direct say questions`() {
+            val question = "What does Monique say?"
+            val entry = detectKnownNzTerm(question, sampleEntries)!!
+
+            assertEquals(
+                "\"Monique says you're dumb for even asking.\" A line from the 2011 NZTA Ghost Chips drink-driving ad.",
+                buildKnownNzContextReply(entry, question),
+            )
+        }
+
+        @Test
+        fun `keeps what is nek minnit definition reply clear of model instructions`() {
+            val question = "What is nek minnit"
+            val entry = detectKnownNzTerm(question, sampleEntries)!!
+            val reply = buildKnownNzContextReply(entry, question)
+
+            assertEquals(
+                "Nek Minnit: A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video.",
+                reply,
+            )
+            assertFalse(reply.contains("trigger"))
+            assertFalse(reply.contains("DO NOT"))
+        }
 
         @Test
         fun `builds reply for wharepaku entry`() {

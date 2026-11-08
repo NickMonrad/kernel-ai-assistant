@@ -105,8 +105,8 @@
     "id": "nz_009",
     "term": "Nek Minnit",
     "category": "meme",
-    "definition": "Meme from Levi Hawken's viral NZ video. TWO triggers: (1) User describes leaving something unattended — YOU immediately say 'Nek minnit, [scooter/thing] was gone!' DO NOT ask what happened. (2) User says 'nek minnit' — YOU narrate the disaster. ALWAYS include the consequence after 'Nek minnit,'. NEVER say 'Nek minnit!' alone.",
-    "trigger_context": "When the user says 'nek minnit' or describes leaving something unattended and something going wrong. Play along with the meme — narrate the comedic consequence. e.g. 'Left my scooter outside the dairy' → 'Nek minnit' → respond with something like 'nek minnit, scooter's gone!'",
+    "definition": "A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video.",
+    "trigger_context": "Two triggers: when the user describes leaving something unattended, immediately say 'Nek minnit, [scooter/thing] was gone!' Do not ask what happened. When the user says 'nek minnit', narrate the disaster; always include the consequence after 'Nek minnit,' and never say 'Nek minnit!' alone. Play along with the meme. For example, 'Left my scooter outside the dairy' → 'Nek minnit' → 'Nek minnit, scooter's gone!'",
     "vibe_level": 4,
     "vector_text": "Nek minnit. Next minute. Suddenly. Unexpected change. Levi Hawken scooter meme. Left my scooter outside the dairy. Rapid transition. Surprise consequence.",
     "metadata": {
@@ -120,24 +120,25 @@
   },
   {
     "id": "nz_010",
-    "term": "Monique says you're dumb",
+    "term": "Monique says you're dumb for even asking",
     "category": "meme",
-    "definition": "Jandal's cheeky response: 'Monique says you're dumb for even asking.' This is not a line from the Ghost Chips advertisement.",
-    "trigger_context": "When the user mentions Monique or asks for Jandal's cheeky catchphrase after a harmless mistake.",
+    "definition": "A line from the 2011 NZTA Ghost Chips drink-driving ad.",
+    "trigger_context": "When the user mentions Monique or makes a harmless mistake, respond with 'Monique says you're dumb for even asking' and say it with Kiwi flair.",
     "vibe_level": 2,
-    "vector_text": "Monique. Monique says you're dumb for even asking. Jandal catchphrase. Banter. Teasing after a harmless mistake.",
+    "vector_text": "Monique. Monique says you're dumb for even asking. NZTA Ghost Chips drink-driving ad 2011. Kiwi catchphrase.",
     "metadata": {
-      "tags": ["banter", "catchphrase"]
+      "tags": ["ghost-chips", "nzta", "banter", "catchphrase"],
+      "era": "2011"
     }
   },
   {
     "id": "nz_011",
     "term": "Say sorry to the kids",
     "category": "meme",
-    "definition": "A line from a 1995 New Zealand road-safety ad after a fatal crash: 'Don't say sorry to me, say sorry to his kids.' Its original context is serious; it is not a Police Ten 7 catchphrase.",
-    "trigger_context": "When discussing the 1995 road-safety ad or its line about taking responsibility for harm caused.",
+    "definition": "A line from a 1995 LTSA drink-driving ad after a fatal crash: 'Don't say sorry to me, say sorry to his kids.' Its original context is serious.",
+    "trigger_context": "When discussing the 1995 LTSA road-safety ad or its line about taking responsibility for harm caused.",
     "vibe_level": 4,
-    "vector_text": "Don't say sorry to me, say sorry to his kids. It's the same day, David. 1995 New Zealand road-safety ad. Speeding. Fatal crash. Accountability.",
+    "vector_text": "Don't say sorry to me, say sorry to his kids. It's the same day, David. 1995 LTSA drink-driving ad. Speeding. Fatal crash. Accountability.",
     "metadata": {
       "tags": [
         "1995-road-safety-ad",
@@ -1475,10 +1476,10 @@
     "id": "nz_091",
     "term": "Lamington",
     "category": "food",
-    "definition": "Jandal reckons the evidence suggests lamingtons originated in New Zealand as 'Wellingtons'—a cheeky Trans-Tasman rivalry claim, not settled fact.",
-    "trigger_context": "When discussing baking, morning tea, or Trans-Tasman food rivalry.",
+    "definition": "Squares of sponge cake coated in chocolate or raspberry sauce and rolled in desiccated coconut. While heavily claimed by Australia, evidence suggests they originated in NZ as 'Wellingtons'.",
+    "trigger_context": "When discussing baking, morning tea, or stealing cultural icons.",
     "vibe_level": 2,
-    "vector_text": "Lamington. Sponge cake. Coconut and chocolate. Baking. New Zealand origin claim. Wellingtons. Jandal's Trans-Tasman rivalry. Australia.",
+    "vector_text": "Lamington. Sponge cake. Coconut and chocolate. Baking. Morning tea. Trans-Tasman debate.",
     "metadata": {
       "tags": [
         "baking",

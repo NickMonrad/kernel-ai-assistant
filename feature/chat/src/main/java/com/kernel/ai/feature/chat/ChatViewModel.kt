@@ -2836,7 +2836,7 @@ class ChatViewModel @Inject constructor(
             ) {
                 val localNzEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
                 if (localNzEntry != null) {
-                    val localReply = buildKnownNzContextReply(localNzEntry)
+                    val localReply = buildKnownNzContextReply(localNzEntry, text)
                     Log.d(TAG, "Deterministic NZ context answered locally for term='${localNzEntry.term}'")
                     Log.d("KernelAI", "llm_tools_assistant_reply: ${localReply.take(1000).replace('\n', ' ')}")
                     // Index user message — normally deferred to LLM Complete handler

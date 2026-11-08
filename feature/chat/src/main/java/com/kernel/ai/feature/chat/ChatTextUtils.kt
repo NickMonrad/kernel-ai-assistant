@@ -803,9 +803,17 @@ internal fun detectKnownNzTerm(
  * cultural terms locally without calling query_wikipedia or the inference engine.
  *
  * @param entry the matched NZ truth entry with term and definition.
+ * @param question the user's original text, used to format direct speech queries.
  * @return a complete assistant reply string.
  */
-internal fun buildKnownNzContextReply(entry: JandalPersona.NzTruthEntry): String {
+internal fun buildKnownNzContextReply(
+    entry: JandalPersona.NzTruthEntry,
+    question: String = "",
+): String {
     val definition = entry.definition.trim().trimEnd('.')
-    return "${entry.term}: $definition."
+    return if (DIRECT_NZ_SAY_QUERY.matches(question.trim())) {
+        "\"${entry.term.trim()}.\" $definition."
+    } else {
+        "${entry.term}: $definition."
+    }
 }
