@@ -4,6 +4,12 @@
 
 Jandal AI is a local-first Android assistant. It combines on-device chat, long-term memory, deterministic Android actions, voice input/output, and native tool calling while keeping user data on the device by default.
 
+## Watch the intro
+
+<a href="https://youtube.com/shorts/DdskEMfqqsc"><img src="docs/demo/intro-thumbnail.jpg" alt="Jandal AI intro video on YouTube: Hey Jandal, Kiwi lists, timers, memory, local chat, weather and Nextcloud sync" width="200"></a>
+
+A two-minute tour on [YouTube](https://youtube.com/shorts/DdskEMfqqsc), recorded on a real phone with the AI running on-device (how it was made: [`docs/demo/shot-script.md`](docs/demo/shot-script.md)).
+
 ## How it works
 
 Jandal is built around a **Brain-Memory-Action** model:
