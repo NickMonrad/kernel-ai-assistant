@@ -36,6 +36,15 @@
         "Free on Google Play · Open source"
       ],
       "seconds": 4
+    },
+    "repo": {
+      "title": "Jandal AI",
+      "lines": [
+        "A Kiwi AI assistant that runs on your phone",
+        "Open source · Android",
+        "github.com/NickMonrad/kernel-ai-assistant"
+      ],
+      "seconds": 4
     }
   },
   "shots": [

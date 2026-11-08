@@ -130,7 +130,7 @@ Prerequisites on the capture host: `adb`, `scrcpy` 3.0 or newer (tested with 5.0
    S01 needs `DEMO_WAKE_CMD`, and S07A/S07B need `DEMO_NC_SERVER` and `DEMO_NC_USER`, from the env file above. Add `DEMO_NC_DISPLAY_NAME` too if the test user's display name differs from the username: the Nextcloud web page shows it. S07A/S07B refuse to record without `DEMO_NC_SERVER` and `DEMO_NC_USER`; the runner records the screen bounds of every node showing either value, and the edit step blurs them. Re-take a model shot with `--shots S04 --take 2` (at most 3).
 4. Render, choosing the end card:
    `python3 scripts/demo_edit.py --clips ~/jandal-demo/<rc> --out ~/jandal-demo/<rc>/intro.mp4 --end-card beta --music <track.mp3> [--variant kiwi] [--pick S04=2] [--icon icon.png]`
-   Use `--end-card launch` once the Play listing is public. `--variant kiwi` swaps S05 for S05K (decision 17).
+   Use `--end-card repo` (open source + GitHub link) until the beta page (#1739) is live, then `beta`, and `launch` once the Play listing is public. `--variant kiwi` swaps S05 for S05K (decision 17).
 
    Sound (decision 15) needs two more env-file entries:
    ```sh
