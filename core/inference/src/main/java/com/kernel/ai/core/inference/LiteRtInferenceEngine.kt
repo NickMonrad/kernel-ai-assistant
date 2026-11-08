@@ -61,8 +61,9 @@ private val toolCallJsonSerializer = GsonBuilder().serializeNulls().create()
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 private const val GPU_INIT_TIMEOUT_MS = 60_000L
-/** #1293: After this many conversation resets on GPU backend, perform a full engine restart. */
+/** Phase-2 validation switch; set false in a validation build to disable periodic restarts. */
 internal const val GPU_ENGINE_RESTART_ENABLED = true
+/** #1293 periodic restart cadence; original long-session drift was attributed to MiniLM TFLite convergence, not GPU. */
 private const val GPU_ENGINE_RESTART_INTERVAL = 5
 /** Mirrors LiteRT-LM 0.17.1's per-conversation tool-call limit. */
 private const val RECURRING_TOOL_CALL_LIMIT = 25
@@ -1128,6 +1129,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 InferenceLoadingService.start(context)
                 try {
                     withContext(LlmDispatcher) {
+                        closeUnreadyNativeState()
                         // GPU hardware is suspended when the screen is off; delay init until screen is on.
                         waitForScreenInteractive()
                         _isReady.value = false
@@ -1167,6 +1169,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         currentConfig = resolvedConfig
                         _activeBackend.value = backendType
                         _resolvedMaxTokens.value = resolvedConfig.maxTokens
+                        gpuResetCount = 0
                         _isReady.value = true
 
                         Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${resolvedConfig.maxTokens}")
@@ -1184,25 +1187,78 @@ class LiteRtInferenceEngine @Inject constructor(
         }
     }
 
+    /**
+     * Release native objects left behind by a failed reset/restart before allocating a replacement.
+     * Wait for any in-flight generation before closing, since its conversation is not thread-safe.
+     */
+    private suspend fun closeUnreadyNativeState() {
+        if (_isReady.value || (engine == null && conversation == null)) return
+
+        generationMutex.withLock {
+            if (_isReady.value) return@withLock
+
+            val staleConversation = conversation
+            val staleEngine = engine
+            currentConfig = null
+            _activeBackend.value = null
+            _resolvedMaxTokens.value = 0
+
+            var closeFailure: Exception? = null
+            var conversationCloseFailure: Conversation? = null
+            var engineCloseFailure: Engine? = null
+            try {
+                staleConversation?.close()
+            } catch (error: Exception) {
+                conversationCloseFailure = staleConversation
+                closeFailure = error
+            }
+            try {
+                staleEngine?.close()
+            } catch (error: Exception) {
+                engineCloseFailure = staleEngine
+                if (closeFailure == null) {
+                    closeFailure = error
+                } else {
+                    closeFailure.addSuppressed(error)
+                }
+            }
+
+            // Preserve any object whose close failed so a later retry can release it again.
+            conversation = conversationCloseFailure
+            engine = engineCloseFailure
+            closeFailure?.let {
+                throw InferenceException(
+                    "Could not release the previous native engine before retrying initialization.",
+                    it,
+                )
+            }
+        }
+    }
+
     override suspend fun resetConversation() {
         withContext(LlmDispatcher) {
             val eng = engine ?: return@withContext
             val config = currentConfig ?: return@withContext
             val backend = _activeBackend.value ?: BackendType.CPU
 
-            // #1293: The original long-session drift evidence was S21 (Exynos 2100 / Mali-G78).
-            // Keep the periodic GPU restart enabled by default pending device validation.
+            // #1293: original long-session drift was attributed to MiniLM TFLite convergence, not GPU.
+            // S21 is Exynos 2100 / Mali-G78. Keep the interval and GPU scope unchanged until device evidence.
             val restartDecision = checkGpuRestartNeeded(gpuResetCount, backend)
-            gpuResetCount = restartDecision.updatedCount
             if (restartDecision.shouldRestart) {
                 Log.i(TAG, "resetConversation: full engine restart after " +
                     "$GPU_ENGINE_RESTART_INTERVAL GPU resets")
+                if (_isGenerating.value) {
+                    Log.d(TAG, "resetConversation: signalling cancellation before full engine restart")
+                    cancelGeneration()
+                }
                 generationMutex.withLock {
                     _isGenerating.value = false
                 }
                 restartEngine(config, "resetConversation")
+                gpuResetCount = restartDecision.updatedCount
                 return@withContext
             }
+            gpuResetCount = restartDecision.updatedCount
 
             // Signal any active generation to stop so it releases generationMutex promptly.
             if (_isGenerating.value) {
@@ -1274,7 +1330,6 @@ class LiteRtInferenceEngine @Inject constructor(
         val backend = _activeBackend.value ?: BackendType.CPU
 
         val restartDecision = checkGpuRestartNeeded(gpuResetCount, backend)
-        gpuResetCount = restartDecision.updatedCount
         if (restartDecision.shouldRestart) {
             Log.i(
                 TAG,
@@ -1282,8 +1337,10 @@ class LiteRtInferenceEngine @Inject constructor(
                     "$GPU_ENGINE_RESTART_INTERVAL GPU resets",
             )
             restartEngine(config, "resetConversationAfterToolAbort")
+            gpuResetCount = restartDecision.updatedCount
             return
         }
+        gpuResetCount = restartDecision.updatedCount
 
         try {
             conversation = eng.createConversation(buildConversationConfig(backend, config))

@@ -78,6 +78,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
@@ -1352,6 +1353,62 @@ class ChatViewModelInitTest {
         assertTrue(observedStates.last() is ChatUiState.Ready)
         assertEquals(listOf(modelPath, modelPath), initializedPaths)
         verify(exactly = 0) { downloadManager.startDownload(any(), any(), any()) }
+        collector.cancel()
+    }
+
+    @Test
+    fun `stalled initialization shows retryable error and retry reaches ready`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val firstInitStarted = CompletableDeferred<Unit>()
+        val releaseFirstInit = CompletableDeferred<Unit>()
+        var initializeCalls = 0
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers {
+            initializeCalls++
+            if (initializeCalls == 1) {
+                firstInitStarted.complete(Unit)
+                releaseFirstInit.await()
+                throw IllegalStateException("first native initialization returned after watchdog")
+            }
+            isReady.value = true
+        }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        runCurrent()
+        assertTrue(firstInitStarted.isCompleted)
+
+        advanceTimeBy(MODEL_INITIALIZATION_WATCHDOG_MS + 1)
+        runCurrent()
+        val failure = observedStates.last { it is ChatUiState.ModelInitializationFailed }
+            as ChatUiState.ModelInitializationFailed
+        assertTrue(failure.message.contains("taking too long"))
+
+        viewModel.retryModelInitialization()
+        runCurrent()
+        assertFalse(isReady.value, "Retry must not overlap the still-running native initialization")
+
+        releaseFirstInit.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+        assertEquals(2, initializeCalls)
         collector.cancel()
     }
 

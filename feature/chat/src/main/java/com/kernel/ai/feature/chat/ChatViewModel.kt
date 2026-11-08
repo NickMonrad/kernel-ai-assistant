@@ -127,6 +127,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
+internal const val MODEL_INITIALIZATION_WATCHDOG_MS = 90_000L
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
@@ -285,6 +286,8 @@ class ChatViewModel @Inject constructor(
     )
     private val _error = MutableStateFlow<String?>(null)
     private val _modelInitializationError = MutableStateFlow<String?>(null)
+    private var modelInitializationWatchdogSequence = 0L
+    private var modelInitializationWatchdogJob: Job? = null
     private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
     private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
@@ -1136,72 +1139,77 @@ class ChatViewModel @Inject constructor(
             .filter { states -> downloadManager.areRequiredModelsDownloaded() }
             .first()
 
-        Gemma4InitLock.mutex.withLock {
-            _modelInitializationError.value = null
-            try {
-                if (inferenceEngine.isReady.value) {
-                    // The singleton engine is already warm — hydrate from the model it is
-                    // actually running, never from the current preference (preference changes
-                    // take effect on next launch). The engine must not be re-initialised (#1459).
-                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
-                    // Mirror the cold path's post-initialize sync: the engine allocated a
-                    // clamped KV-cache size that supersedes the persisted setting.
+        val watchdogAttempt = startModelInitializationWatchdog("initEngineWhenReady")
+        try {
+            Gemma4InitLock.mutex.withLock {
+                _modelInitializationError.value = null
+                try {
+                    if (inferenceEngine.isReady.value) {
+                        // The singleton engine is already warm — hydrate from the model it is
+                        // actually running, never from the current preference (preference changes
+                        // take effect on next launch). The engine must not be re-initialised (#1459).
+                        loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                        // Mirror the cold path's post-initialize sync: the engine allocated a
+                        // clamped KV-cache size that supersedes the persisted setting.
+                        inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                            activeContextWindowSize = it
+                        }
+                        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                        return
+                    }
+                    Log.i(TAG, "Eager inference initialization waiting for app foreground")
+                    awaitAppForeground()
+                    Log.i(
+                        TAG,
+                        "Eager inference initialization permitted at lifecycle state=" +
+                            ProcessLifecycleOwner.get().lifecycle.currentState,
+                    )
+
+                    // Re-check after the lifecycle gate. A concurrent manual path may have warmed
+                    // the process-scoped singleton while this coroutine was waiting.
+                    if (inferenceEngine.isReady.value) {
+                        loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                        inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                            activeContextWindowSize = it
+                        }
+                        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                        return
+                    }
+
+                    val preferred = downloadManager.preferredConversationModel()
+
+                    val modelPath = downloadManager.getModelPath(preferred) ?: return
+                    val settings = hydrateActiveModelState(preferred)
+                    // Arctic Embed uses CPU only (no GPU conflict with Gemma-4).
+                    // embeddingEngine.close() removed — it silently broke search_memory (#445)
+                    inferenceEngine.initialize(ModelConfig(
+                        modelPath = modelPath,
+                        systemPrompt = buildSystemPrompt(),
+                        maxTokens = settings.contextWindowSize,
+                        temperature = settings.temperature,
+                        topP = settings.topP,
+                        topK = settings.topK,
+                        thinkingEnabled = settings.showThinkingProcess,
+                        speculativeDecodingEnabled = settings.speculativeDecodingEnabled,
+                        toolProvider = toolProvider,
+                    ))
+                    // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
+                    // settings.contextWindowSize may be power-of-2 (e.g. 4096→4000) and the
+                    // resolved value is what LiteRT actually allocated — use it for reset thresholds.
                     inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                         activeContextWindowSize = it
                     }
+                    estimatedTokensUsed = 0
+                    turnsSinceReset = 0
                     inferenceEngine.updateSystemPrompt(buildSystemPrompt())
-                    return
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    reportModelInitializationFailure("initEngineWhenReady", e)
                 }
-                Log.i(TAG, "Eager inference initialization waiting for app foreground")
-                awaitAppForeground()
-                Log.i(
-                    TAG,
-                    "Eager inference initialization permitted at lifecycle state=" +
-                        ProcessLifecycleOwner.get().lifecycle.currentState,
-                )
-
-                // Re-check after the lifecycle gate. A concurrent manual path may have warmed
-                // the process-scoped singleton while this coroutine was waiting.
-                if (inferenceEngine.isReady.value) {
-                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
-                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
-                        activeContextWindowSize = it
-                    }
-                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
-                    return
-                }
-
-                val preferred = downloadManager.preferredConversationModel()
-
-                val modelPath = downloadManager.getModelPath(preferred) ?: return
-                val settings = hydrateActiveModelState(preferred)
-                // Arctic Embed uses CPU only (no GPU conflict with Gemma-4).
-                // embeddingEngine.close() removed — it silently broke search_memory (#445)
-                inferenceEngine.initialize(ModelConfig(
-                    modelPath = modelPath,
-                    systemPrompt = buildSystemPrompt(),
-                    maxTokens = settings.contextWindowSize,
-                    temperature = settings.temperature,
-                    topP = settings.topP,
-                    topK = settings.topK,
-                    thinkingEnabled = settings.showThinkingProcess,
-                    speculativeDecodingEnabled = settings.speculativeDecodingEnabled,
-                    toolProvider = toolProvider,
-                ))
-                // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
-                // settings.contextWindowSize may be power-of-2 (e.g. 4096→4000) and the
-                // resolved value is what LiteRT actually allocated — use it for reset thresholds.
-                inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
-                    activeContextWindowSize = it
-                }
-                estimatedTokensUsed = 0
-                turnsSinceReset = 0
-                inferenceEngine.updateSystemPrompt(buildSystemPrompt())
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                reportModelInitializationFailure("initEngineWhenReady", e)
             }
+        } finally {
+            stopModelInitializationWatchdog(watchdogAttempt)
         }
     }
 
@@ -1220,60 +1228,65 @@ class ChatViewModel @Inject constructor(
      * recognised immediately.
      */
     private suspend fun initGemma4(safeModelTest: Boolean = false) {
-        Gemma4InitLock.mutex.withLock {
-            _modelInitializationError.value = null
-            try {
-                if (inferenceEngine.isReady.value) {
-                    // Same already-ready hydration as [initEngineWhenReady] (#1459): hydrate
-                    // from the model the singleton engine is actually running, never
-                    // re-initialise it.
-                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
+        val watchdogAttempt = startModelInitializationWatchdog("initGemma4")
+        try {
+            Gemma4InitLock.mutex.withLock {
+                _modelInitializationError.value = null
+                try {
+                    if (inferenceEngine.isReady.value) {
+                        // Same already-ready hydration as [initEngineWhenReady] (#1459): hydrate
+                        // from the model the singleton engine is actually running, never
+                        // re-initialise it.
+                        loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                        inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                            activeContextWindowSize = it
+                        }
+                        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                        return
+                    }
+
+                    val preferred = downloadManager.preferredConversationModel()
+                    val modelPath = downloadManager.getModelPath(preferred) ?: return
+                    val settings = hydrateActiveModelState(preferred)
+                    // Arctic Embed uses CPU only (no GPU conflict with Gemma-4).
+                    // embeddingEngine.close() removed — it silently broke search_memory (#445)
+                    Log.d(TAG, "initEngineWhenReady: modelId=${preferred.modelId} speculativeDecodingEnabled=${settings.speculativeDecodingEnabled}")
+                    inferenceEngine.initialize(ModelConfig(
+                        modelPath = modelPath,
+                        systemPrompt = buildSystemPrompt(
+                            includeCurrentDateTime = !safeModelTest,
+                            includeProfile = !safeModelTest,
+                        ),
+                        maxTokens = settings.contextWindowSize,
+                        temperature = settings.temperature,
+                        topP = settings.topP,
+                        topK = settings.topK,
+                        thinkingEnabled = settings.showThinkingProcess,
+                        speculativeDecodingEnabled = settings.speculativeDecodingEnabled,
+                        toolProvider = toolProvider,
+                    ))
+                    // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
                     inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                         activeContextWindowSize = it
                     }
-                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
-                    return
+                    estimatedTokensUsed = 0
+                    turnsSinceReset = 0
+                    // Rebuild system prompt now that activeBackend is resolved (backend field
+                    // was null during initialize()).
+                    inferenceEngine.updateSystemPrompt(
+                        buildSystemPrompt(
+                            includeCurrentDateTime = !safeModelTest,
+                            includeProfile = !safeModelTest,
+                        ),
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    reportModelInitializationFailure("initGemma4", e)
                 }
-
-                val preferred = downloadManager.preferredConversationModel()
-                val modelPath = downloadManager.getModelPath(preferred) ?: return
-                val settings = hydrateActiveModelState(preferred)
-                // Arctic Embed uses CPU only (no GPU conflict with Gemma-4).
-                // embeddingEngine.close() removed — it silently broke search_memory (#445)
-                Log.d(TAG, "initEngineWhenReady: modelId=${preferred.modelId} speculativeDecodingEnabled=${settings.speculativeDecodingEnabled}")
-                inferenceEngine.initialize(ModelConfig(
-                    modelPath = modelPath,
-                    systemPrompt = buildSystemPrompt(
-                        includeCurrentDateTime = !safeModelTest,
-                        includeProfile = !safeModelTest,
-                    ),
-                    maxTokens = settings.contextWindowSize,
-                    temperature = settings.temperature,
-                    topP = settings.topP,
-                    topK = settings.topK,
-                    thinkingEnabled = settings.showThinkingProcess,
-                    speculativeDecodingEnabled = settings.speculativeDecodingEnabled,
-                    toolProvider = toolProvider,
-                ))
-                // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
-                inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
-                    activeContextWindowSize = it
-                }
-                estimatedTokensUsed = 0
-                turnsSinceReset = 0
-                // Rebuild system prompt now that activeBackend is resolved (backend field
-                // was null during initialize()).
-                inferenceEngine.updateSystemPrompt(
-                    buildSystemPrompt(
-                        includeCurrentDateTime = !safeModelTest,
-                        includeProfile = !safeModelTest,
-                    ),
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                reportModelInitializationFailure("initGemma4", e)
             }
+        } finally {
+            stopModelInitializationWatchdog(watchdogAttempt)
         }
     }
 
@@ -1284,6 +1297,34 @@ class ChatViewModel @Inject constructor(
             _error.value = message
         } else {
             _modelInitializationError.value = message
+        }
+    }
+
+    private fun startModelInitializationWatchdog(operation: String): Long {
+        val attempt = ++modelInitializationWatchdogSequence
+        modelInitializationWatchdogJob?.cancel()
+        modelInitializationWatchdogJob = viewModelScope.launch {
+            delay(MODEL_INITIALIZATION_WATCHDOG_MS)
+            if (attempt == modelInitializationWatchdogSequence && !inferenceEngine.isReady.value) {
+                reportModelInitializationFailure(
+                    operation,
+                    IllegalStateException(
+                        "Model initialization is taking too long. Retry when the engine is available.",
+                    ),
+                )
+            }
+        }
+        return attempt
+    }
+
+    private fun stopModelInitializationWatchdog(attempt: Long) {
+        if (inferenceEngine.isReady.value) {
+            modelInitializationWatchdogSequence++
+            modelInitializationWatchdogJob?.cancel()
+            modelInitializationWatchdogJob = null
+        } else if (attempt == modelInitializationWatchdogSequence) {
+            modelInitializationWatchdogJob?.cancel()
+            modelInitializationWatchdogJob = null
         }
     }
 

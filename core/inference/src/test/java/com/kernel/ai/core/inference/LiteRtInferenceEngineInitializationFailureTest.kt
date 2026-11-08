@@ -202,6 +202,62 @@ class LiteRtInferenceEngineInitializationFailureTest {
     }
 
     @Test
+    fun `eager init waits behind cancelled restart caller without duplicate native allocation`() = runTest {
+        val enteredRestartInitialize = CountDownLatch(1)
+        val finishRestartInitialize = CountDownLatch(1)
+        val initializeCalls = AtomicInteger()
+        every { anyConstructed<Engine>().initialize() } answers {
+            if (initializeCalls.incrementAndGet() == 2) {
+                enteredRestartInitialize.countDown()
+                finishRestartInitialize.await()
+            }
+        }
+        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
+        val config = testConfig()
+        engine.initialize(config)
+        engine.gpuResetCount = 4
+        val reset = launch { engine.resetConversation() }
+        runCurrent()
+
+        try {
+            assertTrue(withContext(Dispatchers.IO) { enteredRestartInitialize.await(5, TimeUnit.SECONDS) })
+            reset.cancel()
+            val eagerInitialization = async { engine.initialize(config) }
+            runCurrent()
+            assertFalse(
+                eagerInitialization.isCompleted,
+                "Eager initialization must wait while the cancelled caller's restart is still active",
+            )
+
+            finishRestartInitialize.countDown()
+            reset.join()
+            eagerInitialization.await()
+        } finally {
+            finishRestartInitialize.countDown()
+        }
+
+        assertTrue(reset.isCancelled)
+        assertTrue(engine.isReady.value)
+        assertEquals(2, initializeCalls.get(), "The waiting eager caller must reuse the restarted engine")
+    }
+
+    @Test
+    fun `retry after failed conversation recreation closes stale engine before allocating replacement`() = runTest {
+        val staleEngine = mockk<Engine>(relaxed = true)
+        val staleConversation = mockk<com.google.ai.edge.litertlm.Conversation>(relaxed = true)
+        every { anyConstructed<Engine>().initialize() } just runs
+        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
+        setPrivateField(engine, "engine", staleEngine)
+        setPrivateField(engine, "conversation", staleConversation)
+
+        engine.initialize(testConfig())
+
+        verify(exactly = 1) { staleConversation.close() }
+        verify(exactly = 1) { staleEngine.close() }
+        assertTrue(engine.isReady.value)
+    }
+
+    @Test
     fun `restart failure is returned as retryable error and a later initialization succeeds`() = runTest {
         val initializeCalls = AtomicInteger()
         every { anyConstructed<Engine>().initialize() } answers {
