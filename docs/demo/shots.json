@@ -1,0 +1,714 @@
+{
+  "schema": 1,
+  "description": "Machine-readable shot list for #1736. docs/demo/shot-script.md is the human source of truth; keep ids, inputs and captions in sync with it.",
+  "intro_order": [
+    "S00",
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07A",
+    "S07B"
+  ],
+  "title_card": {
+    "title": "Jandal AI",
+    "lines": [
+      "Can you handle the Jandal?"
+    ],
+    "seconds": 2.5
+  },
+  "end_cards": {
+    "beta": {
+      "title": "Jandal AI",
+      "lines": [
+        "A Kiwi AI assistant that runs on your phone",
+        "Join the beta · Open source",
+        "github.com/NickMonrad/kernel-ai-assistant"
+      ],
+      "seconds": 4
+    },
+    "launch": {
+      "title": "Jandal AI",
+      "lines": [
+        "A Kiwi AI assistant that runs on your phone",
+        "Free on Google Play · Open source"
+      ],
+      "seconds": 4
+    },
+    "repo": {
+      "title": "Jandal AI",
+      "lines": [
+        "A Kiwi AI assistant that runs on your phone",
+        "Open source · Android",
+        "github.com/NickMonrad/kernel-ai-assistant"
+      ],
+      "seconds": 4
+    }
+  },
+  "shots": [
+    {
+      "id": "S00",
+      "feature": "Home screen: Jandal widgets, icon and Lists shortcut",
+      "caption": "Jandal AI on your home screen",
+      "offline": true,
+      "steps": [
+        {
+          "do": "sleep",
+          "s": 2.5,
+          "start_here": true,
+          "note": "Hold on the demo home page"
+        },
+        {
+          "do": "launch",
+          "note": "Jandal opens (sync anchor); S01 handles the tabs, so S00 ends as the app appears",
+          "tabs": false
+        },
+        {
+          "do": "sleep",
+          "s": 0.3
+        }
+      ],
+      "setup": [
+        {
+          "do": "home_page",
+          "swipes_env": "DEMO_HOME_SWIPES",
+          "note": "Not recorded: the other home pages hold personal widgets"
+        }
+      ]
+    },
+    {
+      "id": "S01",
+      "feature": "Hey Jandal",
+      "caption": "Optional \"Hey Jandal\" wake word",
+      "offline": true,
+      "needs_source_device": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "sleep",
+          "s": 1.5
+        },
+        {
+          "do": "host",
+          "env": "DEMO_WAKE_CMD",
+          "note": "Plays \"Hey Jandal\" then \"What time is it?\" in Lokhor's cloned voice from the S21, the same path as #1329 J10 (not the private natural_wake fixture, which must not appear in a public video). Device audio is not recorded; the fixtures' start times go into the manifest and the same WAVs are mixed in, so this span plays at real speed",
+          "args": [
+            "--sequence",
+            "demo_s01_wake,demo_s01_time"
+          ]
+        },
+        {
+          "do": "wait",
+          "text": "It's",
+          "new": true,
+          "timeout": 20
+        },
+        {
+          "do": "wait_speech",
+          "until_done": false,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
+        },
+        {
+          "do": "sleep",
+          "s": 1.5
+        }
+      ]
+    },
+    {
+      "id": "S02",
+      "feature": "Lists, Kiwi phrasing",
+      "caption": "Lists that understand Kiwi",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "voice",
+          "fixture": "demo_s02_bananas",
+          "says": "Stick bananas on the grocery list",
+          "note": "Cloned-voice fixture played from the S21 at real speed; its start time goes into the manifest's audio list for the mix. 'Chuck' was dropped: offline, Android's on-device recogniser heard it as 'check' every time (online 4/4), and Vosk worse. 'Stick', 'pop' and 'toss' were each heard 2/2 offline"
+        },
+        {
+          "do": "wait",
+          "text": "shopping list",
+          "new": true,
+          "timeout": 15,
+          "note": "The result is a list card titled with the list name, not a sentence"
+        },
+        {
+          "do": "wait_speech",
+          "until_done": false,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
+        },
+        {
+          "do": "tap",
+          "text": "Tools",
+          "compress": true,
+          "compress_to": 0.4
+        },
+        {
+          "do": "tap",
+          "text": "Lists",
+          "compress": true,
+          "compress_to": 0.4
+        },
+        {
+          "do": "tap",
+          "text": "shopping list",
+          "compress": true,
+          "compress_to": 0.4
+        },
+        {
+          "do": "wait",
+          "text": "bananas",
+          "timeout": 10
+        }
+      ],
+      "needs_source_device": true
+    },
+    {
+      "id": "S03",
+      "feature": "Timer and alarm",
+      "caption": "Timers and alarms, instantly",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Set a timer for 10 minutes",
+          "compress": true,
+          "compress_to": 0.8
+        },
+        {
+          "do": "wait",
+          "text": "Timer set for",
+          "new": true,
+          "timeout": 15
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action",
+          "compress": true,
+          "compress_to": 0.3
+        },
+        {
+          "do": "type",
+          "text": "Set an alarm for 7am tomorrow",
+          "compress": true,
+          "compress_to": 0.8
+        },
+        {
+          "do": "wait",
+          "text": "Alarm set for",
+          "new": true,
+          "timeout": 15
+        }
+      ],
+      "teardown": [
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Cancel the timer"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Cancel my 7am alarm"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ],
+      "teardown_note": "Cancels the shot's timer and alarm after recording. 'Cancel my 7am alarm' cancels the next app alarm, which is the one S03 just set"
+    },
+    {
+      "id": "S04",
+      "feature": "Memory and recall",
+      "caption": "Remembers what matters — stored on your device",
+      "offline": true,
+      "model": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Chats"
+        },
+        {
+          "do": "tap",
+          "desc": "New conversation"
+        },
+        {
+          "do": "wait_gone",
+          "text": "Still loading the on-device model",
+          "appear_timeout": 4,
+          "timeout": 300,
+          "note": "After the app was backgrounded the model reloads; this is before the first input, so it is cut"
+        },
+        {
+          "do": "voice",
+          "fixture": "demo_s04_remember_coffee",
+          "says": "Remember that my favourite coffee is a flat white",
+          "mic_text": "PTT"
+        },
+        {
+          "do": "wait_gone",
+          "desc": "Cancel response",
+          "timeout": 240,
+          "compress": true
+        },
+        {
+          "do": "wait_speech",
+          "until_done": true,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
+        },
+        {
+          "do": "sleep",
+          "s": 1
+        },
+        {
+          "do": "tap",
+          "desc": "New conversation",
+          "compress": true,
+          "compress_to": 0.3
+        },
+        {
+          "do": "voice",
+          "fixture": "demo_s04_ask_coffee",
+          "says": "What's my favourite coffee?",
+          "mic_text": "PTT"
+        },
+        {
+          "do": "wait_gone",
+          "desc": "Cancel response",
+          "timeout": 240,
+          "compress": true
+        },
+        {
+          "do": "wait",
+          "text": "flat white",
+          "timeout": 5
+        },
+        {
+          "do": "wait_speech",
+          "until_done": true,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
+        },
+        {
+          "do": "voice",
+          "fixture": "demo_s04_ask_birthday",
+          "says": "When is my wife's birthday?",
+          "mic_text": "PTT",
+          "note": "Seeded important date (invented): 'Save my wife's birthday as 14 March'"
+        },
+        {
+          "do": "wait",
+          "text": "Until",
+          "new": true,
+          "timeout": 30,
+          "note": "get_date_diff card: '127 days — Until …'"
+        },
+        {
+          "do": "wait_speech",
+          "until_done": false,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
+        },
+        {
+          "do": "sleep",
+          "s": 1.5
+        }
+      ],
+      "needs_source_device": true
+    },
+    {
+      "id": "S05",
+      "feature": "Persona chat",
+      "caption": "Chat with your local AI. No cloud required.",
+      "offline": true,
+      "model": true,
+      "persona": "Full Jandal",
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Chats"
+        },
+        {
+          "do": "tap",
+          "desc": "New conversation"
+        },
+        {
+          "do": "wait_gone",
+          "text": "Still loading the on-device model",
+          "appear_timeout": 4,
+          "timeout": 300,
+          "note": "After the app was backgrounded the model reloads; this is before the first input, so it is cut"
+        },
+        {
+          "do": "type",
+          "text": "Give me three ideas for a rainy Sunday",
+          "compress": true,
+          "compress_to": 1.0
+        },
+        {
+          "do": "wait_gone",
+          "desc": "Cancel response",
+          "timeout": 300,
+          "compress": true
+        },
+        {
+          "do": "sleep",
+          "s": 2.5
+        }
+      ]
+    },
+    {
+      "id": "S05K",
+      "feature": "Persona chat (Kiwi variant)",
+      "caption": "Chat with your local AI. No cloud required.",
+      "offline": true,
+      "model": true,
+      "persona": "Full Jandal",
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Chats"
+        },
+        {
+          "do": "tap",
+          "desc": "New conversation"
+        },
+        {
+          "do": "wait_gone",
+          "text": "Still loading the on-device model",
+          "appear_timeout": 4,
+          "timeout": 300,
+          "note": "After the app was backgrounded the model reloads; this is before the first input, so it is cut"
+        },
+        {
+          "do": "type",
+          "text": "Should I have a sick day tomorrow?",
+          "compress": true,
+          "compress_to": 1.0,
+          "note": "Kiwi variant (decision 17): the reply should use NZ slang such as 'chuck a sickie', 'knackered', 'she'll be right'. Pick the most Kiwi of up to 3 takes"
+        },
+        {
+          "do": "wait_gone",
+          "desc": "Cancel response",
+          "timeout": 300,
+          "compress": true
+        },
+        {
+          "do": "sleep",
+          "s": 2.5
+        }
+      ],
+      "extra_hold_s": 5.0,
+      "extra_hold_note": "Hold the finished reply long enough to read its Kiwi phrasing"
+    },
+    {
+      "id": "S06",
+      "feature": "Weather (online)",
+      "caption": "Online when you ask. No account needed.",
+      "offline": false,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "voice",
+          "fixture": "demo_s06_weather",
+          "says": "What's the weather like in Wellington?",
+          "note": "Cloned-voice fixture played from the S21 at real speed; its start time goes into the manifest's audio list for the mix"
+        },
+        {
+          "do": "wait",
+          "text": "°",
+          "new": true,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 1.0
+        },
+        {
+          "do": "wait_speech",
+          "until_done": false,
+          "timeout": 20,
+          "compress": true,
+          "compress_to": 0.6,
+          "note": "The wait for synthesis is sped up; the speech itself plays at real speed (demo_edit keeps it out of the sped-up span)"
+        },
+        {
+          "do": "sleep",
+          "s": 2
+        }
+      ],
+      "needs_source_device": true
+    },
+    {
+      "id": "S07A",
+      "feature": "Nextcloud sync, add in Jandal on the S23U",
+      "caption": "Optional sync with your own Nextcloud",
+      "offline": false,
+      "redact_env": [
+        "DEMO_NC_SERVER",
+        "DEMO_NC_USER"
+      ],
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Add cheese to my shopping list",
+          "compress": true,
+          "compress_to": 1.0,
+          "note": "One item: multi-item adds split on commas only, so 'eggs and cheese' would be a single item"
+        },
+        {
+          "do": "wait",
+          "text": "shopping list",
+          "new": true,
+          "timeout": 15,
+          "note": "The result is a list card titled with the list name, not a sentence"
+        }
+      ],
+      "redact_env_optional": [
+        "DEMO_NC_DISPLAY_NAME"
+      ]
+    },
+    {
+      "id": "S07B",
+      "feature": "Nextcloud sync, the item on the user's own server (Nextcloud Tasks web page, S23U browser)",
+      "caption": "Optional sync with your own Nextcloud",
+      "offline": false,
+      "redact_env": [
+        "DEMO_NC_SERVER",
+        "DEMO_NC_USER"
+      ],
+      "redact_env_optional": [
+        "DEMO_NC_DISPLAY_NAME"
+      ],
+      "steps": [
+        {
+          "do": "launch",
+          "note": "Sync anchor; the cut starts at the browser opening"
+        },
+        {
+          "do": "open_url",
+          "env": "DEMO_NC_SERVER",
+          "path_env": "DEMO_NC_TASKS_PATH",
+          "path": "/apps/tasks/",
+          "start_here": true,
+          "note": "DEMO_NC_TASKS_PATH opens the shopping list directly, so the Tasks sidebar (other accounts' shared lists) is never shown"
+        },
+        {
+          "do": "wait",
+          "text": "cheese",
+          "timeout": 60,
+          "compress": true,
+          "compress_to": 1.5
+        },
+        {
+          "do": "sleep",
+          "s": 1.2,
+          "note": "Real-time hold so the shot does not end under the sped-up marker"
+        }
+      ],
+      "redact_required": true
+    },
+    {
+      "id": "M02",
+      "feature": "Flashlight",
+      "caption": "Torch on, torch off",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Turn on the flashlight"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Turn off the flashlight"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ]
+    },
+    {
+      "id": "M06",
+      "feature": "Notes",
+      "caption": "Notes, saved on your phone",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Write down that Sam needs library books tomorrow"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "sleep",
+          "s": 1.5
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Show my notes"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ]
+    },
+    {
+      "id": "M08",
+      "feature": "Conversions",
+      "caption": "Kitchen conversions",
+      "offline": true,
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Actions"
+        },
+        {
+          "do": "tap",
+          "desc": "Run quick action"
+        },
+        {
+          "do": "type",
+          "text": "Convert 1 cup of flour to grams"
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        },
+        {
+          "do": "sleep",
+          "s": 3
+        }
+      ]
+    }
+  ],
+  "notes": "Quick-action shots wait for a *new* confirmation (wait with new=true counts matching nodes against the screen before the request), because Actions history keeps earlier takes' confirmations. Model shots wait for 'Cancel response' to disappear and mark that span for compression. Every shot starts with launch/restart: that frame syncs the clip to the runner clock. Shots with offline=false run with airplane mode off; the runner switches it per shot over USB adb. device='second' shots record on --second-serial (none in the intro since S07B moved to the S23U browser). redact_env names env vars whose values (Nextcloud server and username) are located on screen and blurred by demo_edit.py.",
+  "intro_variants": {
+    "kiwi": [
+      "S00",
+      "S01",
+      "S02",
+      "S03",
+      "S04",
+      "S05K",
+      "S06",
+      "S07A",
+      "S07B"
+    ]
+  }
+}
