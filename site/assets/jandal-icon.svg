@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108">
+  <!-- Exported from app/src/main/res/drawable/ic_launcher_{background,foreground}.xml. Keep in sync. -->
+  <rect width="108" height="108" fill="#4F7942"/>
+  <path fill="#FFFFFF" d="M 53.5,16 C 65,16 73.5,26 76,39 C 77.5,47 75.5,54.5 72,61 C 68.5,67.5 66,73 66,80 C 66,89.5 60,98 54,100 C 48,98 42,89.5 42,80 C 42,73 39.5,67.5 36,61 C 32.5,54.5 30.5,47 32,39 C 34.5,26 42,16 53.5,16 Z"/>
+  <g fill="none" stroke="#4F7942" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 54,34 L 54,39"/>
+    <path d="M 54,39 C 48,48 41,55 39,64"/>
+    <path d="M 54,39 C 61,48 68,55 70,64"/>
+  </g>
+</svg>
