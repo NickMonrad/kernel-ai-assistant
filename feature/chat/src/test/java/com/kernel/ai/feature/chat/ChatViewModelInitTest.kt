@@ -1589,6 +1589,44 @@ class ChatViewModelInitTest {
         collector.cancel()
     }
 
+    @Test
+    fun `fresh conversation reset failure exposes retryable model error`() = runTest(dispatcher) {
+        val isReady = MutableStateFlow(true)
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { inferenceEngine.isReady } returns isReady
+        every { inferenceEngine.loadedModelPath } returns "/models/gemma-4-E4B-it.litertlm"
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/models/gemma-4-E4B-it.litertlm")),
+        )
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        advanceUntilIdle()
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+
+        isReady.value = false
+        coEvery { inferenceEngine.resetConversation() } throws IllegalStateException("GPU context lost")
+        viewModel.startNewConversation()
+        advanceUntilIdle()
+
+        val failure = observedStates.last { it is ChatUiState.ModelInitializationFailed }
+            as ChatUiState.ModelInitializationFailed
+        assertEquals("Failed to load AI model: GPU context lost", failure.message)
+        collector.cancel()
+    }
+
     private fun createViewModel(
         savedStateHandle: SavedStateHandle = SavedStateHandle(),
     ): ChatViewModel = ChatViewModel(

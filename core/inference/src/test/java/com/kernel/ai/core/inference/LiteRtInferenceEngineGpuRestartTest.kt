@@ -66,15 +66,33 @@ class LiteRtInferenceEngineGpuRestartTest {
     }
 
     @Test
-    fun `GPU at count 29 with default threshold 30 returns shouldRestart=true and count=0`() {
-        // Uses default threshold (GPU_ENGINE_RESTART_INTERVAL = 30)
+    fun `GPU at count 29 above default threshold triggers restart`() {
         val decision = checkGpuRestartNeeded(
             gpuResetCount = 29,
             backend = BackendType.GPU,
-            // no explicit threshold — uses default
         )
-        assertTrue(decision.shouldRestart, "GPU count 29 at default threshold should trigger restart")
-        assertEquals(0, decision.updatedCount, "GPU count 29 at default threshold should reset to 0")
+        assertTrue(decision.shouldRestart)
+        assertEquals(0, decision.updatedCount)
+    }
+
+    @Test
+    fun `GPU at count 3 below default threshold increments to 4`() {
+        val decision = checkGpuRestartNeeded(
+            gpuResetCount = 3,
+            backend = BackendType.GPU,
+        )
+        assertFalse(decision.shouldRestart)
+        assertEquals(4, decision.updatedCount)
+    }
+
+    @Test
+    fun `GPU at count 4 triggers the default threshold of 5`() {
+        val decision = checkGpuRestartNeeded(
+            gpuResetCount = 4,
+            backend = BackendType.GPU,
+        )
+        assertTrue(decision.shouldRestart)
+        assertEquals(0, decision.updatedCount)
     }
 
     @Test
@@ -153,13 +171,23 @@ class LiteRtInferenceEngineGpuRestartTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `GPU below default threshold 30 uses GPU_ENGINE_RESTART_INTERVAL`() {
+    fun `GPU below default threshold uses GPU_ENGINE_RESTART_INTERVAL`() {
         val decision = checkGpuRestartNeeded(
             gpuResetCount = 0,
             backend = BackendType.GPU,
-            // No explicit threshold — defaults to GPU_ENGINE_RESTART_INTERVAL = 30
         )
         assertFalse(decision.shouldRestart, "GPU count 0 at default threshold should not restart")
         assertEquals(1, decision.updatedCount, "GPU count 0 at default threshold should increment")
+    }
+
+    @Test
+    fun `disabled periodic restart leaves GPU reset count at zero`() {
+        val decision = checkGpuRestartNeeded(
+            gpuResetCount = 4,
+            backend = BackendType.GPU,
+            restartEnabled = false,
+        )
+        assertFalse(decision.shouldRestart)
+        assertEquals(0, decision.updatedCount)
     }
 }

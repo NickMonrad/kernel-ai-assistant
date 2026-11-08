@@ -982,19 +982,38 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun resetInferenceForFreshConversation() {
+    private suspend fun resetInferenceForFreshConversation(): Boolean {
         // A brand-new chat route must not inherit the singleton inference session's KV cache
         // or a stripped-down temporary prompt from the previous conversation.
         estimatedTokensUsed = 0
         turnsSinceReset = 0
         needsHistoryReplay = false
         pendingConfirmationIntent = null
-        if (inferenceEngine.isReady.value) {
-            inferenceEngine.updateSystemPrompt(buildSystemPrompt())
-        } else {
-            inferenceEngine.resetConversation()
+        return try {
+            if (inferenceEngine.isReady.value) {
+                inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+            } else {
+                inferenceEngine.resetConversation()
+            }
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            reportModelInitializationFailure("resetInferenceForFreshConversation", error)
+            false
         }
     }
+
+    private suspend fun resetInferenceConversation(operation: String): Boolean =
+        try {
+            inferenceEngine.resetConversation()
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            reportModelInitializationFailure(operation, error)
+            false
+        }
 
     private suspend fun initializeConversation() {
         try {
@@ -1987,7 +2006,9 @@ class ChatViewModel @Inject constructor(
                 estimatedTokensUsed = 0
                 turnsSinceReset = 0
                 if (inferenceEngine.isReady.value) {
-                    inferenceEngine.resetConversation()
+                    if (!resetInferenceConversation("resetConversationBeforeIndependentCommand")) {
+                        return@launch
+                    }
                     Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId conversation_reset=true")
                 }
             }
@@ -3736,12 +3757,16 @@ class ChatViewModel @Inject constructor(
                     // KV cache was corrupted (model emitted EOS immediately).
                     // Reset conversation so the retry gets a clean cache.
                     // Flag needsHistoryReplay so the next user turn re-injects full context.
-                    inferenceEngine.resetConversation()
+                    if (!resetInferenceConversation("resetConversationBeforeRetry")) return@launch
                     needsHistoryReplay = true
                 }
             } while (needsHallucinationRetry)
 
             } catch (e: Exception) {
+                if (!inferenceEngine.isReady.value && e !is CancellationException) {
+                    reportModelInitializationFailure("sendMessage", e)
+                }
+
                 Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
                 // LiteRT can fail while continuing after load_skill, before Complete schedules a
                 // separate incomplete-chain retry; an aborted tool result also terminates here.
@@ -3870,7 +3895,7 @@ class ChatViewModel @Inject constructor(
         estimatedTokensUsed = 0
         turnsSinceReset = 0
         viewModelScope.launch {
-            inferenceEngine.resetConversation()
+            resetInferenceConversation("cancelGeneration")
         }
     }
 
@@ -3932,7 +3957,7 @@ class ChatViewModel @Inject constructor(
             _conversationTitle.value = null
             titleGenerationStarted = false
             titleIsPlaceholder = false
-            resetInferenceForFreshConversation()
+            if (!resetInferenceForFreshConversation()) return@launch
         }
     }
 

@@ -28,6 +28,7 @@ import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.tool
 import com.google.ai.edge.litertlm.ToolProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.awaitClose
@@ -60,11 +61,8 @@ private val toolCallJsonSerializer = GsonBuilder().serializeNulls().create()
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 private const val GPU_INIT_TIMEOUT_MS = 60_000L
-/** #1293: After this many conversation resets on GPU backend, perform a full engine
- *  shutdown + initialize instead of just recreating the LiteRT session.
- *  S21 evidence shows MiniLM classifier convergence to play_netflix after ~7
- *  resets (pre-existing, GPU-independent). Threshold 5 fires the full restart
- *  before that point to keep routing reliable. */
+/** #1293: After this many conversation resets on GPU backend, perform a full engine restart. */
+internal const val GPU_ENGINE_RESTART_ENABLED = true
 private const val GPU_ENGINE_RESTART_INTERVAL = 5
 /** Mirrors LiteRT-LM 0.17.1's per-conversation tool-call limit. */
 private const val RECURRING_TOOL_CALL_LIMIT = 25
@@ -117,7 +115,7 @@ internal data class GpuRestartDecision(
  * is needed and compute the new counter value.
  *
  * - GPU backend: increments count; resets to 0 and returns shouldRestart=true at threshold.
- * - Non-GPU backend: resets count to 0, never triggers restart.
+ * - Non-GPU backend or disabled restart: resets count to 0, never triggers restart.
  *
  * Extracted for testability — see [LiteRtInferenceEngineGpuRestartTest].
  */
@@ -125,7 +123,9 @@ internal fun checkGpuRestartNeeded(
     gpuResetCount: Int,
     backend: BackendType,
     threshold: Int = GPU_ENGINE_RESTART_INTERVAL,
+    restartEnabled: Boolean = GPU_ENGINE_RESTART_ENABLED,
 ): GpuRestartDecision {
+    if (!restartEnabled) return GpuRestartDecision(shouldRestart = false, updatedCount = 0)
     return when (backend) {
         BackendType.GPU -> {
             val newCount = gpuResetCount + 1
@@ -1080,9 +1080,8 @@ class LiteRtInferenceEngine @Inject constructor(
      *  Exposed as internal for test observation. */
     internal var gpuResetCount = 0
 
-    /** Prevents concurrent [initialize] calls — a second call while GPU init is in progress
-     *  would queue a redundant 47s GPU load immediately after the first finishes. */
-    private val isInitializing = AtomicBoolean(false)
+    /** Serializes initialization; duplicate callers wait and reuse a successful initialization. */
+    private val initializationMutex = Mutex()
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -1118,66 +1117,70 @@ class LiteRtInferenceEngine @Inject constructor(
     }
 
     override suspend fun initialize(config: ModelConfig) {
-        if (!isInitializing.compareAndSet(false, true)) {
-            Log.d(TAG, "Initialize already in progress — skipping duplicate call")
-            return
-        }
-        try {
-            // Start foreground service on the calling thread (typically main) BEFORE entering
-            // the background dispatcher. Android 15+ requires startForegroundService() to be
-            // called within ~5 seconds of the app being brought to foreground, and only from
-            // the main thread.
-            InferenceLoadingService.start(context)
+        initializationMutex.withLock {
+            if (_isReady.value) return@withLock
+
             try {
-                withContext(LlmDispatcher) {
-                    // GPU hardware is suspended when the screen is off; delay init until screen is on.
-                    waitForScreenInteractive()
-                    _isReady.value = false
+                // Start foreground service on the calling thread (typically main) BEFORE entering
+                // the background dispatcher. Android 15+ requires startForegroundService() to be
+                // called within ~5 seconds of the app being brought to foreground, and only from
+                // the main thread.
+                InferenceLoadingService.start(context)
+                try {
+                    withContext(LlmDispatcher) {
+                        // GPU hardware is suspended when the screen is off; delay init until screen is on.
+                        waitForScreenInteractive()
+                        _isReady.value = false
 
-                    // Apply hardware-aware defaults when AUTO is specified.
-                    val profile = hardwareProfileDetector.profile
-                    val resolvedConfig = if (config.backendType == BackendType.AUTO) {
-                        config.copy(
-                            backendType = profile.recommendedBackend,
-                            maxTokens = safeTokenCount(config.maxTokens.coerceAtMost(profile.recommendedMaxTokens)),
+                        // Apply hardware-aware defaults when AUTO is specified.
+                        val profile = hardwareProfileDetector.profile
+                        val resolvedConfig = if (config.backendType == BackendType.AUTO) {
+                            config.copy(
+                                backendType = profile.recommendedBackend,
+                                maxTokens = safeTokenCount(config.maxTokens.coerceAtMost(profile.recommendedMaxTokens)),
+                            )
+                        } else {
+                            config.copy(maxTokens = safeTokenCount(config.maxTokens))
+                        }
+
+                        Log.i(TAG, "Initializing engine — model: ${resolvedConfig.modelPath}, " +
+                            "backend: ${resolvedConfig.backendType}, tier: ${profile.tier}, " +
+                            "maxTokens: ${resolvedConfig.maxTokens} (requested: ${config.maxTokens})")
+
+                        // Sanity-check quantization before spending 10-30s initializing.
+                        QuantizationVerifier.verify(
+                            modelFile = File(resolvedConfig.modelPath),
+                            expectedBytes = estimateExpectedBytes(resolvedConfig.modelPath),
                         )
-                    } else {
-                        config.copy(maxTokens = safeTokenCount(config.maxTokens))
+
+                        val (eng, backendType) = createEngineWithFallback(resolvedConfig)
+                        val createdConversation = try {
+                            eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
+                        } catch (e: Throwable) {
+                            safeClose(eng, "engine")
+                            throw e
+                        } finally {
+                            resetExperimentalFlags()
+                        }
+                        engine = eng
+                        conversation = createdConversation
+                        currentConfig = resolvedConfig
+                        _activeBackend.value = backendType
+                        _resolvedMaxTokens.value = resolvedConfig.maxTokens
+                        _isReady.value = true
+
+                        Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${resolvedConfig.maxTokens}")
                     }
-
-                    Log.i(TAG, "Initializing engine — model: ${resolvedConfig.modelPath}, " +
-                        "backend: ${resolvedConfig.backendType}, tier: ${profile.tier}, " +
-                        "maxTokens: ${resolvedConfig.maxTokens} (requested: ${config.maxTokens})")
-
-                    // Sanity-check quantization before spending 10-30s initializing.
-                    QuantizationVerifier.verify(
-                        modelFile = File(resolvedConfig.modelPath),
-                        expectedBytes = estimateExpectedBytes(resolvedConfig.modelPath),
-                    )
-
-                    val (eng, backendType) = createEngineWithFallback(resolvedConfig)
-                    val createdConversation = try {
-                        eng.createConversation(buildConversationConfig(backendType, resolvedConfig))
-                    } catch (e: Throwable) {
-                        safeClose(eng, "engine")
-                        throw e
-                    } finally {
-                        resetExperimentalFlags()
-                    }
-                    engine = eng
-                    conversation = createdConversation
-                    currentConfig = resolvedConfig
-                    _activeBackend.value = backendType
-                    _resolvedMaxTokens.value = resolvedConfig.maxTokens
-                    _isReady.value = true
-
-                    Log.i(TAG, "Engine ready — backend: $backendType, maxTokens: ${resolvedConfig.maxTokens}")
+                } finally {
+                    InferenceLoadingService.stop(context)
                 }
-            } finally {
-                InferenceLoadingService.stop(context)
+            } catch (error: CancellationException) {
+                if (engine == null || conversation == null) _isReady.value = false
+                throw error
+            } catch (error: Exception) {
+                _isReady.value = false
+                throw error
             }
-        } finally {
-            isInitializing.set(false)
         }
     }
 
@@ -1187,24 +1190,17 @@ class LiteRtInferenceEngine @Inject constructor(
             val config = currentConfig ?: return@withContext
             val backend = _activeBackend.value ?: BackendType.CPU
 
-            // #1293: On GPU backend (Adreno 740 on S21), LiteRT GPU state accumulates
-            // across conversation resets when the engine stays loaded. After
-            // GPU_ENGINE_RESTART_INTERVAL resets, do a full engine shutdown + reinitialize
-            // to clear GPU state and prevent output quality degradation.
-            // Non-GPU backends reset the counter on every call since they don't need this.
+            // #1293: The original long-session drift evidence was S21 (Exynos 2100 / Mali-G78).
+            // Keep the periodic GPU restart enabled by default pending device validation.
             val restartDecision = checkGpuRestartNeeded(gpuResetCount, backend)
             gpuResetCount = restartDecision.updatedCount
             if (restartDecision.shouldRestart) {
                 Log.i(TAG, "resetConversation: full engine restart after " +
-                    "$GPU_ENGINE_RESTART_INTERVAL GPU resets — clearing accumulated GPU state")
+                    "$GPU_ENGINE_RESTART_INTERVAL GPU resets")
                 generationMutex.withLock {
                     _isGenerating.value = false
                 }
-                // Capture config before shutdown (shutdown sets currentConfig = null).
-                // Use captured config for reinit to avoid unsafe !! access on currentConfig.
-                shutdown()
-                initialize(config)
-                Log.i(TAG, "resetConversation: full engine restart complete")
+                restartEngine(config, "resetConversation")
                 return@withContext
             }
 
@@ -1227,6 +1223,28 @@ class LiteRtInferenceEngine @Inject constructor(
             }
         }
     }
+
+    /**
+     * Finish a full restart even if the UI coroutine that requested it is cancelled. On failure,
+     * leave the engine unavailable and propagate a retryable initialization error to the caller.
+     */
+    private suspend fun restartEngine(config: ModelConfig, reason: String) {
+        withContext(NonCancellable) {
+            try {
+                shutdown()
+                initialize(config)
+                check(_isReady.value) { "Initialization completed without a ready engine" }
+                Log.i(TAG, "$reason: full engine restart complete")
+            } catch (error: CancellationException) {
+                _isReady.value = false
+                throw InferenceException("Engine restart failed; retry model initialization.", error)
+            } catch (error: Exception) {
+                _isReady.value = false
+                throw InferenceException("Engine restart failed; retry model initialization.", error)
+            }
+        }
+    }
+
 
     /**
      * Discard the partially processed conversation after a tool result was withheld.
@@ -1263,8 +1281,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 "resetConversationAfterToolAbort: full engine restart after " +
                     "$GPU_ENGINE_RESTART_INTERVAL GPU resets",
             )
-            shutdown()
-            initialize(config)
+            restartEngine(config, "resetConversationAfterToolAbort")
             return
         }
 
@@ -1752,6 +1769,7 @@ class LiteRtInferenceEngine @Inject constructor(
             } catch (e: Exception) {
                 _isReady.value = false
                 Log.e(TAG, "Failed to reset conversation after tool-result abort", e)
+                throw e
             } finally {
                 releaseGenerationLock(stream)
             }
