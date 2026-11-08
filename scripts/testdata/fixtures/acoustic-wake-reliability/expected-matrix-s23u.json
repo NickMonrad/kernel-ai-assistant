@@ -1,0 +1,4 @@
+[
+  {"idle_s": 120, "wake_only": 3, "wake_plus_command": 2},
+  {"idle_s": 1800, "wake_only": 2, "wake_plus_command": 1}
+]

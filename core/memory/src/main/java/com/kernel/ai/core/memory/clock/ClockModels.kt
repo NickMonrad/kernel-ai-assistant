@@ -1,0 +1,172 @@
+package com.kernel.ai.core.memory.clock
+
+import java.time.DayOfWeek
+
+enum class ClockEventType {
+    ALARM,
+    TIMER,
+    PRE_ALARM,
+}
+
+enum class StopwatchStatus { IDLE, RUNNING, PAUSED }
+
+sealed interface AlarmRepeatRule {
+    data class OneOff(val dateEpochDay: Long) : AlarmRepeatRule
+    data object Daily : AlarmRepeatRule
+    data class SelectedWeekdays(val daysMask: Int) : AlarmRepeatRule {
+        init {
+            require(daysMask != 0) { "SelectedWeekdays requires at least one day" }
+        }
+
+        fun includes(dayOfWeek: DayOfWeek): Boolean =
+            daysMask and (1 shl (dayOfWeek.value - 1)) != 0
+    }
+}
+
+data class AlarmDraft(
+    val label: String?,
+    val hour: Int,
+    val minute: Int,
+    val repeatRule: AlarmRepeatRule,
+    val timeZoneId: String,
+    val soundUri: String? = null,
+)
+
+data class ClockSoundConfig(
+    val defaultAlarmSoundUri: String? = null,
+    val timerSoundUri: String? = null,
+)
+
+data class ClockAlarm(
+    val id: String,
+    val label: String?,
+    val createdAtMillis: Long,
+    val enabled: Boolean,
+    val hour: Int,
+    val minute: Int,
+    val repeatRule: AlarmRepeatRule,
+    val timeZoneId: String,
+    val triggerAtMillis: Long,
+    val soundUri: String? = null,
+) {
+    val nextTriggerAtMillis: Long get() = triggerAtMillis
+}
+
+data class ClockTimer(
+    val id: String,
+    val triggerAtMillis: Long,
+    val label: String?,
+    val createdAtMillis: Long,
+    val durationMs: Long,
+    val startedAtMillis: Long,
+    val completedAtMillis: Long? = null,
+ )
+
+data class StopwatchLap(
+    val id: Long,
+    val lapNumber: Int,
+    val elapsedMs: Long,
+    val splitMs: Long,
+    val createdAtMillis: Long,
+)
+
+data class ClockStopwatch(
+    val id: String,
+    val status: StopwatchStatus,
+    val accumulatedElapsedMs: Long,
+    val runningSinceElapsedRealtimeMs: Long? = null,
+    val runningSinceWallClockMs: Long? = null,
+    val updatedAtMillis: Long,
+    val laps: List<StopwatchLap> = emptyList(),
+) {
+    fun elapsedMs(
+        nowElapsedRealtimeMs: Long,
+        nowWallClockMillis: Long,
+    ): Long = when (status) {
+        StopwatchStatus.IDLE -> 0L
+        StopwatchStatus.PAUSED -> accumulatedElapsedMs
+        StopwatchStatus.RUNNING -> accumulatedElapsedMs + runningSegmentElapsedMs(
+            nowElapsedRealtimeMs = nowElapsedRealtimeMs,
+            nowWallClockMillis = nowWallClockMillis,
+        )
+    }
+
+    private fun runningSegmentElapsedMs(
+        nowElapsedRealtimeMs: Long,
+        nowWallClockMillis: Long,
+    ): Long {
+        val elapsedRealtimeAnchor = runningSinceElapsedRealtimeMs
+        if (elapsedRealtimeAnchor != null && nowElapsedRealtimeMs >= elapsedRealtimeAnchor) {
+            return nowElapsedRealtimeMs - elapsedRealtimeAnchor
+        }
+        val wallClockAnchor = runningSinceWallClockMs ?: return 0L
+        return (nowWallClockMillis - wallClockAnchor).coerceAtLeast(0L)
+    }
+}
+
+data class WorldClock(
+    val id: String,
+    val zoneId: String,
+    val displayName: String,
+    val sortOrder: Int,
+    val createdAtMillis: Long,
+ )
+
+data class ClockScheduledEvent(
+    val eventId: String,
+    val ownerId: String,
+    val type: ClockEventType,
+    val triggerAtMillis: Long,
+    val label: String?,
+    val durationMs: Long? = null,
+    val startedAtMillis: Long? = null,
+    val occurrenceTriggerAtMillis: Long? = null,
+    val soundUri: String? = null,
+    val autoSnoozeCount: Int = 0,
+)
+
+data class ClockPlatformState(
+    val canScheduleExactAlarms: Boolean,
+    val notificationsEnabled: Boolean,
+    val canUseFullScreenIntent: Boolean,
+    /** True when boot-complete restore of scheduled events may be limited. */
+    val bootRestoreLimited: Boolean = false,
+ )
+
+/**
+ * Warnings that don't prevent scheduling but indicate degraded delivery.
+ * Carried inside [SchedulingResult.Success.warnings].
+ */
+enum class SchedulingWarning {
+    /** [NotificationManager.canUseFullScreenIntent] returned false — alert may use a standard notification. */
+    FULL_SCREEN_INTENT_UNAVAILABLE,
+    /** Device boot restore of scheduled events is limited or unavailable. */
+    BOOT_RESTORE_LIMITED,
+}
+
+/**
+ * Result of scheduling an alarm, timer, or reminder — distinguishes platform
+ * blockers from ordinary failures so callers can offer contextual repair.
+ */
+sealed class SchedulingResult<out T> {
+    /** The event was successfully scheduled. [warnings] contains any non-blocking platform limitations. */
+    data class Success<T>(val data: T, val warnings: List<SchedulingWarning> = emptyList()) : SchedulingResult<T>()
+
+    /** Android's [AlarmManager.canScheduleExactAlarms] returned false. */
+    data object ExactAlarmBlocked : SchedulingResult<Nothing>()
+
+    /** Notifications are disabled at the system or permission level. */
+    data object NotificationBlocked : SchedulingResult<Nothing>()
+
+    /** An internal scheduling error occurred (DB, parsing, etc.). */
+    data class SchedulingFailed(val message: String? = null) : SchedulingResult<Nothing>()
+}
+
+
+
+data class ClockRestoreReport(
+    val restoredCount: Int,
+    val expiredCount: Int,
+    val disabledCount: Int,
+    val blockedByExactAlarmCapability: Boolean,
+ )

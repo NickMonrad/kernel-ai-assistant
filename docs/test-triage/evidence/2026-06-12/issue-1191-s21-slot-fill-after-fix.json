@@ -1,0 +1,120 @@
+{
+  "suite": "skills",
+  "status": "complete",
+  "timestamp": "2026-06-12T23-30-00Z",
+  "device": "SM-G991B (S21, Exynos 2100, Mali G78 GPU)",
+  "build": "debug (commit with #1191 fix — adbSlotReplyInput clear + ADB_SLOT_STATE markers)",
+  "scenario": "slot_fill — 6 cases in sequence",
+  "fix_verification": {
+    "root_cause": "adbSlotReplyInput in MainActivity never cleared after consumption. When send_quick_action fires without slot_reply_input, stale value persists. If composable re-enters between ADB commands, LaunchedEffect(adbSlotReply) re-fires with previous case's reply, overwriting newly primed pending slot.",
+    "fix": "Clear adbSlotReplyInput = null at start of onNewIntent() before reading new intent extras. Each independent command starts with clean slot reply state.",
+    "status": "VERIFIED — stale carryover eliminated"
+  },
+  "results": [
+    {
+      "index": 1,
+      "case_id": "set_an_alarm",
+      "message": "set an alarm",
+      "slot_reply": "7am",
+      "actual_intent": "set_alarm",
+      "actual_params": {"time": "7am"},
+      "intent_correct": true,
+      "params_test_expectation": {"hours": "7", "minutes": "0"},
+      "params_test_failure": "Test expects hours/minutes from NativeIntentHandler log marker, but handler only outputs time=7am. Not a product bug — test expectation issue.",
+      "stale_carryover": false,
+      "adb_slot_state": "action=create → reply(time=\"7am\") → complete(final=[time])"
+    },
+    {
+      "index": 2,
+      "case_id": "set_a_timer",
+      "message": "set a timer",
+      "slot_reply": "5 minutes",
+      "actual_intent": "set_timer",
+      "actual_params": {"duration_seconds": "5 minutes"},
+      "intent_correct": true,
+      "params_test_expectation": {"duration_seconds": "300"},
+      "params_test_failure": "Slot-fill returns raw reply text '5 minutes', not parsed 300 seconds. Handler expects integer. Separate design issue from stale carryover.",
+      "stale_carryover": false,
+      "before_fix": "BEFORE FIX: duration_seconds='7am' (stale from case 1's reply)",
+      "after_fix": "AFTER FIX: duration_seconds='5 minutes' (correct slot reply)",
+      "adb_slot_state": "action=create → reply(duration_seconds=\"5 minutes\") → complete(final=[duration_seconds])"
+    },
+    {
+      "index": 3,
+      "case_id": "open_an_app",
+      "message": "open an app",
+      "slot_reply": "Spotify",
+      "actual_intent": "open_app",
+      "actual_params": {"app_name": "Spotify"},
+      "intent_correct": true,
+      "params_correct": true,
+      "test_passed": true,
+      "stale_carryover": false,
+      "before_fix": "BEFORE FIX: app_name='5 minutes' (stale from case 2's reply)",
+      "after_fix": "AFTER FIX: app_name='Spotify' (correct slot reply)",
+      "adb_slot_state": "action=create → reply(app_name=\"Spotify\") → complete(final=[app_name])"
+    },
+    {
+      "index": 4,
+      "case_id": "send_a_message",
+      "message": "send a message",
+      "slot_reply": "Mum",
+      "actual_intent": "send_sms",
+      "actual_params": {"contact": "Mum"},
+      "slot_chain": [
+        {"slot": "contact", "reply": "Mum", "result": "create intent=send_sms missingSlot=message existingSlots=[contact]"}
+      ],
+      "stale_carryover": false,
+      "note": "First slot filled correctly (contact=Mum). Needs second slot (message) but test sends only one reply. Intent is correct.",
+      "before_fix": "BEFORE FIX: contact='Spotify', message='Mum' (stale from case 3's reply)",
+      "after_fix": "AFTER FIX: contact='Mum' (correct), then pending message slot"
+    },
+    {
+      "index": 5,
+      "case_id": "send_an_email",
+      "message": "send an email",
+      "slot_reply": "Nick",
+      "actual_intent": "send_email",
+      "slot_chain": [
+        {"slot": "contact", "reply": "Nick", "result": "create intent=send_email missingSlot=subject existingSlots=[contact]"}
+      ],
+      "stale_carryover": false,
+      "note": "First slot filled correctly (contact=Nick). Needs second slot (subject) but test sends only one reply."
+    },
+    {
+      "index": 6,
+      "case_id": "add_to_my_list",
+      "message": "add to my list",
+      "slot_reply": "eggs",
+      "actual_intent": "add_to_list",
+      "slot_chain": [
+        {"slot": "item", "reply": "eggs", "result": "create intent=add_to_list missingSlot=list_name existingSlots=[item]"}
+      ],
+      "stale_carryover": false,
+      "note": "First slot filled correctly (item=eggs). Needs second slot (list_name) but test sends only one reply."
+    }
+  ],
+  "stale_carryover_summary": {
+    "before_fix": [
+      "Case 2: duration_seconds='7am' (stale from case 1's reply '7am')",
+      "Case 3: app_name='5 minutes' (stale from case 2's reply '5 minutes')",
+      "Case 4: contact='Spotify' (stale from case 3's reply 'Spotify')",
+      "Case 6: item='Nick' (stale from case 5's contact 'Nick')"
+    ],
+    "after_fix": [
+      "Case 2: duration_seconds='5 minutes' (correct slot reply ✅)",
+      "Case 3: app_name='Spotify' (correct slot reply ✅) — TEST PASSES for first time",
+      "Case 4: contact='Mum' (correct slot reply ✅)",
+      "Case 6: item='eggs' (correct slot reply ✅)"
+    ],
+    "verdict": "STALE SLOT REPLY CARRYOVER IS FIXED",
+    "remaining_pattern": "Multi-slot intents (send_sms, send_email, add_to_list) require more than one slot reply but the test harness sends only one. This is a test/fixture limitation, not a state leak."
+  },
+  "diagnostic_markers": {
+    "adb_slot_state": true,
+    "create_events": 6,
+    "reply_events": 6,
+    "complete_events": 3,
+    "cancel_events": 0
+  }
+}

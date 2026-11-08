@@ -1,0 +1,2123 @@
+{
+  "suite": "skills",
+  "status": "complete",
+  "timestamp": "2026-06-11T22-11-20Z",
+  "elapsed_seconds": 2560.4,
+  "summary": {
+    "total": 76,
+    "passed": 25,
+    "xfail": 5,
+    "xpass": 0,
+    "failed": 46
+  },
+  "results": [
+    {
+      "index": 1,
+      "case_id": "set_an_alarm_for_11pm",
+      "message": "set an alarm for 11pm",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "bread and butter",
+        "list_name": "shopping"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 2,
+      "case_id": "wake_me_up_at_1130",
+      "message": "wake me up at 11:30",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "bread and butter",
+        "list_name": "shopping"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 3,
+      "case_id": "set_an_alarm_for_tomorrow_at_9am",
+      "message": "set an alarm for tomorrow at 9am",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "bread and butter",
+        "list_name": "shopping"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 4,
+      "case_id": "alarm_1130pm",
+      "message": "alarm 11:30pm",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "bread and butter",
+        "list_name": "shopping"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 5,
+      "case_id": "can_you_wake_me_at_1130",
+      "message": "can you wake me at 11:30",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "bread and butter",
+        "list_name": "shopping"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 6,
+      "case_id": "i_need_an_alarm_for_11_tonight",
+      "message": "I need an alarm for 11 tonight",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "bread and butter",
+        "list_name": "shopping"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 7,
+      "case_id": "remind_me_to_call_the_dentist_monday",
+      "message": "remind me to call the dentist Monday",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "add_reminder",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "bread and butter",
+        "list_name": "shopping"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 8,
+      "case_id": "remind_me_at_9am_monday_to_call_the_dentist",
+      "message": "remind me at 9am Monday to call the dentist",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "add_reminder",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 9,
+      "case_id": "remind_me_to_pick_up_dry_cleaning_tomorrow_evening",
+      "message": "remind me to pick up dry cleaning tomorrow evening",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "add_reminder",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 10,
+      "case_id": "cancel_my_11pm_alarm",
+      "message": "cancel my 11pm alarm",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_alarm",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 11,
+      "case_id": "turn_off_all_my_alarms",
+      "message": "turn off all my alarms",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_alarm",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 12,
+      "case_id": "delete_my_alarm",
+      "message": "delete my alarm",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_alarm",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 13,
+      "case_id": "get_rid_of_all_alarms",
+      "message": "get rid of all alarms",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_alarm",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 14,
+      "case_id": "set_a_timer_for_2_hours",
+      "message": "set a timer for 2 hours",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_timer",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 15,
+      "case_id": "start_a_2_hour_timer",
+      "message": "start a 2 hour timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "set_timer",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 16,
+      "case_id": "timer_2_hours",
+      "message": "timer 2 hours",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "set_timer",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 17,
+      "case_id": "start_a_3_hour_timer",
+      "message": "start a 3 hour timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "set_timer",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 18,
+      "case_id": "countdown_2_hours",
+      "message": "countdown 2 hours",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "set_timer",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 19,
+      "case_id": "cancel_the_timer",
+      "message": "cancel the timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_timer",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 20,
+      "case_id": "stop_the_timer",
+      "message": "stop the timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_timer",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 21,
+      "case_id": "turn_off_the_timer",
+      "message": "turn off the timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_timer",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 22,
+      "case_id": "dismiss_the_timer",
+      "message": "dismiss the timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_timer",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 23,
+      "case_id": "what_timers_do_i_have",
+      "message": "what timers do I have",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "list_timers",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 24,
+      "case_id": "show_my_timers",
+      "message": "show my timers",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "list_timers",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 25,
+      "case_id": "how_many_timers_are_running",
+      "message": "how many timers are running",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "list_timers",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 26,
+      "case_id": "list_timers",
+      "message": "list timers",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "list_timers",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 27,
+      "case_id": "cancel_the_pasta_timer",
+      "message": "cancel the pasta timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_timer_named",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "parameters": "{\"time\": \"9:0\""
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 28,
+      "case_id": "cancel_the_10_minute_timer",
+      "message": "cancel the 10 minute timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_timer_named",
+      "actual_intent": "cancel_alarm",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 29,
+      "case_id": "stop_the_egg_timer",
+      "message": "stop the egg timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_timer_named",
+      "actual_intent": "cancel_alarm",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 30,
+      "case_id": "dismiss_the_laundry_timer",
+      "message": "dismiss the laundry timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "cancel_timer_named",
+      "actual_intent": "cancel_alarm",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 31,
+      "case_id": "how_long_left_on_my_timer",
+      "message": "how long left on my timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_timer_remaining",
+      "actual_intent": "cancel_alarm",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 32,
+      "case_id": "how_much_time_is_left_on_the_pasta_timer",
+      "message": "how much time is left on the pasta timer",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_timer_remaining",
+      "actual_intent": "cancel_alarm",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 33,
+      "case_id": "how_long_until_the_timer_goes_off",
+      "message": "how long until the timer goes off",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_timer_remaining",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "10800"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 34,
+      "case_id": "whats_the_weather_in_auckland",
+      "message": "what's the weather in Auckland",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "10800"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "fail",
+      "failure_bucket": "location_or_permission_missing"
+    },
+    {
+      "index": 35,
+      "case_id": "will_it_rain_today",
+      "message": "will it rain today",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "10800"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "fail",
+      "failure_bucket": "location_or_permission_missing"
+    },
+    {
+      "index": 36,
+      "case_id": "how_hot_is_it_outside",
+      "message": "how hot is it outside",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "10800"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "fail",
+      "failure_bucket": "location_or_permission_missing"
+    },
+    {
+      "index": 37,
+      "case_id": "do_i_need_an_umbrella_today",
+      "message": "do I need an umbrella today",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "10800"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "fail",
+      "failure_bucket": "location_or_permission_missing"
+    },
+    {
+      "index": 38,
+      "case_id": "whats_it_like_outside",
+      "message": "what's it like outside",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "10800"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "fail",
+      "failure_bucket": "location_or_permission_missing"
+    },
+    {
+      "index": 39,
+      "case_id": "is_it_gonna_rain_tomorrow",
+      "message": "is it gonna rain tomorrow",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "10800"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "fail",
+      "failure_bucket": "location_or_permission_missing"
+    },
+    {
+      "index": 40,
+      "case_id": "temperature_in_wellington",
+      "message": "temperature in Wellington",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "cancel_timer",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "fail",
+      "failure_bucket": "location_or_permission_missing"
+    },
+    {
+      "index": 41,
+      "case_id": "add_milk_to_my_shopping_list",
+      "message": "add milk to my shopping list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "add_to_list",
+      "actual_intent": "cancel_timer",
+      "expect_params": {
+        "item": "milk",
+        "list_name": "shopping"
+      },
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param item",
+        "Missing param list_name"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 42,
+      "case_id": "put_eggs_on_the_grocery_list",
+      "message": "put eggs on the grocery list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "add_to_list",
+      "actual_intent": "cancel_timer",
+      "expect_params": {
+        "item": "eggs",
+        "list_name": "grocery"
+      },
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param item",
+        "Missing param list_name"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 43,
+      "case_id": "add_bread_and_butter_v1",
+      "message": "add bread and butter to my shopping list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "bulk_add_to_list",
+      "actual_intent": "cancel_timer",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": true,
+      "xfail_reason": "unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)",
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "xfail",
+      "failure_bucket": "unsupported_feature"
+    },
+    {
+      "index": 44,
+      "case_id": "chuck_milk_on_the_list",
+      "message": "chuck milk on the list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "add_to_list",
+      "actual_intent": "cancel_timer",
+      "expect_params": {
+        "item": "milk"
+      },
+      "actual_params": {},
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param item"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 45,
+      "case_id": "chuck_eggs_on_the_grocery_list",
+      "message": "chuck eggs on the grocery list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "add_to_list",
+      "actual_intent": "cancel_timer_named",
+      "expect_params": {
+        "item": "eggs",
+        "list_name": "grocery"
+      },
+      "actual_params": {
+        "name": "pasta"
+      },
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param item",
+        "Missing param list_name"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 46,
+      "case_id": "pop_coffee_on_my_list",
+      "message": "pop coffee on my list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "add_to_list",
+      "actual_intent": "cancel_timer_named",
+      "expect_params": null,
+      "actual_params": {
+        "name": "pasta"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 47,
+      "case_id": "put_sunscreen_on_the_holiday_list",
+      "message": "put sunscreen on the holiday list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "add_to_list",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "sunscreen",
+        "list_name": "holiday"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 48,
+      "case_id": "show_my_todo_list",
+      "message": "show my todo list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_list_items",
+      "actual_intent": "get_list_items",
+      "expect_params": {
+        "list_name": "todo"
+      },
+      "actual_params": {
+        "list_name": "todo"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 49,
+      "case_id": "whats_on_my_shopping_list",
+      "message": "what's on my shopping list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_list_items",
+      "actual_intent": "get_list_items",
+      "expect_params": {
+        "list_name": "shopping"
+      },
+      "actual_params": {
+        "list_name": "shopping"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 50,
+      "case_id": "what_do_i_need_to_get_from_the_shops",
+      "message": "what do I need to get from the shops",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_list_items",
+      "actual_intent": "get_list_items",
+      "expect_params": null,
+      "actual_params": {
+        "list_name": "shopping"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 51,
+      "case_id": "whats_on_my_grocery_list",
+      "message": "what's on my grocery list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_list_items",
+      "actual_intent": "get_list_items",
+      "expect_params": null,
+      "actual_params": {
+        "list_name": "grocery"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 52,
+      "case_id": "show_me_the_shopping_list",
+      "message": "show me the shopping list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_list_items",
+      "actual_intent": "get_list_items",
+      "expect_params": null,
+      "actual_params": {
+        "list_name": "grocery"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 53,
+      "case_id": "read_out_my_holiday_list",
+      "message": "read out my holiday list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_list_items",
+      "actual_intent": "get_list_items",
+      "expect_params": null,
+      "actual_params": {
+        "list_name": "holiday"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 54,
+      "case_id": "read_me_my_grocery_list",
+      "message": "read me my grocery list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "get_list_items",
+      "actual_intent": "get_list_items",
+      "expect_params": null,
+      "actual_params": {
+        "list_name": "me my grocery"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 55,
+      "case_id": "remove_milk_from_my_shopping_list",
+      "message": "remove milk from my shopping list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "remove_from_list",
+      "actual_intent": "remove_from_list",
+      "expect_params": {
+        "item": "milk",
+        "list_name": "shopping"
+      },
+      "actual_params": {
+        "item": "milk",
+        "list_name": "shopping"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 56,
+      "case_id": "delete_eggs_from_the_grocery_list",
+      "message": "delete eggs from the grocery list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "remove_from_list",
+      "actual_intent": "remove_from_list",
+      "expect_params": {
+        "item": "eggs",
+        "list_name": "grocery"
+      },
+      "actual_params": {
+        "item": "eggs",
+        "list_name": "grocery"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 57,
+      "case_id": "take_milk_off_the_shopping_list",
+      "message": "take milk off the shopping list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "remove_from_list",
+      "actual_intent": "remove_from_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "eggs",
+        "list_name": "grocery"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 58,
+      "case_id": "cross_milk_off_the_shopping_list",
+      "message": "cross milk off the shopping list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "remove_from_list",
+      "actual_intent": "remove_from_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "eggs",
+        "list_name": "grocery"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 59,
+      "case_id": "ive_got_bread_take_it_off_the_list",
+      "message": "I've got bread, take it off the list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "remove_from_list",
+      "actual_intent": "remove_from_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "it",
+        "list_name": "the"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 60,
+      "case_id": "strike_eggs_off_my_grocery_list",
+      "message": "strike eggs off my grocery list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "remove_from_list",
+      "actual_intent": "remove_from_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "it",
+        "list_name": "the"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 61,
+      "case_id": "create_a_list_called_groceries",
+      "message": "create a list called groceries",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "create_list",
+      "actual_intent": "create_list",
+      "expect_params": {
+        "list_name": "groceries"
+      },
+      "actual_params": {
+        "list_name": "groceries"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 62,
+      "case_id": "make_a_new_list_called_holiday_packing",
+      "message": "make a new list called holiday packing",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "create_list",
+      "actual_intent": "create_list",
+      "expect_params": {
+        "list_name": "holiday packing"
+      },
+      "actual_params": {
+        "list_name": "holiday packing"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 63,
+      "case_id": "add_eggs_milk_and_bread_to_my_shopping_list",
+      "message": "add eggs, milk, and bread to my shopping list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "bulk_add_to_list",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "eggs",
+        "list_name": "shopping"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": true,
+      "xfail_reason": "unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)",
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "xfail",
+      "failure_bucket": "unsupported_feature"
+    },
+    {
+      "index": 64,
+      "case_id": "make_me_a_list_for_camping",
+      "message": "make me a list for camping",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "create_list",
+      "actual_intent": "create_list",
+      "expect_params": null,
+      "actual_params": {
+        "list_name": "me a"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 65,
+      "case_id": "create_a_new_list_called_work_tasks",
+      "message": "create a new list called work tasks",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "create_list",
+      "actual_intent": "create_list",
+      "expect_params": null,
+      "actual_params": {
+        "list_name": "work tasks"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 66,
+      "case_id": "add_eggs_milk_and_bread_to_the_shopping_list",
+      "message": "add eggs, milk, and bread to the shopping list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "bulk_add_to_list",
+      "actual_intent": "create_list",
+      "expect_params": null,
+      "actual_params": {
+        "list_name": "work tasks"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": true,
+      "xfail_reason": "unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)",
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "xfail",
+      "failure_bucket": "unsupported_feature"
+    },
+    {
+      "index": 67,
+      "case_id": "put_tortilla_chips_beef_mince_and_kidney_beans_on",
+      "message": "put tortilla chips, beef mince, and kidney beans on my grocery list",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "bulk_add_to_list",
+      "actual_intent": "add_to_list",
+      "expect_params": null,
+      "actual_params": {
+        "item": "tortilla chips",
+        "list_name": "grocery"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": true,
+      "xfail_reason": "unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)",
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "xfail",
+      "failure_bucket": "unsupported_feature"
+    },
+    {
+      "index": 68,
+      "case_id": "add_these_items_to_my_list_apples_bananas_oranges",
+      "message": "add these items to my list: apples, bananas, oranges",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "bulk_add_to_list",
+      "actual_intent": "create_list",
+      "expect_params": null,
+      "actual_params": {
+        "list_name": "these items to my"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": true,
+      "xfail_reason": "unsupported_feature: multi-item add_to_list not yet implemented (QIR extractor gap)",
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "lists",
+      "status": "xfail",
+      "failure_bucket": "unsupported_feature"
+    },
+    {
+      "index": 69,
+      "case_id": "turn_on_the_living_room_lights",
+      "message": "turn on the living room lights",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "smart_home_on",
+      "actual_intent": "smart_home_on",
+      "expect_params": null,
+      "actual_params": {
+        "device": "living room lights"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "smart_home",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 70,
+      "case_id": "lights_on",
+      "message": "lights on",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "smart_home_on",
+      "actual_intent": "smart_home_on",
+      "expect_params": null,
+      "actual_params": {
+        "device": "lights"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "smart_home",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 71,
+      "case_id": "turn_on_the_heater",
+      "message": "turn on the heater",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "smart_home_on",
+      "actual_intent": "smart_home_on",
+      "expect_params": null,
+      "actual_params": {
+        "device": "heater"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "smart_home",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 72,
+      "case_id": "switch_off_the_bedroom_lamp",
+      "message": "switch off the bedroom lamp",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "smart_home_off",
+      "actual_intent": "smart_home_off",
+      "expect_params": null,
+      "actual_params": {
+        "device": "bedroom lamp"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "smart_home",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 73,
+      "case_id": "kill_the_lights",
+      "message": "kill the lights",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "smart_home_off",
+      "actual_intent": "smart_home_off",
+      "expect_params": null,
+      "actual_params": {
+        "device": "lights"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "smart_home",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 74,
+      "case_id": "remember_that_i_usually_meet_sarah_on_tuesdays",
+      "message": "remember that I usually meet Sarah on Tuesdays",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "save_memory",
+      "actual_intent": "save_memory",
+      "expect_params": null,
+      "actual_params": {
+        "content": "I usually meet Sarah on Tuesdays"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "memory",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 75,
+      "case_id": "remember_that_i_prefer_dark_mode",
+      "message": "remember that I prefer dark mode",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "save_memory",
+      "actual_intent": "save_memory",
+      "expect_params": null,
+      "actual_params": {
+        "content": "I prefer dark mode"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "memory",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 76,
+      "case_id": "remember_that_i_parked_on_level_3",
+      "message": "remember that I parked on level 3",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core"
+      ],
+      "fixture": null,
+      "expect_intent": "save_memory",
+      "actual_intent": "save_important_date",
+      "expect_params": null,
+      "actual_params": {
+        "label": "I parked",
+        "date": "level 3"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "memory",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    }
+  ]
+}

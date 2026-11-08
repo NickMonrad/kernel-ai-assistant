@@ -1,0 +1,18 @@
+# sanitised structural fixture derived from S23 Ultra Android 15 output
+# dumpsys batteryproperties
+BatteryProperties:
+  ac_charge_current: 1200000
+  available_charge_current: 600000
+  battery_status: 5
+  capacity: 80
+  charge_counter: 4850000
+  current_now: -300
+  health: 2
+  max_charging_current: 0
+  max_charging_voltage: 0
+  present: true
+  remaining_capacity: 3884000
+  status: 3
+  technology: Li-ion
+  temperature: 240
+  voltage: 3850

@@ -1,0 +1,81 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.settings/
+.project
+.classpath
+
+# Android
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# NDK / CMake build cache
+.cxx/
+
+# Kotlin
+*.class
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Models (downloaded at runtime, too large for git)
+# Exception: wake word ONNX models are small (2.6MB total) and must ship with the APK
+models/
+!app/src/main/assets/models/
+!app/src/main/assets/models/wakeword/
+!app/src/main/assets/models/wakeword/*.onnx
+
+# Secrets
+*.jks
+keystore.properties
+*.keystore
+!keystore/debug.keystore
+google-services.json
+.kotlin/
+# docs/testing/ intentionally excluded — local test notes only
+# docs/testing/
+local.properties
+debug/*.hprof
+
+# ── Sherpa-ONNX spike — local-only, NOT committed ────────────────────────────
+# Download via: scripts/setup-sherpa-tts-spike.sh
+# AAR binary
+third_party/sherpa-onnx/
+
+# Legacy local Sherpa voice assets (kept ignored if they still exist from old setup flows).
+core/voice/src/main/assets/sherpa-tts/
+
+# Agent plans (local-only)
+.omp/plans/
+# ── Python cache and test reports ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+scripts/test-reports/
+tools/arctic_phase_a/.cache/
+tools/arctic_phase_a/out/
+# Runner run from scripts/ dir may create nested reports path
+scripts/scripts/test-reports/
+/.cache/arctic/
+/out/arctic_m_v1_5_dynamic_int8.tflite
+tools/arctic_phase_a/.venv/
+_site/
+testdata/
+
+# Paired battery telemetry harness: all physical-device artifacts are private.
+scripts/private-battery-runs/
+!scripts/testdata/
+!scripts/testdata/fixtures/
+!scripts/testdata/fixtures/*
+scripts/private-acoustic-fixtures/
+scripts/private-acoustic-runs/

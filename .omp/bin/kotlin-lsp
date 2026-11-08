@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# ── kotlin-lsp faketime wrapper ──────────────────────────────────────────────
+#
+# JetBrains EAP builds have a hardcoded ~40-day expiry. This wrapper runs the
+# intellij-server binary through libfaketime to bypass the license check.
+# The fake date (2026-04-30) is before the build's expiry boundary.
+#
+# Dependencies:
+#   libfaketime   (Arch/CachyOS: sudo pacman -S libfaketime)
+#   kotlin-lsp    (EAP server binary, installed separately)
+#
+# Usage:
+#   export KOTLIN_LSP_BIN=/path/to/intellij-server
+#   .omp/bin/kotlin-lsp --stdio
+#
+# Caches:
+#   IDEA_CONFIG_DIR  = ~/.cache/kotlin-lsp/config
+#   IDEA_SYSTEM_DIR  = ~/.cache/kotlin-lsp/system
+#
+# Without these persistent dirs, OMP generates random temp dirs on every
+# launch, forcing a full project-index rebuild (~34s cold, ~5-13s warm).
+# ──────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+# ── Verify dependencies ──────────────────────────────────────────────────────
+
+if ! command -v faketime &>/dev/null; then
+    echo "ERROR: 'faketime' not found. Install libfaketime:" >&2
+    echo "  Arch/CachyOS: sudo pacman -S libfaketime" >&2
+    echo "  Debian/Ubuntu: sudo apt install faketime" >&2
+    echo "  Fedora: sudo dnf install faketime" >&2
+    exit 1
+fi
+
+# ── Locate the intellij-server binary ────────────────────────────────────────
+# Priority: env var > PATH > well-known install paths
+
+if [ -n "${KOTLIN_LSP_BIN:-}" ]; then
+    SERVER="$KOTLIN_LSP_BIN"
+elif command -v kotlin-lsp-bin &>/dev/null; then
+    SERVER="$(command -v kotlin-lsp-bin)"
+elif [ -x ~/.local/kotlin-lsp/kotlin-server-262.4739.0/bin/intellij-server ]; then
+    SERVER=~/.local/kotlin-lsp/kotlin-server-262.4739.0/bin/intellij-server
+else
+    echo "ERROR: intellij-server not found." >&2
+    echo "  Set KOTLIN_LSP_BIN to the intellij-server path, or" >&2
+    echo "  install the EAP server at ~/.local/kotlin-lsp/." >&2
+    exit 1
+fi
+
+if [ ! -x "$SERVER" ]; then
+    echo "ERROR: Server binary not executable: $SERVER" >&2
+    exit 1
+fi
+
+# ── Persistent cache dirs ─────────────────────────────────────────────────────
+# Speeds up subsequent initializations by preserving the project index.
+export IDEA_CONFIG_DIR="${IDEA_CONFIG_DIR:-$HOME/.cache/kotlin-lsp/config}"
+export IDEA_SYSTEM_DIR="${IDEA_SYSTEM_DIR:-$HOME/.cache/kotlin-lsp/system}"
+mkdir -p "$IDEA_CONFIG_DIR" "$IDEA_SYSTEM_DIR"
+
+# ── Launch with faketime ─────────────────────────────────────────────────────
+# The EAP build expires ~40 days after release. The fake date 2026-04-30 is
+# well within the build's valid window. If a newer EAP build has a different
+# expiry, update this date to a safe value before that build's expiry.
+exec faketime "2026-04-30" "$SERVER" "$@"

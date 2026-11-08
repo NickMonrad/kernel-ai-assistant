@@ -1,0 +1,30 @@
+# sanitised structural fixture structurally derived from S23 Ultra Android 15 output
+# dumpsys batterystats --charged (human-readable)
+
+  UID u0a124: 0.0980
+      cpu=0.0980
+
+  UID 1000: 0.276
+      cpu=0.273
+
+  UID 1001: 0.239
+      cpu=0.239
+
+  Estimated battery capacity: 4000 mAh
+
+  u0a124:
+    Fg Service for: 59m 59s 998ms
+    Total running: 59m 59s 998ms
+    Total cpu time: u=60ms s=3ms
+    Proc com.kernel.ai.debug:
+      CPU: 60ms usr + 3ms krn ; 0ms fg
+
+  1000:
+    Wake lock: *alarm* +2s100ms (partial) count 7
+    cpu: 72ms
+
+  1001:
+    cpu: 12ms
+    power: 0.01 mAh
+
+Device idle: IDLE (null)

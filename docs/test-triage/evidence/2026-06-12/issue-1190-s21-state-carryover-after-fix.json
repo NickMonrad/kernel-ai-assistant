@@ -1,0 +1,120 @@
+{
+  "evidence_type": "state_carryover_validation",
+  "issue": "#1190",
+  "baseline_pr": "#1188",
+  "device": {
+    "serial": "R5CR605B71K",
+    "model": "SM-G991B (Samsung Galaxy S21, Exynos)",
+    "android": "15 (API 35)"
+  },
+  "fix_commit": "604e7a5b + comprehensive state resets",
+  "timestamp": "2026-06-12T18:11-20:26Z",
+  "summary": {
+    "total_runs": 3,
+    "all_routed_correctly": true,
+    "content_carryover_detected": false
+  },
+  "validation_data": [
+    {
+      "run": 1,
+      "cases": [
+        {
+          "input": "remember that I prefer dark mode",
+          "commandId": "4ebd1f81-1",
+          "conversation_reset": true,
+          "route_decision": "classified",
+          "routed_intent": "save_memory",
+          "expected_intent": "save_memory",
+          "params": {"content": "I prefer dark mode"},
+          "tool_complete": "success",
+          "correct": true
+        },
+        {
+          "input": "what time is it",
+          "commandId": "aaa53da5-1",
+          "conversation_reset": true,
+          "route_decision": "classified",
+          "routed_intent": "get_time",
+          "expected_intent": "get_time",
+          "tool_complete": "direct_reply",
+          "correct": true,
+          "note": "No stale save_memory content — route correctly resolved to get_time"
+        }
+      ]
+    },
+    {
+      "run": 2,
+      "cases": [
+        {
+          "input": "remember that I prefer dark mode",
+          "commandId": "bcc2d7a0-1",
+          "conversation_reset": true,
+          "route_decision": "classified",
+          "routed_intent": "save_memory",
+          "expected_intent": "save_memory",
+          "params": {"content": "I prefer dark mode"},
+          "tool_complete": "success",
+          "correct": true
+        },
+        {
+          "input": "what time is it",
+          "commandId": "f4bdf8fd-1",
+          "conversation_reset": true,
+          "route_decision": "classified",
+          "routed_intent": "get_time",
+          "expected_intent": "get_time",
+          "tool_complete": "direct_reply",
+          "correct": true,
+          "note": "Consistent correct routing across repeated runs"
+        }
+      ]
+    },
+    {
+      "run": 3,
+      "cases": [
+        {
+          "input": "remember that I prefer dark mode",
+          "commandId": "e2a23ac1-1",
+          "conversation_reset": true,
+          "route_decision": "classified",
+          "routed_intent": "save_memory",
+          "expected_intent": "save_memory",
+          "params": {"content": "I prefer dark mode"},
+          "tool_complete": "success",
+          "correct": true
+        },
+        {
+          "input": "what time is it",
+          "commandId": "26f0303b-1",
+          "conversation_reset": true,
+          "route_decision": "classified",
+          "routed_intent": "get_time",
+          "expected_intent": "get_time",
+          "tool_complete": "direct_reply",
+          "correct": true,
+          "note": "No stale params from previous commands"
+        },
+        {
+          "input": "what's my battery level",
+          "commandId": "206a71e6-1",
+          "conversation_reset": true,
+          "route_decision": "classified",
+          "routed_intent": "get_battery",
+          "expected_intent": "get_battery",
+          "tool_complete": "direct_reply",
+          "correct": true
+        }
+      ]
+    }
+  ],
+  "before_fix_baseline": {
+    "safe_smoke_case_4": "what time is it → save_memory (stale content: 'I prefer dark mode')",
+    "safe_smoke_case_7": "set a timer → save_memory (stale content: 'I prefer dark mode')"
+  },
+  "after_fix_result": {
+    "safe_smoke_case_4": "what time is it → get_time (correct)",
+    "content_carryover_to_case_7": "Not reproduced — commands route independently",
+    "conversation_reset_verified": "Each independent command triggers ADB_INTENT_TRACE conversation_reset=true marker"
+  },
+  "key_observation": "App-level routing through the command lifecycle is correct. Each independent ADB command gets a fresh LiteRT conversation context, clearing KV-cache state, slot-fill pending state, and ViewModel-level mutable state. The original content carryover (case 3's 'I prefer dark mode' leaking into case 4's save_memory params) is eliminated."
+}

@@ -1,0 +1,156 @@
+package com.kernel.ai.core.memory.repository
+
+import android.util.Log
+import androidx.room.withTransaction
+import com.kernel.ai.core.memory.KernelDatabase
+import com.kernel.ai.core.memory.dao.ConversationDao
+import com.kernel.ai.core.memory.dao.MessageDao
+import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
+import com.kernel.ai.core.memory.entity.ConversationEntity
+import com.kernel.ai.core.memory.entity.MessageEntity
+import com.kernel.ai.core.memory.vector.VectorStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class ConversationRepository @Inject constructor(
+    private val db: KernelDatabase,
+    private val conversationDao: ConversationDao,
+    private val messageDao: MessageDao,
+    private val embeddingDao: MessageEmbeddingDao,
+    private val vectorStore: VectorStore,
+) {
+
+    companion object {
+        private const val TAG = "ConversationRepository"
+        private const val MESSAGE_VEC_TABLE = "message_embeddings"
+    }
+
+    fun observeConversations(): Flow<List<ConversationEntity>> =
+        conversationDao.observeAll()
+
+    fun observeActive(): Flow<List<ConversationEntity>> =
+        conversationDao.observeActive()
+
+    fun observeArchived(): Flow<List<ConversationEntity>> =
+        conversationDao.observeArchived()
+
+    fun observeConversationById(id: String): Flow<ConversationEntity?> =
+        conversationDao.observeById(id)
+
+    fun observeMessages(conversationId: String): Flow<List<MessageEntity>> =
+        messageDao.observeByConversation(conversationId)
+
+    suspend fun createConversation(): String {
+        val id = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        conversationDao.insert(
+            ConversationEntity(id = id, title = null, createdAt = now, updatedAt = now)
+        )
+        return id
+    }
+
+    suspend fun addMessage(
+        conversationId: String,
+        role: String,
+        content: String,
+        thinkingText: String? = null,
+        toolCallJson: String? = null,
+    ): String {
+        val id = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        messageDao.insert(
+            MessageEntity(
+                id = id,
+                conversationId = conversationId,
+                role = role,
+                content = content,
+                thinkingText = thinkingText,
+                timestamp = now,
+                toolCallJson = toolCallJson,
+            )
+        )
+        conversationDao.touchUpdatedAt(conversationId, now)
+        return id
+    }
+
+    suspend fun updateMessage(id: String, content: String, thinkingText: String? = null) {
+        messageDao.updateContentAndThinking(id, content, thinkingText)
+    }
+
+    suspend fun renameConversation(id: String, title: String) {
+        conversationDao.updateTitle(id, title, System.currentTimeMillis())
+    }
+
+    suspend fun deleteConversation(conversation: ConversationEntity) {
+        // Clean up vec entries before Room cascade removes the embedding rows
+        withContext(Dispatchers.IO) {
+            val rowIds = embeddingDao.getRowIdsForConversation(conversation.id)
+            rowIds.forEach { rowId ->
+                runCatching { vectorStore.delete(MESSAGE_VEC_TABLE, rowId) }
+                    .onFailure { Log.w(TAG, "Failed to delete vec entry rowId=$rowId: ${it.message}") }
+            }
+        }
+        conversationDao.delete(conversation)
+    }
+
+    suspend fun togglePin(id: String) {
+        conversationDao.togglePin(id)
+    }
+
+    suspend fun archiveConversation(id: String) {
+        conversationDao.archiveConversation(id, System.currentTimeMillis())
+    }
+
+    suspend fun restoreConversation(id: String) {
+        conversationDao.restoreConversation(id)
+    }
+
+    suspend fun archiveSelected(ids: Set<String>) {
+        conversationDao.archiveConversations(ids, System.currentTimeMillis())
+    }
+
+    suspend fun restoreSelected(ids: Set<String>) {
+        conversationDao.restoreConversations(ids)
+    }
+
+    suspend fun deleteArchivedOlderThan(cutoffMs: Long) {
+        val ids = conversationDao.getArchivedIdsBefore(cutoffMs)
+        withContext(Dispatchers.IO) {
+            ids.forEach { id ->
+                val rowIds = embeddingDao.getRowIdsForConversation(id)
+                rowIds.forEach { rowId ->
+                    runCatching { vectorStore.delete(MESSAGE_VEC_TABLE, rowId) }
+                        .onFailure { Log.w(TAG, "Failed to delete vec entry rowId=$rowId: ${it.message}") }
+                }
+            }
+        }
+        conversationDao.deleteArchivedOlderThan(cutoffMs)
+    }
+
+    suspend fun reorderConversations(pinnedIds: List<String>, unpinnedIds: List<String>) {
+        db.withTransaction {
+            pinnedIds.forEachIndexed { index, id -> conversationDao.updateSortOrder(id, index) }
+            unpinnedIds.forEachIndexed { index, id -> conversationDao.updateSortOrder(id, index) }
+        }
+    }
+
+    suspend fun getConversation(id: String): ConversationEntity? =
+        conversationDao.getById(id)
+
+    suspend fun getMessagesOnce(conversationId: String): List<MessageEntity> =
+        messageDao.getByConversation(conversationId)
+
+    fun searchByTitle(query: String): Flow<List<ConversationEntity>> =
+        conversationDao.searchByTitle(query)
+
+    fun searchActive(query: String): Flow<List<ConversationEntity>> =
+        conversationDao.searchActive(query)
+
+    fun searchArchived(query: String): Flow<List<ConversationEntity>> =
+        conversationDao.searchArchived(query)
+}

@@ -1,0 +1,80 @@
+package com.kernel.ai.core.memory.repository
+
+import com.kernel.ai.core.memory.entity.CoreMemoryEntity
+import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
+import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
+import kotlinx.coroutines.flow.Flow
+
+interface MemoryRepository {
+    /** Store a volatile, conversation-scoped memory. */
+    suspend fun addEpisodicMemory(conversationId: String, content: String, embeddingVector: FloatArray): String
+    suspend fun hasEpisodicMemory(conversationId: String, content: String): Boolean
+    /** Store a permanent cross-conversation memory. */
+    suspend fun addCoreMemory(
+        content: String,
+        source: String = "user",
+        embeddingVector: FloatArray,
+        category: String = "user",
+        term: String = "",
+        definition: String = "",
+        triggerContext: String = "",
+        vibeLevel: Int = 1,
+        metadataJson: String = "{}",
+    ): String
+    /** Search BOTH tiers; core ranked above episodic. Agent identity memories use separate topK.
+     *  Kiwi (NZ corpus) entries are also searched and merged into the result (using [kiwiTopK]). */
+    suspend fun searchMemories(
+        queryVector: FloatArray,
+        coreTopK: Int = 10,
+        episodicTopK: Int = 5,
+        identityTopK: Int = 5,
+        kiwiTopK: Int = 10,
+    ): List<MemorySearchResult>
+    /** Delete a specific core memory. */
+    suspend fun deleteCoreMemory(id: String)
+    /** Delete all episodic memories. */
+    suspend fun clearEpisodicMemories()
+    /** Observe all core memories (for UI). */
+    fun observeCoreMemories(): Flow<List<CoreMemoryEntity>>
+    /** Snapshot of all core memories ordered by most-recently-accessed first. */
+    suspend fun getAllCoreMemories(): List<CoreMemoryEntity>
+    /** Observe episodic memory count (for UI). */
+    fun observeEpisodicCount(): Flow<Int>
+    /** Record that core memories with the given [ids] were accessed (increments accessCount). */
+    suspend fun recordCoreMemoryAccess(ids: List<String>)
+    /** Observe all episodic memories ordered by most recent first (for UI). */
+    fun observeEpisodicMemories(): Flow<List<EpisodicMemoryEntity>>
+    /** Delete a single episodic memory and its vector entry. */
+    suspend fun deleteEpisodicMemory(id: String)
+    /** Prune: episodic older than 30 days or count > 500; core capped at 200. */
+    suspend fun prune()
+    /** Update the content of an existing core memory, optionally updating its vector. */
+    suspend fun updateCoreMemory(id: String, newContent: String, newVector: FloatArray? = null)
+    /** Update the content of an existing episodic memory and re-embed it. */
+    suspend fun updateEpisodicMemory(id: String, newContent: String, newVector: FloatArray)
+    /** Count core memories by source (e.g. "jandal_persona"). Used to detect stale seeded flag. */
+    suspend fun countCoreMemoriesBySource(source: String): Int
+    /** Delete all core memories from a given source (e.g. "jandal_persona") for clean re-seeding. */
+    suspend fun deleteAllCoreMemoriesBySource(source: String)
+
+    /**
+     * Drop and recreate the core vec table to purge ghost entries (orphaned vec rows with no
+     * corresponding Room row). Marks Room rows unvectorized so the semantic-index migration
+     * rebuilds all vectors from canonical content on next use.
+     */
+    suspend fun resetCoreVecTable()
+
+    /** Upsert a kiwi memory entity and its embedding vector into the kiwi vec table. */
+    suspend fun upsertKiwiMemory(entity: KiwiMemoryEntity, embeddingVector: FloatArray)
+    /** Delete all kiwi memories from a given source (e.g. "jandal_persona") for clean re-seeding. */
+    suspend fun deleteAllKiwiMemoriesBySource(source: String)
+    /**
+     * Drop and recreate the kiwi vec table to purge ghost entries. Marks kiwi rows unvectorized so
+     * the semantic-index migration rebuilds all vectors from canonical content on next use.
+     */
+    suspend fun resetKiwiVecTable()
+    /** Observe all kiwi memories (for UI). */
+    fun observeAllKiwiMemories(): Flow<List<KiwiMemoryEntity>>
+    /** Return all kiwi memories as a snapshot list. */
+    suspend fun getAllKiwiMemories(): List<KiwiMemoryEntity>
+}

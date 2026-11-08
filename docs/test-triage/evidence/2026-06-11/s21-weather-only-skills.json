@@ -1,0 +1,210 @@
+{
+  "suite": "skills",
+  "status": "complete",
+  "timestamp": "2026-06-11T23-20-37Z",
+  "elapsed_seconds": 225.3,
+  "summary": {
+    "total": 7,
+    "passed": 7,
+    "xfail": 0,
+    "xpass": 0,
+    "failed": 0
+  },
+  "results": [
+    {
+      "index": 1,
+      "case_id": "whats_the_weather_in_auckland",
+      "message": "what's the weather in Auckland",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "get_weather",
+      "expect_params": null,
+      "actual_params": {
+        "location": "Auckland"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 2,
+      "case_id": "will_it_rain_today",
+      "message": "will it rain today",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "get_weather",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 3,
+      "case_id": "how_hot_is_it_outside",
+      "message": "how hot is it outside",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "get_weather",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 4,
+      "case_id": "do_i_need_an_umbrella_today",
+      "message": "do I need an umbrella today",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "get_weather",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 5,
+      "case_id": "whats_it_like_outside",
+      "message": "what's it like outside",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "get_weather",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 6,
+      "case_id": "is_it_gonna_rain_tomorrow",
+      "message": "is it gonna rain tomorrow",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "get_weather",
+      "expect_params": null,
+      "actual_params": {
+        "day": "tomorrow"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 7,
+      "case_id": "temperature_in_wellington",
+      "message": "temperature in Wellington",
+      "category": "fixture",
+      "tags": [
+        "deterministic_core",
+        "fixture_required",
+        "location_context"
+      ],
+      "fixture": null,
+      "expect_intent": "get_weather",
+      "actual_intent": "get_weather",
+      "expect_params": null,
+      "actual_params": {
+        "location": "Wellington"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "weather",
+      "status": "pass",
+      "failure_bucket": null
+    }
+  ]
+}

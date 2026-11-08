@@ -1,0 +1,1226 @@
+package com.kernel.ai.core.memory.repository
+
+import android.content.Context
+import androidx.room.Room
+import androidx.room.testing.MigrationTestHelper
+import androidx.sqlite.db.SimpleSQLiteQuery
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.kernel.ai.core.memory.KernelDatabase
+import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.lists.OrderKey
+import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
+import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.entity.MealPlanProjectionWriteEntity
+import com.kernel.ai.core.memory.mealplan.CanonicalGroceryItem
+import com.kernel.ai.core.memory.mealplan.GroceryNormalizationStatus
+import com.kernel.ai.core.memory.mealplan.MealPlanDayStatus
+import com.kernel.ai.core.memory.mealplan.MealPlanDraftDay
+import com.kernel.ai.core.memory.mealplan.MealPlanSessionStatus
+import com.kernel.ai.core.memory.mealplan.RecipeDraft
+import com.kernel.ai.core.memory.mealplan.RecipeDraftIngredient
+import com.kernel.ai.core.memory.mealplan.RecipeDraftMethodStep
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class MealPlanSessionRepositoryAndroidTest {
+    @get:Rule
+    val migrationHelper = MigrationTestHelper(
+        InstrumentationRegistry.getInstrumentation(),
+        KernelDatabase::class.java,
+        emptyList(),
+        FrameworkSQLiteOpenHelperFactory(),
+    )
+
+    private lateinit var database: KernelDatabase
+    private lateinit var repository: MealPlanSessionRepository
+    private lateinit var projectionWriteDao: MealPlanProjectionWriteDao
+    private lateinit var listItemDao: ListItemDao
+    private lateinit var listNameDao: ListNameDao
+
+    @Before
+    fun setUp() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        database = Room.inMemoryDatabaseBuilder(context, KernelDatabase::class.java)
+            .allowMainThreadQueries()
+            .addCallback(object : androidx.room.RoomDatabase.Callback() {
+                override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    super.onOpen(db)
+                    db.execSQL("PRAGMA foreign_keys = ON")
+                }
+            })
+            .build()
+        repository = MealPlanSessionRepository(
+            database = database,
+            sessionDao = database.mealPlanSessionDao(),
+            dayDao = database.mealPlanDayDao(),
+            recipeVersionDao = database.mealPlanRecipeVersionDao(),
+            groceryItemDao = database.mealPlanGroceryItemDao(),
+            favouriteRecipeDao = database.mealPlanFavouriteRecipeDao(),
+            projectionWriteDao = database.mealPlanProjectionWriteDao(),
+            listItemDao = database.listItemDao(),
+            listNameDao = database.listNameDao(),
+            listMutations = ListMutationRepository(
+                database = database,
+                listItemDao = database.listItemDao(),
+                listNameDao = database.listNameDao(),
+                actorDao = database.listActorStateDao(),
+                appliedDao = database.listAppliedChangeDao(),
+                changeDao = database.listChangeDao(),
+                sourceDao = database.listSourceSequenceDao(),
+                checkpointDao = database.listCheckpointDao(),
+                nextcloudBindingDao = database.nextcloudCollectionBindingDao(),
+            ),
+        )
+        projectionWriteDao = database.mealPlanProjectionWriteDao()
+        listItemDao = database.listItemDao()
+        listNameDao = database.listNameDao()
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+    }
+
+    @Test
+    fun persistRecipeDraft_createsRecipeAndShoppingProjections() = runBlocking {
+        val session = repository.startOrResume("conv-1")
+        val planned = repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+                MealPlanDraftDay(
+                    dayIndex = 1,
+                    title = "Tofu Curry",
+                    summary = "Weeknight curry",
+                    proteinTags = listOf("tofu"),
+                ),
+            ),
+        )
+
+        val updated = repository.persistRecipeDraft(
+            sessionId = planned.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Slice the vegetables.", "Stir-fry everything until glossy."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+                grocery(displayText = "2 onions", ingredientName = "onions", normalizationStatus = GroceryNormalizationStatus.OPAQUE),
+            ),
+        )
+
+        assertEquals(MealPlanSessionStatus.RECIPES_IN_PROGRESS, updated.status)
+        assertEquals(1, updated.pendingGenerationDayIndex)
+        assertEquals(1, updated.activeDayIndex)
+        assertEquals(1, updated.days.first().currentRecipeVersion)
+        assertNotNull(updated.days.first().currentRecipe)
+
+        val allListEntities = listNameDao.getAll()
+        val listNames = allListEntities.map { it.name }
+        val shoppingListName = listNames.single { it.endsWith("Shopping List") }
+        val recipeListName = listNames.single { it.contains("Day 1 — Chicken Stir Fry") }
+        assertTrue(shoppingListName.matches(Regex("""Meal Plan \d{4}-\d{2}-\d{2} \(MP-001\) Shopping List""")))
+        assertTrue(recipeListName.matches(Regex("""Meal Plan \d{4}-\d{2}-\d{2} \(MP-001\) Day 1 — Chicken Stir Fry""")))
+        val shoppingListId = allListEntities.first { it.name == shoppingListName }.id
+        val recipeListId = allListEntities.first { it.name == recipeListName }.id
+
+        assertEquals(
+            listOf("500 g chicken thigh", "2 onions"),
+            listItemDao.getByList(shoppingListId).map { it.text },
+        )
+        assertRecipeHierarchy(recipeListId, listOf("placeholder ingredient"), listOf("1. Slice the vegetables.", "2. Stir-fry everything until glossy."))
+        assertEquals(2, projectionCount(updated.sessionId, "PLAN_SHOPPING_LIST", superseded = null))
+        assertEquals(5, projectionCount(updated.sessionId, "RECIPE_LIST", superseded = null))
+    }
+    @Test
+    fun persistRecipeDraft_aggregatesNormalizedShoppingProjectionItems() = runBlocking {
+        val session = repository.startOrResume("conv-aggregate")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(dayIndex = 0, title = "Chicken Bowls", summary = "Bowls", proteinTags = listOf("chicken")),
+                MealPlanDraftDay(dayIndex = 1, title = "Chicken Pasta", summary = "Pasta", proteinTags = listOf("chicken")),
+            ),
+        )
+
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Chicken Bowls", method = listOf("Cook the chicken.", "Build the bowls.")),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+                grocery(displayText = "2 onions", ingredientName = "onions", normalizationStatus = GroceryNormalizationStatus.OPAQUE),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 1,
+            recipeDraft = recipeDraft(title = "Chicken Pasta", method = listOf("Cook the pasta.", "Finish the sauce.")),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "250 g chicken thigh", quantity = "250", unit = "g", ingredientName = "chicken thigh"),
+            ),
+        )
+
+        val shoppingList = listNameDao.getAll().single { it.name.endsWith("Shopping List") }
+        assertEquals(
+            listOf("750 g chicken thigh", "2 onions"),
+            listItemDao.getByList(shoppingList.id).map { it.text },
+        )
+    }
+
+    @Test
+    fun getRecentMealHistory_excludesCancelledSessions() = runBlocking {
+        val completed = repository.startOrResume("conv-history-completed")
+        repository.savePlanDraft(
+            completed.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Completed Chili", summary = "Hearty", proteinTags = listOf("beef"))),
+        )
+        repository.completeSession(completed.sessionId)
+
+        val cancelled = repository.startOrResume("conv-history-cancelled")
+        repository.savePlanDraft(
+            cancelled.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Cancelled Curry", summary = "Abandoned", proteinTags = listOf("chicken"))),
+        )
+        repository.cancelSession(cancelled.sessionId)
+
+        assertEquals(listOf("Completed Chili"), repository.getRecentMealHistory(limit = 10).map { it.title })
+    }
+
+    @Test
+    fun persistRecipeDraft_keeps_failed_days_in_recovery_until_user_retries() = runBlocking {
+        val session = repository.startOrResume("conv-failed-day")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(dayIndex = 0, title = "Chicken Stir Fry", summary = "Quick bowl", proteinTags = listOf("chicken")),
+                MealPlanDraftDay(dayIndex = 1, title = "Beef Tacos", summary = "Taco night", proteinTags = listOf("beef")),
+            ),
+        )
+        repository.markGenerationFailure(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            errorCode = "RECIPE_NO_OUTPUT",
+            errorMessage = "The model did not return a recipe.",
+        )
+
+        val updated = repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 1,
+            recipeDraft = recipeDraft(title = "Beef Tacos", method = listOf("Warm the tortillas.", "Cook the beef.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "500 g beef mince", quantity = "500", unit = "g", ingredientName = "beef mince")),
+        )
+
+        assertEquals(MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY, updated.status)
+        assertEquals(null, updated.pendingGenerationKind)
+        assertEquals(null, updated.pendingGenerationDayIndex)
+        assertEquals(null, updated.activeDayIndex)
+        assertEquals(MealPlanDayStatus.FAILED, updated.days.first { it.dayIndex == 0 }.status)
+        assertEquals(MealPlanDayStatus.PERSISTED, updated.days.first { it.dayIndex == 1 }.status)
+    }
+
+    @Test
+    fun persistRecipeDraft_regenerationSupersedesOldProjections() = runBlocking {
+        val session = repository.startOrResume("conv-2")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Prep vegetables.", "Stir-fry chicken."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+                grocery(displayText = "2 onions", ingredientName = "onions", normalizationStatus = GroceryNormalizationStatus.OPAQUE),
+            ),
+        )
+        val originalRecipeListName = listNameDao.getAll().single { it.name.contains("Day 1 — Chicken Stir Fry") }.name
+        assertTrue(originalRecipeListName.matches(Regex("""Meal Plan \d{4}-\d{2}-\d{2} \(MP-001\) Day 1 — Chicken Stir Fry""")))
+
+        val regenerated = repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Lemon Chicken",
+                method = listOf("Roast the chicken with lemon."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "1 lemon", ingredientName = "lemon", normalizationStatus = GroceryNormalizationStatus.OPAQUE),
+            ),
+        )
+
+        val currentListEntities = listNameDao.getAll()
+        val currentListNames = currentListEntities.map { it.name }
+        val shoppingListName = currentListEntities.single { it.name.endsWith("Shopping List") }.name
+        assertTrue(shoppingListName.matches(Regex("""Meal Plan \d{4}-\d{2}-\d{2} \(MP-001\) Shopping List""")))
+        val shoppingListId = currentListEntities.single { it.name == shoppingListName }.id
+        val regeneratedRecipeListId = currentListEntities.single { it.name.contains("Day 1 — Lemon Chicken") }.id
+
+        assertEquals(MealPlanSessionStatus.AWAITING_USER_EDIT_OR_RECOVERY, regenerated.status)
+        assertEquals(2, regenerated.days.single().currentRecipeVersion)
+        assertFalse(currentListNames.contains(originalRecipeListName))
+        assertEquals(listOf("1 lemon"), listItemDao.getByList(shoppingListId).map { it.text })
+        assertRecipeHierarchy(regeneratedRecipeListId, listOf("placeholder ingredient"), listOf("1. Roast the chicken with lemon."))
+        assertEquals(1, projectionCount(regenerated.sessionId, "PLAN_SHOPPING_LIST", superseded = false))
+        assertEquals(2, projectionCount(regenerated.sessionId, "PLAN_SHOPPING_LIST", superseded = true))
+        assertEquals(4, projectionCount(regenerated.sessionId, "RECIPE_LIST", superseded = false))
+        assertEquals(5, projectionCount(regenerated.sessionId, "RECIPE_LIST", superseded = true))
+    }
+
+    @Test
+    fun savePlanDraft_clears_stale_recipe_and_shopping_lists_before_new_plan_review() = runBlocking {
+        val session = repository.startOrResume("conv-replan")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Chicken Stir Fry", summary = "Quick bowl", proteinTags = listOf("chicken"))),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Chicken Stir Fry", method = listOf("Prep vegetables.", "Stir-fry chicken.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh")),
+        )
+
+        val replanned = repository.savePlanDraft(
+            session.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Lemon Chicken", summary = "Tray bake", proteinTags = listOf("chicken"))),
+        )
+
+        assertEquals(MealPlanSessionStatus.PLAN_REVIEW, replanned.status)
+        assertEquals(listOf("Lemon Chicken"), replanned.days.map { it.title })
+        assertTrue(listNameDao.getAll().isEmpty())
+        assertEquals(0, projectionCount(session.sessionId, "PLAN_SHOPPING_LIST", superseded = false))
+        assertEquals(0, projectionCount(session.sessionId, "RECIPE_LIST", superseded = false))
+    }
+
+    @Test
+    fun cancelSession_deletesPlannerOwnedListsAndSupersedesProjections() = runBlocking {
+        val session = repository.startOrResume("conv-3")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Prep vegetables.", "Stir-fry chicken."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+                grocery(displayText = "2 onions", ingredientName = "onions", normalizationStatus = GroceryNormalizationStatus.OPAQUE),
+            ),
+        )
+
+        val keepListName = "My Groceries"
+        listNameDao.insert(ListNameEntity(name = keepListName, createdAt = 1L, updatedAt = 1L))
+
+        val cancelled = repository.cancelSession(session.sessionId)
+
+        assertEquals(MealPlanSessionStatus.CANCELLED, cancelled.status)
+        assertEquals(listOf(keepListName), listNameDao.getAll().map { it.name })
+        assertEquals(2, projectionCount(session.sessionId, "PLAN_SHOPPING_LIST", superseded = true))
+        assertEquals(5, projectionCount(session.sessionId, "RECIPE_LIST", superseded = true))
+        assertEquals(0, projectionCount(session.sessionId, "PLAN_SHOPPING_LIST", superseded = false))
+        assertEquals(0, projectionCount(session.sessionId, "RECIPE_LIST", superseded = false))
+    }
+
+    @Test
+    fun completeSession_rebuilds_missing_deleted_projection_lists_from_canonical_state() = runBlocking {
+        val session = repository.startOrResume("conv-complete-heal")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(dayIndex = 0, title = "Chicken Stir Fry", summary = "Quick bowl", proteinTags = listOf("chicken")),
+                MealPlanDraftDay(dayIndex = 1, title = "Tofu Curry", summary = "Weeknight curry", proteinTags = listOf("tofu")),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Chicken Stir Fry", method = listOf("Prep vegetables.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh")),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 1,
+            recipeDraft = recipeDraft(title = "Tofu Curry", method = listOf("Simmer the curry.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "1 block tofu", ingredientName = "tofu", normalizationStatus = GroceryNormalizationStatus.OPAQUE)),
+        )
+
+        val existingLists = listNameDao.getAll()
+        val shoppingListName = existingLists.single { it.name.endsWith("Shopping List") }.name
+        val firstRecipeListName = existingLists.single { it.name.contains("Day 1 — Chicken Stir Fry") }.name
+        forceDeleteList(existingLists.single { it.name == shoppingListName }.id)
+        forceDeleteList(existingLists.single { it.name == firstRecipeListName }.id)
+
+        val completed = repository.completeSession(session.sessionId)
+
+        assertEquals(MealPlanSessionStatus.COMPLETED, completed.status)
+        val rebuiltLists = listNameDao.getAll()
+        val rebuiltNames = rebuiltLists.map { it.name }
+        assertTrue(rebuiltNames.contains(shoppingListName))
+        assertTrue(rebuiltNames.contains(firstRecipeListName))
+        assertTrue(rebuiltNames.any { it.contains("Day 2 — Tofu Curry") })
+        val restoredShoppingListId = rebuiltLists.single { it.name == shoppingListName }.id
+        val restoredRecipeListId = rebuiltLists.single { it.name == firstRecipeListName }.id
+        assertEquals(listOf("500 g chicken thigh", "1 block tofu"), listItemDao.getByList(restoredShoppingListId).map { it.text })
+        assertRecipeHierarchy(restoredRecipeListId, listOf("placeholder ingredient"), listOf("1. Prep vegetables."))
+    }
+
+    @Test
+    fun markGenerationFailure_does_not_revive_cancelled_session() = runBlocking {
+        val session = repository.startOrResume("conv-cancelled-failure")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(dayIndex = 0, title = "Chicken Stir Fry", summary = "Quick bowl", proteinTags = listOf("chicken")),
+            ),
+        )
+        repository.cancelSession(session.sessionId)
+
+        val updated = repository.markGenerationFailure(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            errorCode = "RECIPE_NO_OUTPUT",
+            errorMessage = "The model did not return a recipe.",
+        )
+
+        assertEquals(MealPlanSessionStatus.CANCELLED, updated.status)
+        assertEquals(MealPlanDayStatus.DRAFTED, updated.days.single().status)
+        assertEquals(null, updated.pendingGenerationKind)
+        assertEquals(null, updated.pendingGenerationDayIndex)
+    }
+
+    @Test
+    fun persistRecipeDraft_deletesLegacyShoppingProjectionNamesDuringRebuild() = runBlocking {
+        val session = repository.startOrResume("conv-legacy")
+        val planned = repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+        val date = SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).format(Date(planned.createdAt))
+        val legacyListName = "Meal Plan $date (${planned.sessionId.take(8)}) Shopping List"
+        listNameDao.insert(ListNameEntity(name = legacyListName, createdAt = 1L, updatedAt = 1L))
+        projectionWriteDao.insertAll(
+            listOf(
+                MealPlanProjectionWriteEntity(
+                    id = "legacy-shopping-projection",
+                    mealPlanSessionId = planned.sessionId,
+                    targetKind = "PLAN_SHOPPING_LIST",
+                    targetName = legacyListName,
+                    sourceKey = "day:${planned.days.single().id}:grocery:legacy",
+                    sourceVersion = 1,
+                    projectedAt = 1L,
+                    supersededAt = null,
+                ),
+            ),
+        )
+
+        repository.persistRecipeDraft(
+            sessionId = planned.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Slice the vegetables.", "Stir-fry everything until glossy."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+            ),
+        )
+
+        val listNames = listNameDao.getAll().map { it.name }
+        assertFalse(listNames.contains(legacyListName))
+        assertTrue(listNames.any { it.matches(Regex("""Meal Plan \d{4}-\d{2}-\d{2} \(MP-001\) Shopping List""")) })
+    }
+
+    @Test
+    fun setRecipeFavourite_persistsFavouriteRecipesAndSupportsUndo() = runBlocking {
+        val session = repository.startOrResume("conv-favourites")
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Slice the vegetables.", "Stir-fry everything until glossy."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh"),
+            ),
+        )
+
+        val favourited = repository.setRecipeFavourite(session.sessionId, 0, true)
+
+        assertTrue(favourited.days.single().isFavouriteRecipe)
+        assertNotNull(favourited.days.single().recipeKey)
+        assertEquals(1, rawQueryInt("SELECT COUNT(*) FROM meal_plan_favourite_recipes"))
+
+        val unfavourited = repository.setRecipeFavourite(session.sessionId, 0, false)
+
+        assertFalse(unfavourited.days.single().isFavouriteRecipe)
+        assertEquals(0, rawQueryInt("SELECT COUNT(*) FROM meal_plan_favourite_recipes"))
+    }
+
+    @Test
+    fun observeRecentCompletedPlans_updatesFavouriteFlagsFromCanonicalStore() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-browser")
+
+        val initial = repository.observeRecentCompletedPlans(10).first { it.isNotEmpty() }.single()
+        assertEquals(completed.displayName, initial.displayName)
+        assertFalse(initial.days.single().isFavouriteRecipe)
+
+        val favourited = repository.setRecipeFavourite(completed.sessionId, 0, true)
+        val favouriteKey = requireNotNull(favourited.days.single().recipeKey)
+
+        val favouritedPlans = repository.observeRecentCompletedPlans(10)
+            .first { plans -> plans.single().days.single().isFavouriteRecipe }
+            .single()
+        assertTrue(favouritedPlans.days.single().isFavouriteRecipe)
+        assertEquals(favouriteKey, favouritedPlans.days.single().recipeKey)
+
+        repository.removeFavouriteRecipe(favouriteKey)
+
+        val unfavouritedPlans = repository.observeRecentCompletedPlans(10)
+            .first { plans -> plans.isNotEmpty() && !plans.single().days.single().isFavouriteRecipe }
+            .single()
+        assertFalse(unfavouritedPlans.days.single().isFavouriteRecipe)
+    }
+
+    @Test
+    fun observeFavouriteRecipes_readsCanonicalFavouriteStore() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-favourite-library")
+        val favourited = repository.setRecipeFavourite(completed.sessionId, 0, true)
+        val favouriteKey = requireNotNull(favourited.days.single().recipeKey)
+
+        val favourite = repository.observeFavouriteRecipes(10)
+            .first { it.isNotEmpty() }
+            .single()
+
+        assertEquals(favouriteKey, favourite.recipeKey)
+        assertEquals("Chicken Stir Fry", favourite.title)
+        assertEquals("Quick bowl", favourite.summary)
+        assertEquals(listOf("chicken"), favourite.proteinTags)
+    }
+
+    @Test
+    fun recreateRecipeList_createsStandaloneChecklistListsWithUniqueNames() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-recreate-recipe-list")
+
+        val firstListName = repository.recreateRecipeList(completed.sessionId, 0)
+        val secondListName = repository.recreateRecipeList(completed.sessionId, 0)
+
+        assertEquals("Chicken Stir Fry", firstListName)
+        assertEquals("Chicken Stir Fry (2)", secondListName)
+        val firstListId = requireNotNull(listNameDao.getByName(firstListName)).id
+        val secondListId = requireNotNull(listNameDao.getByName(secondListName)).id
+        assertRecipeHierarchy(
+            firstListId,
+            expectedIngredients = listOf("placeholder ingredient"),
+            expectedSteps = listOf("1. Slice the vegetables.", "2. Stir-fry everything until glossy."),
+        )
+        assertRecipeHierarchy(
+            secondListId,
+            expectedIngredients = listOf("placeholder ingredient"),
+            expectedSteps = listOf("1. Slice the vegetables.", "2. Stir-fry everything until glossy."),
+        )
+    }
+
+    @Test
+    fun addRecipeIngredientsToList_appendsCanonicalIngredientsToExistingList() = runBlocking {
+        val completed = createCompletedSessionWithRecipe("conv-add-ingredients-list")
+        val now = System.currentTimeMillis()
+        val listId = listNameDao.insertAndGet(ListNameEntity(name = "weeknight shopping", createdAt = now, updatedAt = now))
+        assertTrue(listId > 0L)
+
+        val listName = repository.addRecipeIngredientsToList(completed.sessionId, 0, listId)
+
+        assertEquals("weeknight shopping", listName)
+        assertEquals(listOf("500 g chicken thigh"), listItemDao.getByList(listId).map { it.text })
+    }
+
+    @Test
+    fun getRecentMealHistory_reads_recent_terminal_days_from_canonical_session_rows() = runBlocking {
+        val completed = repository.startOrResume("conv-history-completed")
+        repository.savePlanDraft(
+            completed.sessionId,
+            listOf(
+                MealPlanDraftDay(dayIndex = 0, title = "Chicken Stir Fry", summary = "Quick bowl", proteinTags = listOf("chicken")),
+                MealPlanDraftDay(dayIndex = 1, title = "Beef Tacos", summary = "Taco night", proteinTags = listOf("beef")),
+            ),
+        )
+        repository.completeSession(completed.sessionId)
+
+        val active = repository.startOrResume("conv-history-active")
+        repository.savePlanDraft(
+            active.sessionId,
+            listOf(
+                MealPlanDraftDay(dayIndex = 0, title = "Should Not Appear", summary = "Still active", proteinTags = listOf("chicken")),
+            ),
+        )
+
+        val cancelled = repository.startOrResume("conv-history-cancelled")
+        repository.savePlanDraft(
+            cancelled.sessionId,
+            listOf(
+                MealPlanDraftDay(dayIndex = 0, title = "Tofu Curry", summary = "Weeknight curry", proteinTags = listOf("tofu")),
+            ),
+        )
+        repository.cancelSession(cancelled.sessionId)
+
+        val history = repository.getRecentMealHistory(limit = 3)
+
+        // Cancelled sessions are excluded — the query filters s.status = 'COMPLETED'.
+        assertEquals(listOf("Chicken Stir Fry", "Beef Tacos"), history.map { it.title })
+        assertEquals(listOf(listOf("chicken"), listOf("beef")), history.map { it.proteinTags })
+        assertFalse(history.any { it.title == "Should Not Appear" })
+        assertFalse(history.any { it.title == "Tofu Curry" })
+    }
+
+
+    @Test
+    fun startOrResume_prunes_only_old_terminal_sessions_that_meet_retention_policy() = runBlocking {
+        val prunable = repository.startOrResume("conv-old-completed")
+        repository.savePlanDraft(
+            prunable.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Chicken Stir Fry", summary = "Quick bowl", proteinTags = listOf("chicken"))),
+        )
+        repository.persistRecipeDraft(
+            sessionId = prunable.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Chicken Stir Fry", method = listOf("Slice the vegetables.", "Stir-fry everything until glossy.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh")),
+        )
+        repository.completeSession(prunable.sessionId)
+        repository.markFinalSummaryWritten(prunable.sessionId)
+        val prunableTargetNames = projectionWriteDao.getAllTargetNamesForSession(prunable.sessionId)
+
+        val keepCompleted = repository.startOrResume("conv-old-completed-no-summary")
+        repository.savePlanDraft(
+            keepCompleted.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Tofu Curry", summary = "Weeknight curry", proteinTags = listOf("tofu"))),
+        )
+        repository.persistRecipeDraft(
+            sessionId = keepCompleted.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Tofu Curry", method = listOf("Toast spices.", "Simmer the curry.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "1 block tofu", ingredientName = "tofu", normalizationStatus = GroceryNormalizationStatus.OPAQUE)),
+        )
+        repository.completeSession(keepCompleted.sessionId)
+        ageCompletedSession(keepCompleted.sessionId, daysAgo = 31)
+
+        val fallbackPrunable = repository.startOrResume("conv-old-completed-fallback")
+        repository.savePlanDraft(
+            fallbackPrunable.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Lentil Pasta", summary = "Pantry meal", proteinTags = listOf("lentils"))),
+        )
+        repository.persistRecipeDraft(
+            sessionId = fallbackPrunable.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Lentil Pasta", method = listOf("Boil pasta.", "Stir through lentils.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "1 cup lentils", ingredientName = "lentils", normalizationStatus = GroceryNormalizationStatus.OPAQUE)),
+        )
+        repository.completeSession(fallbackPrunable.sessionId)
+
+        val active = repository.startOrResume("conv-active-old")
+        ageCompletedSession(prunable.sessionId, daysAgo = 31)
+        ageCompletedSession(fallbackPrunable.sessionId, daysAgo = 91)
+        ageActiveSession(active.sessionId, daysAgo = 60)
+
+        repository.startOrResume("conv-fresh")
+
+        assertFalse(sessionExists(prunable.sessionId))
+        assertTrue(sessionExists(keepCompleted.sessionId))
+        assertFalse(sessionExists(fallbackPrunable.sessionId))
+        assertTrue(sessionExists(active.sessionId))
+        assertEquals(0, projectionRowsForSession(prunable.sessionId))
+        assertEquals(0, mealPlanDayRowsForSession(prunable.sessionId))
+        assertEquals(0, recipeVersionRowsForSession(prunable.sessionId))
+        assertEquals(0, groceryRowsForSession(prunable.sessionId))
+        assertEquals(0, listItemsForNames(prunableTargetNames))
+        assertTrue(prunableTargetNames.none { targetName -> listNameDao.getAll().any { it.name == targetName } })
+    }
+
+    @Test
+    fun startOrResume_prunes_old_cancelled_sessions_and_orphaned_projection_lists() = runBlocking {
+        val cancelled = repository.startOrResume("conv-old-cancelled")
+        repository.savePlanDraft(
+            cancelled.sessionId,
+            listOf(MealPlanDraftDay(dayIndex = 0, title = "Chicken Stir Fry", summary = "Quick bowl", proteinTags = listOf("chicken"))),
+        )
+        repository.persistRecipeDraft(
+            sessionId = cancelled.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(title = "Chicken Stir Fry", method = listOf("Slice the vegetables.", "Stir-fry everything until glossy.")),
+            rawModelJson = "{}",
+            groceries = listOf(grocery(displayText = "500 g chicken thigh", quantity = "500", unit = "g", ingredientName = "chicken thigh")),
+        )
+        repository.cancelSession(cancelled.sessionId)
+        val orphanListName = "Meal Plan orphan (${cancelled.sessionId.take(8)})"
+        listNameDao.insert(ListNameEntity(name = orphanListName, createdAt = 1L, updatedAt = 1L))
+        projectionWriteDao.insertAll(
+            listOf(
+                MealPlanProjectionWriteEntity(
+                    id = "orphan-${cancelled.sessionId}",
+                    mealPlanSessionId = cancelled.sessionId,
+                    targetKind = "RECIPE_LIST",
+                    targetName = orphanListName,
+                    sourceKey = "orphan-source",
+                    sourceVersion = 1,
+                    projectedAt = 1L,
+                    supersededAt = 1L,
+                ),
+            ),
+        )
+        ageCancelledSession(cancelled.sessionId, daysAgo = 8)
+
+        repository.startOrResume("conv-fresh-cancelled")
+
+        assertFalse(sessionExists(cancelled.sessionId))
+        assertFalse(listNameDao.getAll().any { it.name == orphanListName })
+        assertEquals(0, projectionRowsForSession(cancelled.sessionId))
+    }
+    @Test
+    fun migration33To34_preservesExistingListsAndCreatesMealPlannerTables() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 33).apply {
+            execSQL("INSERT INTO `lists` (`id`, `name`, `createdAt`) VALUES (1, 'Existing list', 1234)")
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            34,
+            true,
+            KernelDatabase.MIGRATION_33_34,
+        )
+
+        assertTrue(tableExists(migratedDb, "meal_plan_sessions"))
+        assertTrue(tableExists(migratedDb, "meal_plan_days"))
+        assertTrue(tableExists(migratedDb, "meal_plan_recipe_versions"))
+        assertTrue(tableExists(migratedDb, "meal_plan_grocery_items"))
+        assertTrue(tableExists(migratedDb, "meal_plan_projection_writes"))
+        migratedDb.query("SELECT name FROM `lists` WHERE id = 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Existing list", cursor.getString(0))
+        }
+        migratedDb.close()
+    }
+
+    private fun projectionCount(sessionId: String, targetKind: String, superseded: Boolean?): Int {
+        val supersededClause = when (superseded) {
+            true -> " AND supersededAt IS NOT NULL"
+            false -> " AND supersededAt IS NULL"
+            null -> ""
+        }
+        val query = SimpleSQLiteQuery(
+            "SELECT COUNT(*) FROM meal_plan_projection_writes WHERE mealPlanSessionId = ? AND targetKind = ?$supersededClause",
+            arrayOf(sessionId, targetKind),
+        )
+        return database.openHelper.writableDatabase.query(query).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+    }
+    /**
+     * Asserts a recipe projection list uses the canonical two-level hierarchy (an Ingredients parent
+     * followed by a Method parent, each with its children in canonical order) and opens in the Manual
+     * item sort by default (#1549).
+     */
+    private suspend fun assertRecipeHierarchy(
+        listId: Long,
+        expectedIngredients: List<String>,
+        expectedSteps: List<String>,
+    ) {
+        val items = listItemDao.getAllByListUnordered(listId)
+        val topLevel = items.filter { it.parentItemId == null }
+        val ingredients = topLevel.single { it.text == "Ingredients" }
+        val method = topLevel.single { it.text == "Method" }
+        assertTrue(
+            "Ingredients section must sort before Method section",
+            OrderKey.compare(ingredients.orderKey, method.orderKey) < 0,
+        )
+        val ingredientChildren = items.filter { it.parentItemId == ingredients.itemId }
+            .sortedBy { it.orderKey }
+        val methodChildren = items.filter { it.parentItemId == method.itemId }
+            .sortedBy { it.orderKey }
+        assertEquals(expectedIngredients, ingredientChildren.map { it.text })
+        assertEquals(expectedSteps, methodChildren.map { it.text })
+        assertEquals("MANUAL", listNameDao.getById(listId)?.defaultItemSort)
+    }
+
+    private fun projectionRowsForSession(sessionId: String): Int {
+        val query = SimpleSQLiteQuery(
+            "SELECT COUNT(*) FROM meal_plan_projection_writes WHERE mealPlanSessionId = ?",
+            arrayOf(sessionId),
+        )
+        return database.openHelper.writableDatabase.query(query).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+    }
+
+    private fun mealPlanDayRowsForSession(sessionId: String): Int {
+        val query = SimpleSQLiteQuery(
+            "SELECT COUNT(*) FROM meal_plan_days WHERE mealPlanSessionId = ?",
+            arrayOf(sessionId),
+        )
+        return database.openHelper.writableDatabase.query(query).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+    }
+
+    private fun recipeVersionRowsForSession(sessionId: String): Int {
+        val query = SimpleSQLiteQuery(
+            "SELECT COUNT(*) FROM meal_plan_recipe_versions WHERE mealPlanSessionId = ?",
+            arrayOf(sessionId),
+        )
+        return database.openHelper.writableDatabase.query(query).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+    }
+
+    private fun groceryRowsForSession(sessionId: String): Int {
+        val query = SimpleSQLiteQuery(
+            "SELECT COUNT(*) FROM meal_plan_grocery_items WHERE mealPlanSessionId = ?",
+            arrayOf(sessionId),
+        )
+        return database.openHelper.writableDatabase.query(query).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+    }
+
+    private fun forceDeleteList(listId: Long) {
+        database.openHelper.writableDatabase.execSQL("DELETE FROM list_items WHERE listId = ?", arrayOf(listId))
+        database.openHelper.writableDatabase.execSQL("DELETE FROM lists WHERE id = ?", arrayOf(listId))
+    }
+
+    private fun listItemsForNames(names: List<String>): Int {
+        if (names.isEmpty()) return 0
+        val placeholders = names.joinToString(",") { "?" }
+        val query = SimpleSQLiteQuery(
+            "SELECT COUNT(*) FROM list_items li JOIN lists l ON l.id = li.listId WHERE l.name IN ($placeholders) AND l.lifecycle = 'ACTIVE' AND li.lifecycle = 'ACTIVE'",
+            names.toTypedArray(),
+        )
+        return database.openHelper.writableDatabase.query(query).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+    }
+
+    private fun sessionExists(sessionId: String): Boolean {
+        val query = SimpleSQLiteQuery(
+            "SELECT EXISTS(SELECT 1 FROM meal_plan_sessions WHERE id = ?)",
+            arrayOf(sessionId),
+        )
+        return database.openHelper.writableDatabase.query(query).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0) == 1
+        }
+    }
+
+    private fun ageCompletedSession(sessionId: String, daysAgo: Int) {
+        val cutoff = System.currentTimeMillis() - daysAgo * 24L * 60L * 60L * 1000L
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE meal_plan_sessions SET updatedAt = ?, completedAt = ? WHERE id = ?",
+            arrayOf<Any>(cutoff, cutoff, sessionId),
+        )
+    }
+
+    private fun ageCancelledSession(sessionId: String, daysAgo: Int) {
+        val cutoff = System.currentTimeMillis() - daysAgo * 24L * 60L * 60L * 1000L
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE meal_plan_sessions SET updatedAt = ?, cancelledAt = ? WHERE id = ?",
+            arrayOf<Any>(cutoff, cutoff, sessionId),
+        )
+    }
+
+    private fun ageActiveSession(sessionId: String, daysAgo: Int) {
+        val cutoff = System.currentTimeMillis() - daysAgo * 24L * 60L * 60L * 1000L
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE meal_plan_sessions SET updatedAt = ? WHERE id = ?",
+            arrayOf<Any>(cutoff, sessionId),
+        )
+    }
+
+    private fun createCompletedSessionWithRecipe(conversationId: String) = runBlocking {
+        val session = repository.startOrResume(conversationId)
+        repository.savePlanDraft(
+            session.sessionId,
+            listOf(
+                MealPlanDraftDay(
+                    dayIndex = 0,
+                    title = "Chicken Stir Fry",
+                    summary = "Quick bowl",
+                    proteinTags = listOf("chicken"),
+                ),
+            ),
+        )
+        repository.persistRecipeDraft(
+            sessionId = session.sessionId,
+            dayIndex = 0,
+            recipeDraft = recipeDraft(
+                title = "Chicken Stir Fry",
+                method = listOf("Slice the vegetables.", "Stir-fry everything until glossy."),
+            ),
+            rawModelJson = "{}",
+            groceries = listOf(
+                grocery(
+                    displayText = "500 g chicken thigh",
+                    quantity = "500",
+                    unit = "g",
+                    ingredientName = "chicken thigh",
+                ),
+            ),
+        )
+        repository.completeSession(session.sessionId)
+    }
+
+    private fun tableExists(db: androidx.sqlite.db.SupportSQLiteDatabase, tableName: String): Boolean =
+        db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$tableName'").use { cursor ->
+            cursor.moveToFirst()
+        }
+
+    private fun recipeDraft(title: String, method: List<String>): RecipeDraft = RecipeDraft(
+        title = title,
+        servings = 4,
+        ingredients = listOf(
+            RecipeDraftIngredient(
+                originalText = "placeholder ingredient",
+                amount = "1",
+                unit = "tbsp",
+                item = "oil",
+                note = null,
+            ),
+        ),
+        methodSteps = method.mapIndexed { index, text ->
+            RecipeDraftMethodStep(stepNumber = index + 1, text = text)
+        },
+    )
+
+    private fun grocery(
+        displayText: String,
+        quantity: String? = null,
+        unit: String? = null,
+        ingredientName: String? = null,
+        normalizationStatus: GroceryNormalizationStatus = GroceryNormalizationStatus.NORMALIZED,
+    ): CanonicalGroceryItem = CanonicalGroceryItem(
+        displayText = displayText,
+        originalText = displayText,
+        quantity = quantity,
+        unit = unit,
+        ingredientName = ingredientName,
+        note = null,
+        normalizationStatus = normalizationStatus,
+        mergeKey = if (
+            normalizationStatus == GroceryNormalizationStatus.NORMALIZED &&
+            !unit.isNullOrBlank() &&
+            !ingredientName.isNullOrBlank()
+        ) {
+            "${unit.lowercase()}:${ingredientName.lowercase()}"
+        } else {
+            ingredientName
+        },
+    )
+
+    @Test
+    fun migration34To35_addsNewColumnsAndPreservesListItems() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 34).apply {
+            execSQL("INSERT INTO `lists` (`id`, `name`, `createdAt`) VALUES (1, 'My List', 1000)")
+            execSQL("INSERT INTO `list_items` (`id`, `listName`, `item`, `addedAt`, `checked`) VALUES (1, 'My List', 'apple', 2000, 0)")
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            35,
+            true,
+            KernelDatabase.MIGRATION_34_35,
+        )
+
+        // lists table gains updatedAt and pinned columns
+        migratedDb.query("SELECT name, updatedAt, pinned FROM `lists` WHERE id = 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("My List", cursor.getString(0))
+            assertEquals(0L, cursor.getLong(1))  // updatedAt defaults to 0 (column added via ALTER TABLE with DEFAULT 0, not backfilled)
+            assertEquals(0, cursor.getInt(2))      // pinned defaults to 0 (false)
+        }
+        // list_items now has listId FK and text column
+        migratedDb.query("SELECT listId, text FROM `list_items` WHERE id = 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1L, cursor.getLong(0)) // listId resolved from name join
+            assertEquals("apple", cursor.getString(1)) // text (was item)
+        }
+        migratedDb.close()
+    }
+
+    @Test
+    fun migration44To45_backfillsStableMealPlanDisplayCodes() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 44).apply {
+            execSQL(
+                """
+                INSERT INTO `model_settings` (
+                    `modelId`, `contextWindowSize`, `temperature`, `topP`, `topK`,
+                    `showThinkingProcess`, `correctGroundedFactsEnabled`, `speculativeDecodingEnabled`, `updatedAt`
+                ) VALUES ('gemma_4_e4b', 4000, 1.0, 0.95, 64, 1, 1, 0, 1000)
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO `meal_plan_sessions` (
+                    `id`, `conversationId`, `status`, `peopleCount`, `daysCount`,
+                    `dietaryRestrictionsJson`, `proteinPreferencesJson`, `optionalSlotsJson`,
+                    `activeDayIndex`, `pendingGenerationKind`, `pendingGenerationDayIndex`,
+                    `pendingGenerationStartedAt`, `planVersion`, `finalSummaryWritten`,
+                    `createdAt`, `updatedAt`, `completedAt`, `cancelledAt`
+                ) VALUES
+                    ('session-a', 'conv-a', 'PLAN_REVIEW', 2, 3, '[]', '[]', '{}', NULL, NULL, NULL, NULL, 1, 0, 1000, 1000, NULL, NULL),
+                    ('session-b', 'conv-b', 'PLAN_REVIEW', 4, 5, '[]', '[]', '{}', NULL, NULL, NULL, NULL, 1, 0, 1000, 1000, NULL, NULL),
+                    ('session-c', 'conv-c', 'PLAN_REVIEW', 4, 5, '[]', '[]', '{}', NULL, NULL, NULL, NULL, 1, 0, 2000, 2000, NULL, NULL)
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            45,
+            true,
+            KernelDatabase.MIGRATION_44_45,
+        )
+
+        migratedDb.query("SELECT correctGroundedFactsEnabled FROM `model_settings` WHERE modelId = 'gemma_4_e4b'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
+        migratedDb.query("SELECT id, displayCode FROM `meal_plan_sessions` ORDER BY createdAt ASC, id ASC").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("session-a", cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+            assertTrue(cursor.moveToNext())
+            assertEquals("session-b", cursor.getString(0))
+            assertEquals(2, cursor.getInt(1))
+            assertTrue(cursor.moveToNext())
+            assertEquals("session-c", cursor.getString(0))
+            assertEquals(3, cursor.getInt(1))
+        }
+        migratedDb.close()
+    }
+
+    @Test
+    fun migration45To46_addsFavouriteRecipeSupport() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 45).apply {
+            execSQL(
+                """
+                INSERT INTO `meal_plan_sessions` (
+                    `id`, `conversationId`, `status`, `peopleCount`, `daysCount`,
+                    `dietaryRestrictionsJson`, `proteinPreferencesJson`, `optionalSlotsJson`,
+                    `activeDayIndex`, `pendingGenerationKind`, `pendingGenerationDayIndex`,
+                    `pendingGenerationStartedAt`, `displayCode`, `planVersion`, `finalSummaryWritten`,
+                    `createdAt`, `updatedAt`, `completedAt`, `cancelledAt`
+                ) VALUES (
+                    'session-a', 'conv-a', 'PLAN_REVIEW', 2, 3, '[]', '[]', '{}', NULL, NULL, NULL, NULL, 1, 1, 0, 1000, 1000, NULL, NULL
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO `meal_plan_days` (
+                    `id`, `mealPlanSessionId`, `dayIndex`, `title`, `summary`, `proteinTagsJson`,
+                    `status`, `currentRecipeVersion`, `attemptCount`, `lastErrorCode`, `lastErrorMessage`,
+                    `createdAt`, `updatedAt`
+                ) VALUES (
+                    'day-a', 'session-a', 0, 'Chicken Stir Fry', 'Quick bowl', '["chicken"]',
+                    'PERSISTED', 1, 1, NULL, NULL, 1000, 1000
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO `meal_plan_recipe_versions` (
+                    `id`, `mealPlanSessionId`, `mealPlanDayId`, `version`, `title`, `servings`,
+                    `ingredientsJson`, `methodStepsJson`, `rawModelJson`, `createdAt`
+                ) VALUES (
+                    'recipe-a', 'session-a', 'day-a', 1, 'Chicken Stir Fry', 4, '[]', '[]', '{}', 1000
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            46,
+            true,
+            KernelDatabase.MIGRATION_45_46,
+        )
+
+        assertTrue(tableExists(migratedDb, "meal_plan_favourite_recipes"))
+        migratedDb.query("SELECT favouriteRecipeMode FROM `meal_plan_sessions` WHERE id = 'session-a'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("NONE", cursor.getString(0))
+        }
+        migratedDb.query("SELECT recipeKey FROM `meal_plan_recipe_versions` WHERE id = 'recipe-a'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+        }
+        migratedDb.close()
+    }
+
+
+    @Test
+    fun migration46To47_removesGroundedFactsRepairSetting() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 46).apply {
+            execSQL(
+                """
+                INSERT INTO `model_settings` (
+                    `modelId`, `contextWindowSize`, `temperature`, `topP`, `topK`,
+                    `showThinkingProcess`, `correctGroundedFactsEnabled`, `speculativeDecodingEnabled`, `updatedAt`
+                ) VALUES ('gemma_4_e4b', 4000, 1.0, 0.95, 64, 1, 1, 0, 1000)
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            47,
+            true,
+            KernelDatabase.MIGRATION_46_47,
+        )
+
+        migratedDb.query("SELECT modelId, topK, showThinkingProcess, speculativeDecodingEnabled FROM `model_settings` WHERE modelId = 'gemma_4_e4b'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("gemma_4_e4b", cursor.getString(0))
+            assertEquals(64, cursor.getInt(1))
+            assertEquals(1, cursor.getInt(2))
+            assertEquals(0, cursor.getInt(3))
+        }
+        migratedDb.query("PRAGMA table_info(`model_settings`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                assertFalse(cursor.getString(1) == "correctGroundedFactsEnabled")
+            }
+        }
+        migratedDb.close()
+    }
+    @Test
+    fun migration47To48_addsCuisinePreferencesToMealPlanSessions() {
+        migrationHelper.createDatabase(MIGRATION_DB_NAME, 47).apply {
+            execSQL(
+                """
+                INSERT INTO `meal_plan_sessions` (
+                    `id`, `conversationId`, `status`, `peopleCount`, `daysCount`,
+                    `dietaryRestrictionsJson`, `proteinPreferencesJson`, `optionalSlotsJson`,
+                    `favouriteRecipeMode`, `activeDayIndex`, `pendingGenerationKind`, `pendingGenerationDayIndex`,
+                    `pendingGenerationStartedAt`, `displayCode`, `planVersion`, `finalSummaryWritten`,
+                    `createdAt`, `updatedAt`, `completedAt`, `cancelledAt`
+                ) VALUES (
+                    'session-a', 'conv-a', 'PLAN_REVIEW', 2, 3, '[]', '[]', '{}',
+                    'NONE', NULL, NULL, NULL, NULL, 1, 1, 0, 1000, 1000, NULL, NULL
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = migrationHelper.runMigrationsAndValidate(
+            MIGRATION_DB_NAME,
+            48,
+            true,
+            KernelDatabase.MIGRATION_47_48,
+        )
+
+        migratedDb.query("SELECT cuisinePreferencesJson FROM `meal_plan_sessions` WHERE id = 'session-a'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("[]", cursor.getString(0))
+        }
+        migratedDb.close()
+    }
+    private fun rawQueryInt(sql: String): Int =
+        database.openHelper.writableDatabase.query(sql).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+
+    private companion object {
+        private const val MIGRATION_DB_NAME = "meal-plan-migration-test"
+    }
+}

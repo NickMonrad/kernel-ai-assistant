@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Intent Recovery Eval Fixture",
+  "description": "A single eval fixture for the four-layer intent recovery regression pipeline. Each fixture exercises one or more layers of the recovery stack: routing (layer 1), slot extraction (layer 2), policy decision (layer 3), and end-to-end (layer 4).",
+  "type": "object",
+  "properties": {
+    "input": {
+      "description": "Raw user utterance, exactly as it would reach QuickIntentRouter.route().",
+      "type": "string",
+      "minLength": 1
+    },
+    "candidateIntent": {
+      "description": "Intent that QuickIntentRouter should identify at this confidence level (layer 1 target).",
+      "type": "string"
+    },
+    "confidence": {
+      "description": "Classifier confidence for candidateIntent, between 0.0 and 1.0. Values below SOFT_FALLBACK_THRESHOLD (currently 0.55) should result in NotActionable.",
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "precomputedSlots": {
+      "description": "Optional. When present, skip layer 2 extraction and feed these slots directly into the layer 3 policy decision. This isolates policy bugs from extractor bugs. When null, layers 2+3 run integrated: extract then decide.",
+      "type": ["object", "null"],
+      "properties": {
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "contact": { "type": "string" },
+        "message": { "type": "string" },
+        "subject": { "type": "string" },
+        "label": { "type": "string" },
+        "item": { "type": "string" },
+        "day": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "expectedSlots": {
+      "description": "Expected extracted slots from layer 2. Keys and values depend on the intent. The eval scores exact match (all keys present with correct values) and partial match (keys present but values may differ). When precomputedSlots is set, this field is still used as the reference for slot assertions.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "contact": { "type": "string" },
+        "message": { "type": "string" },
+        "subject": { "type": "string" },
+        "label": { "type": "string" },
+        "item": { "type": "string" },
+        "day": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "additionalProperties": false,
+      "minProperties": 0
+    },
+    "expectedPolicy": {
+      "description": "Expected layer 3 policy decision and its diagnostic booleans. The decision field is the primary assertion; the booleans make failures diagnosable.",
+      "type": "object",
+      "properties": {
+        "decision": {
+          "description": "The expected RecoveryResult type: execute directly, ask for a missing slot, ask for confirmation, ask for clarification, or not actionable.",
+          "type": "string",
+          "enum": ["Execute", "AskSlot", "AskConfirmation", "AskClarification", "NotActionable"]
+        },
+        "requiredSlotsPresent": {
+          "description": "True if all required slots for this intent contract are present in the extracted (or precomputed) params.",
+          "type": "boolean"
+        },
+        "confirmationRequired": {
+          "description": "True if the policy determined that risk level (MEDIUM/HIGH) requires user confirmation before execution.",
+          "type": "boolean"
+        },
+        "allowAutoExecute": {
+          "description": "True if the policy would auto-execute this fixture (LOW risk with all slots present).",
+          "type": "boolean"
+        }
+      },
+      "required": ["decision", "requiredSlotsPresent", "confirmationRequired", "allowAutoExecute"],
+      "additionalProperties": false
+    },
+    "risk": {
+      "description": "Risk level for the intent contract. Used for layer 3 expectations.",
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH"]
+    },
+    "missingSlot": {
+      "description": "When expectedPolicy.decision is AskSlot, the name of the missing required slot.",
+      "type": "string"
+    },
+    "evalLayers": {
+      "description": "Which layers this fixture targets. Defaults to all layers applicable to the test.",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 4
+      },
+      "minItems": 1
+    }
+  },
+  "required": ["input", "candidateIntent", "confidence", "expectedSlots", "expectedPolicy", "risk"],
+  "additionalProperties": false
+}

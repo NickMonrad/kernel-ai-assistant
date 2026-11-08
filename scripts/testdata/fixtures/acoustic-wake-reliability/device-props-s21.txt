@@ -1,0 +1,5 @@
+ro.product.manufacturer=Samsung
+ro.product.model=SM-G991B
+ro.build.version.release=15
+ro.build.version.sdk=35
+ro.build.fingerprint=samsung/t0sxxx/t0s:15/AP3A/12345:user/release-keys

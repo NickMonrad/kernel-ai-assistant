@@ -1,0 +1,40 @@
+# sanitised structural fixture structurally derived from S21 Android 15 output
+# dumpsys batterystats --charged (human-readable)
+
+  UID u0a123: 0.294
+      cpu=0.294
+
+  UID 1000: 0.309
+      cpu=0.309
+
+  UID 1001: 0.236
+      cpu=0.236
+
+  UID u0a100: 1.50 mAh
+      cpu=1.40 wakelock=0.10
+
+  Estimated battery capacity: 3880 mAh
+
+  u0a123:
+    Fg Service for: 59m 59s 999ms
+    Total running: 59m 59s 999ms
+    Total cpu time: u=120ms s=7ms
+    Proc com.kernel.ai.debug:
+      CPU: 120ms usr + 7ms krn ; 0ms fg
+
+  u0a100:
+    Wake lock: WakeWordLock +4s200ms (partial) count 14
+    cpu: 50ms
+    power: 0.02 mAh
+
+  1000:
+    Wake lock: *alarm* +1s500ms (partial) count 5
+    cpu: 50ms
+    power: 0.02 mAh
+
+  1001:
+    Wake lock: RILJ +500ms (partial) count 3
+    cpu: 30ms
+    power: 0.01 mAh
+
+Device idle: IDLE (null)

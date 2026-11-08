@@ -1,0 +1,91 @@
+{
+  "suite": "1190_state_carryover",
+  "status": "complete",
+  "timestamp": "2026-06-12T21-25-54Z",
+  "device": "SM-G991B (S21, Exynos 2100, Mali G78 GPU)",
+  "build": "debug (commit 103711fd — history replay suppression + needsConversationReset)",
+  "scenario": "timer → memory → time — sequential independent ADB commands",
+  "elapsed_seconds": 145.8,
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0
+  },
+  "results": [
+    {
+      "index": 1,
+      "case_id": "set_a_timer_for_2_hours",
+      "message": "set a timer for 2 hours",
+      "command_id": "2724cbbd-1",
+      "expected": {
+        "intent": "set_timer",
+        "params": { "duration_seconds": "7200" }
+      },
+      "actual": {
+        "intent": "set_timer",
+        "params": { "duration_seconds": "7200" }
+      },
+      "markers": {
+        "conversation_reset": true,
+        "history_replay_skipped": true,
+        "route": "classified"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "status": "pass"
+    },
+    {
+      "index": 2,
+      "case_id": "remember_that_i_prefer_dark_mode",
+      "message": "remember that I prefer dark mode",
+      "command_id": "055f7138-1",
+      "expected": {
+        "intent": "save_memory",
+        "params": { "content": "I prefer dark mode" }
+      },
+      "actual": {
+        "intent": "save_memory",
+        "params": { "content": "I prefer dark mode" }
+      },
+      "markers": {
+        "conversation_reset": true,
+        "history_replay_skipped": null,
+        "route": "classified",
+        "note": "history_replay_skipped not emitted: QIR fast-path executed save_memory directly, no LLM fallthrough needed"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "status": "pass"
+    },
+    {
+      "index": 3,
+      "case_id": "what_time_is_it",
+      "message": "what time is it",
+      "command_id": "30f366f3-1",
+      "expected": {
+        "intent": "get_time",
+        "params": { "query_type": "time" }
+      },
+      "actual": {
+        "intent": "get_time",
+        "params": { "query_type": "time" }
+      },
+      "markers": {
+        "conversation_reset": true,
+        "history_replay_skipped": null,
+        "route": "classified",
+        "dispatch": "direct_reply",
+        "note": "history_replay_skipped not emitted: DirectReply returned before LLM path"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "status": "pass"
+    }
+  ],
+  "logcat_excerpts": {
+    "cmd1": "ADB_INTENT_TRACE commandId=2724cbbd-1 conversation_reset=true | NativeIntentHandler.handle: intent=set_timer params={duration_seconds=7200} | ADB_INTENT_TRACE commandId=2724cbbd-1 history_replay_skipped=true",
+    "cmd2": "ADB_INTENT_TRACE commandId=055f7138-1 conversation_reset=true | NativeIntentHandler.handle: intent=save_memory params={content=I prefer dark mode}",
+    "cmd3": "ADB_INTENT_TRACE commandId=30f366f3-1 conversation_reset=true | NativeIntentHandler.handle: intent=get_time params={query_type=time} | ADB_TOOL_COMPLETE commandId=30f366f3-1 intent=get_time result=direct_reply"
+  },
+  "conclusion": "The original content-leak pattern (save_memory with stale content) and the secondary stale-set_timer pattern (model stuck on set_timer duration_seconds=7200) are both eliminated. Each independent command shows conversation_reset=true, and when the LLM path is entered, history_replay_skipped=true confirms the fix is active."
+}

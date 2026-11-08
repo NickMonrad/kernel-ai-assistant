@@ -1,0 +1,5 @@
+{
+  "source_helper_version": "1.0.0",
+  "target_journal_contract_version": "1.0.0",
+  "compatible_schema_versions": [1]
+}
