@@ -379,6 +379,53 @@
       ]
     },
     {
+      "id": "S05K",
+      "feature": "Persona chat (Kiwi variant)",
+      "caption": "Chat with your local AI. No cloud required.",
+      "offline": true,
+      "model": true,
+      "persona": "Full Jandal",
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "tap",
+          "text": "Chats"
+        },
+        {
+          "do": "tap",
+          "desc": "New conversation"
+        },
+        {
+          "do": "wait_gone",
+          "text": "Still loading the on-device model",
+          "appear_timeout": 4,
+          "timeout": 300,
+          "note": "After the app was backgrounded the model reloads; this is before the first input, so it is cut"
+        },
+        {
+          "do": "type",
+          "text": "Should I have a sick day tomorrow?",
+          "compress": true,
+          "compress_to": 1.0,
+          "note": "Kiwi variant (decision 17): the reply should use NZ slang such as 'chuck a sickie', 'knackered', 'she'll be right'. Pick the most Kiwi of up to 3 takes"
+        },
+        {
+          "do": "wait_gone",
+          "desc": "Cancel response",
+          "timeout": 300,
+          "compress": true
+        },
+        {
+          "do": "sleep",
+          "s": 2.5
+        }
+      ],
+      "extra_hold_s": 5.0,
+      "extra_hold_note": "Hold the finished reply long enough to read its Kiwi phrasing"
+    },
+    {
       "id": "S06",
       "feature": "Weather (online)",
       "caption": "Online when you ask. No account needed.",
@@ -613,5 +660,18 @@
       ]
     }
   ],
-  "notes": "Quick-action shots wait for a *new* confirmation (wait with new=true counts matching nodes against the screen before the request), because Actions history keeps earlier takes' confirmations. Model shots wait for 'Cancel response' to disappear and mark that span for compression. Every shot starts with launch/restart: that frame syncs the clip to the runner clock. Shots with offline=false run with airplane mode off; the runner switches it per shot over USB adb. device='second' shots record on --second-serial (none in the intro since S07B moved to the S23U browser). redact_env names env vars whose values (Nextcloud server and username) are located on screen and blurred by demo_edit.py."
+  "notes": "Quick-action shots wait for a *new* confirmation (wait with new=true counts matching nodes against the screen before the request), because Actions history keeps earlier takes' confirmations. Model shots wait for 'Cancel response' to disappear and mark that span for compression. Every shot starts with launch/restart: that frame syncs the clip to the runner clock. Shots with offline=false run with airplane mode off; the runner switches it per shot over USB adb. device='second' shots record on --second-serial (none in the intro since S07B moved to the S23U browser). redact_env names env vars whose values (Nextcloud server and username) are located on screen and blurred by demo_edit.py.",
+  "intro_variants": {
+    "kiwi": [
+      "S00",
+      "S01",
+      "S02",
+      "S03",
+      "S04",
+      "S05K",
+      "S06",
+      "S07A",
+      "S07B"
+    ]
+  }
 }

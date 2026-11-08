@@ -42,6 +42,11 @@ class ShotListTest(unittest.TestCase):
                 self.assertTrue(any(s.get("compress") for s in shot["steps"]),
                                 f"{shot['id']} model wait must be marked for compression")
         self.assertTrue(set(data["intro_order"]) <= ids)
+        # Variants keep the intro's order and length, swapping single shots (decision 17).
+        for name, order in data.get("intro_variants", {}).items():
+            self.assertTrue(set(order) <= ids, name)
+            self.assertEqual(len(order), len(data["intro_order"]), name)
+        self.assertIn("S05K", data["intro_variants"]["kiwi"])
 
     def test_intro_order_and_captions_match_review(self):
         by_id = {s["id"]: s for s in cap.load_shots()["shots"]}

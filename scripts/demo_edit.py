@@ -503,6 +503,8 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
     lengths = [clip_duration(f) or seg.out_len for f, seg in zip(seg_files, segments)]
     placed = place_sounds(sounds, segments, float(take["lead_in_s"]), lengths)
     extra_hold = hold_for_sound(placed, sum(lengths))
+    # A shot can ask for a longer end hold, e.g. so a reply can be read (S05K).
+    extra_hold = max(extra_hold, float(shot.get("extra_hold_s", 0)))
     if extra_hold > 0:
         still = work / f"{shot['id']}_last.png"
         run(["ffmpeg", "-y", "-v", "error", "-sseof", "-0.2", "-i", str(seg_files[-1]), "-update", "1", "-frames:v", "1", str(still)])
@@ -765,6 +767,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="KEY=VALUE file for DEMO_CORI_CMD and DEMO_VOICE_DIR")
     ap.add_argument("--icon", type=Path, help="PNG for the title and end cards (default: the app's launcher icon)")
     ap.add_argument("--font", type=Path)
+    ap.add_argument("--variant", help="Use intro_variants[NAME] from shots.json as the order, e.g. 'kiwi'")
     ap.add_argument("--shots", default="intro",
                     help="'intro' (full cut with end card) or comma-separated ids for a preview without one")
     ap.add_argument("--allow-over-cap", action="store_true", help="Write a cut longer than the 150 s cap anyway")
@@ -797,7 +800,13 @@ def main(argv: list[str] | None = None) -> int:
             audio_parts: list[Path] = []
             cache = clips / "speech_cache"  # Cori renders, keyed by text, reused across edits
             preview = args.shots != "intro"
-            order = shots_data["intro_order"] if not preview else [x.strip() for x in args.shots.split(",") if x.strip()]
+            full_order = shots_data["intro_order"]
+            if args.variant:
+                variants = shots_data.get("intro_variants", {})
+                if args.variant not in variants:
+                    raise EditError(f"unknown --variant {args.variant!r}; shots.json has: {', '.join(variants) or 'none'}")
+                full_order = variants[args.variant]
+            order = full_order if not preview else [x.strip() for x in args.shots.split(",") if x.strip()]
             unknown = [sid for sid in order if sid not in by_id]
             if unknown:
                 raise EditError(f"unknown shot ids: {', '.join(unknown)}")
