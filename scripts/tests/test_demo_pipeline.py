@@ -568,6 +568,17 @@ class AudioPlanTest(unittest.TestCase):
         self.assertEqual([(snd.path.name, at) for snd, at in placed], [("a.wav", 12.5), ("b.wav", 15.55)])
         self.assertAlmostEqual(edit.hold_for_sound(placed, shot_seconds=14.0), 3.95, places=2)
 
+    def test_real_segment_lengths_move_later_sounds(self):
+        # Each rendered segment rounds up to whole frames; later sounds must follow the real
+        # lengths, or the hold is computed too short and the last reply is cut off.
+        segs = [edit.Segment(0.0, 10.0, 1.0), edit.Segment(10.0, 20.0, 5.0), edit.Segment(20.0, 30.0, 1.0)]
+        snd = edit.Sound(Path("r.wav"), 25.0, 7.0, "jandal")
+        planned = edit.place_sounds([snd], segs, lead=0.0)
+        real = edit.place_sounds([snd], segs, lead=0.0, lengths=[10.2, 2.3, 10.1])
+        self.assertEqual(planned[0][1], 17.0)
+        self.assertEqual(real[0][1], 17.5)
+        self.assertAlmostEqual(edit.hold_for_sound(real, 22.6), 2.3, places=2)
+
     def test_speech_cmd_fills_one_argument_each(self):
         cmd = edit.speech_cmd("py cori_say.py {text} {out}", "It's 6:03 am; rm -rf x", Path("/tmp/o.wav"))
         self.assertEqual(cmd, ["py", "cori_say.py", "It's 6:03 am; rm -rf x", "/tmp/o.wav"])

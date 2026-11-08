@@ -160,15 +160,20 @@ def marker_windows(segments: list[Segment]) -> list[tuple[float, float, int]]:
     return out
 
 
-def out_time(segments: list[Segment], clip_t: float) -> float | None:
-    """Where clip time ``clip_t`` lands in the rendered shot (None if it was cut)."""
+def out_time(segments: list[Segment], clip_t: float, lengths: list[float] | None = None) -> float | None:
+    """Where clip time ``clip_t`` lands in the rendered shot (None if it was cut).
+
+    ``lengths`` are the segments' real rendered lengths (each rounds to whole frames, which
+    adds up over a long shot); without them the planned lengths are used.
+    """
+    lengths = lengths or [seg.out_len for seg in segments]
     t = 0.0
-    for seg in segments:
+    for seg, length in zip(segments, lengths):
         if clip_t < seg.src_start:
             return None if t == 0.0 else round(t, 3)
         if clip_t <= seg.src_end:
-            return round(t + (clip_t - seg.src_start) / seg.speed, 3)
-        t += seg.out_len
+            return round(t + min((clip_t - seg.src_start) / seg.speed, length), 3)
+        t += length
     return round(t + (clip_t - segments[-1].src_end), 3) if segments else None
 
 
@@ -180,12 +185,13 @@ class Sound:
     kind: str  # "input" (cloned voice fixture) or "jandal" (Cori reply)
 
 
-def place_sounds(sounds: list[Sound], segments: list[Segment], lead: float) -> list[tuple[Sound, float]]:
+def place_sounds(sounds: list[Sound], segments: list[Segment], lead: float,
+                 lengths: list[float] | None = None) -> list[tuple[Sound, float]]:
     """Output start times for each sound. Jandal's chunks never overlap each other: a chunk
     whose regenerated audio runs long pushes the next one back."""
     placed, jandal_end = [], 0.0
     for snd in sorted(sounds, key=lambda x: x.t):
-        at = out_time(segments, lead + snd.t)
+        at = out_time(segments, lead + snd.t, lengths)
         if at is None:
             continue
         if snd.kind == "jandal":
@@ -472,11 +478,8 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
         raise EditError(f"{shot['id']}: nothing to render")
     boxes = blur_boxes(scale_redact(take))
     clip_end = clip_duration(clip)
+    # A tail pad only fills frames the clip is missing inside a segment's planned length.
     pads = [tail_pad(seg, clip_end) for seg in segments]
-    placed = place_sounds(sounds, segments, float(take["lead_in_s"]))
-    # Hold the last frame until the last reply has finished (the cut may run longer for speech).
-    extra_hold = hold_for_sound(placed, sum(seg.out_len for seg in segments) + sum(pads))
-    pads[-1] = round(pads[-1] + extra_hold, 3)
     caption = work / f"{shot['id']}_caption.txt"
     caption_text, caption_size = fit_text(shot["caption"], 54)
     caption.write_text(caption_text, encoding="utf-8")
@@ -495,6 +498,20 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
              "-i", str(clip), "-filter_complex", f"{blur_graph(boxes)};[pre]{segment_filter(seg.speed, pads[i])}[v]",
              "-map", "[v]", "-an", *encode_args(), str(seg_file)])
         seg_files.append(seg_file)
+    # Place the sounds against what was actually rendered, then hold the last frame until
+    # the last reply has finished (the cut may run longer for speech).
+    lengths = [clip_duration(f) or seg.out_len for f, seg in zip(seg_files, segments)]
+    placed = place_sounds(sounds, segments, float(take["lead_in_s"]), lengths)
+    extra_hold = hold_for_sound(placed, sum(lengths))
+    if extra_hold > 0:
+        still = work / f"{shot['id']}_last.png"
+        run(["ffmpeg", "-y", "-v", "error", "-sseof", "-0.2", "-i", str(seg_files[-1]), "-update", "1", "-frames:v", "1", str(still)])
+        hold = work / f"{shot['id']}_hold.mp4"
+        run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-framerate", str(FPS), "-i", str(still),
+             "-t", f"{extra_hold:.3f}", "-vf", "setsar=1", *encode_args(), str(hold)])
+        seg_files.append(hold)
+        lengths.append(clip_duration(hold) or extra_hold)
+    shot_seconds = round(sum(lengths), 3)
     listing = work / f"{shot['id']}_segs.txt"
     listing.write_text("".join(f"file {_concat_q(p)}\n" for p in seg_files), encoding="utf-8")
     joined = work / f"{shot['id']}_joined.mp4"
@@ -506,7 +523,6 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
                      if shot.get("offline") else None)
         marker_pngs = {w: corner_layer(f"sped up {w[2]}×", "▶▶", font, work / f"{shot['id']}_marker{i}.png", right=False)
                        for i, w in enumerate(markers)}
-        shot_seconds = sum(s.out_len for s in segments) + sum(pads)
         run(["ffmpeg", "-y", "-v", "error", *styled_overlay_args(joined, cap_png, badge_png, marker_pngs, shot_seconds),
              "-an", *encode_args(), str(out)])
     else:  # plain drawtext captions
@@ -520,11 +536,15 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
         "segments": [{"src_start": s.src_start, "src_end": s.src_end, "speed": s.speed} for s in segments],
         "sped_up_windows": [{"start": a, "end": b, "factor": f} for a, b, f in markers],
         "blurred": [{"x": x, "y": y, "w": w, "h": h} for x, y, w, h in boxes],
-        "seconds": round(sum(s.out_len for s in segments) + sum(pads), 2),
+        "seconds": round(shot_seconds, 2),
         "held_for_speech_s": extra_hold,
         "sounds": [{"kind": snd.kind, "file": snd.path.name, "at": at, "seconds": snd.seconds} for snd, at in placed],
     }
     shot_len = clip_duration(out) or edl["seconds"]
+    if abs(shot_len - shot_seconds) > 0.15:
+        # Sounds are placed against the planned length; a different real length would cut
+        # the end of a reply or put it over the next shot.
+        raise EditError(f"{shot['id']}: rendered {shot_len:.2f} s but its parts add up to {shot_seconds:.2f} s")
     edl["audio"] = str(render_shot_audio(placed, shot_len, work / f"{shot['id']}_audio.wav"))
     return out, edl
 
