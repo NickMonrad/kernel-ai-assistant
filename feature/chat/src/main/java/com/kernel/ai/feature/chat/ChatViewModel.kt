@@ -52,6 +52,8 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.toSpokenSummary
+import com.kernel.ai.core.skills.natives.isPersonalMemoryRecallQuery
+import com.kernel.ai.core.skills.natives.isCurrentConversationRecallQuery
 import com.kernel.ai.core.skills.intent.IntentCandidate
 import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.SkillResult
@@ -269,7 +271,18 @@ class ChatViewModel @Inject constructor(
     private var forceMinimalContextForNextMessage: Boolean = savedStateHandle["minimalContext"] ?: false
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
-    private val _inputText = MutableStateFlow("")
+    // Saved with the replacement so a restored composer and the ViewModel agree after process
+    // death; otherwise the field would show restored text while sendMessage sees "" (#1747).
+    private val _inputText = MutableStateFlow(savedStateHandle["inputText"] ?: "")
+
+    /** A ViewModel-originated draft: the composer applies exactly [text] when [revision] changes. */
+    private data class InputTextReplacement(val revision: Long, val text: String)
+    private val _inputTextReplacement = MutableStateFlow(
+        InputTextReplacement(
+            revision = savedStateHandle["inputTextReplacementRevision"] ?: 0L,
+            text = savedStateHandle["inputTextReplacementText"] ?: "",
+        ),
+    )
     private val _error = MutableStateFlow<String?>(null)
     private val _modelInitializationError = MutableStateFlow<String?>(null)
     private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
@@ -486,6 +499,7 @@ class ChatViewModel @Inject constructor(
     private data class InputState(
         val messages: List<ChatMessage>,
         val inputText: String,
+        val inputTextReplacement: InputTextReplacement,
         val error: String?,
         val conversationTitle: String?,
         val isSpeakingResponse: Boolean,
@@ -501,13 +515,13 @@ class ChatViewModel @Inject constructor(
     }
 
     private val inputState = combine(
-        _messages,
-        _inputText,
-        _error,
-        _conversationTitle,
+        combine(_messages, _inputText, _inputTextReplacement, _error, _conversationTitle) {
+                messages, inputText, inputTextReplacement, error, title ->
+            InputState(messages, inputText, inputTextReplacement, error, title, false)
+        },
         _isSpeakingResponse,
-    ) { messages, inputText, error, title, isSpeakingResponse ->
-        InputState(messages, inputText, error, title, isSpeakingResponse)
+    ) { state, isSpeakingResponse ->
+        state.copy(isSpeakingResponse = isSpeakingResponse)
     }
 
     private val gatedModels: List<KernelModel> = KernelModel.entries.filter { it.isGated && it.isRequired }
@@ -595,6 +609,8 @@ class ChatViewModel @Inject constructor(
                 isGenerating = engine.isGenerating,
                 isSpeakingResponse = input.isSpeakingResponse,
                 inputText = input.inputText,
+                inputTextReplacementRevision = input.inputTextReplacement.revision,
+                inputTextReplacementText = input.inputTextReplacement.text,
                 error = input.error,
                 isLoadingModel = engine.isLoadingModel,
                 showThinkingProcess = showThinking,
@@ -948,6 +964,9 @@ class ChatViewModel @Inject constructor(
             append("   means RESERVE TIME, not remember a fact.\n")
             append("8. Memory vs action: personal facts ('remember that Sarah is vegetarian') \u2192 save_memory.\n")
             append("   Device operations with time/date context \u2192 run_intent.\n")
+            append("CRITICAL — Personal memory recall: Questions about what the user told you, their preferences, or \"what do you remember about me\" MUST call search_memory before answering.\n")
+            append("    Use only that tool's filtered results; do NOT add facts from unrelated retrieved persona/cultural context or prior knowledge.\n")
+            append("    For generic \"what do you remember about me\" requests, present the returned saved facts as a concise list.\n")
             append("9. CRITICAL — Indirect action requests: even if the user does not use imperative language\n")
             append("   ('open X', 'do Y'), if they mention wanting a specific app, function, or device capability\n")
             append("   (calculator, hotspot, flashlight, timer, specific app name), treat it as an action request\n")
@@ -1428,18 +1447,29 @@ class ChatViewModel @Inject constructor(
 
     fun onInputChanged(text: String) {
         _inputText.value = text
+        savedStateHandle["inputText"] = text
         if (_error.value != null) _error.value = null
+    }
+
+    /** Applies a ViewModel-originated draft change; typing updates use [onInputChanged] instead. */
+    fun replaceInputText(text: String) {
+        onInputChanged(text)
+        val next = InputTextReplacement(_inputTextReplacement.value.revision + 1L, text)
+        _inputTextReplacement.value = next
+        savedStateHandle["inputTextReplacementRevision"] = next.revision
+        savedStateHandle["inputTextReplacementText"] = next.text
     }
 
     /** Prefills the composer from a planner smart reply chip; chips never auto-submit. */
     fun onSmartReplySelected(suggestion: MealPlannerSuggestion) {
-        when (suggestion.composeMode) {
-            MealPlannerSuggestionComposeMode.REPLACE -> onInputChanged(suggestion.command)
+        val replacement = when (suggestion.composeMode) {
+            MealPlannerSuggestionComposeMode.REPLACE -> suggestion.command
             MealPlannerSuggestionComposeMode.APPEND_COMMA ->
-                onInputChanged(appendSmartReplyValue(_inputText.value, suggestion.command))
+                appendSmartReplyValue(_inputText.value, suggestion.command)
             MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING ->
-                onInputChanged(appendSmartReplyValue(stripNegationPrefixes(_inputText.value), suggestion.command))
+                appendSmartReplyValue(stripNegationPrefixes(_inputText.value), suggestion.command)
         }
+        replaceInputText(replacement)
     }
 
     private fun appendSmartReplyValue(current: String, command: String): String {
@@ -1818,7 +1848,7 @@ class ChatViewModel @Inject constructor(
         // Signal sendMessage to reset the LiteRT conversation before processing,
         // preventing stale KV-cache state from contaminating the new independent command (#1190)
         needsConversationReset = true
-        onInputChanged(normalized)
+        replaceInputText(normalized)
         sendMessage(if (speakResponse) SubmitMode.Voice else SubmitMode.Text)
     }
 
@@ -1889,7 +1919,7 @@ class ChatViewModel @Inject constructor(
         }
         stopVoicePlayback()
         suppressVoiceOutputForCurrentResponse = false
-        _inputText.value = ""
+        replaceInputText("")
         val convId = conversationId ?: return
         val isLoadSkillAbortProbeFollowUp = BuildConfig.DEBUG &&
             pendingLoadSkillAbortProbeFollowUpConversationId == convId &&
@@ -2335,6 +2365,74 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
             }
+            val isCurrentConversationRecall =
+                !looksLikeToolQuery(text) &&
+                    !containsExplicitToolActionVerb(text) &&
+                    isCurrentConversationRecallQuery(text)
+            if (isCurrentConversationRecall) {
+                // The "answer from history, do not call tools" instruction is part of this turn
+                // only; on CPU the KV cache would keep it, so rebuild from real messages after.
+                restoreFullPromptAfterTurn = true
+            }
+            val isPersonalMemoryRecall =
+                !safeRunIntentTest &&
+                    matchedIntent == null &&
+                    !looksLikeToolQuery(text) &&
+                    !containsExplicitToolActionVerb(text) &&
+                    isPersonalMemoryRecallQuery(
+                        text,
+                        runCatching { userProfileRepository.getName() }.getOrNull(),
+                    )
+            if (isPersonalMemoryRecall) {
+                pendingConfirmationIntent = null
+                val searchMemory = skillRegistry.get("search_memory")
+                if (searchMemory == null) {
+                    appendAssistantMessage(
+                        convId,
+                        "I couldn't retrieve your saved memories just now.",
+                        shouldIndex = false,
+                    )
+                    return@launch
+                }
+                when (val result = searchMemory.execute(SkillCall(searchMemory.name, mapOf("query" to text)))) {
+                    is SkillResult.DirectReply -> {
+                        appendAssistantMessageWithToolCall(
+                            convId = convId,
+                            content = result.content,
+                            skillName = searchMemory.name,
+                            requestJson = mapOf("query" to text).toString(),
+                            isSuccess = true,
+                            presentation = result.presentation,
+                            spokenSummary = spokenSummaryFrom(result),
+                        )
+                        return@launch
+                    }
+                    is SkillResult.Success -> {
+                        systemContext = "[System: Memory search is already complete. Answer the user's " +
+                            "personal-memory question using only the filtered evidence below. Do not " +
+                            "call any tools or add outside facts. If it does not answer the question, " +
+                            "say you do not have that information.]\n${result.content}"
+                        // Replay this recall with a clean prompt, then restore full identity/history
+                        // before the next normal turn without resetting the native engine.
+                        needsHistoryReplay = true
+                        restoreFullPromptAfterTurn = true
+                        estimatedTokensUsed = 0
+                        turnsSinceReset = 0
+                    }
+                    is SkillResult.Failure -> {
+                        appendAssistantMessage(convId, result.error, shouldIndex = false)
+                        return@launch
+                    }
+                    else -> {
+                        appendAssistantMessage(
+                            convId,
+                            "I couldn't retrieve your saved memories just now.",
+                            shouldIndex = false,
+                        )
+                        return@launch
+                    }
+                }
+            }
             // ── E2E marker: route decision ────────────────────────────────
             // Emitted after QIR route decision so the harness can verify whether
             // the request was classified by Tier 2 or fell through to Gemma-4.
@@ -2367,7 +2465,12 @@ class ChatViewModel @Inject constructor(
             // ── Intent Recovery Orchestrator ───────────────────────────────────
             // When FallThrough has a bestGuess above the soft threshold, try to
             // recover deterministically before falling back to Gemma.
-            if (matchedIntent == null && routeResult is QuickIntentRouter.RouteResult.FallThrough) {
+            if (
+                !isPersonalMemoryRecall &&
+                !isCurrentConversationRecall &&
+                matchedIntent == null &&
+                routeResult is QuickIntentRouter.RouteResult.FallThrough
+            ) {
                 val bestGuess = routeResult.bestGuess
                 if (bestGuess != null && routeResult.bestConfidence >= IntentContractRegistry.SOFT_FALLBACK_THRESHOLD) {
                     val recovery = intentRecoveryOrchestrator.recover(
@@ -2727,6 +2830,7 @@ class ChatViewModel @Inject constructor(
             // This must happen before Gemma init to avoid memory pressure on S23U with E-4B.
             if (!safeRunIntentTest &&
                 !isLoadSkillAbortProbeFollowUp &&
+                !isPersonalMemoryRecall &&
                 explicitWikipediaQuery == null &&
                 matchedIntent == null
             ) {
@@ -2800,7 +2904,7 @@ class ChatViewModel @Inject constructor(
             // or the query matches known tool-trigger keywords, strip the Jandal personality
             // and RAG context to free ~1000 tokens for tool-call reasoning. Actions-tab
             // fallthroughs also force this path because the transcript may already be garbled.
-            val priorMessages = if (safeRunIntentTest) {
+            val priorMessages = if (safeRunIntentTest || isPersonalMemoryRecall) {
                 emptyList()
             } else {
                 _messages.value.dropLast(2) // exclude just-added user + placeholder
@@ -2816,11 +2920,12 @@ class ChatViewModel @Inject constructor(
                 forceMinimalContextForNextMessage = false
                 savedStateHandle["minimalContext"] = false
             }
-            val isToolQuery = safeRunIntentTest ||
-                forceMinimalContext ||
-                (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
-                looksLikeToolQuery(text) ||
-                isToolFollowUp
+            val isToolQuery = safeRunIntentTest || forceMinimalContext ||
+                (!isCurrentConversationRecall &&
+                    (isPersonalMemoryRecall ||
+                        (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
+                        looksLikeToolQuery(text) ||
+                        isToolFollowUp))
             isToolQueryForTurn = isToolQuery
             val preferImmediateContext =
                 !safeRunIntentTest && prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
@@ -2887,11 +2992,16 @@ class ChatViewModel @Inject constructor(
                 // Independent commands (conversation_reset) must NOT see previous independent
                 // commands' history — the injected tool calls bias the model toward the
                 // previously used tool (#1190).
-                val allMessages = if (wasConversationReset) {
-                    Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId history_replay_skipped=true")
-                    emptyList()
-                } else {
-                    _messages.value.dropLast(2) // exclude just-added user + placeholder
+                val allMessages = when {
+                    wasConversationReset || isPersonalMemoryRecall -> {
+                        if (isPersonalMemoryRecall) {
+                            Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId personal_memory_history_skipped=true")
+                        } else {
+                            Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId history_replay_skipped=true")
+                        }
+                        emptyList()
+                    }
+                    else -> _messages.value.dropLast(2) // exclude just-added user + placeholder
                 }
                 val rawTurns = contextWindowManager.extractTurns(
                     allMessages.map { it.content to (it.role == ChatMessage.Role.USER) }
@@ -2968,7 +3078,14 @@ class ChatViewModel @Inject constructor(
                 if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
                 if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
                 if (systemContext != null) append("$systemContext\n\n")
-                if (isToolQuery) {
+                if (isCurrentConversationRecall) {
+                    append(
+                        "[System: The user is asking about this conversation's history. Answer from " +
+                            "the prior conversation messages; do not call any tools. If the history " +
+                            "does not answer the question, say so.]\n\n",
+                    )
+                }
+                if (isToolQuery && !isPersonalMemoryRecall && !isCurrentConversationRecall) {
                     buildToolUsePrompt()
                         .takeIf { it.isNotBlank() }
                         ?.let { append("$it\n\n") }
@@ -3696,7 +3813,7 @@ class ChatViewModel @Inject constructor(
                         _inputText.value.isBlank()
                     if (canInjectFollowUp) {
                         pendingLoadSkillAbortProbeFollowUpConversationId = convId
-                        _inputText.value = LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP
+                        replaceInputText(LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP)
                         Log.i(TAG, "debug_load_skill_abort_probe=follow_up_injected same_conversation=true")
                         sendMessage()
                     } else {
@@ -4112,7 +4229,7 @@ class ChatViewModel @Inject constructor(
             return
         }
         _voiceCaptureState.value = VoiceCaptureState.Processing(transcript)
-        onInputChanged(transcript)
+        replaceInputText(transcript)
         sendMessage(SubmitMode.Voice)
     }
 
@@ -4293,7 +4410,7 @@ class ChatViewModel @Inject constructor(
 
                 // 7. Clear all transient chat state for the new conversation
                 _messages.value = emptyList()
-                _inputText.value = ""
+                replaceInputText("")
                 _error.value = null
                 _conversationTitle.value = null
                 titleGenerationStarted = false

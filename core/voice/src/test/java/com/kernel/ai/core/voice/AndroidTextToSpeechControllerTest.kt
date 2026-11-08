@@ -5,9 +5,11 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkConstructor
+import io.mockk.slot
 import io.mockk.unmockkConstructor
 import io.mockk.verify
 import java.util.Locale
@@ -289,6 +291,35 @@ class AndroidTextToSpeechControllerTest {
         val recovered = factory.created[1]
         verify { recovered.speak("streamed reply", TextToSpeech.QUEUE_FLUSH, any(), any()) }
         verify(exactly = 0) { factory.created[0].speak(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `trace logs each streamed chunk with its own text when it starts`() = runTest(dispatcher) {
+        val traced = mutableListOf<String>()
+        VoiceOutputTrace.enabled = true
+        VoiceOutputTrace.sink = { traced += it }
+        try {
+            val (controller, factory) = buildController()
+            val session = controller.openStreamingSession(VoiceSpeakRequest(text = "", locale = Locale.US))
+            session.append("First sentence.", isFinal = false)
+            session.append("Second sentence.", isFinal = true)
+            val engine = factory.created.last()
+            val listener = slot<UtteranceProgressListener>()
+            verify { engine.setOnUtteranceProgressListener(capture(listener)) }
+            val ids = mutableListOf<String>()
+            verify { engine.speak(any(), any(), any(), capture(ids)) }
+            ids.forEach { listener.captured.onStart(it) }
+            assertEquals(
+                listOf(
+                    "speaking_started engine=android_tts chars=15 part=1/1 text=First sentence.",
+                    "speaking_started engine=android_tts chars=16 part=1/1 text=Second sentence.",
+                ),
+                traced,
+            )
+        } finally {
+            VoiceOutputTrace.enabled = false
+            VoiceOutputTrace.sink = null
+        }
     }
 
     @Test
