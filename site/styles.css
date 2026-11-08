@@ -61,11 +61,10 @@ h1 span { color: var(--green); }
 .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .play-status { padding: 10px 14px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--surface); font-size: .95rem; font-weight: 650; }
 .hero-note { margin: 24px 0 0; color: var(--muted); font-size: .95rem; }
-.hero-art { position: relative; min-height: 340px; display: grid; place-items: center; isolation: isolate; }
-.icon-halo { position: relative; z-index: 1; width: min(250px, 68vw); border-radius: 28%; box-shadow: var(--shadow); transform: rotate(-5deg); }
-.icon-halo img { border-radius: 28%; }
-.orbit { position: absolute; z-index: -1; width: 310px; height: 190px; border: 1px solid color-mix(in srgb, var(--green) 42%, transparent); border-radius: 50%; transform: rotate(-28deg); }
-.orbit-two { width: 340px; height: 230px; border-color: color-mix(in srgb, var(--purple) 35%, transparent); transform: rotate(35deg); }
+.hero-art { position: relative; display: grid; place-items: center; isolation: isolate; }
+.hero-scene { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 28px; box-shadow: var(--shadow); }
+.icon-halo { position: absolute; left: 12%; top: 50%; z-index: 1; width: min(170px, 34%); border-radius: 28%; box-shadow: 0 16px 36px rgb(20 40 15 / 35%); transform: translateY(-50%) rotate(-5deg); }
+.icon-halo img { display: block; width: 100%; height: auto; border-radius: 28%; }
 
 .section { padding-block: 76px 88px; }
 .section-heading { max-width: 650px; margin-bottom: 34px; }
@@ -73,6 +72,7 @@ h1 span { color: var(--green); }
 .section-heading > p:last-child { margin-bottom: 0; color: var(--muted); font-size: 1.08rem; }
 .pillars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .pillar { min-height: 224px; padding: 25px; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); }
+.pillar-art { display: block; width: 140px; height: auto; margin: -6px 0 10px; }
 .pillar-number { display: inline-grid; width: 38px; height: 38px; place-items: center; margin-bottom: 14px; border-radius: 13px; background: var(--surface-alt); color: var(--green); font-size: .8rem; font-weight: 800; }
 .pillar:nth-child(2) .pillar-number { color: var(--teal); }
 .pillar:nth-child(3) .pillar-number { color: var(--purple); }
@@ -80,8 +80,8 @@ h1 span { color: var(--green); }
 .pillar p { margin-bottom: 0; color: var(--muted); }
 
 .privacy-band { border-block: 1px solid var(--line); background: var(--surface-alt); }
-.privacy-inner { width: min(900px, calc(100% - 40px)); min-height: 300px; margin-inline: auto; display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 24px; padding-block: 52px; }
-.privacy-mark { display: grid; width: 64px; height: 64px; place-items: center; border-radius: 22px; background: var(--green); color: #fff; font-size: 2rem; font-weight: 800; }
+.privacy-inner { width: min(900px, calc(100% - 40px)); min-height: 300px; margin-inline: auto; display: grid; grid-template-columns: 200px 1fr; align-items: center; gap: 32px; padding-block: 52px; }
+.privacy-art { display: block; width: 100%; height: auto; }
 .privacy-inner > div:last-child > p:not(.eyebrow) { max-width: 700px; color: var(--muted); font-size: 1.05rem; }
 .text-link { display: inline-flex; min-height: 48px; align-items: center; font-weight: 750; }
 
@@ -107,10 +107,9 @@ h1 span { color: var(--green); }
   .header-inner { min-height: 0; align-items: flex-start; flex-direction: column; gap: 12px; padding-block: 14px; }
   .site-header nav { width: 100%; justify-content: flex-start; gap: 6px 18px; }
   .hero { min-height: 0; grid-template-columns: 1fr; gap: 22px; padding-block: 62px 56px; }
-  .hero-art { min-height: 230px; grid-row: 1; }
-  .icon-halo { width: 174px; }
-  .orbit { width: 250px; height: 145px; }
-  .orbit-two { width: 270px; height: 180px; }
+  .hero-art { grid-row: 1; }
+  .privacy-inner { grid-template-columns: 1fr; gap: 16px; }
+  .privacy-art { width: 160px; }
   .pillars { grid-template-columns: 1fr; }
   .pillar { min-height: 0; }
   .screenshots { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
@@ -127,7 +126,6 @@ h1 span { color: var(--green); }
   .site-header nav a { font-size: .88rem; }
   .hero-actions { align-items: stretch; flex-direction: column; }
   .play-status { text-align: center; }
-  .privacy-inner { grid-template-columns: 1fr; gap: 16px; }
   .screenshots figcaption { font-size: .78rem; }
 }
 
