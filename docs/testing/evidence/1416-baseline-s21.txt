@@ -1,0 +1,29 @@
+# PR #1416 Baseline — S21 (SM-G991B)
+# Captured: 2026-07-21
+
+## Device identity
+- ADB serial: R5CR605B71K
+- Model: SM-G991B (o1s)
+- Android: 15 (SDK 35)
+- Battery: 97% (charging via USB)
+
+## App
+- Package: com.kernel.ai.debug
+- Source SHA: 38c590f0c756e781a651f901a4c1e940a9f5a931
+- APK SHA-256: bf86072f82547073acdae34a4b6851889f646e5e2840df491726950e9e99bf95
+
+## Audio state
+- Media volume: 9/15
+- Alarm volume: default (min=1, max=15, not muted)
+- Ring volume: muted (Muted=true)
+- Ringer mode: (not available via settings get)
+- DND: ZEN_MODE_OFF
+- BT state: ON (no active A2DP connection)
+
+## Permissions
+- RECORD_AUDIO: granted (baseline)
+- POST_NOTIFICATIONS: granted (baseline)
+
+## Other
+- Battery optimisation: not whitelisted
+- Wake word: enabled for screen-off Hey Jandal

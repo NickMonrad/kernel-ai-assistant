@@ -1,0 +1,5458 @@
+package com.kernel.ai.core.skills
+
+import android.util.Log
+import kotlinx.coroutines.delay
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.TemporalAdjusters
+
+import com.kernel.ai.core.skills.natives.CookingConversionService
+import com.kernel.ai.core.skills.natives.UnitConversionEvaluator
+import com.kernel.ai.core.skills.intent.CalendarSlotExtractor
+import com.kernel.ai.core.skills.intent.ExtractionResult
+import com.kernel.ai.core.skills.intent.IntentContract
+import com.kernel.ai.core.skills.intent.IntentRiskLevel
+/** Written-out tens words and tens-plus-unit compounds ("sixty", "forty five", "forty-five") for set_timer. */
+private const val WRITTEN_TENS = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+private const val WRITTEN_UNITS = "one|two|three|four|five|six|seven|eight|nine"
+private const val WRITTEN_TENS_COMPOUND = """(?:$WRITTEN_TENS)(?:[\s-]+(?:$WRITTEN_UNITS))?"""
+
+/** Written-out quantity values for set_timer durations, including the tens words. */
+private val WRITTEN_QUANTITY_VALUES: Map<String, Int> = mapOf(
+    "a" to 1, "an" to 1, "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
+    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10, "fifteen" to 15,
+    "twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50, "sixty" to 60,
+    "seventy" to 70, "eighty" to 80, "ninety" to 90,
+)
+
+/** Sums written-out words: "six" → 6, "sixty" → 60, "forty five" / "forty-five" → 45. Null if any word is unknown. */
+private fun writtenQuantity(phrase: String): Int? {
+    val words = phrase.split(Regex("[\\s-]+")).filter(String::isNotEmpty)
+    if (words.isEmpty()) return null
+    var total = 0
+    for (word in words) total += WRITTEN_QUANTITY_VALUES[word] ?: return null
+    return total
+}
+
+/**
+ * Tier 2: Fast Intent Layer — pure Kotlin regex + future BERT-tiny zero-shot classifier.
+ *
+ * Intercepts simple device actions (<30ms) before they reach Gemma-4 E4B (~2s GPU).
+ * Two-stage pipeline:
+ *   1. Regex exact match (<1ms, 0 memory)
+ *   2. BERT-tiny zero-shot similarity (future: ~30ms, ~15MB model)
+ *
+ * If neither stage matches with sufficient confidence, returns [RouteResult.FallThrough]
+ * and the input continues to Tier 3 (E4B).
+ */
+class QuickIntentRouter(
+    private val classifier: IntentClassifier? = null,
+    private val similarityThreshold: Float = 0.85f,
+    private val intentContractRegistry: com.kernel.ai.core.skills.intent.IntentContractRegistry? = null,
+) {
+
+    // ── Result types ──────────────────────────────────────────────────────────
+
+    sealed class RouteResult {
+        /** Regex matched with certainty — execute directly. */
+        data class RegexMatch(
+            val intent: MatchedIntent,
+        ) : RouteResult()
+
+        /** BERT-tiny matched above threshold — execute (with optional confirmation). */
+        data class ClassifierMatch(
+            val intent: MatchedIntent,
+            val confidence: Float,
+            val needsConfirmation: Boolean,
+        ) : RouteResult()
+
+        /** No match — fall through to E4B. */
+        data class FallThrough(
+            val input: String,
+            val bestGuess: MatchedIntent? = null,
+            val bestConfidence: Float = 0f,
+        ) : RouteResult()
+
+        /**
+         * Regex matched but a required parameter is absent — pause execution and ask the user
+         * to supply the missing slot before the intent can be dispatched.
+         */
+        data class NeedsSlot(
+            val intent: MatchedIntent,
+            val missingSlot: com.kernel.ai.core.skills.slot.SlotSpec,
+        ) : RouteResult()
+    }
+
+    data class MatchedIntent(
+        val intentName: String,
+        val params: Map<String, String>,
+        val source: String = "regex",
+    )
+
+
+    interface IntentClassifier {
+        data class Classification(val intentName: String, val confidence: Float)
+        fun classify(input: String): Classification?
+        /**
+         * Returns true when the classifier is fully initialised and ready to classify.
+         * Defaults to true for classifiers without async init requirements.
+         */
+        fun isReady(): Boolean = true
+        /**
+         * Returns true when the classifier has failed to initialise and will never become ready.
+         * Guards against burning the full `awaitClassifierReady` timeout on permanently
+         * unavailable classifiers (e.g. missing model assets).
+         */
+        fun isFailed(): Boolean = false
+    }
+
+    // ── Intent prefix normalisation ───────────────────────────────────────────
+
+    /** Strips common conversational prefixes before pattern matching so that
+     *  "I want to turn on the torch" matches the same regex as "turn on the torch". */
+    private val INTENT_PREFIX_RE = Regex(
+        """^(?:(?:i\s+)?(?:want|need|would\s+like)\s+to|can\s+you|could\s+you|please|hey(?:\s+jandal)?)[,\s]+""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val IMPORTANT_DATE_ALIAS_RE = Regex(
+        """(?:favourite|favorite|special)\s+(?:date|day)(?=\s+for\b|\s+\d|\s+[A-Za-z]{3,}\s+\d|\s*$)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * NZ-accent STT mishearing correction — applied to [route] input before regex pattern
+     * matching only. NOT fed to the classifier to avoid corrupting its input distribution.
+     *
+     * Root cause: the NZ short-front vowel /æ/ in "a" is heard by STT as a schwa or /ɛ/,
+     * which Whisper/Google STT commonly encodes as "-er". So "save a note" → "saver note",
+     * "make a note" → "maker note", etc. The regex matches verb+"er" immediately before a
+     * common command noun and restores the elided article.
+     *
+     * Scope: only command-verb stems + immediately adjacent command nouns — avoids clobbering
+     * legitimate words like "saver", "maker", "creator" in non-command contexts.
+     */
+    /**
+     * NZ-accent STT mishearing correction — applied to [route] input before regex pattern
+     * matching only. NOT fed to the classifier to avoid corrupting its input distribution.
+     *
+     * Root cause: the NZ short-front vowel /æ/ in "a" is heard by STT as a schwa, which
+     * Whisper/Google STT encodes as an "-er" suffix on the preceding verb. The verb's trailing
+     * "e" is elided before the suffix (English "-er" agentive morphology), giving:
+     *   "save a note" → "saver note"
+     *   "make a note" → "maker note"
+     *   "take a note" → "taker note"
+     *
+     * The regex matches the mishearing forms (verb stem + "er") immediately before a command
+     * noun and replaces them with "verb a ". Stems are enumerated explicitly to avoid matching
+     * legitimate words ("writer", "adder", "starter") in non-command contexts.
+     *
+     * The lookahead covers common command nouns so the correction never fires mid-sentence.
+     */
+    private val STT_NZ_MISHEARING_RE = Regex(
+        """\b(sav|mak|tak|creat|jot|writ|add|record)er\s+(?=(?:a\s+)?(?:note|list|memo|reminder|voice\s+memo)\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    // #982 — "Add 111 over 70 to the blood pressure lost" -> "...list".
+    // Scoped to the regex path only; classifier and LLM fall-through still see
+    // the trimmed original, so chat copy ("I lost my keys") is untouched.
+    private val LIST_NAME_TAIL_MISHEAR_RE = Regex(
+        """\b(list|lust|lost|last)\b\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+
+    private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
+        "make_call" to mapOf(
+            "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "contact",
+                promptTemplate = "Who would you like to call?",
+            ),
+        ),
+        "send_sms" to mapOf(
+            "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "contact",
+                promptTemplate = "Who do you want to send a message to?",
+            ),
+            "message" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "message",
+                promptTemplate = "What would you like to say to {contact}?",
+            ),
+        ),
+        "send_email" to mapOf(
+            "contact" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "contact",
+                promptTemplate = "Who would you like to email?",
+            ),
+            "subject" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "subject",
+                promptTemplate = "What's the subject of your email to {contact}?",
+            ),
+            "body" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "body",
+                promptTemplate = "What would you like the email to say?",
+            ),
+        ),
+        "create_calendar_event" to mapOf(
+            "title" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "title",
+                promptTemplate = "What should I call the event?",
+            ),
+            "date" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "date",
+                promptTemplate = "What day is {title} for?",
+            ),
+        ),
+        "add_to_list" to mapOf(
+            "item" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "item",
+                promptTemplate = "What would you like to add?",
+            ),
+            "list_name" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "list_name",
+                promptTemplate = "Which list should I add it to?",
+            ),
+        ),
+        "create_list" to mapOf(
+            "list_name" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "list_name",
+                promptTemplate = "What would you like to call the list?",
+            ),
+        ),
+        "save_important_date" to mapOf(
+            "label" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "label",
+                promptTemplate = "What important date should I save?",
+            ),
+            "date" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "date",
+                promptTemplate = "What date is {label}?",
+            ),
+        ),
+        "remove_important_date" to mapOf(
+            "label" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "label",
+                promptTemplate = "Which important date should I remove?",
+            ),
+        ),
+        "save_memory" to mapOf(
+            "content" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "content",
+                promptTemplate = "What would you like me to remember?",
+            ),
+        ),
+        "add_reminder" to mapOf(
+            "item" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "item",
+                promptTemplate = "What would you like me to remind you about?",
+            ),
+            "day" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "day",
+                promptTemplate = "Which day should I set the reminder for?",
+            ),
+            "time" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "time",
+                promptTemplate = "What time on {day} should I remind you to {item}?",
+            ),
+        ),
+        "create_note" to mapOf(
+            "content" to com.kernel.ai.core.skills.slot.SlotSpec(
+                name = "content",
+                promptTemplate = "What would you like me to write down?",
+            ),
+        ),
+    )
+    private fun slotContract(intentName: String): Map<String, com.kernel.ai.core.skills.slot.SlotSpec> =
+        intentContractRegistry?.requiredSlots(intentName)
+            ?: slotContracts[intentName] ?: emptyMap()
+
+    private val placeholderContacts = setOf(
+        "someone",
+        "somebody",
+        "anyone",
+        "anybody",
+    )
+
+    private val placeholderItems = setOf(
+        "something",
+        "anything",
+    )
+
+    private fun normalizeOptionalContact(raw: String): String? = raw.trim()
+        .takeIf { it.isNotBlank() }
+        ?.takeUnless { it.lowercase() in placeholderContacts }
+
+    private fun normalizeOptionalItem(raw: String): String? = raw.trim()
+        .takeIf { it.isNotBlank() }
+        ?.takeUnless { it.lowercase() in placeholderItems }
+
+    private fun normalizeReminderItem(raw: String): String = raw.trim()
+        .replace(Regex("""^buying\b\s*""", RegexOption.IGNORE_CASE), "buy ")
+
+    private fun normalizeImportantDateLabel(raw: String): String = raw.trim()
+        .replace(Regex("""^(?:my|the)\s+""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?$""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""\s+(?:as|is)\s+(?:an?\s+)?important\s+(?:date|day)$""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:on|for|at|the)(?:\s+the)?\s*$""", RegexOption.IGNORE_CASE), "")
+        .trim()
+
+    private fun normalizeImportantDateLabelOrNull(raw: String): String? =
+        normalizeImportantDateLabel(raw).takeIf { it.isNotBlank() }
+
+    private val importantDateValuePattern =
+        "(?:\\d{1,2}(?:st|nd|rd|th)?(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|[a-zA-Z]+\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?|(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty(?:-|\\s+)first|twenty(?:-|\\s+)second|twenty(?:-|\\s+)third|twenty(?:-|\\s+)fourth|twenty(?:-|\\s+)fifth|twenty(?:-|\\s+)sixth|twenty(?:-|\\s+)seventh|twenty(?:-|\\s+)eighth|twenty(?:-|\\s+)ninth|thirtieth|thirty(?:-|\\s+)first)(?:\\s+of)?\\s+[a-zA-Z]+(?:\\s+\\d{4})?|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})"
+
+    private val unitConversionValuePattern = "-?\\d+(?:\\.\\d+)?"
+    private val unitConversionUnitPattern = UnitConversionEvaluator.supportedRouterRegexPattern()
+    private val ingredientQualifiedMassUnitPattern = UnitConversionEvaluator.supportedMassRouterRegexPattern()
+    private val ingredientQualifiedVolumeUnitPattern = UnitConversionEvaluator.supportedVolumeRouterRegexPattern()
+
+    private val mixedUnitConversionTargetPattern = UnitConversionEvaluator.supportedMixedUnitRouterRegexPattern()
+    private val feetAndInchesInputPattern = "(-?\\d+(?:\\.\\d+)?)\\s*(?:ft|foot|feet)\\s+(-?\\d+(?:\\.\\d+)?)\\s*(?:in|inch|inches)"
+    private fun extractUnitConversionParams(value: String, fromUnit: String, toUnit: String): Map<String, String> = mapOf(
+        "value" to value.trim(),
+        "from_unit" to normalizeUnitConversionPhrase(fromUnit),
+        "to_unit" to normalizeUnitConversionTarget(toUnit),
+    )
+
+    private fun extractFeetAndInchesConversionParams(feet: String, inches: String, toUnit: String): Map<String, String> {
+        val totalInches = try {
+            java.math.BigDecimal(feet.trim()).multiply(java.math.BigDecimal("12"))
+                .add(java.math.BigDecimal(inches.trim()))
+                .stripTrailingZeros()
+                .toPlainString()
+        } catch (_: NumberFormatException) {
+            feet.trim()
+        }
+        return mapOf(
+            "value" to totalInches,
+            "from_unit" to "inches",
+            "to_unit" to normalizeUnitConversionTarget(toUnit),
+        )
+    }
+
+    private fun normalizeUnitConversionTarget(raw: String): String = normalizeUnitConversionPhrase(
+        when (raw.trim().lowercase()) {
+            "feet and inches", "foot and inches" -> "inches"
+            else -> raw.trim()
+        },
+    )
+
+    private fun normalizeUnitConversionPhrase(raw: String): String = raw.trim()
+        .replace(Regex("""\bkm\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
+        .replace(Regex("""\bkm\s+a\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
+        .replace(Regex("""\bkilometers?\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
+        .replace(Regex("""\bkilometres?\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometres per hour")
+        .replace(Regex("""\bmeters?\s+a\s+second\b""", RegexOption.IGNORE_CASE), "meters per second")
+        .replace(Regex("""\bmeters?\s+an\s+second\b""", RegexOption.IGNORE_CASE), "meters per second")
+        .replace(Regex("""\bmetres?\s+a\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
+        .replace(Regex("""\bmetres?\s+an\s+second\b""", RegexOption.IGNORE_CASE), "metres per second")
+
+    private val cookingConversionValuePattern = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?"
+    private val cookingVolumeUnitPattern = CookingConversionService.supportedVolumeRouterRegexPattern()
+    private val cookingMassUnitPattern = CookingConversionService.supportedMassRouterRegexPattern()
+    private val cookingIngredientMassUnitPattern = CookingConversionService.supportedIngredientMassRouterRegexPattern()
+    private val cookingIngredientVolumeUnitPattern = CookingConversionService.supportedIngredientVolumeRouterRegexPattern()
+    private val cookingIngredientPattern = "[A-Za-z][A-Za-z'’\\-]*(?:\\s+[A-Za-z][A-Za-z'’\\-]*){0,5}"
+
+    private fun extractCookingConversionParams(
+        amount: String,
+        fromUnit: String,
+        ingredient: String,
+        toUnit: String,
+    ): Map<String, String> = mapOf(
+        "amount" to amount.trim().replace(",", ""),
+        "from_unit" to normalizeCookingPhrase(fromUnit),
+        "ingredient" to normalizeCookingPhrase(ingredient),
+        "to_unit" to normalizeCookingPhrase(toUnit),
+    )
+
+    private fun normalizeCookingPhrase(raw: String): String = raw.trim()
+        .trim(',', '.', '?', '!')
+        .replace(Regex("""\s+"""), " ")
+
+    // Written-out fractional cooking quantities ("quarter of a cup", "half a cup",
+    // "three quarters of a cup") never reach the numeric cooking-conversion patterns because
+    // [cookingConversionValuePattern] only accepts digits. We rewrite them to a decimal value
+    // ("0.25 cup") before regex matching so the existing convert_cooking_measure patterns fire
+    // deterministically instead of falling through to the LLM (which has misrouted these to
+    // query_wikipedia). Scoped via a unit lookahead so unrelated phrasings such as
+    // "half an hour" are left untouched.
+    private val cookingFractionUnitLookaheadPattern =
+        "(?:$cookingIngredientVolumeUnitPattern|$cookingIngredientMassUnitPattern)"
+
+    private val writtenFractionNumeratorWords = mapOf(
+        "a" to 1, "an" to 1, "one" to 1, "two" to 2, "three" to 3,
+        "four" to 4, "five" to 5, "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9,
+    )
+
+    private val writtenFractionDenominatorWords = mapOf(
+        "half" to 2, "halves" to 2,
+        "quarter" to 4, "quarters" to 4,
+        "third" to 3, "thirds" to 3,
+        "fourth" to 4, "fourths" to 4,
+        "fifth" to 5, "fifths" to 5,
+        "sixth" to 6, "sixths" to 6,
+        "eighth" to 8, "eighths" to 8,
+    )
+
+    private val cookingFractionRegex = Regex(
+        """\b(?:(one|two|three|four|five|six|seven|eight|nine|an?)[\s-]+)?""" +
+            """(halves|half|quarters|quarter|thirds|third|fourths|fourth|fifths|fifth|sixths|sixth|eighths|eighth)""" +
+            """\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun normalizeWrittenCookingFractions(input: String): String =
+        cookingFractionRegex.replace(input) { match ->
+            val numeratorWord = match.groupValues[1].lowercase()
+            val denominatorWord = match.groupValues[2].lowercase()
+            val numerator = if (numeratorWord.isEmpty()) 1 else writtenFractionNumeratorWords[numeratorWord]
+            val denominator = writtenFractionDenominatorWords[denominatorWord]
+            if (numerator == null || denominator == null) {
+                match.value
+            } else {
+                val decimal = BigDecimal(numerator)
+                    .divide(BigDecimal(denominator), 6, RoundingMode.HALF_UP)
+                    .stripTrailingZeros()
+                "${decimal.toPlainString()} "
+            }
+        }
+
+    // Numeric slash fractions ("2/3 of a cup", "1/2 cup") and mixed numbers ("1 1/2 cups") arrive
+    // when STT transcribes spoken fractions as glyphs (e.g. "two thirds" → "2/3"). The digit-only
+    // [cookingConversionValuePattern] and the written-fraction normaliser above both reject these,
+    // so they fall through to the LLM. We rewrite them to a decimal value before regex matching,
+    // consuming the whole "<fraction> of a " bridge so the result is "0.666667 cup" (a value the
+    // cooking-conversion patterns accept). Scoped by the same cooking-unit lookahead so unrelated
+    // phrases ("2/3 of the class") are left untouched. Mixed numbers are normalised first so the
+    // leading whole number is not mistaken for a standalone simple fraction.
+    private val cookingMixedFractionRegex = Regex(
+        """\b(\d+)\s+(\d+)\s*/\s*(\d+)\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val cookingSimpleFractionRegex = Regex(
+        """(?<!\d)(\d+)\s*/\s*(\d+)\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun fractionToDecimalString(numerator: Int, denominator: Int, whole: Int = 0): String? {
+        if (denominator == 0) return null
+        val decimal = BigDecimal(whole)
+            .add(BigDecimal(numerator).divide(BigDecimal(denominator), 6, RoundingMode.HALF_UP))
+            .stripTrailingZeros()
+        return decimal.toPlainString()
+    }
+
+    private fun normalizeNumericCookingFractions(input: String): String {
+        val mixedNormalized = cookingMixedFractionRegex.replace(input) { match ->
+            val whole = match.groupValues[1].toIntOrNull()
+            val numerator = match.groupValues[2].toIntOrNull()
+            val denominator = match.groupValues[3].toIntOrNull()
+            if (whole == null || numerator == null || denominator == null) {
+                match.value
+            } else {
+                fractionToDecimalString(numerator, denominator, whole)?.let { "$it " } ?: match.value
+            }
+        }
+        return cookingSimpleFractionRegex.replace(mixedNormalized) { match ->
+            val numerator = match.groupValues[1].toIntOrNull()
+            val denominator = match.groupValues[2].toIntOrNull()
+            if (numerator == null || denominator == null) {
+                match.value
+            } else {
+                fractionToDecimalString(numerator, denominator)?.let { "$it " } ?: match.value
+            }
+        }
+    }
+
+    private val currencyConversionValuePattern = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?"
+    private val currencyConversionNounPattern = "(?:dollars?|euros?|pounds?|yen|yuan|francs?|rupees?|pesos?|rand(?:s)?|won|dirhams?|riyals?|ringgit|krona|krone|lira|shekels?|baht|forint|zloty|koruna|leu|lei|real|reais|taka)"
+    private val currencyConversionTermPattern = "(?:[A-Za-z]{3}|$currencyConversionNounPattern|[A-Za-z][A-Za-z.'’-]*(?:\\s+[A-Za-z][A-Za-z.'’-]*){0,4}\\s+$currencyConversionNounPattern)"
+
+    private fun extractCurrencyConversionParams(amount: String, fromCurrency: String, toCurrency: String): Map<String, String> = mapOf(
+        "amount" to amount.trim().replace(",", ""),
+        "from_currency" to normalizeCurrencyPhrase(fromCurrency),
+        "to_currency" to normalizeCurrencyPhrase(toCurrency),
+    )
+
+    private fun normalizeCurrencyPhrase(raw: String): String = raw.trim()
+        .trim(',', '.', '?', '!')
+        .replace(Regex("""\s+"""), " ")
+
+    private fun extractImportantDateParams(label: String, date: String): Map<String, String> {
+        val params = mutableMapOf<String, String>()
+        normalizeImportantDateLabelOrNull(label)?.let { params["label"] = it }
+        date.trim().takeIf { it.isNotBlank() }?.let { params["date"] = it }
+        return params
+    }
+
+
+
+    // ── Regex patterns ────────────────────────────────────────────────────────
+
+    private data class IntentPattern(
+        val intentName: String,
+        val regex: Regex,
+        val paramExtractor: (MatchResult, String) -> Map<String, String>,
+        /**
+         * Required slots that must be present in the extracted params before the intent can be
+         * executed. If a key is absent or blank, [route] returns [RouteResult.NeedsSlot] so
+         * the caller can ask the user to supply the missing value before proceeding.
+         */
+        val requiredSlots: Map<String, com.kernel.ai.core.skills.slot.SlotSpec> = emptyMap(),
+        /**
+         * When true, this pattern is a catch-all / last-resort match. It is only tried in
+         * Pass 2 of [route], after all non-fallback patterns have failed to match. This
+         * eliminates first-match-wins ordering fragility for broad patterns like generic
+         * `play_media` and the terse smart-home `(.+?)\s+on/off` catch-alls.
+         */
+        val isFallback: Boolean = false,
+        /**
+         * #1455 — when true, this get_weather pattern is exempt from the central daypart
+         * veto in [route]. Exemption is only for today-anchored value queries (sunrise/sunset
+         * times, UV index, air quality) whose answer is consistent with a "this
+         * afternoon/evening/morning" qualifier — they report today's value, not a future
+         * daypart forecast the skill cannot represent.
+         */
+        val exemptFromDaypartVeto: Boolean = false,
+    )
+
+    private val patterns: List<IntentPattern> = listOf(
+        // ── Flashlight ──
+        // Pattern: "turn/switch on the torch" — verb + on + object
+        IntentPattern(
+            intentName = "toggle_flashlight_on",
+            regex = Regex(
+                """(?:turn|switch|put)\s+on\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Pattern: "turn the torch on" — verb + object + on
+        IntentPattern(
+            intentName = "toggle_flashlight_on",
+            regex = Regex(
+                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)\s+on""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Pattern: "flashlight on" / "torch on" / "light on" / "illumination on" — object + on
+        IntentPattern(
+            intentName = "toggle_flashlight_on",
+            regex = Regex(
+                """^(?:torch|flashlight|flash\s*light|light|illumination)\s+on\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Pattern: terse ON command like "torch", "flashlight", or "torch please"
+        IntentPattern(
+            intentName = "toggle_flashlight_on",
+            regex = Regex(
+                """^(?:torch|flashlight|flash\s*light|illuminate)(?:\s+please)?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Pattern: "turn/switch off the torch" — verb + off + object
+        IntentPattern(
+            intentName = "toggle_flashlight_off",
+            regex = Regex(
+                """(?:turn|switch|put)\s+off\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Pattern: "turn the torch off" — verb + object + off
+        IntentPattern(
+            intentName = "toggle_flashlight_off",
+            regex = Regex(
+                """(?:turn|switch|put)\s+(?:the\s+)?(?:torch|flashlight|flash\s*light|light|illumination)\s+off""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Pattern: "flashlight off" / "torch off" / "light off" / "illumination off" — object + off
+        IntentPattern(
+            intentName = "toggle_flashlight_off",
+            regex = Regex(
+                """^(?:torch|flashlight|flash\s*light|light|illumination)\s+off\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Alarm ──
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """(?:set|create|make)\s+(?:an?\s+)?alarm\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:for|at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseAlarmTime("${match.groupValues[1]} ${match.groupValues[2]}")
+            },
+        ),
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """(?:set|create|make)\s+(?:an?\s+)?alarm\s+(?:for|at)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """(?:wake|get)\s+me\s+up\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        // "wake me up <day> at <time>" — day-anchored wake alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """(?:wake|get)\s+me\s+up\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseAlarmTime("${match.groupValues[1]} ${match.groupValues[2]}")
+            },
+        ),
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """alarm\s+(?:for|at)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        // ── Reminder (task + date → list item with notification) ──
+        // "remind me to <task> on <day> at <time>" or "remind me about <task> on <day> at <time>" — complete
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val item = normalizeReminderItem(match.groupValues[1])
+                val day = normalizeDayName(match.groupValues[2].trim().lowercase())
+                val timeParsed = parseAlarmTime(match.groupValues[3].trim())
+                buildMap {
+                    put("item", item)
+                    put("day", day)
+                    putAll(timeParsed)
+                }
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // "remind me to <task> at <time>" — time without explicit day (dispatches directly)
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(?!(?:get|wake)\s+up\b)(.+?)\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("item" to match.groupValues[1].trim()) + parseAlarmTime(match.groupValues[2].trim())
+            },
+            requiredSlots = emptyMap(),
+        ),
+        // "remind me at <time> [on] <day> to <task>" — task-bearing reminder must be routed as
+        // add_reminder, NOT set_alarm. Must be before the bare "remind me at/by <time>" set_alarm
+        // pattern to prevent task-bearing phrases like "remind me at 9am Monday" from matching
+        // set_alarm when a task follows (e.g. "remind me at 9am Monday to call the dentist").
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """remind\s+me\s+(?:at|by)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+to\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[3].trim(),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                ) + parseAlarmTime(match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // "remind me at <time> to <task>" — task-bearing without explicit day (dispatches directly; handler handles missing day)
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """remind\s+me\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("item" to match.groupValues[2].trim()) + parseAlarmTime(match.groupValues[1].trim())
+            },
+            requiredSlots = emptyMap(),
+        ),
+        // "remind me <day> at <time> to <task>" — task-bearing reminder before time
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to normalizeReminderItem(match.groupValues[3].trim()),
+                    "day" to normalizeDayName(match.groupValues[1].trim().lowercase()),
+                ) + parseAlarmTime(match.groupValues[2].trim())
+            },
+            requiredSlots = emptyMap(),
+        ),
+        // "set a reminder for <time> <day> to <task>" — task-bearing reminder
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:set|create|make)\s+(?:an?\s+)?reminder\s+(?:for|at)\s+(.+?)\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+to\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to normalizeReminderItem(match.groupValues[3].trim()),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                ) + parseAlarmTime(match.groupValues[1].trim())
+            },
+            requiredSlots = emptyMap(),
+        ),
+        // "remind me to/about <task> on <day>" — needs time slot-fill
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+on\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to normalizeReminderItem(match.groupValues[1]),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                )
+            },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // "remind me to <task> <day>" (day without 'on') — dispatches directly
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(.+?)\s+(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to normalizeReminderItem(match.groupValues[1]),
+                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
+                )
+            },
+            requiredSlots = emptyMap(),
+        ),
+        // Imperative reminder requests without a schedule — retain the task and start slot-filling.
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to\s+(?!(?:get|wake)\s+up\b)|about\s+)(?!(?:.+\s+)?(?:today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$)(.+?)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:set|create|make)\s+(?:an?\s+)?reminder\s+(?:to|about)\s+(.+?)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:don't|do not)\s+let\s+me\s+forget\s+(?:to|about)\s+(.+?)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """remind\s+me\s+(?:on\s+)?(tomorrow|today|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseAlarmTime("${match.groupValues[1]} ${match.groupValues[2]}")
+            },
+        ),
+        // "remind me at/by <time>" → set_alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """remind\s+me\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        // "wake me at/by <time>" (without "up") → set_alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """wake\s+me\s+(?:at|by)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        // "alarm <time>" without preposition → set_alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """^alarm\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        // "<time> alarm" order → set_alarm
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """^(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s+alarm\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> parseAlarmTime(match.groupValues[1].trim()) },
+        ),
+        // "set an alarm" / "create an alarm" (no time given) → ask for time
+        IntentPattern(
+            intentName = "set_alarm",
+            regex = Regex(
+                """^(?:set|create|make)\s+(?:an?\s+)?alarm$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "time" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "time",
+                    promptTemplate = "What time would you like the alarm set for?",
+                ),
+            ),
+        ),
+
+        // ── Cancel Alarm ──
+        IntentPattern(
+            intentName = "cancel_alarm",
+            regex = Regex(
+                """(?:cancel|delete|remove|dismiss|clear|turn\s+off|stop|get\s+rid\s+of)\s+(?:(?:all\s+)?my\s+|the\s+|an?\s+|all\s+)?(?:\S+\s+)*alarms?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Cancel Timer ──
+        // These must appear before set_timer — "cancel the 10 minute timer" substring-matches set_timer
+        // patterns unless cancel intents take priority in the list.
+        // Explicit "turn off" pattern first — long alternation groups can misbehave on Android's regex engine
+        IntentPattern(
+            intentName = "cancel_timer",
+            regex = Regex(
+                """turn\s+off\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val quantifier = match.groupValues[1]
+                val noun = match.groupValues[2]
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
+                }
+            },
+        ),
+        // cancel_timer_named must come before the generic cancel_timer patterns
+        IntentPattern(
+            intentName = "cancel_timer_named",
+            regex = Regex(
+                """(?:cancel|stop|dismiss|delete)\s+the\s+(?!timer\b)(.+?)\s+timer\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val name = match.groupValues.getOrNull(1)?.trim() ?: ""
+                if (name.isNotBlank()) mapOf("name" to name) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "cancel_timer_named",
+            regex = Regex(
+                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!the\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val name = match.groupValues.getOrNull(1)?.trim() ?: ""
+                if (name.isNotBlank()) mapOf("name" to name) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "cancel_timer",
+            regex = Regex(
+                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val quantifier = match.groupValues[1]
+                val noun = match.groupValues[2]
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
+                }
+            },
+        ),
+
+        // ── List Timers ──
+        IntentPattern(
+            intentName = "list_timers",
+            regex = Regex(
+                """(?:list|show|what|how\s+many)\b.{0,20}\btimers?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "list_timers",
+            regex = Regex(
+                """timers?\s+(?:do\s+I\s+have|are\s+running|running)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Timer Remaining ──
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """how\s+(?:long|much\s+time)\s+(?:is\s+)?(?:left|remaining)\b.{0,30}\btimer\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw ->
+                val nameMatch = Regex("""(?:the\s+)?(\w+)\s+timer""", RegexOption.IGNORE_CASE).find(raw)
+                val name = nameMatch?.groupValues?.getOrNull(1)
+                    ?.takeIf { it !in setOf("the", "my", "a", "an", "timer") }
+                if (name != null) mapOf("name" to name) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """how\s+long\s+until\s+(?:the\s+)?timer\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """timer\s+(?:time\s+)?remaining\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """(?:get|show|what(?:'s|\s+is))\s+(?:the\s+)?time\s+remaining\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_timer_remaining",
+            regex = Regex(
+                """how\s+much\s+time\s+(?:is|as)\s+remaining\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Timer (set) ──
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """(?:set|start|create)\s+(?:a\s+)?(?:timer|countdown)\s+(?:for\s+)?(\d+)(?:\s*|-)(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)(?:\s+(?:and\s+)?(\d+)(?:\s*|-)(minutes?|mins?|seconds?|secs?|m|s))?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """(?:timer|countdown)\s+(?:for\s+)?(\d+)(?:\s*|-)(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "5 minute timer" / "5 minute egg timer" / "3 minute pasta timer"
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """(\d+)(?:\s*|-)(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+.*?timer""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "remind me in <N> <unit>" → set_timer
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """remind\s+me\s+in\s+(\d+)(?:\s*|-)(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "time me for <N> <unit>" → set_timer
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """time\s+me\s+(?:for\s+)?(\d+)(?:\s*|-)(hours?|minutes?|mins?|seconds?|secs?|h|m|s)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+        // "start a one hour timer" / "set a half hour timer" — written-out durations before open_app
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """(?:set|start|create)\s+(?:a\s+)?(?:$WRITTEN_TENS_COMPOUND|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val lower = input.lowercase()
+                val numMatch = Regex("""($WRITTEN_TENS_COMPOUND|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
+                val qty = numMatch?.let { writtenQuantity(it.groupValues[1]) }
+                if (numMatch != null && qty != null) {
+                    val unit = numMatch.groupValues[2]
+                    val half = lower.contains("and a half") || lower.contains("and-a-half")
+                    val seconds = when {
+                        unit.startsWith("h") -> qty * 3600 + (if (half) 1800 else 0)
+                        unit.startsWith("m") -> qty * 60 + (if (half) 30 else 0)
+                        else -> qty + (if (half) 0 else 0)
+                    }
+                    mapOf("duration_seconds" to seconds.toString())
+                } else {
+                    emptyMap()
+                }
+            },
+        ),
+        // "set a timer" / "start a timer" (no duration given) → ask how long
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """^(?:set|start|create)\s+(?:a\s+)?(?:timer|countdown)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "duration_seconds" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "duration_seconds",
+                    promptTemplate = "How long would you like the timer for?",
+                ),
+            ),
+        ),
+
+
+        // ── Stopwatch ──
+        IntentPattern(
+            intentName = "start_stopwatch",
+            regex = Regex(
+                """(?:start|begin|create|launch)\s+(?:the\s+)?stopwatch\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "pause_stopwatch",
+            regex = Regex(
+                """(?:pause|stop)\s+(?:the\s+)?stopwatch\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "resume_stopwatch",
+            regex = Regex(
+                """(?:resume|continue)\s+(?:the\s+)?stopwatch\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "lap_stopwatch",
+            regex = Regex(
+                """(?:(?:record|take|capture)\s+(?:a\s+)?)?(?:lap|split)\s+(?:the\s+)?stopwatch\b|(?:record|take|capture)\s+(?:a\s+)?(?:lap|split)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "reset_stopwatch",
+            regex = Regex(
+                """(?:reset|clear)\s+(?:the\s+)?stopwatch\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_stopwatch_status",
+            regex = Regex(
+                """(?:what(?:'s|\s+is)\s+(?:my\s+|the\s+)stopwatch(?:\s+status)?|stopwatch\s+status|how\s+long\s+has\s+(?:my\s+|the\s+)?stopwatch\s+been\s+running|elapsed\s+time\s+(?:on|for)\s+(?:my\s+|the\s+)?stopwatch)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // "add something to the calendar for June 9th" / "put lunch in my calendar tomorrow"
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """(?:add|create|schedule|put|book)\s+(?!(?:calendar\s+)?voice\s+memo\b)(?!note\b)(.{3,60}?)\s+(?:to|in|on|into)\s+(?:the\s+|my\s+)?calendar\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+
+
+
+        // ── Calendar ──
+        // "add/create/schedule/set up a [dentist/gym/meeting/event] [for/on] [date] [at time]"
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """^(?:a\s+|an\s+)?(?:calendar\s+)?(?:appointment|meeting|event|session|booking)\b(?=.*\b(?:today|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday|noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.))\b).*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a\s+|an\s+)?(?!(?:calendar\s+)?voice\s+memo\b)(?:calendar\s+)?(?:event|appointment|meeting|entry|invite|session|booking|class|lesson|training|assembly|gathering|get.?together|party|celebration)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """(?:set\s+up|schedule)\s+(?:a\s+|an\s+)?(?:meeting|appointment|event|session|booking)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """block\s+(?:out\s+)?(?:time\s+)?(?:on\s+(?:my\s+)?calendar\b|(?:this|next)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|morning|afternoon|evening)\b|tomorrow\b)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """put\s+.{3,40}\s+(?:in|on|into)\s+(?:my\s+)?calendar\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+        // "invite Sarah to my Friday dinner" / "invite John and Sarah to the team meeting"
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """^invite\s+.+\s+to\s+(?:my\s+|the\s+|a\s+|an\s+)?.{3,}""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+
+        // "add dentist appointment next Tuesday" / "add gym session tomorrow"
+        // Bare-noun calendar events with a day/date reference (no article required)
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """(?:add|create|schedule|book|put)\s+(?:a\s+|an\s+)?(?:(?:appointment|meeting|event|session|booking|class|lesson|training|checkup|assembly|gathering|get\.?together|birthday|celebration)(?:s|es)?|(?:dentist|gym|school|dental|hair|haircut|massage|doctor|eye|therapy|soccer|football|basketball|cricket|tennis|swim|swimming|physical|surgery|consultation|interview|wedding|party|date|playdate|play\s+date|movie|film|concert|show|dinner|lunch|breakfast|brunch|coffee|drinks)\s+(?:(?:appointment|meeting|event|session|booking|class|lesson|training|checkup|assembly|gathering|get\.?together|birthday|celebration)(?:s|es)?(?:\s+(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|morning|afternoon)|on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)))?|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|morning|afternoon)|on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+        // "set a dental appointment" / "book a hair appointment" — requires article "a/an" so
+        // bare-noun forms like "add dentist appointment to my calendar" fall through to LLM.
+        IntentPattern(
+            intentName = "create_calendar_event",
+            regex = Regex(
+                """(?:add|create|schedule|put|book|set(?:\s+up)?)\s+(?:a|an)\s+(?!(?:calendar\s+)?voice\s+memo\b)(?!note\b)(?:\S+\s+){1,4}?(?:appointment|meeting|event|session|booking)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> extractCalendarHints(raw) },
+            requiredSlots = slotContract("create_calendar_event"),
+        ),
+
+        // "set do not disturb on" / "set dnd mode on" (#1317). The unanchored verb rules below
+        // don't include "set", so it fell through to the smart_home fallback. They also match
+        // "turn do not disturb off" as ON, so the anchored OFF form must come first.
+        IntentPattern(
+            intentName = "toggle_dnd_off",
+            regex = Regex(
+                """^(?:set|turn)\s+(?:do\s+not\s+disturb|dnd)(?:\s+mode)?\s+off$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """^(?:set|turn)\s+(?:do\s+not\s+disturb|dnd)(?:\s+mode)?\s+on$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // ── Do Not Disturb ──
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """(?:turn|switch|enable|put)\s+(?:on\s+)?(?:do\s+not\s+disturb|dnd|silent\s+mode|quiet\s+mode)(?:\s+on)?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "silence/mute my phone/notifications" → toggle_dnd_on
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """(?:silence|mute|hush)\s+(?:my\s+)?(?:phone|notifications?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """(?:silence|quieten?|mute)\s+(?:my\s+)?(?:phone|notifications?|ringer|sounds?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_off",
+            regex = Regex(
+                """(?:turn|switch|disable|put)\s+(?:off\s+)?(?:do\s+not\s+disturb|dnd|silent\s+mode|quiet\s+mode)(?:\s+off)?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Terse: "DND on" / "DND off"
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """^(?:dnd|do\s+not\s+disturb)\s+on$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_off",
+            regex = Regex(
+                """^(?:dnd|do\s+not\s+disturb)\s+off$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """^toggle\s+(?:dnd|do\s+not\s+disturb)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Battery ──
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """(?:battery|charge|power)\s+(?:level|status|percentage|left|remaining)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """how\s+much\s+(?:battery|charge|power)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """(?:check|show|get|what(?:'s| is))\s+(?:my\s+|the\s+)?(?:battery|charge|power)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "am I / is my phone charging?" → get_battery
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """(?:am\s+i|is\s+(?:my\s+)?(?:phone|device))\s+charging""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "how's my battery?" → get_battery
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """how(?:'?s|\s+is)\s+my\s+(?:battery|charge|power)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "battery" — bare single-word query
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """^(?:battery|charge\s+level|power\s+level)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "running low on battery" — bare form; conversational "am I running low?" → fallthrough to classifier
+        IntentPattern(
+            intentName = "get_battery",
+            regex = Regex(
+                """^(?:running|run)\s+low\s+on\s+(?:battery|charge|power)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Time / Date ──
+        // query_type drives the response format in NativeIntentHandler.getTime():
+        //   "time"        → just the time (e.g. "It's 7:27 PM")
+        //   "date"        → just the date (e.g. "Today is Thursday, 16 April 2026")
+        //   "day_of_week" → just the weekday name
+        //   "year"        → just the year
+        //   "month"       → just the month name
+        //   "week"        → week number
+        //   (absent)      → full datetime (fallback)
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+time\s+is\s+it\s+in\s+(.+?)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseWorldTimeLocation(match.groupValues[1])?.let { location ->
+                    mapOf("query_type" to "time", "location" to location)
+                } ?: mapOf("query_type" to "time")
+            },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?time\s+in\s+(.+?)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseWorldTimeLocation(match.groupValues[1])?.let { location ->
+                    mapOf("query_type" to "time", "location" to location)
+                } ?: mapOf("query_type" to "time")
+            },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """(?:current\s+)?time\s+in\s+(.+?)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                parseWorldTimeLocation(match.groupValues[1])?.let { location ->
+                    mapOf("query_type" to "time", "location" to location)
+                } ?: mapOf("query_type" to "time")
+            },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+day\s+of\s+the\s+week\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+of\s+the\s+week\s+is\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+is(?:\s+it)?\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+tomorrow'?s\s+date\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+date\s+is\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is|\s+was)\s+the\s+date\s+tomorrow\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "tomorrow") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| was| is)\s+the\s+day\s+of\s+the\s+week\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+of\s+the\s+week\s+was\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+(?:was\s+the\s+day|day\s+was(?:\s+it)?)\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| was| is)\s+yesterday'?s\s+date\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+date\s+was\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+was|\s+is)\s+the\s+date\s+yesterday\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date", "relative_day" to "yesterday") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+date\s+in\s+(\d+)\s+days\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "date", "offset_days" to match.groupValues[1]) },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+day(?:\s+of\s+the\s+week)?\s+in\s+(\d+)\s+days\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "day_of_week", "offset_days" to match.groupValues[1]) },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s|\s+was|\s+is)\s+the\s+date\s+(\d+)\s+days\s+ago\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "date", "offset_days" to "-${match.groupValues[1]}") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:\s+day\s+was(?:\s+it)?|\s+was\s+the\s+day)(?:\s+of\s+the\s+week)?\s+(\d+)\s+days\s+ago\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query_type" to "day_of_week", "offset_days" to "-${match.groupValues[1]}") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(time|date|day)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "time" -> mapOf("query_type" to "time")
+                    "date" -> mapOf("query_type" to "date")
+                    "day" -> mapOf("query_type" to "day_of_week")
+                    else -> emptyMap()
+                }
+            },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+time\s+is\s+it""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "time") },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """(?:tell|give)\s+me\s+(?:the\s+)?(time|date)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "time" -> mapOf("query_type" to "time")
+                    "date" -> mapOf("query_type" to "date")
+                    else -> emptyMap()
+                }
+            },
+        ),
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+(day|date)\s+is\s+(?:it(?:\s+today)?|today)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "day" -> mapOf("query_type" to "day_of_week")
+                    "date" -> mapOf("query_type" to "date")
+                    else -> emptyMap()
+                }
+            },
+        ),
+        // "what day of the week is it" — explicit pattern so it doesn't fall to LLM
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+day\s+of\s+the\s+week\s+(?:is\s+it|it\s+is|are\s+we\s+in)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week") },
+        ),
+        // Pattern: "what's today's date" / "what is today's date" (must be before broader "what is today")
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+today'?s\s+(?:date|day)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date") },
+        ),
+        // Pattern: "what is today" / "what's today"
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+today""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "date") },
+        ),
+        // Pattern: "what year is it" / "what year are we in"
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+year\s+(?:is\s+it|are\s+we\s+in|is\s+this)\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "year") },
+        ),
+        // Pattern: "what year is it currently" / "what's the year"
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?year\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "year") },
+        ),
+        // Pattern: "is it still Monday" / "is it Monday today" / "is today Monday" / "is it Friday today"
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """(?:is\s+it\s+(?:still\s+)?|is\s+today\s+)(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+today)?\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("query_type" to "day_of_week") },
+        ),
+        // Pattern: "what month is it" / "what week is it" / "what month are we in"
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what\s+(month|week)\b\s+(?:is\s+it|are\s+we\s+in|is\s+this)\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "month" -> mapOf("query_type" to "month")
+                    "week" -> mapOf("query_type" to "week")
+                    else -> emptyMap()
+                }
+            },
+        ),
+        // Pattern: "what's the month" / "what's the week"
+        IntentPattern(
+            intentName = "get_time",
+            regex = Regex(
+                """what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(month|week)\s*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                when (match.groupValues[1].lowercase()) {
+                    "month" -> mapOf("query_type" to "month")
+                    "week" -> mapOf("query_type" to "week")
+                    else -> emptyMap()
+                }
+            },
+        ),
+
+        // ── Weather ──
+        // Multi-day forecast (digit): "what's the forecast for the next 7 days" /
+        // "what's the weather forecast for the next 7 days"
+
+        // "What's the forecast for Bundaberg this weekend?" — the period is emitted
+        // explicitly here; other weekend phrasings are covered centrally by the
+        // weather normaliser (period=weekend) so none of them degrade to current
+        // conditions or the 3-day unspecified-forecast default (#1455).
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?forecast\s+for\s+([\w\s,]+)\s+this\s+weekend\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf<String, String>()
+                val location = match.groupValues[1].trim()
+                if (location.isNotBlank()) params["location"] = location
+                params["period"] = "weekend"
+                params
+            },
+            requiredSlots = emptyMap(),
+        ),
+
+        // "What's the 5 day forecast?" / "What's the 5-day forecast?" — exact Learn wording + hyphen variant
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?(\d+)\s*[ -]?\s*day\s+(?:weather\s+)?forecast\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf("forecast_days" to match.groupValues[1])
+                params
+            },
+            requiredSlots = emptyMap(),
+        ),
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?(?:weather\s+)?forecast\s+for\s+the\s+next\s+(\d+)\s+days[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                buildMap<String, String> {
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // "what's the weather forecast for the next N days in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?(?:weather\s+)?forecast\s+for\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Multi-day forecast (digit): "how's the weather looking for the next 5 days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """how(?:'s|\s+is)\s+(?:the\s+)?weather\s+looking\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                buildMap<String, String> {
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // "how's the weather over the next N days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """how(?:'s|\s+is)\s+(?:the\s+)?weather\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                buildMap<String, String> {
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // "what's the weather looking like over the next N days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+weather\s+looking\s+like\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                buildMap<String, String> {
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // ── Location-aware over variants ──
+        // "how's the weather over the next N days in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """how(?:'s| is)\s+(?:the\s+)?weather\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // "what's the weather looking like over the next N days in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+looking\s+like\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // "how's the weather looking over the next N days in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """how(?:'s| is)\s+(?:the\s+)?weather\s+looking\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Multi-day forecast (digit): "7 day weather forecast for Brisbane" / "7-day weather forecast for Brisbane"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(\d+)\s*[ -]?\s*day\s+(?:weather\s+)?forecast\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Multi-day forecast (digit): "what's the weather forecast for Paris next 4 days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+forecast\s+(?:for|over)\s+([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[2].takeIf { it != "1" }
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // ── Location-aware multi-day forecast patterns (must precede generic ones) ──
+        // Digit, location before "next N days": "what's the weather for Brisbane next 3 days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[2].takeIf { it != "1" }
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Digit, location after "next N days in <city>": "what's the weather for the next 3 days in Paris"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Word, location before "next N days": "what's the weather for Brisbane next seven days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[2].takeIf { it != "one" }
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
+                }
+            },
+        ),
+        // Word, location after "next N days in <city>": "what's the weather for the next seven days in Paris"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+the\s+weather\s+(?:for|over|looking\s+like)\s+the\s+next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[1].takeIf { it != "one" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (daysWord != null) put("forecast_days", when (daysWord.lowercase()) { "few" -> "3"; else -> wordToNum[daysWord.lowercase()] ?: daysWord })
+                }
+            },
+        ),
+        // Multi-day forecast (word): "what's the forecast for the next seven days" /
+        // "what's the weather forecast for the next seven days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?(?:weather\s+)?forecast\s+(?:for|over)\s+the\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[1].takeIf { it != "one" }
+                buildMap<String, String> {
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
+                }
+            },
+        ),
+        // Multi-day forecast (word): "how's the weather looking for the next five days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """how(?:'s|\s+is)\s+(?:the\s+)?weather\s+looking\s+(?:for|over)\s+the\s+next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "few" to "3",
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[1].takeIf { it != "one" }
+                buildMap<String, String> {
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
+                }
+            },
+        ),
+        // Multi-day forecast (word): "three day weather forecast for Auckland"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(one|two|three|four|five|six|seven|eight|nine|ten)\s+day\s+(?:weather\s+)?forecast\s+(?:in|for|at|over)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[1].takeIf { it != "one" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (daysWord != null) put("forecast_days", wordToNum[daysWord.lowercase()] ?: daysWord)
+                }
+            },
+        ),
+        // Multi-day forecast (digit): "what's the weather for the next N days" (no "forecast" word)
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:for|over|like(?:\s+(?:for|over))?|looking\s+like(?:\s+(?:for|over))?)\s+the\s+next\s+(\d+)\s+days[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                buildMap<String, String> {
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // Multi-day forecast (word): "what's the weather for the next seven days" (no "forecast" word)
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what|how)(?:'s|\s+is)\s+the\s+weather\s+(?:for|over|like(?:\s+(?:for|over))?|looking\s+like(?:\s+(?:for|over))?)\s+the\s+next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten)\s+days[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[1].takeIf { it != "one" }
+                buildMap<String, String> {
+                    if (daysWord != null) put("forecast_days", when (daysWord.lowercase()) { "few" -> "3"; else -> wordToNum[daysWord.lowercase()] ?: daysWord })
+                }
+            },
+        ),
+        // ── Location-aware next-N-days variants ──
+        // "what's the weather for the next N days in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:for|over|like(?:\s+(?:for|over))?|looking\s+like(?:\s+(?:for|over))?)\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // "what's the weather for the next N days in <city>" (word form)
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what|how)(?:'s|\s+is)\s+the\s+weather\s+(?:for|over|like(?:\s+(?:for|over))?|looking\s+like(?:\s+(?:for|over))?)\s+the\s+next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                val daysWord = match.groupValues[1].takeIf { it != "one" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (daysWord != null) put("forecast_days", when (daysWord.lowercase()) { "few" -> "3"; else -> wordToNum[daysWord.lowercase()] ?: daysWord })
+                }
+            },
+        ),
+        // Tomorrow weather: "is it going to rain tomorrow", "will it rain tomorrow"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:will\s+it\s+rain\s+tomorrow\s*[.!?]*$|is\s+it\s+(?:going\s+to|gonna)\s+rain\s+tomorrow\s*[.!?]*$)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
+        ),
+        // Tomorrow weather with location: "what's the weather in Brisbane tomorrow" / "tomorrow weather in Auckland"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+in\s+([\w\s,]+?)\s+tomorrow\s*[.!?]*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s+in\s+([\w\s,]+?)\s*[.!?]*$)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].takeIf { it.isNotEmpty() }
+                    ?: match.groupValues[2].takeIf { it.isNotEmpty() }
+                if (location != null) mapOf("location" to location.trim(), "day" to "tomorrow")
+                else mapOf("day" to "tomorrow")
+            },
+        ),
+        // Tomorrow weather: "what's the weather tomorrow", "tomorrow weather", "how's the weather looking tomorrow"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*[.!?]*$|tomorrow(?:'s)?\s+(?:weather|temperature)\s*[.!?]*$|how(?:'s|\s+is)\s+(?:the\s+)?weather\s+(?:looking\s+)?tomorrow\s*[.!?]*$)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
+        ),
+        // ── Location-aware tomorrow variants ──
+        // "what's the weather looking like tomorrow in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+looking\s+like\s+tomorrow\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    put("day", "tomorrow")
+                }
+            },
+        ),
+        // "how's the weather looking tomorrow in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """how(?:'s| is)\s+(?:the\s+)?weather\s+looking\s+tomorrow\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    put("day", "tomorrow")
+                }
+            },
+        ),
+        // "how's the weather tomorrow in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """how(?:'s| is)\s+(?:the\s+)?weather\s+tomorrow\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    put("day", "tomorrow")
+                }
+            },
+        ),
+        // "is it going to rain tomorrow in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """is\s+it\s+(?:going\s+to|gonna)\s+rain\s+tomorrow\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    put("day", "tomorrow")
+                }
+            },
+        ),
+        // "what's the weather looking like tomorrow" — not covered by the generic
+        // "what's the weather looking like tomorrow"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s| is)\s+the\s+weather\s+looking\s+like\s+tomorrow[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
+        ),
+        // Tomorrow weather with condition: "will it be sunny tomorrow", "is it going to be cloudy tomorrow"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:will\s+it\s+be\s+(?:sunny|cloudy|rainy|snowy|stormy|foggy|windy|clear|overcast|dry)\s+tomorrow\s*$|is\s+it\s+(?:going\s+to\s+(?:be\s+)?)?(?:sunny|cloudy|rainy|snowy|stormy|foggy|windy|clear|overcast|dry)\s+tomorrow\s*$)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("day" to "tomorrow") },
+        ),
+        // "What's the weather like this week in <city>" — historical #255 contract:
+        // "this week" means a 7-day horizon. The normaliser adds forecast_days=7.
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:like\s+)?this\s+week\s+in\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                }
+            },
+        ),
+        // City-named weather: "weather in Auckland" / "what's the weather in London" /
+        // "weather forecast for Paris" — captures city into `location` param.
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather(?:\s+(?:like|today|tonight|now))?\s+in\s+|how(?:'s|\s+is)\s+(?:the\s+)?weather\s+in\s+|weather(?:\s+forecast)?\s+(?:in|for|at)\s+)([\w\s,]+?)(?:\s+today|\s+tonight|\s+now|\s+forecast|\s+this\s+week)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("location" to match.groupValues[1].trim()) },
+        ),
+        // GPS weather: current location queries with no city mentioned.
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?weather(?:\s+(?:looking\s+like|looking|like|out\s+there|today|tonight|now|outside|currently))?|how(?:'s|\s+is)\s+(?:the\s+)?weather(?:\s+(?:looking\s+like|looking|like|out\s+there|today|tonight|now|outside))?|weather\s+(?:today|tonight|now|outside|forecast|this\s+week))[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Expanded bare/local weather: "whats the weather", "weather here", "local weather",
+        // "what's the weather here" (no-apostrophe, "here", and "local" forms not covered by GPS pattern)
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s|s| is)\s+(?:the\s+)?weather(?:\s+(?:here|like|today|tonight|now|outside|currently))?|weather(?:\s+here)?|local\s+weather)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Bare/local forecast: "forecast", "what's the forecast", "what is the forecast", "whats the forecast"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """^(?:what(?:'s|s| is)\s+(?:the\s+)?)?forecast[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "What's the forecast for Sydney?" — plain forecast with a named location and no
+        // explicit horizon. The normaliser applies the 3-day explicit-forecast default and
+        // strips any temporal tail from the captured location.
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+)?(?:the\s+)?forecast\s+for\s+(?!the\s+next\b|a\s+(?:few|couple)\b|\d+\s+days\b)([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                }
+            },
+        ),
+        // Word-form bare forecast: "five day forecast", "five-day forecast"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s|s| is)\s+)?(?:the\s+)?(one|two|three|four|five|six|seven|eight|nine|ten)\s*[ -]?\s*day\s+forecast[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val daysWord = match.groupValues[1].lowercase()
+                val wordToNum = mapOf(
+                    "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+                    "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+                )
+                mapOf("forecast_days" to (wordToNum[daysWord] ?: daysWord))
+            },
+        ),
+        // Precipitation: current state only — "will it rain", "is it raining", "do I need an umbrella",
+        // with optional named location: "will it rain in Sydney today" (location preserved by #1453)
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:will\s+it\s+rain|is\s+it\s+(?:going\s+to|gonna)\s+rain)(?:\s+(?:in|for|at)\s+([\w\s,]+?))?(?:\s+today|\s+tonight)?\s*[.!?]*$|is\s+it\s+raining|do\s+i\s+need\s+(?:an?\s+)?umbrella|chance\s+of\s+rain(?:\s+today|\s+tonight)?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                }
+            },
+        ),
+        // ── Rain over the next N days ──
+        // "is it going to rain over the next N days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """is\s+it\s+(?:going\s+to|gonna)\s+rain\s+(?:over|in)\s+the\s+next\s+(\d+)\s+days[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                buildMap<String, String> {
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // "is it going to rain over the next few days"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """is\s+it\s+(?:going\s+to|gonna)\s+rain\s+(?:over|in)\s+the\s+next\s+few\s+days[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("forecast_days" to "3") },
+        ),
+        // ── Location-aware rain-over variants ──
+        // "is it going to rain over the next N days in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """is\s+it\s+(?:going\s+to|gonna)\s+rain\s+(?:over|in)\s+the\s+next\s+(\d+)\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val days = match.groupValues[1].takeIf { it != "1" }
+                val location = match.groupValues[2].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    if (days != null) put("forecast_days", days)
+                }
+            },
+        ),
+        // "is it going to rain over the next few days in <city>"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """is\s+it\s+(?:going\s+to|gonna)\s+rain\s+(?:over|in)\s+the\s+next\s+few\s+days\s+(?:in|for|at)\s+([\w\s,]+?)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    put("forecast_days", "3")
+                }
+            },
+        ),
+        // Temperature queries: "how hot/cold is it", "what's the temperature outside", "temperature in Wellington"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:how\s+(?:hot|cold|warm)\s+is\s+it|what(?:'s| is)\s+(?:the\s+)?temperature(?:\s+(?:outside|today|now|currently))?|temperature\s+(?:outside|today|now|currently))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // "How hot will it be tomorrow?" / "How cold will it be this weekend?" /
+        // "How hot will it be in Sydney tomorrow?" — emits raw_query; the weather
+        // normaliser turns "tomorrow" into day=tomorrow, "this weekend" into
+        // period=weekend, and keeps any named location.
+        // (this afternoon/evening/morning have no hourly contract in the weather
+        // skill — they are centrally vetoed from all get_weather patterns in route()
+        // and fall through to the free-form path instead, #1455.)
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+(?:(?:in|for|at)\s+([\w\s,]+?)\s+)?(?:tomorrow|today)\s*[.!?]*$|how\s+(?:hot|cold|warm)\s+will\s+it\s+be\s+this\s+weekend\s*[.!?]*$|what(?:'s| is)\s+(?:the\s+)?(?:temperature|forecast)\s+(?:going\s+to\s+be|gonna\s+be)\s+(?:tomorrow|today|this\s+weekend))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, raw ->
+                val params = mutableMapOf("raw_query" to raw)
+                val location = match.groupValues.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+                if (location != null) params["location"] = location
+                params
+            },
+            requiredSlots = emptyMap(),
+        ),
+        // "temperature in Wellington" — city-specific temperature query
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """temperature\s+in\s+([\w\s]+?)(?:\s+today|\s+now|\s+tonight)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("location" to match.groupValues[1].trim()) },
+        ),
+        // "what's it like outside" / "what's it like out there"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """what(?:'s|\s+is)\s+it\s+like\s+(?:outside|out\s+there|out)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // UV index queries: "what's the UV index", "is the UV high today"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?uv\s+index|is\s+(?:the\s+)?uv\s+(?:high|low|bad|strong)|uv\s+index(?:\s+(?:today|now|currently))?|how\s+(?:high|bad|strong)\s+is\s+(?:the\s+)?uv)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            // Today-anchored value query: "is the UV high this morning?" answers today's UV.
+            exemptFromDaypartVeto = true,
+        ),
+        // Air quality queries: "what's the air quality", "what's the AQI"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what(?:'s| is)\s+(?:the\s+)?(?:air\s+quality|aqi)|how(?:'s|\s+is)\s+(?:the\s+)?air\s+quality|air\s+quality(?:\s+(?:today|now|index))?|is\s+(?:the\s+)?air\s+(?:clean|dirty|polluted|bad|good))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            // Today-anchored value query: "is the air quality good this morning?" answers today's AQI.
+            exemptFromDaypartVeto = true,
+        ),
+        // Sunrise/sunset queries: "what time is sunrise", "when does the sun set"
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """(?:what\s+time\s+is\s+(?:sunrise|sunset)|when\s+(?:does\s+(?:the\s+)?sun\s+(?:rise|set)|is\s+(?:sunrise|sunset))|sunrise\s+(?:time|today)?|sunset\s+(?:time|today)?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            // Today-anchored value query: "what time is sunset this evening?" answers today's sunset.
+            exemptFromDaypartVeto = true,
+        ),
+        // ── Volume ──
+        // Numeric-level forms must come BEFORE direction-only patterns to win the match
+        // "turn the volume up to 8" / "volume up to 5" / "volume down to 3"
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:turn\s+)?(?:(?:the|my)\s+)?volume\s+(?:up|down)\s+to\s+(\d+)\s*(?:%|percent)?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input ->
+                mapOf(
+                    "value" to match.groupValues[1],
+                    "is_percent" to if (input.contains(Regex("""\d+\s*(?:%|percent)""", RegexOption.IGNORE_CASE))) "true" else "false",
+                )
+            },
+        ),
+        // set_volume explicit splits (Android long-alternation workaround)
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex("""turn\s+(?:(?:the|my)\s+)?volume\s+(?:up|down)""", RegexOption.IGNORE_CASE),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("\\bup\\b", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex("""(?:raise|increase)\s+(?:(?:the|my)\s+)?volume""", RegexOption.IGNORE_CASE),
+            paramExtractor = { _, _ -> mapOf("direction" to "up") },
+        ),
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex("""(?:lower|decrease|crank\s+down)\s+(?:(?:the|my)\s+)?volume""", RegexOption.IGNORE_CASE),
+            paramExtractor = { _, _ -> mapOf("direction" to "down") },
+        ),
+        // "turn the volume up/down" / "raise/lower the volume" — no numeric value
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """turn\s+(?:the\s+|my\s+)?volume\s+(?:up|down)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("up", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // "raise/lower/increase/decrease/crank the volume up/down" — remaining verb forms
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:raise|lower|increase|decrease|crank)\s+(?:(?:the|my)\s+)?volume(?:\s+(?:up|down))?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("(?:raise|increase|up)", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // "volume up/down/higher/lower" — noun-first terse form
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """volume\s+(?:up|down|higher|lower)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("(?:up|higher)", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // "mute/unmute the phone/device/sound/volume"
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:mute|unmute)\s+(?:the\s+)?(?:phone|device|sound|volume)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("unmute", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // Terse: "louder" / "quieter" / "softer" / "mute"
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """^(?:louder|quieter|softer|mute|unmute)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val isUp = input.contains(Regex("(?:louder|unmute)", RegexOption.IGNORE_CASE))
+                mapOf("direction" to if (isUp) "up" else "down")
+            },
+        ),
+        // "set volume to 50%" / "volume at 80" / "set volume to 50 percent"
+        IntentPattern(
+            intentName = "set_volume",
+            regex = Regex(
+                """(?:set\s+)?(?:the\s+)?volume\s+(?:to\s+|at\s+)?(\d+)\s*(?:%|percent)?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input ->
+                mapOf(
+                    "value" to match.groupValues[1],
+                    "is_percent" to if (input.contains(Regex("""\d+\s*(?:%|percent)""", RegexOption.IGNORE_CASE))) "true" else "false",
+                )
+            },
+        ),
+
+        // ── WiFi ──
+        // Explicit Android-compat: "turn off/on wifi" — split out from long alternation
+        IntentPattern(
+            intentName = "toggle_wifi",
+            regex = Regex(
+                """turn\s+(?:off|on)\s+(?:wi-?fi|wireless)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.contains(Regex("""\bon\b""", RegexOption.IGNORE_CASE))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_wifi",
+            regex = Regex(
+                """(?:on|off|enable|disable|switch\s+(?:on|off))\s+(?:wi-?fi|wireless)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_wifi",
+            regex = Regex(
+                """(?:switch\s+)?(?:wi-?fi|wireless)\s+(?:on|off)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+
+        // ── Bluetooth ──
+        IntentPattern(
+            intentName = "toggle_bluetooth",
+            regex = Regex(
+                """(?:turn\s+)?(?:on|off|enable|disable)\s+(?:bluetooth|bt)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_bluetooth",
+            regex = Regex(
+                """(?:bluetooth|bt)\s+(?:on|off)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_bluetooth",
+            regex = Regex(
+                """toggle\s+(?:bluetooth|bt)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_wifi",
+            regex = Regex(
+                """toggle\s+(?:wi-?fi|wireless)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Airplane Mode ──
+        // Explicit Android-compat: "enable/disable airplane/flight mode" — split from optional-prefix form
+        IntentPattern(
+            intentName = "toggle_airplane_mode",
+            regex = Regex(
+                """(?:enable|disable)\s+(?:airplane|flight)\s+mode""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.contains(Regex("""\benable\b""", RegexOption.IGNORE_CASE))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_airplane_mode",
+            regex = Regex(
+                """(?:turn\s+)?(?:on|off)\s+(?:airplane|flight)\s+mode""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_airplane_mode",
+            regex = Regex(
+                """(?:airplane|flight)\s+mode\s+(?:on|off)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+
+        // ── Hotspot ──
+        IntentPattern(
+            intentName = "toggle_hotspot",
+            regex = Regex(
+                """(?:turn\s+)?(?:on|off|enable|disable)\s+(?:hot\s*spot|tethering|mobile\s+hotspot)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+        IntentPattern(
+            intentName = "toggle_hotspot",
+            regex = Regex(
+                """(?:mobile\s+)?(?:hot\s*spot|tethering)\s+(?:on|off)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, input ->
+                val state = if (input.lowercase().contains(Regex("""\b(on|enable)\b"""))) "on" else "off"
+                mapOf("state" to state)
+            },
+        ),
+
+        // ── Media (most specific first) ──
+        // Plexamp — MUST come before play_plex (Plexamp contains "Plex")
+        // Explicit Android-compat: "play X on Plexamp" — split from listen-to alternation
+        IntentPattern(
+            intentName = "play_plexamp",
+            regex = Regex(
+                """play\s+(.+?)\s+on\s+plexamp""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "play_plexamp",
+            regex = Regex(
+                """(?:play|listen\s+to)\s+(.+?)\s+(?:on|in)\s+plexamp""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // YouTube Music — MUST come before play_youtube ("YouTube Music" contains "YouTube")
+        // Explicit Android-compat: "play X on YouTube Music" — split from listen-to alternation
+        IntentPattern(
+            intentName = "play_youtube_music",
+            regex = Regex(
+                """play\s+(.+?)\s+on\s+youtube\s+music""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "play_youtube_music",
+            regex = Regex(
+                """(?:play|listen\s+to)\s+(.+?)\s+on\s+youtube\s+music""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "play_youtube_music",
+            regex = Regex(
+                """(?:play|open|launch|start)\s+youtube\s+music\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "play_plexamp",
+            regex = Regex(
+                """(?:play|open|launch|start)\s+plexamp\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Plex — word boundary ensures "on plex" doesn't match "on Plexamp"
+        IntentPattern(
+            intentName = "play_plex",
+            regex = Regex(
+                """(?:play|watch)\s+(.+?)\s+on\s+plex\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("title" to match.groupValues[1].trim()) },
+        ),
+        // YouTube — word boundary ensures "on youtube" doesn't match "on YouTube Music"
+        // Explicit Android-compat: "search YouTube for X" — split from nested two-alternative form
+        IntentPattern(
+            intentName = "play_youtube",
+            regex = Regex(
+                """search\s+(?:youtube|yt)\s+for\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        IntentPattern(
+            intentName = "play_youtube",
+            regex = Regex(
+                """(?:(?:play|watch|search)\s+(.+?)\s+on\s+youtube\b|search\s+(?:youtube|yt)(?:\s+for)?\s+(.+))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("query" to (match.groupValues[1].trim().ifEmpty { match.groupValues[2].trim() }))
+            },
+        ),
+        // Spotify — "play X on spotify" / "put on X on spotify"
+        IntentPattern(
+            intentName = "play_spotify",
+            regex = Regex(
+                """(?:play|listen\s+to|put\s+on)\s+(.+?)\s+on\s+spotify""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // Netflix — "play X on netflix" / "watch X on netflix"
+        IntentPattern(
+            intentName = "play_netflix",
+            regex = Regex(
+                """(?:play|watch)\s+(.+?)\s+on\s+netflix""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // Open app — "open an app" / "launch an app" (no specific app named) → ask which app
+        // Must come BEFORE the generic open_app pattern below to prevent "an" being captured as app_name
+        IntentPattern(
+            intentName = "open_app",
+            regex = Regex(
+                """^(?:open|launch|start)\s+an?\s+app$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "app_name" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "app_name",
+                    promptTemplate = "Which app would you like to open?",
+                ),
+            ),
+        ),
+        // Open app — "open YouTube" / "launch Spotify"
+        // Excludes timer/countdown/alarm phrases and phrases that contain "timer" anywhere.
+        // Also excludes list, meal-planner, new-conversation/chat, and note phrases to prevent
+        // false matches on deterministic skills ("start a note" → create_note, not open_app).
+        IntentPattern(
+            intentName = "open_app",
+            regex = Regex(
+                """^(?:open|launch|start)\s+(?:the\s+)?(?!(?:a\s+)?(?:count(?:down|ing)|timer|alarm|(?:my\s+)?list|meal\s+planning|meal\s+plan|meal\s+prep|meals?|dinners?|menu|new\s+conversation|new\s+chat|conversation|chat|note)\b)(?!.*\btimer\b)(.+?)(?:\s+app)?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("app_name" to match.groupValues[1].trim()) },
+        ),
+        // ── Podcast Controls ──
+        // play_podcast — MUST require "podcast" or "episode" keyword to avoid collision with play_media/play_spotify
+        IntentPattern(
+            intentName = "play_podcast",
+            regex = Regex(
+                """\bplay\s+(?:the\s+)?(?:latest\s+)?(?:episode\s+of\s+|podcast\s+)?(.+?)\s+podcast\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val show = match.groupValues[1].trim()
+                if (show.isNotBlank()) mapOf("show" to show) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "play_podcast",
+            regex = Regex(
+                """\bplay\s+(?:the\s+)?latest\s+episode\s+of\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val show = match.groupValues[1].trim()
+                if (show.isNotBlank()) mapOf("show" to show) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "play_podcast",
+            regex = Regex(
+                """\bput\s+on\s+(?:the\s+)?(.+?)\s+podcast\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val show = match.groupValues[1].trim()
+                if (show.isNotBlank()) mapOf("show" to show) else emptyMap()
+            },
+        ),
+        IntentPattern(
+            intentName = "play_podcast",
+            regex = Regex(
+                """\b(?:listen\s+to|subscribe\s+to)\s+(?:the\s+)?(.+?)\s+(?:podcast|episode)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val show = match.groupValues[1].trim()
+                if (show.isNotBlank()) mapOf("show" to show) else emptyMap()
+            },
+        ),
+        // podcast_skip_forward — skip forward N seconds / skip intro
+        IntentPattern(
+            intentName = "podcast_skip_forward",
+            regex = Regex(
+                """\bskip\s+(?:forward|ahead)\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 30
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_forward",
+            regex = Regex(
+                """\bforward\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 30
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_forward",
+            regex = Regex(
+                """\bskip\s+(?:the\s+)?intro\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ ->
+                mapOf("seconds" to "30")  // default for "skip the intro"
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_forward",
+            regex = Regex(
+                """\bskip\s+ahead\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 30
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        // podcast_skip_back — rewind / back N seconds
+        IntentPattern(
+            intentName = "podcast_skip_back",
+            regex = Regex(
+                """\b(?:go\s+)?back\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 15
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_back",
+            regex = Regex(
+                """\brewind\s+(?:(\d+)\s*(second|sec|minute|min)s?)?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull()
+                val unit = match.groupValues.getOrNull(2)?.lowercase() ?: "second"
+                val seconds = when {
+                    amount == null -> 15  // default rewind
+                    unit.startsWith("min") -> amount * 60
+                    else -> amount
+                }
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_skip_back",
+            regex = Regex(
+                """\bback\s+(\d+)\s*(second|sec|minute|min)s?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val amount = match.groupValues[1].toIntOrNull() ?: 15
+                val unit = match.groupValues[2].lowercase()
+                val seconds = if (unit.startsWith("min")) amount * 60 else amount
+                mapOf("seconds" to seconds.toString())
+            },
+        ),
+        // podcast_speed — set playback rate
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """\bplay\s+at\s+([\d.]+)x\s*(?:speed)?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val speed = match.groupValues[1].toFloatOrNull() ?: 1.0f
+                mapOf("rate" to speed.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """\bset\s+(?:playback\s+)?speed\s+to\s+([\d.]+)x?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val speed = match.groupValues[1].toFloatOrNull() ?: 1.0f
+                mapOf("rate" to speed.toString())
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """\b(normal|regular)\s+speed\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ ->
+                mapOf("rate" to "1.0")
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """\bslow\s+down\s+(?:the\s+)?(?:podcast|playback|audio)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ ->
+                mapOf("rate" to "0.75")
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """\bspeed\s+up\s+(?:the\s+)?(?:podcast|playback|audio)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ ->
+                mapOf("rate" to "1.5")
+            },
+        ),
+        IntentPattern(
+            intentName = "podcast_speed",
+            regex = Regex(
+                """\b(faster|slower)\s+(?:playback|speed|podcast)?\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val text = match.value.lowercase()
+                val rate = if (text.contains("slower")) 0.75f else 1.5f
+                mapOf("rate" to rate.toString())
+            },
+        ),
+        // Album — matches before generic play
+        // Explicit Android-compat: "play album X" without trailing $ anchor that can cause
+        // lazy-quantifier backtracking issues on Android's regex engine
+        IntentPattern(
+            intentName = "play_media_album",
+            regex = Regex(
+                """play\s+(?:the\s+)?album\s+(.+?)(?:\s+(?:by|from)\s+(.+?))?(?:\s+on\s+\w+)?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf("album" to match.groupValues[1].trim())
+                if (match.groupValues[2].isNotBlank()) params["artist"] = match.groupValues[2].trim()
+                params
+            },
+        ),
+        IntentPattern(
+            intentName = "play_media_album",
+            regex = Regex(
+                """play\s+(?:the\s+)?album\s+(.+?)(?:\s+(?:by|from)\s+(.+))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf("album" to match.groupValues[1].trim())
+                if (match.groupValues[2].isNotBlank()) params["artist"] = match.groupValues[2].trim()
+                params
+            },
+        ),
+        // Playlist — matches before generic play; also handles "put on"
+        IntentPattern(
+            intentName = "play_media_playlist",
+            regex = Regex(
+                """(?:play|put\s+on)\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?playlist(?:\s+(.+))?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val name = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                    ?: match.groupValues[2].trim()
+                mapOf("playlist" to name)
+            },
+        ),
+        // "play the next one/song/track" — must be before generic play_media
+        IntentPattern(
+            intentName = "next_track",
+            regex = Regex(
+                """(?i)\bplay\s+(?:the\s+)?next\s+(?:one|song|track|video|episode)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "play the previous one/track/song" — must be before generic play_media
+        IntentPattern(
+            intentName = "previous_track",
+            regex = Regex(
+                """(?i)\bplay\s+(?:the\s+)?(?:previous|last|prior)\s+(?:one|song|track|video|episode)\b""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Generic play — catch-all fallback; only fires if no more-specific play_* pattern matched.
+        IntentPattern(
+            intentName = "play_media",
+            regex = Regex(
+                """play\s+(.+?)(?:\s+(?:by|from)\s+(.+))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf("query" to match.groupValues[1].trim())
+                if (match.groupValues[2].isNotBlank()) params["artist"] = match.groupValues[2].trim()
+                params
+            },
+            isFallback = true,
+        ),
+
+        // ── Media Transport Controls ──
+        // pause_media — pause [music/audio/etc] + colloquial "hold on"
+        IntentPattern(
+            intentName = "pause_media",
+            regex = Regex(
+                """\b(?:pause)\b(?:\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video))?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "pause_media",
+            regex = Regex(
+                """(?i)^hold\s+on$""",
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // stop_media — stop/end playing [music/audio/etc]
+        IntentPattern(
+            intentName = "stop_media",
+            regex = Regex(
+                """\b(?:stop|end)\s+(?:the\s+)?(?:music|song|audio|playback|podcast|video|playing)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "stop_media",
+            regex = Regex(
+                """\bstop\s+playing\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // next_track — skip/next [song/track/one]
+        IntentPattern(
+            intentName = "next_track",
+            regex = Regex(
+                """\b(?:next|skip)\s+(?:(?:the\s+)?(?:song|track|one|video|episode))\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "next_track",
+            regex = Regex(
+                """\bskip\s+this\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "next_track",
+            regex = Regex(
+                """^(?:next\s+(?:song|track)|skip)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // previous_track — previous/last/back [song/track]
+        IntentPattern(
+            intentName = "previous_track",
+            regex = Regex(
+                """\b(?:previous|last|back)\s+(?:song|track|one)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "previous_track",
+            regex = Regex(
+                """\bgo\s+back\s+(?:a\s+)?(?:song|track)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "previous_track",
+            regex = Regex(
+                """\bplay\s+(?:the\s+)?previous\s+(?:song|track)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Navigation ──
+        IntentPattern(
+            intentName = "navigate_to",
+            regex = Regex(
+                """^(?:navigate|directions?|drive|take\s+me|get\s+me(?!\s+the\s+nearest))(?:\s+to)?\s+(.+?)\s*[?!.]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
+        ),
+        // "navigate" / "get directions" (no destination) → ask where
+        IntentPattern(
+            intentName = "navigate_to",
+            regex = Regex(
+                """^(?:navigate|directions?|get\s+directions?)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "destination" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "destination",
+                    promptTemplate = "Where would you like to go?",
+                ),
+            ),
+        ),
+        // "find a route/way/path/shortcut to X" / "find my way home" — navigation phrases
+        // blocked from the find_nearby catch-all by negative lookahead; routed here instead.
+        IntentPattern(
+            intentName = "navigate_to",
+            regex = Regex(
+                """^find\s+(?:(?:a|my)\s+)?(?:route|way|path|shortcut|directions?)\s+(?:to\s+)?(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("destination" to match.groupValues[1].trim()) },
+        ),
+        // ── Find Nearby (most specific first to avoid greedy mis-capture) ──
+        // "find me the nearest cafe" — verb + me + the nearest + query
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show|get)\s+me\s+the\s+nearest\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "find me nearby cafes" — verb + me + nearby + query
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show|get)\s+me\s+nearby\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "find me cafes nearby" — verb + me + query + location marker
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show|get)\s+me\s+(.+?)\s+(?:near(?:by|\s+me)|close\s+by|around\s+(?:here|me))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "locate nearest pharmacy" — verb + (the)? + nearest + query
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show\s+me|search\s+for|look\s+for|locate)\s+(?:the\s+)?(?:nearest|closest)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "find nearby restaurants" — verb + nearby + query (no "me")
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|search\s+for|look\s+for|locate|show)\s+nearby\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "find a nearby pharmacy" / "find the nearest cafe" (article before nearby/nearest)
+        // Must precede the lazy "find X nearby" catch-all to avoid capturing "a" as the query.
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show|locate|search\s+for|look\s+for)\s+(?:a|an|the)\s+near(?:by|est)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "find cafes nearby" / "show me petrol stations close by" — general pattern
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show\s+me|look\s+for|search\s+for|locate)\s+(.+?)\s+(?:near(?:by|\s+me)|close\s+by|around\s+(?:here|me))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                // Strip leading article (a/an/the) that the lazy match can capture as the whole query
+                // e.g. "find a chemist nearby" → lazy captures "a chemist" → strip "a " → "chemist"
+                val raw = match.groupValues[1].trim()
+                val stripped = raw.replace(Regex("""^(?:a|an|the)\s+""", RegexOption.IGNORE_CASE), "")
+                mapOf("query" to stripped.ifBlank { raw })
+            },
+        ),
+        // "show me dog parks on the map" / "find cafes on the map"
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """(?:find|show\s+me|look\s+for|search\s+for|locate)\s+(.+?)\s+on\s+(?:the\s+)?map""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "what restaurants are nearby" / "what's nearby"
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """what\s+(.+?)\s+(?:are|is)\s+(?:near(?:by|\s+me)|close\s+by|around\s+here)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "where's the nearest ATM" / "where is the nearest X"
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """where(?:'s|\s+is)\s+(?:the\s+)?nearest\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "is there a petrol station nearby" / "is there an ATM near me"
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """is\s+there\s+(?:a\s+|an\s+)?(.+?)\s+(?:near(?:by|\s+me)|close\s+by|around\s+here)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+        ),
+        // "what's nearby" / "find nearby" (no query) → ask what they're looking for
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """^(?:what(?:'s|\s+is)\s+nearby|find\s+nearby|show\s+(?:me\s+)?what(?:'s|\s+is)\s+nearby)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = mapOf(
+                "query" to com.kernel.ai.core.skills.slot.SlotSpec(
+                    name = "query",
+                    promptTemplate = "What are you looking for?",
+                ),
+            ),
+        ),
+        // "I'm looking for a cafe" — assumed nearby. Marked isFallback so non-location queries
+        // like "I'm looking for my car keys" can fall through to the classifier / E4B first.
+        // Note: "I need to" is stripped by INTENT_PREFIX_RE before pattern matching, so
+        // "I need to find a gas station" arrives as "find a gas station" — caught by the
+        // isFallback catch-all below. "I'm looking for" is NOT stripped.
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """I(?:'m|\s+am)\s+looking\s+for\s+(?:a|an)\s+(?!(?:route|way|path|shortcut|directions?)\b)(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+            isFallback = true,
+        ),
+        // "find a gas station" / "find an ATM" — catch-all after prefix strip (e.g. "I need to
+        // find a gas station" → "find a gas station" after INTENT_PREFIX_RE strips "I need to").
+        // Requires article "a/an" to avoid stealing bare "find my way to X" phrases.
+        // Negative lookahead blocks navigation nouns so "find a route/way/path to X" can
+        // fall through to the navigate_to classifier.
+        IntentPattern(
+            intentName = "find_nearby",
+            regex = Regex(
+                """^find\s+(?:a|an)\s+(?!(?:route|way|path|shortcut|directions?)\b)(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("query" to match.groupValues[1].trim()) },
+            isFallback = true,
+        ),
+
+        // ── Communication ──
+        // "make a call" / "call someone" / "ring anybody" (no concrete contact) → ask who
+        IntentPattern(
+            intentName = "make_call",
+            regex = Regex(
+                """^(?:make\s+(?:a\s+)?call|(?:call|ring|dial|phone)\s+(?:someone|somebody|anyone|anybody))$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("make_call"),
+        ),
+        IntentPattern(
+            intentName = "make_call",
+            regex = Regex(
+                """^(?:call|ring|dial|phone)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                normalizeOptionalContact(match.groupValues[1])?.let { mapOf("contact" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("make_call"),
+        ),
+        // "give Sarah a call" / "give mum a ring"
+        IntentPattern(
+            intentName = "make_call",
+            regex = Regex(
+                """^give\s+(.+?)\s+a\s+(?:call|ring|buzz)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                normalizeOptionalContact(match.groupValues[1])?.let { mapOf("contact" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("make_call"),
+        ),
+        // Self-send: "text myself [message]" / "text me [message]" — contact resolved to own number
+        IntentPattern(
+            intentName = "send_sms",
+            regex = Regex(
+                """^(?:text|sms)\s+(?:myself|me)\s+(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("contact" to "myself", "message" to match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("send_sms"),
+        ),
+        // "send a message" / "send a text" (no contact) → ask who to send to
+        // Must come BEFORE the generic send_sms pattern below (which would capture "a" as contact)
+        IntentPattern(
+            intentName = "send_sms",
+            regex = Regex(
+                """^(?:send\s+(?:a\s+)?(?:text|sms|message)|text\s+someone)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("send_sms"),
+        ),
+        // "send a text to John saying hello" / "text John hey" / "sms John meet at 5"
+        IntentPattern(
+            intentName = "send_sms",
+            regex = Regex(
+                """^(?:send\s+(?:a\s+)?(?:text|sms|message)|text|sms)\s+(?:(?:message\s+)?to\s+)?(.+?)(?:\s+(?:saying|that|with\s+message)\s+(.+))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalContact(match.groupValues[1])?.let { params["contact"] = it }
+                val msg = match.groupValues[2].trim()
+                if (msg.isNotBlank()) params["message"] = msg
+                params
+            },
+            requiredSlots = slotContract("send_sms"),
+        ),
+        // "message mum that I'm on my way" / "message John saying..."
+        IntentPattern(
+            intentName = "send_sms",
+            regex = Regex(
+                """^message\s+(.+?)\s+(?:that|saying|to\s+say)\s+(.+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalContact(match.groupValues[1])?.let { params["contact"] = it }
+                params["message"] = match.groupValues[2].trim()
+                params
+            },
+            requiredSlots = slotContract("send_sms"),
+        ),
+        // "send an email" / "email someone" (no concrete contact) → ask who
+        // Must come BEFORE the contact-extraction pattern below
+        IntentPattern(
+            intentName = "send_email",
+            regex = Regex(
+                """^(?:send\s+(?:an?\s+)?email|email(?:\s+someone)?)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("send_email"),
+        ),
+        // "send an email to John about meeting" / "email John with body Please review"
+        IntentPattern(
+            intentName = "send_email",
+            regex = Regex(
+                """^(?:send\s+(?:an?\s+)?email|email)\s+(?:to\s+)?(.+?)""" +
+                    """(?:\s+(?:about|regarding|re|subject:?|with\s+subject:?)\s+(.+?))?""" +
+                    """(?:\s+(?:that)\s+(.+?))?""" +
+                    """(?:\s+(?:and\s+)?(?:body|message|saying|containing)\s+(.+))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalContact(match.groupValues[1])?.let { params["contact"] = it }
+                val subject = match.groupValues[2].trim()
+                val thatClause = match.groupValues[3].trim()
+                val body = match.groupValues[4].trim()
+                if (subject.isNotBlank()) params["subject"] = subject
+                if (thatClause.isNotBlank()) params["subject"] = thatClause
+                if (body.isNotBlank()) params["body"] = body
+                params
+            },
+            requiredSlots = slotContract("send_email"),
+        ),
+
+
+        // ── System Info ──
+        // "show my device info" / "what are my device specs" / "show system info"
+        IntentPattern(
+            intentName = "get_system_info",
+            regex = Regex(
+                """(?:show|get|what(?:'s|\s+are)?)\s+(?:my\s+)?(?:device\s+(?:info|specs|details)|system\s+info(?:rmation)?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // "how much storage/space/RAM do I have" / "what's my RAM usage"
+        IntentPattern(
+            intentName = "get_system_info",
+            regex = Regex(
+                """(?:how\s+much\s+(?:storage|space|memory|ram|disk\s+space)|what(?:'s|\s+is)\s+(?:my\s+)?(?:ram|memory|storage|cpu|disk)\s*(?:usage|left|remaining|level|status)?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Date Diff ──
+        // "how many days until Christmas" / "how long until my birthday on August 22"
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """(?:how\s+(?!to\s)(?:many\s+(?:days?|weeks?|waits?|months?)\s+)?(?:long\s+)?(?:until|till|to|before))\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until") }
+        ),
+        // "how many days since March 1" / "how long since Easter"
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """(?:how\s+(?:many\s+(?:days?|weeks?|months?)\s+)?(?:long\s+)?since)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "since") }
+        ),
+        // "days until Christmas" / "weeks until New Year"
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """(?:days?|weeks?)\s+(?:until|till|to)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until") }
+        ),
+        // "what day of the week is 22 August" / "what day is Christmas"  (not "what day is X this year")
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """what\s+day(?:\s+of\s+the\s+week)?\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1])) }
+        ),
+        // "when is ANZAC Day" / "when is Easter"  (not "when is X this year" — that falls to E4B)
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """when\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1])) }
+        ),
+
+        // ── Calculator / Conversion ──
+        // Symbolic expressions and helper functions: "245 * 17", "what is round(sqrt(25^2), 2)"
+        // Minus-only input needs a binary minus that is spaced ("50 - 12") or the only hyphen
+        // ("50-12"), so dates ("2026-11-01"), hyphenated phone numbers and a bare "-5" do not route.
+        IntentPattern(
+            intentName = "calculate_arithmetic",
+            regex = Regex(
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b)|.*\d\s+-\s*\d|.*\d\s*-\s+\d|[^-]*\d-\d[^-]*$)(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
+        ),
+        // Worded calculator phrases: "what is 18.5 percent of 240", "12 divided by 3", "5 plus 7"
+        IntentPattern(
+            intentName = "calculate_arithmetic",
+            regex = Regex(
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?:-?\d+(?:\.\d+)?\s*(?:%|percent)\s+of\s+-?\d+(?:\.\d+)?|-?\d+(?:\.\d+)?(?:\s+(?:plus|minus|times|multiplied\s+by|divided\s+by|over|mod(?:ulo)?|to\s+the\s+power\s+of|raised\s+to)\s+-?\d+(?:\.\d+)?)+))[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
+        ),
+        // Worded root phrases: "square root of 144", "square root 144", "what's the cube root of 27"
+        IntentPattern(
+            intentName = "calculate_arithmetic",
+            regex = Regex(
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute)\s+)?(?:the\s+)?(square|cube)\s+root\s+(?:of\s+)?(-?\d+(?:\.\d+)?)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val kind = match.groupValues[1].lowercase()
+                val n = match.groupValues[2]
+                val expression = if (kind == "cube") "($n)^(1/3)" else "sqrt($n)"
+                mapOf("expression" to expression)
+            },
+        ),
+        // Unit conversion phrases: "convert 5 miles to km", "what is 60 mph in km/h", "100m to yards"
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($unitConversionUnitPattern)\s+(?:to|in|into)\s+($unitConversionUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    toUnit = match.groupValues[3],
+                )
+            },
+        ),
+        // Reversed conversion phrasing: "how many kilometers are 5 miles", "how many cups are in 2 liters"
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^how\s+many\s+($unitConversionUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($unitConversionValuePattern)\s*($unitConversionUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($unitConversionUnitPattern)\s+(?:to|in|into)\s+($mixedUnitConversionTargetPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    toUnit = match.groupValues[3],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?$feetAndInchesInputPattern\s+(?:to|in|into)\s+($unitConversionUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractFeetAndInchesConversionParams(
+                    feet = match.groupValues[1],
+                    inches = match.groupValues[2],
+                    toUnit = match.groupValues[3],
+                )
+            },
+        ),
+        // Ingredient-aware cooking conversion phrases: "convert 3 tbsp of butter to grams"
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingIngredientMassUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingIngredientMassUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingIngredientMassUnitPattern)\s+does\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+weigh$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+much\s+does\s+($cookingConversionValuePattern)\s+($cookingIngredientVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+weigh(?:\s+in\s+($cookingIngredientMassUnitPattern))?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4].ifBlank { "g" },
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingIngredientMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingIngredientVolumeUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingIngredientVolumeUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingIngredientMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        // Ingredient-qualified same-category kitchen-unit conversions use the cooking path so the kitchen assumptions stay consistent.
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingVolumeUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingVolumeUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($cookingConversionValuePattern)\s+($cookingMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($cookingMassUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    ingredient = match.groupValues[3],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_cooking_measure",
+            regex = Regex(
+                """^how\s+many\s+($cookingMassUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($cookingConversionValuePattern)\s+($cookingMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCookingConversionParams(
+                    amount = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    ingredient = match.groupValues[4],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        // Ingredient-qualified same-category non-cooking conversions still use deterministic unit math.
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($unitConversionValuePattern)\s*($ingredientQualifiedMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($ingredientQualifiedMassUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^how\s+many\s+($ingredientQualifiedMassUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($unitConversionValuePattern)\s*($ingredientQualifiedMassUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^(?:(?:convert|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($unitConversionValuePattern)\s*($ingredientQualifiedVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)\s+(?:to|in|into)\s+($ingredientQualifiedVolumeUnitPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[1],
+                    fromUnit = match.groupValues[2],
+                    toUnit = match.groupValues[4],
+                )
+            },
+        ),
+        IntentPattern(
+            intentName = "convert_units",
+            regex = Regex(
+                """^how\s+many\s+($ingredientQualifiedVolumeUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($unitConversionValuePattern)\s*($ingredientQualifiedVolumeUnitPattern)\s+(?:of\s+)?($cookingIngredientPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractUnitConversionParams(
+                    value = match.groupValues[2],
+                    fromUnit = match.groupValues[3],
+                    toUnit = match.groupValues[1],
+                )
+            },
+        ),
+        // Currency conversion phrases: "convert 100 Australian dollars to New Zealand dollars", "100 aud in nzd"
+        IntentPattern(
+            intentName = "convert_currency",
+            regex = Regex(
+                """^(?:(?:convert|exchange|what(?:'s|\s+is)|how\s+much\s+is)\s+)?($currencyConversionValuePattern)\s+($currencyConversionTermPattern)\s+(?:to|in|into|for)\s+($currencyConversionTermPattern)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCurrencyConversionParams(
+                    amount = match.groupValues[1],
+                    fromCurrency = match.groupValues[2],
+                    toCurrency = match.groupValues[3],
+                )
+            },
+        ),
+        // Reversed currency phrasing: "how many euros are in 100 usd"
+        IntentPattern(
+            intentName = "convert_currency",
+            regex = Regex(
+                """^how\s+many\s+($currencyConversionTermPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($currencyConversionValuePattern)\s+($currencyConversionTermPattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractCurrencyConversionParams(
+                    amount = match.groupValues[2],
+                    fromCurrency = match.groupValues[3],
+                    toCurrency = match.groupValues[1],
+                )
+            },
+        ),
+        // ── Lists ──
+        // "add milk to my list" / "put eggs on the list" (item present, list missing) → ask which list
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^(?:add\s+(.+?)\s+to|put\s+(.+?)\s+on)\s+(?:(?:my|the)\s+)?list$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val item = normalizeOptionalItem(match.groupValues[1].ifBlank { match.groupValues[2] })
+                if (item != null) mapOf("item" to item) else emptyMap()
+            },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+        // "add milk to the list named shopping" / "add eggs to my list called groceries"
+        // The explicit name marker distinguishes the target list from the item text.
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?list\s+(?:named|called)\s+(.+?)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "item" to match.groupValues[1].trim(),
+                    "list_name" to match.groupValues[2].trim(),
+                )
+            },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
+                params.putAll(listNameWithDescriptor(match.groupValues[2], match.groupValues[3]))
+                params
+            },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+        // "put milk on my shopping list" / "put eggs on the grocery list"
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
+                params.putAll(listNameWithDescriptor(match.groupValues[2], match.groupValues[3]))
+                params
+            },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+        // "chuck milk on my list" / "stick eggs on the list" (item present, list missing) → ask which list
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?list$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val item = normalizeOptionalItem(match.groupValues[1])
+                if (item != null) mapOf("item" to item) else emptyMap()
+            },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+        // "chuck milk on the shopping list" / "stick eggs on my grocery list" — NZ/AU/UK informal verbs
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf<String, String>()
+                normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
+                val listName = match.groupValues[2].trim()
+                if (listName.isNotBlank()) params.putAll(listNameWithDescriptor(listName, match.groupValues[3]))
+                params
+            },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+        // "add to my list" / "add something to my list" / "add to the shopping list" (no item) → ask what
+        IntentPattern(
+            intentName = "add_to_list",
+            regex = Regex(
+                """^(?:add|put)\s+(?:something\s+)?to\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?(list)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val listName = match.groupValues[1].trim()
+                if (listName.isNotBlank()) listNameWithDescriptor(listName, match.groupValues[2]) else emptyMap()
+            },
+            requiredSlots = slotContract("add_to_list"),
+        ),
+        // "create a list" / "make a new list" / "start my list" / "add a list" → ask for the list name
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """^(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?list$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_list"),
+        ),
+        // "create a list called groceries" / "make a new list called holiday packing" / "add a list called shopping"
+        // Must come BEFORE generic create_list to prevent lazy (.+?) capturing "a" or "new"
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+)?(?:new\s+)?list\s+called\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("create_list"),
+        ),
+        // "create a groceries list" / "make a new shopping list" / "add a shopping list"
+        // "make a new list called holiday packing" / "create a list called groceries"
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(?:new\s+)?list\s+called\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("create_list"),
+        ),
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+(list)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
+            requiredSlots = slotContract("create_list"),
+        ),
+
+        // "Make a shopping list for my meal plan" / "Create a grocery list from my meal plan"
+        // Handles trailing prepositional phrases after "list"
+        IntentPattern(
+            intentName = "create_list",
+            regex = Regex(
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(.+?)\s+(list)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
+            requiredSlots = slotContract("create_list"),
+        ),
+        // ── Meal Planner ──
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:(?:let'?s|lets|can\s+you|could\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:plan|make|create)(?:\s+me)?\s+(?:(?:some|my)\s+)?meals?(?:\s+for\s+me)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:(?:let'?s|lets|can\s+you|could\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:plan|make|create)(?:\s+me)?\s+(?:a\s+)?meal\s+plan(?:\s+for\s+me)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:(?:let'?s|lets|can\s+you|could\s+you|help\s+me|i\s+(?:want|need)\s+to|i\s+would\s+like\s+to|i(?:['’])?d\s+like\s+to)\s+)?(?:meal\s+planning|plan\s+my\s+meals|help\s+me\s+plan\s+meals)[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:(?:please\s+)?(?:can\s+you|could\s+you)|i\s+(?:want|need)|i\s+would\s+like|i(?:['’])?d\s+like|give\s+me)?\s*(?:a\s+)?(?:meal\s+plan|meal\s+planning|weekly\s+menu)(?:\s+(?:for\s+the\s+week|this\s+week|weekly))?(?:\s+please)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "start_meal_planner",
+            regex = Regex(
+                """^(?:(?:let'?s|lets|can\s+you|could\s+you|please|help\s+me)\s+)?(?:plan|start|set\s+up|organi[sz]e|map\s+out|figure\s+out|sort\s+out|prep)\s+(?:(?:(?:my|our|the|a)\s+)?(?:weekly\s+)?)?(?:meal\s+planning|meal\s+plan|meals?|dinners?|menu|meal\s+prep)(?:\s+(?:for\s+the\s+week|for\s+this\s+week|this\s+week|weekly))?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // ── Parking / location memories ──
+        // Pattern: "remember that I parked on level 3" / "remember that I left the car near the entrance"
+        // Must route to save_memory BEFORE save_important_date. The importantDateValuePattern
+        // matches "level 3", "row C", "basement level 2" etc. via [a-zA-Z]+\s+\d{1,2}, causing
+        // parking/location memories to be misrouted as important dates.
+        // The "left"/"put" branch requires a vehicle noun (car/bike/scooter/vehicle) to avoid
+        // stealing important-date inputs like "I left my job on 3 March".
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:remember|save|store|note|don't\s+forget)(?:\s+that)?\s+(I\s+(?:parked\s+.*|(?:left|put)\s+(?:my|the)\s+(?:car|bike|scooter|vehicle)\s+.*))$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("save_memory"),
+        ),
+        // ── Important Dates ──
+        IntentPattern(
+            intentName = "list_important_dates",
+            regex = Regex(
+                """^(?:list|show(?:\s+me)?|what(?:'s|\s+are))\s+(?:my\s+)?important (?:dates|days)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?)\s+(?:is|as|on)(?:\s+the)?\s+($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractImportantDateParams(
+                    label = match.groupValues[1],
+                    date = match.groupValues[2],
+                )
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^my\s+(.+?)\s+is(?:\s+on)?(?:\s+the)?\s+($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractImportantDateParams(
+                    label = match.groupValues[1],
+                    date = match.groupValues[2],
+                )
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                // Date only, no label — NeedsSlot(label) will fire
+                mapOf("date" to match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:remember|save|store|note|don't\s+forget|add|create)(?:\s+that)?\s+(?:the\s+)?($importantDateValuePattern)\s+(?:as|is)\s+(?:an?\s+)?important\s+(?:date|day)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                // "Save the 26th of June as an important date" — date given, label unknown
+                mapOf("date" to match.groupValues[1].trim())
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:add|create|save|store)(?:\s+an?)?\s+important\s+(?:date|day)(?:\s+for)?\s+(.+?)\s+(?:on\s+)?(?:the\s+)?($importantDateValuePattern)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                extractImportantDateParams(
+                    label = match.groupValues[1],
+                    date = match.groupValues[2],
+                )
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "save_important_date",
+            regex = Regex(
+                """^(?:remember|save|store|add|create)(?:\s+that)?\s+(?:(?:an?\s+)?important\s+(?:date|day)(?:\s+for)?\s+)?(.+?\b(?:birthday|anniversary)\b.*)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                normalizeImportantDateLabelOrNull(match.groupValues[1])?.let { mapOf("label" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("save_important_date"),
+        ),
+        IntentPattern(
+            intentName = "remove_important_date",
+            regex = Regex(
+                """^(?:remove|delete|forget)\s+(.+?)\s+from\s+(?:my\s+)?important (?:dates|days)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                normalizeImportantDateLabelOrNull(match.groupValues[1])?.let { mapOf("label" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("remove_important_date"),
+        ),
+        IntentPattern(
+            intentName = "remove_important_date",
+            regex = Regex(
+                """^(?:remove|delete|forget)\s+(.+?\b(?:birthday|anniversary)\b.*)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                normalizeImportantDateLabelOrNull(match.groupValues[1])?.let { mapOf("label" to it) } ?: emptyMap()
+            },
+            requiredSlots = slotContract("remove_important_date"),
+        ),
+        // "remove milk from my shopping list" / "take eggs off the grocery list"
+        IntentPattern(
+            intentName = "remove_from_list",
+            regex = Regex(
+                """(?:remove|delete|take|cross off)\s+(.+?)\s+(?:from|off)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val params = mutableMapOf(
+                    "item" to match.groupValues[1].trim(),
+                )
+                params.putAll(listNameWithDescriptor(match.groupValues[2], match.groupValues[3]))
+                params
+            },
+        ),
+        // "display list called shopping" / "show list called groceries"
+        IntentPattern(
+            intentName = "get_list_items",
+            regex = Regex(
+                """(?:display|show|read|get)\s+(?:the\s+)?list\s+called\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+        ),
+        // "what's on my shopping list" / "what's in my shopping list" / "show me my grocery list"
+        IntentPattern(
+            intentName = "get_list_items",
+            regex = Regex(
+                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+out)?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
+        ),
+
+        // ── Save Memory ──
+        // Pattern: "remember something" / "save something to memory" → ask what to remember
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^(?:remember\s+something|(?:save|store|keep)\s+something\s+(?:to|in)\s+memory)$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("save_memory"),
+        ),
+        // Pattern: "save to memory that X" / "save to memory: X" / "save that X"
+        // NOTE: "save this/it to memory" is intentionally excluded — "this" and "it" are
+        // anaphoric references that require LLM context to resolve (see #937).
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:save|store|keep)\s+(?:(?:to|in)\s+memory(?:\s+that)?|that(?!\s+to\s+memory|\s+in\s+memory))\s*[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                // Strip trailing "to/in memory" that can appear when "that" is used as a
+                // demonstrative (e.g. "save that to memory") rather than a conjunction.
+                // Use a regex replace (IGNORE_CASE) because removeSuffix is case-sensitive.
+                val stripped = match.groupValues[1].trim()
+                    .replace(Regex("(?:^|\\s+)(?:to|in)\\s+memory$", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                // Reject single anaphoric tokens that survived stripping (e.g. "save that it to memory").
+                val ANAPHORIC = setOf("it", "this", "that")
+                if (stripped.isBlank() || stripped.lowercase() in ANAPHORIC) emptyMap()
+                else mapOf("content" to stripped)
+            },
+            requiredSlots = slotContract("save_memory"),
+        ),
+        // Pattern: "remember that X" / "remember: X"
+        // Excludes first-person + context-reference openers (I, I'm, this, that, it) —
+        // those need LLM to resolve conjugation and anaphora.
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remember\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it)\b)(\S.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("save_memory"),
+        ),
+        // Pattern: "note that X" / "make a note that X" / "don't forget that X"
+        // First-person ("I prefer X") is now handled by normaliseSaveContent so no longer falls
+        // through to E4B. Only true anaphoric tokens (this/that/it) still fall through.
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:note|don't\s+forget)\s+(?:that\s+)?[:\-–]?\s*(?!(?:this|that|it|to\s+(?:my)?self)\b)(\S.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("content" to match.groupValues[1].trim()) },
+            requiredSlots = slotContract("save_memory"),
+        ),
+        // Pattern: "my X is Y" — captures personal facts like "my dog's name is Biscuit"
+        // Anchored to start of message and requires "my" to reduce false positives.
+        IntentPattern(
+            intentName = "save_memory",
+            regex = Regex(
+                """^my\s+(.{3,60})\s+is\s+(.{1,100})$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, raw ->
+                mapOf("content" to raw.trim())
+            },
+            requiredSlots = slotContract("save_memory"),
+        ),
+        // ── Notes ──
+        // Pattern: bare "make a note" / "take a note" / "save a note" — no content → create_note slot-fill.
+        // NOTE: must sit before the content-bearing make/take/save pattern to short-circuit it.
+        // (Previously routed to save_memory, which was semantically wrong.)
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take|save)\s+(?:a\s+)?note\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "make a note that X" / "take a note that X" / "save a note that X" / "make a note X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:make|take|save)\s+(?:a\s+)?note(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: bare "create a note" / "add a note" / "new note" — no content → slot-fill
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:create|add|start)\s+(?:a\s+)?(?:new\s+)?note\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "create a note about/for/: X" / "add a note about X" / "new note: X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:create|add|start)\s+(?:a\s+)?(?:new\s+)?note(?:\s+(?:about|for|on|:))?[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "note: X" / "new note X" — terse shorthand
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:new\s+)?note[:\-–]\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "write down X" / "jot down X" / "put down X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:write|jot|put)\s+down\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: bare "write/jot/put something down" — no clear content → slot-fill
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:write|jot|put)\s+(?:something\s+)?down\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Bare "voice memo" / "add a voice memo" / "create a voice memo" — no content → slot-fill
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:create\s+(?:a\s+)?|add\s+(?:a\s+)?|record\s+(?:a\s+)?)?voice\s+memo\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Bare "save/make/take/add a voice memo" — no content → slot-fill
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:save|make|take|add|create|record|start)\s+(?:a\s+)?(?:new\s+)?voice\s+memo\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "voice memo: X" / "save a voice memo about X" (with content)
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record|start|write)\s+(?:a\s+)?(?:new\s+)?)?voice\s+memo(?:\s+(?:about|that|for|on))?\s*[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val raw = match.groupValues[1].trim().trimStart('-', ':', '–')
+                val content = normalizeOptionalItem(raw)
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Bare "save/make/take/add a memo" / "note to self" — no content → slot-fill
+        // "memo" and "note to self" are common voice synonyms for "note".
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record|start)\s+(?:a\s+)?(?:new\s+)?memo|note\s+to\s+(?:my)?self)\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "save/make a memo: X" / "take a memo about X" / "note to self: X"
+        IntentPattern(
+            intentName = "create_note",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:(?:save|make|take|add|create|record|write)\s+(?:a\s+)?(?:new\s+)?memo|note\s+to\s+(?:my)?self)(?:\s+(?:that|about|for|on))?[:\-–]?\s*(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val content = normalizeOptionalItem(match.groupValues[1])
+                mapOf("content" to (content ?: ""))
+            },
+            requiredSlots = slotContract("create_note"),
+        ),
+        // Pattern: "show/list/display/check/read [my] notes"
+        IntentPattern(
+            intentName = "list_notes",
+            regex = Regex(
+                """^(?:show|list|display|show\s+me|list\s+for\s+me|check|read(?:\s+me)?|pull\s+up)\s+(?:my\s+)?notes\b(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        // Pattern: "what notes [do I have]" / "have I written/jotted down" / "my notes"
+        IntentPattern(
+            intentName = "list_notes",
+            regex = Regex(
+                """^(?:what\s+notes(?:\s+do\s+(?:I|you)\s+have(?:\s+saved)?)?\b|what\s+(?:have|did)\s+I\s+(?:(?:write|wrote|written)(?:\s+down)?|(?:jot|jotted)(?:\s+down)?)|(?:do\s+(?:I|you)\s+have\s+)?(?:any\s+)?(?:my\s+)?notes(?:\s+(?:saved|stored))?)(?:\s*[.!?])?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+
+        // ── Brightness ──
+        // Explicit Android-compat: "increase brightness" — split from complex alternation
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """increase\s+(?:the\s+)?(?:screen\s+)?brightness""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("direction" to "up") },
+        ),
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """(?:raise|turn\s+up|brighten|max(?:imize)?)\s+(?:the\s+)?(?:screen\s+)?brightness""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("direction" to "up") },
+        ),
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """(?:decrease|reduce|lower|turn\s+down|dim|min(?:imize)?)\s+(?:the\s+)?(?:screen\s+)?brightness""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("direction" to "down") },
+        ),
+        // "dim the screen" / "dim the display" — no "brightness" keyword
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """dim\s+(?:the\s+)?(?:screen|display|lights?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> mapOf("direction" to "down") },
+        ),
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """brightness\s+(?:up|down|max|min|full|half|low)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw ->
+                val direction = if (raw.lowercase().contains(Regex("up|max|full"))) "up" else "down"
+                mapOf("direction" to direction)
+            },
+        ),
+        IntentPattern(
+            intentName = "set_brightness",
+            regex = Regex(
+                """(?:set|change)\s+(?:the\s+)?(?:screen\s+)?brightness\s+(?:to\s+)?(\d+)\s*%?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("value" to match.groupValues[1], "is_percent" to "true")
+            },
+        ),
+
+        // ── Smart Home (MUST BE LAST — most generic) ──
+        // Exclude media/computing devices and alarm/timer keywords that have dedicated intents.
+        IntentPattern(
+            intentName = "smart_home_on",
+            regex = Regex(
+                """(?:turn|switch)\s+on\s+(?!.*\b(?:tv|television|music|tunes|spotify|netflix|youtube|plex|alarm|alarms|timer)\b)(?:the\s+)?(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+        ),
+        // Terse: "lights on" / "heater on" — object + on, no verb.
+        // isFallback = true: only fires if no more-specific non-fallback pattern matched,
+        // preventing ambiguous inputs like "hold on" from landing here.
+        IntentPattern(
+            intentName = "smart_home_on",
+            regex = Regex(
+                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight|hold|what|is|are|how|when|where|who|why|which|does|do|did|can|could|would|should|will|am|was|were)\b)(?:the\s+)?(.+?)\s+on$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+            isFallback = true,
+        ),
+        IntentPattern(
+            intentName = "smart_home_off",
+            regex = Regex(
+                """(?:turn|switch)\s+off\s+(?!.*\b(?:tv|television|music|tunes|spotify|netflix|youtube|plex|alarm|alarms|timer)\b)(?:the\s+)?(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+        ),
+        // Terse: "lights off" / "heater off" — object + off, no verb.
+        // isFallback = true: only fires if no more-specific non-fallback pattern matched.
+        IntentPattern(
+            intentName = "smart_home_off",
+            regex = Regex(
+                """^(?!(?:wifi|wi-fi|bluetooth|bt|hotspot|airplane|flight|dnd|torch|flashlight)\b)(?:the\s+)?(.+?)\s+off$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+            isFallback = true,
+        ),
+        // Colloquial: "kill the lights" / "kill the heater" — exclude flashlight/torch words (send to classifier)
+        IntentPattern(
+            intentName = "smart_home_off",
+            regex = Regex(
+                """kill\s+(?!(?:the\s+)?(?:flashlight|torch)\b)(?:the\s+)?(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> mapOf("device" to match.groupValues[1].trim()) },
+        ),
+    )
+
+    // ── Main routing ──────────────────────────────────────────────────────────
+
+    /**
+     * Attempts to match [trimmed] against [candidates] in order.
+     * Returns the first [RouteResult.RegexMatch] or [RouteResult.NeedsSlot] found, or null if
+     * no pattern matches.
+     */
+    private fun missingRequiredSlot(
+        requiredSlots: Map<String, com.kernel.ai.core.skills.slot.SlotSpec>,
+        params: Map<String, String>,
+    ): com.kernel.ai.core.skills.slot.SlotSpec? =
+        requiredSlots.entries.firstOrNull { (key, _) -> params[key].isNullOrBlank() }?.value
+
+    fun nextMissingSlot(
+        intentName: String,
+        params: Map<String, String>,
+    ): com.kernel.ai.core.skills.slot.SlotSpec? = missingRequiredSlot(slotContract(intentName), params)
+
+    private fun listNameWithDescriptor(name: String, descriptor: String): Map<String, String> {
+        val base = name.trim()
+        return mapOf(
+            "list_name" to "$base $descriptor",
+            "list_name_for_creation" to base,
+        )
+    }
+
+    private fun tryMatchPatterns(trimmed: String, candidates: List<IntentPattern>): RouteResult? {
+        for (pattern in candidates) {
+            val match = pattern.regex.find(trimmed) ?: continue
+            val extracted = pattern.paramExtractor(match, trimmed)
+            // #1453 — weather parameter-semantic normalisation: every deterministic
+            // get_weather match shares one conservative normaliser so forecast
+            // horizons, "tomorrow", "this week", and named locations survive
+            // regardless of which pattern matched.
+            val params =
+                if (pattern.intentName == "get_weather") normalizeWeatherParams(trimmed, extracted) else extracted
+            val missingSlot = missingRequiredSlot(pattern.requiredSlots, params)
+            val intent = MatchedIntent(
+                intentName = pattern.intentName,
+                params = params,
+                source = "regex",
+            )
+            return if (missingSlot != null) {
+                RouteResult.NeedsSlot(intent, missingSlot)
+            } else {
+                RouteResult.RegexMatch(intent)
+            }
+        }
+        return null
+    }
+
+    /**
+     * Suspends until the classifier is ready, or until [timeoutMs] elapses, or until
+     * the classifier permanently fails. Classifier-not-ready is a transient race on
+     * first message after app start (MiniLMIntentClassifier async init).
+     *
+     * This is a **suspend-friendly** replacement for an older blocking `runBlocking`
+     * inside `MiniLMIntentClassifier.classify()`. Callers inside `viewModelScope`
+     * (or any coroutine context) should invoke this before `route()` to prevent
+     * the classifier from returning null on the first user message.
+     *
+     * If the classifier is null, already ready, or has permanently failed, this
+     * returns immediately. Otherwise it polls [isReady] until the timeout.
+     */
+    suspend fun awaitClassifierReady(timeoutMs: Long = 2000L) {
+        val cls = classifier ?: return
+        if (cls.isReady() || cls.isFailed()) return
+        Log.d("QuickIntentRouter", "awaitClassifierReady: classifier not ready, waiting up to ${timeoutMs}ms")
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+        while (System.nanoTime() < deadline) {
+            if (cls.isFailed()) {
+                Log.i("QuickIntentRouter", "awaitClassifierReady: classifier failed to initialise")
+                return
+            }
+            if (cls.isReady()) {
+                Log.d("QuickIntentRouter", "awaitClassifierReady: classifier became ready")
+                return
+            }
+            delay(50)
+        }
+        Log.i("QuickIntentRouter", "awaitClassifierReady: timed out after ${timeoutMs}ms, classifier not ready")
+    }
+
+
+    private val arithmeticUnitWords = "(?:one|two|three|four|five|six|seven|eight|nine)"
+    private val arithmeticWordSeparator = Regex("""[\s-]+""")
+    private val arithmeticSmallWords = "(?:zero|$arithmeticUnitWords|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
+    private val arithmeticTensWords = "(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+    private val arithmeticSpokenOperand = "(?:$arithmeticSmallWords|$arithmeticTensWords(?:[- ]$arithmeticUnitWords)?|$arithmeticUnitWords\\s+hundred)"
+    private val imperativeArithmeticOperand = "(?:-?\\d+(?:\\.\\d+)?|$arithmeticSpokenOperand)"
+    private val imperativeMultiply = Regex(
+        """^multiply\s+($imperativeArithmeticOperand)\s+by\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val imperativeDivide = Regex(
+        """^divide\s+($imperativeArithmeticOperand)\s+by\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val imperativeAdd = Regex(
+        """^add\s+($imperativeArithmeticOperand)\s+(?:and|to)\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val imperativeSubtract = Regex(
+        """^subtract\s+($imperativeArithmeticOperand)\s+from\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    // #1695 — bounded percentage-change phrasing, normalised to "base * (1 ± (pct / 100))".
+    // Only non-negative percents are accepted; a signed percent stays ambiguous and falls through.
+    private val percentOperand = "($imperativeArithmeticOperand)(?:\\s*%|\\s+percent)"
+    private val baseOperand = "($imperativeArithmeticOperand)"
+    private data class PercentChangeForm(val regex: Regex, val baseGroup: Int, val percentGroup: Int, val sign: String)
+    private val percentChangeForms = listOf(
+        PercentChangeForm(Regex("""^add\s+$percentOperand\s+to\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "+"),
+        PercentChangeForm(Regex("""^take\s+$percentOperand\s+off\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "-"),
+        PercentChangeForm(Regex("""^subtract\s+$percentOperand\s+from\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "-"),
+        PercentChangeForm(Regex("""^increase\s+$baseOperand\s+by\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "+"),
+        PercentChangeForm(Regex("""^(?:decrease|reduce)\s+$baseOperand\s+by\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "-"),
+        PercentChangeForm(Regex("""^$baseOperand\s+plus\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "+"),
+        PercentChangeForm(Regex("""^$baseOperand\s+(?:minus|less)\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "-"),
+    )
+
+    private fun normalizePercentChange(input: String): String? {
+        for (form in percentChangeForms) {
+            val match = form.regex.matchEntire(input) ?: continue
+            val base = normalizeArithmeticOperand(match.groupValues[form.baseGroup]) ?: return null
+            val percent = normalizeArithmeticOperand(match.groupValues[form.percentGroup]) ?: return null
+            if (percent.startsWith("-")) return null
+            return "$base * (1 ${form.sign} ($percent / 100))"
+        }
+        return null
+    }
+
+    /**
+     * Converts only a complete, two-operand imperative calculator command to the expression
+     * accepted by the existing arithmetic route. Number-word support is deliberately limited to
+     * small integers, tens with an optional unit, and one-to-nine hundreds; this is not a general
+     * natural-language number parser.
+     */
+    private fun normalizeImperativeArithmetic(input: String): String {
+        normalizePercentChange(input)?.let { return it }
+        if (input.startsWith("multiply ", ignoreCase = true)) {
+            val match = imperativeMultiply.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "*", reverseOperands = false) ?: input
+        }
+        if (input.startsWith("divide ", ignoreCase = true)) {
+            val match = imperativeDivide.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "/", reverseOperands = false) ?: input
+        }
+        if (input.startsWith("add ", ignoreCase = true)) {
+            val match = imperativeAdd.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "+", reverseOperands = false) ?: input
+        }
+        if (input.startsWith("subtract ", ignoreCase = true)) {
+            val match = imperativeSubtract.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "-", reverseOperands = true) ?: input
+        }
+        return input
+    }
+
+    private fun normalizeArithmeticExpression(
+        match: MatchResult,
+        operator: String,
+        reverseOperands: Boolean,
+    ): String? {
+        val first = normalizeArithmeticOperand(match.groupValues[1]) ?: return null
+        val second = normalizeArithmeticOperand(match.groupValues[2]) ?: return null
+        return if (reverseOperands) "$second $operator $first" else "$first $operator $second"
+    }
+
+    private fun normalizeArithmeticOperand(raw: String): String? {
+        if (raw.firstOrNull()?.let { it.isDigit() || it == '-' } == true) return raw
+        val words = raw.lowercase().split(arithmeticWordSeparator)
+        return when (words.size) {
+            1 -> {
+                val word = words.single()
+                arithmeticSmallNumber(word)?.toString() ?: arithmeticTensNumber(word)?.toString()
+            }
+            2 -> {
+                val first = words[0]
+                val second = words[1]
+                val unit = arithmeticUnitNumber(first)
+                when {
+                    second == "hundred" && unit != null -> (unit * 100).toString()
+                    else -> {
+                        val tens = arithmeticTensNumber(first)
+                        val ones = arithmeticUnitNumber(second)
+                        if (tens != null && ones != null) (tens + ones).toString() else null
+                    }
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun arithmeticUnitNumber(word: String): Int? = when (word) {
+        "one" -> 1
+        "two" -> 2
+        "three" -> 3
+        "four" -> 4
+        "five" -> 5
+        "six" -> 6
+        "seven" -> 7
+        "eight" -> 8
+        "nine" -> 9
+        else -> null
+    }
+
+    private fun arithmeticSmallNumber(word: String): Int? = when (word) {
+        "zero" -> 0
+        "ten" -> 10
+        "eleven" -> 11
+        "twelve" -> 12
+        "thirteen" -> 13
+        "fourteen" -> 14
+        "fifteen" -> 15
+        "sixteen" -> 16
+        "seventeen" -> 17
+        "eighteen" -> 18
+        "nineteen" -> 19
+        else -> arithmeticUnitNumber(word)
+    }
+
+    private fun arithmeticTensNumber(word: String): Int? = when (word) {
+        "twenty" -> 20
+        "thirty" -> 30
+        "forty" -> 40
+        "fifty" -> 50
+        "sixty" -> 60
+        "seventy" -> 70
+        "eighty" -> 80
+        "ninety" -> 90
+        else -> null
+    }
+
+    fun route(input: String): RouteResult {
+        val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
+        // Alias + mishearing normalisation scoped to regex pattern matching only — NOT fed to the
+        // classifier. Applying globally would corrupt labels and distort the classifier input
+        // distribution (see IMPORTANT_DATE_ALIAS_RE comment for full rationale).
+        val aliasNormalized = STT_NZ_MISHEARING_RE.replace(
+            IMPORTANT_DATE_ALIAS_RE.replace(trimmed, "important date"),
+            // Restore the elided terminal 'e' on the verb stem and inject the article:
+            // "saver note" → stem "sav" → "save a note"
+            // Stems ending in vowel (add, record, jot) get just " a "; stems missing 'e'
+            // (sav, mak, tak, creat, writ) get "e a ".
+            { mr ->
+                val stem = mr.groupValues[1]
+                val verb = if (stem.last().lowercaseChar() in "aeiouy") stem else "${stem}e"
+                "$verb a "
+            },
+        )
+
+        // #982 — trailing "lost"/"lust"/"last" → "list" for list-command detection.
+        // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
+        // #1688 — rewrite only complete verb-first arithmetic commands on the regex path.
+        // The classifier and fall-through continue to receive the original trimmed input.
+        val arithmeticNormalized = normalizeImperativeArithmetic(aliasNormalized)
+        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(arithmeticNormalized) { match ->
+            match.groupValues[1].takeIf { it.equals("list", ignoreCase = true) } ?: "list"
+        }
+
+
+        // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
+        // the alias normalisation above) so they reach the deterministic cooking-conversion path.
+        // Numeric slash fractions ("2/3 of a cup", "1 1/2 cups") are handled too, since STT often
+        // transcribes spoken fractions as glyphs.
+        val fractionNormalized = normalizeNumericCookingFractions(
+            normalizeWrittenCookingFractions(listTailFixed),
+        )
+
+        // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.
+        //   Pass 1: specific patterns (isFallback = false) — tried in declaration order.
+        //   Pass 2: fallback/catch-all patterns (isFallback = true) — only if Pass 1 misses.
+        // This eliminates first-match-wins fragility without requiring manual ordering of every
+        // pattern relative to every catch-all.
+        // #1455 — unsupported dayparts ("this afternoon/evening/morning") have no hourly
+        // weather contract: drop every deterministic get_weather pattern for them so they
+        // fall through to the free-form path rather than silently returning current conditions.
+        // Today-anchored value patterns (sunrise/sunset, UV, AQI) are exempt — their answer
+        // is consistent with the daypart qualifier, see IntentPattern.exemptFromDaypartVeto.
+        val daypartWeatherBlocked = weatherUnsupportedDaypart.containsMatchIn(trimmed)
+        val specificPatterns = patterns.filter { !it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather" && !it.exemptFromDaypartVeto) }
+        val fallbackPatterns = patterns.filter { it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather" && !it.exemptFromDaypartVeto) }
+
+        tryMatchPatterns(fractionNormalized, specificPatterns)?.let { return it }
+        tryMatchPatterns(fractionNormalized, fallbackPatterns)?.let { return it }
+
+
+        // Stage 2: BERT-tiny classifier (if available)
+        classifier?.let { cls ->
+            val result = cls.classify(trimmed)
+            // #1455 — same daypart guard as Stage 1: never let the classifier claim a
+            // get_weather answer for wording the weather skill cannot represent.
+            if (daypartWeatherBlocked && result?.intentName == "get_weather") {
+                return RouteResult.FallThrough(input = trimmed)
+            }
+            if (result != null && result.confidence >= similarityThreshold) {
+                val isFastPath = result.intentName in FAST_PATH_INTENTS
+                val fastPathOk = isFastPath && result.confidence >= FAST_PATH_THRESHOLD
+                return RouteResult.ClassifierMatch(
+                    intent = MatchedIntent(
+                        intentName = result.intentName,
+                        params = emptyMap(), // Classifier doesn't extract params — E4B does
+                        source = "classifier",
+                    ),
+                    confidence = result.confidence,
+                    needsConfirmation = !fastPathOk && result.confidence < 0.90f,
+                )
+            }
+            // Below threshold — report as fallthrough with best guess
+            if (result != null) {
+                return RouteResult.FallThrough(
+                    input = trimmed,
+                    bestGuess = MatchedIntent(result.intentName, emptyMap(), "classifier"),
+                    bestConfidence = result.confidence,
+                )
+            }
+        }
+
+        // Stage 3: Fall through to E4B
+        return RouteResult.FallThrough(input = trimmed)
+    }
+
+    /** Strip leading "the " and fix STT ordinal split in target_date string captured by date-diff patterns. */
+    private fun cleanTargetDate(raw: String): String {
+        val stripped = raw.trim().replace(Regex("^the\\s+", RegexOption.IGNORE_CASE), "").trim()
+        // #1227 — STT mishearing: "30 first" → "31st" (thirty-first split into "30 first").
+        // Only correct the specific observed artifact; general ordinal handling is not needed.
+        return stripped.replace(Regex("""\b30\s+first\b""", RegexOption.IGNORE_CASE), "31st")
+    }
+
+    // ── Weather semantic normalisation (#1453) ─────────────────────────────────
+    // Every deterministic get_weather match passes through this helper so that
+    // temporal semantics (forecast horizon, "tomorrow", "this week") and named
+    // locations survive regardless of which pattern matched. Conservative by
+    // design: explicit params are never overwritten, temporal wording is never
+    // passed to geocoding, and ordinary current-weather queries gain no
+    // forecast semantics.
+
+    private val weatherNextNDays = Regex(
+        """\b(?:the\s+)?next\s+(few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val weatherNDayForecast = Regex(
+        """\b(few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s*[ -]?\s*day\s+(?:weather\s+)?forecast\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val weatherTemporalTail = Regex(
+        """(?i)(?:(?:^|\s+)(?:for|over|in|on|at)?\s*(?:the\s+)?next\s+(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days|(?:^|\s+)(?:for|over|in|on|at)?\s*(?:tomorrow|today|tonight|now)|(?:^|\s+)this\s+(?:week|weekend|afternoon|evening|morning))$""",
+    )
+
+    private val weatherLocationPrefix = Regex(
+        """\b(?:in|for|at)\s+(?!the\s+next\b|a\s+(?:few|couple)\b|tomorrow\b|today\b|tonight\b|now\b|this\s+(?:week|weekend|afternoon|evening|morning)\b|\d+\s+days\b)([A-Za-z][\w\s,]*)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** #1455 — explicit weekend wording. Takes precedence over the unspecified-forecast default. */
+    private val weatherWeekendPeriod = Regex(
+        """\bthis\s+weekend\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * #1455 — daypart periods the weather skill has no hourly contract for. Any
+     * deterministic get_weather pattern (and the classifier) is skipped for wording
+     * like "this afternoon/evening/morning" so these queries fall through to the
+     * free-form path instead of silently returning current conditions.
+     */
+    private val weatherUnsupportedDaypart = Regex(
+        """\bthis\s+(?:afternoon|evening|morning)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun normalizeWeatherParams(raw: String, params: Map<String, String>): Map<String, String> {
+        val normalized = LinkedHashMap(params)
+
+        // Clean temporal wording out of an extracted location before geocoding —
+        // e.g. "Sydney for the next 5 days" → "Sydney".
+        normalized["location"]?.let { location ->
+            val cleaned = stripWeatherTemporal(location)
+            if (cleaned.isBlank()) normalized.remove("location") else normalized["location"] = cleaned
+        }
+
+        // Recover a named location from the raw utterance when the matched pattern
+        // emitted none (e.g. UV/AQI/sunset patterns match only their prefix).
+        if (normalized["location"].isNullOrBlank()) {
+            recoverWeatherLocation(raw)?.let { normalized["location"] = it }
+        }
+
+        // "tomorrow" → day=tomorrow (never overwrite an explicit day).
+        if (normalized["day"].isNullOrBlank() &&
+            Regex("""\btomorrow\b""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+        ) {
+            normalized["day"] = "tomorrow"
+        }
+
+        // "this weekend" → period=weekend (#1455): the weekend period is explicit
+        // weather-skill semantics and takes precedence over the unspecified-forecast
+        // 3-day default below (never overwrite an explicit period).
+        if (normalized["period"].isNullOrBlank() && weatherWeekendPeriod.containsMatchIn(raw)) {
+            normalized["period"] = "weekend"
+        }
+
+        // Forecast horizon when none was extracted (never overwrite explicit).
+        if (normalized["forecast_days"].isNullOrBlank()) {
+            weatherForecastDays(raw)?.let { normalized["forecast_days"] = it }
+        }
+        return normalized
+    }
+
+    /** Remove trailing temporal phrases from a captured location before geocoding. */
+    private fun stripWeatherTemporal(location: String): String {
+        var current = location.trim()
+        while (true) {
+            val stripped = weatherTemporalTail.replaceFirst(current, "").trim().trimEnd(',')
+            if (stripped == current) return current
+            current = stripped
+        }
+    }
+
+    /**
+     * Recover a named location from raw weather text when the matched pattern did not
+     * extract one. Narrowly weather-specific: temporal prepositions such as
+     * "for the next 5 days" are never treated as locations.
+     */
+    private fun recoverWeatherLocation(raw: String): String? {
+        val match = weatherLocationPrefix.find(raw) ?: return null
+        val cleaned = stripWeatherTemporal(match.groupValues[1])
+        return cleaned.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * Determine the forecast horizon from the utterance, or null when the user asked
+     * for current conditions. Explicit "forecast" without any horizon/day anchor gets
+     * the established 3-day default; "this week" → 7 days (historical #255 contract).
+     */
+    private fun weatherForecastDays(raw: String): String? {
+        // #1455 — an explicit weekend request is a period, not an unspecified
+        // forecast: it must never gain the 3-day default (or any other horizon).
+        if (weatherWeekendPeriod.containsMatchIn(raw)) return null
+        weatherNextNDays.find(raw)?.let { m ->
+            return wordToForecastDays(m.groupValues[1].lowercase())
+        }
+        weatherNDayForecast.find(raw)?.let { m ->
+            return wordToForecastDays(m.groupValues[1].lowercase())
+        }
+        if (Regex("""\bthis\s+week\b""", RegexOption.IGNORE_CASE).containsMatchIn(raw)) return "7"
+        if (Regex("""\bforecast\b""", RegexOption.IGNORE_CASE).containsMatchIn(raw)) {
+            val dayAnchored = Regex(
+                """\b(?:tomorrow|today|tonight|weekend|this\s+(?:week|weekend|afternoon|evening|morning))\b""",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(raw)
+            if (!dayAnchored) return "3"
+        }
+        return null
+    }
+
+    private fun wordToForecastDays(word: String): String? = when (word) {
+        "few", "couple" -> "3"
+        "one" -> "1"
+        "two" -> "2"
+        "three" -> "3"
+        "four" -> "4"
+        "five" -> "5"
+        "six" -> "6"
+        "seven" -> "7"
+        "eight" -> "8"
+        "nine" -> "9"
+        "ten" -> "10"
+        else -> word.toIntOrNull()?.toString()
+    }
+
+    // ── Parameter parsing helpers ─────────────────────────────────────────────
+
+    companion object {
+        private val TRAILING_ALARM_LABEL_REGEX = Regex(
+            """\bfor\s+(.+?)(?=\s+(?:at|on|by|from|for|tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|$)""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX = Regex(
+            """^(?:(?:the|this|next|a|an|each|every(?:\s+other)?)(?:\s+|$))+""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_ARTICLE_REGEX = Regex(
+            """^(?:the|an?)\s+""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_TEMPORAL_ONLY_REGEX = Regex(
+            """^(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun|(?:mon|tues|wednes|thurs|fri|satur|sun)days|morning|afternoon|evening|nights?|weeknight|weeknights|weekend|weekends|weekdays?|week|weeks|day|days|daily|everyday|noon|midnight|now|later|\d+\s+(?:minutes?|hours?|days?|weeks?)|\d{1,2}(?:st|nd|rd|th)|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?:morning|afternoon|evening|night))?$""",
+            RegexOption.IGNORE_CASE,
+        )
+        private fun isTemporalAlarmLabelCandidate(candidate: String): Boolean {
+            val temporalCandidate = candidate
+                .replace(ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX, "")
+                .trim()
+            return temporalCandidate.isEmpty() || ALARM_LABEL_TEMPORAL_ONLY_REGEX.matches(temporalCandidate)
+        }
+
+        /**
+         * Intent names that carry no user-supplied parameters and are safe to execute
+         * without confirmation once the classifier confidence is at or above [FAST_PATH_THRESHOLD].
+         * These are the intents that RegexMatch handles with needsConfirmation = false —
+         * the classifier path should behave the same way.
+         *
+         * Only include intents whose paramExtractor always returns emptyMap(). Intents that
+         * require a user-supplied value (level, name, destination, etc.) must NOT appear here
+         * — the LLM round-trip is needed to extract those params.
+         *
+         * Intentionally excluded (take required params):
+         *   get_date_diff (date), get_list_items (list_name), cancel_timer_named (name),
+         *   set_brightness (level), set_volume (level), podcast_speed (rate),
+         *   smart_home_on/off (device name)
+         *
+         * See issue #620 for full rationale.
+         */
+        val FAST_PATH_INTENTS = setOf(
+            // Flashlight
+            "toggle_flashlight_on", "toggle_flashlight_off",
+            // Do Not Disturb
+            "toggle_dnd_on", "toggle_dnd_off",
+            // Connectivity
+            "toggle_wifi", "toggle_bluetooth", "toggle_airplane_mode", "toggle_hotspot",
+            // Battery / System info
+            "get_battery", "get_system_info",
+            // Time
+            "get_time",
+            // Weather (uses device location — no user-supplied param)
+            "get_weather",
+            // Media transport (no query/title param)
+            "pause_media", "stop_media", "next_track", "previous_track",
+            // Podcast transport (skip only — podcast_speed takes a rate param)
+            "podcast_skip_forward", "podcast_skip_back",
+            // Timer / Alarm — query and cancel (no required params)
+            "list_timers", "get_timer_remaining",
+            "cancel_alarm", "cancel_timer",
+            // Stopwatch
+            "start_stopwatch", "pause_stopwatch", "resume_stopwatch",
+            "lap_stopwatch", "reset_stopwatch", "get_stopwatch_status",
+            // Notes — query only (create_note requires content param)
+            "list_notes",
+        )
+        /**
+         * Minimum classifier confidence for fast-path execution. Intents in [FAST_PATH_INTENTS]
+         * with confidence in [FAST_PATH_THRESHOLD, 0.90) execute directly without LLM confirmation.
+         * Below this floor the intent falls through to E4B as normal.
+         */
+        const val FAST_PATH_THRESHOLD = 0.75f
+
+        /**
+         * Simple affirmations that confirm a pending intent without triggering a new QIR route
+         * or LLM round-trip. Matched case-insensitively against the trimmed user input.
+         *
+         * See issue #621 for the multi-turn confirmation fast-path design.
+         */
+        val AFFIRMATIONS = setOf(
+            "yes", "yeah", "yep", "yup", "sure", "ok", "okay",
+            "go ahead", "go for it", "do it", "please", "please do",
+            "aye", "absolutely", "definitely", "go on", "sounds good",
+        )
+
+        /** Returns true if [input] is a simple affirmation (case-insensitive, trims whitespace). */
+        fun isAffirmation(input: String): Boolean = input.trim().lowercase() in AFFIRMATIONS
+        /**
+         * Extracts calendar event parameters from a raw user query.
+         *
+         * Delegates to [CalendarSlotExtractor] for canonical extraction logic.
+         * Always includes `raw_query`. Conditionally includes `title`, `date`, `time`
+         * when the extractor finds corresponding evidence in the input.
+         *
+         * Title precedence (#1100): verb-title wins over for-title when both match.
+ */
+        fun extractCalendarHints(raw: String): Map<String, String> {
+            val params = mutableMapOf("raw_query" to raw)
+            // Delegate to CalendarSlotExtractor for consistent extraction (#1100).
+            // The legacy inline extraction previously duplicated this logic and had
+            // different title-precedence behavior (for-title won over verb-title).
+            val extractor = CalendarSlotExtractor()
+            // Contract is passed for interface compliance; CalendarSlotExtractor
+            // doesn't reference it (it's a single-intent extractor with its own
+            // embedded contract knowledge).
+            val dummyContract = IntentContract(
+                intentName = "create_calendar_event",
+                capability = "",
+                requiredSlots = emptyMap(),
+                riskLevel = IntentRiskLevel.LOW,
+            )
+            when (val result = extractor.extract(raw, dummyContract)) {
+                is ExtractionResult.Extracted -> params.putAll(result.params)
+                is ExtractionResult.NotActionable -> { /* keep raw_query only */ }
+            }
+            return params
+        }
+
+        fun parseAlarmTime(raw: String): Map<String, String> {
+            val params = mutableMapOf<String, String>()
+            val cleaned = normalizeCompactAlarmText(raw.lowercase().trim())
+                .replace(Regex("""\s*(o'clock|oclock)"""), "")
+                .trim()
+
+            // Try patterns: "10pm", "10:30pm", "22:00", "9:05 am", "7"
+            val timeRegex = Regex("""(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?""")
+            val match = timeRegex.find(cleaned) ?: return params
+
+            val rawHours = match.groupValues[1].toIntOrNull() ?: return params
+            val minutes = match.groupValues[2].toIntOrNull() ?: 0
+            val meridiem = match.groupValues[3].replace(".", "").lowercase()
+            if (minutes !in 0..59) return params
+            if (meridiem.isNotBlank() && rawHours !in 1..12) return params
+            if (meridiem.isBlank() && rawHours !in 0..23) return params
+
+            var hours = rawHours
+
+            // Convert to 24h
+            if (meridiem == "pm" && hours < 12) hours += 12
+            if (meridiem == "am" && hours == 12) hours = 0
+            if (hours !in 0..23) return params
+
+            params["hours"] = hours.toString()
+            params["minutes"] = minutes.toString()
+            // Also emit a "time" key in HH:mm format so setAlarm() can use resolveTime()
+            params["time"] = "${hours}:${minutes.toString().padStart(2, '0')}"
+
+            // Extract day name (today, tomorrow, weekday names including abbreviations)
+            val dayRegex = Regex(
+                """\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun)\b""",
+                RegexOption.IGNORE_CASE,
+            )
+            val trailingForLabelMatch = TRAILING_ALARM_LABEL_REGEX
+                .findAll(cleaned)
+                .firstOrNull { it.range.first > match.range.last }
+            val trailingForLabelCandidate = trailingForLabelMatch?.groups?.get(1)?.value?.trim()
+            val trailingForLabelRange = trailingForLabelMatch?.groups?.get(1)?.range
+            val dayMatch = dayRegex.findAll(cleaned).firstOrNull { candidateDay ->
+                val isInsidePurpose = trailingForLabelRange?.contains(candidateDay.range.first) == true
+                !isInsidePurpose ||
+                    trailingForLabelCandidate?.let { isTemporalAlarmLabelCandidate(it) } == true
+            }
+            if (dayMatch != null) {
+                params["day"] = normalizeDayName(dayMatch.groupValues[1].lowercase())
+            }
+
+
+            // Extract label from "called X", "named X", "labeled X", "labelled X" — mirrors parseTimerDuration.
+            // Non-greedy capture with lookahead to stop before time/date keywords so
+            // "alarm called wake up at 7am" extracts "wake up", not "wake up at 7am".
+            val labelRegex = Regex(
+                """(?:called|named|label(?:l?)ed)\s+(.+?)(?=\s+(?:at|on|for|by|from|tomorrow|today|tonight|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm))(?:\s|$)|$)""",
+                RegexOption.IGNORE_CASE,
+            )
+            val labelMatch = labelRegex.find(cleaned)
+            val trailingForLabel = trailingForLabelCandidate
+                ?.takeUnless { isTemporalAlarmLabelCandidate(it) }
+                ?.replace(ALARM_LABEL_ARTICLE_REGEX, "")
+                ?.trim()
+            val namedLabel = labelMatch?.groupValues?.get(1)?.trim()
+            when {
+                !namedLabel.isNullOrBlank() -> params["label"] = namedLabel
+                !trailingForLabel.isNullOrBlank() -> params["label"] = trailingForLabel
+                match.range.first > 0 -> {
+                    val earliestStructuredIndex = listOfNotNull(
+                        dayMatch?.range?.first,
+                        match.range.first,
+                    ).minOrNull()
+                    val implicitLabel = earliestStructuredIndex
+                        ?.let { cleaned.substring(0, it).trim() }
+                        ?.replace(Regex("""^(?:for|on|at|by)(?:\s+|$)"""), "")
+                        ?.replace(Regex("""\s+(?:for|on|at|by)$"""), "")
+                        ?.replace(Regex("""^(?:the|an?)\s+"""), "")
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                    if (implicitLabel != null) {
+                        params["label"] = implicitLabel
+                    }
+                }
+            }
+
+            return params
+        }
+
+        private fun normalizeCompactAlarmText(raw: String): String {
+            var normalized = raw
+            normalized = Regex(
+                """\b(\d{1,2}):(\d):(\d{2})\s*(am|pm|a\.m\.|p\.m\.)(?=\s|$)""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+                val minutePrefix = match.groupValues[2].toIntOrNull() ?: return@replace match.value
+                val trailingTens = match.groupValues[3].toIntOrNull() ?: return@replace match.value
+                val meridiem = match.groupValues[4].lowercase()
+                val minute = minutePrefix + trailingTens
+                if (hour !in 1..12 || trailingTens % 10 != 0 || minute !in 0..59) return@replace match.value
+                "$hour:${minute.toString().padStart(2, '0')} $meridiem"
+            }
+            normalized = Regex(
+                """\b(\d{1,2})\s+(\d{2})\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+                val minute = match.groupValues[2].toIntOrNull() ?: return@replace match.value
+                if (hour !in 0..23 || minute !in 0..59) return@replace match.value
+                "$hour:${minute.toString().padStart(2, '0')}"
+            }
+            normalized = Regex(
+                """\b(?:to|too)\s+30\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized, "2:30")
+            normalized = Regex(
+                """\b(\d{1,2})\s+(\d{2})\s*(am|pm|a\.m\.|p\.m\.)\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+                val minute = match.groupValues[2].toIntOrNull() ?: return@replace match.value
+                val meridiem = match.groupValues[3].lowercase()
+                if (hour !in 1..12 || minute !in 0..59) return@replace match.value
+                "$hour:${minute.toString().padStart(2, '0')} $meridiem"
+            }
+            normalized = Regex(
+                """\b(\d{3,4})\s*(am|pm|a\.m\.|p\.m\.)\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val digits = match.groupValues[1]
+                val meridiem = match.groupValues[2].lowercase()
+                val (hour, minute) = when (digits.length) {
+                    3 -> digits.take(1).toInt() to digits.drop(1).toInt()
+                    4 -> digits.take(2).toInt() to digits.drop(2).toInt()
+                    else -> return@replace match.value
+                }
+                if (hour !in 1..12 || minute !in 0..59) return@replace match.value
+                "$hour:${minute.toString().padStart(2, '0')} $meridiem"
+            }
+            normalized = Regex(
+                """\b(3[1-9]|4[0-2])\s*(am|pm|a\.m\.|p\.m\.)\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                val flattened = match.groupValues[1].toIntOrNull() ?: return@replace match.value
+                val hour = flattened - 30
+                val meridiem = match.groupValues[2].lowercase()
+                if (hour !in 1..12) return@replace match.value
+                "$hour:30 $meridiem"
+            }
+            normalized = Regex(
+                """\b([1-9]|1[0-2])0(?:'clock|o'clock|oclock)\b""",
+                RegexOption.IGNORE_CASE,
+            ).replace(normalized) { match ->
+                match.groupValues[1]
+            }
+            return normalized
+        }
+
+        fun parseTimerDuration(match: MatchResult, input: String = ""): Map<String, String> {
+            val amount1 = match.groupValues[1].toIntOrNull() ?: 0
+            val unit1 = normalizeTimeUnit(match.groupValues[2])
+
+            var totalSeconds = toSeconds(amount1, unit1)
+
+            // Optional second component (e.g., "5 minutes and 30 seconds")
+            if (match.groupValues.size > 4 && match.groupValues[3].isNotEmpty()) {
+                val amount2 = match.groupValues[3].toIntOrNull() ?: 0
+                val unit2 = normalizeTimeUnit(match.groupValues[4])
+                totalSeconds += toSeconds(amount2, unit2)
+            }
+
+            val params = mutableMapOf("duration_seconds" to totalSeconds.toString())
+
+            // Extract label from "called X", "named X", "labeled X", "labelled X"
+            val labelRegex = Regex("""(?:called|named|label(?:l?)ed)\s+(.+)$""", RegexOption.IGNORE_CASE)
+            val labelMatch = labelRegex.find(input)
+            if (labelMatch != null) {
+                params["label"] = labelMatch.groupValues[1].trim()
+            }
+
+            // Also handle "N unit timer for X" where "for" is a label keyword after "timer"
+            if (!params.containsKey("label")) {
+                val timerForRegex = Regex("""timer\s+for\s+([a-zA-Z].+)$""", RegexOption.IGNORE_CASE)
+                val timerForMatch = timerForRegex.find(input)
+                if (timerForMatch != null) {
+                    params["label"] = timerForMatch.groupValues[1].trim()
+                }
+            }
+
+            return params
+        }
+
+        private fun normalizeTimeUnit(unit: String): String = when {
+            unit.startsWith("h", ignoreCase = true) -> "hours"
+            unit.startsWith("m", ignoreCase = true) -> "minutes"
+            unit.startsWith("s", ignoreCase = true) -> "seconds"
+            else -> "minutes"
+        }
+
+        private fun toSeconds(amount: Int, unit: String): Int = when (unit) {
+            "hours" -> amount * 3600
+            "minutes" -> amount * 60
+            "seconds" -> amount
+            else -> amount * 60
+        }
+
+        private fun normalizeDayName(day: String): String = when (day) {
+            "mon" -> "monday"
+            "tue", "tues" -> "tuesday"
+            "wed" -> "wednesday"
+            "thu", "thur", "thurs" -> "thursday"
+            "fri" -> "friday"
+            "sat" -> "saturday"
+            "sun" -> "sunday"
+            else -> day
+        }
+
+        private fun parseWorldTimeLocation(raw: String): String? =
+            raw
+                .replace(Regex("""\b(right\s+now|currently|now)\b""", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("""[?!.]+$"""), "")
+                .trim()
+                .takeIf { it.isNotBlank() }
+
+        // ── Public surface for tests and callers ─────────────────────────────
+
+        /** Lightweight result type returned by [matchQuickIntent]. */
+        data class QuickIntent(
+            val action: String,
+            val params: Map<String, String> = emptyMap(),
+        )
+
+        /**
+         * Regex-only intent match — no classifier, no fallthrough.
+         * Returns [QuickIntent] when a regex pattern matches, or null otherwise.
+         */
+        fun matchQuickIntent(input: String): QuickIntent? {
+            return when (val result = QuickIntentRouter().route(input)) {
+                is RouteResult.RegexMatch -> QuickIntent(result.intent.intentName, result.intent.params)
+                // NeedsSlot is still a successful regex match — intent is known, slot fill pending.
+                is RouteResult.NeedsSlot -> QuickIntent(result.intent.intentName, result.intent.params)
+                else -> null
+            }
+        }
+
+        /**
+         * Parses a human-readable time string into "HH:mm" 24-hour format.
+         * Handles: "5pm", "9:30am", "14:00", "9 o'clock".
+         * Returns null if the string cannot be parsed.
+         */
+        internal fun resolveTime(input: String): String? {
+            val cleaned = input.lowercase().trim()
+                .replace(Regex("""\s*(o'clock|oclock)\s*"""), "")
+                .trim()
+            val timeRegex = Regex("""(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?""")
+            val match = timeRegex.find(cleaned) ?: return null
+            var hours = match.groupValues[1].toIntOrNull() ?: return null
+            val minutes = match.groupValues[2].toIntOrNull() ?: 0
+            val meridiem = match.groupValues[3].replace(".", "").lowercase()
+            if (meridiem == "pm" && hours < 12) hours += 12
+            if (meridiem == "am" && hours == 12) hours = 0
+            if (hours !in 0..23 || minutes !in 0..59) return null
+            return "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}"
+        }
+
+        /**
+         * Resolves a relative or day-name date string into an ISO-8601 "YYYY-MM-DD" string.
+         * Handles: "today", "tomorrow", "next monday" … "next sunday".
+         * Returns null if the string cannot be resolved.
+         */
+        internal fun resolveDate(input: String): String? {
+            val normalized = input.lowercase().trim()
+            val today = LocalDate.now()
+            return when (normalized) {
+                "today" -> today.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                "tomorrow" -> today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
+                else -> {
+                    val isThis = normalized.startsWith("this ")
+                    val dayName = normalized.removePrefix("next ").removePrefix("this ").trim()
+                    val dow: DayOfWeek = when (dayName) {
+                        "monday" -> DayOfWeek.MONDAY
+                        "tuesday" -> DayOfWeek.TUESDAY
+                        "wednesday" -> DayOfWeek.WEDNESDAY
+                        "thursday" -> DayOfWeek.THURSDAY
+                        "friday" -> DayOfWeek.FRIDAY
+                        "saturday" -> DayOfWeek.SATURDAY
+                        "sunday" -> DayOfWeek.SUNDAY
+                        else -> return null
+                    }
+                    val date = if (isThis && today.dayOfWeek == dow) today
+                               else today.with(TemporalAdjusters.next(dow))
+                    date.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                }
+            }
+        }
+
+        /**
+         * String-based overload of [parseTimerDuration] for direct testing.
+         * Returns total duration in seconds, or null if no duration pattern is found.
+         */
+        fun parseTimerDuration(input: String): Int? {
+            val regex = Regex(
+                """(\d+)\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)(?:\s+(?:and\s+)?(\d+)\s*(minutes?|mins?|seconds?|secs?|m|s))?""",
+                RegexOption.IGNORE_CASE,
+            )
+            val match = regex.find(input) ?: return null
+            val amount1 = match.groupValues[1].toIntOrNull() ?: 0
+            val unit1 = normalizeTimeUnit(match.groupValues[2])
+            var total = toSeconds(amount1, unit1)
+            if (match.groupValues[3].isNotEmpty()) {
+                val amount2 = match.groupValues[3].toIntOrNull() ?: 0
+                val unit2 = normalizeTimeUnit(match.groupValues[4])
+                total += toSeconds(amount2, unit2)
+            }
+            return total
+        }
+    }
+}

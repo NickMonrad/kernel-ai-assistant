@@ -1,0 +1,233 @@
+{
+  "suite": "skills",
+  "status": "complete",
+  "timestamp": "2026-06-11T23-28-39Z",
+  "elapsed_seconds": 165.3,
+  "summary": {
+    "total": 7,
+    "passed": 3,
+    "xfail": 0,
+    "xpass": 0,
+    "failed": 4
+  },
+  "results": [
+    {
+      "index": 1,
+      "case_id": "set_an_alarm_for_11pm",
+      "message": "set an alarm for 11pm",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "set_alarm",
+      "expect_params": null,
+      "actual_params": {
+        "hours": "23",
+        "minutes": "0",
+        "time": "23:00"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 2,
+      "case_id": "set_a_timer_for_2_hours",
+      "message": "set a timer for 2 hours",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_timer",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "7200"
+      },
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "alarm_timer",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 3,
+      "case_id": "remember_that_i_prefer_dark_mode",
+      "message": "remember that I prefer dark mode",
+      "category": "deterministic",
+      "tags": [
+        "deterministic_core",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "save_memory",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "7200"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "memory",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 4,
+      "case_id": "what_time_is_it",
+      "message": "what time is it",
+      "category": "deterministic",
+      "tags": [
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "get_time",
+      "actual_intent": "set_timer",
+      "expect_params": null,
+      "actual_params": {
+        "duration_seconds": "7200"
+      },
+      "intent_passed": false,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "system",
+      "status": "fail",
+      "failure_bucket": "wrong_tool"
+    },
+    {
+      "index": 5,
+      "case_id": "whats_my_battery_level",
+      "message": "what's my battery level",
+      "category": "deterministic",
+      "tags": [
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "get_battery",
+      "actual_intent": "get_battery",
+      "expect_params": null,
+      "actual_params": {},
+      "intent_passed": true,
+      "params_passed": true,
+      "param_failures": [],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "system",
+      "status": "pass",
+      "failure_bucket": null
+    },
+    {
+      "index": 6,
+      "case_id": "set_an_alarm",
+      "message": "set an alarm",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_alarm",
+      "actual_intent": "open_app",
+      "expect_params": {
+        "hours": "7",
+        "minutes": "0"
+      },
+      "actual_params": {
+        "app_name": "5 minutes"
+      },
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param hours",
+        "Missing param minutes"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    },
+    {
+      "index": 7,
+      "case_id": "set_a_timer",
+      "message": "set a timer",
+      "category": "slot_fill",
+      "tags": [
+        "slot_fill",
+        "safe_smoke",
+        "s21_usb_safe",
+        "s23u_tcp_safe"
+      ],
+      "fixture": null,
+      "expect_intent": "set_timer",
+      "actual_intent": "get_weather",
+      "expect_params": {
+        "duration_seconds": "300"
+      },
+      "actual_params": {
+        "location": "Wellington"
+      },
+      "intent_passed": false,
+      "params_passed": false,
+      "param_failures": [
+        "Missing param duration_seconds"
+      ],
+      "xfail": false,
+      "xfail_reason": null,
+      "reply_warn": null,
+      "log_check_warn": null,
+      "first_turn_warn": null,
+      "phase": "slot_fill",
+      "status": "fail",
+      "failure_bucket": "field_mismatch"
+    }
+  ]
+}

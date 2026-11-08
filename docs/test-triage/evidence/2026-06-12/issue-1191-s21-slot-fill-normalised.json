@@ -1,0 +1,136 @@
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "skills",
+  "timestamp": "2026-06-12T20:08:55Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "main",
+  "commit": "bbdde5427d46cb40fd1a45eda6bfdc9733c4bad5",
+  "pr": 1204,
+  "release": null,
+  "run_id": "on_device-2026-06-12T20:08:55Z-s21-exynos",
+  "device": {
+    "id": "s21-exynos",
+    "serial": "R5CR605B71K",
+    "label": "S21 (Exynos)",
+    "manufacturer": "Samsung",
+    "model": "SM-G991B",
+    "soc": "Exynos 2100",
+    "tier": "tracked",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "Gemma E4B",
+    "runtime": "LiteRT",
+    "backend": "GPU"
+  },
+  "summary": {
+    "total": 6,
+    "passed": 0,
+    "failed": 6,
+    "pass_rate": 0.0
+  },
+  "cases": [
+    {
+      "name": "set_an_alarm",
+      "passed": false,
+      "expected_tool": "set_alarm",
+      "actual_tool": "set_alarm",
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": true,
+      "retry_seen": false,
+      "slot_fill_seen": true,
+      "failure_category": "field_mismatch",
+      "failures": [
+        "Test expects hours/minutes in NativeIntentHandler log but handler outputs time=7am"
+      ]
+    },
+    {
+      "name": "set_a_timer",
+      "passed": false,
+      "expected_tool": "set_timer",
+      "actual_tool": "set_timer",
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": true,
+      "retry_seen": false,
+      "slot_fill_seen": true,
+      "failure_category": "field_mismatch",
+      "failures": [
+        "Slot-fill returns raw text '5 minutes' as duration_seconds; handler expects integer"
+      ]
+    },
+    {
+      "name": "open_an_app",
+      "passed": true,
+      "expected_tool": "open_app",
+      "actual_tool": "open_app",
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": true,
+      "retry_seen": false,
+      "slot_fill_seen": true,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "send_a_message",
+      "passed": false,
+      "expected_tool": "send_sms",
+      "actual_tool": "send_sms",
+      "expected_result_mode": "success",
+      "actual_result_mode": "unknown",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": true,
+      "failure_category": "slot_fill_seen",
+      "failures": [
+        "Multi-slot intent: contact filled (Mum), message slot pending. Test sends only one reply per case."
+      ]
+    },
+    {
+      "name": "send_an_email",
+      "passed": false,
+      "expected_tool": "send_email",
+      "actual_tool": "send_email",
+      "expected_result_mode": "success",
+      "actual_result_mode": "unknown",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": true,
+      "failure_category": "slot_fill_seen",
+      "failures": [
+        "Multi-slot intent: contact filled (Nick), subject slot pending. Test sends only one reply per case."
+      ]
+    },
+    {
+      "name": "add_to_my_list",
+      "passed": false,
+      "expected_tool": "add_to_list",
+      "actual_tool": "add_to_list",
+      "expected_result_mode": "success",
+      "actual_result_mode": "unknown",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": false,
+      "retry_seen": false,
+      "slot_fill_seen": true,
+      "failure_category": "slot_fill_seen",
+      "failures": [
+        "Multi-slot intent: item filled (eggs), list_name slot pending. Test sends only one reply per case."
+      ]
+    }
+  ]
+}

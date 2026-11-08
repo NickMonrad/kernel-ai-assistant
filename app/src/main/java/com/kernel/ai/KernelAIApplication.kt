@@ -1,0 +1,142 @@
+package com.kernel.ai
+
+import android.app.Application
+import android.content.ComponentCallbacks2
+import android.content.pm.ApplicationInfo
+import android.util.Log
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.kernel.ai.alarm.ClockStopwatchNotificationCoordinator
+import com.kernel.ai.alarm.ClockTimerNotificationCoordinator
+import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.memory.worker.ArchiveCleanupWorker
+import com.kernel.ai.core.memory.worker.MemoryEmbeddingWorker
+import com.kernel.ai.core.memory.worker.WORK_NAME_ARCHIVE_CLEANUP
+import com.kernel.ai.core.memory.worker.NextcloudSyncScheduler
+import com.kernel.ai.core.memory.worker.WORK_NAME_BACKFILL
+import com.kernel.ai.feature.settings.installUncaughtExceptionCaptureIfDebuggable
+import com.kernel.ai.feature.settings.lastUncaughtExceptionRecordFile
+import dagger.hilt.android.HiltAndroidApp
+import com.kernel.ai.assistant.WakeWordService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Provider
+
+/**
+ * Application entry point.
+ *
+ * Implements [Configuration.Provider] to supply [HiltWorkerFactory], which is required
+ * so WorkManager can inject dependencies into [androidx.work.ListenableWorker] subclasses
+ * annotated with [@HiltWorker][androidx.hilt.work.HiltWorker].
+ */
+@HiltAndroidApp
+class KernelAIApplication : Application(), Configuration.Provider {
+
+    @Inject lateinit var workerFactory: HiltWorkerFactory
+    @Inject lateinit var inferenceEngine: InferenceEngine
+    @Inject lateinit var clockTimerNotificationCoordinator: ClockTimerNotificationCoordinator
+    @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
+    @Inject lateinit var nextcloudSyncScheduler: Provider<NextcloudSyncScheduler>
+    @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
+
+    /**
+     * Test-only application variants may retain Hilt/WorkManager setup while avoiding normal
+     * account sync, maintenance, clock, and wake-word startup. Production variants keep this true.
+     */
+    internal val shouldStartNormalBackgroundWork =
+        shouldRunNormalBackgroundWork(BuildConfig.IS_INFLECT_PROBE)
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
+
+    override fun onCreate() {
+        super.onCreate()
+        // Debug builds only (#1736): let the showcase capture runner log what the voice engines
+        // start speaking. It also needs `setprop log.tag.KernelAI_TTS DEBUG`, which only the
+        // runner sets, so spoken text stays out of logcat and diagnostic exports otherwise.
+        com.kernel.ai.core.voice.VoiceOutputTrace.enabled = BuildConfig.DEBUG
+        // Debug-build-only diagnostic capture (#1461): retain the most recent uncaught
+        // managed exception across process restart for the Settings -> About export.
+        // Never installed in release builds and never alters normal crash handling —
+        // the wrapper delegates to the previously installed handler after the write.
+        installUncaughtExceptionCaptureIfDebuggable(
+            debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
+            recordFile = lastUncaughtExceptionRecordFile(this),
+            currentHandler = Thread.getDefaultUncaughtExceptionHandler(),
+            setHandler = Thread::setDefaultUncaughtExceptionHandler,
+        )
+        // Preload ORT so libsherpa-onnx-jni.so (built against ORT as an external shared lib)
+        // can resolve OrtGetApiBase at dlopen time. Must happen before any Sherpa TTS or
+        // wake word ONNX session init, otherwise OfflineTts.<clinit> fails with UnsatisfiedLinkError.
+        try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
+        if (!shouldStartNormalBackgroundWork) return
+
+        clockTimerNotificationCoordinator.start()
+        clockStopwatchNotificationCoordinator.start()
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            WORK_NAME_BACKFILL,
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<MemoryEmbeddingWorker>().build(),
+        )
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            WORK_NAME_ARCHIVE_CLEANUP,
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<ArchiveCleanupWorker>(1, TimeUnit.DAYS)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiresBatteryNotLow(true)
+                        .build(),
+                )
+                .build(),
+        )
+        nextcloudSyncScheduler.get().apply {
+            enqueuePeriodic()
+            enqueueNow()
+        }
+        // Observe heyJandalEnabled and start/stop WakeWordService accordingly.
+        // This runs on a background thread via GlobalScope-equivalent — using a process-lifetime
+        // coroutine scope is intentional here (Application lifecycle = process lifetime).
+        GlobalScope.launch(Dispatchers.Default) {
+            wakeWordPreferences.heyJandalEnabled.collect { enabled ->
+                if (enabled) {
+                    WakeWordService.start(this@KernelAIApplication)
+                } else {
+                    WakeWordService.stop(this@KernelAIApplication)
+                }
+            }
+        }
+    }
+
+    /**
+     * Release the LLM inference session under genuine memory pressure only.
+     *
+     * Two triggers:
+     *  - RUNNING_CRITICAL (15): device is critically low on RAM while the app is foregrounded.
+     *  - BACKGROUND (40+): app has been backgrounded long enough that the OS may kill it.
+     *
+     * Deliberately excluded: TRIM_MEMORY_UI_HIDDEN (20), which fires the moment the user
+     * switches to another app. Releasing here would wipe the KV cache and destroy conversation
+     * context on every app switch — not a memory emergency, just a visibility change.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        val shouldRelease = level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
+        if (shouldRelease) {
+            Log.w("KernelAI", "onTrimMemory level=$level — releasing inference session")
+            inferenceEngine.releaseForMemoryPressure()
+        }
+    }
+}
+internal fun shouldRunNormalBackgroundWork(isInflectProbeBuild: Boolean): Boolean =
+    !isInflectProbeBuild

@@ -1,0 +1,80 @@
+{
+  "suite": "llm_tools",
+  "status": "complete",
+  "timestamp": "2026-06-08T04-28-55Z",
+  "elapsed_seconds": 0,
+  "summary": {
+    "total": 3,
+    "passed": 2,
+    "failed": 1
+  },
+  "results": [
+    {
+      "index": 1,
+      "name": "query_wikipedia_natural",
+      "message": "Look up the history of the Battle of Hastings on Wikipedia for me",
+      "expected_top_level_tool": "query_wikipedia",
+      "expected_result_mode": "direct_reply",
+      "actual_top_level_tool": "query_wikipedia",
+      "actual_nested_intent": null,
+      "route_marker": "result=fallthrough best_guess=null confidence=0.0",
+      "native_tool_marker": null,
+      "legacy_tool_marker": "raw=<|tool_call>call:query_wikipedia{query:<|\"|>Battle of Hastings<|\"|>}<tool_call|>",
+      "skill_result_marker": "skill={\"name\":\"query_wikipedia\",\"arguments\":{\"query\":\"Battle of Hastings\"}} mode=direct_reply success=true",
+      "message_saved_marker": "id=7e195582-7f64-408c-add7-b4a7c8043e21 tool=query_wikipedia",
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "chip_text": "tool=query_wikipedia",
+      "reply_text": null,
+      "passed": true,
+      "failures": []
+    },
+    {
+      "index": 2,
+      "name": "save_memory_durable_fact",
+      "message": "Here is a lasting fact I want you to know: my preferred dry cleaner is Star Dry Cleaning",
+      "expected_top_level_tool": "save_memory",
+      "expected_result_mode": "success",
+      "actual_top_level_tool": null,
+      "actual_nested_intent": null,
+      "route_marker": "result=fallthrough best_guess=null confidence=0.0",
+      "native_tool_marker": null,
+      "legacy_tool_marker": null,
+      "skill_result_marker": null,
+      "message_saved_marker": null,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "chip_text": null,
+      "reply_text": null,
+      "passed": false,
+      "failures": [
+        "No tool_chip_visible marker found",
+        "tool name: expected 'save_memory', got None",
+        "field 'content': missing",
+        "No native-tool or legacy-tool marker found",
+        "No ChatMessage.toolCall persistence marker found",
+        "result mode: expected 'success', got 'unknown'"
+      ]
+    },
+    {
+      "index": 3,
+      "name": "get_system_info_natural",
+      "message": "Can you inspect this device and summarise its current system status?",
+      "expected_top_level_tool": "get_system_info",
+      "expected_result_mode": "direct_reply",
+      "actual_top_level_tool": "get_system_info",
+      "actual_nested_intent": null,
+      "route_marker": "result=fallthrough best_guess=null confidence=0.0",
+      "native_tool_marker": null,
+      "legacy_tool_marker": "raw=<|tool_call>call:get_system_info{}<tool_call|>",
+      "skill_result_marker": "skill={\"name\":\"get_system_info\",\"arguments\":{}} mode=direct_reply success=true",
+      "message_saved_marker": "id=3edacc5b-53d3-448c-891b-d773ef39a68f tool=get_system_info",
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "chip_text": "tool=get_system_info",
+      "reply_text": null,
+      "passed": true,
+      "failures": []
+    }
+  ]
+}

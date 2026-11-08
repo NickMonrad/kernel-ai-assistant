@@ -1,0 +1,500 @@
+# Normalised Test Evidence Schema
+
+Status: **Authoritative schema contract for normalised test evidence**
+Parent: #1113 — GitHub-native test evidence dashboard for CI and on-device results
+Implements: #1115 — Define normalised test result schema and device registry
+
+> **Authority:** This document defines the durable normalised evidence shape consumed by dashboards, PR summaries, release snapshots, and regression analysis. Producers must emit the full required schema. Consumers tolerate only absent optional fields and must surface malformed records as invalid rather than silently repairing them.
+>
+> **Current run commands:** [`../automated-testing.md`](../automated-testing.md)
+>
+> **Target and draft test design:** [`automated-test-specification.md`](./automated-test-specification.md)
+>
+> **Dashboard design:** [`harness-metrics-dashboard-design.md`](./harness-metrics-dashboard-design.md)
+
+---
+
+## 1. Purpose
+
+Every downstream consumer — PR summaries, CI step summaries, GitHub Pages dashboards, release snapshots, regression analysis — reads data in this shape. By normalising all test sources (CI, physical-device `llm_tools`, skills harness) into one schema, the dashboard and tools can compare results across commits, PRs, releases, suites, devices, models, and runtimes.
+
+## 2. Sources
+
+Every normalised result carries an explicit `source` field:
+
+| Value | Meaning |
+|---|---|
+| `on_device` | Real physical device. ADB serial, SoC, model/runtime metadata included. |
+| `ci` | GitHub Actions runner or other CI host. No model inference performed. |
+
+These two must never be conflated. CI can validate build/static/dry-run results only; on-device results capture model behaviour, tool-call generation, and runtime reliability.
+
+## 3. Device registry
+
+Device metadata is defined in the versioned `scripts/testdata/devices.yaml` registry. It is keyed by canonical device ID (`s23-ultra`, `s21-exynos`, `ubuntu-latest`, etc.) and lists accepted aliases. Producers resolve metadata from this registry; consumers canonicalise aliases against it. Unregistered IDs or conflicting `label`, `manufacturer`, `model`, `soc`, `tier`, `android_api`, or `execution` values make an evidence record invalid.
+
+Every supported physical-device entry must provide an unambiguous manufacturer, exact model, exact SoC, evidence tier, Android API compatibility, and `execution: physical`. Placeholder values such as `Unknown` or `latest Snapdragon` are not valid registry metadata.
+
+Tiers:
+
+| Tier | Meaning |
+|---|---|
+| `reference` | Can block merge/release once stable |
+| `tracked` | Non-blocking reliability signal |
+| `experimental` | Exploratory only |
+| `ci` | Not a physical device — CI runner |
+
+Fields: `label`, `manufacturer`, `model`, `soc`, `tier`, `android_api`, `execution`.
+
+## 4. Schema
+
+### Top-level
+
+```json
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "llm_tools",
+  "timestamp": "2026-06-08T02:31:34Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "feature/1107-llm-tools-harness",
+  "commit": "29c56a12dadc88e1464c0fe5d1ff32130782cea5",
+  "pr": 1111,
+  "release": null,
+  "run_id": "local-2026-06-08T02-31-34Z-S23",
+  "device": { },
+  "model": { },
+  "summary": { },
+  "cases": []
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `schema_version` | string | yes | Semver for the schema. `"1.0"` initially, bumped on breaking changes. |
+| `source` | string | yes | `"on_device"` or `"ci"`. Never both. |
+| `suite` | string | yes | Test suite identifier, e.g. `"llm_tools"`, `"skills"`, `"unit"`. |
+| `timestamp` | string (ISO 8601) | yes | When the test run started (`2026-06-08T02:31:34Z`). |
+| `repo` | string | yes | GitHub `"owner/repo"`. |
+| `branch` | string | yes | Git branch the run was against. |
+| `commit` | string (SHA) | yes | Full 40-character commit SHA. |
+| `pr` | number or null | yes | PR number, or `null` for non-PR runs (local development, release branches). |
+| `release` | string or null | yes | Release tag, or `null`. |
+| `run_id` | string | yes | Unique identifier. Convention: `"<source>-<timestamp>-<device-id>"`. |
+| `device` | object | yes | Device or runner metadata. See §4.1. |
+| `model` | object | yes | Model/runtime metadata. See §4.2. |
+| `summary` | object | yes | Pass/fail counts. See §4.3. |
+| `cases` | array | yes | Per-case results. See §4.4. |
+| `wake_reliability` | object | no | Acoustic wake-word reliability extension. Required for `suite == "wake_word_acoustic_reliability"`; see §4.5. |
+| `artifact_refs` | array of strings | no | Run-level paths relative to the evidence record. |
+
+### 4.1 `device` object
+
+**Physical device example:**
+
+```json
+{
+  "device": {
+    "id": "s23-ultra",
+    "serial": "100.76.134.49:44599",
+    "label": "S23 Ultra",
+    "manufacturer": "Samsung",
+    "model": "SM-S918B",
+    "soc": "Snapdragon 8 Gen 2",
+    "tier": "reference",
+    "android_api": 35,
+    "execution": "physical"
+  }
+}
+```
+
+**CI runner example:**
+
+```json
+{
+  "device": {
+    "id": "ubuntu-latest",
+    "serial": null,
+    "label": "ubuntu-latest",
+    "manufacturer": "GitHub",
+    "model": "Actions runner",
+    "soc": "x86_64",
+    "tier": "ci",
+    "android_api": null,
+    "execution": "github_hosted_runner"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Short device key matching device registry. |
+| `serial` | string or null | no | ADB serial or TCP address for physical devices; null for CI. |
+| `label` | string | yes | Human-readable device name. |
+| `manufacturer` | string | yes | OEM name. |
+| `model` | string | yes | Device model code. |
+| `soc` | string | yes | SoC identifier. |
+| `tier` | string | yes | `reference`, `tracked`, `experimental`, or `ci`. |
+| `android_api` | number or null | yes | API level or null for non-Android environments. |
+| `execution` | string | yes | `physical` for real devices, `github_hosted_runner` for CI. |
+
+Device producers MAY emit a public alias such as `s21` or `s23u`. Consumers MUST resolve aliases through `scripts/testdata/devices.yaml` before aggregation so one physical device cannot split into multiple dashboard identities. The dashboard stores and groups by the registry's canonical `id`; raw ADB serials remain evidence metadata and are never aggregation keys.
+
+### 4.2 `model` object
+
+```json
+{
+  "model": {
+    "name": "Gemma E4B",
+    "runtime": "LiteRT",
+    "backend": "GPU"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Model name, e.g. `"Gemma E4B"`, `"Arctic Embed M v1.5"`. |
+| `runtime` | string | yes | Inference runtime, e.g. `"LiteRT"`, `"ONNX"`. |
+| `backend` | string | yes | Hardware backend: `"GPU"`, `"NPU"`, `"CPU"`. |
+
+For CI runs that do not execute any model, set to:
+
+```json
+{
+  "model": {
+    "name": null,
+    "runtime": null,
+    "backend": null
+  }
+}
+```
+
+### 4.3 `summary` object
+
+```json
+{
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "pass_rate": 1.0
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `total` | number | yes | Total number of test cases. |
+| `passed` | number | yes | Number of passed cases. |
+| `failed` | number | yes | Number of failed cases. |
+| `pass_rate` | number | yes | Pass rate as a float between 0.0 and 1.0. |
+
+### 4.4 `cases[]` object
+
+**Passing example:**
+
+```json
+{
+  "name": "query_wikipedia_natural",
+  "passed": true,
+  "expected_tool": "query_wikipedia",
+  "actual_tool": "query_wikipedia",
+  "expected_result_mode": "direct_reply",
+  "actual_result_mode": "direct_reply",
+  "chip_present": true,
+  "skill_result_present": true,
+  "message_saved": true,
+  "retry_seen": false,
+  "slot_fill_seen": false,
+  "failure_category": null,
+  "failures": []
+}
+```
+
+**Failing example (model tool-call miss):**
+
+```json
+{
+  "name": "save_memory_durable_fact",
+  "passed": false,
+  "expected_tool": "save_memory",
+  "actual_tool": null,
+  "expected_result_mode": "success",
+  "actual_result_mode": "unknown",
+  "chip_present": false,
+  "skill_result_present": false,
+  "message_saved": false,
+  "retry_seen": false,
+  "slot_fill_seen": false,
+  "failure_category": "model_tool_generation_miss",
+  "failures": [
+    "No tool_chip_visible marker found",
+    "tool name: expected 'save_memory', got None",
+    "No native-tool or legacy-tool marker found",
+    "No ChatMessage.toolCall persistence marker found",
+    "result mode: expected 'success', got 'unknown'"
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Case identifier, matches harness test case name. |
+| `passed` | boolean | yes | Pass/fail. |
+| `expected_tool` | string or null | yes | Tool the test expected. |
+| `actual_tool` | string or null | yes | Tool the model actually called. Null on model failures. |
+| `expected_result_mode` | string | yes | `"success"` or `"direct_reply"`. |
+| `actual_result_mode` | string | yes | `"success"`, `"direct_reply"`, or `"unknown"`. |
+| `chip_present` | boolean | yes | Whether the tool chip marker was found in the UI stream. |
+| `skill_result_present` | boolean | yes | Whether the skill result marker appeared. |
+| `message_saved` | boolean | yes | Whether a `message_saved_marker` was emitted. |
+### 4.5 Golden-journey release evidence (`suite: "golden_journeys"`)
+
+Golden-journey evidence is an additive `schema_version: "1.0"` record for a
+release-candidate build. It is always `source: "on_device"` and keeps the
+generic top-level context (`device`, `model`, `summary`, and `cases`) so the
+publisher and dashboard can discover it without a second file format.
+
+The required `golden_journeys` object records:
+
+| Field | Type | Description |
+|---|---|---|
+| `version` / `build_identifier` | string or null | Candidate version and concrete artifact identity. |
+| `artifact_type` | enum | `local_debug`, `signed_candidate`, `play_delivered_candidate`, or `other`. |
+| `evidence_type` | enum | `automated`, `agent_adb_physical_device`, `human_observation`, or `mixed`. |
+| `devices` | array | Device IDs plus evidence type and whether each device is required. |
+| `blocker_refs` | string array | Issue or gate references; do not invent references for observations. |
+| `manual_checks` | string array | Remaining checks, including checks not run rather than failed tests. |
+| `recommendation` | enum | `ready`, `additional_validation_required`, `blocked`, or `not_ready`. |
+
+`cases` contains exactly ten journey objects, numbered `1` through `10`.
+Each object has a human-readable `name`, `status` (`proven`, `partial`,
+`blocked`, or `manual_remaining`), `passed`, evidence type, device IDs,
+blocker references, and failure strings. `passed` is true only for
+`proven`; `partial` and `manual_remaining` are not generic test failures.
+The generic `summary` is retained for compatibility and must not be used as
+the release recommendation.
+
+The dashboard selects the newest valid golden record for the release-first
+Overview. Historical generic suite failures remain diagnostic and are not
+interpreted as current golden-journey readiness. Device pages show golden
+status separately from historical aggregate and PR/release scope rows.
+
+The full field-level contract is the `golden_journeys` branch in
+[`scripts/testdata/test_evidence.schema.json`](../../scripts/testdata/test_evidence.schema.json).
+
+### 4.6 Acoustic wake reliability extension (`schema_version: "1.1"`)
+
+The paired acoustic wake runner emits normalised evidence directly. Its records use
+`schema_version: "1.1"` and `suite: "wake_word_acoustic_reliability"`; the canonical
+`1.0` contracts remain unchanged for every other suite. Each acoustic record retains
+the common top-level context, device, summary, cases, and artifact-reference fields,
+then adds a required top-level `wake_reliability` object.
+
+The extension is intentionally strict:
+
+- `cases` contain one object per attempted matrix position, identified by
+  `required_position_id` and the independent `{idle_s, trial_type, ordinal}`
+  `matrix_slot`; retries increment `attempt` without changing that identity.
+- Each case records `status` (`passed`, `failed`, or `invalid`), source and target
+  timing, pre/post environment snapshots for both devices, fixture identity, source
+  outcomes, failures, and optional classification/invalid-reason fields.
+- Target journal events preserve their target-device elapsed-realtime samples under
+  `target_timing`; source playback timing remains in the source device's monotonic
+  clock domain. Cross-device subtraction is forbidden.
+- `wake_reliability` records run/gate mode, matrix and source-helper provenance,
+  preflight approval and cue-policy evidence, required valid counts, cleanup state,
+  matrix completion, feasibility-only state, and release-gate outcome.
+- `complete_valid_matrix`, `all_required_passed`, and `release_gate_success` are
+  separate signals. A complete matrix can fail the behavioural gate, and diagnostic
+  or fixed-delay feasibility evidence cannot be labelled release-ready.
+- `artifact_refs` are safe paths relative to the evidence record. Every referenced
+  artifact is copied into the publishable evidence tree, recursively sanitised, and
+  rejected if the path is absolute, escapes the run root, is a symlink, has a blocked
+  raw/private extension, or names an unreferenced private artifact.
+
+The runner must rebuild the complete record after cleanup before serialisation, then
+validate it against `scripts/testdata/test_evidence.schema.json`. Consumers must mark
+malformed `1.1` records invalid; they must not infer missing release or matrix fields.
+
+The full field-level contract is the `wake_word_acoustic_reliability` branch in
+[`scripts/testdata/test_evidence.schema.json`](../../scripts/testdata/test_evidence.schema.json).
+
+## 5. Failure categories
+
+| Category | When it applies |
+|---|---|
+| `harness_error` | The harness itself encountered an error — setup failure, script crash, missing dependency. |
+| `missing_marker` | An expected marker was absent after a tool call was made (chip, skill result, message saved). |
+| `model_tool_generation_miss` | The model responded without emitting any tool call — no native or legacy tool marker. |
+| `wrong_tool` | The model called a different tool than expected. |
+| `wrong_result_mode` | The result mode did not match expectations (e.g. expected `success`, got `direct_reply`). |
+| `field_mismatch` | An expected field in the tool call arguments was missing or had the wrong value. |
+| `conversational_fallback` | The model responded conversationally instead of using a tool at all. |
+| `retry_seen` | A retry loop was triggered during the test case. |
+| `slot_fill_seen` | Slot-fill UI was invoked instead of a direct tool call. |
+| `device_environment_error` | Device unavailable, app crashed, ADB failure, or environment setup problem. |
+| `timeout` | The test case exceeded its allowed runtime. |
+
+### Suggested mapping from raw harness markers
+
+Producer implementation can vary by suite, but normalised evidence should map raw harness fields to these categories as follows when those raw fields are available:
+
+- No `native_tool_marker` AND no `legacy_tool_marker` → **`model_tool_generation_miss`** (model didn't produce a tool call)
+- Tool called but `chip_text` is null → **`missing_marker`** (chip marker)
+- Tool called but `skill_result_marker` is null → **`missing_marker`** (skill result)
+- `actual_top_level_tool != expected_top_level_tool` → **`wrong_tool`**
+- `actual_result_mode != expected_result_mode` → **`wrong_result_mode`**
+- Non-empty `retry_seen` after a tool call → **`retry_seen`**
+- `slot_fill_seen` after a tool call → **`slot_fill_seen`**
+- Timeout failures in harness → **`timeout`**
+- Device connection errors → **`device_environment_error`**
+
+### Field transformation table
+
+Normalisers should map raw `llm_tools` report fields (from `save_llm_tools_report()` in `scripts/adb_skill_test.py`) to normalised fields as shown below. Fields marked "not stored" are consumed during categorisation but do not appear in the normalised output. Fields marked "(derived)" are computed from multiple raw fields or harness configuration — the raw report does not contain them directly.
+
+| Raw field | Normalised field | Transformation |
+|---|---|---|
+| `expected_top_level_tool` | `expected_tool` | Direct rename |
+| `actual_top_level_tool` | `actual_tool` | Direct rename |
+| `expected_result_mode` | `expected_result_mode` | (derived) — from harness case config; `#1116` may add to raw reports |
+| `actual_result_mode` | `actual_result_mode` | (derived) — parse mode from `skill_result_marker` value (`"success"` / `"direct_reply"`) |
+| `chip_text` | `chip_present` | Non-null `chip_text` ⇒ `true`; `null` ⇒ `false` |
+| `skill_result_marker` | `skill_result_present` | Non-null marker ⇒ `true`; `null` ⇒ `false` |
+| `message_saved_marker` | `message_saved` | Non-null marker ⇒ `true`; `null` ⇒ `false` |
+| `retry_seen` | `retry_seen` | Pass-through |
+| `slot_fill_seen` | `slot_fill_seen` | Pass-through |
+| `failures` | `failures` | Direct rename (list of strings) |
+| `native_tool_marker` / `legacy_tool_marker` | (not stored) | Consumed for `model_tool_generation_miss` categorisation |
+| `expected_chip_arg` / `expected_skill_arg` | (not stored) | Consumed for `field_mismatch` categorisation |
+
+## 6. Full example — passing run
+
+```json
+{
+  "schema_version": "1.0",
+  "source": "on_device",
+  "suite": "llm_tools",
+  "timestamp": "2026-06-08T02:31:34Z",
+  "repo": "NickMonrad/kernel-ai-assistant",
+  "branch": "feature/1107-llm-tools-harness",
+  "commit": "29c56a12dadc88e1464c0fe5d1ff32130782cea5",
+  "pr": 1111,
+  "release": null,
+  "run_id": "on_device-2026-06-08T02-31-34Z-s23-ultra",
+  "device": {
+    "id": "s23-ultra",
+    "serial": "100.76.134.49:44599",
+    "label": "S23 Ultra",
+    "manufacturer": "Samsung",
+    "model": "SM-S918B",
+    "soc": "Snapdragon 8 Gen 2",
+    "tier": "reference",
+    "android_api": 35,
+    "execution": "physical"
+  },
+  "model": {
+    "name": "Gemma E4B",
+    "runtime": "LiteRT",
+    "backend": "GPU"
+  },
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "pass_rate": 1.0
+  },
+  "cases": [
+    {
+      "name": "query_wikipedia_natural",
+      "passed": true,
+      "expected_tool": "query_wikipedia",
+      "actual_tool": "query_wikipedia",
+      "expected_result_mode": "direct_reply",
+      "actual_result_mode": "direct_reply",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": true,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "save_memory_durable_fact",
+      "passed": true,
+      "expected_tool": "save_memory",
+      "actual_tool": "save_memory",
+      "expected_result_mode": "success",
+      "actual_result_mode": "success",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": true,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    },
+    {
+      "name": "get_system_info_natural",
+      "passed": true,
+      "expected_tool": "get_system_info",
+      "actual_tool": "get_system_info",
+      "expected_result_mode": "direct_reply",
+      "actual_result_mode": "direct_reply",
+      "chip_present": true,
+      "skill_result_present": true,
+      "message_saved": true,
+      "retry_seen": false,
+      "slot_fill_seen": false,
+      "failure_category": null,
+      "failures": []
+    }
+  ]
+}
+```
+
+
+## 7. Semantic invariants
+
+These invariants MUST hold for every normalised report. The normalisation script (#1116) guarantees them; any consumer MAY assert them.
+
+### 7.1 Summary counts
+
+- `summary.total == len(cases)`
+- `summary.total == summary.passed + summary.failed`
+- `summary.pass_rate == passed / total` (when `total > 0`)
+- When `total == 0`, `pass_rate` SHOULD be `0.0` (no evidence to rate).
+
+### 7.2 Pass/fail consistency
+
+- When `passed == true`: `failure_category` MUST be `null`, `failures` MUST be empty.
+- When `passed == false`: `failure_category` MUST be non-null, `failures` MUST be non-empty.
+
+### 7.3 Tool call fields
+
+- When `passed == true`: `actual_tool` SHOULD equal `expected_tool` (unless the test case explicitly tests for a fallback).
+- When `actual_tool` is `null`: `chip_present` and `skill_result_present` MUST be `false`; `message_saved` SHOULD be `false`.
+- `chip_present` and `skill_result_present` may each be true only when `actual_tool` is non-null.
+
+### 7.4 Source invariants
+
+- `source == "ci"` → `device.execution == "github_hosted_runner"`, `device.tier == "ci"`, all model fields `null`.
+- `source == "on_device"` → `device.execution == "physical"`, model fields are non-null (name, runtime, backend each non-null).
+
+## 8. Compatibility rule
+
+Consumers must tolerate missing optional fields from older evidence records and render unknown or empty values instead of crashing. Breaking changes require a `schema_version` bump, compatibility notes, and corresponding updates to dashboard builders, normalisers, and review-gate guidance.
+
+## 9. Related documents
+
+- `scripts/testdata/devices.yaml` — device registry consumed by normalisation scripts
+- `scripts/testdata/test_evidence.schema.json` — machine-verifiable JSON Schema
+- `docs/automated-testing.md` — current operational run commands and report inspection
+- `docs/testing/automated-test-specification.md` — target and draft test design
+- `docs/testing/harness-metrics-dashboard-design.md` — dashboard metrics design and staged work
+- `docs/testing/llm-tools-harness.md` — `llm_tools` test details
+- [Issue #1115](https://github.com/NickMonrad/kernel-ai-assistant/issues/1115) — this issue
+- [Issue #1113](https://github.com/NickMonrad/kernel-ai-assistant/issues/1113) — parent epic

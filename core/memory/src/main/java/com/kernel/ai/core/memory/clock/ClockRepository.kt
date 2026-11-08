@@ -1,0 +1,82 @@
+package com.kernel.ai.core.memory.clock
+
+import kotlinx.coroutines.flow.Flow
+
+interface ClockRepository {
+    fun observeManageableAlarms(): Flow<List<ClockAlarm>>
+    fun observeActiveAlarms(): Flow<List<ClockAlarm>>
+    fun observeUpcomingAlarms(): Flow<List<ClockAlarm>>
+    fun observeActiveTimers(): Flow<List<ClockTimer>>
+    fun observeRecentCompletedTimers(): Flow<List<ClockTimer>>
+    fun observeStopwatch(): Flow<ClockStopwatch>
+    fun observeWorldClocks(): Flow<List<WorldClock>>
+    fun observeClockSoundConfig(): Flow<ClockSoundConfig>
+
+    suspend fun startStopwatch(
+        nowWallClockMillis: Long = System.currentTimeMillis(),
+        nowElapsedRealtimeMs: Long,
+    ): ClockStopwatch
+
+    suspend fun pauseStopwatch(
+        nowWallClockMillis: Long = System.currentTimeMillis(),
+        nowElapsedRealtimeMs: Long,
+    ): ClockStopwatch
+
+    suspend fun resumeStopwatch(
+        nowWallClockMillis: Long = System.currentTimeMillis(),
+        nowElapsedRealtimeMs: Long,
+    ): ClockStopwatch
+
+    suspend fun resetStopwatch()
+
+    suspend fun recordStopwatchLap(
+        nowWallClockMillis: Long = System.currentTimeMillis(),
+        nowElapsedRealtimeMs: Long,
+    ): StopwatchLap?
+
+    suspend fun addWorldClock(zoneId: String, displayName: String): WorldClock?
+    suspend fun removeWorldClock(worldClockId: String): Boolean
+    suspend fun reorderWorldClocks(orderedIds: List<String>): Boolean
+
+    fun getPlatformState(): ClockPlatformState
+
+    suspend fun createAlarm(draft: AlarmDraft): SchedulingResult<ClockAlarm>
+    suspend fun updateAlarm(alarmId: String, draft: AlarmDraft): SchedulingResult<ClockAlarm>
+    suspend fun setAlarmEnabled(alarmId: String, enabled: Boolean): Boolean
+    suspend fun cancelAlarm(alarmId: String)
+    suspend fun cancelAlarms(alarmIds: Collection<String>)
+    suspend fun cancelNextAlarm(): ClockAlarm?
+    suspend fun cancelAlarmsByLabel(label: String): Int
+    suspend fun skipAlarmOccurrence(alarmId: String, occurrenceTriggerAtMillis: Long): Boolean
+    suspend fun setDefaultAlarmSoundUri(soundUri: String?)
+
+    suspend fun scheduleTimer(durationMs: Long, label: String?): SchedulingResult<ClockTimer>
+    suspend fun cancelTimer(timerId: String)
+    suspend fun deleteCompletedTimer(timerId: String): Boolean
+    suspend fun clearCompletedTimers(): Int
+    suspend fun handleScheduledEvent(
+        ownerId: String,
+        type: ClockEventType,
+        occurrenceTriggerAtMillis: Long? = null,
+    )
+    suspend fun cancelTimers(timerIds: Collection<String>)
+    suspend fun cancelAllTimers(): Int
+    suspend fun cancelTimersMatching(name: String?, durationMs: Long?): Int
+    suspend fun getAllTimers(): List<ClockTimer>
+    suspend fun restoreScheduledEntries(nowMillis: Long = System.currentTimeMillis()): ClockRestoreReport
+    suspend fun setTimerSoundUri(soundUri: String?)
+
+    fun observeClockAlertConfig(): Flow<ClockAlertConfig>
+    suspend fun setTimerAutoStopDurationMs(value: Long)
+    suspend fun setAlarmRingDurationMs(value: Long)
+    suspend fun setSnoozeDurationMs(value: Long)
+    suspend fun setMaxAutoSnoozes(value: Int)
+
+    /** One-shot read of the current clock alert config. Uses DataStore directly
+     *  (not cached mutable fields), so it always returns the persisted value.
+     *  Useful for contexts like [ClockAlertService.onStartCommand] where the
+     *  flow collector may not have emitted yet on cold start. */
+    suspend fun getClockAlertConfig(): ClockAlertConfig
+
+    suspend fun snoozeAlarm(alarmId: String, snoozedUntilMillis: Long, currentAutoSnoozeCount: Int = 0): Boolean
+}

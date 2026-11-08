@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Network access for model downloads -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Foreground service for download progress notification -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Notification permission (required on API 33+; minSdk=35 so always required) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Location permissions for GetWeatherSkill GPS fallback -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Required on some OEM clock apps that still check this deprecated permission -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- Exact alarm scheduling for date-specific alarms (#327) -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Re-schedule alarms after device reboot (#327) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Contact lookup for SMS, email, and call by name -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Calendar lookup for synced contact birthdays -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Microphone access for offline Quick Actions voice input -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Required to read/write the Do Not Disturb (interruption filter) policy -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Required to change screen brightness -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Wake word foreground service requires microphone access type (API 35+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!--
+        #1502: special (AppOps) access, not a runtime permission. Requested only to let Hey Jandal
+        detect the Honor stock Camera entering the foreground on the affected device (HONOR
+        BKQ-N49) so wake capture can release the microphone before the camera records. The user
+        grants it from system settings and can revoke it at any time. Only the Camera's own
+        foreground state is evaluated; no usage history is stored or transmitted.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!--
+        Android 11+ package visibility: declare which implicit intents we resolve
+        so that PackageManager.resolveActivity() returns non-null for these actions.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="tv.plex.labs.plexamp" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.plexapp.android" />
+        <package android:name="com.netflix.mediaclient" />
+        <package android:name="com.sec.android.app.popupcalculator" />
+        <package android:name="com.google.android.calculator" />
+    </queries>
+
+    <application
+        android:name=".KernelAIApplication"
+        android:allowBackup="false"
+        android:largeHeap="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.KernelAI">
+
+        <!-- GPU acceleration requires OpenCL -->
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.KernelAI"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <!-- WorkManager foreground service for model downloads -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <!--
+            Remove the auto-startup WorkManagerInitializer ContentProvider so WorkManager
+            is NOT initialised before Application.onCreate(). This is required for
+            Configuration.Provider to work correctly — if WorkManagerInitializer runs first,
+            it initialises WorkManager with the default WorkerFactory (no Hilt), which means
+            @HiltWorker classes (e.g. MemoryEmbeddingWorker) cannot be instantiated.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+        <!-- Foreground service to keep process alive during GPU model init -->
+        <service
+            android:name="com.kernel.ai.core.inference.InferenceLoadingService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
+
+        <!-- Foreground service to keep process alive during response generation -->
+        <service
+            android:name="com.kernel.ai.core.inference.InferenceGenerationService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
+
+        <service
+            android:name=".alarm.ClockAlertService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!-- Fires when a scheduled exact alarm triggers (#327) -->
+        <receiver
+            android:name=".alarm.AlarmBroadcastReceiver"
+            android:exported="false" />
+
+        <!-- Fires when a list-item due-date notification alarm triggers (#901) -->
+        <receiver
+            android:name=".notification.ListDueNotificationReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kernel.ai.LIST_ITEM_DUE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Fires when an important-date day-of notification alarm triggers (#902) -->
+        <receiver
+            android:name=".notification.ImportantDateNotificationReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kernel.ai.IMPORTANT_DATE_REMINDER" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".alarm.ClockTimerActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".alarm.ClockStopwatchActionReceiver"
+            android:exported="false" />
+
+        <!-- Re-schedules exact alarms after device reboot (#327) -->
+        <receiver
+            android:name=".alarm.BootCompletedReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <property
+            android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+            android:value="On-device AI model inference loading via LiteRT GPU" />
+
+        <!--
+            AppAuth redirect receiver — scheme follows the final applicationId in every build
+            variant, including the isolated Inflect test package.
+        -->
+        <activity
+            android:name="net.openid.appauth.RedirectUriReceiverActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            tools:node="replace">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="${applicationId}"
+                    android:host="oauth"
+                    android:pathPrefix="/callback" />
+            </intent-filter>
+        </activity>
+
+        <!-- Homescreen widget -->
+        <receiver
+            android:name="com.kernel.ai.feature.widget.KernelWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/kernel_widget_info" />
+        </receiver>
+        <!-- Lists home-screen widget -->
+        <!-- Lists home-screen widget (lifecycle only; refresh signal handled by ListsDataChangedReceiver) -->
+        <receiver
+            android:name="com.kernel.ai.feature.widget.ListsWidgetReceiver"
+            android:label="@string/lists_widget_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/lists_widget_info" />
+        </receiver>
+        <!-- Internal, non-exported receiver for the lists-changed widget refresh signal -->
+        <receiver
+            android:name="com.kernel.ai.feature.widget.ListsDataChangedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kernel.ai.action.LISTS_DATA_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            Jandal as Android Default Digital Assistant.
+
+            Registering JandalVoiceInteractionService with BIND_VOICE_INTERACTION permission
+            makes Jandal appear in Settings → Default Apps → Digital Assistant. Once selected:
+            - Long-press Home / Side-key triggers JandalVoiceInteractionSession
+            - The OS grants privileged background mic access (bypasses battery saver restrictions)
+            - createAlwaysOnHotwordDetector() becomes available for the wake word service (#985)
+        -->
+        <service
+            android:name=".assistant.JandalVoiceInteractionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/interaction_service_config" />
+        </service>
+        <!-- Session service — creates JandalVoiceInteractionSession per activation.
+             The system binds to this service when a session is requested; BIND_VOICE_INTERACTION
+             prevents any other app from binding to it. -->
+        <service
+            android:name=".assistant.JandalVoiceInteractionSessionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true" />
+
+        <!--
+            VoiceCommandActivity — translucent voice overlay.
+
+            Serves two roles:
+              1. Homescreen widget mic button (widget sends an explicit intent).
+              2. Android Digital Assistant handler (OS sends ACTION_ASSIST via the
+                 intent-filter below).
+
+            Why these attributes matter for the assistant role:
+              - exported="true"  : the OS settings process must be able to resolve and
+                start this activity to validate eligibility; false blocks the check.
+              - launchMode="singleTask" : the OS reuses the existing instance across
+                successive assistant triggers via onNewIntent; without this the selection
+                reverts on some OEM launchers.
+              - showWhenLocked="true"   : required by Android assistant eligibility
+                validation; without it Samsung silently drops the selection.
+              - taskAffinity=""         : keeps the overlay in its own task so launching it
+                does NOT bring MainActivity to the foreground.
+              - noHistory="true"        : activity is not added to the back stack; the user
+                cannot "back" into the voice overlay from a subsequent activity.
+        -->
+        <activity
+            android:name="com.kernel.ai.feature.widget.VoiceCommandActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Kernel.Translucent"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- VoiceCommandService — foundational execution seam for voice interaction session + widget + future wake word -->
+        <service
+            android:name="com.kernel.ai.feature.widget.VoiceCommandService"
+            android:exported="false" />
+
+        <!-- WakeWordService — always-on "Hey Jandal" detection when user opts in.
+             foregroundServiceType="microphone" is required on API 35+ for background
+             AudioRecord access. When JandalVoiceInteractionService (#983) is active as the
+             system default assistant, the OS itself manages the privileged mic path. -->
+        <service
+            android:name=".assistant.WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- RecognitionService stub — required by AssistantRoleBehavior.isPackageQualified().
+             The OS rejects the ASSISTANT role grant if the VoiceInteractionService package does
+             not also expose a RecognitionService. Jandal's actual STT runs via Sherpa-ONNX;
+             this service is never invoked for speech recognition. -->
+        <service
+            android:name=".assistant.JandalRecognitionService"
+            android:permission="android.permission.BIND_RECOGNITION_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+            </intent-filter>
+        </service>
+
+        <!-- WidgetTextInputActivity — translucent overlay for widget text input.
+             taskAffinity="" for the same reason as VoiceCommandActivity above. -->
+        <activity
+            android:name=".feature.widget.WidgetTextInputActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Kernel.Translucent"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true" />
+        <!-- Lists widget configuration screen -->
+        <activity
+            android:name="com.kernel.ai.feature.widget.ListsWidgetConfigureActivity"
+            android:exported="true"
+            android:theme="@style/Theme.KernelAI">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

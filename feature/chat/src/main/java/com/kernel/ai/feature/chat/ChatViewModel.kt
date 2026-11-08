@@ -1,0 +1,4644 @@
+package com.kernel.ai.feature.chat
+
+import android.Manifest
+import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.ContextWindowManager
+import com.kernel.ai.core.inference.BackendType
+import com.kernel.ai.core.inference.BORING_AI_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.BORING_MINIMAL_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.GenerationResult
+import com.kernel.ai.core.inference.HALF_JANDAL_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.IdentityTier
+import com.kernel.ai.core.inference.Gemma4InitLock
+import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.inference.LlmDispatcher
+import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
+import com.kernel.ai.core.inference.ModelCapabilities
+import com.kernel.ai.core.inference.ModelConfig
+import com.kernel.ai.core.inference.DEFAULT_MAX_TOKENS
+import com.kernel.ai.core.inference.PersonaMode
+import com.kernel.ai.core.inference.capabilities
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.DownloadSource
+import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.model.availability.GatedModelStatusRepository
+import com.kernel.ai.core.model.availability.GatedModelStatus
+import com.kernel.ai.core.model.availability.ConversationModelReadiness
+import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.memory.rag.RagRepository
+import com.kernel.ai.core.memory.entity.ModelSettingsEntity
+import com.kernel.ai.core.memory.repository.ConversationRepository
+import com.kernel.ai.core.memory.repository.MemoryRepository
+import com.kernel.ai.core.memory.repository.ModelSettingsRepository
+import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
+import com.kernel.ai.core.memory.repository.UserProfileRepository
+import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
+import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.skills.KernelAIToolSet
+import com.kernel.ai.core.skills.LocalToolDiagnosticCapture
+import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.SkillCall
+import com.kernel.ai.core.skills.SkillExecutor
+import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.toSpokenSummary
+import com.kernel.ai.core.skills.natives.isPersonalMemoryRecallQuery
+import com.kernel.ai.core.skills.natives.isCurrentConversationRecallQuery
+import com.kernel.ai.core.skills.intent.IntentCandidate
+import com.kernel.ai.core.skills.intent.RecoveryResult
+import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ToolPresentation
+import com.kernel.ai.core.skills.intent.IntentContractRegistry
+import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
+import com.kernel.ai.core.skills.mealplan.MealPlannerActivityState
+import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
+import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.SlotFillResult
+import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.slot.SlotValidationRegistry
+import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
+import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
+import com.kernel.ai.core.permissions.DenialOutcome
+import com.kernel.ai.core.permissions.CapabilityKey
+import com.kernel.ai.core.permissions.PermissionDenialClassifier
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputEvent
+import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceOutputStreamingSession
+import com.kernel.ai.core.voice.VoiceSpeakRequest
+import com.kernel.ai.core.voice.StartListeningCueContext
+import com.kernel.ai.core.voice.StartListeningCuePlayer
+import com.google.ai.edge.litertlm.ToolProvider
+import com.kernel.ai.feature.chat.model.ChatMessage
+import com.kernel.ai.feature.chat.model.ChatUiState
+import com.kernel.ai.feature.chat.model.ChatUiState.ModelDownloadProgress
+import com.kernel.ai.feature.chat.model.ToolCallInfo
+import com.kernel.ai.feature.chat.model.toJsonString
+import com.kernel.ai.feature.chat.model.toolCallInfoFromJson
+import com.kernel.ai.core.voice.VoiceCaptureMode
+import com.kernel.ai.core.voice.VoiceInputController
+import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceInputStartResult
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import javax.inject.Inject
+
+private const val TAG = "KernelAI"
+private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
+private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
+private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
+private const val LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND = "__orchtest:load_skill_abort_replay"
+private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND = "__orchtest:load_skill_native_continuation"
+private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_USER_TEXT =
+    "Run the load_skill native continuation probe."
+private const val LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT = "Run the load_skill abort replay probe."
+private const val LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP = "Explain why shadows form in one sentence."
+
+/** Stop phrases that terminate the back-and-forth voice loop (#754). */
+private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats all", "exit", "quit")
+
+internal fun shouldWaitForAppForegroundAfterEviction(currentState: Lifecycle.State): Boolean =
+    currentState < Lifecycle.State.STARTED
+
+/**
+ * Suspends until the process is eligible to start foreground services.
+ *
+ * Lifecycle callbacks are delivered on the main thread. Re-check after registering the observer
+ * so a STARTED transition racing with registration cannot leave eager model initialization parked.
+ */
+internal suspend fun awaitAppForeground(lifecycle: Lifecycle = ProcessLifecycleOwner.get().lifecycle) {
+    if (!shouldWaitForAppForegroundAfterEviction(lifecycle.currentState)) return
+
+    withContext(Dispatchers.Main.immediate) {
+        suspendCancellableCoroutine { continuation ->
+            val observer = object : LifecycleEventObserver {
+                override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                    if (event == Lifecycle.Event.ON_START ||
+                        !shouldWaitForAppForegroundAfterEviction(source.lifecycle.currentState)
+                    ) {
+                        source.lifecycle.removeObserver(this)
+                        if (continuation.isActive) continuation.resume(Unit)
+                    }
+                }
+            }
+            lifecycle.addObserver(observer)
+            continuation.invokeOnCancellation { lifecycle.removeObserver(observer) }
+            if (!shouldWaitForAppForegroundAfterEviction(lifecycle.currentState)) {
+                lifecycle.removeObserver(observer)
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+        }
+    }
+}
+
+@HiltViewModel
+class ChatViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
+    private val inferenceEngine: InferenceEngine,
+    private val downloadManager: ModelDownloadManager,
+    private val conversationRepository: ConversationRepository,
+    private val ragRepository: RagRepository,
+    private val userProfileRepository: UserProfileRepository,
+    private val memoryRepository: MemoryRepository,
+    private val episodicDistillationUseCase: EpisodicDistillationUseCase,
+    private val modelSettingsRepository: ModelSettingsRepository,
+    private val mealPlanSessionRepository: MealPlanSessionRepository,
+    private val mealPlannerCoordinator: MealPlannerCoordinator,
+    private val skillRegistry: SkillRegistry,
+    private val skillExecutor: SkillExecutor,
+    private val quickIntentRouter: QuickIntentRouter,
+    private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator,
+    private val intentContractRegistry: IntentContractRegistry,
+    private val slotFillerManager: SlotFillerManager,
+    private val slotValidationRegistry: SlotValidationRegistry,
+    private val kernelAIToolSet: KernelAIToolSet,
+    private val localToolDiagnosticCapture: LocalToolDiagnosticCapture = LocalToolDiagnosticCapture(kernelAIToolSet),
+    private val toolProvider: ToolProvider,
+    private val embeddingEngine: EmbeddingEngine,
+    private val voiceInputController: VoiceInputController,
+    private val voiceOutputController: VoiceOutputController,
+    private val voiceOutputPreferences: VoiceOutputPreferences,
+    private val jandalPersona: JandalPersona,
+    private val nzTruthSeedingService: NzTruthSeedingService,
+    private val verboseLoggingPreferenceUseCase: com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase,
+    private val gatedModelStatusRepository: GatedModelStatusRepository,
+    private val authRepository: HuggingFaceAuthRepository,
+    private val startListeningCuePlayer: StartListeningCuePlayer,
+    private val chatPreferences: ChatPreferences,
+) : ViewModel() {
+    private enum class SubmitMode { Text, Voice }
+
+    /**
+     * The explicit voice-interaction mode chosen by the user for the current session.
+     *
+     * - [OneShot]: user speaks once → transcript sends → reply may be spoken → loop ends.
+     * - [BackAndForth]: after the spoken reply finishes, listening re-arms automatically
+     *   until the user explicitly stops the loop or leaves the conversation.
+     */
+    enum class VoiceMode { OneShot, BackAndForth }
+
+    sealed interface VoiceCaptureState {
+        data object Idle : VoiceCaptureState
+        data object Preparing : VoiceCaptureState
+        data class Listening(val transcript: String = "") : VoiceCaptureState
+        data class Processing(val transcript: String) : VoiceCaptureState
+    }
+
+    sealed interface VoicePlaybackState {
+        data object Idle : VoicePlaybackState
+        data class Speaking(val text: String) : VoicePlaybackState
+    }
+
+    data class MicrophoneState(
+        val isPermanentlyDenied: Boolean = false,
+    )
+
+    /** One-shot UI actions emitted for permission requests and repair navigation. */
+    sealed interface UiEvent {
+        data object RequestWeatherLocationPermission : UiEvent
+        data object RepairWeatherLocationPermission : UiEvent
+    }
+
+    /** State for the contextual local-weather location permission dialog. */
+    data class WeatherLocationState(
+        val isPermanentlyDenied: Boolean = false,
+    )
+
+    private data class PendingWeatherLocationAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val submitMode: SubmitMode,
+    )
+
+    /** The voice mode the user chose before requesting mic permission (OneShot or BackAndForth). */
+    private val _pendingChatMicMode = MutableStateFlow<VoiceMode?>(null)
+
+    /** True while we are waiting for the user to return from mic settings after repair CTA. */
+    private val _awaitingChatMicSettingsReturn = MutableStateFlow(false)
+
+    val isSeeding: StateFlow<Boolean> = nzTruthSeedingService.isSeeding
+
+    /** Passed via nav arg; null means "start a new conversation". */
+    private val navConversationId: String? = savedStateHandle["conversationId"]
+    /**
+    * One-shot flag for Actions-tab LLM fallthroughs. Those handoffs must start with a minimal
+    * system prompt and skip RAG retrieval, even when the transcript no longer looks tool-like.
+    */
+    private var forceMinimalContextForNextMessage: Boolean = savedStateHandle["minimalContext"] ?: false
+
+    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    // Saved with the replacement so a restored composer and the ViewModel agree after process
+    // death; otherwise the field would show restored text while sendMessage sees "" (#1747).
+    private val _inputText = MutableStateFlow(savedStateHandle["inputText"] ?: "")
+
+    /** A ViewModel-originated draft: the composer applies exactly [text] when [revision] changes. */
+    private data class InputTextReplacement(val revision: Long, val text: String)
+    private val _inputTextReplacement = MutableStateFlow(
+        InputTextReplacement(
+            revision = savedStateHandle["inputTextReplacementRevision"] ?: 0L,
+            text = savedStateHandle["inputTextReplacementText"] ?: "",
+        ),
+    )
+    private val _error = MutableStateFlow<String?>(null)
+    private val _modelInitializationError = MutableStateFlow<String?>(null)
+    private val _microphoneState = MutableStateFlow<MicrophoneState?>(null)
+    private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
+    private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
+    private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
+    private var awaitingWeatherLocationSettingsReturn = false
+    private val denialClassifier = PermissionDenialClassifier()
+    val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
+    val weatherLocationState: StateFlow<WeatherLocationState?> = _weatherLocationState.asStateFlow()
+    val events: SharedFlow<UiEvent> = _events.asSharedFlow()
+    private val _conversationTitle = MutableStateFlow<String?>(null)
+    private var conversationId: String? = null
+    private val contextWindowManager = ContextWindowManager()
+    private var activeContextWindowSize: Int = 4096
+    private val fallbackNativeToolDeclarationTokenEstimate by lazy {
+        skillRegistry.buildNativeDeclarations()
+            .takeIf { it.isNotBlank() }
+            ?.let(contextWindowManager::estimateTokens)
+            ?: 0
+    }
+    private var measuredToolDeclarationTokenEstimate: Int? = null
+
+    /** Tracks the timestamp of the last episodic distillation for the current conversation. */
+    private var lastDistilledAt: Long? = null
+
+    /**
+     * Intent stored when the BERT-tiny classifier returns [QuickIntentRouter.RouteResult.ClassifierMatch]
+     * with [needsConfirmation=true]. The LLM is allowed to ask the user for confirmation; if the
+     * user's next reply is a simple affirmation the intent is dispatched directly without another
+     * LLM round-trip. Cleared on any non-affirmation input or on new conversation.
+     *
+     * See issue #621.
+     */
+    private var pendingConfirmationIntent: QuickIntentRouter.MatchedIntent? = null
+
+    /**
+     * Set true by [submitInitialQueryIfNeeded] to signal [sendMessage] that the upcoming
+     * command is an independent invocation (ADB test, widget, side-key) and the LiteRT
+     * conversation should be reset before processing, preventing stale KV-cache carryover.
+     * Reset to false after the reset is applied.
+     */
+    private var needsConversationReset = false
+
+    /**
+     * Monotonic counter for per-command correlation IDs. Combined with a UUID prefix to
+     * form a unique trace ID for each invocation through the route/dispatch lifecycle.
+     */
+    private var commandIdSequence = AtomicInteger(0)
+    // Each send turn keeps its own cancellation signal so a replacement turn cannot clear it.
+    @Volatile
+    private var activeTurnCancellationRequest = AtomicBoolean(false)
+
+    // Safe debug model-test output stays in memory and is never flushed to the current chat.
+    private var activeStreamingPersistenceDisabled = false
+    // A safe probe must not distil the active personal conversation when its screen closes.
+    private var suppressCloseDistillationForSafeProbe = false
+    private var activeStreamingMsgId: String? = null
+    private var activeStreamingContent = StringBuilder()
+    private var activeStreamingThinking = StringBuilder()
+    private var activeVoiceStreamingSession: VoiceOutputStreamingSession? = null
+    private var activeVoiceStreamingBuffer = StringBuilder()
+    private var isVoiceStreamingEnabledForTurn = false
+    private var suppressVoiceOutputForCurrentResponse = false
+    private var spokenResponsesEnabled = true
+    private var autoSpeakEnabled = true
+    private val _isSpeakingResponse = MutableStateFlow(false)
+
+    /**
+     * When true, the next [sendMessage] will re-inject conversation history into the
+     * system prompt before sending, restoring context after a reset (cancel or session restore).
+     */
+    private var needsHistoryReplay = false
+
+    /** Conversation waiting for the exact safe follow-up to the DEBUG abort/replay probe. */
+    private var pendingLoadSkillAbortProbeFollowUpConversationId: String? = null
+
+    /** Estimated tokens consumed in the current LiteRT conversation, including fixed prompt tokens. */
+    private var estimatedTokensUsed = 0
+
+    /** Complete (user, assistant) turn pairs accumulated since the last KV cache reset.
+     *  Triggers a proactive reset when it reaches the dynamic turn limit derived from
+     *  [activeContextWindowSize] to cap KV cache memory growth (#543). */
+    private var turnsSinceReset = 0
+
+    private val activeModelState = MutableStateFlow<KernelModel?>(null)
+    /** The model currently loaded into the inference engine; used for the [Runtime] context block. */
+    private var activeModel: KernelModel? = null
+
+    /** Set synchronously when title generation is launched to prevent duplicate coroutines. */
+    private var titleGenerationStarted = false
+
+    /**
+     * True when [_conversationTitle] holds a first-message placeholder rather than a
+     * proper AI-generated title. Allows [generateTitle] to overwrite it after the 2nd exchange.
+     */
+    private var titleIsPlaceholder = false
+
+    /** C2 (#487): per-turn flag — true once the hallucination retry has been attempted. */
+    private var hallucinationRetryAttempted = false
+
+    /** True while Gemma-4 is being lazily initialised in response to a [sendMessage] call. */
+    private val _isLoadingModel = MutableStateFlow(false)
+
+    private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
+    val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
+
+    private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
+    val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
+
+    private var pendingVoiceReply = false
+    /**
+    * Tracks automatic voice retries for the in-chat mic session (#790).
+    * Capped at 1 (conservative — the chat UI already shows the error inline).
+    * Reset on each fresh mic press via [startVoiceInput].
+    */
+    private var chatCommandVoiceRetryCount = 0
+    private var awaitingVoicePlaybackCompletion = false
+
+    /** Active voice interaction mode, or null when no voice session is running (#741). */
+    private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
+    val voiceMode: StateFlow<VoiceMode?> = _voiceMode.asStateFlow()
+    private val _mealPlannerActivity = MutableStateFlow<MealPlannerActivity?>(null)
+    val mealPlannerActivity: StateFlow<MealPlannerActivity?> = _mealPlannerActivity.asStateFlow()
+
+
+    /** The message ID currently being played back via the per-message speaker button (#785). */
+    private val _speakingMessageId = MutableStateFlow<String?>(null)
+    val speakingMessageId: StateFlow<String?> = _speakingMessageId.asStateFlow()
+
+    /** Coroutine job for the active per-message TTS playback; null when idle. */
+    private var speakMessageJob: Job? = null
+
+    /** True once [initializeConversation] has completed and [conversationId] is set. */
+    private val _conversationInitialized = MutableStateFlow(false)
+
+    /**
+     * Exposed for [ChatScreen]'s initialQuery auto-submit: fires as soon as the conversation
+     * record exists, without waiting for the LLM to load. Slot-fill queries (NeedsSlot) never
+     * need the model; [sendMessage] handles model loading internally for LLM-routed queries.
+     */
+    val isConversationReady: StateFlow<Boolean> = _conversationInitialized.asStateFlow()
+
+    val isArchived: StateFlow<Boolean> = conversationRepository.observeConversationById(navConversationId ?: "")
+        .map { it?.archivedAt != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private val _showThinkingProcess = MutableStateFlow(true)
+
+    /**
+     * Snapshot of the currently active [ModelSettingsEntity] loaded into the inference engine.
+     * Updated during engine init and after [applyModelSettingsAndStartNewChat]. Used by
+     * [baseUiState] to populate temperature/top-p/top-k/thinking values reactively without
+     * calling [ModelSettingsRepository.getSettings] inside the combine lambda.
+     */
+    private val _activeModelSettings = MutableStateFlow<ModelSettingsEntity?>(null)
+
+    /** True while settings apply is in-flight. Used by the UI to show progress and gate sheet dismissal. */
+    private val _isApplyingSettings = MutableStateFlow(false)
+    private val _settingsApplyCompleted = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+    /** Combined visual customisation prefs, updated from ChatPreferences. */
+    @Suppress("UNCHECKED_CAST")
+    private val visualPrefs: StateFlow<VisualPrefs> = combine(
+        chatPreferences.fontSize,
+        chatPreferences.bubbleTheme,
+        chatPreferences.userFontColor,
+        chatPreferences.assistantFontColor,
+        chatPreferences.wallpaperType,
+        chatPreferences.wallpaperColor,
+        chatPreferences.wallpaperImageUri,
+    ) { values: kotlin.Array<Any?>
+        ->
+        VisualPrefs(
+            fontSize = values[0] as Int,
+            bubbleTheme = values[1] as String,
+            userFontColor = values[2] as Long?,
+            assistantFontColor = values[3] as Long?,
+            wallpaperType = values[4] as String,
+            wallpaperColor = values[5] as Long?,
+            wallpaperImageUri = values[6] as String?,
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, VisualPrefs())
+
+
+    private data class VisualPrefs(
+        val fontSize: Int = 1,
+        val bubbleTheme: String = "system",
+        val userFontColor: Long? = null,
+        val assistantFontColor: Long? = null,
+        val wallpaperType: String = "none",
+        val wallpaperColor: Long? = null,
+        val wallpaperImageUri: String? = null,
+    )
+    /** Maps bubble theme preset key to (userBubbleColor, assistantBubbleColor) ARGB longs. */
+    private fun bubbleThemeColors(theme: String): Pair<Long?, Long?> =
+        when (theme) {
+            "ocean" -> Pair(0xFF1565C0, 0xFF0D47A1)
+            "forest" -> Pair(0xFF2E7D32, 0xFF1B5E20)
+            "sunset" -> Pair(0xFFE65100, 0xFFBF360C)
+            "mono" -> Pair(0xFF424242, 0xFF212121)
+            "lavender" -> Pair(0xFF7B1FA2, 0xFF4A148C)
+            "jandal" -> Pair(0xFF4F7942, 0xFF2D5023)
+            else -> null to null // system = use dynamic colour
+        }
+
+
+    private data class EngineState(
+        val isReady: Boolean,
+        val isGenerating: Boolean,
+        val isLoadingModel: Boolean,
+        val conversationInitialized: Boolean,
+        val activeBackend: BackendType?,
+    )
+    private data class InputState(
+        val messages: List<ChatMessage>,
+        val inputText: String,
+        val inputTextReplacement: InputTextReplacement,
+        val error: String?,
+        val conversationTitle: String?,
+        val isSpeakingResponse: Boolean,
+    )
+    private val engineState = combine(
+        inferenceEngine.isReady,
+        inferenceEngine.isGenerating,
+        _isLoadingModel,
+        _conversationInitialized,
+        inferenceEngine.activeBackend,
+    ) { isReady, isGenerating, isLoadingModel, conversationInitialized, activeBackend ->
+        EngineState(isReady, isGenerating, isLoadingModel, conversationInitialized, activeBackend)
+    }
+
+    private val inputState = combine(
+        combine(_messages, _inputText, _inputTextReplacement, _error, _conversationTitle) {
+                messages, inputText, inputTextReplacement, error, title ->
+            InputState(messages, inputText, inputTextReplacement, error, title, false)
+        },
+        _isSpeakingResponse,
+    ) { state, isSpeakingResponse ->
+        state.copy(isSpeakingResponse = isSpeakingResponse)
+    }
+
+    private val gatedModels: List<KernelModel> = KernelModel.entries.filter { it.isGated && it.isRequired }
+
+    /**
+     * Combined gated statuses for all required gated models, used when deriving
+     * blocking banners and availability states in Chat onboarding.
+     */
+    private val gatedStatuses: StateFlow<Map<KernelModel, GatedModelStatus>> =
+        combine(
+            gatedModels.map { model -> gatedModelStatusRepository.get(model) },
+        ) { array: Array<GatedModelStatus> ->
+            gatedModels.zip(array.asList()) { model, status -> model to status }
+                .toMap()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    /** Base uiState without visual prefs (10-input combine). */
+    private val baseUiState: StateFlow<ChatUiState> = combine(
+        engineState,
+        downloadManager.downloadStates,
+        downloadManager.downloadSources,
+        inputState,
+        _showThinkingProcess,
+        _activeModelSettings,
+        isArchived,
+        authRepository.isAuthenticated,
+        gatedStatuses,
+        _modelInitializationError,
+    ) { array ->
+        @Suppress("UNCHECKED_CAST")
+        val engine = array[0] as EngineState
+        @Suppress("UNCHECKED_CAST")
+        val downloadStates = array[1] as Map<KernelModel, DownloadState>
+        @Suppress("UNCHECKED_CAST")
+        val downloadSources = array[2] as Map<KernelModel, DownloadSource>
+        @Suppress("UNCHECKED_CAST")
+        val input = array[3] as InputState
+        val showThinking = array[4] as Boolean
+        val activeModelSettings = array[5] as ModelSettingsEntity?
+        val archived = array[6] as Boolean
+        val hfAuth = array[7] as Boolean
+        @Suppress("UNCHECKED_CAST")
+        val gatedStatusesMap = array[8] as Map<KernelModel, GatedModelStatus>
+        val modelInitializationError = array[9] as String?
+        val allDownloaded = downloadManager.areRequiredModelsDownloaded()
+        val tier = downloadManager.deviceTier
+        val displayModels: List<KernelModel> = if (tier == HardwareTier.FLAGSHIP) {
+            KernelModel.entries.filter { it.isRequired && it != KernelModel.GEMMA_4_E2B } +
+                KernelModel.GEMMA_4_E4B
+        } else {
+            KernelModel.entries.filter { it.isRequired }
+        }
+
+        when {
+            !allDownloaded -> {
+                val anyDownloading = displayModels.any { downloadStates[it] is DownloadState.Downloading }
+                val progress = displayModels.map { model ->
+                    ModelDownloadProgress(
+                        model = model,
+                        displayName = model.displayName,
+                        sizeLabel = formatBytes(model.approxSizeBytes),
+                        state = downloadStates[model] ?: DownloadState.NotDownloaded,
+                    )
+                }
+                ChatUiState.ModelsNotReady(
+                    isDownloading = anyDownloading,
+                    modelProgress = progress,
+                    hfAuthenticated = hfAuth,
+                    downloadSources = downloadSources,
+                    gatedStatuses = gatedStatusesMap,
+                    conversationReadiness = ConversationModelReadiness.compute(
+                        tier = tier,
+                        downloadStates = downloadStates,
+                    ),
+                )
+            }
+            !archived && modelInitializationError != null &&
+                (!engine.isReady || !engine.conversationInitialized) ->
+                ChatUiState.ModelInitializationFailed(modelInitializationError)
+            !archived && (!engine.isReady || !engine.conversationInitialized) -> ChatUiState.Loading
+            !engine.conversationInitialized -> ChatUiState.Loading
+            else -> ChatUiState.Ready(
+                conversationId = conversationId ?: "",
+                conversationTitle = input.conversationTitle,
+                messages = input.messages,
+                isGenerating = engine.isGenerating,
+                isSpeakingResponse = input.isSpeakingResponse,
+                inputText = input.inputText,
+                inputTextReplacementRevision = input.inputTextReplacement.revision,
+                inputTextReplacementText = input.inputTextReplacement.text,
+                error = input.error,
+                isLoadingModel = engine.isLoadingModel,
+                showThinkingProcess = showThinking,
+                modelCapabilities = activeModel?.capabilities,
+                temperature = activeModelSettings?.temperature ?: 0.7f,
+                topP = activeModelSettings?.topP ?: 0.9f,
+                topK = activeModelSettings?.topK ?: 64,
+                activeBackend = engine.activeBackend,
+                // ---- Visual customisation (#906) — filled from visualPrefs below ----
+                fontSize = 1,
+                bubbleTheme = "system",
+                bubbleThemeUserColor = null,
+                bubbleThemeAssistantColor = null,
+                userFontColor = null,
+                assistantFontColor = null,
+                wallpaperType = "none",
+                wallpaperColor = null,
+                wallpaperImageUri = null,
+            )
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ChatUiState.Loading,
+    )
+
+    /** Merges base uiState with visual prefs so changes emit immediately. */
+    val uiState: StateFlow<ChatUiState> = combine(
+        baseUiState,
+        visualPrefs,
+    ) { base, vp ->
+        if (base !is ChatUiState.Ready) return@combine base
+        base.copy(
+            fontSize = vp.fontSize,
+            bubbleTheme = vp.bubbleTheme,
+            bubbleThemeUserColor = bubbleThemeColors(vp.bubbleTheme).first,
+            bubbleThemeAssistantColor = bubbleThemeColors(vp.bubbleTheme).second,
+            userFontColor = vp.userFontColor,
+            assistantFontColor = vp.assistantFontColor,
+            wallpaperType = vp.wallpaperType,
+            wallpaperColor = vp.wallpaperColor,
+            wallpaperImageUri = vp.wallpaperImageUri,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ChatUiState.Loading,
+    )
+
+    init {
+        // Load verbose logging preference from DataStore (safe in core:memory module)
+        viewModelScope.launch {
+            verboseLoggingPreferenceUseCase.loadAndApplyVerboseLoggingPreference()
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.spokenResponsesEnabled.collect { enabled ->
+                spokenResponsesEnabled = enabled
+                if (enabled) {
+                    voiceOutputController.warmUp()
+                } else {
+                    awaitingVoicePlaybackCompletion = false
+                    pendingVoiceReply = false
+                    _voiceMode.value = null
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    _voicePlaybackState.value = VoicePlaybackState.Idle
+                    stopVoicePlayback()
+                }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.autoSpeak.collect { enabled ->
+                autoSpeakEnabled = enabled
+            }
+        }
+        viewModelScope.launch {
+            voiceInputController.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.ListeningStarted -> {
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
+                        val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
+                            ?.transcript
+                            .orEmpty()
+                        _voiceCaptureState.value = VoiceCaptureState.Listening(currentTranscript)
+                    }
+                    is VoiceInputEvent.SpeechDetected -> Unit
+                    is VoiceInputEvent.PartialTranscript -> {
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        _voiceCaptureState.value = VoiceCaptureState.Listening(event.text)
+                    }
+                    is VoiceInputEvent.Transcript -> {
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        submitVoiceTranscript(event.text)
+                    }
+                    is VoiceInputEvent.Error -> {
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        awaitingVoicePlaybackCompletion = false
+                        pendingVoiceReply = false
+                        // #790: Retry once before surfacing the error to the user.
+                        if (chatCommandVoiceRetryCount < 1) {
+                            chatCommandVoiceRetryCount++
+                            Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
+                            _voiceCaptureState.value = VoiceCaptureState.Preparing
+                            when (val r = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+                                is VoiceInputStartResult.Started -> {
+                                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
+                                        _voiceCaptureState.value = VoiceCaptureState.Listening()
+                                    }
+                                }
+                                is VoiceInputStartResult.Unavailable -> {
+                                    _voiceMode.value = null
+                                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                                    _error.value = withVoiceSettingsHint(r.message)
+                                }
+                            }
+                        } else {
+                            _voiceMode.value = null
+                            _voiceCaptureState.value = VoiceCaptureState.Idle
+                            _error.value = withVoiceSettingsHint(event.message)
+                        }
+                    }
+                    is VoiceInputEvent.ListeningStopped -> {
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        when (val currentState = _voiceCaptureState.value) {
+                            is VoiceCaptureState.Listening -> {
+                                if (currentState.transcript.isBlank()) {
+                                    _voiceMode.value = null
+                                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                                } else {
+                                    submitVoiceTranscript(currentState.transcript)
+                                }
+                            }
+                            is VoiceCaptureState.Processing -> Unit
+                            else -> {
+                                _voiceMode.value = null
+                                _voiceCaptureState.value = VoiceCaptureState.Idle
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputController.events.collect { event ->
+                when (event) {
+                    is VoiceOutputEvent.SpeakingStarted -> {
+                        _isSpeakingResponse.value = true
+                        if (
+                            _voiceCaptureState.value !is VoiceCaptureState.Preparing &&
+                            _voiceCaptureState.value !is VoiceCaptureState.Listening
+                        ) {
+                            _voiceCaptureState.value = VoiceCaptureState.Idle
+                        }
+                        _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                    }
+                    VoiceOutputEvent.SpeakingStopped -> {
+                        _isSpeakingResponse.value = false
+                        _voicePlaybackState.value = VoicePlaybackState.Idle
+                        // Clear per-message speaker icon when streaming playback ends.
+                        // The speakMessageJob finishes as soon as chunks are queued (not when
+                        // audio finishes), so we rely on this event to reset the icon.
+                        if (_speakingMessageId.value != null) {
+                            _speakingMessageId.value = null
+                            speakMessageJob = null
+                        }
+                        val shouldHandleCompletion = awaitingVoicePlaybackCompletion
+                        awaitingVoicePlaybackCompletion = false
+                        if (!shouldHandleCompletion) return@collect
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
+                        if (_voiceMode.value == VoiceMode.BackAndForth) {
+                            rearmVoiceInput()
+                        } else {
+                            _voiceMode.value = null
+                        }
+                    }
+                }
+            }
+        }
+        viewModelScope.launch { initializeConversation() }
+        nzTruthSeedingService.seedIfNeeded()
+        viewModelScope.launch {
+            // Don't load the model for archived conversations — they are read-only and need no inference.
+            // Read directly from the repository (not the StateFlow, which defaults to false) so we get
+            // the real archived state before deciding.
+            val archived = conversationRepository.observeConversationById(navConversationId ?: "")
+                .map { it?.archivedAt != null }
+                .firstOrNull() ?: false
+            if (!archived) {
+                // E4B first — GPU compilation needs every byte of headroom.
+                initEngineWhenReady()
+            }
+        }
+        viewModelScope.launch {
+            // Re-initialize automatically when Android evicts the engine under memory pressure
+            // (#609). We wait for the NEXT ON_START lifecycle event (not current state) because:
+            // - TRIM_MEMORY_UI_HIDDEN fires while ProcessLifecycleOwner still reports STARTED
+            //   (700ms debounce before ON_STOP dispatches), so withStarted{} returns immediately
+            // - We need the user to have the app actually open, not just screen-on briefly
+            // - waitForScreenInteractive() in initialize() is a safety net if screen goes off
+            //   mid-init, but the real gate should be app-in-foreground
+            inferenceEngine.evictionEvents.collect {
+                // Don't re-init for archived conversations.
+                if (isArchived.value) return@collect
+                Log.i("ChatViewModel", "Engine evicted — waiting for app to open before re-init (#609)")
+                withContext(Dispatchers.Main) {
+                    suspendCancellableCoroutine { cont ->
+                        val lifecycle = ProcessLifecycleOwner.get().lifecycle
+                        val currentState = lifecycle.currentState
+                        if (!shouldWaitForAppForegroundAfterEviction(currentState)) {
+                            if (cont.isActive) cont.resume(Unit)
+                            return@suspendCancellableCoroutine
+                        }
+                        val observer = object : LifecycleEventObserver {
+                            override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                                if (event == Lifecycle.Event.ON_START) {
+                                    lifecycle.removeObserver(this)
+                                    if (cont.isActive) cont.resume(Unit)
+                                }
+                            }
+                        }
+                        lifecycle.addObserver(observer)
+                        cont.invokeOnCancellation { lifecycle.removeObserver(observer) }
+                    }
+                }
+                Log.i("ChatViewModel", "App opened by user — re-initializing engine after eviction")
+                initEngineWhenReady()
+            }
+        }
+        viewModelScope.launch {
+            jandalPersona.personaMode.collect {
+                if (inferenceEngine.isReady.value) {
+                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                }
+            }
+        }
+    }
+
+    private suspend fun buildSystemPrompt(
+        historyTurns: List<Pair<String, String>> = emptyList(),
+        isFirstReply: Boolean = _messages.value.none { it.role == ChatMessage.Role.ASSISTANT },
+        identityTier: IdentityTier = IdentityTier.FULL,
+        includeCurrentDateTime: Boolean = true,
+        includeProfile: Boolean = true,
+    ): String {
+        val profile = if (includeProfile) userProfileRepository.get() else ""
+        val personaMode = jandalPersona.currentPersonaMode
+        val dateTime = if (includeCurrentDateTime) {
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH))
+        } else {
+            ""
+        }
+        val isoDate = if (includeCurrentDateTime) {
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ENGLISH))
+        } else {
+            ""
+        }
+        return buildString {
+            when (identityTier) {
+                IdentityTier.FULL -> {
+                    append(
+                        when (personaMode) {
+                            PersonaMode.FULL -> com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
+                            PersonaMode.HALF -> HALF_JANDAL_SYSTEM_PROMPT
+                            PersonaMode.BORING -> BORING_AI_SYSTEM_PROMPT
+                        }
+                    )
+                    // Session vocab is stable per conversation — safe to bake into system prompt.
+                    // Greeting instruction is injected per-turn (in the user prompt context)
+                    // so it can change from "Kia ora" on turn 1 to "no greeting" on turn 2+
+                    // without needing an expensive system prompt reset that clears the KV cache.
+                    jandalPersona.buildSessionVocab(personaMode)
+                        .takeIf { it.isNotBlank() }
+                        ?.let { append("\n\n$it") }
+                }
+                IdentityTier.MINIMAL -> {
+                    append(
+                        if (personaMode == PersonaMode.BORING) {
+                            BORING_MINIMAL_SYSTEM_PROMPT
+                        } else {
+                            MINIMAL_SYSTEM_PROMPT
+                        }
+                    )
+                }
+            }
+            if (includeCurrentDateTime) {
+                append("\n\n[Current date and time]\n$dateTime (ISO: $isoDate)")
+            }
+            // Skip profile and history for minimal (Actions) tier to save tokens
+            if (identityTier == IdentityTier.FULL) {
+                // Prefer structured YAML injection (compact, ~200 tokens) over raw text (~750 tokens).
+                val structured = userProfileRepository.getStructured()
+                val contextWindowSize = activeModel?.let { model ->
+                    modelSettingsRepository.getSettings(model.modelId).contextWindowSize
+                } ?: 4096
+                val maxProfileChars = modelSettingsRepository.getMaxUserProfileChars(contextWindowSize)
+                if (structured != null && !structured.isEmpty()) {
+                    append("\n\n[User Profile]\n${structured.toYaml().take(maxProfileChars)}")
+                } else if (profile.isNotBlank()) {
+                    // Fallback to raw text if no structured data yet
+                    val injectedProfile = profile.take(maxProfileChars)
+                    append("\n\n[User Profile]\n$injectedProfile")
+                }
+                if (historyTurns.isNotEmpty()) {
+                    append("\n\n[Previous conversation context]\n")
+                    for ((user, assistant) in historyTurns) {
+                        append("User: $user\nAssistant: $assistant\n")
+                    }
+                    append("[End of previous conversation context]")
+                }
+            }
+        }
+    }
+
+    private fun estimateSystemAndToolPromptTokens(systemPrompt: String): Int {
+        return FixedPromptTokenBudget.estimateFixedPromptTokens(
+            systemPromptTokens = contextWindowManager.estimateTokens(systemPrompt),
+            measuredToolDeclarationTokens = measuredToolDeclarationTokenEstimate,
+            fallbackToolDeclarationTokens = fallbackNativeToolDeclarationTokenEstimate,
+        )
+    }
+
+    internal fun buildToolUsePrompt(): String {
+        val skillNames = skillRegistry.buildNativeDeclarations()
+        if (skillNames.isBlank()) return ""
+        return buildString {
+            append("[Tool Use]\n")
+            append("You are an AI assistant that helps users by answering questions and completing tasks using skills.\n")
+            append("Use native tools directly whenever the right tool and required arguments are obvious.\n")
+            append("Use load_skill when the user explicitly asks for a skill's instructions or needs extra guidance for a complex or gateway skill.\n\n")
+            append("Available skills:\n")
+            append(skillNames)
+            append("\n\n")
+            append("Rules:\n")
+            append("1. Choose the most relevant native tool for the user's request.\n")
+            append("2. Call that tool directly when its name and parameters are clear, unless the user explicitly asks for skill instructions first; in that case, Rule 3 takes priority.\n")
+            append("3. If the user explicitly asks for skill instructions, call load_skill as the FIRST tool call and wait for success before any action tool. Use the returned instructions to complete the request; do not reload the same skill during this request. If parameters remain unclear, ask the user. Otherwise, when parameters are unclear or gateway-specific rules are needed, load the relevant skill before acting.\n")
+            append("4. Treat load_skill results as internal instructions only. NEVER quote or paste them into the user-visible reply.\n")
+            append("5. Output ONLY the final user-facing result when successful.\n")
+            append("6. CRITICAL — Device actions and list/note requests MUST use run_intent: When the user asks you to PERFORM a device action\n")
+            append("   (create a calendar event, play music, toggle a setting, open an app, set an alarm or timer,\n")
+            append("   send a message, navigate somewhere, calculate something), or read/change a user list or note, use run_intent.\n")
+            append("   For list/note contents, do NOT use search_memory. Do NOT substitute informational tools (get_system_info,\n")
+            append("   query_wikipedia) or memory tools (save_memory) for device actions. Execute the action — do not explain or summarise it.\n")
+            append("7. Calendar creation applies when the user asks to reserve, block, book, or schedule time,\n")
+            append("   or otherwise create a calendar entry. Date/time words alone do NOT make a request\n")
+            append("   a calendar action. Use run_intent(create_calendar_event) only for calendar entries.\n")
+            append("   Parameters: title (required), date (use relative phrases like \"next friday\" as-is),\n")
+            append("   time (use HH:MM 24h format, e.g. 19:00), duration_minutes (integer minutes from start to end, e.g. 60 for 19:00\u201320:00).\n")
+            append("   Alarms, timers, reminders, and date/time queries retain their existing intents.\n")
+            append("   The word 'keep' in scheduling context ('keep Friday free', 'keep the evening open')\n")
+            append("   means RESERVE TIME, not remember a fact.\n")
+            append("8. Memory vs action: personal facts ('remember that Sarah is vegetarian') \u2192 save_memory.\n")
+            append("   Device operations with time/date context \u2192 run_intent.\n")
+            append("CRITICAL — Personal memory recall: Questions about what the user told you, their preferences, or \"what do you remember about me\" MUST call search_memory before answering.\n")
+            append("    Use only that tool's filtered results; do NOT add facts from unrelated retrieved persona/cultural context or prior knowledge.\n")
+            append("    For generic \"what do you remember about me\" requests, present the returned saved facts as a concise list.\n")
+            append("9. CRITICAL — Indirect action requests: even if the user does not use imperative language\n")
+            append("   ('open X', 'do Y'), if they mention wanting a specific app, function, or device capability\n")
+            append("   (calculator, hotspot, flashlight, timer, specific app name), treat it as an action request\n")
+            append("   and use run_intent. Do NOT say 'I don't have that tool' or 'I can't do that' \u2014\n")
+            append("   use run_intent(open_app, app_name=...) to launch apps, or the appropriate run_intent.\n")
+            append("10. CRITICAL — Music and media playback: if the user asks about, wants to hear, or mentions\n")
+            append("    a specific song, album, or artist by name, use run_intent with the appropriate media\n")
+            append("    intent (play_media for songs, play_media_album for albums, play_media_playlist for\n")
+            append("    playlists, play_youtube for YouTube). Do NOT provide lyrics, album information, or\n")
+            append("    Wikipedia summaries instead of playing the music. Requests like 'I want the entire\n")
+            append("    [album] record' or '[song] by [artist]' are media playback requests.\n")
+            append("CRITICAL: Execute all steps silently. Do NOT output intermediate reasoning, status updates, or tool call text.")
+        }
+    }
+
+    private suspend fun resetInferenceForFreshConversation() {
+        // A brand-new chat route must not inherit the singleton inference session's KV cache
+        // or a stripped-down temporary prompt from the previous conversation.
+        estimatedTokensUsed = 0
+        turnsSinceReset = 0
+        needsHistoryReplay = false
+        pendingConfirmationIntent = null
+        if (inferenceEngine.isReady.value) {
+            inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+        } else {
+            inferenceEngine.resetConversation()
+        }
+    }
+
+    private suspend fun initializeConversation() {
+        try {
+            val isFreshConversation = navConversationId == null
+            val id = navConversationId ?: conversationRepository.createConversation()
+            conversationId = id
+            // Persist resolved ID so process-death recreation restores the right conversation
+            // instead of creating a fresh one on every cold start.
+            savedStateHandle["conversationId"] = id
+
+            if (isFreshConversation) {
+                resetInferenceForFreshConversation()
+            }
+
+            // Load persisted title immediately so UI shows it on back-navigation.
+            val conversation = conversationRepository.getConversation(id)
+            val existingTitle = conversation?.title
+            _conversationTitle.value = existingTitle
+
+            // Track lastDistilledAt for episodic distillation on close.
+            lastDistilledAt = conversation?.lastDistilledAt
+
+            val persisted = conversationRepository.getMessagesOnce(id)
+            if (persisted.isNotEmpty()) {
+                val thinkingCount = persisted.count { !it.thinkingText.isNullOrBlank() }
+                if (thinkingCount > 0) Log.d("KernelAI", "thinking_restore: $thinkingCount/${persisted.size} messages have thinkingText")
+                _messages.value = persisted.map { entity ->
+                    ChatMessage(
+                        id = entity.id,
+                        role = if (entity.role == "user") ChatMessage.Role.USER else ChatMessage.Role.ASSISTANT,
+                        content = entity.content,
+                        thinkingText = entity.thinkingText,
+                        toolCall = entity.toolCallJson?.let(::toolCallInfoFromJson),
+                    )
+                }
+                // History is in Room but not in LiteRT's KV cache — replay on next send.
+                needsHistoryReplay = true
+            }
+
+            // Determine whether smart-title generation should still fire on this restored session.
+            // A title that looks like a first-message placeholder (ends with '…', ≤43 chars) can
+            // still be overwritten if the conversation is long enough for a smart title.
+            if (existingTitle != null) {
+                val looksLikePlaceholder = existingTitle.endsWith("…") && existingTitle.length <= 43
+                if (looksLikePlaceholder) {
+                    // Placeholder from a previous session — allow smart title to fire whenever
+                    // messageCount >= 4 is reached. sendMessage() enforces that threshold.
+                    titleIsPlaceholder = true
+                    titleGenerationStarted = false
+                    Log.d("KernelAI", "Restored session $id has placeholder title — smart title can still fire")
+                } else {
+                    titleGenerationStarted = true  // real title present — never overwrite
+                }
+            }
+            // else: new conversation, both flags stay false (defaults)
+
+            setMealPlannerActivity(null)
+            mealPlannerCoordinator.activeSessionReply(id)?.let { plannerReply ->
+                val latestAssistantContent = _messages.value.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
+                if (plannerReply.content.isNotBlank() && plannerReply.content != latestAssistantContent) {
+                    appendTransientAssistantMessage(plannerReply.content)
+                }
+            }
+            refreshMealPlannerActivity(id)
+            syncMealPlanConversationTitleIfNeeded(id)
+        } finally {
+            // Always unblock the Loading guard — even on DB error the engine-ready
+            // path should still transition to Ready rather than freezing the screen.
+            _conversationInitialized.value = true
+        }
+    }
+
+    /**
+     * Hydrates the ViewModel-local active model/settings state for [model] from its
+     * persisted settings.
+     *
+     * The assignments happen only after the settings read succeeds, so a settings-read
+     * failure leaves the ViewModel without an active model: `currentModel`/capabilities
+     * stay null and the in-chat settings sheet stays unavailable instead of presenting
+     * fallback defaults as the real configuration (review #1460).
+     *
+     * @return the persisted settings snapshot that was hydrated.
+     */
+    private suspend fun hydrateActiveModelState(model: KernelModel): ModelSettingsEntity {
+        val settings = modelSettingsRepository.getSettings(model.modelId)
+        activeModel = model
+        activeModelState.value = model
+        activeContextWindowSize = settings.contextWindowSize
+        _showThinkingProcess.value = settings.showThinkingProcess
+        _activeModelSettings.value = settings
+        return settings
+    }
+
+    /**
+     * Resolves the [KernelModel] actually loaded in the warm singleton engine from
+     * [InferenceEngine.loadedModelPath], or null when the loaded path matches no known
+     * model. The already-ready path must hydrate from what the engine is actually
+     * running, not from the current preference — preference changes take effect on
+     * next launch (review #1460).
+     */
+    private fun loadedConversationModel(): KernelModel? {
+        val loadedPath = inferenceEngine.loadedModelPath ?: return null
+        return KernelModel.entries.firstOrNull {
+            loadedPath == it.fileName || loadedPath.endsWith("/${it.fileName}")
+        }
+    }
+
+    /**
+     * Eagerly initialises the Gemma-4 [InferenceEngine] at startup.
+     *
+     * Waits for all required models to be on disk, then loads the preferred
+     * conversation model with a visible loading screen ([ChatUiState.Loading]).
+     *
+     * Protected by [Gemma4InitLock.mutex], shared with [initGemma4] and note-title startup, so a
+     * concurrent [sendMessage] call during the ~20s GPU init cannot race here, double-close the
+     * embedding engine, or orphan the GPU engine allocation.
+     */
+    private suspend fun initEngineWhenReady() {
+        downloadManager.downloadStates
+            .filter { states -> downloadManager.areRequiredModelsDownloaded() }
+            .first()
+
+        Gemma4InitLock.mutex.withLock {
+            _modelInitializationError.value = null
+            try {
+                if (inferenceEngine.isReady.value) {
+                    // The singleton engine is already warm — hydrate from the model it is
+                    // actually running, never from the current preference (preference changes
+                    // take effect on next launch). The engine must not be re-initialised (#1459).
+                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                    // Mirror the cold path's post-initialize sync: the engine allocated a
+                    // clamped KV-cache size that supersedes the persisted setting.
+                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                        activeContextWindowSize = it
+                    }
+                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                    return
+                }
+                Log.i(TAG, "Eager inference initialization waiting for app foreground")
+                awaitAppForeground()
+                Log.i(
+                    TAG,
+                    "Eager inference initialization permitted at lifecycle state=" +
+                        ProcessLifecycleOwner.get().lifecycle.currentState,
+                )
+
+                // Re-check after the lifecycle gate. A concurrent manual path may have warmed
+                // the process-scoped singleton while this coroutine was waiting.
+                if (inferenceEngine.isReady.value) {
+                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                        activeContextWindowSize = it
+                    }
+                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                    return
+                }
+
+                val preferred = downloadManager.preferredConversationModel()
+
+                val modelPath = downloadManager.getModelPath(preferred) ?: return
+                val settings = hydrateActiveModelState(preferred)
+                // Arctic Embed uses CPU only (no GPU conflict with Gemma-4).
+                // embeddingEngine.close() removed — it silently broke search_memory (#445)
+                inferenceEngine.initialize(ModelConfig(
+                    modelPath = modelPath,
+                    systemPrompt = buildSystemPrompt(),
+                    maxTokens = settings.contextWindowSize,
+                    temperature = settings.temperature,
+                    topP = settings.topP,
+                    topK = settings.topK,
+                    thinkingEnabled = settings.showThinkingProcess,
+                    speculativeDecodingEnabled = settings.speculativeDecodingEnabled,
+                    toolProvider = toolProvider,
+                ))
+                // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
+                // settings.contextWindowSize may be power-of-2 (e.g. 4096→4000) and the
+                // resolved value is what LiteRT actually allocated — use it for reset thresholds.
+                inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                    activeContextWindowSize = it
+                }
+                estimatedTokensUsed = 0
+                turnsSinceReset = 0
+                inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                reportModelInitializationFailure("initEngineWhenReady", e)
+            }
+        }
+    }
+
+    /**
+     * Lazily initialises the Gemma-4 [InferenceEngine] on the first [sendMessage] that
+     * routes to the streaming path.
+     *
+     * Uses the process-wide [Gemma4InitLock.mutex], shared with note-title startup, to guarantee
+     * idempotency: if called concurrently, the second caller waits for the first to finish,
+     * then finds [InferenceEngine.isReady] already true, hydrates the ViewModel-local
+     * model/settings state and returns without re-initialising the engine (#1459).
+     *
+     * Only waits for the preferred conversation model to be on disk via
+     * [ModelDownloadManager.getModelPath] (file-existence check) — does NOT block on the
+     * [ModelDownloadManager.downloadStates] flow so that manually ADB-pushed models are
+     * recognised immediately.
+     */
+    private suspend fun initGemma4(safeModelTest: Boolean = false) {
+        Gemma4InitLock.mutex.withLock {
+            _modelInitializationError.value = null
+            try {
+                if (inferenceEngine.isReady.value) {
+                    // Same already-ready hydration as [initEngineWhenReady] (#1459): hydrate
+                    // from the model the singleton engine is actually running, never
+                    // re-initialise it.
+                    loadedConversationModel()?.let { hydrateActiveModelState(it) }
+                    inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                        activeContextWindowSize = it
+                    }
+                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                    return
+                }
+
+                val preferred = downloadManager.preferredConversationModel()
+                val modelPath = downloadManager.getModelPath(preferred) ?: return
+                val settings = hydrateActiveModelState(preferred)
+                // Arctic Embed uses CPU only (no GPU conflict with Gemma-4).
+                // embeddingEngine.close() removed — it silently broke search_memory (#445)
+                Log.d(TAG, "initEngineWhenReady: modelId=${preferred.modelId} speculativeDecodingEnabled=${settings.speculativeDecodingEnabled}")
+                inferenceEngine.initialize(ModelConfig(
+                    modelPath = modelPath,
+                    systemPrompt = buildSystemPrompt(
+                        includeCurrentDateTime = !safeModelTest,
+                        includeProfile = !safeModelTest,
+                    ),
+                    maxTokens = settings.contextWindowSize,
+                    temperature = settings.temperature,
+                    topP = settings.topP,
+                    topK = settings.topK,
+                    thinkingEnabled = settings.showThinkingProcess,
+                    speculativeDecodingEnabled = settings.speculativeDecodingEnabled,
+                    toolProvider = toolProvider,
+                ))
+                // Sync to actual clamped KV-cache size (safeTokenCount / hardware-tier cap).
+                inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
+                    activeContextWindowSize = it
+                }
+                estimatedTokensUsed = 0
+                turnsSinceReset = 0
+                // Rebuild system prompt now that activeBackend is resolved (backend field
+                // was null during initialize()).
+                inferenceEngine.updateSystemPrompt(
+                    buildSystemPrompt(
+                        includeCurrentDateTime = !safeModelTest,
+                        includeProfile = !safeModelTest,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                reportModelInitializationFailure("initGemma4", e)
+            }
+        }
+    }
+
+    private fun reportModelInitializationFailure(operation: String, error: Exception) {
+        Log.e(TAG, "$operation failed", error)
+        val message = "Failed to load AI model: ${error.message ?: "Unknown error"}"
+        if (inferenceEngine.isReady.value) {
+            _error.value = message
+        } else {
+            _modelInitializationError.value = message
+        }
+    }
+
+    /**
+     * Immediately appends a completed assistant message to the UI and persists it to Room.
+     * Used by the QuickIntentRouter skill-dispatch path where there is no streaming.
+     *
+     * [shouldIndex] — set false for device action responses, slot-fill prompts, and error
+     * messages that should not surface in future RAG retrievals.
+     */
+    private suspend fun appendAssistantMessage(
+        convId: String,
+        content: String,
+        shouldIndex: Boolean = true,
+        spokenSummary: String? = null,
+        speak: Boolean = true,
+        persist: Boolean = true,
+    ) {
+        val msgId = UUID.randomUUID().toString()
+        val msg = ChatMessage(
+            id = msgId,
+            role = ChatMessage.Role.ASSISTANT,
+            content = content,
+        )
+        _messages.update { it + msg }
+        if (persist) {
+            val savedId = conversationRepository.addMessage(convId, "assistant", content)
+            if (shouldIndex) ragRepository.indexMessage(savedId, convId, content)
+        }
+        if (speak) {
+            speakAssistantReplyIfNeeded(content, spokenSummary)
+        }
+    }
+
+    /**
+     * Adds UI-only assistant guidance that should be visible immediately but must not be
+     * persisted to Room, indexed for RAG, or replayed into LiteRT history.
+     */
+    private fun appendTransientAssistantMessage(content: String) {
+        val msg = ChatMessage(
+            id = UUID.randomUUID().toString(),
+            role = ChatMessage.Role.ASSISTANT,
+            content = content,
+        )
+        _messages.update { it + msg }
+    }
+
+    private suspend fun refreshMealPlannerActivity(conversationId: String) {
+        setMealPlannerActivity(mealPlannerCoordinator.activeSessionActivity(conversationId))
+    }
+
+    private fun setMealPlannerActivity(activity: MealPlannerActivity?) {
+        _mealPlannerActivity.value = activity
+        if (activity != null && _voiceCaptureState.value is VoiceCaptureState.Processing) {
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+        }
+    }
+
+    /** Like [appendAssistantMessage] but also attaches a [ToolCallInfo] chip so the UI shows
+     *  which skill produced the reply. Used by the DirectReply path (QuickIntentRouter skills
+     *  that bypass the LLM). */
+    private suspend fun appendAssistantMessageWithToolCall(
+        convId: String,
+        content: String,
+        skillName: String,
+        requestJson: String,
+        isSuccess: Boolean,
+        presentation: ToolPresentation? = null,
+        spokenSummary: String? = null,
+        speak: Boolean = true,
+        persist: Boolean = true,
+    ) {
+        val msgId = UUID.randomUUID().toString()
+        val toolCall = ToolCallInfo(
+            skillName = skillName,
+            requestJson = requestJson,
+            resultText = content,
+            isSuccess = isSuccess,
+            presentation = presentation,
+            spokenSummary = spokenSummary,
+        )
+        val msg = ChatMessage(
+            id = msgId,
+            role = ChatMessage.Role.ASSISTANT,
+            content = content,
+            toolCall = toolCall,
+        )
+        _messages.update { it + msg }
+        if (persist) {
+            val savedId = conversationRepository.addMessage(
+                convId, "assistant", content,
+                toolCallJson = toolCall.toJsonString(),
+            )
+            if (shouldIndexToolCallResult(skillName)) ragRepository.indexMessage(savedId, convId, content)
+        }
+        if (speak) {
+            speakAssistantReplyIfNeeded(content, spokenSummary)
+        }
+    }
+    /**
+     * Re-executes a weather QIR call after permission repair. The user message was already
+     * persisted by [sendMessage], so this path appends only the resulting assistant message.
+     */
+    private suspend fun retryWeatherLocationAction(
+        convId: String,
+        pending: PendingWeatherLocationAction,
+    ) {
+        val directSkill = skillRegistry.get(pending.intentName)
+        val (skill, callParams) = if (directSkill != null) {
+            directSkill to pending.params
+        } else {
+            skillRegistry.get("run_intent") to
+                (mapOf("intent_name" to pending.intentName) + pending.params)
+        }
+        if (skill == null) {
+            appendAssistantMessage(
+                convId = convId,
+                content = "I couldn't complete that weather request.",
+                shouldIndex = false,
+            )
+            return
+        }
+
+        when (val result = skill.execute(SkillCall(skill.name, callParams))) {
+            is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
+                convId = convId,
+                content = result.content,
+                skillName = pending.intentName,
+                requestJson = callParams.toString(),
+                isSuccess = true,
+                presentation = result.presentation,
+                spokenSummary = spokenSummaryFrom(result),
+            )
+            is SkillResult.Success -> appendAssistantMessage(
+                convId = convId,
+                content = result.content,
+                shouldIndex = false,
+                spokenSummary = spokenSummaryFrom(result),
+            )
+            is SkillResult.Failure -> appendAssistantMessage(
+                convId = convId,
+                content = result.error,
+                shouldIndex = false,
+                spokenSummary = result.error,
+            )
+            is SkillResult.CapabilityRequired -> {
+                if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
+                    pendingWeatherLocationAction = pending
+                    _weatherLocationState.value = WeatherLocationState()
+                } else {
+                    appendAssistantMessage(
+                        convId = convId,
+                        content = capabilityRequiredMessage(result),
+                        shouldIndex = false,
+                        spokenSummary = capabilityRequiredMessage(result),
+                    )
+                }
+            }
+            else -> appendAssistantMessage(
+                convId = convId,
+                content = "I couldn't complete that weather request.",
+                shouldIndex = false,
+            )
+        }
+    }
+
+
+    fun retryDownload(model: KernelModel) {
+        downloadManager.startDownload(model, force = false)
+    }
+
+    fun retryModelInitialization() {
+        _modelInitializationError.value = null
+        viewModelScope.launch { initEngineWhenReady() }
+    }
+
+    fun startAuth() {
+        authRepository.startAuthFlow()
+    }
+
+    fun onInputChanged(text: String) {
+        _inputText.value = text
+        savedStateHandle["inputText"] = text
+        if (_error.value != null) _error.value = null
+    }
+
+    /** Applies a ViewModel-originated draft change; typing updates use [onInputChanged] instead. */
+    fun replaceInputText(text: String) {
+        onInputChanged(text)
+        val next = InputTextReplacement(_inputTextReplacement.value.revision + 1L, text)
+        _inputTextReplacement.value = next
+        savedStateHandle["inputTextReplacementRevision"] = next.revision
+        savedStateHandle["inputTextReplacementText"] = next.text
+    }
+
+    /** Prefills the composer from a planner smart reply chip; chips never auto-submit. */
+    fun onSmartReplySelected(suggestion: MealPlannerSuggestion) {
+        val replacement = when (suggestion.composeMode) {
+            MealPlannerSuggestionComposeMode.REPLACE -> suggestion.command
+            MealPlannerSuggestionComposeMode.APPEND_COMMA ->
+                appendSmartReplyValue(_inputText.value, suggestion.command)
+            MealPlannerSuggestionComposeMode.STRIP_NEGATION_IF_APPENDING ->
+                appendSmartReplyValue(stripNegationPrefixes(_inputText.value), suggestion.command)
+        }
+        replaceInputText(replacement)
+    }
+
+    private fun appendSmartReplyValue(current: String, command: String): String {
+        val trimmedCurrent = current.trim()
+        if (trimmedCurrent.isBlank()) return command
+        val normalizedCommand = command.trim().lowercase()
+        val existingValues = trimmedCurrent.split(',').map { it.trim().lowercase() }.filter { it.isNotBlank() }
+        if (normalizedCommand in existingValues) {
+            return trimmedCurrent
+        }
+        return if (trimmedCurrent.endsWith(',')) {
+            "$trimmedCurrent $command"
+        } else {
+            "$trimmedCurrent, $command"
+        }
+    }
+
+    private fun stripNegationPrefixes(current: String): String {
+        return current
+            .replace(Regex("no dietary requirements\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("no protein preferences?\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("no cuisine preferences?\\s*,?\\s*", RegexOption.IGNORE_CASE), "")
+            .trimEnd(',', ' ')
+    }
+    /** Starts a one-shot voice capture: user speaks once, reply may be spoken, then loop ends. */
+    fun startVoiceInput() = startVoiceInput(VoiceMode.OneShot)
+
+    /**
+     * Starts back-and-forth conversational voice: after each spoken reply the microphone
+     * re-arms automatically until the user explicitly stops or leaves the conversation.
+     */
+    fun startBackAndForthVoiceInput() = startVoiceInput(VoiceMode.BackAndForth)
+
+    private fun ownsCommandVoiceCapture(): Boolean =
+        _voiceCaptureState.value != VoiceCaptureState.Idle
+
+
+    private fun startVoiceInput(mode: VoiceMode) {
+        if (inferenceEngine.isGenerating.value || _isLoadingModel.value) return
+        if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
+        // #790: Fresh mic press resets the retry budget.
+        chatCommandVoiceRetryCount = 0
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = mode
+        viewModelScope.launch {
+            if (_voicePlaybackState.value != VoicePlaybackState.Idle) {
+                voiceOutputController.stop()
+            }
+            _error.value = null
+            _voiceCaptureState.value = VoiceCaptureState.Preparing
+            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+                is VoiceInputStartResult.Started -> {
+                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
+                        _voiceCaptureState.value = VoiceCaptureState.Listening()
+                    }
+                }
+                is VoiceInputStartResult.Unavailable -> {
+                    awaitingVoicePlaybackCompletion = false
+                    _voiceMode.value = null
+                    pendingVoiceReply = false
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    _error.value = withVoiceSettingsHint(result.message)
+                }
+            }
+        }
+    }
+
+    /**
+     * Re-arms voice listening for the next back-and-forth turn. Only called internally after a
+     * spoken reply finishes; guards against starting if the mode was cleared in the interim.
+     */
+    private fun rearmVoiceInput() {
+        if (_voiceMode.value != VoiceMode.BackAndForth) return
+        if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
+        viewModelScope.launch {
+            _error.value = null
+            _voiceCaptureState.value = VoiceCaptureState.Preparing
+            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+                is VoiceInputStartResult.Started -> {
+                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
+                        _voiceCaptureState.value = VoiceCaptureState.Listening()
+                    }
+                }
+                is VoiceInputStartResult.Unavailable -> {
+                    awaitingVoicePlaybackCompletion = false
+                    _voiceMode.value = null
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    _error.value = withVoiceSettingsHint(result.message)
+                }
+            }
+        }
+    }
+
+    fun onMicrophonePermissionDenied(shouldShowRationale: Boolean = false, requestedAction: String? = null) {
+        val outcome = denialClassifier.classify(
+            Manifest.permission.RECORD_AUDIO,
+            shouldShowRationale,
+        )
+        when (outcome) {
+            DenialOutcome.RepairOnlyDenied -> {
+                _pendingChatMicMode.value = when (requestedAction) {
+                    "loop" -> VoiceMode.BackAndForth
+                    else -> VoiceMode.OneShot
+                }
+                _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
+                _error.value = null
+            }
+            DenialOutcome.RetryableDenied -> {
+                _pendingChatMicMode.value = null
+                _microphoneState.value = null
+                _error.value = "Microphone permission is required for voice input."
+            }
+        }
+    }
+
+
+    fun onChatMicrophoneKeepTyping() {
+        _microphoneState.value = null
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+        _pendingChatMicMode.value = null
+        _awaitingChatMicSettingsReturn.value = false
+    }
+    
+    fun onChatMicrophoneOpenAppPermissions() {
+        _awaitingChatMicSettingsReturn.value = true
+        // Do NOT clear _pendingChatMicMode — it must survive the settings round-trip.
+        // Do NOT clear _microphoneState — the dialog is dismissed by the screen,
+        // and we'll need isPermanentlyDenied if resume shows still-denied.
+    }
+    
+    fun dismissMicrophoneRepairDialog() {
+        _microphoneState.value = null
+        denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+        _pendingChatMicMode.value = null
+        _awaitingChatMicSettingsReturn.value = false
+    }
+    
+    /**
+     * Called by ChatScreen's lifecycle ON_RESUME after the user returns from mic settings.
+     * If the permission was granted, restarts the original requested voice mode.
+     * If still denied, re-shows the blocked repair dialog.
+     */
+    fun onChatMicRepairResumeCheck(hasPermission: Boolean) {
+        if (!_awaitingChatMicSettingsReturn.value) return
+        _awaitingChatMicSettingsReturn.value = false
+        if (hasPermission) {
+            val mode = _pendingChatMicMode.value
+            _pendingChatMicMode.value = null
+            _microphoneState.value = null
+            denialClassifier.clear(Manifest.permission.RECORD_AUDIO)
+            when (mode) {
+                VoiceMode.BackAndForth -> startBackAndForthVoiceInput()
+                else -> startVoiceInput()
+            }
+        } else {
+            _microphoneState.value = MicrophoneState(isPermanentlyDenied = true)
+            // Keep _pendingChatMicMode alive for another repair attempt.
+        }
+    }
+
+
+    /** Requests ACCESS_COARSE_LOCATION through ChatScreen's runtime permission launcher. */
+    fun onWeatherLocationRequestPermission() {
+        _error.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.RequestWeatherLocationPermission)
+        }
+    }
+
+    /** Switches the pending local-weather request to the named-place fallback. */
+    fun onWeatherLocationTypePlace() {
+        val wasVoiceRequest = pendingWeatherLocationAction?.submitMode == SubmitMode.Voice
+        awaitingWeatherLocationSettingsReturn = false
+        pendingWeatherLocationAction = null
+        _weatherLocationState.value = null
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (wasVoiceRequest) {
+            stopVoiceInput()
+        } else {
+            pendingVoiceReply = false
+        }
+        _error.value = "Type a place name in the chat input, like \"weather in Tokyo\"."
+    }
+
+    /** Dismisses the weather permission surface without executing the pending request. */
+    fun dismissWeatherLocationDialog() {
+        val wasVoiceRequest = pendingWeatherLocationAction?.submitMode == SubmitMode.Voice
+        awaitingWeatherLocationSettingsReturn = false
+        pendingWeatherLocationAction = null
+        _weatherLocationState.value = null
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (wasVoiceRequest) {
+            stopVoiceInput()
+        } else {
+            pendingVoiceReply = false
+        }
+        _error.value = null
+    }
+
+    /** Retries the original local-weather request after ACCESS_COARSE_LOCATION is granted. */
+    fun onWeatherLocationPermissionGranted() {
+        awaitingWeatherLocationSettingsReturn = false
+        denialClassifier.clear(Manifest.permission.ACCESS_COARSE_LOCATION)
+        val pending = pendingWeatherLocationAction ?: return
+        pendingWeatherLocationAction = null
+        _weatherLocationState.value = null
+        pendingVoiceReply = pending.submitMode == SubmitMode.Voice
+        viewModelScope.launch {
+            val convId = conversationId ?: return@launch
+            retryWeatherLocationAction(convId, pending)
+        }
+    }
+
+    /** Keeps the contextual dialog on a retryable denial and promotes later denials to repair. */
+    fun onWeatherLocationPermissionDenied(shouldShowRationale: Boolean = false) {
+        val currentState = _weatherLocationState.value ?: return
+        when (denialClassifier.classify(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            shouldShowRationale,
+        )) {
+            DenialOutcome.RepairOnlyDenied ->
+                _weatherLocationState.value = currentState.copy(isPermanentlyDenied = true)
+            DenialOutcome.RetryableDenied ->
+                _weatherLocationState.value = currentState
+        }
+    }
+
+    /** Opens Android's app-permission settings for manual location repair. */
+    fun onWeatherLocationOpenAppPermissions() {
+        awaitingWeatherLocationSettingsReturn = true
+        _weatherLocationState.value = null
+        _error.value = null
+        viewModelScope.launch {
+            _events.emit(UiEvent.RepairWeatherLocationPermission)
+        }
+    }
+
+    /**
+     * Called from ChatScreen after returning from permission settings. A grant retries the
+     * original request; a still-denied permission restores the blocked repair surface.
+     */
+    fun onChatWeatherLocationRepairResumeCheck(hasPermission: Boolean) {
+        if (!awaitingWeatherLocationSettingsReturn) return
+        awaitingWeatherLocationSettingsReturn = false
+        if (hasPermission) {
+            onWeatherLocationPermissionGranted()
+        } else if (pendingWeatherLocationAction != null) {
+            _weatherLocationState.value = WeatherLocationState(isPermanentlyDenied = true)
+        }
+    }
+
+
+    fun stopVoiceInput() {
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = null
+        pendingVoiceReply = false
+        voiceInputController.stopListening()
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    fun stopVoiceOutput() {
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = null
+        pendingVoiceReply = false
+        voiceOutputController.stop()
+        _voicePlaybackState.value = VoicePlaybackState.Idle
+        _speakingMessageId.value = null
+    }
+
+    /**
+     * Speaks [text] for the message identified by [messageId] using the per-message speaker
+     * button (#785). Calling again with the same [messageId] toggles playback off. Starting a
+     * new message automatically stops any in-progress speaker-button playback. The autoSpeak
+     * preference does NOT gate this path — the button always works on explicit tap.
+     */
+    fun speakMessage(messageId: String, text: String) {
+        if (_speakingMessageId.value == messageId) {
+            // Same message → toggle off
+            speakMessageJob?.cancel()
+            speakMessageJob = null
+            awaitingVoicePlaybackCompletion = false
+            pendingVoiceReply = false
+            voiceOutputController.stop()
+            _speakingMessageId.value = null
+            _isSpeakingResponse.value = false
+            _voicePlaybackState.value = VoicePlaybackState.Idle
+            return
+        }
+        // New message — stop any previous speaker-button playback and start fresh
+        speakMessageJob?.cancel()
+        // Prevent the SpeakingStopped handler from rearming the voice loop.
+        awaitingVoicePlaybackCompletion = false
+        pendingVoiceReply = false
+        voiceOutputController.stop()
+        _speakingMessageId.value = messageId
+        val normalizedText = normalizeChatTextForSpeech(text)
+        speakMessageJob = viewModelScope.launch {
+            val maxSentences = voiceOutputPreferences.maxSpokenSentences.first()
+            val textToSpeak = truncateForSpeech(normalizedText, maxSentences)
+            val speakResult = try {
+                // Use the streaming session path so sentence 1 starts playing while
+                // sentence 2 is being synthesised — critical for long responses with
+                // high-quality voices (e.g. LessacHigh) which synthesise slowly.
+                val session = voiceOutputController.openStreamingSession(
+                    VoiceSpeakRequest(text = textToSpeak),
+                )
+                val buffer = StringBuilder(textToSpeak)
+                var finalised = false
+                while (buffer.isNotBlank()) {
+                    val isShort = buffer.length < CHAT_VOICE_MIN_CHUNK_LENGTH
+                    val chunk = popNextStreamingSpeechChunk(
+                        buffer = buffer,
+                        minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
+                        preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
+                        force = isShort,
+                    ) ?: break
+                    val isLast = buffer.isBlank()
+                    session.append(chunk, isFinal = isLast)
+                    if (isLast) {
+                        finalised = true
+                        break
+                    }
+                }
+                // Flush any residual text that didn't form a clean chunk boundary.
+                // Skip if the loop already sent isFinal=true on the last chunk.
+                if (!finalised) {
+                    val remaining = finalizeChatTextForSpeech(buffer.toString())
+                    session.append(remaining, isFinal = true)
+                }
+                VoiceOutputResult.Spoken
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start per-message speech playback", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            } finally {
+                // speakingMessageId is cleared by SpeakingStopped event (when audio finishes)
+                // or by stopSpeaking() (when cancelled). Do not clear here — the job ends as
+                // soon as chunks are queued, long before audio playback completes.
+            }
+            if (speakResult is VoiceOutputResult.Unavailable && _speakingMessageId.value == messageId) {
+                _speakingMessageId.value = null
+                speakMessageJob = null
+            }
+        }
+    }
+
+    /**
+     * Stops any in-progress per-message TTS playback triggered by the speaker button (#785).
+     * Does not affect the voice loop or streaming response playback.
+     */
+    fun stopSpeaking() {
+        speakMessageJob?.cancel()
+        speakMessageJob = null
+        voiceOutputController.stop()
+    }
+
+    fun submitInitialQueryIfNeeded(initialQuery: String, speakResponse: Boolean = false) {
+        val normalized = initialQuery.trim()
+        if (normalized.isBlank()) return
+        val alreadyPresent = _messages.value.any {
+            it.role == ChatMessage.Role.USER && it.content.trim() == normalized
+        }
+        if (alreadyPresent) {
+            forceMinimalContextForNextMessage = false
+            savedStateHandle["minimalContext"] = false
+            Log.d("ChatViewModel", "Skipping duplicate initial query after restore: $normalized")
+            return
+        }
+        // Cancel any in-flight generation — don't silently drop the new command
+        if (inferenceEngine.isGenerating.value) {
+            activeTurnCancellationRequest.set(true)
+            inferenceEngine.cancelGeneration()
+            Log.d("KernelAI", "ADB_INTENT_TRACE cancel_generation=true input=$normalized")
+        }
+        // Signal sendMessage to reset the LiteRT conversation before processing,
+        // preventing stale KV-cache state from contaminating the new independent command (#1190)
+        needsConversationReset = true
+        replaceInputText(normalized)
+        sendMessage(if (speakResponse) SubmitMode.Voice else SubmitMode.Text)
+    }
+
+    fun renameConversation(newTitle: String) {
+        val id = conversationId ?: return
+        val trimmed = newTitle.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            titleIsPlaceholder = false  // signal before any suspension point
+            conversationRepository.renameConversation(id, trimmed)
+            _conversationTitle.value = trimmed
+            titleIsPlaceholder = false  // user explicitly named this conversation
+        }
+    }
+
+    private suspend fun syncMealPlanConversationTitleIfNeeded(conversationId: String) {
+        if (titleGenerationStarted && !titleIsPlaceholder) return
+        val snapshot = mealPlanSessionRepository.getActiveSession(conversationId) ?: return
+        if (snapshot.planVersion <= 0 || snapshot.days.isEmpty()) return
+        val canonicalTitle = snapshot.displayName
+        if (_conversationTitle.value == canonicalTitle) {
+            titleIsPlaceholder = false
+            titleGenerationStarted = true
+            return
+        }
+        if (_conversationTitle.value != null && !titleIsPlaceholder) return
+        conversationRepository.renameConversation(conversationId, canonicalTitle)
+        _conversationTitle.value = canonicalTitle
+        titleIsPlaceholder = false
+        titleGenerationStarted = true
+        Log.d("KernelAI", "Synced meal-plan conversation title for $conversationId to $canonicalTitle")
+    }
+
+    fun sendMessage() {
+        sendMessage(SubmitMode.Text)
+    }
+
+    private fun sendMessage(submitMode: SubmitMode) {
+        val submittedText = _inputText.value.trim()
+        val loadSkillAbortProbe = BuildConfig.DEBUG &&
+            submittedText == LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND
+        val loadSkillNativeContinuationProbe = BuildConfig.DEBUG &&
+            submittedText == LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND
+        val safeRunIntentTest = BuildConfig.DEBUG &&
+            (submittedText.startsWith(SAFE_RUN_INTENT_TEST_PREFIX) ||
+                loadSkillAbortProbe ||
+                loadSkillNativeContinuationProbe)
+        val text = when {
+            loadSkillAbortProbe -> LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT
+            loadSkillNativeContinuationProbe -> LOAD_SKILL_NATIVE_CONTINUATION_PROBE_USER_TEXT
+            safeRunIntentTest -> submittedText.removePrefix(SAFE_RUN_INTENT_TEST_PREFIX).trim()
+            else -> submittedText
+        }
+        if (text.isBlank()) {
+            if (submitMode == SubmitMode.Voice) {
+                _voiceMode.value = null
+                pendingVoiceReply = false
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+            }
+            return
+        }
+
+        // Voice mode: if generating or loading, reset voice state and return (preserves original behaviour)
+        if (submitMode == SubmitMode.Voice && (inferenceEngine.isGenerating.value || _isLoadingModel.value)) {
+            _voiceMode.value = null
+            pendingVoiceReply = false
+            return
+        }
+        stopVoicePlayback()
+        suppressVoiceOutputForCurrentResponse = false
+        replaceInputText("")
+        val convId = conversationId ?: return
+        val isLoadSkillAbortProbeFollowUp = BuildConfig.DEBUG &&
+            pendingLoadSkillAbortProbeFollowUpConversationId == convId &&
+            submittedText == LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP
+        if (pendingLoadSkillAbortProbeFollowUpConversationId != null) {
+            pendingLoadSkillAbortProbeFollowUpConversationId = null
+        }
+        val turnCancellationRequest = AtomicBoolean(false)
+        activeTurnCancellationRequest = turnCancellationRequest
+
+        if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
+            suppressCloseDistillationForSafeProbe = true
+        }
+        pendingVoiceReply = submitMode == SubmitMode.Voice
+
+        // Synchronous flag set — collapses the TOCTOU window before coroutine dispatch
+        if (!inferenceEngine.isReady.value) {
+            _isLoadingModel.value = true
+        }
+
+        val commandId = "${UUID.randomUUID().toString().take(8)}-${commandIdSequence.incrementAndGet()}"
+        Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId input=${text.take(120)} submitMode=$submitMode")
+        // #1618: per-stage turn timing; ms since the message was accepted. Logcat only.
+        val turnAcceptedAtNanos = System.nanoTime()
+        fun logTurnStage(stage: String) {
+            val elapsedMs = (System.nanoTime() - turnAcceptedAtNanos) / 1_000_000
+            Log.d("KernelAI", "TTFT_STAGE commandId=$commandId stage=$stage t_ms=$elapsedMs")
+        }
+        logTurnStage("accepted")
+
+        viewModelScope.launch {
+            logTurnStage("coroutine_started")
+            // Hoisted so the streaming section (outside the try/finally) can read them.
+            var assistantMsgId = ""
+            var accumulatedContent = StringBuilder()
+            var accumulatedThinking = StringBuilder()
+            var prompt = ""
+            var effectiveRagTokenCost = 0
+            var systemPromptForPrefill = ""
+            var shouldMeasureToolDeclarations = false
+            // Set by the Tier 2 intercept when a skill executes successfully; injected into
+            // the E4B prompt so it can generate a natural conversational wrapper.
+            var systemContext: String? = null
+            var isToolQueryForTurn = false
+            // Tracks whether this turn had a conversation reset (independent command).
+            // Used by the history replay section to exclude previous independent-command
+            // messages from the system prompt, preventing stale tool-bias carryover (#1190).
+            var wasConversationReset = false
+            // Reset LiteRT conversation for independent commands (ADB test, widget, side-key)
+            // to prevent stale KV-cache carryover between invocations (#1190).
+            // Also clear all ViewModel-level mutable state that could leak:
+            // - pendingConfirmationIntent (#621 classifier confirmation)
+            // - needsHistoryReplay (GPU backend set-this flag per-turn)
+            // - estimatedTokensUsed / turnsSinceReset (token tracking from prior command)
+            if (needsConversationReset || safeRunIntentTest) {
+                needsConversationReset = false
+                wasConversationReset = true
+                if (!safeRunIntentTest) {
+                    forceMinimalContextForNextMessage = false
+                    savedStateHandle["minimalContext"] = false
+                    slotFillerManager.cancel()
+                    pendingConfirmationIntent = null
+                }
+                needsHistoryReplay = safeRunIntentTest
+                estimatedTokensUsed = 0
+                turnsSinceReset = 0
+                if (inferenceEngine.isReady.value) {
+                    inferenceEngine.resetConversation()
+                    Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId conversation_reset=true")
+                }
+            }
+            var isDeviceActionExchange = false
+            // Actions-tab fallthroughs and safe debug probes temporarily use a MINIMAL prompt;
+            // mark the next turn for replay so normal chat restores the full prompt safely.
+            var restoreFullPromptAfterTurn = safeRunIntentTest
+            // Suppressed system-only tool leaks also require a replay so the next turn does not
+            // inherit hidden retry/correction state that was never persisted to Room.
+            var forceHistoryReplayAfterTurn = false
+            // Hoisted so the Complete handler can index the user message after knowing whether
+            // any device-action tools were called during LLM inference.
+            var savedUserMsgId = ""
+
+            try {
+            val userMsgId = UUID.randomUUID().toString()
+            val userMessage = ChatMessage(
+                id = userMsgId,
+                role = ChatMessage.Role.USER,
+                content = text,
+            )
+            _messages.update { it + userMessage }
+            savedUserMsgId = if (safeRunIntentTest && !loadSkillAbortProbe) {
+                ""
+            } else {
+                conversationRepository.addMessage(convId, "user", text)
+            }
+            // User indexing is deferred to the LLM Complete handler — skipped for non-indexable
+            // device tools and safe debug probes.
+
+            // After the very first user message, immediately set a placeholder title from the
+            // first ~40 characters of the message so the conversation list never shows a blank
+            // title. The smart-title generation (after the 2nd exchange) will overwrite this.
+            if (!safeRunIntentTest && _messages.value.size == 1 && _conversationTitle.value == null && !titleGenerationStarted) {
+                val placeholder = text.trim().replace('\n', ' ').take(40) + "…"
+                conversationRepository.renameConversation(convId, placeholder)
+                _conversationTitle.value = placeholder
+                titleIsPlaceholder = true
+                Log.d("KernelAI", "Set placeholder title for $convId: \"$placeholder\"")
+            }
+
+            // MiniLM classifier loads async (up to 90s for phrase vectors). On cold boot,
+            // the first message(s) will get FallThrough with null bestGuess — the orchestrator
+            // gracefully handles this (returns NotActionable → E4B fallback). Classifier picks
+            // up subsequent messages once phrase vectors finish building.
+
+            // Keep the exact DEBUG recovery follow-up on ordinary model generation, not QIR actions.
+            val mealPlannerRoute = if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
+                QuickIntentRouter.RouteResult.FallThrough(input = text)
+            } else {
+                quickIntentRouter.route(text)
+            }
+            logTurnStage("route_done")
+            val explicitMealPlannerStart = when (mealPlannerRoute) {
+                is QuickIntentRouter.RouteResult.RegexMatch ->
+                    mealPlannerRoute.intent.intentName == "start_meal_planner"
+                is QuickIntentRouter.RouteResult.ClassifierMatch ->
+                    mealPlannerRoute.intent.intentName == "start_meal_planner" && !mealPlannerRoute.needsConfirmation
+                else -> false
+            }
+            val hasActiveMealPlanSession = !safeRunIntentTest &&
+                !isLoadSkillAbortProbeFollowUp &&
+                mealPlanSessionRepository.hasActiveSessionForConversation(convId)
+            if (!safeRunIntentTest &&
+                !isLoadSkillAbortProbeFollowUp &&
+                (hasActiveMealPlanSession || explicitMealPlannerStart)
+            ) {
+                if (!inferenceEngine.isReady.value) {
+                    initGemma4()
+                    if (!inferenceEngine.isReady.value) {
+                        appendAssistantMessage(convId, "Still loading the AI model, please try again in a moment.", shouldIndex = false)
+                        return@launch
+                    }
+                }
+                needsHistoryReplay = true
+                val plannerReply = if (explicitMealPlannerStart) {
+                    mealPlannerCoordinator.startOrResume(convId)
+                } else {
+                    mealPlannerCoordinator.ingestUserMessage(
+                        conversationId = convId,
+                        text = text,
+                        onPlannerMessage = { plannerMessage ->
+                            appendAssistantMessage(convId, plannerMessage, shouldIndex = false, speak = false)
+                        },
+                        onPlannerActivityChanged = { activity ->
+                            setMealPlannerActivity(activity)
+                        },
+                    )
+                }
+                if (plannerReply.content.isNotBlank()) {
+                    appendAssistantMessage(convId, plannerReply.content, shouldIndex = false)
+                }
+                refreshMealPlannerActivity(convId)
+                syncMealPlanConversationTitleIfNeeded(convId)
+                return@launch
+            }
+
+
+            // Tier 2: QuickIntentRouter — fast device action intercept (<30 ms, no model load).
+            // On a match: execute the skill immediately, then inject [System: ...] context so
+            // E4B generates a natural conversational wrapper around the action result.
+            // On failure or UnknownSkill: fall through to E4B unchanged.
+
+            // Slot-fill shortcut: if the previous QIR match was paused awaiting a required
+            // param for this conversation, route the user's reply here before touching QIR or the LLM.
+            if (!safeRunIntentTest && slotFillerManager.hasPendingFor(convId)) {
+                when (val fillResult = slotFillerManager.onUserReply(convId, text)) {
+                    is SlotFillResult.Completed -> {
+                        // P0 gate: recovered slot-fill for medium/high risk intents requires confirmation
+                        val recoveredRisk = if (slotFillerManager.isRecovery(convId)) {
+                            intentContractRegistry.riskLevel(fillResult.intentName)
+                        } else null
+                        if (recoveredRisk != null && recoveredRisk != com.kernel.ai.core.skills.intent.IntentRiskLevel.LOW) {
+                            pendingConfirmationIntent = QuickIntentRouter.MatchedIntent(
+                                intentName = fillResult.intentName,
+                                params = fillResult.params,
+                                source = "recovery",
+                            )
+                            slotFillerManager.clearRecovery(convId)
+                            val message = "All set. Shall I go ahead?"
+                            appendAssistantMessage(convId, message, shouldIndex = false)
+                            return@launch
+                        }
+                        // Low-risk or non-recovery → clear recovery tracking and execute directly
+                        slotFillerManager.clearRecovery(convId)
+                        val isRecoveryFill = recoveredRisk != null
+                        val directSkill = skillRegistry.get(fillResult.intentName)
+                        val (skill, callParams) = when {
+                            directSkill != null -> directSkill to fillResult.params
+                            else -> {
+                                val runIntent = skillRegistry.get("run_intent")
+                                runIntent to (mapOf("intent_name" to fillResult.intentName) + fillResult.params)
+                            }
+                        }
+                        if (skill != null) {
+                            val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                            when (skillResult) {
+                                is SkillResult.DirectReply -> {
+                                    appendAssistantMessageWithToolCall(
+                                        convId = convId,
+                                        content = skillResult.content,
+                                        skillName = if (isRecoveryFill) "Recovered: ${fillResult.intentName}" else fillResult.intentName,
+                                        requestJson = if (isRecoveryFill) "" else callParams.toString(),
+                                        isSuccess = true,
+                                        presentation = skillResult.presentation,
+                                        spokenSummary = spokenSummaryFrom(skillResult),
+                                    )
+                                }
+                                is SkillResult.Success -> appendAssistantMessage(
+                                    convId,
+                                    skillResult.content,
+                                    shouldIndex = false,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                else -> appendAssistantMessage(convId, "Something went wrong.", shouldIndex = false)
+                            }
+                        }
+                        return@launch
+                    }
+                    is SlotFillResult.NeedsMore -> {
+                        appendAssistantMessage(
+                            convId,
+                            fillResult.request.promptMessage,
+                            shouldIndex = false,
+                        )
+                        return@launch
+                    }
+                    is SlotFillResult.InvalidSlot -> {
+                        appendAssistantMessage(
+                            convId,
+                            fillResult.request.promptMessage,
+                            shouldIndex = false,
+                        )
+                        return@launch
+                    }
+                    is SlotFillResult.Cancelled -> {
+                        appendAssistantMessage(convId, "Okay, cancelled.", shouldIndex = false)
+                        return@launch
+                    }
+                }
+            }
+
+            // Confirmation shortcut (#621): if the user affirms a classifier match that
+            // needed confirmation, dispatch zero-param intents directly. Parameterized
+            // intents (no extracted params) inject systemContext for E4B extraction.
+            val pendingConfirmation = if (safeRunIntentTest) null else pendingConfirmationIntent
+            if (pendingConfirmation != null && QuickIntentRouter.isAffirmation(text)) {
+                pendingConfirmationIntent = null
+                isDeviceActionExchange = true
+
+                // P1 fix: recovery-origin confirmations carry pre-extracted params — execute
+                // directly via run_intent instead of asking Gemma to re-extract.
+                if (pendingConfirmation.source == "recovery" && pendingConfirmation.params.isNotEmpty()) {
+                    val skill = skillRegistry.get("run_intent")
+                    if (skill != null) {
+                        val callParams = mapOf("intent_name" to pendingConfirmation.intentName) +
+                            pendingConfirmation.params
+                        if (!validateBeforeDispatch(pendingConfirmation.intentName, callParams, convId)) {
+                            Log.d("KernelAI", "RecoveryConfirmation: slot_validation_blocked intent=${pendingConfirmation.intentName}")
+                            return@launch
+                        }
+                        Log.d("KernelAI", "RecoveryConfirmation: dispatching ${pendingConfirmation.intentName}")
+                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        when (skillResult) {
+                            is SkillResult.DirectReply -> {
+                                appendAssistantMessageWithToolCall(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    skillName = "Recovered: ${pendingConfirmation.intentName}",
+                                    requestJson = "",
+                                    isSuccess = true,
+                                    presentation = skillResult.presentation,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                return@launch
+                            }
+                            is SkillResult.Success -> {
+                                appendAssistantMessageWithToolCall(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    skillName = "Recovered: ${pendingConfirmation.intentName}",
+                                    requestJson = "",
+                                    isSuccess = true,
+                                    presentation = skillResult.presentation,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                return@launch
+                            }
+                            is SkillResult.Failure -> {
+                                appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                return@launch
+                            }
+                            else -> { /* fall through to E4B */ }
+                        }
+                    }
+                }
+
+                // Classifier-confirmed intents carry empty params (classifier never extracts them).
+                // Zero-param FAST_PATH intents dispatch directly — safe. Parameterized intents
+                // (calendar, SMS, email, alarm, etc.) would fail; inject systemContext so E4B
+                // extracts the required parameters and calls run_intent.
+                if (pendingConfirmation.intentName !in QuickIntentRouter.FAST_PATH_INTENTS) {
+                    val priorUserMsg = _messages.value.dropLast(1).lastOrNull { it.role == ChatMessage.Role.USER }?.content ?: text
+                    systemContext = "[System: The user confirmed they want to run " +
+                        "'${pendingConfirmation.intentName}'. Their request was: " +
+                        "\"$priorUserMsg\". Extract the required parameters and call " +
+                        "run_intent.]"
+                } else {
+                    val skill = skillRegistry.get("run_intent")
+                    if (skill != null) {
+                        val callParams = mapOf("intent_name" to pendingConfirmation.intentName) + pendingConfirmation.params
+                        if (!validateBeforeDispatch(pendingConfirmation.intentName, callParams, convId)) {
+                            Log.d("KernelAI", "ConfirmationFastPath: slot_validation_blocked intent=${pendingConfirmation.intentName}")
+                            return@launch
+                        }
+                        Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
+                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        when (skillResult) {
+                            is SkillResult.DirectReply -> {
+                                appendAssistantMessageWithToolCall(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    skillName = pendingConfirmation.intentName,
+                                    requestJson = callParams.toString(),
+                                    isSuccess = true,
+                                    presentation = skillResult.presentation,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                return@launch
+                            }
+                            is SkillResult.Success -> {
+                                systemContext = "[System: ${pendingConfirmation.intentName} — ${skillResult.content}]"
+                                if (!inferenceEngine.isReady.value) {
+                                    appendAssistantMessage(
+                                        convId,
+                                        skillResult.content,
+                                        shouldIndex = false,
+                                        spokenSummary = spokenSummaryFrom(skillResult),
+                                    )
+                                    return@launch
+                                }
+                            }
+                            is SkillResult.Failure -> {
+                                if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
+                                    appendAssistantMessage(
+                                        convId,
+                                        skillResult.error,
+                                        shouldIndex = false,
+                                        spokenSummary = skillResult.error,
+                                    )
+                                    return@launch
+                                }
+                                systemContext = "[System: ${pendingConfirmation.intentName} failed — ${skillResult.error}]"
+                            }
+                            else -> { /* fall through to E4B unchanged */ }
+                        }
+                    }
+                }
+                // Fall through to E4B for a natural conversational wrapper
+            } else if (pendingConfirmation != null) {
+                // Non-affirmation — user moved on; clear the pending confirmation
+                pendingConfirmationIntent = null
+            }
+            val weatherFollowUpLocation = if (safeRunIntentTest) {
+                null
+            } else {
+                WeatherConversationReferenceResolver.resolveLocation(
+                    query = text,
+                    messages = _messages.value.dropLast(1),
+                )
+            }
+            var routeResult = mealPlannerRoute
+            // Existing debug recovery tests retain their explicit non-sandboxed override.
+            val effectiveText: String
+            if (!safeRunIntentTest && BuildConfig.DEBUG && text.startsWith("__orchtest:")) {
+                val clean = text.removePrefix("__orchtest:")
+                val colon = clean.indexOf(':')
+                val forcedIntent = if (colon > 0) clean.substring(0, colon) else "create_calendar_event"
+                val realInput = if (colon > 0) clean.substring(colon + 1) else clean
+                routeResult = QuickIntentRouter.RouteResult.FallThrough(
+                    input = realInput,
+                    bestGuess = QuickIntentRouter.MatchedIntent(forcedIntent, emptyMap(), "debug_test_override"),
+                    bestConfidence = 0.65f,
+                )
+                effectiveText = realInput
+                Log.d("KernelAI", "OrchTest: forced recovery for intent=$forcedIntent input=$realInput")
+            } else {
+                effectiveText = text
+            }
+            val explicitWikipediaQuery = if (safeRunIntentTest) null else extractExplicitWikipediaQuery(text)
+            val matchedIntent = explicitWikipediaQuery?.let {
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "query_wikipedia",
+                    params = mapOf("query" to it),
+                    source = "conversation",
+                )
+            } ?: weatherFollowUpLocation?.let {
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to it),
+                    source = "conversation",
+                )
+            } ?: when (routeResult) {
+                is QuickIntentRouter.RouteResult.RegexMatch -> routeResult.intent
+                is QuickIntentRouter.RouteResult.ClassifierMatch -> {
+                    if (routeResult.needsConfirmation) {
+                        // Store for fast-path dispatch if user affirms; let LLM ask the question.
+                        pendingConfirmationIntent = routeResult.intent
+                        Log.d("KernelAI", "ConfirmationFastPath: pending ${routeResult.intent.intentName} (conf=${routeResult.confidence})")
+                        systemContext = "[System: The user may want to run the intent '${routeResult.intent.intentName}'. " +
+                            "Offer to do it for them and wait for their confirmation.]"
+                        null
+                    } else {
+                        pendingConfirmationIntent = null
+                        routeResult.intent
+                    }
+                }
+                is QuickIntentRouter.RouteResult.FallThrough -> null
+                is QuickIntentRouter.RouteResult.NeedsSlot -> {
+                    // Intent matched but a required param is missing — ask the user for it.
+                    slotFillerManager.startSlotFill(
+                        convId,
+                        PendingSlotRequest(
+                            intentName = routeResult.intent.intentName,
+                            existingParams = routeResult.intent.params,
+                            missingSlot = routeResult.missingSlot,
+                        ),
+                    )
+                    appendAssistantMessage(
+                        convId,
+                        slotFillerManager.pendingRequestFor(convId)?.promptMessage ?: "What would you like to say?",
+                        shouldIndex = false,
+                    )
+                    return@launch
+                }
+            }
+            val isCurrentConversationRecall =
+                !looksLikeToolQuery(text) &&
+                    !containsExplicitToolActionVerb(text) &&
+                    isCurrentConversationRecallQuery(text)
+            if (isCurrentConversationRecall) {
+                // The "answer from history, do not call tools" instruction is part of this turn
+                // only; on CPU the KV cache would keep it, so rebuild from real messages after.
+                restoreFullPromptAfterTurn = true
+            }
+            val isPersonalMemoryRecall =
+                !safeRunIntentTest &&
+                    matchedIntent == null &&
+                    !looksLikeToolQuery(text) &&
+                    !containsExplicitToolActionVerb(text) &&
+                    isPersonalMemoryRecallQuery(
+                        text,
+                        runCatching { userProfileRepository.getName() }.getOrNull(),
+                    )
+            if (isPersonalMemoryRecall) {
+                pendingConfirmationIntent = null
+                val searchMemory = skillRegistry.get("search_memory")
+                if (searchMemory == null) {
+                    appendAssistantMessage(
+                        convId,
+                        "I couldn't retrieve your saved memories just now.",
+                        shouldIndex = false,
+                    )
+                    return@launch
+                }
+                when (val result = searchMemory.execute(SkillCall(searchMemory.name, mapOf("query" to text)))) {
+                    is SkillResult.DirectReply -> {
+                        appendAssistantMessageWithToolCall(
+                            convId = convId,
+                            content = result.content,
+                            skillName = searchMemory.name,
+                            requestJson = mapOf("query" to text).toString(),
+                            isSuccess = true,
+                            presentation = result.presentation,
+                            spokenSummary = spokenSummaryFrom(result),
+                        )
+                        return@launch
+                    }
+                    is SkillResult.Success -> {
+                        systemContext = "[System: Memory search is already complete. Answer the user's " +
+                            "personal-memory question using only the filtered evidence below. Do not " +
+                            "call any tools or add outside facts. If it does not answer the question, " +
+                            "say you do not have that information.]\n${result.content}"
+                        // Replay this recall with a clean prompt, then restore full identity/history
+                        // before the next normal turn without resetting the native engine.
+                        needsHistoryReplay = true
+                        restoreFullPromptAfterTurn = true
+                        estimatedTokensUsed = 0
+                        turnsSinceReset = 0
+                    }
+                    is SkillResult.Failure -> {
+                        appendAssistantMessage(convId, result.error, shouldIndex = false)
+                        return@launch
+                    }
+                    else -> {
+                        appendAssistantMessage(
+                            convId,
+                            "I couldn't retrieve your saved memories just now.",
+                            shouldIndex = false,
+                        )
+                        return@launch
+                    }
+                }
+            }
+            // ── E2E marker: route decision ────────────────────────────────
+            // Emitted after QIR route decision so the harness can verify whether
+            // the request was classified by Tier 2 or fell through to Gemma-4.
+            when (routeResult) {
+                is QuickIntentRouter.RouteResult.FallThrough -> {
+                    Log.d(
+                        "KernelAI",
+                        "ADB_ROUTE_DECISION commandId=$commandId result=fallthrough best_guess=${routeResult.bestGuess?.intentName ?: "null"} confidence=${routeResult.bestConfidence}",
+                    )
+                    Log.d(
+                        "KernelAI",
+                        "llm_tools_route: result=fallthrough best_guess=${routeResult.bestGuess?.intentName ?: "null"} confidence=${routeResult.bestConfidence}",
+                    )
+                }
+                is QuickIntentRouter.RouteResult.ClassifierMatch,
+                is QuickIntentRouter.RouteResult.RegexMatch -> {
+                    Log.d(
+                        "KernelAI",
+                        "ADB_ROUTE_DECISION commandId=$commandId result=classified intent=${matchedIntent?.intentName ?: "null"}",
+                    )
+                    Log.d(
+                        "KernelAI",
+                        "llm_tools_route: result=classified intent=${matchedIntent?.intentName ?: "null"}",
+                    )
+                }
+                is QuickIntentRouter.RouteResult.NeedsSlot -> {
+                    Log.d("KernelAI", "ADB_ROUTE_DECISION commandId=$commandId result=needs_slot intent=${routeResult.intent.intentName}")
+                }
+            }
+            // ── Intent Recovery Orchestrator ───────────────────────────────────
+            // When FallThrough has a bestGuess above the soft threshold, try to
+            // recover deterministically before falling back to Gemma.
+            if (
+                !isPersonalMemoryRecall &&
+                !isCurrentConversationRecall &&
+                matchedIntent == null &&
+                routeResult is QuickIntentRouter.RouteResult.FallThrough
+            ) {
+                val bestGuess = routeResult.bestGuess
+                if (bestGuess != null && routeResult.bestConfidence >= IntentContractRegistry.SOFT_FALLBACK_THRESHOLD) {
+                    val recovery = intentRecoveryOrchestrator.recover(
+                        conversationId = convId,
+                        input = effectiveText,
+                        candidate = IntentCandidate(
+                            intentName = bestGuess.intentName,
+                            confidence = routeResult.bestConfidence,
+                            source = bestGuess.source,
+                        ),
+                    )
+                    when (recovery) {
+                        is RecoveryResult.Execute -> {
+                            isDeviceActionExchange = true
+                            val directSkill = skillRegistry.get(recovery.intentName)
+                            val (skill, callParams) = when {
+                                directSkill != null -> directSkill to recovery.params
+                                else -> {
+                                    val runIntent = skillRegistry.get("run_intent")
+                                    runIntent to (mapOf("intent_name" to recovery.intentName) + recovery.params)
+                                }
+                            }
+                            if (skill != null) {
+                                if (!validateBeforeDispatch(recovery.intentName, callParams, convId)) {
+                                    Log.d("KernelAI", "RecoveryOrchestrator: slot_validation_blocked intent=${recovery.intentName}")
+                                    return@launch
+                                }
+                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} params=$callParams")
+                                val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                                when (skillResult) {
+                                    is SkillResult.DirectReply -> {
+                                        appendAssistantMessageWithToolCall(
+                                            convId = convId,
+                                            content = skillResult.content,
+                                            skillName = "Recovered: ${recovery.intentName}",
+                                            requestJson = "",
+                                            isSuccess = true,
+                                            presentation = skillResult.presentation,
+                                            spokenSummary = spokenSummaryFrom(skillResult),
+                                        )
+                                        return@launch
+                                    }
+                                    is SkillResult.Success -> {
+                                        appendAssistantMessageWithToolCall(
+                                            convId = convId,
+                                            content = skillResult.content,
+                                            skillName = "Recovered: ${recovery.intentName}",
+                                            requestJson = "",
+                                            isSuccess = true,
+                                            presentation = skillResult.presentation,
+                                            spokenSummary = spokenSummaryFrom(skillResult),
+                                        )
+                                        return@launch
+                                    }
+                                    is SkillResult.Failure -> {
+                                        appendAssistantMessage(
+                                            convId,
+                                            skillResult.error,
+                                            shouldIndex = false,
+                                            spokenSummary = skillResult.error,
+                                        )
+                                        return@launch
+                                    }
+                                    else -> { /* fall through to E4B unchanged */ }
+                                }
+                            }
+                        }
+                        is RecoveryResult.AskSlot -> {
+                            Log.d("KernelAI", "RecoveryOrchestrator.AskSlot: intent=${recovery.intentName} missing=${recovery.missingSlot.name}")
+                            slotFillerManager.markRecovery(convId)
+                            slotFillerManager.startSlotFill(convId, PendingSlotRequest(
+                                intentName = recovery.intentName,
+                                existingParams = recovery.existingParams,
+                                missingSlot = recovery.missingSlot,
+                                isRecovery = true,
+                            ))
+                            val prompt = recovery.missingSlot.buildPrompt(recovery.existingParams)
+                            appendAssistantMessage(convId, prompt, shouldIndex = false)
+                            return@launch
+                        }
+                        is RecoveryResult.AskConfirmation -> {
+                            Log.d("KernelAI", "RecoveryOrchestrator.AskConfirmation: intent=${recovery.intentName} params=${recovery.params}")
+                            pendingConfirmationIntent = QuickIntentRouter.MatchedIntent(
+                                intentName = recovery.intentName,
+                                params = recovery.params,
+                                source = "recovery",
+                            )
+                            appendAssistantMessage(convId, recovery.message, shouldIndex = false)
+                            return@launch
+                        }
+                        is RecoveryResult.AskClarification -> {
+                            Log.d("KernelAI", "RecoveryOrchestrator.AskClarification")
+                            appendAssistantMessage(convId, recovery.message, shouldIndex = false)
+                            return@launch
+                        }
+                        is RecoveryResult.NotActionable -> {
+                            Log.d("KernelAI", "RecoveryOrchestrator.NotActionable")
+                            /* fall through to Gemma */
+                        }
+                    }
+                }
+            }
+            // ── End Intent Recovery Orchestrator ───────────────────────────────
+            if (matchedIntent != null) {
+                // Calendar intent matched by classifier or regex but params not fully extractable —
+                // skip immediate execution. Only inject the structured hint when there is actionable
+                // date/time info (extractable or already in params). Pure capability queries
+                // ("do you know how to create calendar events") fall through naturally to E4B.
+                if (matchedIntent.intentName == "create_calendar_event" &&
+                    matchedIntent.params["title"].isNullOrBlank()
+                ) {
+                    val rawQuery = matchedIntent.params["raw_query"] ?: text
+                    // Use extractCalendarHints on the raw query to detect actionable
+                    // date/time info — classifier matches carry empty params, so we
+                    // must inspect the query text itself, not matchedIntent.params.
+                    // Note: gating on extractability means requests like "schedule
+                    // something for next week" (where the regex doesn't match "next
+                    // week") won't get the steer. That's intentional — the steer is
+                    // a convenience for the model, not a necessity, and removing it
+                    // for edge cases is the safer failure mode compared to injecting
+                    // it into unrelated conversations.
+                    val hints = QuickIntentRouter.extractCalendarHints(rawQuery)
+                    val hasDateHint = hints["date"]?.isNotBlank() == true
+                    val hasTimeHint = hints["time"]?.isNotBlank() == true
+                    if (hasDateHint || hasTimeHint) {
+                        systemContext = "[System: User wants to create a calendar event. " +
+                            "Their request: \"$rawQuery\". " +
+                            "Extract the event title, date, and time, then call " +
+                            "runIntent(intentName=\"create_calendar_event\", parameters={...}). " +
+                            "Pass the date in the 'date' field using a relative term (e.g. 'tomorrow', " +
+                            "'next friday') or a plain date ('9 June'), and the clock time separately " +
+                            "in the 'time' field as HH:MM. If you have YYYY-MM-DDTHH:MM, send " +
+                            "date=YYYY-MM-DD and time=HH:MM.]"
+                    }
+                    // fall through to E4B — do NOT execute now
+                } else {
+                // Router intent names (e.g. "toggle_flashlight_on") are sub-intent values
+                // handled by the run_intent skill — they aren't top-level skill names.
+                // Resolve: direct skill match first, then fall back to run_intent.
+                isDeviceActionExchange = true
+                val directSkill = skillRegistry.get(matchedIntent.intentName)
+                val (skill, callParams) = when {
+                    directSkill != null -> directSkill to matchedIntent.params
+                    else -> {
+                        val runIntent = skillRegistry.get("run_intent")
+                        runIntent to (mapOf("intent_name" to matchedIntent.intentName) + matchedIntent.params)
+                    }
+                }
+                if (!validateBeforeDispatch(matchedIntent.intentName, callParams, convId)) {
+                    Log.d("KernelAI", "ADB_ROUTE_DECISION commandId=$commandId result=slot_validation_blocked intent=${matchedIntent.intentName}")
+                    Log.d("KernelAI", "llm_tools_route: result=slot_validation_blocked intent=${matchedIntent.intentName}")
+                    return@launch
+                }
+                if (skill != null) {
+                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} params=$callParams")
+                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    when (skillResult) {
+                        is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
+                            // Skill produced a complete, self-contained reply — show it verbatim
+                            // and bypass the LLM entirely to avoid number/unit corruption.
+                            Log.d("KernelAI", "DirectReply: ${skillResult.content.take(200)}")
+                            appendAssistantMessageWithToolCall(
+                                convId = convId,
+                                content = skillResult.content,
+                                skillName = matchedIntent.intentName,
+                                requestJson = callParams.toString(),
+                                isSuccess = true,
+                                presentation = skillResult.presentation,
+                                spokenSummary = spokenSummaryFrom(skillResult),
+                            )
+                            Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=direct_reply")
+                            return@launch
+                        }
+                        is com.kernel.ai.core.skills.SkillResult.Success -> {
+                            if (matchedIntent.intentName == "save_memory" || matchedIntent.intentName == "create_calendar_event") {
+                                appendAssistantMessageWithToolCall(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    skillName = matchedIntent.intentName,
+                                    requestJson = callParams.toString(),
+                                    isSuccess = true,
+                                    presentation = skillResult.presentation,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=success")
+                                return@launch
+                            }
+                            // #1313: deterministic regex-matched native routes are terminal — display
+                            // the result directly and skip E4B to prevent the model from overriding
+                            // the correct intent with a converged/stale tool call (e.g. play_netflix
+                            // after play_plex was already executed via run_intent).
+                            if (routeResult is QuickIntentRouter.RouteResult.RegexMatch) {
+                                appendAssistantMessage(
+                                    convId = convId,
+                                    content = skillResult.content,
+                                    shouldIndex = false,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=success_no_llm")
+                                return@launch
+                            }
+                            systemContext = "[System: ${matchedIntent.intentName} — ${skillResult.content}]"
+                            // E4B not loaded yet: show action result directly and skip the wrapper.
+                            if (!inferenceEngine.isReady.value) {
+                                appendAssistantMessage(
+                                    convId,
+                                    skillResult.content,
+                                    shouldIndex = false,
+                                    spokenSummary = spokenSummaryFrom(skillResult),
+                                )
+                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=success_no_llm")
+                                return@launch
+                            }
+                        }
+                        is com.kernel.ai.core.skills.SkillResult.Failure -> {
+                            // #1313: deterministic regex-matched native routes are terminal even on
+                            // failure. Email failures are also terminal because retrying through E4B
+                            // can invoke an unrelated tool instead of showing the email limitation.
+                            if (routeResult is QuickIntentRouter.RouteResult.RegexMatch ||
+                                skillResult.skillName == "send_email") {
+                                appendAssistantMessage(
+                                    convId,
+                                    skillResult.error,
+                                    shouldIndex = false,
+                                    spokenSummary = skillResult.error,
+                                )
+                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=failure_no_llm")
+                                return@launch
+                            }
+                            if (!inferenceEngine.isReady.value) {
+                                appendAssistantMessage(
+                                    convId,
+                                    skillResult.error,
+                                    shouldIndex = false,
+                                    spokenSummary = skillResult.error,
+                                )
+                                return@launch
+                            }
+                            // Action failed — inject error context so E4B can explain naturally.
+                            systemContext = "[System: ${matchedIntent.intentName} failed — ${skillResult.error}]"
+                        }
+                        is com.kernel.ai.core.skills.SkillResult.CapabilityRequired -> {
+                            if (skillResult.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
+                                pendingWeatherLocationAction = PendingWeatherLocationAction(
+                                    query = text,
+                                    intentName = matchedIntent.intentName,
+                                    params = callParams,
+                                    submitMode = submitMode,
+                                )
+                                _weatherLocationState.value = WeatherLocationState()
+                                _error.value = null
+                                Log.d(
+                                    "KernelAI",
+                                    "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} " +
+                                        "result=capability_required_weather_permission",
+                                )
+                            } else {
+                                val message = capabilityRequiredMessage(skillResult)
+                                appendAssistantMessage(
+                                    convId = convId,
+                                    content = message,
+                                    shouldIndex = false,
+                                    spokenSummary = message,
+                                )
+                                Log.d(
+                                    "KernelAI",
+                                    "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=capability_required_no_llm",
+                                )
+                            }
+                            return@launch
+                        }
+                        else -> { /* UnknownSkill/ParseError — fall through to E4B unchanged */ }
+                    }
+                }
+                } // end else (non-calendar or calendar with params)
+            }
+
+            val directBypassHistory = if (safeRunIntentTest) {
+                emptyList()
+            } else {
+                _messages.value.dropLast(1) // exclude just-added user message
+            }
+            val previousBypassUser = directBypassHistory.lastOrNull { it.role == ChatMessage.Role.USER }?.content
+            val priorImportantDateIntent = if (safeRunIntentTest) {
+                null
+            } else {
+                when (val priorRoute = previousBypassUser?.let { quickIntentRouter.route(it) }) {
+                    is QuickIntentRouter.RouteResult.RegexMatch ->
+                        priorRoute.intent.takeIf { it.intentName == "save_important_date" }
+                    else -> null
+                }
+            }
+            val anaphoricIntent = when {
+                !isAnaphoricSaveRequest(text) || previousBypassUser == null -> null
+                priorImportantDateIntent != null -> priorImportantDateIntent
+                looksLikeImportantDateFact(previousBypassUser) -> null
+                looksLikePersonalFact(previousBypassUser) ->
+                    QuickIntentRouter.MatchedIntent(
+                        intentName = "save_memory",
+                        params = mapOf("content" to previousBypassUser),
+                    )
+                else -> null
+            }
+            if (anaphoricIntent != null) {
+                val directSkill = skillRegistry.get(anaphoricIntent.intentName)
+                val (skill, callParams) = when {
+                    directSkill != null -> directSkill to anaphoricIntent.params
+                    else -> {
+                        val runIntent = skillRegistry.get("run_intent")
+                        runIntent to (mapOf("intent_name" to anaphoricIntent.intentName) + anaphoricIntent.params)
+                    }
+                }
+                if (skill != null) {
+                    if (!validateBeforeDispatch(anaphoricIntent.intentName, callParams, convId)) {
+                        Log.d("KernelAI", "AnaphoricIntent: slot_validation_blocked intent=${anaphoricIntent.intentName}")
+                        return@launch
+                    }
+                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    when (skillResult) {
+                        is SkillResult.DirectReply -> {
+                            appendAssistantMessageWithToolCall(
+                                convId = convId,
+                                content = skillResult.content,
+                                skillName = anaphoricIntent.intentName,
+                                requestJson = callParams.toString(),
+                                isSuccess = true,
+                                presentation = skillResult.presentation,
+                                spokenSummary = spokenSummaryFrom(skillResult),
+                            )
+                            return@launch
+                        }
+                        is SkillResult.Success -> {
+                            appendAssistantMessageWithToolCall(
+                                convId = convId,
+                                content = skillResult.content,
+                                skillName = anaphoricIntent.intentName,
+                                requestJson = callParams.toString(),
+                                isSuccess = true,
+                                presentation = skillResult.presentation,
+                                spokenSummary = spokenSummaryFrom(skillResult),
+                            )
+                            return@launch
+                        }
+                        is SkillResult.Failure -> {
+                            if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
+                                appendAssistantMessage(convId, skillResult.error, shouldIndex = false, spokenSummary = skillResult.error)
+                                return@launch
+                            }
+                            systemContext = "[System: ${anaphoricIntent.intentName} failed — ${skillResult.error}]"
+                        }
+                        else -> Unit
+                    }
+                }
+            }
+            // #1074: Deterministic local NZ answer — bypass inference/model init for known
+            // NZ/Māori terms when no explicit Wikipedia request or stronger app action exists.
+            // This must happen before Gemma init to avoid memory pressure on S23U with E-4B.
+            if (!safeRunIntentTest &&
+                !isLoadSkillAbortProbeFollowUp &&
+                !isPersonalMemoryRecall &&
+                explicitWikipediaQuery == null &&
+                matchedIntent == null
+            ) {
+                val localNzEntry = detectKnownNzTerm(text, jandalPersona.nzTruths)
+                if (localNzEntry != null) {
+                    val localReply = buildKnownNzContextReply(localNzEntry)
+                    Log.d(TAG, "Deterministic NZ context answered locally for term='${localNzEntry.term}'")
+                    Log.d("KernelAI", "llm_tools_assistant_reply: ${localReply.take(1000).replace('\n', ' ')}")
+                    // Index user message — normally deferred to LLM Complete handler
+                    if (savedUserMsgId.isNotBlank()) {
+                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                    }
+                    appendAssistantMessage(convId, localReply)
+                    return@launch
+                }
+            }
+            // Lazy-init Gemma-4 if not yet loaded.
+            if (!inferenceEngine.isReady.value) {
+                initGemma4(safeModelTest = safeRunIntentTest)
+                if (!inferenceEngine.isReady.value) {
+                    // Model still not ready (e.g. file absent) — tell the user and bail.
+                    appendAssistantMessage(
+                        convId,
+                        "Still loading the AI model, please try again in a moment.",
+                        shouldIndex = false,
+                        speak = !safeRunIntentTest,
+                        persist = !safeRunIntentTest,
+                    )
+                    return@launch
+                }
+            }
+            // _isLoadingModel is always cleared by the outer finally block below.
+
+            Log.d("KernelAI", "ADB_MODEL_STATE commandId=$commandId status=generating route=llm_fallthrough")
+            logTurnStage("model_ready")
+            // 2. Gemma-4 streaming inference path.
+            // Capture isFirstReply before adding the streaming placeholder — once the placeholder
+            // is in _messages the ASSISTANT check would always return false.
+            val isFirstReply = safeRunIntentTest || _messages.value.none { it.role == ChatMessage.Role.ASSISTANT }
+            assistantMsgId = UUID.randomUUID().toString()
+            val streamingPlaceholder = ChatMessage(
+                id = assistantMsgId,
+                role = ChatMessage.Role.ASSISTANT,
+                content = "",
+                isStreaming = true,
+            )
+            _messages.update { it + streamingPlaceholder }
+
+            accumulatedContent = StringBuilder()
+            accumulatedThinking = StringBuilder()
+
+            // Register active streaming state so cancel/onCleared can flush to Room.
+            activeStreamingPersistenceDisabled = safeRunIntentTest || isLoadSkillAbortProbeFollowUp
+            activeStreamingMsgId = assistantMsgId
+            activeStreamingContent = accumulatedContent
+            activeStreamingThinking = accumulatedThinking
+
+            // Proactive context reset: if we're at ~75% of the token budget, reset
+            // the conversation and replay history to avoid LiteRT locking up.
+            val tokenBudget = activeContextWindowSize
+            val proactiveReset = estimatedTokensUsed > (tokenBudget * 0.75).toInt()
+            // Turn-count reset: cap KV cache growth to a dynamic limit derived from the active
+            // context window size, preventing OOM after rapid short-message inferences (#543).
+            val maxTurns = ContextWindowManager.maxTurnsForContext(activeContextWindowSize)
+            val turnCountReset = turnsSinceReset >= maxTurns
+            Log.d("KernelOOM", "tokens_in_use=$estimatedTokensUsed budget=$tokenBudget " +
+                "threshold=${(tokenBudget * 0.75).toInt()} proactive_reset=$proactiveReset")
+
+            // Context stripping for tool-routable queries (#438, #481).
+            // When the router had a best-guess intent (FallThrough with non-null bestGuess)
+            // or the query matches known tool-trigger keywords, strip the Jandal personality
+            // and RAG context to free ~1000 tokens for tool-call reasoning. Actions-tab
+            // fallthroughs also force this path because the transcript may already be garbled.
+            val priorMessages = if (safeRunIntentTest || isPersonalMemoryRecall) {
+                emptyList()
+            } else {
+                _messages.value.dropLast(2) // exclude just-added user + placeholder
+            }
+            val previousAssistant = priorMessages.lastOrNull { it.role == ChatMessage.Role.ASSISTANT }?.content
+            val previousUser = priorMessages.lastOrNull { it.role == ChatMessage.Role.USER }?.content
+            val isToolFollowUp = !safeRunIntentTest &&
+                looksLikeToolFollowUp(text, previousUser, previousAssistant)
+
+
+            val forceMinimalContext = safeRunIntentTest || forceMinimalContextForNextMessage
+            if (forceMinimalContextForNextMessage && !safeRunIntentTest) {
+                forceMinimalContextForNextMessage = false
+                savedStateHandle["minimalContext"] = false
+            }
+            val isToolQuery = safeRunIntentTest || forceMinimalContext ||
+                (!isCurrentConversationRecall &&
+                    (isPersonalMemoryRecall ||
+                        (routeResult is QuickIntentRouter.RouteResult.FallThrough && routeResult.bestGuess != null) ||
+                        looksLikeToolQuery(text) ||
+                        isToolFollowUp))
+            isToolQueryForTurn = isToolQuery
+            val preferImmediateContext =
+                !safeRunIntentTest && prefersImmediateConversationContext(text) && priorMessages.isNotEmpty()
+            val effectiveIdentityTier = if (isToolQuery) IdentityTier.MINIMAL else IdentityTier.FULL
+            var effectiveRagContext: String
+            when {
+                isToolQuery -> {
+                    effectiveRagContext = ""
+                    effectiveRagTokenCost = 0
+                }
+                preferImmediateContext -> {
+                    // Short pronoun follow-ups normally skip RAG to stay anchored to the live
+                    // conversation. But a cultural/geographic follow-up ("what are they called in
+                    // New Zealand?") needs the NZ corpus, which the bare-pronoun query can't surface
+                    // on its own. Resolve the anaphor from the previous user turn and pull ONLY the
+                    // small cultural-context block so the prompt stays lean (#kumara recall).
+                    if (hasCulturalContextCue(text) && !previousUser.isNullOrBlank()) {
+                        val resolvedQuery = "${previousUser.take(120)} $text"
+                        effectiveRagContext = ragRepository.getCulturalContext(query = resolvedQuery)
+                        effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
+                    } else {
+                        effectiveRagContext = ""
+                        effectiveRagTokenCost = 0
+                    }
+                }
+                else -> {
+                    effectiveRagContext = ragRepository.getRelevantContext(
+                        query = text,
+                        conversationId = convId,
+                        maxTokens = ContextWindowManager.episodicBudget(activeContextWindowSize),
+                    )
+                    effectiveRagTokenCost = contextWindowManager.estimateTokens(effectiveRagContext)
+                }
+            }
+
+            logTurnStage("rag_done")
+
+            // Anaphora handling (#491): tool queries with "save that", "look it up", etc. need
+            // the previous turn to resolve what "that/it/this" refers to. Inject the last
+            // user+assistant pair as a lightweight context block — still no RAG or personality.
+            val anaphoraContext: String = if (safeRunIntentTest) {
+                ""
+            } else if ((isToolQuery && (looksLikeAnaphora(text) || isToolFollowUp)) || preferImmediateContext) {
+                val lastPair = priorMessages.takeLast(2)
+                if (lastPair.isEmpty()) "" else buildString {
+                    append("[Context: previous exchange]\n")
+                    for (msg in lastPair) {
+                        val speaker = if (msg.role == ChatMessage.Role.USER) "User" else "Jandal"
+                        append("$speaker: ${msg.content}\n")
+                    }
+                }.trimEnd()
+            } else ""
+
+            // GPU backends (e.g. Mali Exynos 2100) can corrupt tensor buffers between
+            // turns, causing Status Code 13 on subsequent generations (#684, #1089).
+            // Force a fresh conversation per turn so history is injected via the
+            // system prompt rather than relying on KV cache across turns.
+            if (safeRunIntentTest || inferenceEngine.activeBackend.value == BackendType.GPU) {
+                needsHistoryReplay = true
+            }
+
+            if (needsHistoryReplay || proactiveReset || turnCountReset) {
+                needsHistoryReplay = false
+                // Independent commands (conversation_reset) must NOT see previous independent
+                // commands' history — the injected tool calls bias the model toward the
+                // previously used tool (#1190).
+                val allMessages = when {
+                    wasConversationReset || isPersonalMemoryRecall -> {
+                        if (isPersonalMemoryRecall) {
+                            Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId personal_memory_history_skipped=true")
+                        } else {
+                            Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId history_replay_skipped=true")
+                        }
+                        emptyList()
+                    }
+                    else -> _messages.value.dropLast(2) // exclude just-added user + placeholder
+                }
+                val rawTurns = contextWindowManager.extractTurns(
+                    allMessages.map { it.content to (it.role == ChatMessage.Role.USER) }
+                )
+                // Apply turn-count cap before token-budget selection so both limits are enforced.
+                val turns = rawTurns.takeLast(maxTurns)
+                if (turns.size < rawTurns.size) {
+                    Log.d("KernelAI", "Context truncated (turn limit $maxTurns for ${activeContextWindowSize}t window): kept last ${turns.size} of ${rawTurns.size} turns")
+                }
+                val baseSystemPrompt = buildSystemPrompt(
+                    isFirstReply = isFirstReply,
+                    identityTier = effectiveIdentityTier,
+                    includeCurrentDateTime = !safeRunIntentTest,
+                    includeProfile = !safeRunIntentTest,
+                )
+                val fixedPromptTokens = estimateSystemAndToolPromptTokens(baseSystemPrompt)
+                val selected = contextWindowManager.selectHistory(
+                    turns,
+                    ContextWindowManager.historyBudget(activeContextWindowSize, fixedPromptTokens),
+                )
+                // Inject history into the system prompt so Gemma treats it as background context.
+                val systemPromptWithHistory = buildSystemPrompt(
+                    selected,
+                    isFirstReply = isFirstReply,
+                    identityTier = effectiveIdentityTier,
+                    includeCurrentDateTime = !safeRunIntentTest,
+                    includeProfile = !safeRunIntentTest,
+                )
+                systemPromptForPrefill = systemPromptWithHistory
+                shouldMeasureToolDeclarations = true
+                logTurnStage("prompt_reset_start")
+                inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
+                logTurnStage("prompt_reset_done")
+                if (isLoadSkillAbortProbeFollowUp) {
+                    val probeReplayed = systemPromptWithHistory.contains(LOAD_SKILL_ABORT_REPLAY_PROBE_USER_TEXT)
+                    val failureReplayed = systemPromptWithHistory.contains(HONEST_ACTION_FAILURE)
+                    Log.i(
+                        TAG,
+                        "debug_load_skill_abort_probe=history_replayed " +
+                            "probe=$probeReplayed honest_failure=$failureReplayed",
+                    )
+                }
+                // Re-baseline from the complete system prompt (including selected history), tool
+                // declarations, and RAG context before the current user message is sent.
+                estimatedTokensUsed = estimateSystemAndToolPromptTokens(systemPromptWithHistory) + effectiveRagTokenCost
+                turnsSinceReset = 0
+            } else {
+                if (forceMinimalContext) {
+                    val minimalSystemPrompt = buildSystemPrompt(
+                        isFirstReply = isFirstReply,
+                        identityTier = IdentityTier.MINIMAL,
+                        includeCurrentDateTime = !safeRunIntentTest,
+                        includeProfile = !safeRunIntentTest,
+                    )
+                    systemPromptForPrefill = minimalSystemPrompt
+                    shouldMeasureToolDeclarations = true
+                    inferenceEngine.updateSystemPrompt(minimalSystemPrompt)
+                    estimatedTokensUsed = estimateSystemAndToolPromptTokens(minimalSystemPrompt)
+                    restoreFullPromptAfterTurn = true
+                } else if (estimatedTokensUsed == 0) {
+                    // First turn after initialization/reset: include the already-installed fixed
+                    // prompt in the baseline estimate instead of counting only message text.
+                    systemPromptForPrefill = buildSystemPrompt(
+                        includeCurrentDateTime = !safeRunIntentTest,
+                        includeProfile = !safeRunIntentTest,
+                    )
+                    shouldMeasureToolDeclarations = true
+                    estimatedTokensUsed = estimateSystemAndToolPromptTokens(systemPromptForPrefill)
+                }
+                estimatedTokensUsed += effectiveRagTokenCost
+            }
+
+            prompt = buildString {
+                if (effectiveRagContext.isNotBlank()) append("$effectiveRagContext\n\n")
+                if (anaphoraContext.isNotBlank()) append("$anaphoraContext\n\n")
+                if (systemContext != null) append("$systemContext\n\n")
+                if (isCurrentConversationRecall) {
+                    append(
+                        "[System: The user is asking about this conversation's history. Answer from " +
+                            "the prior conversation messages; do not call any tools. If the history " +
+                            "does not answer the question, say so.]\n\n",
+                    )
+                }
+                if (isToolQuery && !isPersonalMemoryRecall && !isCurrentConversationRecall) {
+                    buildToolUsePrompt()
+                        .takeIf { it.isNotBlank() }
+                        ?.let { append("$it\n\n") }
+                    toolTurnInstruction(isFirstReply)
+                        ?.let { append("[System: $it]\n\n") }
+                }
+                // Greeting instruction injected per-turn so turn 1 says "Kia ora" and
+                // subsequent turns explicitly suppress greetings — without invalidating the KV cache.
+                // Suppressed entirely for tool queries to keep the prompt focused.
+                if (!isToolQuery) {
+                    append("[System: ${jandalPersona.buildGreetingInstruction(isFirstReply, jandalPersona.currentPersonaMode)}]\n\n")
+                    append("[System: ${nonToolTurnInstruction()}]\n\n")
+                }
+                append(text)
+            }
+            prepareVoicePlaybackForTurn(
+                streamingEnabled = autoSpeakEnabled &&
+                    !isToolQueryForTurn &&
+                    !isLoadSkillAbortProbeFollowUp,
+            )
+
+            } finally {
+                // Reset the loading spinner on every exit path from the pre-inference block —
+                // skill early-returns, model-not-ready bail-outs, and the normal fall-through.
+                _isLoadingModel.value = false
+            }
+            var incompleteChainContinuationPending = false
+            var loadSkillAbortProbeFailurePersisted = false
+            suspend fun persistHonestActionFailure(thinking: String?) {
+                _messages.update { msgs ->
+                    msgs.map {
+                        if (it.id == assistantMsgId) {
+                            it.copy(content = HONEST_ACTION_FAILURE, isStreaming = false)
+                        } else it
+                    }
+                }
+                if (!safeRunIntentTest || loadSkillAbortProbe) {
+                    conversationRepository.addMessage(convId, "assistant", HONEST_ACTION_FAILURE, thinking)
+                    if (loadSkillAbortProbe) {
+                        loadSkillAbortProbeFailurePersisted = true
+                    }
+                }
+                finalizeVoicePlaybackForResponse(HONEST_ACTION_FAILURE)
+                activeStreamingMsgId = null
+                activeStreamingPersistenceDisabled = false
+                activeStreamingContent = StringBuilder()
+            }
+
+            var safeModelTestScope: AutoCloseable? = null
+            try {
+                if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
+                    safeModelTestScope = kernelAIToolSet.beginSafeModelTestSandbox()
+                }
+                kernelAIToolSet.resetTurnState(userMessage = text)
+                hallucinationRetryAttempted = false
+                var rawToolCallRetryAttempted = false
+                var systemOnlyToolRetryAttempted = false
+                var blankResponseRetryAttempted = false
+                var incompleteChainRetryAttempted = false
+                var preservedThinkingText: String? = null
+                var currentPrompt = prompt
+                var needsHallucinationRetry = false
+                suspend fun handleIncompleteToolChain(
+                    fullContent: String,
+                    thinking: String?,
+                    toolSequenceAlreadyLogged: Boolean,
+                ) {
+                    if (!toolSequenceAlreadyLogged) kernelAIToolSet.logToolSequence()
+                    localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                    if (!incompleteChainRetryAttempted) {
+                        incompleteChainRetryAttempted = true
+                        incompleteChainContinuationPending = true
+                        Log.w("KernelAI", "incomplete_tool_chain_retry_attempted")
+                        needsHallucinationRetry = true
+                        currentPrompt = INCOMPLETE_CHAIN_CORRECTION + "\n\n" + prompt
+                        accumulatedContent = StringBuilder()
+                        accumulatedThinking = StringBuilder()
+                        activeStreamingContent = accumulatedContent
+                        activeStreamingThinking = accumulatedThinking
+                        if (thinking != null) preservedThinkingText = thinking
+                        _messages.update { msgs ->
+                            msgs.map {
+                                if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it
+                            }
+                        }
+                    } else {
+                        Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
+                        persistHonestActionFailure(thinking)
+                        needsHallucinationRetry = false
+                    }
+                }
+
+            var debugGenerationAttempt = 0
+            do {
+                val debugGenerationId = if (BuildConfig.DEBUG) {
+                    "$commandId-g${++debugGenerationAttempt}"
+                } else {
+                    null
+                }
+                needsHallucinationRetry = false
+                kernelAIToolSet.resetAttemptState()
+                var generationResultReceived = false
+                // estimatedTokensUsed already includes RAG; subtract it only once from this prompt.
+                val currentPromptTokens = (
+                    contextWindowManager.estimateTokens(currentPrompt) - effectiveRagTokenCost
+                ).coerceAtLeast(0)
+                // This DEBUG probe sends only the synthetic tool response, not currentPrompt.
+                val toolBudgetPromptTokens =
+                    if (loadSkillNativeContinuationProbe) 0 else currentPromptTokens
+                // Leave the response reserve available after the full tool-result envelope is prefetched.
+                val loadSkillToolResultTokenBudget = if (loadSkillAbortProbe) {
+                    0
+                } else {
+                    (
+                        activeContextWindowSize -
+                            estimatedTokensUsed -
+                            toolBudgetPromptTokens -
+                            ContextWindowManager.RESPONSE_RESERVE
+                    ).coerceAtLeast(0)
+                }
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "KernelAI",
+                        "generation_context_budget generation_id=${debugGenerationId.orEmpty()} " +
+                            "attempt=$debugGenerationAttempt source=app_estimate " +
+                            "resolved_token_cap=${inferenceEngine.resolvedMaxTokens.value} " +
+                            "app_context_window=$activeContextWindowSize " +
+                            "estimated_prior_fixed_tokens=$estimatedTokensUsed " +
+                            "current_prompt_excluding_rag_tokens=$currentPromptTokens " +
+                            "response_reserve_tokens=${ContextWindowManager.RESPONSE_RESERVE} " +
+                            "max_tool_result_tokens=$loadSkillToolResultTokenBudget",
+                    )
+                }
+                kernelAIToolSet.setLoadSkillToolResultTokenBudget(
+                    loadSkillToolResultTokenBudget,
+                    abortContinuation = inferenceEngine::abortGenerationBeforeToolContinuation,
+                )
+
+                if (isLoadSkillAbortProbeFollowUp) {
+                    Log.i(TAG, "debug_load_skill_abort_probe=follow_up_generation sandbox=active")
+                }
+
+            logTurnStage("generate_called")
+            var firstTokenLogged = false
+            val generation = when {
+                loadSkillAbortProbe ->
+                    inferenceEngine.generateDebugLoadSkillAbortProbe(debugTraceId = debugGenerationId)
+                loadSkillNativeContinuationProbe ->
+                    inferenceEngine.generateDebugLoadSkillNativeContinuationProbe(
+                        debugTraceId = debugGenerationId,
+                    )
+                BuildConfig.DEBUG && debugGenerationId != null ->
+                    inferenceEngine.generateWithDebugTrace(currentPrompt, debugGenerationId)
+                else -> inferenceEngine.generate(currentPrompt)
+            }
+            generation.collect { result ->
+                    when (result) {
+                        is GenerationResult.Token -> {
+                            if (!firstTokenLogged) logTurnStage("first_token")
+                            accumulatedContent.append(result.text)
+                            streamVoiceToken(result.text)
+                            _messages.update { msgs ->
+                                msgs.map { msg ->
+                                    if (msg.id == assistantMsgId) {
+                                        msg.copy(content = accumulatedContent.toString())
+                                    } else msg
+                                }
+                            }
+                            if (!firstTokenLogged) {
+                                firstTokenLogged = true
+                                logTurnStage("first_ui_update")
+                            }
+                        }
+
+                        is GenerationResult.Thinking -> {
+                            accumulatedThinking.append(result.text)
+                            _messages.update { msgs ->
+                                msgs.map { msg ->
+                                    if (msg.id == assistantMsgId) {
+                                        msg.copy(thinkingText = accumulatedThinking.toString())
+                                    } else msg
+                                }
+                            }
+                        }
+
+                      is GenerationResult.Complete -> {
+                            generationResultReceived = true
+                            val shouldCalibrateToolDeclarations = shouldMeasureToolDeclarations
+                            if (shouldCalibrateToolDeclarations) shouldMeasureToolDeclarations = false
+                            val fullContent = accumulatedContent.toString()
+                            val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
+                                ?: preservedThinkingText
+                            kernelAIToolSet.logToolSequence()
+                            Log.d("KernelAI", "thinking_save: thinkingLen=${thinking?.length ?: 0}, contentLen=${fullContent.length}")
+                            if (!kernelAIToolSet.terminalToolCalledInCurrentAttempt() &&
+                                (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
+                                    (kernelAIToolSet.loadSkillCalledInCurrentAttempt() &&
+                                        kernelAIToolSet.loadSkillFailedInCurrentAttempt()))
+                            ) {
+                                localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                                Log.w(
+                                    "KernelAI",
+                                    if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                                        "load_skill_tool_result_context_abort"
+                                    } else {
+                                        "load_skill_failed"
+                                    },
+                                )
+                                persistHonestActionFailure(thinking)
+                                return@collect
+                            }
+                            // In normal turns, a successful skill load must be followed by an
+                            // executable tool. The DEBUG continuation probe validates transport only.
+                            if (!loadSkillNativeContinuationProbe &&
+                                kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
+                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = true)
+                                return@collect
+                            }
+
+                            // After the incomplete-chain retry was attempted and the result still
+                            // has no terminal tool, fail honestly — skip all other retry guards.
+                            if (incompleteChainRetryAttempted &&
+                                !kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                                Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
+                                persistHonestActionFailure(thinking)
+                                needsHallucinationRetry = false
+                                return@collect
+                            }
+
+                            // Guard: LiteRT occasionally produces 0 tokens (TTFT=-1ms) when the model
+                            // generates an immediate EOS — often triggered by an unusual RAG injection
+                            // creating a token pattern where EOS is most likely. LiteRT then
+                            // self-heals by resetting the session (#841).
+                            // Retry once without RAG context (stripped prompt) before showing fallback.
+                            // A DirectReply already supplies the visible answer and returns no text to Gemma.
+                            // Do not mistake that expected empty generation for an immediate EOS.
+                            val completedDirectReplyHasContent =
+                                kernelAIToolSet.terminalToolCalledInCurrentAttempt() &&
+                                    kernelAIToolSet.terminalToolSucceededInCurrentAttempt() &&
+                                    kernelAIToolSet.terminalToolWasDirectReply() &&
+                                    !kernelAIToolSet.terminalToolResult().isNullOrBlank()
+                            if (fullContent.isBlank() && !completedDirectReplyHasContent) {
+                                localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                                if (!blankResponseRetryAttempted) {
+                                    blankResponseRetryAttempted = true
+                                    // Preserve thinking from first attempt — the retry runs without RAG
+                                    // and may produce no thinking tokens, which would overwrite a valid
+                                    // chain-of-thought with an empty string.
+                                    if (thinking != null) preservedThinkingText = thinking
+                                    Log.w("KernelAI", "blank_response_guard: 0 tokens — retrying without RAG context")
+                                    currentPrompt = buildString {
+                                        if (systemContext != null) append("$systemContext\n\n")
+                                        append(text)
+                                    }
+                                    accumulatedContent = StringBuilder()
+                                    accumulatedThinking = StringBuilder()
+                                    activeStreamingContent = accumulatedContent
+                                    activeStreamingThinking = accumulatedThinking
+                                    _messages.update { msgs ->
+                                        msgs.map { if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it }
+                                    }
+                                    needsHallucinationRetry = true
+                                } else {
+                                    Log.w("KernelAI", "blank_response_guard: retry also produced 0 tokens — showing fallback")
+                                    val fallback = "I lost my train of thought there — could you say that again?"
+                                    _messages.update { msgs ->
+                                        msgs.map {
+                                            if (it.id == assistantMsgId) it.copy(content = fallback, isStreaming = false) else it
+                                        }
+                                    }
+                                    if (!safeRunIntentTest) {
+                                        conversationRepository.addMessage(convId, "assistant", fallback, thinking)
+                                    }
+                                    // Index the user message so this exchange isn't silently orphaned
+                                    // from semantic search — only the fallback assistant text is skipped.
+                                    if (savedUserMsgId.isNotBlank() && !isLoadSkillAbortProbeFollowUp) {
+                                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                                    }
+                                    finalizeVoicePlaybackForResponse(fallback)
+                                    // Clear streaming tracking — mirrors the normal Complete path.
+                                    activeStreamingMsgId = null
+                                    activeStreamingPersistenceDisabled = false
+                                    activeStreamingContent = StringBuilder()
+                                }
+                                return@collect
+                            }
+
+                            // With native SDK tool calling, tool execution happens
+                            // transparently during generate() — the SDK calls our @Tool
+                            // methods and feeds results back to the model. Check if any
+                            // tool was invoked this turn for UI metadata.
+                            val nativeToolCall = kernelAIToolSet.terminalToolName()?.let { name ->
+                                val request = kernelAIToolSet.terminalToolRequest() ?: ""
+                                val result = kernelAIToolSet.terminalToolResult() ?: ""
+                                ToolCallInfo(
+                                    skillName = name,
+                                    requestJson = request,
+                                    resultText = result,
+                                    isSuccess = kernelAIToolSet.terminalToolSucceeded(),
+                                    presentation = kernelAIToolSet.terminalToolPresentation(),
+                                    spokenSummary = kernelAIToolSet.terminalToolSpokenSummary()
+                                        ?: kernelAIToolSet.terminalToolPresentation()?.toSpokenSummary(),
+                                )
+                            }
+                            if (incompleteChainRetryAttempted &&
+                                kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                            ) {
+                                Log.d("KernelAI", "incomplete_tool_chain_retry_succeeded")
+                            }
+                            // E2E marker: native SDK tool call
+                            if (nativeToolCall != null) {
+                                Log.d(
+                                    "KernelAI",
+                                    "llm_tools_native_tool: tool=${nativeToolCall.skillName} request=${nativeToolCall.requestJson.take(500)}",
+                                )
+                            // E2E marker: native SDK skill result
+                            val nativeResultMode = when {
+                                !nativeToolCall.isSuccess -> "failure"
+                                kernelAIToolSet.terminalToolWasDirectReply() -> "direct_reply"
+                                else -> "success"
+                            }
+                            Log.d(
+                                "KernelAI",
+                                "llm_tools_skill_result: tool=${nativeToolCall.skillName} mode=$nativeResultMode success=${nativeToolCall.isSuccess}",
+                            )
+                            }
+                            // E2E marker: legacy fallback tool call
+                            val toolCallResult = if (nativeToolCall == null) {
+                                Log.d(
+                                    "KernelAI",
+                                    "llm_tools_legacy_tool: raw=${fullContent.take(500)}",
+                                )
+                                // E2E marker: legacy assistant reply text (collapse newlines to avoid logcat splits)
+                                Log.d("KernelAI", "llm_tools_assistant_reply: ${fullContent.take(1000).replace('\n', ' ')}")
+                                tryExecuteToolCall(fullContent)
+                            } else null
+                            if (nativeToolCall != null || toolCallResult != null) {
+                                val rawToolCall = nativeToolCall ?: toolCallResult!!.first
+                                val nativeToolWasDirectReply =
+                                    nativeToolCall != null && kernelAIToolSet.terminalToolWasDirectReply()
+                                val isSystemOnlyTool = rawToolCall.isSuccess && isSystemOnlyToolCall(rawToolCall.skillName)
+                                val leakedSystemToolContent = isSystemOnlyTool && looksLikeRawToolCall(fullContent)
+                                if (leakedSystemToolContent) {
+                                    localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                                    forceHistoryReplayAfterTurn = true
+                                    val budgetOk = estimatedTokensUsed <= (activeContextWindowSize * 0.75).toInt()
+                                    if (!systemOnlyToolRetryAttempted && budgetOk) {
+                                        systemOnlyToolRetryAttempted = true
+                                        Log.w("KernelAI", "system_only_tool_retry_attempted")
+                                        needsHallucinationRetry = true
+                                        currentPrompt = SYSTEM_ONLY_TOOL_RETRY_CORRECTION + "\n\n" + prompt
+                                        accumulatedContent = StringBuilder()
+                                        accumulatedThinking = StringBuilder()
+                                        activeStreamingContent = accumulatedContent
+                                        activeStreamingThinking = accumulatedThinking
+                                        _messages.update { msgs ->
+                                            msgs.map {
+                                                if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it
+                                            }
+                                        }
+                                        return@collect
+                                    }
+                                    Log.w("KernelAI", "system_only_tool_leak_suppressed")
+                                }
+                                val toolCall = rawToolCall.toVisibleToolCallInfo()
+                                if (systemOnlyToolRetryAttempted && !leakedSystemToolContent) {
+                                    Log.d("KernelAI", "system_only_tool_retry_succeeded")
+                                }
+                                val resultContent = when {
+                                    leakedSystemToolContent ->
+                                        fallbackSystemOnlyToolReply(text)
+                                    nativeToolWasDirectReply ->
+                                        rawToolCall.resultText
+                                    nativeToolCall != null &&
+                                        !isSystemOnlyTool &&
+                                        rawToolCall.presentation != null &&
+                                        rawToolCall.isSuccess ->
+                                        rawToolCall.resultText
+                                    kernelAIToolSet.terminalToolFailed() &&
+                                        kernelAIToolSet.terminalToolName() != null ->
+                                        kernelAIToolSet.terminalToolResult()?.takeIf { it.isNotBlank() } ?: HONEST_ACTION_FAILURE
+                                    nativeToolCall != null -> fullContent
+                                    isSystemOnlyTool -> fallbackSystemOnlyToolReply(text)
+                                    else -> toolCallResult!!.second
+                                }
+
+                                // E2E marker: assistant reply text (collapse newlines to avoid logcat splits)
+                                Log.d("KernelAI", "llm_tools_assistant_reply: ${resultContent.take(1000).replace('\n', ' ')}")
+
+                                // Update streaming message with result text
+                                _messages.update { msgs ->
+                                    msgs.map { msg ->
+                                        if (msg.id == assistantMsgId) msg.copy(
+                                            content = resultContent,
+                                            isStreaming = false,
+                                            toolCall = toolCall,
+                                        ) else msg
+                                    }
+                                }
+
+                                // Persist only normal turns; safe model probes retain an ephemeral UI chip.
+                                val savedId = if (safeRunIntentTest) {
+                                    null
+                                } else {
+                                    conversationRepository.addMessage(
+                                        convId, "assistant", resultContent,
+                                        thinkingText = thinking,
+                                        toolCallJson = toolCall.toJsonString(),
+                                    )
+                                }
+                                if (savedId != null) {
+                                    // E2E marker: message persisted with tool call
+                                    Log.d(
+                                        "KernelAI",
+                                        "llm_tools_message_toolcall_saved: id=$savedId tool=${toolCall.skillName}",
+                                    )
+                                }
+                                // E2E marker: chip attached to the visible in-memory message.
+                                Log.d(
+                                    "KernelAI",
+                                    "tool_chip_visible: tool=${toolCall.skillName}",
+                                )
+                                // Only index knowledge results (e.g. Wikipedia) — not device
+                                // actions, weather, or system info which are ephemeral (#614).
+                                if (savedId != null && shouldIndexToolCallResult(toolCall.skillName)) {
+                                    ragRepository.indexMessage(savedId, convId, resultContent)
+                                } else {
+                                    // Device actions and safe probes are ephemeral/non-indexable.
+                                    isDeviceActionExchange = true
+                                }
+                                estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
+                                    contextWindowManager.estimateTokens(resultContent) +
+                                    contextWindowManager.estimateTokens(thinking ?: "")
+                                turnsSinceReset++
+                                finalizeVoicePlaybackForResponse(resultContent)
+                                // Do NOT set needsHistoryReplay here — KV cache remains valid after
+                                // native tool calls and forcing a replay drops prior turns from the
+                                // tight history budget, causing context amnesia (#446).
+                            } else {
+                                val isHallucination = looksLikeToolConfirmation(fullContent)
+                                val isRawToolCall = isToolQueryForTurn && looksLikeRawToolCall(fullContent)
+                                if (isHallucination || isRawToolCall) {
+                                    localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                                }
+
+                                // C2 (#487): Single automatic retry before falling to C1 failure.
+                                // If the model hallucinated a tool confirmation and we haven't
+                                // retried yet, prepend a correction and re-run inference — unless
+                                // the context window is already >75% full.
+                                if ((isHallucination && !hallucinationRetryAttempted) ||
+                                    (isRawToolCall && !rawToolCallRetryAttempted)
+                                ) {
+                                    if (isHallucination) {
+                                        hallucinationRetryAttempted = true
+                                    } else {
+                                        rawToolCallRetryAttempted = true
+                                    }
+                                    val budgetOk = estimatedTokensUsed <= (activeContextWindowSize * 0.75).toInt()
+                                    if (budgetOk) {
+                                        Log.w(
+                                            "KernelAI",
+                                            if (isHallucination) "hallucination_retry_attempted" else "raw_tool_call_retry_attempted",
+                                        )
+                                        needsHallucinationRetry = true
+                                        currentPrompt = if (isHallucination) {
+                                            HALLUCINATION_RETRY_CORRECTION + "\n\n" + prompt
+                                        } else {
+                                            RAW_TOOL_CALL_RETRY_CORRECTION + "\n\n" + prompt
+                                        }
+                                        // Reset streaming state for the retry pass
+                                        accumulatedContent = StringBuilder()
+                                        accumulatedThinking = StringBuilder()
+                                        activeStreamingContent = accumulatedContent
+                                        activeStreamingThinking = accumulatedThinking
+                                        _messages.update { msgs ->
+                                            msgs.map { if (it.id == assistantMsgId) it.copy(content = "", isStreaming = true) else it }
+                                        }
+                                        return@collect
+                                    }
+                                    // Token budget >75% — skip retry, fall through to C1 failure
+                                }
+
+                                if (shouldCalibrateToolDeclarations) {
+                                    val turnInvolvedToolCallOrContinuation =
+                                        currentPrompt !== prompt ||
+                                            needsHallucinationRetry ||
+                                            isHallucination ||
+                                            isRawToolCall ||
+                                            kernelAIToolSet.wasToolCalled() ||
+                                            kernelAIToolSet.loadSkillCalledInCurrentAttempt() ||
+                                            kernelAIToolSet.terminalToolCalledInCurrentAttempt()
+                                    val measuredToolTokens =
+                                        FixedPromptTokenBudget.calibratedToolDeclarationTokens(
+                                            result = result,
+                                            systemPromptTokens = contextWindowManager.estimateTokens(systemPromptForPrefill),
+                                            requestPromptTokens = contextWindowManager.estimateTokens(currentPrompt),
+                                            turnInvolvedToolCallOrContinuation = turnInvolvedToolCallOrContinuation,
+                                        )
+                                    if (measuredToolTokens != null) {
+                                        val previousFixedPromptTokens =
+                                            estimateSystemAndToolPromptTokens(systemPromptForPrefill)
+                                        measuredToolDeclarationTokenEstimate = measuredToolTokens
+                                        estimatedTokensUsed +=
+                                            estimateSystemAndToolPromptTokens(systemPromptForPrefill) -
+                                                previousFixedPromptTokens
+                                    }
+                                }
+                                // Normal text or C1 hallucination failure
+                                val displayContent = if (isHallucination || isRawToolCall) {
+                                    if (currentPrompt !== prompt) {
+                                        Log.w(
+                                            "KernelAI",
+                                            if (isHallucination) "hallucination_retry_failed" else "raw_tool_call_retry_failed",
+                                        )
+                                    }
+                                    Log.w(
+                                        "KernelAI",
+                                        if (isHallucination) {
+                                            "Hallucination guard triggered — model confirmed action without tool call"
+                                        } else {
+                                            "Raw tool-call guard triggered — model leaked tool syntax instead of executing it"
+                                        },
+                                    )
+                                    "I wasn't able to complete that action — please try again, or try phrasing it differently."
+                                } else {
+                                    when {
+                                        currentPrompt !== prompt && rawToolCallRetryAttempted ->
+                                            Log.d("KernelAI", "raw_tool_call_retry_succeeded")
+                                        currentPrompt !== prompt && hallucinationRetryAttempted ->
+                                            Log.d("KernelAI", "hallucination_retry_succeeded")
+                                    }
+                                    fullContent
+                                }
+                                _messages.update { msgs ->
+                                    msgs.map { if (it.id == assistantMsgId) it.copy(content = displayContent, isStreaming = false) else it }
+                                }
+                                val savedAssistantMsgId = if (safeRunIntentTest) {
+                                    null
+                                } else {
+                                    conversationRepository.addMessage(convId, "assistant", displayContent, thinking)
+                                }
+                                // Don't index hallucination error messages — they're noise (#614).
+                                // Don't index LLM wrappers around device actions — stale device state
+                                // ("The light's on!") poisons future RAG retrievals (#614).
+                                // Also index the user message here (deferred from sendMessage entry)
+                                // so we can skip it too if a device tool was called during inference.
+                                if (savedAssistantMsgId != null &&
+                                    !isHallucination &&
+                                    !isRawToolCall &&
+                                    !isDeviceActionExchange &&
+                                    !isLoadSkillAbortProbeFollowUp
+                                ) {
+                                    if (savedUserMsgId.isNotBlank()) {
+                                        ragRepository.indexMessage(savedUserMsgId, convId, text)
+                                    }
+                                    ragRepository.indexMessage(savedAssistantMsgId, convId, displayContent)
+                                }
+                                estimatedTokensUsed += contextWindowManager.estimateTokens(text) +
+                                    contextWindowManager.estimateTokens(displayContent) +
+                                    contextWindowManager.estimateTokens(thinking ?: "")
+                                turnsSinceReset++
+                                finalizeVoicePlaybackForResponse(displayContent)
+                            }
+
+                            // Clear streaming tracking now that the message is fully persisted.
+                            activeStreamingMsgId = null
+                            activeStreamingPersistenceDisabled = false
+                            activeStreamingContent = StringBuilder()
+
+                            // Auto-title after the 2nd complete exchange (≥4 messages),
+                            // but only if the conversation is still untitled (or holds a
+                            // first-message placeholder). Uses >= to avoid missing the trigger
+                            // if the count jumps past 4.
+                            // Small delay lets the generate() flow fully release the
+                            // single-threaded LlmDispatcher before generateOnce() claims it.
+                            val messageCount = _messages.value.size
+                            if (!safeRunIntentTest &&
+                                !isLoadSkillAbortProbeFollowUp &&
+                                messageCount >= 4 &&
+                                (_conversationTitle.value == null || titleIsPlaceholder) &&
+                                !titleGenerationStarted
+                            ) {
+                                titleGenerationStarted = true
+                                viewModelScope.launch {
+                                    kotlinx.coroutines.delay(500L)
+                                    generateTitle()
+                                }
+                            }
+                        }
+
+                        is GenerationResult.Error -> {
+                            generationResultReceived = true
+                            _voiceMode.value = null
+                            pendingVoiceReply = false
+                            _voiceCaptureState.value = VoiceCaptureState.Idle
+                            stopVoicePlayback()
+                            _messages.update { msgs ->
+                                msgs.map { msg ->
+                                    if (msg.id == assistantMsgId) {
+                                        msg.copy(content = "Sorry, I ran into an error.", isStreaming = false)
+                                    } else msg
+                                }
+                            }
+                            _error.value = result.message
+                            activeStreamingMsgId = null
+                            activeStreamingPersistenceDisabled = false
+                            activeStreamingContent = StringBuilder()
+                        }
+                    }
+                }
+                if (isLoadSkillAbortProbeFollowUp) {
+                    Log.i(TAG, "debug_load_skill_abort_probe=follow_up_flow_settled")
+                }
+                if (!generationResultReceived && !turnCancellationRequest.get()) {
+                    val fullContent = accumulatedContent.toString()
+                    val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
+                        ?: preservedThinkingText
+                    when {
+                        kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() &&
+                            !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
+                            kernelAIToolSet.logToolSequence()
+                            localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                            Log.w("KernelAI", "load_skill_tool_result_context_abort")
+                            persistHonestActionFailure(thinking)
+                            needsHallucinationRetry = false
+                        }
+                        !loadSkillNativeContinuationProbe &&
+                            kernelAIToolSet.loadSkillSucceededInCurrentAttempt() &&
+                            !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
+                            handleIncompleteToolChain(fullContent, thinking, toolSequenceAlreadyLogged = false)
+                        }
+
+                        incompleteChainRetryAttempted &&
+                            !kernelAIToolSet.terminalToolCalledInCurrentAttempt() -> {
+                            kernelAIToolSet.logToolSequence()
+                            localToolDiagnosticCapture.recordGenerationAttempt(fullContent, accumulatedThinking)
+                            Log.w("KernelAI", "incomplete_tool_chain_retry_failed")
+                            persistHonestActionFailure(thinking)
+                            needsHallucinationRetry = false
+                        }
+                    }
+                }
+                if (needsHallucinationRetry && blankResponseRetryAttempted) {
+                    // KV cache was corrupted (model emitted EOS immediately).
+                    // Reset conversation so the retry gets a clean cache.
+                    // Flag needsHistoryReplay so the next user turn re-injects full context.
+                    inferenceEngine.resetConversation()
+                    needsHistoryReplay = true
+                }
+            } while (needsHallucinationRetry)
+
+            } catch (e: Exception) {
+                Log.e("KernelAI", "Inference exception in sendMessage — generation failed", e)
+                // LiteRT can fail while continuing after load_skill, before Complete schedules a
+                // separate incomplete-chain retry; an aborted tool result also terminates here.
+                if (!turnCancellationRequest.get() &&
+                    (loadSkillAbortProbe ||
+                        kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt() ||
+                        incompleteChainContinuationPending ||
+                        kernelAIToolSet.loadSkillSucceededInCurrentAttempt()) &&
+                    kernelAIToolSet.terminalToolName() == null
+                ) {
+                    localToolDiagnosticCapture.recordGenerationAttempt(
+                        accumulatedContent.toString(),
+                        accumulatedThinking,
+                    )
+                    kernelAIToolSet.logToolSequence()
+                    Log.w(
+                        "KernelAI",
+                        if (kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()) {
+                            "load_skill_tool_result_context_abort"
+                        } else {
+                            "load_skill_continuation_failed"
+                        },
+                    )
+                    if (loadSkillAbortProbe &&
+                        !kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()
+                    ) {
+                        Log.w(TAG, "debug_load_skill_abort_probe=abort_not_triggered")
+                    }
+                    persistHonestActionFailure(
+                        accumulatedThinking.toString().takeIf { it.isNotBlank() },
+                    )
+                } else {
+                    _voiceMode.value = null
+                    pendingVoiceReply = false
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    stopVoicePlayback()
+                    _messages.update { msgs ->
+                        msgs.map { msg ->
+                            if (msg.id == assistantMsgId) {
+                                msg.copy(content = "Sorry, generation was cancelled.", isStreaming = false)
+                            } else msg
+                        }
+                    }
+                    activeStreamingMsgId = null
+                    activeStreamingPersistenceDisabled = false
+                    activeStreamingContent = StringBuilder()
+                }
+            } finally {
+                kernelAIToolSet.setLoadSkillToolResultTokenBudget(null, null)
+                safeModelTestScope?.close()
+                if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {
+                    needsHistoryReplay = true
+                }
+                val loadSkillResultAborted = kernelAIToolSet.loadSkillResultAbortedInCurrentAttempt()
+                if (loadSkillResultAborted) {
+                    // The inference engine discards the poisoned native conversation and waits
+                    // for it to settle before releasing the generation mutex. Replay the saved
+                    // chat history on the next turn without cancelling this honest failure.
+                    needsHistoryReplay = true
+                    estimatedTokensUsed = 0
+                    turnsSinceReset = 0
+                }
+                if (loadSkillAbortProbe && loadSkillAbortProbeFailurePersisted) {
+                    Log.i(TAG, "debug_load_skill_abort_probe=honest_failure_persisted")
+                    val canInjectFollowUp = loadSkillResultAborted &&
+                        needsHistoryReplay &&
+                        conversationId == convId &&
+                        inferenceEngine.isReady.value &&
+                        _inputText.value.isBlank()
+                    if (canInjectFollowUp) {
+                        pendingLoadSkillAbortProbeFollowUpConversationId = convId
+                        replaceInputText(LOAD_SKILL_ABORT_REPLAY_PROBE_FOLLOW_UP)
+                        Log.i(TAG, "debug_load_skill_abort_probe=follow_up_injected same_conversation=true")
+                        sendMessage()
+                    } else {
+                        pendingLoadSkillAbortProbeFollowUpConversationId = null
+                        Log.w(
+                            TAG,
+                            "debug_load_skill_abort_probe=follow_up_not_injected " +
+                                "aborted=$loadSkillResultAborted replay_pending=$needsHistoryReplay " +
+                                "same_conversation=${conversationId == convId} " +
+                                "engine_ready=${inferenceEngine.isReady.value} " +
+                                "input_empty=${_inputText.value.isBlank()}",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelGeneration() {
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = null
+        pendingVoiceReply = false
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+        stopVoicePlayback()
+        activeTurnCancellationRequest.set(true)
+        inferenceEngine.cancelGeneration()
+        val partialContent = activeStreamingContent.toString()
+        val partialThinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
+        val convId = conversationId
+
+        // Update UI: mark streaming message as complete with whatever was streamed.
+        _messages.update { msgs ->
+            msgs.map { msg ->
+                if (msg.isStreaming) msg.copy(isStreaming = false) else msg
+            }
+        }
+
+        // Persist partial content to Room if we have anything streamed.
+        if (partialContent.isNotBlank() && convId != null && !activeStreamingPersistenceDisabled) {
+            viewModelScope.launch {
+                val savedId = conversationRepository.addMessage(convId, "assistant", partialContent, partialThinking)
+                ragRepository.indexMessage(savedId, convId, partialContent)
+            }
+        }
+
+        // Clear streaming tracking.
+        activeStreamingMsgId = null
+        activeStreamingPersistenceDisabled = false
+        activeStreamingContent = StringBuilder()
+
+        // Reset LiteRT conversation — cancelProcess() leaves it in a partial state.
+        // Mark needsHistoryReplay so the next message re-injects prior context.
+        needsHistoryReplay = true
+        estimatedTokensUsed = 0
+        turnsSinceReset = 0
+        viewModelScope.launch {
+            inferenceEngine.resetConversation()
+        }
+    }
+
+    fun stopVoicePlayback() {
+        awaitingVoicePlaybackCompletion = false
+        pendingVoiceReply = false
+        suppressVoiceOutputForCurrentResponse = true
+        isVoiceStreamingEnabledForTurn = false
+        activeVoiceStreamingBuffer = StringBuilder()
+        activeVoiceStreamingSession = null
+        voiceOutputController.stop()
+        _isSpeakingResponse.value = false
+        _voicePlaybackState.value = VoicePlaybackState.Idle
+        _speakingMessageId.value = null
+    }
+
+    fun getConversationAsText(): String {
+        val messages = _messages.value
+        return messages.joinToString("\n") { msg ->
+            val prefix = if (msg.role == ChatMessage.Role.USER) "You" else "Jandal"
+            "$prefix: ${msg.content}"
+        }
+    }
+
+    /** Conversation copy toggles (#1024). */
+    val copyToolCalls: StateFlow<Boolean> = chatPreferences.copyToolCalls
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val copyThinking: StateFlow<Boolean> = chatPreferences.copyThinking
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * Builds the clipboard transcript for "Copy conversation", optionally embedding thinking blocks
+     * and tool-call payloads (#1024). The returned text is already clipboard-ready — callers must NOT
+     * additionally run [stripMarkdownForClipboard] over it, since that would mangle the raw
+     * thinking/tool content.
+     */
+    fun getConversationForClipboard(
+        includeThinking: Boolean,
+        includeToolCalls: Boolean,
+    ): String = formatConversationForClipboard(
+        messages = _messages.value,
+        includeThinking = includeThinking,
+        includeToolCalls = includeToolCalls,
+    )
+
+    fun startNewConversation() {
+        stopVoicePlayback()
+        viewModelScope.launch {
+            awaitingVoicePlaybackCompletion = false
+            _voiceMode.value = null
+            pendingVoiceReply = false
+            voiceInputController.stopListening()
+            voiceOutputController.stop()
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+            _voicePlaybackState.value = VoicePlaybackState.Idle
+            val id = conversationRepository.createConversation()
+            conversationId = id
+            _messages.value = emptyList()
+            _conversationTitle.value = null
+            titleGenerationStarted = false
+            titleIsPlaceholder = false
+            resetInferenceForFreshConversation()
+        }
+    }
+
+    /**
+     * Generates a short AI title for the current conversation using the first two user messages
+     * as context. Only called after the 2nd complete exchange when the conversation is untitled.
+     *
+     * Runs in its own coroutine — never blocks the chat UI. Silent failure: if generation
+     * fails or the engine is busy, the title stays null and the user can rename manually.
+     */
+    private suspend fun generateTitle() {
+        val id = conversationId ?: return
+
+        // Double-check the title is still null or a placeholder (may have been set manually
+        // in the meantime — a manual rename should never be overwritten).
+        if (conversationRepository.getConversation(id)?.title != null && !titleIsPlaceholder) {
+            Log.d("KernelAI", "Title already set for $id — skipping generation")
+            return
+        }
+
+        val userMessages = _messages.value
+            .filter { it.role == ChatMessage.Role.USER }
+            .take(2)
+            .joinToString(" / ") { it.content.take(100) }
+
+        if (userMessages.isBlank()) {
+            Log.w("KernelAI", "No user messages to generate title from")
+            return
+        }
+
+        // Embed the directive in the prompt itself — we're using the existing conversation
+        // so a separate systemPrompt has no effect here.
+        val titlePrompt = "Reply with ONLY a short conversation title, 4-6 words, no quotes, " +
+            "no markdown, no preamble, no alternatives. Just the title on one line.\n\n" +
+            "Conversation: $userMessages"
+
+        Log.d("KernelAI", "Generating title for $id with prompt: ${titlePrompt.take(80)}...")
+
+        // Mark the KV cache dirty BEFORE sending the title prompt. generateOnce() writes the
+        // prompt + response into the live LiteRT session. Setting the flag early ensures any
+        // concurrent sendMessage() that slips past the isGenerating guard will still trigger
+        // a history replay and flush the title artefacts before the next generation (#172).
+        needsHistoryReplay = true
+        try {
+            // generateOnce() reuses the existing conversation session (LiteRT only supports
+            // one session at a time) and acquires generationMutex so it waits if engine is busy.
+            val raw = inferenceEngine.generateOnce(titlePrompt, systemPrompt = null, thinkingEnabled = false)
+            Log.d("KernelAI", "Raw title output: \"$raw\"")
+            val title = raw
+                .trim()
+                // Take only the first line — ignore "Or, ..." alternatives
+                .lines().first().trim()
+                // Strip leading preamble like "How about:", "Here's a title:", "Title:"
+                .replace(Regex("^(?:How about|Here(?:'s| is) (?:a |your )?title|Title)[:\\s]*", RegexOption.IGNORE_CASE), "")
+                // Strip markdown bold/italic markers
+                .replace(Regex("[*_]+"), "")
+                // Strip surrounding quotes
+                .trim('"', '\'', '\u201C', '\u201D')
+                // Strip trailing punctuation
+                .trimEnd('.', '?', '!')
+                .trim()
+                .take(60)
+            if (title.isNotBlank()) {
+                // Re-check: user may have renamed the conversation while inference was running
+                if (!titleIsPlaceholder) {
+                    Log.d("KernelAI", "Title overwritten by user during generation — skipping smart title for $id")
+                    return
+                }
+                conversationRepository.renameConversation(id, title)
+                _conversationTitle.value = title
+                titleIsPlaceholder = false
+                Log.i("KernelAI", "Auto-titled conversation $id: $title")
+            } else {
+                Log.w("KernelAI", "Title generation produced blank result from raw: \"$raw\"")
+            }
+        } catch (e: Exception) {
+            Log.w("KernelAI", "Auto-title generation failed: ${e.message}", e)
+            // needsHistoryReplay is already true (set before the call) — KV cache may be
+            // partially dirty from the prompt write, so the flag correctly stays set.
+            // Silent failure — title stays null, user can rename manually.
+        }
+    }
+
+    /**
+     * Attempts to parse [raw] as a skill function call JSON and execute it.
+     * Returns a pair of (ToolCallInfo, humanReadableResult) if successful, null otherwise.
+     * Returns null for ParseError/UnknownSkill so Gemma-4 output is treated as plain text.
+     * Limits to 1 tool call per Gemma-4 response to prevent loops.
+     */
+    private suspend fun tryExecuteToolCall(raw: String): Pair<ToolCallInfo, String>? {
+        // E4B often wraps the JSON tool call in prose. Extract the first valid
+        // {"name": ..., "arguments": ...} block from anywhere in the response.
+        val extracted = ToolCallExtractor.extractNativeToolCall(raw)
+            ?: ToolCallExtractor.extractToolCallJson(raw) ?: return null
+        val result = skillExecutor.execute(extracted)
+        // E2E marker: skill execution result
+        Log.d(
+            "KernelAI",
+            "llm_tools_skill_result: skill=${extracted.take(200)} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
+        )
+        return when (result) {
+            is SkillResult.Success -> {
+                val skillName = try {
+                    org.json.JSONObject(extracted).optString("name", "unknown")
+                } catch (e: Exception) { "unknown" }
+                val toolCall = ToolCallInfo(
+                    skillName = skillName,
+                    requestJson = extracted,
+                    resultText = result.content,
+                    isSuccess = true,
+                    presentation = result.presentation,
+                    spokenSummary = spokenSummaryFrom(result),
+                )
+                Pair(toolCall, result.content)
+            }
+            is SkillResult.DirectReply -> {
+                val skillName = try {
+                    org.json.JSONObject(extracted).optString("name", "unknown")
+                } catch (e: Exception) { "unknown" }
+                val toolCall = ToolCallInfo(
+                    skillName = skillName,
+                    requestJson = extracted,
+                    resultText = result.content,
+                    isSuccess = true,
+                    presentation = result.presentation,
+                    spokenSummary = spokenSummaryFrom(result),
+                )
+                Pair(toolCall, result.content)
+            }
+            is SkillResult.Failure -> {
+                val toolCall = ToolCallInfo(
+                    skillName = result.skillName,
+                    requestJson = extracted,
+                    resultText = result.error,
+                    isSuccess = false,
+                )
+                val response = if (result.skillName == "send_email") {
+                    result.error
+                } else {
+                    "I tried to do that but something went wrong: ${result.error}"
+                }
+                Pair(toolCall, response)
+            }
+            is SkillResult.CapabilityRequired -> null
+            is SkillResult.ParseError, is SkillResult.UnknownSkill -> null
+        }
+    }
+
+    private suspend fun prepareVoicePlaybackForTurn(
+        streamingEnabled: Boolean,
+    ) {
+        activeVoiceStreamingBuffer = StringBuilder()
+        activeVoiceStreamingSession = null
+        isVoiceStreamingEnabledForTurn = streamingEnabled
+        val shouldSpeak = pendingVoiceReply
+        pendingVoiceReply = false
+        awaitingVoicePlaybackCompletion = false
+        if (!shouldSpeak || !autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) return
+        // autoSpeakEnabled already reflects voiceOutputPreferences.autoSpeak via the cached field
+        awaitingVoicePlaybackCompletion = true
+        activeVoiceStreamingSession = voiceOutputController.openStreamingSession(
+            VoiceSpeakRequest(text = "", locale = Locale.getDefault()),
+        )
+    }
+
+    private suspend fun streamVoiceToken(token: String) {
+        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn) {
+            return
+        }
+        activeVoiceStreamingBuffer.append(token)
+        drainVoiceStreamingBuffer(force = false)
+    }
+
+    private suspend fun drainVoiceStreamingBuffer(force: Boolean) {
+        val session = activeVoiceStreamingSession ?: return
+        while (true) {
+            val chunk = popNextStreamingSpeechChunk(
+                buffer = activeVoiceStreamingBuffer,
+                minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
+                preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
+                force = force,
+            ) ?: break
+            speakVoiceChunk(
+                session = session,
+                chunk = chunk,
+                isFinal = false,
+            )
+        }
+    }
+
+    private suspend fun finalizeVoicePlaybackForResponse(finalContent: String) {
+        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) {
+            stopVoicePlayback()
+            return
+        }
+        val session = activeVoiceStreamingSession ?: return
+        val finalChunk = if (isVoiceStreamingEnabledForTurn) {
+            val bufferedChunks = mutableListOf<String>()
+            while (true) {
+                val chunk = popNextStreamingSpeechChunk(
+                    buffer = activeVoiceStreamingBuffer,
+                    minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
+                    preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
+                    force = true,
+                ) ?: break
+                bufferedChunks += chunk
+            }
+            finalizeChatTextForSpeech(bufferedChunks.joinToString(" ").trim())
+        } else {
+            finalizeChatTextForSpeech(finalContent)
+        }
+        val result = session.append(finalChunk, isFinal = true)
+        handleVoiceOutputResult(result)
+        activeVoiceStreamingSession = null
+        activeVoiceStreamingBuffer = StringBuilder()
+        isVoiceStreamingEnabledForTurn = false
+    }
+
+    private suspend fun speakVoiceChunk(
+        session: VoiceOutputStreamingSession,
+        chunk: String,
+        isFinal: Boolean,
+    ) {
+        if (chunk.isBlank()) return
+        val result = session.append(chunk, isFinal = isFinal)
+        handleVoiceOutputResult(result)
+    }
+
+    private fun handleVoiceOutputResult(result: VoiceOutputResult) {
+        if (result is VoiceOutputResult.Unavailable) {
+            _error.value = result.message
+            stopVoicePlayback()
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+            _voiceMode.value = null
+        }
+    }
+
+
+
+    override fun onCleared() {
+        super.onCleared()
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = null
+        pendingVoiceReply = false
+        voiceInputController.stopListening()
+        voiceOutputController.stop()
+        stopVoicePlayback()
+        // Flush any in-progress streamed content to Room before the ViewModel is destroyed.
+        // runBlocking is acceptable here — called once on ViewModel teardown,
+        // Room insert is fast (<10ms), main thread briefly blocked on nav back.
+        // viewModelScope is already cancelled at this point so withContext(NonCancellable)
+        // inside a viewModelScope.launch does not work reliably.
+        val content = activeStreamingContent.toString()
+        val thinking = activeStreamingThinking.toString().takeIf { it.isNotBlank() }
+        val convId = conversationId
+        if (content.isNotBlank() && convId != null && !activeStreamingPersistenceDisabled) {
+            runBlocking {
+                conversationRepository.addMessage(convId, "assistant", content, thinking)
+            }
+        }
+        // Fire-and-forget episodic distillation on conversation close.
+        if (convId != null && !suppressCloseDistillationForSafeProbe) {
+            val lastDistilled = lastDistilledAt
+            val hasMealPlannerHistory = runBlocking {
+                mealPlanSessionRepository.hasAnySessionForConversation(convId)
+            }
+            if (!hasMealPlannerHistory) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    runCatching {
+                        episodicDistillationUseCase.distil(convId, lastDistilled)
+                    }.onFailure { Log.w("KernelAI", "Episodic distillation failed: ${it.message}") }
+                }
+            }
+        }
+        // InferenceEngine is a process-scoped singleton. Do not shut it down just because this
+        // screen is closing — that can interrupt active meal-plan generation while the user
+        // navigates elsewhere in the app (for example to Lists).
+    }
+
+    private fun submitVoiceTranscript(rawTranscript: String) {
+        val transcript = rawTranscript.trim()
+        if (transcript.isBlank()) {
+            // Nothing useful captured — stop the loop conservatively regardless of mode.
+            awaitingVoicePlaybackCompletion = false
+            _voiceMode.value = null
+            pendingVoiceReply = false
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+            return
+        }
+        // #754: Intercept stop phrases when back-and-forth loop is active.
+        if (_voiceMode.value == VoiceMode.BackAndForth && isStopCommand(transcript)) {
+            Log.d(TAG, "Stop command intercepted in back-and-forth loop: \"$transcript\"")
+            stopVoiceInput()
+            return
+        }
+        _voiceCaptureState.value = VoiceCaptureState.Processing(transcript)
+        replaceInputText(transcript)
+        sendMessage(SubmitMode.Voice)
+    }
+
+    private fun isStopCommand(transcript: String): Boolean =
+        transcript.trim().lowercase() in STOP_PHRASES
+
+    /** Speaks the assistant reply if this was a voice-originated turn. */
+    private suspend fun speakAssistantReplyIfNeeded(content: String, spokenOverride: String? = null) {
+        val shouldSpeak = pendingVoiceReply
+        pendingVoiceReply = false
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+        if (!shouldSpeak || !autoSpeakEnabled) {
+            awaitingVoicePlaybackCompletion = false
+            _voiceMode.value = null
+            return
+        }
+
+        val spokenText = spokenOverride?.trim()?.takeIf { it.isNotBlank() }
+            ?: stripMarkdownForClipboard(content).trim()
+        if (spokenText.isBlank()) {
+            awaitingVoicePlaybackCompletion = false
+            _voiceMode.value = null
+            return
+        }
+
+        awaitingVoicePlaybackCompletion = true
+        when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = spokenText))) {
+            VoiceOutputResult.Spoken -> Unit
+            is VoiceOutputResult.Unavailable -> {
+                awaitingVoicePlaybackCompletion = false
+                _voiceMode.value = null
+                _error.value = withVoiceSettingsHint(result.message)
+            }
+        }
+    }
+
+    private fun capabilityRequiredMessage(result: com.kernel.ai.core.skills.SkillResult.CapabilityRequired): String =
+        if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
+            "Jandal needs Location access for local weather. Turn on Location in app permissions, or ask for weather in a named city."
+        } else {
+            "Permission required for ${result.skillName}."
+        }
+
+    private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
+        is SkillResult.DirectReply -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        is SkillResult.Success -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        else -> null
+    }
+
+    private fun withVoiceSettingsHint(message: String): String {
+        if (message.contains("Settings -> Voice")) return message
+        return "$message Check Settings -> Voice if this keeps happening."
+    }
+
+    /**
+     * Returns true if [query] looks like a tool-routable request that doesn't benefit from
+     * the full Jandal personality or episodic RAG context (#438, #481).
+     *
+     * Used to switch to [IdentityTier.MINIMAL] and skip RAG injection for device-action
+     * and tool-calling queries, freeing ~1000 tokens for tool-call reasoning.
+     */
+    private fun looksLikeToolQuery(query: String): Boolean = com.kernel.ai.feature.chat.looksLikeToolQuery(query)
+
+    private fun looksLikeAnaphora(text: String): Boolean = com.kernel.ai.feature.chat.looksLikeAnaphora(text)
+
+    private fun looksLikeImportantDateFact(text: String): Boolean =
+        com.kernel.ai.feature.chat.looksLikeImportantDateFact(text)
+    private fun looksLikeToolFollowUp(
+        text: String,
+        previousUser: String?,
+        previousAssistant: String?,
+    ): Boolean = com.kernel.ai.feature.chat.looksLikeToolFollowUp(text, previousUser, previousAssistant)
+
+    private fun looksLikeToolConfirmation(response: String): Boolean =
+        com.kernel.ai.feature.chat.looksLikeToolConfirmation(response)
+
+    private fun looksLikeRawToolCall(response: String): Boolean =
+        com.kernel.ai.feature.chat.looksLikeRawToolCall(response)
+    /** Current active model, exposed for in-chat settings controls. */
+    val currentModel: StateFlow<KernelModel?> =
+        activeModelState.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Snapshot of the currently active model settings, used by the settings overlay. */
+    val activeModelSettings: StateFlow<ModelSettingsEntity?> = _activeModelSettings.asStateFlow()
+
+    /** Returns hardware-aware defaults without persisting them, for the in-chat settings draft. */
+    fun defaultModelSettings(modelId: String): ModelSettingsEntity =
+        modelSettingsRepository.defaultSettings(modelId)
+
+    /** True while [applyModelSettingsAndStartNewChat] is in-flight. */
+    val isApplyingSettings: StateFlow<Boolean> = _isApplyingSettings.asStateFlow()
+
+    /**
+     * Emits `true` on successful settings apply, `false` on failure.
+     * Consumed by the UI to dismiss the settings sheet on success.
+     */
+    val settingsApplyCompleted: SharedFlow<Boolean> = _settingsApplyCompleted.asSharedFlow()
+
+    /**
+     * Apply conversation-scoped model settings and start a fresh chat session
+     * without restarting the app.
+     *
+     * The engine stays warm — only the conversation is recreated with the new
+     * [ModelConfig] derived from [draft]. The following settings are applied:
+     * temperature, top-p, top-k, thinking mode.
+     *
+     * Engine-level settings (model path, backend, max tokens, speculative decoding)
+     * are **not** changed — those require a full [initEngineWhenReady] cycle.
+     *
+     * On success the settings sheet should be dismissed; on failure [ChatUiState.error]
+     * is set with a descriptive message.
+     */
+    fun applyModelSettingsAndStartNewChat(draft: ModelSettingsEntity) {
+        viewModelScope.launch {
+            _isApplyingSettings.value = true
+            try {
+                val model = activeModel ?: run {
+                    _error.value = "Cannot apply settings: no active model"
+                    _settingsApplyCompleted.emit(false)
+                    return@launch
+                }
+                val modelPath = downloadManager.getModelPath(model) ?: run {
+                    _error.value = "Cannot apply settings: model file not found"
+                    _settingsApplyCompleted.emit(false)
+                    return@launch
+                }
+
+                // 1. Cancel active generation
+                activeTurnCancellationRequest.set(true)
+                inferenceEngine.cancelGeneration()
+
+                // 2. Stop/clear voice input/output state
+                stopVoicePlayback()
+                _voiceMode.value = null
+                pendingVoiceReply = false
+                voiceInputController.stopListening()
+                voiceOutputController.stop()
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                _voicePlaybackState.value = VoicePlaybackState.Idle
+
+                // 3. Capture the pre-apply active settings for engine-scoped field carry-over
+                //    (contextWindowSize/maxTokens, speculativeDecodingEnabled) BEFORE
+                //    overwriting _activeModelSettings with the draft (#961).
+                val preApplyActiveSettings = _activeModelSettings.value
+
+                // 4. Build fresh ModelConfig from active model + draft settings
+                //    Only conversation-scoped fields are changed (temperature, top-p,
+                //    top-k, thinking). Engine-level fields (backend, maxTokens,
+                //    speculativeDecoding) carry over from the active model's current
+                //    config — draft values must NOT be used for those (#961).
+                val newConfig = ModelConfig(
+                    modelPath = modelPath,
+                    systemPrompt = buildSystemPrompt(),
+                    maxTokens = preApplyActiveSettings?.contextWindowSize ?: DEFAULT_MAX_TOKENS,
+                    temperature = draft.temperature,
+                    topP = draft.topP,
+                    topK = draft.topK,
+                    thinkingEnabled = draft.showThinkingProcess,
+                    speculativeDecodingEnabled = preApplyActiveSettings?.speculativeDecodingEnabled ?: true,
+                    toolProvider = toolProvider,
+                )
+
+                // 5. Reconfigure the engine conversation with new settings FIRST,
+                //    before persisting. This way, if reconfigure throws, nothing has
+                //    been persisted or mutated — the apply is atomic (#961, #1253 review).
+                inferenceEngine.reconfigureConversation(newConfig)
+
+                // 6. Persist draft settings and update reactive state.
+                //    Only reached when reconfigureConversation succeeded — so the
+                //    persisted settings and engine state are consistent.
+                modelSettingsRepository.saveSettings(draft)
+                _activeModelSettings.value = draft
+                _showThinkingProcess.value = draft.showThinkingProcess
+
+                // 6. Start a fresh conversation record
+                val id = conversationRepository.createConversation()
+                conversationId = id
+
+                // 7. Clear all transient chat state for the new conversation
+                _messages.value = emptyList()
+                replaceInputText("")
+                _error.value = null
+                _conversationTitle.value = null
+                titleGenerationStarted = false
+                titleIsPlaceholder = false
+
+                // 8. Reset token/context counters and replay flags
+                estimatedTokensUsed = 0
+                turnsSinceReset = 0
+                needsHistoryReplay = false
+                pendingConfirmationIntent = null
+
+                // 9. Rebuild system prompt now that backend + settings are resolved
+                inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+
+                Log.i(TAG, "Settings applied and new conversation started for ${model.modelId}")
+                _settingsApplyCompleted.emit(true)
+            } catch (e: CancellationException) {
+                _settingsApplyCompleted.emit(false)
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "applyModelSettingsAndStartNewChat failed", e)
+                _error.value = "Failed to apply settings: ${e.message}"
+                _settingsApplyCompleted.emit(false)
+            } finally {
+                _isApplyingSettings.value = false
+            }
+        }
+    }
+
+    /** Persist thinking mode for the current model and update active settings snapshot. */
+    fun setThinkingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            val settings = modelSettingsRepository.getSettings(model.modelId)
+            modelSettingsRepository.saveSettings(settings.copy(showThinkingProcess = enabled))
+            _activeModelSettings.value = _activeModelSettings.value?.copy(showThinkingProcess = enabled)
+            if (inferenceEngine.isReady.value) {
+                _showThinkingProcess.value = enabled
+            }
+        }
+    }
+
+    /** Persist temperature for the current model and update active settings snapshot. */
+    fun setTemperature(temp: Float) {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            val settings = modelSettingsRepository.getSettings(model.modelId)
+            modelSettingsRepository.saveSettings(settings.copy(temperature = temp))
+            _activeModelSettings.value = _activeModelSettings.value?.copy(temperature = temp)
+        }
+    }
+
+    /** Persist top-P for the current model and update active settings snapshot. */
+    fun setTopP(topP: Float) {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            val settings = modelSettingsRepository.getSettings(model.modelId)
+            modelSettingsRepository.saveSettings(settings.copy(topP = topP))
+            _activeModelSettings.value = _activeModelSettings.value?.copy(topP = topP)
+        }
+    }
+
+    /** Persist top-K for the current model and update active settings snapshot. */
+    fun setTopK(topK: Int) {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            val settings = modelSettingsRepository.getSettings(model.modelId)
+            modelSettingsRepository.saveSettings(settings.copy(topK = topK))
+            _activeModelSettings.value = _activeModelSettings.value?.copy(topK = topK)
+        }
+    }
+
+    /** Reset current model settings to hardware-aware defaults and update snapshot. */
+    fun resetModelSettings() {
+        viewModelScope.launch {
+            val model = activeModel ?: return@launch
+            val defaults = modelSettingsRepository.resetToDefaults(model.modelId)
+            _activeModelSettings.value = defaults
+        }
+    }
+
+    /**
+     * Returns true when [text] is an explicit anaphoric save-memory request such as
+     * "remember that", "can you remember this", "save that" with no factual content
+     * following the pronoun — the referent must be resolved from the previous user turn.
+     */
+    private fun isAnaphoricSaveRequest(text: String): Boolean = com.kernel.ai.feature.chat.isAnaphoricSaveRequest(text)
+
+    /**
+     * Returns true when [text] looks like a short concrete personal fact that a user would
+     * reasonably want stored in memory — e.g. "I don't like aubergines", "My dog is called Biscuit".
+     */
+    private fun looksLikePersonalFact(text: String): Boolean = com.kernel.ai.feature.chat.looksLikePersonalFact(text)
+
+    /**
+     * Validates intent params against [SlotValidationRegistry] before dispatch.
+     *
+     * Checks every param value against registered validators for the intent.
+     * On first failure, appends a user-facing clarification message and returns
+     * false to prevent dispatch. When every param passes (or has no registered
+     * validator), returns true so execution proceeds normally.
+     *
+     * This is the shared guard for ALL dispatch paths — direct intent matches,
+     * recovery-origin dispatches, and anaphoric references.
+     */
+    private suspend fun validateBeforeDispatch(
+        intentName: String,
+        params: Map<String, String>,
+        convId: String,
+    ): Boolean {
+        val effectiveIntent = if (intentName == "run_intent") {
+            params["intent_name"] ?: intentName
+        } else {
+            intentName
+        }
+
+        val invalidResult = slotValidationRegistry.validateParams(effectiveIntent, params)
+        if (invalidResult != null) {
+            val message = invalidResult.errorMessage
+                ?: "Sorry, I didn't understand that value. Please try again."
+            Log.d("KernelAI", "SlotValidation: blocked $effectiveIntent — $message")
+            appendAssistantMessage(convId, message, shouldIndex = false)
+            return false
+        }
+        return true
+    }
+}
+
+/** C2 correction prepended to the prompt when a hallucination retry is attempted (#487). */
+private const val HALLUCINATION_RETRY_CORRECTION =
+    "[System: Your previous response was blocked. It appeared to describe performing an action " +
+        "without actually calling the required tool function. You MUST call the appropriate tool — " +
+        "do not narrate results. If the tool is unavailable, say so honestly.]"
+
+private const val RAW_TOOL_CALL_RETRY_CORRECTION =
+    "[System: Your previous response was blocked. It emitted raw tool-call syntax into chat " +
+        "instead of executing the tool. Do NOT print <|tool_call> tokens, JSON tool calls, or " +
+        "function text. Silently call the appropriate native tool function and then answer with " +
+        "the final user-facing result only.]"
+
+private const val SYSTEM_ONLY_TOOL_RETRY_CORRECTION =
+    "[System: You already loaded internal tool instructions. Do NOT quote, summarise, or paste " +
+        "those instructions into chat. Use them silently and answer the user's original request " +
+        "in natural language only.]"
+
+/**
+ * Correction for an incomplete tool chain: load_skill was called but no executable
+ * tool followed. The model needs to use the loaded instructions and call the
+ * appropriate native tool, not merely describe or confirm the action.
+ */
+private const val INCOMPLETE_CHAIN_CORRECTION =
+    "[System: You successfully loaded the required internal tool instructions, but you " +
+        "have not executed the user's requested action. Use those instructions now and call " +
+        "the appropriate executable native tool. Do not merely describe or confirm the action. " +
+        "After the tool returns, provide only the final user-facing result.]"
+
+/**
+ * Wording used when no executable tool was invoked or a tool result is blank.
+ * Matches the wording used in persistHonestActionFailure().
+ */
+private const val HONEST_ACTION_FAILURE =
+    "I wasn't able to complete that action — please try again, or try phrasing it differently."
+
+/**
+ * Returns true if a tool call result should be indexed in episodic RAG memory.
+ *
+ * Device actions, weather, and system info are ephemeral — indexing them causes the
+ * model to surface stale device state as facts in future turns (#614). Knowledge
+ * results (e.g. Wikipedia via run_js) are worth recalling.
+ */
+private fun shouldIndexToolCallResult(skillName: String): Boolean {
+    // Recovered intents are device actions (transient) — never indexable.
+    if (skillName.startsWith("Recovered: ")) return false
+    return when (skillName) {
+        "run_intent",       // device actions — transient state, not facts
+        "get_weather",      // ephemeral — must always call live
+        "get_system_info",  // ephemeral — time/date always stale
+        "load_skill",       // meta-tool — no content value
+        "save_memory",      // memory system handles indexing separately
+        "search_memory",    // read-only, no new content
+        -> false
+        else -> true        // run_js (wikipedia etc.) — knowledge worth recalling
+    }
+}
+
+
+private fun isSystemOnlyToolCall(skillName: String): Boolean = skillName == "load_skill"
+
+private fun ToolCallInfo.toVisibleToolCallInfo(): ToolCallInfo {
+    if (skillName == "query_wikipedia") {
+        return copy(resultText = com.kernel.ai.core.skills.toVisibleWikipediaEvidenceResult(resultText))
+    }
+    if (!isSystemOnlyToolCall(skillName)) return this
+    val loadedSkillName = runCatching {
+        org.json.JSONObject(requestJson).optString("skill_name").takeIf { it.isNotBlank() }
+    }.getOrNull()
+    val displayName = loadedSkillName?.replace('_', ' ')
+    val summary = if (displayName != null) {
+        "Loaded internal instructions for $displayName."
+    } else {
+        "Loaded internal instructions."
+    }
+    val title = if (displayName != null) {
+        "Loaded $displayName instructions"
+    } else {
+        "Loaded skill instructions"
+    }
+    return copy(
+        resultText = summary,
+        presentation = ToolPresentation.Status(
+            icon = "🧠",
+            title = title,
+            subtitle = "Internal step used to answer this question.",
+        ),
+        spokenSummary = null,
+    )
+}
+
+private fun fallbackSystemOnlyToolReply(userText: String): String =
+    if (userText.trim().endsWith("?")) {
+        "Yes — I can help with that. Tell me what you'd like to do."
+    } else {
+        "I can help with that. Tell me what you'd like to do."
+    }
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> "%.0f MB".format(bytes / 1_048_576.0)
+    else -> "$bytes B"
+}
+

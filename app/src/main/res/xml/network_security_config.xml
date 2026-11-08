@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    #1678: Jandal sends network traffic only over HTTPS. Nextcloud, model downloads and voice-pack
+    downloads all require https:// URLs and refuse redirects to plain HTTP, so cleartext is denied
+    for every host. No build variant overrides this.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
