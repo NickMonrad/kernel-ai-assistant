@@ -67,6 +67,10 @@ internal const val GPU_ENGINE_RESTART_ENABLED = true
 private const val GPU_ENGINE_RESTART_INTERVAL = 5
 /** Mirrors LiteRT-LM 0.17.1's per-conversation tool-call limit. */
 private const val RECURRING_TOOL_CALL_LIMIT = 25
+/** Preferences for bounded, one-shot lifecycle probes in debuggable builds only (#1758). */
+private const val DEBUG_INIT_PROBE_PREFS = "pr1758_init_probe"
+private const val DEBUG_INIT_PROBE_FAIL_NEXT = "fail_next"
+private const val DEBUG_INIT_PROBE_STALL_NEXT_MS = "stall_next_ms"
 private const val LITERT_STATUS_MARKER = "Status Code:"
 private enum class DebugLoadSkillProbeMode {
     ABORT_BEFORE_NATIVE_CONTINUATION,
@@ -1133,6 +1137,28 @@ class LiteRtInferenceEngine @Inject constructor(
                         // GPU hardware is suspended when the screen is off; delay init until screen is on.
                         waitForScreenInteractive()
                         _isReady.value = false
+                        if (BuildConfig.DEBUG &&
+                            (context.applicationInfo.flags and
+                                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                        ) {
+                            val probe = context.getSharedPreferences(
+                                DEBUG_INIT_PROBE_PREFS,
+                                Context.MODE_PRIVATE,
+                            )
+                            if (probe.getBoolean(DEBUG_INIT_PROBE_FAIL_NEXT, false)) {
+                                probe.edit().remove(DEBUG_INIT_PROBE_FAIL_NEXT).apply()
+                                Log.w(TAG, "PR1758 debug probe forcing initialization failure")
+                                throw InferenceException("PR1758 debug probe forced initialization failure")
+                            }
+                            val stallMs = probe.getLong(DEBUG_INIT_PROBE_STALL_NEXT_MS, 0L)
+                                .coerceIn(0L, 120_000L)
+                            if (stallMs > 0L) {
+                                probe.edit().remove(DEBUG_INIT_PROBE_STALL_NEXT_MS).apply()
+                                Log.w(TAG, "PR1758 debug probe stalling initialization for ${stallMs}ms")
+                                Thread.sleep(stallMs)
+                                Log.i(TAG, "PR1758 debug probe initialization stall completed")
+                            }
+                        }
 
                         // Apply hardware-aware defaults when AUTO is specified.
                         val profile = hardwareProfileDetector.profile
