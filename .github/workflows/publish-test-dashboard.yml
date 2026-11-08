@@ -84,7 +84,7 @@ jobs:
           cd repo
           python3 scripts/build_test_dashboard.py \
             --results-dir ../test-results/results \
-            --out-dir _site \
+            --out-dir _site/evidence \
             --evidence-store-state "${{ steps.evidence_store.outputs.state || 'unavailable' }}" \
             --evidence-store-reason "${{ steps.evidence_store.outputs.reason || 'The evidence store could not be assessed.' }}"
 
@@ -183,6 +183,11 @@ jobs:
           if [[ -d repo/.legal-pages-build/beta ]]; then
             cp -R repo/.legal-pages-build/beta repo/_site/beta
           fi
+      - name: Add Jandal landing page
+        run: |
+          set -euo pipefail
+          mkdir -p repo/_site
+          cp -R repo/site/. repo/_site/
 
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
