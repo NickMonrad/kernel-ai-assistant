@@ -1,7 +1,5 @@
 # Jandal AI Terms of Use
 
-> **Draft for owner review. Not yet published or in effect.** The contact address is a placeholder until the dedicated support address exists.
-
 These terms apply when you use the Jandal AI app ("Jandal"). By using Jandal you agree to them. If you don't agree, don't use the app.
 
 ## 1. Provided as is
@@ -35,7 +33,7 @@ Some features you choose to use connect to services that Jandal does not operate
 - Wikipedia lookups;
 - model and voice downloads (Hugging Face, GitHub);
 - your own Nextcloud server;
-- Android speech, maps, phone, messaging, and other apps Jandal hands requests to.
+- Android speech, maps, phone, messaging, web browser and search, and other apps Jandal hands requests to.
 
 Those services are governed by their own terms and privacy policies. Jandal isn't responsible for their availability, content, or practices. See the [Privacy Policy](PRIVACY.md) for what Jandal sends to them.
 
@@ -49,6 +47,6 @@ These terms may be updated. The current version is published at this page with i
 
 ## 9. Contact
 
-Questions or reports: **SUPPORT_EMAIL_TBD** (dedicated support address to be confirmed).
+Questions or reports: **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)**
 
-_Effective date: to be set on publication._
+_Effective date: 3 November 2026._

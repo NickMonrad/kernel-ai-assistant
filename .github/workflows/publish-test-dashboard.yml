@@ -123,6 +123,7 @@ jobs:
           pages = (
               ("PRIVACY.md", "Privacy Policy", "/privacy/"),
               ("TERMS.md", "Terms of Use", "/terms/"),
+              ("BETA.md", "Join the beta", "/beta/"),
           )
           staged = []
           for filename, title, permalink in pages:
@@ -130,16 +131,26 @@ jobs:
               if not original.is_file():
                   continue
               content = original.read_text()
-              if "Draft for owner" in content:
-                  print(f"Skipping draft legal document: {filename}")
+              # Only the leading banner marks a draft, so a document quoting the phrase still publishes.
+              if content.lstrip().startswith("> **Draft for owner"):
+                  print(f"Skipping draft document: {filename}")
                   continue
-              if filename == "TERMS.md":
-                  content = content.replace(
-                      "(PRIVACY.md)", f"(/{repo_name}/privacy/)"
-                  ).replace(
-                      "(LICENSE)",
-                      f"(https://github.com/{repo}/blob/main/LICENSE)",
-                  )
+              # Any tester-list option works (Google Group, Play email list, form); the page waits
+              # only for the placeholder to be replaced.
+              if filename == "BETA.md" and "TESTER_GROUP_LINK" in content:
+                  print(f"Skipping {filename}: tester link placeholder still present")
+                  continue
+              content = content.replace(
+                  "(PRIVACY.md)", f"(/{repo_name}/privacy/)"
+              ).replace(
+                  "(TERMS.md)", f"(/{repo_name}/terms/)"
+              ).replace(
+                  "(LICENSE)",
+                  f"(https://github.com/{repo}/blob/main/LICENSE)",
+              ).replace(
+                  "(NOTICE)",
+                  f"(https://github.com/{repo}/blob/main/NOTICE)",
+              )
               page = source / filename
               page.write_text(
                   f"---\nlayout: legal\ntitle: {title}\npermalink: {permalink}\n---\n"
@@ -168,6 +179,9 @@ jobs:
           fi
           if [[ -d repo/.legal-pages-build/terms ]]; then
             cp -R repo/.legal-pages-build/terms repo/_site/terms
+          fi
+          if [[ -d repo/.legal-pages-build/beta ]]; then
+            cp -R repo/.legal-pages-build/beta repo/_site/beta
           fi
 
       - name: Configure Pages

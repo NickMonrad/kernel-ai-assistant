@@ -16,6 +16,28 @@ import com.kernel.ai.core.skills.intent.CalendarSlotExtractor
 import com.kernel.ai.core.skills.intent.ExtractionResult
 import com.kernel.ai.core.skills.intent.IntentContract
 import com.kernel.ai.core.skills.intent.IntentRiskLevel
+/** Written-out tens words and tens-plus-unit compounds ("sixty", "forty five", "forty-five") for set_timer. */
+private const val WRITTEN_TENS = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+private const val WRITTEN_UNITS = "one|two|three|four|five|six|seven|eight|nine"
+private const val WRITTEN_TENS_COMPOUND = """(?:$WRITTEN_TENS)(?:[\s-]+(?:$WRITTEN_UNITS))?"""
+
+/** Written-out quantity values for set_timer durations, including the tens words. */
+private val WRITTEN_QUANTITY_VALUES: Map<String, Int> = mapOf(
+    "a" to 1, "an" to 1, "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
+    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10, "fifteen" to 15,
+    "twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50, "sixty" to 60,
+    "seventy" to 70, "eighty" to 80, "ninety" to 90,
+)
+
+/** Sums written-out words: "six" → 6, "sixty" → 60, "forty five" / "forty-five" → 45. Null if any word is unknown. */
+private fun writtenQuantity(phrase: String): Int? {
+    val words = phrase.split(Regex("[\\s-]+")).filter(String::isNotEmpty)
+    if (words.isEmpty()) return null
+    var total = 0
+    for (word in words) total += WRITTEN_QUANTITY_VALUES[word] ?: return null
+    return total
+}
+
 /**
  * Tier 2: Fast Intent Layer — pure Kotlin regex + future BERT-tiny zero-shot classifier.
  *
@@ -1012,19 +1034,14 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """(?:set|start|create)\s+(?:a\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
+                """(?:set|start|create)\s+(?:a\s+)?(?:$WRITTEN_TENS_COMPOUND|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, input ->
-                val wordMap = mapOf(
-                    "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
-                    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,
-                    "fifteen" to 15, "twenty" to 20, "thirty" to 30, "an" to 1, "a" to 1,
-                )
                 val lower = input.lowercase()
-                val numMatch = Regex("""(one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
-                if (numMatch != null) {
-                    val qty = wordMap[numMatch.groupValues[1]] ?: 1
+                val numMatch = Regex("""($WRITTEN_TENS_COMPOUND|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
+                val qty = numMatch?.let { writtenQuantity(it.groupValues[1]) }
+                if (numMatch != null && qty != null) {
                     val unit = numMatch.groupValues[2]
                     val half = lower.contains("and a half") || lower.contains("and-a-half")
                     val seconds = when {
@@ -5005,6 +5022,29 @@ class QuickIntentRouter(
     // ── Parameter parsing helpers ─────────────────────────────────────────────
 
     companion object {
+        private val TRAILING_ALARM_LABEL_REGEX = Regex(
+            """\bfor\s+(.+?)(?=\s+(?:at|on|by|from|for|tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|$)""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX = Regex(
+            """^(?:(?:the|this|next|a|an|each|every(?:\s+other)?)(?:\s+|$))+""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_ARTICLE_REGEX = Regex(
+            """^(?:the|an?)\s+""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_TEMPORAL_ONLY_REGEX = Regex(
+            """^(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun|(?:mon|tues|wednes|thurs|fri|satur|sun)days|morning|afternoon|evening|nights?|weeknight|weeknights|weekend|weekends|weekdays?|week|weeks|day|days|daily|everyday|noon|midnight|now|later|\d+\s+(?:minutes?|hours?|days?|weeks?)|\d{1,2}(?:st|nd|rd|th)|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?:morning|afternoon|evening|night))?$""",
+            RegexOption.IGNORE_CASE,
+        )
+        private fun isTemporalAlarmLabelCandidate(candidate: String): Boolean {
+            val temporalCandidate = candidate
+                .replace(ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX, "")
+                .trim()
+            return temporalCandidate.isEmpty() || ALARM_LABEL_TEMPORAL_ONLY_REGEX.matches(temporalCandidate)
+        }
+
         /**
          * Intent names that carry no user-supplied parameters and are safe to execute
          * without confirmation once the classifier confidence is at or above [FAST_PATH_THRESHOLD].
@@ -5134,10 +5174,20 @@ class QuickIntentRouter(
                 """\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun)\b""",
                 RegexOption.IGNORE_CASE,
             )
-            val dayMatch = dayRegex.find(cleaned)
+            val trailingForLabelMatch = TRAILING_ALARM_LABEL_REGEX
+                .findAll(cleaned)
+                .firstOrNull { it.range.first > match.range.last }
+            val trailingForLabelCandidate = trailingForLabelMatch?.groups?.get(1)?.value?.trim()
+            val trailingForLabelRange = trailingForLabelMatch?.groups?.get(1)?.range
+            val dayMatch = dayRegex.findAll(cleaned).firstOrNull { candidateDay ->
+                val isInsidePurpose = trailingForLabelRange?.contains(candidateDay.range.first) == true
+                !isInsidePurpose ||
+                    trailingForLabelCandidate?.let { isTemporalAlarmLabelCandidate(it) } == true
+            }
             if (dayMatch != null) {
                 params["day"] = normalizeDayName(dayMatch.groupValues[1].lowercase())
             }
+
 
             // Extract label from "called X", "named X", "labeled X", "labelled X" — mirrors parseTimerDuration.
             // Non-greedy capture with lookahead to stop before time/date keywords so
@@ -5147,22 +5197,29 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             )
             val labelMatch = labelRegex.find(cleaned)
-            if (labelMatch != null) {
-                params["label"] = labelMatch.groupValues[1].trim()
-            } else {
-                val earliestStructuredIndex = listOfNotNull(
-                    dayMatch?.range?.first,
-                    match.range.first.takeIf { it > 0 },
-                ).minOrNull()
-                val implicitLabel = earliestStructuredIndex
-                    ?.let { cleaned.substring(0, it).trim() }
-                    ?.replace(Regex("""^(?:for|on|at|by)\s+"""), "")
-                    ?.replace(Regex("""\s+(?:for|on|at|by)$"""), "")
-                    ?.replace(Regex("""^(?:the|an?)\s+"""), "")
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                if (implicitLabel != null) {
-                    params["label"] = implicitLabel
+            val trailingForLabel = trailingForLabelCandidate
+                ?.takeUnless { isTemporalAlarmLabelCandidate(it) }
+                ?.replace(ALARM_LABEL_ARTICLE_REGEX, "")
+                ?.trim()
+            val namedLabel = labelMatch?.groupValues?.get(1)?.trim()
+            when {
+                !namedLabel.isNullOrBlank() -> params["label"] = namedLabel
+                !trailingForLabel.isNullOrBlank() -> params["label"] = trailingForLabel
+                match.range.first > 0 -> {
+                    val earliestStructuredIndex = listOfNotNull(
+                        dayMatch?.range?.first,
+                        match.range.first,
+                    ).minOrNull()
+                    val implicitLabel = earliestStructuredIndex
+                        ?.let { cleaned.substring(0, it).trim() }
+                        ?.replace(Regex("""^(?:for|on|at|by)(?:\s+|$)"""), "")
+                        ?.replace(Regex("""\s+(?:for|on|at|by)$"""), "")
+                        ?.replace(Regex("""^(?:the|an?)\s+"""), "")
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                    if (implicitLabel != null) {
+                        params["label"] = implicitLabel
+                    }
                 }
             }
 

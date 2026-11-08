@@ -225,6 +225,18 @@ class ChatViewModelToolUsePromptTest {
     }
 
     @Test
+    fun `buildToolUsePrompt requires filtered memory recall evidence`() {
+        val p = createViewModel().buildToolUsePrompt().lowercase()
+        assertTrue(
+            p.contains("what do you remember about me") &&
+                p.contains("must call search_memory before answering") &&
+                p.contains("only that tool's filtered results") &&
+                p.contains("concise list"),
+            "Missing grounded personal memory recall routing\n$p",
+        )
+    }
+
+    @Test
     fun `buildToolUsePrompt says do not use info tools for actions`() {
         val p = createViewModel().buildToolUsePrompt()
         assertTrue(p.contains("get_system_info") && p.contains("query_wikipedia"), "Missing info tool exclusion\n$p")
