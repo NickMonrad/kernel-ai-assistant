@@ -1,6 +1,7 @@
 package com.kernel.ai.core.inference
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.PowerManager
 import android.util.Log
 import com.google.ai.edge.litertlm.Engine
@@ -41,12 +42,15 @@ import java.util.concurrent.atomic.AtomicInteger
 @OptIn(ExperimentalCoroutinesApi::class)
 class LiteRtInferenceEngineInitializationFailureTest {
     private val context = mockk<Context>(relaxed = true)
+    private val restartPreferences = mockk<SharedPreferences>(relaxed = true)
     private val powerManager = mockk<PowerManager>()
     private val hardwareProfileDetector = mockk<HardwareProfileDetector>()
 
     @BeforeEach
     fun setUp() {
         every { powerManager.isInteractive } returns true
+        every { context.getSharedPreferences("pr1756_gpu_restart", Context.MODE_PRIVATE) } returns restartPreferences
+        every { restartPreferences.getBoolean("enabled", false) } returns false
         every { context.getSystemService(PowerManager::class.java) } returns powerManager
         every { context.getSystemService(Context.ACTIVITY_SERVICE) } returns null
         every { context.cacheDir } returns File("/tmp")
@@ -171,6 +175,7 @@ class LiteRtInferenceEngineInitializationFailureTest {
 
     @Test
     fun `cancelling a GPU restart caller still completes initialization and allows later init`() = runTest {
+        enablePeriodicRestartForTest()
         val enteredRestartInitialize = CountDownLatch(1)
         val finishRestartInitialize = CountDownLatch(1)
         val initializeCalls = AtomicInteger()
@@ -203,6 +208,7 @@ class LiteRtInferenceEngineInitializationFailureTest {
 
     @Test
     fun `eager init waits behind cancelled restart caller without duplicate native allocation`() = runTest {
+        enablePeriodicRestartForTest()
         val enteredRestartInitialize = CountDownLatch(1)
         val finishRestartInitialize = CountDownLatch(1)
         val initializeCalls = AtomicInteger()
@@ -259,6 +265,7 @@ class LiteRtInferenceEngineInitializationFailureTest {
 
     @Test
     fun `restart failure is returned as retryable error and a later initialization succeeds`() = runTest {
+        enablePeriodicRestartForTest()
         val initializeCalls = AtomicInteger()
         every { anyConstructed<Engine>().initialize() } answers {
             if (initializeCalls.incrementAndGet() == 2) {
@@ -280,6 +287,10 @@ class LiteRtInferenceEngineInitializationFailureTest {
         engine.initialize(config)
         assertTrue(engine.isReady.value)
         assertEquals(3, initializeCalls.get())
+    }
+
+    private fun enablePeriodicRestartForTest() {
+        every { restartPreferences.getBoolean("enabled", false) } returns true
     }
 
     private fun testConfig(backend: BackendType = BackendType.GPU) = ModelConfig(
