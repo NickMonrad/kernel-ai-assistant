@@ -4212,6 +4212,22 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
         ),
+        // "what do I need to get from the shops" / "what do I need from Bunnings"
+        // Captures any place; NativeIntentHandler resolves known store categories and named lists.
+        IntentPattern(
+            intentName = "get_list_items",
+            regex = Regex(
+                """^what\s+do\s+(?:i|we)\s+need(?:\s+to\s+(?:get|buy))?\s+(?:from|at)\s+(?:(?:the|a)\s+)?(.+?)[?.!]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "list_name" to match.groupValues[1].trim(),
+                    "fallthrough_on_missing" to "true",
+                )
+            },
+        ),
+
 
         // ── Save Memory ──
         // Pattern: "remember something" / "save something to memory" → ask what to remember

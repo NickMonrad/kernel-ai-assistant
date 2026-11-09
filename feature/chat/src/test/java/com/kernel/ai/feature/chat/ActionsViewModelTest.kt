@@ -25,11 +25,14 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -103,6 +106,39 @@ class ActionsViewModelTest {
         assertEquals(
             mapOf("intent_name" to "calculate_arithmetic", "expression" to "100 / 10"),
             CapturingRunIntentSkill.default.calls[1].arguments,
+        )
+    }
+
+    @Test
+    fun `missing custom place list hands Quick Actions request to chat`() = runTest(dispatcher) {
+        val input = "what do I need from the garden centre"
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run a native intent"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult =
+                SkillResult.Failure(
+                    "get_list_items",
+                    "I couldn't find a list called \"garden centre\".",
+                    fallThroughToModel = true,
+                )
+        }
+        every { skillRegistry.get(any()) } answers {
+            if (firstArg<String>() == "run_intent") runIntentSkill else null
+        }
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { events += it }
+        }
+
+        viewModel.executeAction(input)
+        advanceUntilIdle()
+
+        assertEquals("llm_fallthrough", insertedActions.single().skillName)
+        assertEquals(input, insertedActions.single().userQuery)
+        assertEquals(
+            listOf(ActionsViewModel.UiEvent.NavigateToChat(input, speakResponse = false)),
+            events,
         )
     }
 

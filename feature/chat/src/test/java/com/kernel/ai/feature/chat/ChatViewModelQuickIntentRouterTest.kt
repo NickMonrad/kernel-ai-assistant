@@ -535,6 +535,46 @@ class ChatViewModelQuickIntentRouterTest {
     }
 
     @Test
+    fun `unlisted custom place falls through to model after list lookup`() = runTest(dispatcher) {
+        val input = "what do I need from the garden centre"
+        var listMissHandled = false
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run a native intent"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult {
+                listMissHandled = true
+                return SkillResult.Failure(
+                    "get_list_items",
+                    "I couldn't find a list called \"garden centre\".",
+                    fallThroughToModel = true,
+                )
+            }
+        }
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "get_weather" -> weatherSkill
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("I can help with that."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged(input)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(listMissHandled)
+        verify(exactly = 1) { inferenceEngine.generate(any()) }
+        assertTrue(viewModel.getConversationAsText().contains("I can help with that."))
+    }
+
+    @Test
     fun `non-weather query falls through to LLM as expected`() = runTest(dispatcher) {
         val input = "tell me a joke"
 
