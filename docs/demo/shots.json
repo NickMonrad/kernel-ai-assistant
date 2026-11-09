@@ -45,6 +45,15 @@
         "github.com/NickMonrad/kernel-ai-assistant"
       ],
       "seconds": 4
+    },
+    "soon": {
+      "title": "Jandal AI",
+      "lines": [
+        "A Kiwi AI assistant that runs on your phone",
+        "Coming soon to Google Play · Open source",
+        "nickmonrad.github.io/kernel-ai-assistant"
+      ],
+      "seconds": 4
     }
   },
   "shots": [
