@@ -3470,6 +3470,17 @@ class QuickIntentRouter(
         ),
 
         // ── Date Diff ──
+        // "how long's it until Easter" / "how long is it until Easter"
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """how\s+long(?:'s|’s|\s+is)\s+it\s+(?:until|till|to|before)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until")
+            },
+        ),
         // "how many days until Christmas" / "how long until my birthday on August 22"
         IntentPattern(
             intentName = "get_date_diff",
@@ -3510,7 +3521,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_date_diff",
             regex = Regex(
-                """when\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
+                """when(?:\s+is|'s|’s)\s+(?!.*\bthis\s+year\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1])) }
@@ -4781,11 +4792,15 @@ class QuickIntentRouter(
 
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
+        // Normalize curly apostrophes for regex matching only. This covers STT and typed text,
+        // including contraction tokens and possessive apostrophes in captured slots. The
+        // classifier and fall-through continue to receive the original trimmed input.
+        val apostropheNormalized = trimmed.replace('‘', '\'').replace('’', '\'')
         // Alias + mishearing normalisation scoped to regex pattern matching only — NOT fed to the
         // classifier. Applying globally would corrupt labels and distort the classifier input
         // distribution (see IMPORTANT_DATE_ALIAS_RE comment for full rationale).
         val aliasNormalized = STT_NZ_MISHEARING_RE.replace(
-            IMPORTANT_DATE_ALIAS_RE.replace(trimmed, "important date"),
+            IMPORTANT_DATE_ALIAS_RE.replace(apostropheNormalized, "important date"),
             // Restore the elided terminal 'e' on the verb stem and inject the article:
             // "saver note" → stem "sav" → "save a note"
             // Stems ending in vowel (add, record, jot) get just " a "; stems missing 'e'

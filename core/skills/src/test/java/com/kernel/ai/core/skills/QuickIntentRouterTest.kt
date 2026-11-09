@@ -902,6 +902,16 @@ class QuickIntentRouterTest {
             assertEquals("London", intent.params["location"])
         }
 
+    @ParameterizedTest(name = "Date diff: \"{0}\" → target_date={1}")
+    @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#dateDiffTargetPhrases")
+    fun `date contractions preserve target date text`(input: String, expectedTargetDate: String) {
+        val result = regexOnlyRouter.route(input)
+        assertRegexMatch(result, "get_date_diff", input)
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals(expectedTargetDate, intent.params["target_date"], "target_date for '$input'")
+    }
+
     @Test
     fun `date diff until phrases tag direction as until`() {
         val result = regexOnlyRouter.route("how long until Christmas")
@@ -3155,6 +3165,17 @@ class QuickIntentRouterTest {
         )
 
         @JvmStatic
+        fun dateDiffTargetPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("When's my wife's birthday", "my wife's birthday"),
+            Arguments.of("When’s my wife’s birthday", "my wife's birthday"),
+            Arguments.of("When’s Easter", "Easter"),
+            Arguments.of("when's ANZAC Day", "ANZAC Day"),
+            Arguments.of("when is my wife's birthday", "my wife's birthday"),
+            Arguments.of("how long's it until Easter", "Easter"),
+            Arguments.of("how long is it until Easter", "Easter"),
+        )
+
+        @JvmStatic
         fun calculatorRegexPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("245 * 17", "245 * 17"),
             Arguments.of("what is 18.5% of 240", "18.5% of 240"),
@@ -3812,6 +3833,7 @@ class QuickIntentRouterTest {
             Arguments.of("show my todo list", "todo list"),
             Arguments.of("what's on my shopping list", "shopping list"),
             Arguments.of("what's in my shopping list", "shopping list"),
+            Arguments.of("what’s on my shopping list", "shopping list"),
             Arguments.of("display list called shopping", "shopping"),
             Arguments.of("show me my grocery list", "grocery list"),
             Arguments.of("read my shopping list", "shopping list"),
