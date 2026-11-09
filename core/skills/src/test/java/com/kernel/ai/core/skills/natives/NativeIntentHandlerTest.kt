@@ -144,6 +144,54 @@ class NativeIntentHandlerTest {
         listMutations = mutations,
     )
 
+    private fun handlerWithUserName(userName: String?): NativeIntentHandler {
+        val profileRepository = mockk<UserProfileRepository>(relaxed = true)
+        coEvery { profileRepository.getName() } returns userName
+        return NativeIntentHandler(
+            context = context,
+            clockRepository = clockRepository,
+            clockAlertController = clockAlertController,
+            listItemDao = listItemDao,
+            listNameDao = listNameDao,
+            contactAliasRepository = contactAliasRepository,
+            importantDateRepository = importantDateRepository,
+            calendarBirthdayLookup = calendarBirthdayLookup,
+            memoryRepository = mockk<MemoryRepository>(relaxed = true),
+            embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
+            cookingConversionService = cookingConversionService,
+            currencyConversionService = currencyConversionService,
+            userProfileRepository = profileRepository,
+            noteDao = noteDao,
+            noteSmartTitleUseCase = noteSmartTitleUseCase,
+            listNotificationScheduler = listNotificationScheduler,
+        )
+    }
+
+    private fun stubInMemoryImportantDates(): MutableMap<String, ImportantDateEntity> {
+        val dates = linkedMapOf<String, ImportantDateEntity>()
+        coEvery { importantDateRepository.save(any(), any(), any(), any()) } answers {
+            val label = firstArg<String>()
+            val month = secondArg<Int>()
+            val day = thirdArg<Int>()
+            val year = invocation.args[3] as Int?
+            dates[ImportantDateRepository.normalizeLabel(label)] = ImportantDateEntity(
+                label = label,
+                normalizedLabel = ImportantDateRepository.normalizeLabel(label),
+                month = month,
+                day = day,
+                year = year,
+            )
+        }
+        coEvery { importantDateRepository.findByLabel(any()) } answers {
+            dates[ImportantDateRepository.normalizeLabel(firstArg())]
+        }
+        coEvery { importantDateRepository.getAll() } answers { dates.values.toList() }
+        coEvery { importantDateRepository.deleteByLabel(any()) } answers {
+            if (dates.remove(ImportantDateRepository.normalizeLabel(firstArg())) != null) 1 else 0
+        }
+        return dates
+    }
+
     @BeforeEach
     fun setUp() {
         mockkStatic(Log::class)
@@ -2405,6 +2453,119 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `self important dates resolve through profile labels after saving`() {
+        val namedHandler = handlerWithUserName("Nick")
+        val dates = stubInMemoryImportantDates()
+        val selfDates = listOf(
+            "my birthday",
+            "my anniversary",
+            "my wedding anniversary",
+        )
+
+        for (query in selfDates) {
+            val label = query.removePrefix("my ")
+            handleIntent(namedHandler, "save_important_date", mapOf("label" to query, "date" to "3 April"))
+            assertTrue(dates.containsKey(ImportantDateRepository.normalizeLabel("Nick's $label")))
+
+            val result = handleIntent(namedHandler, "get_date_diff", mapOf("target_date" to query))
+            val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            assertTrue(reply.content.contains("3 April"), reply.content)
+
+            val listed = handleIntent(namedHandler, "list_important_dates", emptyMap())
+            val listedContent = assertInstanceOf(SkillResult.DirectReply::class.java, listed).content
+            assertTrue(listedContent.contains("Nick's $label"), listedContent)
+        }
+    }
+
+    @Test
+    fun `self important date resolves without profile name after saving`() {
+        val unnamedHandler = handlerWithUserName(null)
+        val dates = stubInMemoryImportantDates()
+
+        handleIntent(unnamedHandler, "save_important_date", mapOf("label" to "my birthday", "date" to "3 April"))
+
+        assertTrue(dates.containsKey(ImportantDateRepository.normalizeLabel("birthday")))
+        val result = handleIntent(unnamedHandler, "get_date_diff", mapOf("target_date" to "my birthday"))
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertTrue(reply.content.contains("3 April"), reply.content)
+    }
+
+    @Test
+    fun `self birthday does not fuzzy match someone else's birthday`() {
+        val namedHandler = handlerWithUserName("Nick")
+        coEvery { importantDateRepository.findByLabel(any()) } returns null
+        coEvery { importantDateRepository.getAll() } returns listOf(
+            ImportantDateEntity(label = "Sam's birthday", normalizedLabel = "sam birthday", month = 4, day = 3),
+            ImportantDateEntity(label = "mum's birthday", normalizedLabel = "mum birthday", month = 5, day = 4),
+        )
+        every { calendarBirthdayLookup.hasPermission() } returns true
+        every { calendarBirthdayLookup.findBirthday(any()) } returns null
+
+        val result = handleIntent(namedHandler, "get_date_diff", mapOf("target_date" to "my birthday"))
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals(
+            "I don't know your birthday yet. Say \"my birthday is 3 June\" and I'll remember it.",
+            reply.content,
+        )
+        assertEquals(reply.content, reply.spokenSummary)
+        verify(exactly = 0) { calendarBirthdayLookup.findBirthday(any()) }
+        verify(exactly = 0) { calendarBirthdayLookup.hasPermission() }
+    }
+
+    @Test
+    fun `Sam birthday still resolves as someone else's important date`() {
+        val dates = stubInMemoryImportantDates()
+        dates[ImportantDateRepository.normalizeLabel("Sam's birthday")] = ImportantDateEntity(
+            label = "Sam's birthday",
+            normalizedLabel = "sam birthday",
+            month = 4,
+            day = 3,
+        )
+
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "Sam's birthday"))
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertTrue(reply.content.contains("3 April"), reply.content)
+    }
+
+    @Test
+    fun `self birthday lookup falls back to legacy plain label`() {
+        val namedHandler = handlerWithUserName("Nick")
+        val dates = stubInMemoryImportantDates()
+        dates[ImportantDateRepository.normalizeLabel("birthday")] = ImportantDateEntity(
+            label = "birthday",
+            normalizedLabel = "birthday",
+            month = 4,
+            day = 3,
+        )
+
+        val result = handleIntent(namedHandler, "get_date_diff", mapOf("target_date" to "my birthday"))
+
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertTrue(reply.content.contains("3 April"), reply.content)
+    }
+
+    @Test
+    fun `unknown self anniversaries suggest teaching the matching date`() {
+        val namedHandler = handlerWithUserName("Nick")
+        coEvery { importantDateRepository.findByLabel(any()) } returns null
+        coEvery { importantDateRepository.getAll() } returns emptyList()
+        every { calendarBirthdayLookup.hasPermission() } returns true
+
+        val unknownSelfDates = listOf(
+            "my anniversary" to "I don't know your anniversary yet. Say \"my anniversary is 3 June\" and I'll remember it.",
+            "my wedding anniversary" to "I don't know your wedding anniversary yet. Say \"my wedding anniversary is 3 June\" and I'll remember it.",
+        )
+        for ((query, expected) in unknownSelfDates) {
+            val result = handleIntent(namedHandler, "get_date_diff", mapOf("target_date" to query))
+            val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            assertEquals(expected, reply.content)
+            assertEquals(expected, reply.spokenSummary)
+        }
+    }
+
+    @Test
     fun `remove important date resolves self birthday label through profile name`() {
         val profileRepository = mockk<UserProfileRepository>(relaxed = true)
         val namedHandler = NativeIntentHandler(
@@ -2431,7 +2592,7 @@ class NativeIntentHandlerTest {
         coEvery { importantDateRepository.deleteByLabel("Nick's birthday") } returns 1
 
         val result = runBlocking {
-            namedHandler.handle("remove_important_date", mapOf("label" to "birthday"))
+            namedHandler.handle("remove_important_date", mapOf("label" to "my birthday"))
         }
 
         val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
@@ -2679,6 +2840,7 @@ class NativeIntentHandlerTest {
         val expected = LocalDate.of(today.year, 3, 1).let {
             if (!it.isAfter(today)) it else LocalDate.of(today.year - 1, 3, 1)
         }
+        coEvery { importantDateRepository.findByLabel("wedding anniversary") } returns null
         coEvery { importantDateRepository.findByLabel("my wedding anniversary") } returns ImportantDateEntity(
             label = "my wedding anniversary",
             normalizedLabel = "wedding anniversary",
@@ -2689,7 +2851,7 @@ class NativeIntentHandlerTest {
 
         val result = handleIntent("get_date_diff", mapOf("target_date" to "my wedding anniversary", "direction" to "since"))
 
-        assertTrue(result is SkillResult.DirectReply)
+        assertTrue(result is SkillResult.DirectReply, result.toString())
         val content = (result as SkillResult.DirectReply).content
         assertTrue(content.contains("ago"), content)
         assertTrue(content.contains(expected.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH))), content)
@@ -2736,18 +2898,16 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `get_date_diff unresolved calendar label with permission returns helpful failure`() {
+    fun `get_date_diff unresolved calendar label with permission returns teachable reply`() {
         stubNoStoredOrCalendarDates(hasCalendarPermission = true)
 
-        val result = handleIntent("get_date_diff", mapOf("target_date" to "mum's birthday"))
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "Sam's birthday"))
 
-        assertEquals(
-            SkillResult.Failure(
-                "get_date_diff",
-                "Could not parse date: \"mum's birthday\". Enable Calendar birthday in Important dates if this should be a calendar lookup.",
-            ),
-            result,
-        )
+        val expected = "I couldn't find Sam's birthday in your important dates or calendar. " +
+            "Say \"Sam's birthday is 3 June\" to teach me."
+        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        assertEquals(expected, reply.content)
+        assertEquals(expected, reply.spokenSummary)
     }
 
     @Test
