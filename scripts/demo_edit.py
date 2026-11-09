@@ -468,6 +468,25 @@ def encode_args() -> list[str]:
     return ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(FPS)]
 
 
+def constant_rate(clip: Path, out: Path) -> Path:
+    """Re-time a capture to a steady FPS, repeating each frame until the screen next changes.
+
+    scrcpy writes a frame only when the screen changes, so a static stretch can have no frames
+    at all. Seeking into such a clip lands on the *next* change, and every segment cut from it
+    showed later screens than its timestamps say: S01's answer card appeared ~3 s before
+    Cori spoke it (#1736). On a steady-rate copy, a timestamp is the screen at that time.
+    """
+    run(["ffmpeg", "-y", "-v", "error", "-i", str(clip), "-vf", f"fps={FPS}", "-an", *encode_args(), str(out)])
+    return out
+
+
+def cut_segment(clip: Path, start: float, end: float, pre_graph: str, seg_graph: str, out: Path) -> Path:
+    """Cut ``start``..``end`` of ``clip`` (a steady-rate copy) through ``pre_graph``;``seg_graph``."""
+    run(["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-to", f"{end:.3f}", "-i", str(clip),
+         "-filter_complex", f"{pre_graph};{seg_graph}", "-map", "[v]", "-an", *encode_args(), str(out)])
+    return out
+
+
 def still_clip(source: Path, seconds: float, out: Path, png: Path) -> Path:
     """A clip of ``seconds`` showing ``source``'s last frame."""
     # Decode the whole (short) segment and keep its final frame; seeking from the end gives
@@ -493,6 +512,7 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
         raise EditError(f"{shot['id']}: no regions to blur were recorded, but the shot always shows "
                         "the test server; re-take it")
     clip_end = clip_duration(clip)
+    steady = constant_rate(clip, work / f"{shot['id']}_steady.mp4")
     # A tail pad only fills frames the clip is missing inside a segment's planned length.
     pads = [tail_pad(seg, clip_end) for seg in segments]
     caption = work / f"{shot['id']}_caption.txt"
@@ -515,9 +535,8 @@ def render_shot(clip: Path, shot: dict, take: dict, work: Path, font: Path, max_
             still_clip(seg_files[-1], seg.out_len, seg_file, work / f"{shot['id']}_seg{i}.png")
             seg_files.append(seg_file)
             continue
-        run(["ffmpeg", "-y", "-v", "error", "-ss", f"{seg.src_start:.3f}", "-to", f"{seg.src_end:.3f}",
-             "-i", str(clip), "-filter_complex", f"{blur_graph(boxes)};[pre]{segment_filter(seg.speed, pads[i])}[v]",
-             "-map", "[v]", "-an", *encode_args(), str(seg_file)])
+        cut_segment(steady, seg.src_start, seg.src_end, blur_graph(boxes),
+                    f"[pre]{segment_filter(seg.speed, pads[i])}[v]", seg_file)
         seg_files.append(seg_file)
     # Place the sounds against what was actually rendered, then hold the last frame until
     # the last reply has finished (the cut may run longer for speech).
