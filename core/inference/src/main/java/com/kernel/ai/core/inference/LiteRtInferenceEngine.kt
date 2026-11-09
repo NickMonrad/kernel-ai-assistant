@@ -1152,7 +1152,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                 throw InferenceException("PR1758 debug probe forced initialization failure")
                             }
                             val stallMs = probe.getLong(DEBUG_INIT_PROBE_STALL_NEXT_MS, 0L)
-                                .coerceIn(0L, 120_000L)
+                                .coerceIn(0L, 180_000L)
                             if (stallMs > 0L) {
                                 probe.edit().remove(DEBUG_INIT_PROBE_STALL_NEXT_MS).apply()
                                 Log.w(TAG, "PR1758 debug probe stalling initialization for ${stallMs}ms")
