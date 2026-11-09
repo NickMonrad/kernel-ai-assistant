@@ -59,6 +59,9 @@ interface InferenceEngine {
      * Load model weights and initialize the LiteRT-LM engine.
      * Blocks the [LlmDispatcher] thread; observe [isReady] for completion.
      *
+     * If the engine is already ready, this is a no-op and the supplied [ModelConfig] is ignored.
+     * Call [shutdown] before initializing with a different configuration.
+     *
      * @throws [InferenceException] if all backends fail.
      */
     suspend fun initialize(config: ModelConfig)

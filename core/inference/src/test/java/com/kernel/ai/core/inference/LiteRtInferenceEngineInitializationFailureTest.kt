@@ -20,18 +20,25 @@ import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class LiteRtInferenceEngineInitializationFailureTest {
     private val context = mockk<Context>(relaxed = true)
     private val powerManager = mockk<PowerManager>()
@@ -63,6 +70,7 @@ class LiteRtInferenceEngineInitializationFailureTest {
         every { Log.w(any<String>(), any<String>()) } returns 0
         mockkConstructor(Engine::class)
         every { anyConstructed<Engine>().initialize() } throws CancellationException("native init cancelled")
+        every { anyConstructed<Engine>().createConversation(any()) } returns mockk(relaxed = true)
         every { anyConstructed<Engine>().close() } just runs
     }
 
@@ -128,6 +136,163 @@ class LiteRtInferenceEngineInitializationFailureTest {
         assertTrue(initJob.isCancelled)
         verify(exactly = 1) { anyConstructed<Engine>().close() }
         verify(exactly = 1) { anyConstructed<Engine>().initialize() }
+    }
+
+    @Test
+    fun `duplicate initialization waits for the active attempt and reuses its ready engine`() = runTest {
+        val enteredInitialize = CountDownLatch(1)
+        val finishInitialize = CountDownLatch(1)
+        val initializeCalls = AtomicInteger()
+        every { anyConstructed<Engine>().initialize() } answers {
+            initializeCalls.incrementAndGet()
+            enteredInitialize.countDown()
+            finishInitialize.await()
+        }
+        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
+        val config = testConfig()
+        val first = async { engine.initialize(config) }
+        runCurrent()
+
+        try {
+            assertTrue(withContext(Dispatchers.IO) { enteredInitialize.await(5, TimeUnit.SECONDS) })
+            val duplicate = async { engine.initialize(config) }
+            runCurrent()
+            assertFalse(duplicate.isCompleted, "A duplicate caller must wait for the active initialization")
+
+            finishInitialize.countDown()
+            first.await()
+            duplicate.await()
+            assertTrue(engine.isReady.value)
+            assertEquals(1, initializeCalls.get())
+        } finally {
+            finishInitialize.countDown()
+        }
+    }
+
+    @Test
+    fun `cancelling a GPU restart caller still completes initialization and allows later init`() = runTest {
+        val enteredRestartInitialize = CountDownLatch(1)
+        val finishRestartInitialize = CountDownLatch(1)
+        val initializeCalls = AtomicInteger()
+        every { anyConstructed<Engine>().initialize() } answers {
+            if (initializeCalls.incrementAndGet() == 2) {
+                enteredRestartInitialize.countDown()
+                finishRestartInitialize.await()
+            }
+        }
+        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
+        val config = testConfig()
+        engine.initialize(config)
+        engine.gpuResetCount = 4
+        val reset = launch { engine.resetConversation() }
+        runCurrent()
+
+        try {
+            assertTrue(withContext(Dispatchers.IO) { enteredRestartInitialize.await(5, TimeUnit.SECONDS) })
+            reset.cancel()
+        } finally {
+            finishRestartInitialize.countDown()
+        }
+        reset.join()
+
+        assertTrue(reset.isCancelled)
+        assertTrue(engine.isReady.value, "The non-cancellable restart must reach ready before returning")
+        engine.initialize(config)
+        assertEquals(2, initializeCalls.get(), "A later init must not be blocked or reload a ready engine")
+    }
+
+    @Test
+    fun `eager init waits behind cancelled restart caller without duplicate native allocation`() = runTest {
+        val enteredRestartInitialize = CountDownLatch(1)
+        val finishRestartInitialize = CountDownLatch(1)
+        val initializeCalls = AtomicInteger()
+        every { anyConstructed<Engine>().initialize() } answers {
+            if (initializeCalls.incrementAndGet() == 2) {
+                enteredRestartInitialize.countDown()
+                finishRestartInitialize.await()
+            }
+        }
+        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
+        val config = testConfig()
+        engine.initialize(config)
+        engine.gpuResetCount = 4
+        val reset = launch { engine.resetConversation() }
+        runCurrent()
+
+        try {
+            assertTrue(withContext(Dispatchers.IO) { enteredRestartInitialize.await(5, TimeUnit.SECONDS) })
+            reset.cancel()
+            val eagerInitialization = async { engine.initialize(config) }
+            runCurrent()
+            assertFalse(
+                eagerInitialization.isCompleted,
+                "Eager initialization must wait while the cancelled caller's restart is still active",
+            )
+
+            finishRestartInitialize.countDown()
+            reset.join()
+            eagerInitialization.await()
+        } finally {
+            finishRestartInitialize.countDown()
+        }
+
+        assertTrue(reset.isCancelled)
+        assertTrue(engine.isReady.value)
+        assertEquals(2, initializeCalls.get(), "The waiting eager caller must reuse the restarted engine")
+    }
+
+    @Test
+    fun `retry after failed conversation recreation closes stale engine before allocating replacement`() = runTest {
+        val staleEngine = mockk<Engine>(relaxed = true)
+        val staleConversation = mockk<com.google.ai.edge.litertlm.Conversation>(relaxed = true)
+        every { anyConstructed<Engine>().initialize() } just runs
+        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
+        setPrivateField(engine, "engine", staleEngine)
+        setPrivateField(engine, "conversation", staleConversation)
+
+        engine.initialize(testConfig())
+
+        verify(exactly = 1) { staleConversation.close() }
+        verify(exactly = 1) { staleEngine.close() }
+        assertTrue(engine.isReady.value)
+    }
+
+    @Test
+    fun `restart failure is returned as retryable error and a later initialization succeeds`() = runTest {
+        val initializeCalls = AtomicInteger()
+        every { anyConstructed<Engine>().initialize() } answers {
+            if (initializeCalls.incrementAndGet() == 2) {
+                throw IllegalStateException("GPU context lost")
+            }
+        }
+        val engine = LiteRtInferenceEngine(context, hardwareProfileDetector)
+        val config = testConfig(BackendType.CPU)
+        engine.initialize(config)
+        setPrivateField(engine, "_activeBackend", kotlinx.coroutines.flow.MutableStateFlow(BackendType.GPU))
+        engine.gpuResetCount = 4
+
+        val failure = runCatching { engine.resetConversation() }.exceptionOrNull()
+
+        assertTrue(failure is InferenceException)
+        assertTrue(failure?.message?.contains("retry model initialization") == true)
+        assertFalse(engine.isReady.value)
+
+        engine.initialize(config)
+        assertTrue(engine.isReady.value)
+        assertEquals(3, initializeCalls.get())
+    }
+
+    private fun testConfig(backend: BackendType = BackendType.GPU) = ModelConfig(
+        modelPath = "/models/gemma-4-E4B-it.litertlm",
+        backendType = backend,
+        speculativeDecodingEnabled = false,
+    )
+
+    private fun setPrivateField(target: Any, fieldName: String, value: Any?) {
+        target.javaClass.getDeclaredField(fieldName).apply {
+            isAccessible = true
+            set(target, value)
+        }
     }
 
 }
