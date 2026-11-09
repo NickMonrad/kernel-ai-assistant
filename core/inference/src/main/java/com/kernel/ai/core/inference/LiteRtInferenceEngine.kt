@@ -3,6 +3,7 @@ package com.kernel.ai.core.inference
 import android.app.ActivityManager
 import android.content.Context
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -62,9 +63,9 @@ private val toolCallJsonSerializer = GsonBuilder().serializeNulls().create()
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 private const val GPU_INIT_TIMEOUT_MS = 60_000L
-/** Phase-2 validation switch; set false in a validation build to disable periodic restarts. */
-internal const val GPU_ENGINE_RESTART_ENABLED = true
-/** #1293 periodic restart cadence; original long-session drift was attributed to MiniLM TFLite convergence, not GPU. */
+/** Debug-only global setting for same-build A/B; releases never restart periodically. */
+private const val DEBUG_GPU_RESTART_SETTING = "pr1756_gpu_restart"
+/** Historical #1293 cadence, retained only for the debug comparison. */
 private const val GPU_ENGINE_RESTART_INTERVAL = 5
 /** Mirrors LiteRT-LM's per-conversation tool-call limit. */
 private const val RECURRING_TOOL_CALL_LIMIT = 25
@@ -129,7 +130,7 @@ internal fun checkGpuRestartNeeded(
     gpuResetCount: Int,
     backend: BackendType,
     threshold: Int = GPU_ENGINE_RESTART_INTERVAL,
-    restartEnabled: Boolean = GPU_ENGINE_RESTART_ENABLED,
+    restartEnabled: Boolean = false,
 ): GpuRestartDecision {
     if (!restartEnabled) return GpuRestartDecision(shouldRestart = false, updatedCount = 0)
     return when (backend) {
@@ -144,6 +145,12 @@ internal fun checkGpuRestartNeeded(
         else -> GpuRestartDecision(shouldRestart = false, updatedCount = 0)
     }
 }
+
+/** Runtime opt-in is intentionally unavailable to release builds. */
+internal fun shouldEnableGpuEngineRestart(
+    debuggableBuild: Boolean,
+    preferenceEnabled: Boolean,
+): Boolean = debuggableBuild && preferenceEnabled
 
 private const val MIN_AVAIL_MEM_FOR_GPU_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB absolute floor — catches 4-6 GB devices; 8 GB devices pass this
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
@@ -1081,8 +1088,8 @@ class LiteRtInferenceEngine @Inject constructor(
     private val activeStreamGeneration = AtomicReference<ActiveStreamGeneration?>(null)
 
 
-    /** Tracks conversation resets on GPU to trigger periodic full engine restart (#1293).
-     *  Reset to 0 after each full engine restart or after switching away from GPU backend.
+    /** Counts GPU conversation resets only while the debug-only restart A/B flag is enabled.
+     *  Disabled/default behavior clears the counter and never schedules an engine restart.
      *  Exposed as internal for test observation. */
     internal var gpuResetCount = 0
 
@@ -1262,15 +1269,29 @@ class LiteRtInferenceEngine @Inject constructor(
         }
     }
 
+    private fun isPeriodicGpuRestartEnabled(): Boolean {
+        if (!BuildConfig.DEBUG) return false
+        val enabled = Settings.Global.getInt(
+            context.contentResolver,
+            DEBUG_GPU_RESTART_SETTING,
+            0,
+        ) == 1
+        return shouldEnableGpuEngineRestart(BuildConfig.DEBUG, enabled)
+    }
+
     override suspend fun resetConversation() {
         withContext(LlmDispatcher) {
             val eng = engine ?: return@withContext
             val config = currentConfig ?: return@withContext
             val backend = _activeBackend.value ?: BackendType.CPU
 
-            // #1293: original long-session drift was attributed to MiniLM TFLite convergence, not GPU.
-            // S21 is Exynos 2100 / Mali-G78. Keep the interval and GPU scope unchanged until device evidence.
-            val restartDecision = checkGpuRestartNeeded(gpuResetCount, backend)
+            // Periodic full restarts are disabled by default; the debug-only global setting
+            // enables the historical #1293 interval for same-build A/B validation in #1756.
+            val restartDecision = checkGpuRestartNeeded(
+                gpuResetCount,
+                backend,
+                restartEnabled = isPeriodicGpuRestartEnabled(),
+            )
             if (restartDecision.shouldRestart) {
                 Log.i(TAG, "resetConversation: full engine restart after " +
                     "$GPU_ENGINE_RESTART_INTERVAL GPU resets")
@@ -1356,7 +1377,11 @@ class LiteRtInferenceEngine @Inject constructor(
         }
         val backend = _activeBackend.value ?: BackendType.CPU
 
-        val restartDecision = checkGpuRestartNeeded(gpuResetCount, backend)
+        val restartDecision = checkGpuRestartNeeded(
+            gpuResetCount,
+            backend,
+            restartEnabled = isPeriodicGpuRestartEnabled(),
+        )
         if (restartDecision.shouldRestart) {
             Log.i(
                 TAG,
