@@ -677,5 +677,30 @@ class FfmpegSmokeTest(unittest.TestCase):
             self.assertEqual(res.returncode, 0, res.stderr)
 
 
+    def test_sparse_clip_keeps_its_timing_when_cut(self):
+        # scrcpy only writes a frame when the screen changes. A segment starting during a
+        # static stretch must show the frame on screen then, not the next change (#1736: S01's
+        # answer appeared ~3 s before Cori spoke it).
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            for name, colour in (("red", "red"), ("blue", "blue")):
+                subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"color=c={colour}:s=64x64:d=0.04",
+                                "-frames:v", "1", str(tmp / f"{name}.png")], check=True)
+            listing = tmp / "frames.txt"
+            listing.write_text("file 'red.png'\nduration 3\nfile 'blue.png'\nduration 1\nfile 'blue.png'\n")
+            sparse = tmp / "sparse.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "concat", "-i", str(listing), "-fps_mode", "vfr",
+                            "-pix_fmt", "yuv420p", str(sparse)], check=True)
+            steady = edit.constant_rate(sparse, tmp / "steady.mp4")
+            seg = tmp / "seg.mp4"
+            edit.cut_segment(steady, 1.0, 2.0, "[0:v]null[pre]", "[pre]setpts=PTS-STARTPTS[v]", seg)
+            frame = subprocess.run(["ffmpeg", "-v", "error", "-i", str(seg), "-frames:v", "1", "-vf", "scale=1:1",
+                                    "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
+            r, g, b = frame[:3]
+            self.assertGreater(r, 200, f"expected the red frame, got {(r, g, b)}")
+            self.assertLess(b, 60)
+            self.assertAlmostEqual(edit.clip_duration(seg), 1.0, delta=0.1)
+
+
 if __name__ == "__main__":
     unittest.main()
