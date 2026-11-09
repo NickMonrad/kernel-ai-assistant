@@ -3836,6 +3836,7 @@ class QuickIntentRouterTest {
             Arguments.of("what’s on my shopping list", "shopping list"),
             Arguments.of("display list called shopping", "shopping"),
             Arguments.of("show me my grocery list", "grocery list"),
+            Arguments.of("read me my grocery list", "grocery list"),
             Arguments.of("read my shopping list", "shopping list"),
             Arguments.of("get my to-do list", "to-do list"),
         )
