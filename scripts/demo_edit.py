@@ -20,7 +20,8 @@ What it does, per intro shot (``intro_order`` in docs/demo/shots.json):
 - fits the portrait recording onto a 1080 × 1920 canvas.
 
 It then appends the end card chosen with ``--end-card`` (``beta``: "Join the beta",
-for recruitment before the Play listing is public; ``launch``: "Free on Google Play"),
+for recruitment before the Play listing is public; ``soon``: "Coming soon to Google Play" plus the
+website; ``launch``: "Free on Google Play"),
 joins everything, optionally mixes a voiceover file,
 and writes ``<out>.edl.json`` listing every cut and speed-up for review.
 """
@@ -793,9 +794,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--clips", type=Path, required=True, help="Directory with manifest.json and clips")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--pick", action="append", default=[], help="Choose a take, e.g. S04=2")
-    ap.add_argument("--end-card", required=True, choices=("beta", "launch", "repo"),
+    ap.add_argument("--end-card", required=True, choices=("beta", "launch", "repo", "soon"),
                     help="beta: 'Join the beta' (pre-launch recruitment); launch: 'Free on Google Play'; "
-                         "repo: open source + GitHub link (before the beta page is live)")
+                         "repo: open source + GitHub link (before the beta page is live); "
+                         "soon: 'Coming soon to Google Play' + the website")
     ap.add_argument("--max-wait", type=float, default=2.0, help="Seconds a model wait is compressed to")
     ap.add_argument("--voiceover", type=Path, help="Audio file used as the whole soundtrack (skips the voice mix)")
     ap.add_argument("--music", type=Path, help="Music bed, looped/trimmed to the cut and ducked under speech")
