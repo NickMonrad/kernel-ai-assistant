@@ -2752,6 +2752,32 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         is com.kernel.ai.core.skills.SkillResult.Failure -> {
+                            val missingListReply = if (
+                                matchedIntent.intentName == "get_list_items" &&
+                                skillResult.error.startsWith("I couldn't find a list called")
+                            ) {
+                                val requestedListName = (
+                                    callParams["list_name_for_creation"]
+                                        ?: callParams["list_name"]?.removeSuffix(" list")
+                                    )?.trim()?.takeIf { it.isNotBlank() }
+                                val displayName = when (requestedListName?.lowercase()) {
+                                    "todo", "to do", "to-do" -> "to-do"
+                                    else -> requestedListName
+                                }
+                                displayName?.let { "You don't have a $it list yet." }
+                            } else {
+                                null
+                            }
+                            if (missingListReply != null) {
+                                appendAssistantMessage(
+                                    convId,
+                                    missingListReply,
+                                    shouldIndex = false,
+                                    spokenSummary = missingListReply,
+                                )
+                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=get_list_items result=failure_no_llm")
+                                return@launch
+                            }
                             // #1313: deterministic regex-matched native routes are terminal even on
                             // failure. Email failures are also terminal because retrying through E4B
                             // can invoke an unrelated tool instead of showing the email limitation.

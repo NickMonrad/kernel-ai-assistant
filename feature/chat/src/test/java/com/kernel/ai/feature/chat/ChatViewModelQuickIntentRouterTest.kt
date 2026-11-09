@@ -301,6 +301,78 @@ class ChatViewModelQuickIntentRouterTest {
     }
 
     @Test
+    fun `chat displays deterministic todo and grocery list reads`() = runTest(dispatcher) {
+        val calls = mutableListOf<SkillCall>()
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Test native intent dispatcher"
+            override val schema = SkillSchema()
+
+            override suspend fun execute(call: SkillCall): SkillResult {
+                calls += call
+                return when (call.arguments["list_name_for_creation"]) {
+                    "todo" -> SkillResult.DirectReply("To-do list (1 item): • buy oat milk")
+                    "grocery" -> SkillResult.DirectReply("Grocery list (1 item): • buy apples")
+                    else -> SkillResult.Failure(
+                        "get_list_items",
+                        "I couldn't find a list called \"${call.arguments["list_name"]}\".",
+                    )
+                }
+            }
+        }
+        every { skillRegistry.get("get_list_items") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        listOf(
+            "show my todo list" to "To-do list (1 item):",
+            "read me my grocery list" to "Grocery list (1 item):",
+        ).forEach { (query, expectedReply) ->
+            viewModel.onInputChanged(query)
+            viewModel.sendMessage()
+            advanceUntilIdle()
+            assertTrue(
+                viewModel.getConversationAsText().contains(expectedReply),
+                "Expected '$query' to display '$expectedReply': ${viewModel.getConversationAsText()}",
+            )
+        }
+
+        assertEquals(listOf("todo", "grocery"), calls.map { it.arguments["list_name_for_creation"] })
+        assertEquals(listOf("todo list", "grocery list"), calls.map { it.arguments["list_name"] })
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `missing list gets a friendly chat reply`() = runTest(dispatcher) {
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Test native intent dispatcher"
+            override val schema = SkillSchema()
+
+            override suspend fun execute(call: SkillCall): SkillResult =
+                SkillResult.Failure(
+                    "get_list_items",
+                    "I couldn't find a list called \"packing list\".",
+                )
+        }
+        every { skillRegistry.get("get_list_items") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("show my packing list")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(
+            viewModel.getConversationAsText().contains("You don't have a packing list yet."),
+            viewModel.getConversationAsText(),
+        )
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
     fun `grant retries weather skill and appends only one assistant message`() = runTest(dispatcher) {
         weatherSkillResult = SkillResult.CapabilityRequired(
             capabilityKey = CapabilityKey.WeatherCurrentLocation,

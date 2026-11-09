@@ -2444,28 +2444,43 @@ class NativeIntentHandler @Inject constructor(
         )
     }
 
+    private fun canonicalSelfImportantDateLabel(label: String): String? =
+        when (label.trim().lowercase(Locale.ENGLISH)) {
+            "birthday", "my birthday" -> "birthday"
+            "anniversary", "my anniversary" -> "anniversary"
+            "wedding anniversary", "my wedding anniversary" -> "wedding anniversary"
+            else -> null
+        }
+
     private fun resolveStoredImportantDateLabel(label: String, userName: String?): String {
         val trimmed = label.trim()
-        if (userName.isNullOrBlank()) return trimmed
-        return when (trimmed.lowercase(Locale.ENGLISH)) {
-            "birthday" -> "$userName's birthday"
-            "anniversary" -> "$userName's anniversary"
-            "wedding anniversary" -> "$userName's wedding anniversary"
-            else -> trimmed
+        val canonicalLabel = canonicalSelfImportantDateLabel(trimmed) ?: return trimmed
+        if (userName.isNullOrBlank()) {
+            return if (trimmed.equals(canonicalLabel, ignoreCase = true)) trimmed else canonicalLabel
         }
+        return "$userName's $canonicalLabel"
+    }
+
+    private fun importantDateLabelCandidates(label: String, userName: String?): List<String> {
+        val trimmed = label.trim()
+        val canonicalLabel = canonicalSelfImportantDateLabel(trimmed) ?: trimmed
+        return linkedSetOf(
+            resolveStoredImportantDateLabel(trimmed, userName),
+            canonicalLabel,
+            trimmed,
+        ).toList()
     }
 
     private fun buildImportantDateConfirmation(
         originalLabel: String,
         storedLabel: String,
         displayDate: String,
-    ): String = when (originalLabel.trim().lowercase(Locale.ENGLISH)) {
+    ): String = when (canonicalSelfImportantDateLabel(originalLabel)) {
         "birthday" -> "I'll remember your birthday is $displayDate."
         "anniversary" -> "I'll remember your anniversary is $displayDate."
         "wedding anniversary" -> "I'll remember your wedding anniversary is $displayDate."
         else -> "I'll remember $storedLabel as $displayDate."
     }
-
 
     private fun listImportantDates(): SkillResult {
         val today = LocalDate.now()
@@ -2487,7 +2502,7 @@ class NativeIntentHandler @Inject constructor(
         val label = params["label"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("remove_important_date", "No label specified")
         val userName = runBlocking { userProfileRepository.getName() }?.trim()?.takeIf { it.isNotBlank() }
-        val candidateLabels = linkedSetOf(resolveStoredImportantDateLabel(label, userName), label)
+        val candidateLabels = importantDateLabelCandidates(label, userName)
         val removedLabel = runBlocking {
             candidateLabels.firstNotNullOfOrNull { candidate ->
                 val existing = importantDateRepository.findByLabel(candidate) ?: return@firstNotNullOfOrNull null
@@ -2513,6 +2528,12 @@ class NativeIntentHandler @Inject constructor(
             ?.let { parseDateString(it) } ?: today
         val targetDate = parseDateString(targetStr, preferPast = preferPast)
         ?: run {
+            val selfDateLabel = canonicalSelfImportantDateLabel(targetStr)
+            if (selfDateLabel != null) {
+                val message = "I don't know your $selfDateLabel yet. " +
+                    "Say \"my $selfDateLabel is 3 June\" and I'll remember it."
+                return SkillResult.DirectReply(message, spokenSummary = message)
+            }
             val lower = targetStr.lowercase(Locale.ENGLISH)
             if (isLikelyCalendarDateLabel(lower)) {
                 if (!calendarBirthdayLookup.hasPermission()) {
@@ -2522,15 +2543,9 @@ class NativeIntentHandler @Inject constructor(
                         contextParams = mapOf("target_date" to targetStr),
                     )
                 }
-                val labelField = when {
-                    "birthday" in lower -> "birthday"
-                    "anniversary" in lower -> "anniversary"
-                    else -> "date"
-                }
-                return SkillResult.Failure(
-                    "get_date_diff",
-                    "Could not parse date: \"$targetStr\". Enable Calendar $labelField in Important dates if this should be a calendar lookup.",
-                )
+                val message = "I couldn't find $targetStr in your important dates or calendar. " +
+                    "Say \"$targetStr is 3 June\" to teach me."
+                return SkillResult.DirectReply(message, spokenSummary = message)
             }
             return SkillResult.Failure(
                 "get_date_diff",
@@ -2973,6 +2988,14 @@ class NativeIntentHandler @Inject constructor(
             }
         }
 
+        if (canonicalSelfImportantDateLabel(s) != null) {
+            val userName = runBlocking { userProfileRepository.getName() }?.trim()?.takeIf { it.isNotBlank() }
+            val stored = runBlocking {
+                importantDateLabelCandidates(s, userName)
+                    .firstNotNullOfOrNull { candidate -> importantDateRepository.findByLabel(candidate) }
+            } ?: return null
+            return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
+        }
         runBlocking { importantDateRepository.findByLabel(s) }?.let { stored ->
             return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
         }
