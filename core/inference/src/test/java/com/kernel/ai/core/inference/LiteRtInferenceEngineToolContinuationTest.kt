@@ -1,6 +1,8 @@
 package com.kernel.ai.core.inference
 
+import android.content.ContentResolver
 import android.content.Context
+import android.provider.Settings
 import android.util.Log
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -82,6 +84,8 @@ class LiteRtInferenceEngineToolContinuationTest {
         mockkObject(InferenceGenerationService.Companion)
         every { InferenceGenerationService.start(any()) } just runs
         every { InferenceGenerationService.stop(any()) } just runs
+        mockkStatic(Settings.Global::class)
+        every { Settings.Global.getInt(any<ContentResolver>(), "pr1756_gpu_restart", 0) } returns 0
         mockkStatic(Log::class)
         debugLogMessages.clear()
         every { Log.d(any<String>(), any<String>()) } answers {
@@ -98,6 +102,7 @@ class LiteRtInferenceEngineToolContinuationTest {
     fun tearDown() {
         requests.close()
         unmockkStatic(Log::class)
+        unmockkStatic(Settings.Global::class)
         unmockkObject(InferenceGenerationService.Companion)
     }
 

@@ -3,6 +3,7 @@ package com.kernel.ai.core.inference
 import android.app.ActivityManager
 import android.content.Context
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -62,9 +63,8 @@ private val toolCallJsonSerializer = GsonBuilder().serializeNulls().create()
 private const val SCREEN_INTERACTIVE_POLL_MS = 500L
 private const val SCREEN_INTERACTIVE_TIMEOUT_MS = 10_000L
 private const val GPU_INIT_TIMEOUT_MS = 60_000L
-/** Same-build A/B switch in debug SharedPreferences; release builds never restart periodically. */
-private const val DEBUG_GPU_RESTART_PREFS = "pr1756_gpu_restart"
-private const val DEBUG_GPU_RESTART_ENABLED = "enabled"
+/** Debug-only global setting for same-build A/B; releases never restart periodically. */
+private const val DEBUG_GPU_RESTART_SETTING = "pr1756_gpu_restart"
 /** Historical #1293 cadence, retained only for the debug comparison. */
 private const val GPU_ENGINE_RESTART_INTERVAL = 5
 /** Mirrors LiteRT-LM's per-conversation tool-call limit. */
@@ -1271,11 +1271,12 @@ class LiteRtInferenceEngine @Inject constructor(
 
     private fun isPeriodicGpuRestartEnabled(): Boolean {
         if (!BuildConfig.DEBUG) return false
-        val preferenceEnabled = context.getSharedPreferences(
-            DEBUG_GPU_RESTART_PREFS,
-            Context.MODE_PRIVATE,
-        ).getBoolean(DEBUG_GPU_RESTART_ENABLED, false)
-        return shouldEnableGpuEngineRestart(BuildConfig.DEBUG, preferenceEnabled)
+        val enabled = Settings.Global.getInt(
+            context.contentResolver,
+            DEBUG_GPU_RESTART_SETTING,
+            0,
+        ) == 1
+        return shouldEnableGpuEngineRestart(BuildConfig.DEBUG, enabled)
     }
 
     override suspend fun resetConversation() {
@@ -1284,8 +1285,8 @@ class LiteRtInferenceEngine @Inject constructor(
             val config = currentConfig ?: return@withContext
             val backend = _activeBackend.value ?: BackendType.CPU
 
-            // Periodic full restarts are disabled by default; the debug preference enables the
-            // historical #1293 interval only for same-build A/B validation in #1756.
+            // Periodic full restarts are disabled by default; the debug-only global setting
+            // enables the historical #1293 interval for same-build A/B validation in #1756.
             val restartDecision = checkGpuRestartNeeded(
                 gpuResetCount,
                 backend,

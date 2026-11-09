@@ -1,8 +1,9 @@
 package com.kernel.ai.core.inference
 
+import android.content.ContentResolver
 import android.content.Context
-import android.content.SharedPreferences
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import com.google.ai.edge.litertlm.Engine
 import com.kernel.ai.core.inference.hardware.HardwareProfile
@@ -42,15 +43,14 @@ import java.util.concurrent.atomic.AtomicInteger
 @OptIn(ExperimentalCoroutinesApi::class)
 class LiteRtInferenceEngineInitializationFailureTest {
     private val context = mockk<Context>(relaxed = true)
-    private val restartPreferences = mockk<SharedPreferences>(relaxed = true)
     private val powerManager = mockk<PowerManager>()
     private val hardwareProfileDetector = mockk<HardwareProfileDetector>()
 
     @BeforeEach
     fun setUp() {
         every { powerManager.isInteractive } returns true
-        every { context.getSharedPreferences("pr1756_gpu_restart", Context.MODE_PRIVATE) } returns restartPreferences
-        every { restartPreferences.getBoolean("enabled", false) } returns false
+        mockkStatic(Settings.Global::class)
+        every { Settings.Global.getInt(any<ContentResolver>(), "pr1756_gpu_restart", 0) } returns 0
         every { context.getSystemService(PowerManager::class.java) } returns powerManager
         every { context.getSystemService(Context.ACTIVITY_SERVICE) } returns null
         every { context.cacheDir } returns File("/tmp")
@@ -82,6 +82,7 @@ class LiteRtInferenceEngineInitializationFailureTest {
     fun tearDown() {
         unmockkConstructor(Engine::class)
         unmockkStatic(Log::class)
+        unmockkStatic(Settings.Global::class)
         unmockkObject(QuantizationVerifier, InferenceLoadingService.Companion)
     }
 
@@ -290,7 +291,7 @@ class LiteRtInferenceEngineInitializationFailureTest {
     }
 
     private fun enablePeriodicRestartForTest() {
-        every { restartPreferences.getBoolean("enabled", false) } returns true
+        every { Settings.Global.getInt(any<ContentResolver>(), "pr1756_gpu_restart", 0) } returns 1
     }
 
     private fun testConfig(backend: BackendType = BackendType.GPU) = ModelConfig(
