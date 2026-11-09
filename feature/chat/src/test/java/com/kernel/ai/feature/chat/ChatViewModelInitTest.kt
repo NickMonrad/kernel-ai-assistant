@@ -11,6 +11,7 @@ import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
+import com.kernel.ai.core.inference.Gemma4InitLock
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
@@ -1402,6 +1403,7 @@ class ChatViewModelInitTest {
 
         viewModel.retryModelInitialization()
         runCurrent()
+        assertEquals(1, initializeCalls, "Retry must wait for the in-flight native initialization")
         assertFalse(isReady.value, "Retry must not overlap the still-running native initialization")
 
         releaseFirstInit.complete(Unit)
@@ -1409,6 +1411,161 @@ class ChatViewModelInitTest {
 
         assertTrue(observedStates.last() is ChatUiState.Ready)
         assertEquals(2, initializeCalls)
+        collector.cancel()
+    }
+
+    @Test
+    fun `late successful initialization clears watchdog error before later loading`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val initStarted = CompletableDeferred<Unit>()
+        val releaseInit = CompletableDeferred<Unit>()
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers {
+            initStarted.complete(Unit)
+            releaseInit.await()
+            isReady.value = true
+        }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        runCurrent()
+        assertTrue(initStarted.isCompleted)
+
+        advanceTimeBy(MODEL_INITIALIZATION_WATCHDOG_MS + 1)
+        runCurrent()
+        assertTrue(observedStates.last() is ChatUiState.ModelInitializationFailed)
+
+        releaseInit.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+
+        isReady.value = false
+        runCurrent()
+        assertTrue(
+            observedStates.last() is ChatUiState.Loading,
+            "A later not-ready transition must show Loading, not the stale watchdog error",
+        )
+        collector.cancel()
+    }
+
+    @Test
+    fun `watchdog does not run while eager initialization waits for the shared lock`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val lockAcquired = CompletableDeferred<Unit>()
+        val releaseLock = CompletableDeferred<Unit>()
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        val lockHolder = launch {
+            Gemma4InitLock.mutex.lock()
+            try {
+                lockAcquired.complete(Unit)
+                releaseLock.await()
+            } finally {
+                Gemma4InitLock.mutex.unlock()
+            }
+        }
+        runCurrent()
+        assertTrue(lockAcquired.isCompleted)
+
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers { isReady.value = true }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        runCurrent()
+        advanceTimeBy(MODEL_INITIALIZATION_WATCHDOG_MS + 1)
+        runCurrent()
+        assertFalse(
+            observedStates.any { it is ChatUiState.ModelInitializationFailed },
+            "Waiting for the shared initialization lock is not an initialization failure",
+        )
+
+        releaseLock.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+        collector.cancel()
+        lockHolder.join()
+    }
+
+    @Test
+    fun `watchdog starts only after eager initialization reaches foreground`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val owner = mockk<LifecycleOwner>()
+        val lifecycle = mockk<Lifecycle>()
+        var lifecycleState = Lifecycle.State.CREATED
+        val observers = mutableListOf<LifecycleEventObserver>()
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { owner.lifecycle } returns lifecycle
+        every { lifecycle.currentState } answers { lifecycleState }
+        every { lifecycle.addObserver(any()) } answers {
+            observers += firstArg<LifecycleEventObserver>()
+        }
+        every { lifecycle.removeObserver(any()) } just runs
+        every { ProcessLifecycleOwner.Companion.get() } returns owner
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers { isReady.value = true }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        runCurrent()
+        assertTrue(observers.isNotEmpty())
+
+        advanceTimeBy(MODEL_INITIALIZATION_WATCHDOG_MS + 1)
+        runCurrent()
+        assertFalse(
+            observedStates.any { it is ChatUiState.ModelInitializationFailed },
+            "Waiting for the app to reach foreground is not model initialization time",
+        )
+
+        lifecycleState = Lifecycle.State.STARTED
+        observers.toList().forEach { it.onStateChanged(owner, Lifecycle.Event.ON_START) }
+        advanceUntilIdle()
+        assertTrue(observedStates.last() is ChatUiState.Ready)
         collector.cancel()
     }
 

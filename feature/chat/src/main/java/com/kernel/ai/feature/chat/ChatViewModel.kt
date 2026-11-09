@@ -127,7 +127,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
-internal const val MODEL_INITIALIZATION_WATCHDOG_MS = 90_000L
+// Covers the 60s GPU attempt, CPU fallback, and cleanup; foreground and lock waits are excluded.
+internal const val MODEL_INITIALIZATION_WATCHDOG_MS = 150_000L
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
@@ -1139,7 +1140,7 @@ class ChatViewModel @Inject constructor(
             .filter { states -> downloadManager.areRequiredModelsDownloaded() }
             .first()
 
-        val watchdogAttempt = startModelInitializationWatchdog("initEngineWhenReady")
+        var watchdogAttempt: Long? = null
         try {
             Gemma4InitLock.mutex.withLock {
                 _modelInitializationError.value = null
@@ -1175,6 +1176,7 @@ class ChatViewModel @Inject constructor(
                         inferenceEngine.updateSystemPrompt(buildSystemPrompt())
                         return
                     }
+                    watchdogAttempt = startModelInitializationWatchdog("initEngineWhenReady")
 
                     val preferred = downloadManager.preferredConversationModel()
 
@@ -1209,7 +1211,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
         } finally {
-            stopModelInitializationWatchdog(watchdogAttempt)
+            watchdogAttempt?.let(::stopModelInitializationWatchdog)
         }
     }
 
@@ -1228,7 +1230,7 @@ class ChatViewModel @Inject constructor(
      * recognised immediately.
      */
     private suspend fun initGemma4(safeModelTest: Boolean = false) {
-        val watchdogAttempt = startModelInitializationWatchdog("initGemma4")
+        var watchdogAttempt: Long? = null
         try {
             Gemma4InitLock.mutex.withLock {
                 _modelInitializationError.value = null
@@ -1244,6 +1246,7 @@ class ChatViewModel @Inject constructor(
                         inferenceEngine.updateSystemPrompt(buildSystemPrompt())
                         return
                     }
+                    watchdogAttempt = startModelInitializationWatchdog("initGemma4")
 
                     val preferred = downloadManager.preferredConversationModel()
                     val modelPath = downloadManager.getModelPath(preferred) ?: return
@@ -1286,7 +1289,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
         } finally {
-            stopModelInitializationWatchdog(watchdogAttempt)
+            watchdogAttempt?.let(::stopModelInitializationWatchdog)
         }
     }
 
@@ -1309,7 +1312,7 @@ class ChatViewModel @Inject constructor(
                 reportModelInitializationFailure(
                     operation,
                     IllegalStateException(
-                        "Model initialization is taking too long. Retry when the engine is available.",
+                        "Model initialization is taking too long. Retry, or restart the app if this continues.",
                     ),
                 )
             }
@@ -1320,6 +1323,7 @@ class ChatViewModel @Inject constructor(
     private fun stopModelInitializationWatchdog(attempt: Long) {
         if (inferenceEngine.isReady.value) {
             modelInitializationWatchdogSequence++
+            _modelInitializationError.value = null
             modelInitializationWatchdogJob?.cancel()
             modelInitializationWatchdogJob = null
         } else if (attempt == modelInitializationWatchdogSequence) {

@@ -1026,9 +1026,11 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Theme:** Dark default (AMOLED-friendly), supports light/dark toggle
 - **Navigation:** Bottom nav bar — Chats tab (conversations list) + Actions tab (quick commands)
 - **Chat:** Streaming token display, thinking mode indicator, markdown rendering, multi-conversation
-- **Model initialization recovery:** an installed conversation model that fails to initialize
-  shows failure and retry instead of indefinite loading. Retry reuses the local artifact;
-  lifecycle cancellation remains distinct from failure.
+- **Model initialization recovery:** after the app is foregrounded and the shared init lock is
+  acquired, a 150s watchdog covers GPU initialization, CPU fallback, and cleanup (not foreground
+  or lock waits). It shows a retryable error; late success clears it. If it persists, restart the app,
+  because retry cannot interrupt a blocked native initialization. Lifecycle cancellation remains
+  distinct from failure.
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
 - **Voice:** Quick Actions push-to-talk with offline STT, spoken QIR responses, and streaming spoken chat replies; wake word remains future work
 - **Conversation search (#151, PR #156):** A search bar on the conversations list screen filters by conversation title. The query applies a `LIKE` wildcard match against the title column; a `NULL` guard prevents crashes for conversations that have not yet been auto-titled. Wildcard characters in the search input are escaped to avoid accidental SQL injection via the LIKE pattern.
