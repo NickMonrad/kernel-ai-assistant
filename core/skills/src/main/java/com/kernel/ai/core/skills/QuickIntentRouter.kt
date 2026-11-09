@@ -4207,7 +4207,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_list_items",
             regex = Regex(
-                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+out)?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
+                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+(?:out|me))?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
