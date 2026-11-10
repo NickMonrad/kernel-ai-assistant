@@ -65,6 +65,7 @@ internal object StoreListCatalog {
             "Pack and Save",
             "Pack n Save",
             "Pak and Save",
+            "Pak 'n Save", "Pak n' Save", "Pak'n Save",
         )
         register(Category.GROCERY, "New World")
         register(Category.GROCERY, "Four Square")

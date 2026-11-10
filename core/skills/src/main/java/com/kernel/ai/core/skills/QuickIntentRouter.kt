@@ -4214,10 +4214,11 @@ class QuickIntentRouter(
         ),
         // "what do I need to get from the shops" / "what do I need from Bunnings"
         // Captures any place; NativeIntentHandler resolves known store categories and named lists.
+        // Leading my/our/the/a and trailing time qualifiers (today, tomorrow, this week, later, ...) are stripped.
         IntentPattern(
             intentName = "get_list_items",
             regex = Regex(
-                """^what\s+do\s+(?:i|we)\s+need(?:\s+to\s+(?:get|buy))?\s+(?:from|at)\s+(?:(?:the|a)\s+)?(.+?)[?.!]*$""",
+                """^what\s+do\s+(?:i|we)\s+need(?:\s+to\s+(?:get|buy))?\s+(?:from|at)\s+(?:(?:the|a|my|our)\s+)?(.+?)(?:\s+(?:today|tonight|tomorrow|this\s+(?:week|weekend)|later|on\s+the\s+way\s+home))?[?.!]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->

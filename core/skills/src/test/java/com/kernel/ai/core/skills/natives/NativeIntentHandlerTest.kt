@@ -1118,6 +1118,7 @@ class NativeIntentHandlerTest {
             "shop", "shops", "supermarket", "grocery store", "store", "grocer",
             "Woolworths", "Woolies", "Wollies", "Countdown", "New World", "Pak'nSave",
             "Pak n Save", "PakNSave", "Pack and Save", "Pack n Save", "Pak and Save",
+            "Pak 'n Save", "Pak n' Save", "Pak'n Save",
             "Four Square", "FreshChoice", "SuperValue", "Coles", "Aldi", "IGA",
             "Harris Farm", "Foodland", "Drakes", "Costco",
         )

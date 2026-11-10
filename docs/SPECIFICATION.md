@@ -636,12 +636,12 @@ Native list actions resolve an existing exact title before case-insensitive, bou
 which list was intended; canonical names are used only for the established create-on-miss behavior.
 Matching never renames or rebinds a collection.
 
-Store questions of the form "what do I need [to get/buy] from/at <place>" use
+Store questions of the form "what do I need [to get/buy] from/at [my/our/the/a] <place> [today/tonight/tomorrow/this week/this weekend/later/on the way home]" use
 `get_list_items` in both chat and Actions. `StoreListCatalog` is the single data table for
 generic shops, grocery chains, hardware stores, and pharmacies. Exact store-named lists win,
 then category list candidates are checked in order. A missing category list gets a friendly
 create-list prompt; another place reads its exact named list when present and otherwise
-continues to the model. Unrelated bring/know questions are not store-list requests.
+continues to the model. Unrelated bring/know questions are not store-list requests. `Pak 'n Save` and `Pak n' Save` are accepted STT spellings of Pak'nSave.
 
 
 

@@ -31,7 +31,7 @@ class VoiceCommandHandler @Inject constructor(
                 if (result.intent.intentName == "start_meal_planner") {
                     navigator.navigateToChat(context, transcript)
                 } else {
-                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params)
+                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context)
                 }
             }
             is QuickIntentRouter.RouteResult.ClassifierMatch -> {
@@ -39,7 +39,7 @@ class VoiceCommandHandler @Inject constructor(
                 if (result.intent.intentName == "start_meal_planner") {
                     navigator.navigateToChat(context, transcript)
                 } else {
-                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params)
+                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context)
                 }
             }
             is QuickIntentRouter.RouteResult.NeedsSlot -> {
@@ -57,6 +57,7 @@ class VoiceCommandHandler @Inject constructor(
         transcript: String,
         intentName: String,
         params: Map<String, String>,
+        context: Context,
     ) {
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
@@ -78,6 +79,11 @@ class VoiceCommandHandler @Inject constructor(
         }
 
         val skillResult = skill.execute(SkillCall(skill.name, callParams))
+        if (skillResult is SkillResult.Failure && skillResult.fallThroughToModel) {
+            Log.d(TAG, "VoiceCommandHandler: '$intentName' missed with model fallthrough → opening chat")
+            navigator.navigateToChat(context, transcript)
+            return
+        }
         val entity = buildEntity(transcript, intentName, skillResult)
         quickActionDao.insert(entity)
         val spokenText = spokenSummaryFrom(skillResult) ?: entity.resultText

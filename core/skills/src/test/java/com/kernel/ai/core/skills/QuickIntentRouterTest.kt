@@ -2216,6 +2216,7 @@ class QuickIntentRouterTest {
             "what do I need to bring to the meeting",
             "what do I need to know about the new store",
             "what should I bring to the shops",
+            "what do I need to know about the shops today",
         ])
         fun `does not route unrelated need questions`(input: String) {
             assertInstanceOf(QuickIntentRouter.RouteResult.FallThrough::class.java, regexOnlyRouter.route(input))
@@ -3902,6 +3903,19 @@ class QuickIntentRouterTest {
             Arguments.of("what do I need from Priceline", "Priceline"),
             Arguments.of("what do I need from Amcal", "Amcal"),
             Arguments.of("what do I need from TerryWhite Chemmart", "TerryWhite Chemmart"),
+            Arguments.of("what do I need from the shops today", "shops"),
+            Arguments.of("what do I need from the shops tomorrow", "shops"),
+            Arguments.of("what do we need from the shops this week", "shops"),
+            Arguments.of("what do I need from the shops later", "shops"),
+            Arguments.of("what do I need from the shops tonight", "shops"),
+            Arguments.of("what do I need from the shops on the way home", "shops"),
+            Arguments.of("what do we need from Woolies this weekend", "Woolies"),
+            Arguments.of("what do I need from my chemist", "chemist"),
+            Arguments.of("what do we need from our chemist", "chemist"),
+            Arguments.of("what do I need from our shops tomorrow?", "shops"),
+            Arguments.of("what do I need from Pak 'n Save", "Pak 'n Save"),
+            Arguments.of("what do I need from Pak n' Save", "Pak n' Save"),
+            Arguments.of("what do I need from Pak'n Save", "Pak'n Save"),
             Arguments.of("what do I need from the garden centre", "garden centre"),
         )
 
