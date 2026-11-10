@@ -1568,6 +1568,24 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `create_list rejects anaphoric and prepositional list names`() {
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+
+        listOf("it to my shopping", "that groceries", "them", "to my shopping").forEach { name ->
+            val result = handleIntent(
+                handlerWithListMutations(mutations),
+                "create_list",
+                mapOf("list_name" to name),
+            )
+
+            assertInstanceOf(SkillResult.Failure::class.java, result, name)
+        }
+
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
     fun `create_list prefers active case-insensitive list over exact tombstone`() {
         val activeList = com.kernel.ai.core.memory.entity.ListNameEntity(
             id = 42L,

@@ -271,6 +271,10 @@ class NativeIntentHandler @Inject constructor(
         private val INTENT_ALIASES = mapOf(
             "get_list" to "get_list_items",
         )
+        private val INVALID_LIST_NAME_RE = Regex(
+            """^\s*(?:it|that|this|them)\b|^\s*to\s+(?:my|the)\b|\s+to\s+my\b""",
+            RegexOption.IGNORE_CASE,
+        )
 
         /** Translates NZ/informal search terms to standard English for Maps queries. */
         private val NZ_SEARCH_TERMS = mapOf(
@@ -2183,6 +2187,9 @@ class NativeIntentHandler @Inject constructor(
 
     private fun createList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
+        if (INVALID_LIST_NAME_RE.containsMatchIn(raw)) {
+            return SkillResult.Failure("create_list", "That doesn't look like a list name.")
+        }
         val activeResolution = runBlocking { resolveActiveList(raw) }
         if (activeResolution.isAmbiguous) return ambiguousListReply()
         val anyLifecycleResolution = if (activeResolution.match == null) {
