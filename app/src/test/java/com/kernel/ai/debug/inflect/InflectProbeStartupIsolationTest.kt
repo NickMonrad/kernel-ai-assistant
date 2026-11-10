@@ -36,7 +36,7 @@ class InflectProbeStartupIsolationTest {
         }
         assertFalse(
             InflectProbeStartupIsolation.shouldSuppressApplicationOnCreate(
-                targetPackage = "com.kernel.ai",
+                targetPackage = "ai.jandal.assistant",
                 targetIsDebuggable = true,
                 selectedTestClass = InflectProbeStartupIsolation.RUNTIME_TEST_CLASS,
             ),

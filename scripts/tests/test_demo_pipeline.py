@@ -217,9 +217,9 @@ class UiHelpersTest(unittest.TestCase):
         self.assertEqual(cap.root_size(UI_XML), (1080, 2316))
 
     def test_shade_open(self):
-        self.assertFalse(cap.shade_open('<node package="com.kernel.ai.debug" /><node package="com.kernel.ai.debug" />'))
+        self.assertFalse(cap.shade_open(f'<node package="{cap.DEFAULT_PACKAGE}" /><node package="{cap.DEFAULT_PACKAGE}" />'))
         self.assertTrue(cap.shade_open('<node package="com.android.systemui" /><node package="com.android.systemui" />'
-                                       '<node package="com.kernel.ai.debug" />'))
+                                       f'<node package="{cap.DEFAULT_PACKAGE}" />'))
         self.assertFalse(cap.shade_open(UI_XML))
 
     def test_redact_needles(self):
@@ -428,7 +428,7 @@ class FakeDevice:
     """Plays back a list of screens; the last one repeats."""
 
     def __init__(self, screens):
-        self.screens, self.taps, self.package = list(screens), [], "com.kernel.ai.debug"
+        self.screens, self.taps, self.package = list(screens), [], cap.DEFAULT_PACKAGE
 
     def dump_ui(self):
         return self.screens.pop(0) if len(self.screens) > 1 else self.screens[0]
@@ -651,7 +651,7 @@ class WakeScriptTest(unittest.TestCase):
         self.assertEqual(args[:7], ["shell", "am", "broadcast", "-n", demo_wake.RECEIVER, "-a", demo_wake.ACTION])
         self.assertIn("natural_wake", args)
         self.assertEqual(args[args.index("volume_index") + 1], "9")
-        self.assertTrue(demo_wake.RECEIVER.startswith("com.kernel.ai.debug/"))
+        self.assertTrue(demo_wake.RECEIVER.startswith(f"{demo_wake.PACKAGE}/"))
 
     def test_broadcast_outcome(self):
         import demo_wake

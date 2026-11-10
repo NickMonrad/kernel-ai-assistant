@@ -81,7 +81,7 @@ class TimerCancellationAcceptanceTest {
             .flatMap { it.authority?.split(';').orEmpty() }
             .toSet()
         assertTrue("$TARGET_APPLICATION_ID.androidx-startup" in authorities)
-        assertFalse("com.kernel.ai.debug.androidx-startup" in authorities)
+        assertFalse("ai.jandal.assistant.debug.androidx-startup" in authorities)
 
         val forbiddenPermissions = setOf(
             "android.permission.READ_CONTACTS",
@@ -225,6 +225,6 @@ class TimerCancellationAcceptanceTest {
     }
 
     private companion object {
-        const val TARGET_APPLICATION_ID = "com.kernel.ai.debug.timeracceptance"
+        const val TARGET_APPLICATION_ID = BuildConfig.APPLICATION_ID
     }
 }

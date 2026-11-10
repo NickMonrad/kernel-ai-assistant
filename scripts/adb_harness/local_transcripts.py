@@ -16,7 +16,7 @@ from adb_harness.config import PACKAGE, REPORTS_DIR
 from adb_harness.device import run_adb_checked
 
 
-TRANSCRIPT_PROVIDER_URI = "content://com.kernel.ai.debug.local-llm-tools-transcript"
+TRANSCRIPT_PROVIDER_URI = f"content://{PACKAGE}.local-llm-tools-transcript"
 TRANSCRIPT_CACHE_FILE = "cache/llm_tools_local_transcript.json"
 LOCAL_TRANSCRIPTS_DIR = REPORTS_DIR / "local_llm_tools_diagnostics"
 _METHOD_BEGIN = "begin_local_transcript"

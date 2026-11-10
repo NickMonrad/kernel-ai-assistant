@@ -1,6 +1,7 @@
 """Declarative scenario definitions for scripts/run_permission_scenarios.py."""
 
 from __future__ import annotations
+from adb_harness.config import PACKAGE
 
 DEFAULT_UX_THRESHOLDS = {
     "max_steps": 8,
@@ -733,7 +734,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_location_denied",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard is visible, location row shows denied state",
                 "expected_visible": ["Location", "Location not granted"],
                 "timeout_seconds": 8,
@@ -802,7 +803,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_microphone_denied",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard is visible, microphone row shows denied state",
                 "expected_visible": ["Microphone", "Microphone not granted"],
                 "timeout_seconds": 8,
@@ -871,7 +872,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_notifications_denied",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard is visible, notifications row shows denied state",
                 "expected_visible": ["Notifications", "Notifications not granted"],
                 "timeout_seconds": 8,
@@ -1019,7 +1020,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_dnd_row_visible",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard visible, Do Not Disturb row state asserted — read-only state check",
                 "expected_visible": ["Do Not Disturb"],
                 "timeout_seconds": 8,
@@ -1027,7 +1028,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_write_settings_row_visible",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Modify system settings row visible on dashboard — read-only state check",
                 "expected_visible": ["Modify system settings"],
                 "timeout_seconds": 8,
@@ -1084,7 +1085,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_write_settings_state",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard visible, checking write-settings grant state",
                 "expected_visible": ["Modify system settings", "Modify system settings not granted"],
                 "blocked_if_visible": {
@@ -1187,7 +1188,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_dnd_state",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard visible, checking DND grant state",
                 "expected_visible": ["Do Not Disturb"],
                 "blocked_if_visible": {
@@ -1199,7 +1200,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_dnd_denied",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "DND row shows denied state",
                 "expected_visible": ["Do Not Disturb not granted"],
                 "timeout_seconds": 8,
@@ -1307,7 +1308,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_mic_granted",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard visible, Microphone row shows granted state",
                 "expected_visible": ["Microphone granted"],
                 "timeout_seconds": 8,
@@ -1332,7 +1333,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_mic_not_granted",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard reflects externally revoked Mic state (auto-restored on relaunch)",
                 "expected_visible": ["Microphone not granted"],
                 "screenshot": True,
@@ -1391,7 +1392,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_location_granted",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard visible, Location row shows granted state",
                 "expected_visible": ["Location granted"],
                 "timeout_seconds": 8,
@@ -1417,7 +1418,7 @@ SCENARIOS: list[dict[str, object]] = [
             {
                 "id": "assert_location_not_granted",
                 "action": "wait_for_package",
-                "package": "com.kernel.ai.debug",
+                "package": PACKAGE,
                 "expected": "Dashboard reflects externally revoked Location state (auto-restored on relaunch)",
                 "expected_visible": ["Location not granted"],
                 "screenshot": True,

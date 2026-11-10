@@ -62,12 +62,13 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterable
+from adb_harness.config import PACKAGE
 from summarise_test_report import schema_validation_errors
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 DEFAULT_PRIVATE_ROOT = SCRIPTS_DIR / "private-acoustic-runs"
-DEFAULT_PACKAGE = "com.kernel.ai.debug"
+DEFAULT_PACKAGE = PACKAGE
 SOURCE_FIXTURE_MANIFEST = "files/acoustic-fixtures/manifest.json"
 CHECKPOINT_SCHEMA_VERSION = 2
 WAIT_CANCEL_JOIN_TIMEOUT_S = 2.0
@@ -83,8 +84,8 @@ SOURCE_CANCEL_ACTION = "com.kernel.ai.debug.action.CANCEL_ACOUSTIC_STIMULUS"
 
 # Target journal interfaces (TargetEventJournalContract).  The provider is
 # authoritative for every operation, including bounded waits and cancellation.
-TARGET_PACKAGE = "com.kernel.ai.debug"
-TARGET_PROVIDER_URI = "content://com.kernel.ai.debug.target-event-journal"
+TARGET_PACKAGE = PACKAGE
+TARGET_PROVIDER_URI = f"content://{PACKAGE}.target-event-journal"
 TARGET_METHOD_GET_SEQUENCE = "GET_JOURNAL_SEQUENCE"
 TARGET_METHOD_WAIT_FOR_EVENT = "WAIT_FOR_JOURNAL_EVENT"
 TARGET_METHOD_GET_WAIT_STATUS = "GET_JOURNAL_WAIT_STATUS"

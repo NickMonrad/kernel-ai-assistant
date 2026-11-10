@@ -14,8 +14,8 @@ The app stores models in **app-private external storage**. This survives normal 
 
 | Build variant | Package | Full path |
 |---------------|---------|-----------|
-| Debug | `com.kernel.ai.debug` | `/sdcard/Android/data/com.kernel.ai.debug/files/models/` |
-| Release | `com.kernel.ai` | `/sdcard/Android/data/com.kernel.ai/files/models/` |
+| Debug | `ai.jandal.assistant.debug` | `/sdcard/Android/data/ai.jandal.assistant.debug/files/models/` |
+| Release | `ai.jandal.assistant` | `/sdcard/Android/data/ai.jandal.assistant/files/models/` |
 
 Fallback internal-storage path:
 
@@ -29,13 +29,13 @@ The internal path requires `run-as` for ADB access.
 
 ```bash
 # 1. Create the models directory on device.
-adb shell mkdir -p /sdcard/Android/data/com.kernel.ai.debug/files/models
+adb shell mkdir -p /sdcard/Android/data/ai.jandal.assistant.debug/files/models
 
 # 2. Push a model file.
-adb push models/<filename> /sdcard/Android/data/com.kernel.ai.debug/files/models/<filename>
+adb push models/<filename> /sdcard/Android/data/ai.jandal.assistant.debug/files/models/<filename>
 
 # 3. Verify.
-adb shell ls -lh /sdcard/Android/data/com.kernel.ai.debug/files/models/
+adb shell ls -lh /sdcard/Android/data/ai.jandal.assistant.debug/files/models/
 ```
 
 Android 11+ note: ADB can usually push to `/sdcard/Android/data/<package>/` when USB debugging is enabled. If a development device denies access, a temporary development-only workaround is:
@@ -48,10 +48,10 @@ adb shell appops set --uid shell MANAGE_EXTERNAL_STORAGE allow
 
 ```bash
 adb push models/<filename> /data/local/tmp/<filename>
-adb shell run-as com.kernel.ai.debug sh -c \
+adb shell run-as ai.jandal.assistant.debug sh -c \
   'mkdir -p files/models && cp /data/local/tmp/<filename> files/models/'
 adb shell rm /data/local/tmp/<filename>
-adb shell run-as com.kernel.ai.debug ls -lh files/models/
+adb shell run-as ai.jandal.assistant.debug ls -lh files/models/
 ```
 
 ## Manually downloading on device
@@ -59,7 +59,7 @@ adb shell run-as com.kernel.ai.debug ls -lh files/models/
 For manual setup without a host machine:
 
 1. Download the model file to the device using a browser or download manager.
-2. Move the file to `Internal storage -> Android -> data -> com.kernel.ai.debug -> files -> models`.
+2. Move the file to `Internal storage -> Android -> data -> ai.jandal.assistant.debug -> files -> models`.
 3. Launch the app. It detects files in this folder on startup.
 
 ## Model files reference
@@ -102,13 +102,13 @@ These assets are downloaded or bundled by the app rather than manually placed in
 
 - Launch-compatible tier: Gemma-4 E-2B.
 - Primary test role: S21-first ADB, permission, QIR, and harness validation.
-- ADB path: `/sdcard/Android/data/com.kernel.ai.debug/files/models/`.
+- ADB path: `/sdcard/Android/data/ai.jandal.assistant.debug/files/models/`.
 
 ### Samsung Galaxy S23 Ultra (SM8550 / Snapdragon 8 Gen 2)
 
 - Larger comparison tier: Gemma-4 E-4B where available.
 - Arctic Embed M v1.5 uses the same CPU inference path on S21 and S23 Ultra; the old EmbeddingGemma Qualcomm NPU variant is no longer active.
-- ADB path: `/sdcard/Android/data/com.kernel.ai.debug/files/models/`.
+- ADB path: `/sdcard/Android/data/ai.jandal.assistant.debug/files/models/`.
 
 ## Launch/legal notes
 

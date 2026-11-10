@@ -151,7 +151,7 @@ Reject malformed IDs, unknown fixtures, traversal, arbitrary paths, missing/empt
 15. Finish the pending broadcast result.
 
 The host runner invokes the target journal through the debug `ContentProvider` at
-`content://com.kernel.ai.debug.target-event-journal`, never through a target
+`content://ai.jandal.assistant.debug.target-event-journal`, never through a target
 broadcast receiver. It uses `GET_JOURNAL_SEQUENCE` for the idle boundary,
 `WAIT_FOR_JOURNAL_EVENT` with a unique request ID for one bounded wait, and
 `GET_JOURNAL_SNAPSHOT` for the final exact envelope. Provider cancellation uses

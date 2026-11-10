@@ -22,7 +22,7 @@ adb exec-out screencap -p > screenshot.png
 adb devices
 
 # Launch specific activity
-adb shell am start -n com.kernel.ai/.MainActivity
+adb shell am start -n ai.jandal.assistant/.MainActivity
 ```
 
 ## Log filtering

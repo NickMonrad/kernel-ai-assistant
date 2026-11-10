@@ -28,6 +28,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from adb_harness.config import PACKAGE
 
 from permission_scenario_defs import DEFAULT_UX_THRESHOLDS, FIXTURES, SCENARIOS
 from summarise_test_report import schema_validation_errors
@@ -37,7 +38,7 @@ REPO_ROOT = HERE.parent
 REPO = "NickMonrad/kernel-ai-assistant"
 SCHEMA_VERSION = "1.0"
 SUITE = "permission_scenarios"
-APP_PACKAGE = "com.kernel.ai.debug"
+APP_PACKAGE = PACKAGE
 MAIN_ACTIVITY = "com.kernel.ai.MainActivity"
 UI_DUMP_REMOTE_PATH = "/sdcard/permission-runner-ui.xml"
 # #1604: debug builds auto-run prompt extras from adb only with a token written via `run-as`.

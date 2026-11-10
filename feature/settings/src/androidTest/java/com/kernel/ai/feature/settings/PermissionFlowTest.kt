@@ -25,7 +25,7 @@ import org.junit.runner.RunWith
  * responds correctly.
  *
  * Device: Samsung SM-S918B (Android 16 / API 36)
- * Package: com.kernel.ai.debug
+ * Package: ai.jandal.assistant.debug
  *
  * Run with:
  *   ./gradlew :feature:settings:connectedDebugAndroidTest \
@@ -39,7 +39,7 @@ class PermissionFlowTest {
     private lateinit var context: Context
 
     companion object {
-        private const val PACKAGE = "com.kernel.ai.debug"
+        private const val PACKAGE = "ai.jandal.assistant.debug"
         private const val LAUNCH_TIMEOUT_MS = 8_000L
         private const val DIALOG_TIMEOUT_MS = 5_000L
 

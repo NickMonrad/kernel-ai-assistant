@@ -186,7 +186,7 @@ Add results to this table as you benchmark:
 
 ```bash
 # While a generation is in flight:
-adb shell dumpsys meminfo com.kernel.ai.debug | grep -E "TOTAL|Native|Java"
+adb shell dumpsys meminfo ai.jandal.assistant.debug | grep -E "TOTAL|Native|Java"
 ```
 
 **Expected on S23 Ultra (E-4B + 8192 tokens):**
@@ -236,20 +236,20 @@ adb devices  # confirm connected
 
 ```bash
 # Clear app data (simulates fresh install / first launch)
-adb shell pm clear com.kernel.ai.debug
+adb shell pm clear ai.jandal.assistant.debug
 
 # View downloaded model files (primary path — external storage)
-adb shell ls -lh /sdcard/Android/data/com.kernel.ai.debug/files/models/
+adb shell ls -lh /sdcard/Android/data/ai.jandal.assistant.debug/files/models/
 
 # Fallback (internal storage, if external unavailable):
-adb shell run-as com.kernel.ai.debug ls -lh files/models/
+adb shell run-as ai.jandal.assistant.debug ls -lh files/models/
 
 # Check available external storage
-adb shell df /sdcard/Android/data/com.kernel.ai.debug/
+adb shell df /sdcard/Android/data/ai.jandal.assistant.debug/
 
 # Force-stop and restart app
-adb shell am force-stop com.kernel.ai.debug
-adb shell monkey -p com.kernel.ai.debug 1
+adb shell am force-stop ai.jandal.assistant.debug
+adb shell monkey -p ai.jandal.assistant.debug 1
 
 # Pull a bugreport for CI/issue reporting
 adb bugreport ~/Desktop/kernel-ai-bugreport.zip
@@ -270,8 +270,8 @@ does this automatically. Manual equivalent:
 
 ```bash
 TOKEN=$(openssl rand -hex 16)
-adb shell "run-as com.kernel.ai.debug sh -c 'mkdir -p files && printf %s $TOKEN > files/adb_harness_token'"
-adb shell am start -n com.kernel.ai.debug/com.kernel.ai.MainActivity \
+adb shell "run-as ai.jandal.assistant.debug sh -c 'mkdir -p files && printf %s $TOKEN > files/adb_harness_token'"
+adb shell am start -n ai.jandal.assistant.debug/com.kernel.ai.MainActivity \
   --es adb_harness_token "$TOKEN" --es chat_input "'what time is it'"
 ```
 
@@ -331,7 +331,7 @@ alerts:
   persists:
 
   ```bash
-  adb shell am force-stop com.kernel.ai.debug
+  adb shell am force-stop ai.jandal.assistant.debug
   ```
 
 See [`docs/automated-testing.md`](./automated-testing.md) for the full oracle semantics
@@ -343,7 +343,7 @@ The harness must not leave active timers/alarms on the device after any run. If 
 buzzing after a test completes:
 
 1. The post-run cleanup should have stopped it — check the exit code.
-2. If exit code was 46, run `adb shell am force-stop com.kernel.ai.debug` manually.
+2. If exit code was 46, run `adb shell am force-stop ai.jandal.assistant.debug` manually.
 3. File a bug for any persistent cleanup gaps (tracked in #1275).
 
 ---
@@ -367,15 +367,15 @@ Gemma downloads, or S23 Ultra-only behaviour.
 The harness resets runtime permission state where Android allows shell control:
 
 ```bash
-adb shell pm clear-permission-flags com.kernel.ai.debug android.permission.CALL_PHONE user-set user-fixed
-adb shell pm revoke com.kernel.ai.debug android.permission.CALL_PHONE
+adb shell pm clear-permission-flags ai.jandal.assistant.debug android.permission.CALL_PHONE user-set user-fixed
+adb shell pm revoke ai.jandal.assistant.debug android.permission.CALL_PHONE
 ```
 
 DND notification-policy access is special access, not a normal runtime
 permission. The connected test makes a best-effort call:
 
 ```bash
-adb shell cmd notification disallow_dnd com.kernel.ai.debug
+adb shell cmd notification disallow_dnd ai.jandal.assistant.debug
 ```
 
 If Samsung One UI keeps DND access granted, revoke it manually in Android

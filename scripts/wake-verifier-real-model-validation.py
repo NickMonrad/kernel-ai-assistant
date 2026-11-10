@@ -7,7 +7,7 @@ prints the baseline (Zipformer) and corrected (Whisper tiny.en) transcripts.
 
 Models are resolved from a local directory (the exact files downloaded through
 the app's KernelModel catalogue — pull them from a device's
-`Android/data/com.kernel.ai.debug/files/models/` or download the catalogue
+`Android/data/ai.jandal.assistant.debug/files/models/` or download the catalogue
 URLs). Every file is hash-pinned: the script FAILS CLOSED on any missing or
 mismatched file. No model binaries or private audio are committed to the repo.
 

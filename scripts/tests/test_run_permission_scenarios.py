@@ -447,7 +447,7 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
             clickable=False,
             enabled=True,
             checked=False,
-            package="com.kernel.ai.debug",
+            package=permission_runner.APP_PACKAGE,
         )
         compose_toggle = permission_runner.UiNode(
             text="",
@@ -458,7 +458,7 @@ class PermissionScenarioRunnerTest(unittest.TestCase):
             clickable=True,
             enabled=True,
             checked=True,
-            package="com.kernel.ai.debug",
+            package=permission_runner.APP_PACKAGE,
         )
         runner.ui.dump_nodes = lambda timeout=15.0: [anchor, compose_toggle]  # type: ignore[method-assign]
 
@@ -801,13 +801,13 @@ class AssistantDetectionTest(unittest.TestCase):
 
     def test_detect_default_assistant_ready_from_role_holder(self) -> None:
         runner = self._runner({
-            "cmd role get-role-holders android.app.role.ASSISTANT": "com.kernel.ai.debug",
+            "cmd role get-role-holders android.app.role.ASSISTANT": permission_runner.APP_PACKAGE,
             "settings get secure voice_interaction_service": "",
             "settings get secure assistant": "",
         })
         configured, detail = runner._detect_default_assistant_state()
         self.assertTrue(configured)
-        self.assertIn("com.kernel.ai.debug", detail)
+        self.assertIn(permission_runner.APP_PACKAGE, detail)
 
     def test_detect_default_assistant_blocked_when_google_is_holder(self) -> None:
         runner = self._runner({

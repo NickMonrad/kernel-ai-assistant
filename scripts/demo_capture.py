@@ -14,7 +14,7 @@ Examples::
     python3 scripts/demo_capture.py --dry-run --shots S02,S03
 
     # Record the intro shots on the S23U from the RC build
-    python3 scripts/demo_capture.py --serial RFCW11265XH --package com.kernel.ai \\
+    python3 scripts/demo_capture.py --serial RFCW11265XH --package ai.jandal.assistant \\
         --commit <rc-sha> --out ~/jandal-demo/rc1 --shots intro
 
 S01 also needs ``DEMO_WAKE_CMD``: the host command that plays the Hey Jandal and
@@ -49,10 +49,11 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+from adb_harness.config import PACKAGE
 
 REPO = Path(__file__).resolve().parent.parent
 SHOTS_FILE = REPO / "docs" / "demo" / "shots.json"
-DEFAULT_PACKAGE = "com.kernel.ai.debug"
+DEFAULT_PACKAGE = PACKAGE
 ACTIVITY = "com.kernel.ai.MainActivity"
 UI_DUMP = "/sdcard/jandal_demo_ui.xml"
 ROOT_TABS = ("Chats", "Actions", "Tools")
