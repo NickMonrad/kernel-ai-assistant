@@ -13,13 +13,24 @@ Coverage:
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+
 SCRIPT_DIR = HERE.parent
 sys.path.insert(0, str(SCRIPT_DIR))
+class HarnessCliStartupTest(unittest.TestCase):
+    def test_documented_dry_run_starts_without_device(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_DIR / "adb_skill_test.py"), "--dry-run"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 from adb_harness.device import _filter_lines_after_boundary, _ORACLE_PROBES
 BOUNDARY = "__ADB_HARNESS_BOUNDARY_test__"
