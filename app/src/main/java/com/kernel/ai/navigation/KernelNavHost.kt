@@ -267,23 +267,23 @@ private fun nextcloudListsRoute(listId: Long?, name: String?): String =
 private fun nextcloudSharingRoute(collectionId: String): String =
     "$ROUTE_NEXTCLOUD_SETTINGS/sharing/${Uri.encode(collectionId)}"
 
-private fun NavHostController.navigateToPrimaryRoute(route: String) {
+internal fun shouldRestorePrimaryRouteState(currentRoute: String?, targetRoute: String): Boolean =
+    targetRoute != ROUTE_LIST && currentRoute?.contains('?') != true
+
+internal fun NavHostController.navigateToPrimaryRoute(route: String) {
     val currentRoute = currentBackStackEntry?.destination?.route
     val currentBaseRoute = currentRoute?.substringBefore('?')
     if (currentBaseRoute == route) return
 
-    // When the current route has transient query parameters
-    // (e.g. actions?openSheet=true&draftQuery=X), navigating to another
-    // primary route should not save or restore state. The parameterised
-    // route may be nested under the wrong tab's back stack and restoring
-    // it would bring back stale draft or sheet state.
-    val hasTransientParams = currentRoute?.contains('?') == true
+    // Chats is the graph's start destination. Restoring a saved tab stack while
+    // navigating there can leave the outgoing tab on top instead of selecting Chats.
+    val restoreTabState = shouldRestorePrimaryRouteState(currentRoute, route)
     navigate(route) {
         popUpTo(graph.findStartDestination().id) {
-            saveState = !hasTransientParams
+            saveState = restoreTabState
         }
         launchSingleTop = true
-        restoreState = !hasTransientParams
+        restoreState = restoreTabState
     }
 }
 

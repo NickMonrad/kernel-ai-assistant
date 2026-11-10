@@ -501,6 +501,32 @@ class QuickIntentRouterTest {
             assertEquals("10-minute", intent.params["name"], "name param should preserve the spoken duration token")
         }
 
+        @ParameterizedTest
+        @ValueSource(strings = ["cancel my timer", "stop my timer", "cancel our timer", "cancel that timer"])
+        fun `possessive and demonstrative timer requests route generically`(input: String) {
+            assertRegexMatch(regexOnlyRouter.route(input), "cancel_timer", input)
+        }
+
+        @Test
+        fun `cancel my pasta timer should route to cancel_timer_named with pasta name`() {
+            val result = regexOnlyRouter.route("cancel my pasta timer")
+            assertRegexMatch(result, "cancel_timer_named", "cancel my pasta timer")
+            assertEquals(
+                "pasta",
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["name"],
+            )
+        }
+
+        @Test
+        fun `cancel the egg timer should route to cancel_timer_named with egg name`() {
+            val result = regexOnlyRouter.route("cancel the egg timer")
+            assertRegexMatch(result, "cancel_timer_named", "cancel the egg timer")
+            assertEquals(
+                "egg",
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["name"],
+            )
+        }
+
         @Test
         fun `stop the pasta timer should route to cancel_timer_named`() {
             val result = regexOnlyRouter.route("stop the pasta timer")

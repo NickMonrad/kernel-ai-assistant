@@ -866,7 +866,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """turn\s+off\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
+                """turn\s+off\s+(?:(all|both|my|our|the|that|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -895,7 +895,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer_named",
             regex = Regex(
-                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!the\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
+                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!(?:my|the|our|that)\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -906,7 +906,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
+                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|our|the|that|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
