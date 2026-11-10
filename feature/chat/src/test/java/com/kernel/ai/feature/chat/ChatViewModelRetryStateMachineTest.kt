@@ -1406,20 +1406,16 @@ class ChatViewModelRetryStateMachineTest {
         assertEquals("bulk_add_to_list", arguments["intent_name"])
         assertEquals("""["apples","rice"]""", arguments["items"])
         assertEquals("grocery list", arguments["list_name"])
+        assertTrue(viewModel.getConversationAsText().contains("Added the items to your grocery list."))
     }
 
     @Test
-    fun `combined personal recall and list action resolves memory before dispatching directly`() = runTest(dispatcher) {
+    fun `unresolved favourite item asks instead of querying memory or dispatching a list add`() = runTest(dispatcher) {
         val searchMemory = setupSearchMemory(
-            SkillResult.Success("Relevant filtered evidence:\nmy favourite coffee is a flat white"),
+            SkillResult.Success("Relevant filtered evidence: my favourite coffee is a flat white"),
         )
         val runIntent = mockk<Skill>()
         every { runIntent.name } returns "run_intent"
-        val dispatchedCalls = mutableListOf<SkillCall>()
-        coEvery { runIntent.execute(any()) } answers {
-            dispatchedCalls += firstArg<SkillCall>()
-            SkillResult.DirectReply("Added flat white to your shopping list.")
-        }
         every { skillRegistry.get("run_intent") } returns runIntent
         every { skillRegistry.buildNativeDeclarations() } returns "run_intent: list actions"
         every { jandalPersona.nzTruths } returns emptyList()
@@ -1429,13 +1425,7 @@ class ChatViewModelRetryStateMachineTest {
 
         val generationPrompts = mutableListOf<String>()
         every { inferenceEngine.generate(capture(generationPrompts)) } returns toolChainFlow(
-            tokens = listOf("Added flat white to your shopping list."),
-            chain = {
-                realToolSet.runIntent(
-                    "add_to_list",
-                    """{"item":"flat white","list_name":"shopping list"}""",
-                )
-            },
+            tokens = listOf("This response must not be used."),
         )
 
         val viewModel = createViewModel()
@@ -1445,12 +1435,36 @@ class ChatViewModelRetryStateMachineTest {
         advanceUntilIdle()
 
         assertTrue(generationPrompts.isEmpty())
-        coVerify(exactly = 1) { searchMemory.execute(any()) }
-        coVerify(exactly = 1) { runIntent.execute(any()) }
-        assertEquals("add_to_list", dispatchedCalls.single().arguments["intent_name"])
-        assertEquals("flat white", dispatchedCalls.single().arguments["item"])
-        assertEquals("shopping list", dispatchedCalls.single().arguments["list_name"])
-        assertTrue(viewModel.getConversationAsText().contains("Your favourite coffee is flat white."))
+        coVerify(exactly = 0) { searchMemory.execute(any()) }
+        coVerify(exactly = 0) { runIntent.execute(any()) }
+        assertTrue(viewModel.getConversationAsText().contains("Which item do you mean?"))
+    }
+
+    @Test
+    fun `anaphoric action targeting calendar follows normal routing`() = runTest(dispatcher) {
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        every { skillRegistry.get("run_intent") } returns runIntent
+        every { jandalPersona.nzTruths } returns emptyList()
+        every {
+            quickIntentRouter.route(any())
+        } answers { QuickIntentRouter.RouteResult.FallThrough(input = firstArg()) }
+
+        val generationPrompts = mutableListOf<String>()
+        every { inferenceEngine.generate(capture(generationPrompts)) } returns toolChainFlow(
+            tokens = listOf("What calendar event should I add?"),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("Add it to my calendar.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("Add it to my calendar.") }
+        assertTrue(generationPrompts.isNotEmpty())
+        coVerify(exactly = 0) { runIntent.execute(any()) }
+        assertTrue(viewModel.getConversationAsText().contains("What calendar event should I add?"))
     }
 
     @Test

@@ -4619,31 +4619,8 @@ class ChatViewModel @Inject constructor(
         previousUserMessage: String?,
         convId: String,
     ): Boolean {
-        val retrievedMemory = if (
-            AnaphoricListAddResolver.needsMemoryLookup(userMessage, previousUserMessage)
-        ) {
-            val searchMemory = skillRegistry.get("search_memory")
-            when {
-                searchMemory == null -> null
-                else -> when (
-                    val result = searchMemory.execute(
-                        SkillCall(searchMemory.name, mapOf("query" to userMessage)),
-                    )
-                ) {
-                    is SkillResult.DirectReply -> result.content
-                    is SkillResult.Success -> result.content
-                    else -> null
-                }
-            }
-        } else {
-            null
-        }
         return when (
-            val resolution = AnaphoricListAddResolver.resolve(
-                userMessage,
-                previousUserMessage,
-                retrievedMemory,
-            )
+            val resolution = AnaphoricListAddResolver.resolve(userMessage, previousUserMessage)
         ) {
             null -> false
             is AnaphoricListAddResolver.Result.Ask -> {
@@ -4682,7 +4659,7 @@ class ChatViewModel @Inject constructor(
                 when (val result = runIntent.execute(SkillCall(runIntent.name, intentParams))) {
                     is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
                         convId = convId,
-                        content = listOfNotNull(resolution.answerPrefix, result.content).joinToString(" "),
+                        content = result.content,
                         skillName = intentName,
                         requestJson = intentParams.toString(),
                         isSuccess = true,
@@ -4691,7 +4668,7 @@ class ChatViewModel @Inject constructor(
                     )
                     is SkillResult.Success -> appendAssistantMessageWithToolCall(
                         convId = convId,
-                        content = listOfNotNull(resolution.answerPrefix, result.content).joinToString(" "),
+                        content = result.content,
                         skillName = intentName,
                         requestJson = intentParams.toString(),
                         isSuccess = true,

@@ -7,7 +7,6 @@ object AnaphoricListAddResolver {
         data class Add(
             val items: List<String>,
             val listName: String,
-            val answerPrefix: String? = null,
         ) : Result
         data class Ask(val question: String) : Result
     }
@@ -30,37 +29,20 @@ object AnaphoricListAddResolver {
         """\b(?:the\s+)?(?:only\s+)?item\s+(?:is|:|=)\s*(.*?)(?=\s*(?:,?\s*and\s+)?(?:add|put)\s+(?:it|that|this|them|these|those)\b|[.!?;]|$)""",
         RegexOption.IGNORE_CASE,
     )
-    private val FAVOURITE_COFFEE_RE = Regex(
-        """\bmy\s+favou?rite\s+coffee\s+(?:is|=)\s*(.*?)(?=\s*(?:,?\s*and\s+)?(?:add|put)\s+(?:it|that|this|them|these|those)\b|[.!?;\n]|$)""",
-        RegexOption.IGNORE_CASE,
-    )
-    private val FAVOURITE_COFFEE_QUESTION_RE = Regex(
-        """\bwhat(?:'s| is)\s+my\s+favou?rite\s+coffee\b""",
-        RegexOption.IGNORE_CASE,
-    )
     private val FILLER_RE = Regex(
         """^(?:an?\s+item|something|a\s+thing|it|that|this|them|these|those|one|some)$""",
         RegexOption.IGNORE_CASE,
     )
 
-    /** Returns null for other requests; anaphoric additions always resolve or ask. */
-    fun needsMemoryLookup(userMessage: String, previousUserMessage: String?): Boolean =
-        ANAPHORIC_ADD_RE.containsMatchIn(userMessage) &&
-            FAVOURITE_COFFEE_QUESTION_RE.containsMatchIn(userMessage) &&
-            explicitItems(userMessage) == null &&
-            previousUserMessage?.let(::explicitItems) == null
-
     fun resolve(
         userMessage: String,
         previousUserMessage: String?,
-        retrievedMemory: String? = null,
     ): Result? {
         val requestMatch = ANAPHORIC_ADD_RE.find(userMessage) ?: return null
+        val listTargetMatch = LIST_NAME_RE.find(userMessage) ?: return null
         val request = Request(
             pronoun = requestMatch.groupValues[1].lowercase(),
-            listName = LIST_NAME_RE.find(userMessage)
-                ?.groups
-                ?.get("name")
+            listName = listTargetMatch.groups["name"]
                 ?.value
                 ?.trim()
                 ?.removePrefixIgnoreCase("my ")
@@ -70,7 +52,6 @@ object AnaphoricListAddResolver {
         )
         val items = explicitItems(userMessage)
             ?: previousUserMessage?.let(::explicitItems)
-            ?: retrievedMemory?.let(::explicitItems)
         if (request.listName == null) {
             val target = if (request.pronoun in PLURAL_PRONOUNS) "those items" else "that item"
             return Result.Ask("Which list should I add $target to?")
@@ -82,14 +63,7 @@ object AnaphoricListAddResolver {
         if (!referentCountMatches) {
             return Result.Ask(if (request.pronoun in PLURAL_PRONOUNS) "Which items do you mean?" else "Which item do you mean?")
         }
-        val answerPrefix = if (
-            items.size == 1 && FAVOURITE_COFFEE_QUESTION_RE.containsMatchIn(userMessage)
-        ) {
-            "Your favourite coffee is ${items.single()}."
-        } else {
-            null
-        }
-        return Result.Add(items, request.listName, answerPrefix)
+        return Result.Add(items, request.listName)
     }
 
     private fun explicitItems(text: String): List<String>? {
@@ -97,12 +71,6 @@ object AnaphoricListAddResolver {
             PLURAL_ITEMS_RE.findAll(text).forEach { add(splitItems(it.groupValues[1])) }
             SINGLE_ITEM_RE.findAll(text).forEach { match ->
                 add(listOf(match.groupValues[1].trimItem()))
-            }
-            FAVOURITE_COFFEE_RE.findAll(text).forEach { match ->
-                val item = match.groupValues[1].trimItem()
-                    .removePrefixIgnoreCase("a ")
-                    .removePrefixIgnoreCase("an ")
-                add(listOf(item))
             }
         }.filter { it.isNotEmpty() }
             .distinct()

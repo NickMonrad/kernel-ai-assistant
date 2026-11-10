@@ -2105,7 +2105,7 @@ class NativeIntentHandler @Inject constructor(
         val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
         if (item == null) {
             if (params["items"]?.isNotBlank() != true) {
-                return SkillResult.Failure("add_to_list", "No item specified")
+                return SkillResult.DirectReply("What would you like to add?")
             }
             if (params["list_name"]?.isNotBlank() != true) {
                 return SkillResult.Failure("add_to_list", "No list name specified")

@@ -1,7 +1,6 @@
 package com.kernel.ai.core.skills
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -9,11 +8,11 @@ import org.junit.jupiter.api.Test
 class AnaphoricListAddResolverTest {
 
     @Test
-    fun `resolves singular item stated in the same utterance`() {
+    fun `resolves a singular item stated in the same utterance`() {
         assertEquals(
-            AnaphoricListAddResolver.Result.Add(listOf("flat white"), "shopping list"),
+            AnaphoricListAddResolver.Result.Add(listOf("milk"), "shopping list"),
             AnaphoricListAddResolver.resolve(
-                "My favourite coffee is flat white, and add it to my shopping list.",
+                "The only item is milk. Add it to my shopping list.",
                 previousUserMessage = null,
             ),
         )
@@ -42,59 +41,41 @@ class AnaphoricListAddResolverTest {
     }
 
     @Test
-    fun `resolves a favourite coffee explicitly named in the previous user turn`() {
-        assertEquals(
-            AnaphoricListAddResolver.Result.Add(
-                listOf("flat white"),
-                "shopping list",
-                answerPrefix = "Your favourite coffee is flat white.",
-            ),
-            AnaphoricListAddResolver.resolve(
-                "What's my favourite coffee and add it to my shopping list.",
-                previousUserMessage = "My favourite coffee is flat white.",
-            ),
+    fun `asks when realistic prior turns do not match the supported explicit declarations`() {
+        val cases = listOf(
+            "we're out of milk and eggs." to "Add them to my grocery list.",
+            "I need to buy bread." to "Add it to my shopping list.",
         )
+
+        cases.forEach { (previousTurn, request) ->
+            assertTrue(
+                AnaphoricListAddResolver.resolve(request, previousTurn) is AnaphoricListAddResolver.Result.Ask,
+                previousTurn,
+            )
+        }
     }
 
     @Test
-    fun `resolves a favourite coffee from retrieved memory evidence`() {
+    fun `does not intercept anaphoric actions without an explicit list target`() {
+        val requests = listOf(
+            "add it to my calendar",
+            "put that in my notes",
+            "add this to the reminder",
+            "add them to the meeting invite",
+        )
+
+        requests.forEach { request ->
+            assertNull(AnaphoricListAddResolver.resolve(request, previousUserMessage = "The item is milk."))
+        }
+    }
+
+    @Test
+    fun `asks when favourite coffee has no explicit item referent`() {
         assertEquals(
-            AnaphoricListAddResolver.Result.Add(
-                listOf("flat white"),
-                "shopping list",
-                answerPrefix = "Your favourite coffee is flat white.",
-            ),
+            AnaphoricListAddResolver.Result.Ask("Which item do you mean?"),
             AnaphoricListAddResolver.resolve(
                 "What's my favourite coffee and add it to my shopping list.",
                 previousUserMessage = null,
-                retrievedMemory = "Relevant memory evidence: my favourite coffee is a flat white.",
-            ),
-        )
-    }
-
-    @Test
-    fun `asks when retrieved memory contains conflicting favourite coffees`() {
-        val result = AnaphoricListAddResolver.resolve(
-            "What's my favourite coffee and add it to my shopping list.",
-            previousUserMessage = null,
-            retrievedMemory = "my favourite coffee is a flat white\nmy favourite coffee is a long black",
-        )
-
-        assertTrue(result is AnaphoricListAddResolver.Result.Ask)
-    }
-
-    @Test
-    fun `requests memory lookup only for an unanswered favourite coffee reference`() {
-        assertTrue(
-            AnaphoricListAddResolver.needsMemoryLookup(
-                "What's my favourite coffee and add it to my shopping list.",
-                previousUserMessage = null,
-            ),
-        )
-        assertFalse(
-            AnaphoricListAddResolver.needsMemoryLookup(
-                "What's my favourite coffee and add it to my shopping list.",
-                previousUserMessage = "My favourite coffee is flat white.",
             ),
         )
     }
