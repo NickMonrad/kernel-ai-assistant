@@ -15,9 +15,12 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.slot
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 
 class VoiceCommandServiceTest {
 
@@ -55,6 +58,31 @@ class VoiceCommandServiceTest {
 
         coVerify { voiceOutputController.speak(VoiceSpeakRequest("Flashlight on.")) }
         coVerify { quickActionDao.insert(any()) }
+    }
+
+    @Test
+    fun `list clarification direct reply is stored and spoken instead of reported as a failure`() = runTest {
+        val transcript = "Add an item to my shopping list"
+        val clarification = "What would you like to add?"
+        val matchedIntent = QuickIntentRouter.MatchedIntent(
+            "add_to_list",
+            mapOf("item" to "an item", "list_name" to "shopping list"),
+        )
+        every { quickIntentRouter.route(transcript) } returns QuickIntentRouter.RouteResult.RegexMatch(matchedIntent)
+
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        every { skillRegistry.get("add_to_list") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntent
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply(clarification)
+        val action = slot<QuickActionEntity>()
+
+        handler.handle(transcript, context)
+
+        coVerify { quickActionDao.insert(capture(action)) }
+        assertEquals(clarification, action.captured.resultText)
+        assertTrue(action.captured.isSuccess)
+        coVerify { voiceOutputController.speak(VoiceSpeakRequest(clarification)) }
     }
 
     @Test

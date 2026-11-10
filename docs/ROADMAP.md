@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-10-07 (retargeted LiteRT-LM runtime validation to 0.18.0)
+> **Last updated:** 2026-11-10 (tracked anaphoric list-add reliability in #1787)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -39,6 +39,7 @@ Current release gates are deliberately narrow:
 - [#1447](https://github.com/NickMonrad/kernel-ai-assistant/issues/1447) — ship one higher-quality local TTS option, with current candidate safety/evidence in #1449 and #1485;
 - [#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441) — Play Store, legal, and policy readiness through #1260–#1264, including #1474 under the licence/SBOM track.
 - [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) — Lists long-item and hyperlink usability: bounded URL presentation, tappable links, practical long-item editing, and unchanged local/Nextcloud text.
+- [#1787](https://github.com/NickMonrad/kernel-ai-assistant/issues/1787) — resolve list-add pronouns from explicit current/prior user-turn items; clarify when missing or ambiguous and never create lists from unresolved pronouns.
 - [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — Nextcloud Login Flow v2: browser-based account authorization as the preferred setup path, with manual app-password entry retained as fallback.
 - [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud task-list sharing management from Jandal for bound Lists, using Nextcloud's existing user/group ACL model.
 

@@ -1367,13 +1367,81 @@ class ChatViewModelRetryStateMachineTest {
     }
 
     @Test
-    fun `combined personal recall and list action remains tool-routable`() = runTest(dispatcher) {
+    fun `prior-turn list referent resolves before a matched quick route`() = runTest(dispatcher) {
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        val dispatchedCalls = mutableListOf<SkillCall>()
+        coEvery { runIntent.execute(any()) } answers {
+            dispatchedCalls += firstArg<SkillCall>()
+            SkillResult.DirectReply("Added the items to your grocery list.")
+        }
+        every { skillRegistry.get("run_intent") } returns runIntent
+        every { skillRegistry.buildNativeDeclarations() } returns "run_intent: list actions"
+        every { jandalPersona.nzTruths } returns emptyList()
+        every { quickIntentRouter.route(any()) } answers {
+            val input = firstArg<String>()
+            if (input.startsWith("Add them")) {
+                QuickIntentRouter.RouteResult.RegexMatch(
+                    QuickIntentRouter.MatchedIntent(
+                        intentName = "add_to_list",
+                        params = mapOf("item" to "them", "list_name" to "grocery list"),
+                    ),
+                )
+            } else {
+                QuickIntentRouter.RouteResult.FallThrough(input)
+            }
+        }
+        every { inferenceEngine.generate(any()) } returns toolChainFlow(tokens = listOf("Noted."))
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("The items are apples and rice.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        viewModel.onInputChanged("Add them to my grocery list.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val arguments = dispatchedCalls.single().arguments
+        assertEquals("bulk_add_to_list", arguments["intent_name"])
+        assertEquals("""["apples","rice"]""", arguments["items"])
+        assertEquals("grocery list", arguments["list_name"])
+        assertTrue(viewModel.getConversationAsText().contains("Added the items to your grocery list."))
+    }
+
+    @Test
+    fun `missing add to list item clarification is displayed in chat`() = runTest(dispatcher) {
+        setupRunIntent(SkillResult.DirectReply("What would you like to add?"))
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "Add an item to my shopping list.",
+        )
+        coEvery { inferenceEngine.generate(any()) } returns toolChainFlow(
+            tokens = listOf("Please specify an item."),
+            chain = {
+                realToolSet.runIntent(
+                    "add_to_list",
+                    """{"item":"an item","list_name":"shopping list"}""",
+                )
+            },
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("Add an item to my shopping list.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.getConversationAsText().contains("What would you like to add?"))
+    }
+
+    @Test
+    fun `unresolved favourite item asks instead of querying memory or dispatching a list add`() = runTest(dispatcher) {
         val searchMemory = setupSearchMemory(
-            SkillResult.Success("Relevant filtered evidence:\nmy favourite coffee is a flat white"),
+            SkillResult.Success("Relevant filtered evidence: my favourite coffee is a flat white"),
         )
         val runIntent = mockk<Skill>()
         every { runIntent.name } returns "run_intent"
-        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Added flat white to your shopping list.")
         every { skillRegistry.get("run_intent") } returns runIntent
         every { skillRegistry.buildNativeDeclarations() } returns "run_intent: list actions"
         every { jandalPersona.nzTruths } returns emptyList()
@@ -1383,13 +1451,7 @@ class ChatViewModelRetryStateMachineTest {
 
         val generationPrompts = mutableListOf<String>()
         every { inferenceEngine.generate(capture(generationPrompts)) } returns toolChainFlow(
-            tokens = listOf("Added flat white to your shopping list."),
-            chain = {
-                realToolSet.runIntent(
-                    "add_to_list",
-                    """{"item":"flat white","list_name":"shopping list"}""",
-                )
-            },
+            tokens = listOf("This response must not be used."),
         )
 
         val viewModel = createViewModel()
@@ -1398,10 +1460,37 @@ class ChatViewModelRetryStateMachineTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
-        assertTrue(generationPrompts.single().contains("[Tool Use]"))
-        assertFalse(generationPrompts.single().contains("Memory search is already complete"))
+        assertTrue(generationPrompts.isEmpty())
         coVerify(exactly = 0) { searchMemory.execute(any()) }
-        coVerify(exactly = 1) { runIntent.execute(any()) }
+        coVerify(exactly = 0) { runIntent.execute(any()) }
+        assertTrue(viewModel.getConversationAsText().contains("Which item do you mean?"))
+    }
+
+    @Test
+    fun `anaphoric action targeting calendar follows normal routing`() = runTest(dispatcher) {
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        every { skillRegistry.get("run_intent") } returns runIntent
+        every { jandalPersona.nzTruths } returns emptyList()
+        every {
+            quickIntentRouter.route(any())
+        } answers { QuickIntentRouter.RouteResult.FallThrough(input = firstArg()) }
+
+        val generationPrompts = mutableListOf<String>()
+        every { inferenceEngine.generate(capture(generationPrompts)) } returns toolChainFlow(
+            tokens = listOf("What calendar event should I add?"),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("Add it to my calendar.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        verify { quickIntentRouter.route("Add it to my calendar.") }
+        assertTrue(generationPrompts.isNotEmpty())
+        coVerify(exactly = 0) { runIntent.execute(any()) }
+        assertTrue(viewModel.getConversationAsText().contains("What calendar event should I add?"))
     }
 
     @Test

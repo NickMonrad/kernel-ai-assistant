@@ -272,7 +272,7 @@ class NativeIntentHandler @Inject constructor(
             "get_list" to "get_list_items",
         )
         private val INVALID_LIST_NAME_RE = Regex(
-            """^\s*(?:it|that|this|them)\b|^\s*to\s+(?:my|the)\b|\s+to\s+my\b""",
+            """^\s*(?:it|that|this|them|these|those)\b|^\s*to\s+(?:my|the)\b|\s+to\s+my\b""",
             RegexOption.IGNORE_CASE,
         )
 
@@ -1974,7 +1974,7 @@ class NativeIntentHandler @Inject constructor(
 
     /** Bare placeholder phrases that should trigger slot-fill rather than being added verbatim. */
     private val ITEM_FILLER_RE = Regex(
-        """^(an?\s+item|something|a\s+thing|it|one|some)$""",
+        """^(an?\s+item|something|a\s+thing|it|that|this|them|these|those|one|some)$""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -2105,7 +2105,7 @@ class NativeIntentHandler @Inject constructor(
         val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
         if (item == null) {
             if (params["items"]?.isNotBlank() != true) {
-                return SkillResult.Failure("add_to_list", "No item specified")
+                return SkillResult.DirectReply("What would you like to add?")
             }
             if (params["list_name"]?.isNotBlank() != true) {
                 return SkillResult.Failure("add_to_list", "No list name specified")
@@ -2119,14 +2119,16 @@ class NativeIntentHandler @Inject constructor(
                 ?.let { normalizeListName(it) }
                 ?: params["list_name"]?.trim()?.let { normalizeListName(it) }
                 ?: "the list"
-            return SkillResult.Failure(
-                "add_to_list",
-                "What would you like to add to $targetList?",
-            )
+            return SkillResult.DirectReply("What would you like to add to $targetList?")
         }
 
         val raw = params["list_name"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_to_list", "No list name specified")
+        if (INVALID_LIST_NAME_RE.containsMatchIn(raw) ||
+            params["list_name_for_creation"]?.let(INVALID_LIST_NAME_RE::containsMatchIn) == true
+        ) {
+            return SkillResult.DirectReply("Which list should I add that item to?")
+        }
         val resolution = runBlocking { resolveActiveList(raw) }
         if (resolution.isAmbiguous) return ambiguousListReply()
         val existing = resolution.match
@@ -2161,6 +2163,15 @@ class NativeIntentHandler @Inject constructor(
             itemsParam.split(",").map { it.trim() }.filter { it.isNotBlank() }
         }
         if (items.isEmpty()) return SkillResult.Failure("bulk_add_to_list", "No valid items to add")
+        val unresolvedItem = items.firstOrNull(::isFillerItem)
+        if (unresolvedItem != null) {
+            return SkillResult.DirectReply("What would you like me to add instead of \"$unresolvedItem\"?")
+        }
+        if (INVALID_LIST_NAME_RE.containsMatchIn(raw) ||
+            params["list_name_for_creation"]?.let(INVALID_LIST_NAME_RE::containsMatchIn) == true
+        ) {
+            return SkillResult.DirectReply("Which list should I add those items to?")
+        }
         val resolution = runBlocking { resolveActiveList(raw) }
         if (resolution.isAmbiguous) return ambiguousListReply()
         val existing = resolution.match

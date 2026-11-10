@@ -267,6 +267,7 @@ class RunIntentSkillTest {
         assertEquals(dedicatedTools + unavailableStubs, exclusions.keys)
         assertEquals(NativeIntentHandler.KNOWN_INTENTS, callableSet + exclusions.keys)
         assertTrue(callableSet.intersect(exclusions.keys).isEmpty())
+        assertTrue("add_to_list" in callableSet)
         assertTrue("get_date_diff" in callableSet)
         assertTrue("bulk_add_to_list" in callableSet)
         dedicatedTools.forEach {

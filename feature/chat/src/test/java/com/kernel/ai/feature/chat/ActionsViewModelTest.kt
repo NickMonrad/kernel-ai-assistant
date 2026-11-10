@@ -311,6 +311,27 @@ class ActionsViewModelTest {
         assertEquals("add_to_list", insertedActions.single().skillName)
         assertEquals(true, insertedActions.single().isSuccess)
     }
+    @Test
+    fun `list clarification direct reply is retained as the user-facing action result`() = runTest(dispatcher) {
+        val clarification = "What would you like to add?"
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run a native intent"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult =
+                SkillResult.DirectReply(clarification)
+        }
+        every { skillRegistry.get(any()) } answers {
+            if (firstArg<String>() == "run_intent") runIntentSkill else null
+        }
+
+        viewModel.executeAction("Add an item to my shopping list", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals("add_to_list", insertedActions.single().skillName)
+        assertEquals(clarification, insertedActions.single().resultText)
+        assertEquals(true, insertedActions.single().isSuccess)
+    }
 
     @Test
     fun `create list flow preserves leading words in list names`() = runTest(dispatcher) {
