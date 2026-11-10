@@ -874,7 +874,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """turn\s+off\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
+                """turn\s+off\s+(?:(all|both|my|our|the|that|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -903,7 +903,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer_named",
             regex = Regex(
-                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!the\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
+                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!(?:my|the|our|that)\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -914,7 +914,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
+                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|our|the|that|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4220,6 +4220,23 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
         ),
+        // "what do I need to get from the shops" / "what do I need from Bunnings"
+        // Captures any place; NativeIntentHandler resolves known store categories and named lists.
+        // Leading my/our/the/a and trailing time qualifiers (today, tomorrow, this week, later, ...) are stripped.
+        IntentPattern(
+            intentName = "get_list_items",
+            regex = Regex(
+                """^what\s+do\s+(?:i|we)\s+need(?:\s+to\s+(?:get|buy))?\s+(?:from|at)\s+(?:(?:the|a|my|our)\s+)?(.+?)(?:\s+(?:today|tonight|tomorrow|this\s+(?:week|weekend)|later|on\s+the\s+way\s+home))?[?.!]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "list_name" to match.groupValues[1].trim(),
+                    "fallthrough_on_missing" to "true",
+                )
+            },
+        ),
+
 
         // ── Save Memory ──
         // Pattern: "remember something" / "save something to memory" → ask what to remember

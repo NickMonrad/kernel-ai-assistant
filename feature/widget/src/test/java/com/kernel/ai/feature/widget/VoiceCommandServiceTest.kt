@@ -109,4 +109,52 @@ class VoiceCommandServiceTest {
         verify { navigator.navigateToChat(context, transcript) }
         coVerify(exactly = 0) { quickActionDao.insert(any()) }
     }
+
+    @Test
+    fun `RegexMatch with model fallthrough failure navigates to chat instead of speaking the miss`() = runTest {
+        val transcript = "what do I need at the meeting"
+        val matchedIntent = QuickIntentRouter.MatchedIntent(
+            "get_list_items",
+            mapOf("list_name" to "meeting", "fallthrough_on_missing" to "true"),
+        )
+        every { quickIntentRouter.route(transcript) } returns QuickIntentRouter.RouteResult.RegexMatch(matchedIntent)
+
+        val skill = mockk<Skill>(relaxed = true)
+        every { skill.name } returns "get_list_items"
+        every { skillRegistry.get("get_list_items") } returns skill
+        coEvery { skill.execute(any()) } returns SkillResult.Failure(
+            "get_list_items",
+            "I couldn't find a list called \"meeting\".",
+            fallThroughToModel = true,
+        )
+
+        handler.handle(transcript, context)
+
+        verify { navigator.navigateToChat(context, transcript) }
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
+        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+    }
+
+    @Test
+    fun `RegexMatch failure without model fallthrough still speaks the miss`() = runTest {
+        val transcript = "what do I need at the meeting"
+        val matchedIntent = QuickIntentRouter.MatchedIntent(
+            "get_list_items",
+            mapOf("list_name" to "meeting", "fallthrough_on_missing" to "true"),
+        )
+        every { quickIntentRouter.route(transcript) } returns QuickIntentRouter.RouteResult.RegexMatch(matchedIntent)
+
+        val skill = mockk<Skill>(relaxed = true)
+        every { skill.name } returns "get_list_items"
+        every { skillRegistry.get("get_list_items") } returns skill
+        coEvery { skill.execute(any()) } returns SkillResult.Failure(
+            "get_list_items",
+            "I couldn't find a list called \"meeting\".",
+        )
+
+        handler.handle(transcript, context)
+
+        coVerify { voiceOutputController.speak(VoiceSpeakRequest("I couldn't find a list called \"meeting\".")) }
+        verify(exactly = 0) { navigator.navigateToChat(any(), any()) }
+    }
 }
