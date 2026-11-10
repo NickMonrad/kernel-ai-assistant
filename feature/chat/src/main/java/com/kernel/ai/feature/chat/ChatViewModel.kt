@@ -2752,57 +2752,62 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         is com.kernel.ai.core.skills.SkillResult.Failure -> {
-                            val missingListReply = if (
-                                matchedIntent.intentName == "get_list_items" &&
-                                skillResult.error.startsWith("I couldn't find a list called")
-                            ) {
-                                val requestedListName = (
-                                    callParams["list_name_for_creation"]
-                                        ?: callParams["list_name"]?.removeSuffix(" list")
-                                    )?.trim()?.takeIf { it.isNotBlank() }
-                                val displayName = when (requestedListName?.lowercase()) {
-                                    "todo", "to do", "to-do" -> "to-do"
-                                    else -> requestedListName
-                                }
-                                displayName?.let { "You don't have a $it list yet." }
+                            if (skillResult.fallThroughToModel) {
+                                // Preserve the original request for named-list model fallthrough.
+                                isDeviceActionExchange = false
                             } else {
-                                null
+                                val missingListReply = if (
+                                    matchedIntent.intentName == "get_list_items" &&
+                                    skillResult.error.startsWith("I couldn't find a list called")
+                                ) {
+                                    val requestedListName = (
+                                        callParams["list_name_for_creation"]
+                                            ?: callParams["list_name"]?.removeSuffix(" list")
+                                        )?.trim()?.takeIf { it.isNotBlank() }
+                                    val displayName = when (requestedListName?.lowercase()) {
+                                        "todo", "to do", "to-do" -> "to-do"
+                                        else -> requestedListName
+                                    }
+                                    displayName?.let { "You don't have a $it list yet." }
+                                } else {
+                                    null
+                                }
+                                if (missingListReply != null) {
+                                    appendAssistantMessage(
+                                        convId,
+                                        missingListReply,
+                                        shouldIndex = false,
+                                        spokenSummary = missingListReply,
+                                    )
+                                    Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=get_list_items result=failure_no_llm")
+                                    return@launch
+                                }
+                                // #1313: deterministic regex-matched native routes are terminal even on
+                                // failure. Email failures are also terminal because retrying through E4B
+                                // can invoke an unrelated tool instead of showing the email limitation.
+                                if (routeResult is QuickIntentRouter.RouteResult.RegexMatch ||
+                                    skillResult.skillName == "send_email") {
+                                    appendAssistantMessage(
+                                        convId,
+                                        skillResult.error,
+                                        shouldIndex = false,
+                                        spokenSummary = skillResult.error,
+                                    )
+                                    Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=failure_no_llm")
+                                    return@launch
+                                }
+                                if (!inferenceEngine.isReady.value) {
+                                    appendAssistantMessage(
+                                        convId,
+                                        skillResult.error,
+                                        shouldIndex = false,
+                                        spokenSummary = skillResult.error,
+                                    )
+                                    return@launch
+                                }
+                                // Action failed — inject error context so E4B can explain naturally.
+                                systemContext = "[System: ${matchedIntent.intentName} failed — ${skillResult.error}]"
                             }
-                            if (missingListReply != null) {
-                                appendAssistantMessage(
-                                    convId,
-                                    missingListReply,
-                                    shouldIndex = false,
-                                    spokenSummary = missingListReply,
-                                )
-                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=get_list_items result=failure_no_llm")
-                                return@launch
-                            }
-                            // #1313: deterministic regex-matched native routes are terminal even on
-                            // failure. Email failures are also terminal because retrying through E4B
-                            // can invoke an unrelated tool instead of showing the email limitation.
-                            if (routeResult is QuickIntentRouter.RouteResult.RegexMatch ||
-                                skillResult.skillName == "send_email") {
-                                appendAssistantMessage(
-                                    convId,
-                                    skillResult.error,
-                                    shouldIndex = false,
-                                    spokenSummary = skillResult.error,
-                                )
-                                Log.d("KernelAI", "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=failure_no_llm")
-                                return@launch
-                            }
-                            if (!inferenceEngine.isReady.value) {
-                                appendAssistantMessage(
-                                    convId,
-                                    skillResult.error,
-                                    shouldIndex = false,
-                                    spokenSummary = skillResult.error,
-                                )
-                                return@launch
-                            }
-                            // Action failed — inject error context so E4B can explain naturally.
-                            systemContext = "[System: ${matchedIntent.intentName} failed — ${skillResult.error}]"
                         }
                         is com.kernel.ai.core.skills.SkillResult.CapabilityRequired -> {
                             if (skillResult.capabilityKey == CapabilityKey.WeatherCurrentLocation) {

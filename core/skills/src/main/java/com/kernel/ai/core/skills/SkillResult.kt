@@ -47,8 +47,13 @@ sealed class SkillResult {
     ) : SkillResult()
     /** Skill not found in registry. */
     data class UnknownSkill(val skillName: String) : SkillResult()
-    /** Skill found but execution failed. */
-    data class Failure(val skillName: String, val error: String) : SkillResult()
+    /** Skill found but execution failed. [fallThroughToModel] asks conversational callers to
+     *  continue with the user's original request instead of displaying this internal miss. */
+    data class Failure(
+        val skillName: String,
+        val error: String,
+        val fallThroughToModel: Boolean = false,
+    ) : SkillResult()
     /** Skill output was malformed JSON or failed schema validation. */
     data class ParseError(val rawOutput: String, val reason: String) : SkillResult()
     /** Skill requires a device capability (e.g. CALL_PHONE permission) to proceed.
