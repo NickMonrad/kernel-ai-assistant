@@ -64,7 +64,7 @@ class HonorCameraCoexistenceTest {
         every { appOps.unsafeCheckOpNoThrow(any(), any(), any()) } returns mode
         val context = mockk<Context>()
         every { context.getSystemService(Context.APP_OPS_SERVICE) } returns appOps
-        every { context.packageName } returns "com.kernel.ai.debug"
+        every { context.packageName } returns "ai.jandal.assistant.debug"
 
         assertTrue(HonorCameraCoexistence.hasUsageAccess(context) == expected)
     }

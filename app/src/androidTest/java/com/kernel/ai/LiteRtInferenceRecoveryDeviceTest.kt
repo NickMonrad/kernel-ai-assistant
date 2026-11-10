@@ -35,7 +35,7 @@ class LiteRtInferenceRecoveryDeviceTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         assertEquals(
             "This evidence test must target the debug app that owns the installed model",
-            "com.kernel.ai.debug",
+            BuildConfig.APPLICATION_ID,
             context.packageName,
         )
 

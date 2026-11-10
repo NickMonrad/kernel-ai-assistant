@@ -1761,7 +1761,7 @@ private fun VoiceScreenPreview() {
                 sherpaVoices = listOf(
                     SherpaVoiceRowUiState(
                         voice = SherpaPiperVoice.JennyDioco,
-                        downloadState = VoicePackDownloadState.Downloaded("/data/user/0/com.kernel.ai.debug/files/sherpa-tts/vits-piper-en_GB-jenny_dioco-medium"),
+                        downloadState = VoicePackDownloadState.Downloaded("/data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-jenny_dioco-medium"),
                     ),
                     SherpaVoiceRowUiState(
                         voice = SherpaPiperVoice.SouthernEnglishFemale,

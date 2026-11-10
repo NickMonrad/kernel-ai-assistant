@@ -27,7 +27,7 @@ class InflectProbeBuildIsolationTest {
         )
         assertFalse(
             InflectProbeStartupIsolation.shouldAllowRuntimeTest(
-                targetPackage = "com.kernel.ai.debug",
+                targetPackage = "ai.jandal.assistant.debug",
                 selectedTestClass = testClass,
             ),
         )

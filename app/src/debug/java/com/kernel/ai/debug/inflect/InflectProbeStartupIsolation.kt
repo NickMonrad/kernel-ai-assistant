@@ -1,9 +1,10 @@
 package com.kernel.ai.debug.inflect
+import com.kernel.ai.BuildConfig
 
 /** The runtime receiver test requires a fresh package and preserves the debug startup gate. */
 object InflectProbeStartupIsolation {
-    const val DEBUG_PACKAGE = "com.kernel.ai.debug"
-    const val PROBE_PACKAGE = "com.kernel.ai.debug.inflectprobe"
+    const val DEBUG_PACKAGE = BuildConfig.DEBUG_APPLICATION_ID
+    const val PROBE_PACKAGE = BuildConfig.PROBE_APPLICATION_ID
     const val RUNTIME_TEST_CLASS =
         "com.kernel.ai.debug.inflect.InflectSpikeReceiverRuntimeTest"
 

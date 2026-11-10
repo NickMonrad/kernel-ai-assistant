@@ -111,6 +111,6 @@ class BootCompletedReceiverAcceptanceTest {
     }
 
     private companion object {
-        const val TARGET_APPLICATION_ID = "com.kernel.ai.debug.bootrestore"
+        const val TARGET_APPLICATION_ID = BuildConfig.APPLICATION_ID
     }
 }

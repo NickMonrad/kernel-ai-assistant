@@ -40,8 +40,8 @@ android {
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.kernel.ai.debug.bootrestore"
-        testApplicationId = "com.kernel.ai.debug.bootrestore.test"
+        applicationId = "ai.jandal.assistant.debug.bootrestore"
+        testApplicationId = "ai.jandal.assistant.debug.bootrestore.test"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = candidateVersionCode

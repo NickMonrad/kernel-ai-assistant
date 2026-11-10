@@ -7,7 +7,7 @@ android {
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.kernel.ai.debug.timeracceptance"
+        applicationId = "ai.jandal.assistant.debug.timeracceptance"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1

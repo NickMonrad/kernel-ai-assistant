@@ -30,10 +30,11 @@ val isolatedInflectProbe = providers.gradleProperty("isolatedInflectProbe")
     .map(String::toBooleanStrict)
     .orElse(false)
     .get()
+val baseApplicationId = "ai.jandal.assistant"
 val debugApplicationId = if (isolatedInflectProbe) {
-    "com.kernel.ai.debug.inflectprobe"
+    "$baseApplicationId.debug.inflectprobe"
 } else {
-    "com.kernel.ai.debug"
+    "$baseApplicationId.debug"
 }
 if (isolatedInflectProbe) {
     // Keep probe APKs separate from the normal app-debug.apk preview/build output.
@@ -69,16 +70,18 @@ android {
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.kernel.ai"
+        applicationId = baseApplicationId
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
         versionName = "0.1.0"
+        buildConfigField("String", "DEBUG_APPLICATION_ID", "\"$baseApplicationId.debug\"")
+        buildConfigField("String", "PROBE_APPLICATION_ID", "\"$baseApplicationId.debug.inflectprobe\"")
 
         testInstrumentationRunner = "com.kernel.ai.debug.inflect.InflectSpikeAndroidJUnitRunner"
 
         buildConfigField("String", "HF_CLIENT_ID", "\"2607cec6-3d70-4df0-ba39-eb9cef1ba8c8\"")
-        buildConfigField("String", "HF_REDIRECT_URI", "\"com.kernel.ai://oauth/callback\"")
+        buildConfigField("String", "HF_REDIRECT_URI", "\"$baseApplicationId://oauth/callback\"")
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
         buildConfigField("String", "BUILD_TIMESTAMP", "\"$buildTimestamp\"")
         buildConfigField("boolean", "IS_INFLECT_PROBE", "false")
@@ -278,13 +281,13 @@ tasks.register("verifyListsShortcutVariants") {
             check(Regex("""value\([^)]*\)="lists" """).containsMatchIn(xml))
         }
 
-        verify(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile, "com.kernel.ai.debug")
+        verify(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile, debugApplicationId)
         verify(
             releaseApkArtifact(
                 layout.buildDirectory.get().asFile,
                 isSigned = releaseSigningProperties != null,
             ),
-            "com.kernel.ai",
+            baseApplicationId,
         )
     }
 }
@@ -302,15 +305,15 @@ tasks.register("verifyAcousticStimulusReleaseIsolation") {
 
         val debugManifest = mergedManifest("debug").readText()
         val releaseManifest = mergedManifest("release").readText()
-        check("package=\"com.kernel.ai.debug\"" in debugManifest) {
-            "Debug manifest package must be com.kernel.ai.debug"
+        check("package=\"$debugApplicationId\"" in debugManifest) {
+            "Debug manifest package must be $debugApplicationId"
         }
         check("com.kernel.ai.debug.acoustic.AcousticStimulusReceiver" in debugManifest)
         check("com.kernel.ai.debug.action.PLAY_ACOUSTIC_STIMULUS" in debugManifest)
         check("com.kernel.ai.debug.acoustic.AcousticStimulusReceiver" !in releaseManifest)
         check("com.kernel.ai.debug.action.PLAY_ACOUSTIC_STIMULUS" !in releaseManifest)
-        check("package=\"com.kernel.ai\"" in releaseManifest) {
-            "Release manifest package must be com.kernel.ai"
+        check("package=\"$baseApplicationId\"" in releaseManifest) {
+            "Release manifest package must be $baseApplicationId"
         }
 
         val artifacts = listOf(
@@ -364,7 +367,7 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
         val journalComponents = listOf(
             "com.kernel.ai.debug.journal.TargetEventJournalReceiver",
             "com.kernel.ai.debug.journal.TargetEventJournalProvider",
-            "com.kernel.ai.debug.target-event-journal",
+            "$debugApplicationId.target-event-journal",
         )
         journalComponents.forEach { component ->
             check(component in debugManifest) { "Debug manifest must contain $component" }
@@ -374,7 +377,7 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
             check(action in debugManifest) { "Debug manifest must contain $action" }
             check(action !in releaseManifest) { "Release manifest must NOT contain $action" }
         }
-        check("package=\"com.kernel.ai\"" in releaseManifest)
+        check("package=\"$baseApplicationId\"" in releaseManifest)
 
         val artifacts = listOf(
             buildDirectory.resolve("outputs/apk/debug/app-debug.apk"),

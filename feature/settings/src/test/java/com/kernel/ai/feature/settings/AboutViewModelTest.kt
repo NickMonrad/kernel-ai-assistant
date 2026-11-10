@@ -84,7 +84,7 @@ class AboutViewModelTest {
         filesDir = Files.createTempDirectory("kernel-test-files").toFile()
         Dispatchers.setMain(testDispatcher)
         every { context.applicationInfo } returns applicationInfo
-        every { context.packageName } returns "com.kernel.ai.test"
+        every { context.packageName } returns "ai.jandal.assistant.test"
         every { context.cacheDir } returns cacheDir
         every { context.filesDir } returns filesDir
         // Default: no exit history unless a test stubs ActivityManager explicitly.
@@ -127,7 +127,7 @@ class AboutViewModelTest {
     private fun mockExitInfo(
         reason: Int = ApplicationExitInfo.REASON_CRASH,
         timestamp: Long = 1_786_416_540_123L, // 2026-08-11T02:49:00.123Z
-        processName: String = "com.kernel.ai.test",
+        processName: String = "ai.jandal.assistant.test",
         status: Int = 0,
         importance: Int = ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND,
         description: String? = "Process crashed",
@@ -310,7 +310,7 @@ class AboutViewModelTest {
         val content = exportContent()
         assertTrue(content.contains("Exit 1"))
         assertTrue(content.contains("Timestamp: 2026-08-11T02:49:00.123Z"))
-        assertTrue(content.contains("Process name: com.kernel.ai.test"))
+        assertTrue(content.contains("Process name: ai.jandal.assistant.test"))
         assertTrue(content.contains("Reason: REASON_CRASH (4)"))
         assertTrue(content.contains("Status: 0"))
         assertTrue(content.contains("Importance: IMPORTANCE_FOREGROUND (100)"))
@@ -335,7 +335,7 @@ class AboutViewModelTest {
         assertEquals(0, pidSlot.captured)
         val content = exportContent()
         assertTrue(content.contains("Exit 1"))
-        assertTrue(content.contains("Process name: com.kernel.ai.test"))
+        assertTrue(content.contains("Process name: ai.jandal.assistant.test"))
         assertTrue(content.contains("Reason: REASON_CRASH (4)"))
     }
 
@@ -575,7 +575,7 @@ class AboutViewModelTest {
         assertTrue(content.contains("Build type: release"))
         assertTrue(content.contains("Commit: 51c0a3f5"))
         assertTrue(content.contains("Built: 2026-08-09T12:00:00Z"))
-        assertTrue(content.contains("Package: com.kernel.ai.test"))
+        assertTrue(content.contains("Package: ai.jandal.assistant.test"))
     }
 
     @Test
