@@ -891,14 +891,12 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `add to list returns failure for filler item text`() {
-        val fillerCases = listOf("an item", "something", "a thing", "it", "one", "some")
+    fun `add to list asks clarification for filler item text`() {
+        val fillerCases = listOf("an item", "something", "a thing", "it", "that", "this", "them", "these", "those", "one", "some")
         fillerCases.forEach { filler ->
             val result = handleIntent("add_to_list", mapOf("item" to filler, "list_name" to "shopping list"))
-            assertTrue(
-                result is SkillResult.Failure,
-                "Expected Failure for filler item \"$filler\" but got $result",
-            )
+            val clarification = assertInstanceOf(SkillResult.DirectReply::class.java, result, filler)
+            assertTrue(clarification.content.trim().endsWith("?"))
             coVerify(exactly = 0) { listItemDao.insert(any()) }
         }
     }
@@ -1503,6 +1501,79 @@ class NativeIntentHandlerTest {
         val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
         assertEquals("add_to_list", failure.skillName)
         assertEquals("This Nextcloud list is read-only; content changes are unavailable.", failure.error)
+    }
+
+    @Test
+    fun `bulk add rejects unresolved pronouns without creating a list`() {
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        val unresolved = listOf("it", "that", "this", "them", "these", "those")
+
+        unresolved.forEach { pronoun ->
+            val result = handleIntent(
+                handlerWithListMutations(mutations),
+                "bulk_add_to_list",
+                mapOf(
+                    "items" to """["$pronoun"]""",
+                    "list_name" to "unresolved pronoun test list",
+                ),
+            )
+
+            val clarification = assertInstanceOf(SkillResult.DirectReply::class.java, result, pronoun)
+            assertTrue(clarification.content.trim().endsWith("?"))
+        }
+
+        unresolved.forEach { pronoun ->
+            val result = handleIntent(
+                handlerWithListMutations(mutations),
+                "bulk_add_to_list",
+                mapOf("items" to """["coffee"]""", "list_name" to pronoun),
+            )
+
+            val clarification = assertInstanceOf(SkillResult.DirectReply::class.java, result, pronoun)
+            assertTrue(clarification.content.trim().endsWith("?"))
+        }
+
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { mutations.addItems(any(), any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+        coVerify(exactly = 0) { listItemDao.insert(any()) }
+    }
+
+    @Test
+    fun `add to list rejects unresolved pronoun list names without creating a list`() {
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        val unresolved = listOf("it", "that", "this", "them", "these", "those")
+
+        unresolved.forEach { pronoun ->
+            val result = handleIntent(
+                handlerWithListMutations(mutations),
+                "add_to_list",
+                mapOf("item" to "coffee", "list_name" to pronoun),
+            )
+
+            val clarification = assertInstanceOf(SkillResult.DirectReply::class.java, result, pronoun)
+            assertTrue(clarification.content.trim().endsWith("?"))
+        }
+
+        unresolved.forEach { pronoun ->
+            val result = handleIntent(
+                handlerWithListMutations(mutations),
+                "add_to_list",
+                mapOf(
+                    "item" to "coffee",
+                    "list_name" to "shopping list",
+                    "list_name_for_creation" to pronoun,
+                ),
+            )
+
+            val clarification = assertInstanceOf(SkillResult.DirectReply::class.java, result, pronoun)
+            assertTrue(clarification.content.trim().endsWith("?"))
+        }
+
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { mutations.addItem(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+        coVerify(exactly = 0) { listItemDao.insert(any()) }
     }
 
     @Test

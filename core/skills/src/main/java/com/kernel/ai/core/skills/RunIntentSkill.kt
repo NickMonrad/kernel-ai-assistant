@@ -165,14 +165,13 @@ class RunIntentSkill @Inject constructor(
         "Bulk list → runIntent(intentName=\"bulk_add_to_list\", parameters='{\"items\":[\"apples\",\"rice\"],\"list_name\":\"groceries\"}')",
         "Calendar event → runIntent(intentName=\"create_calendar_event\", parameters='{\"title\":\"Dinner\",\"date\":\"tomorrow\",\"time\":\"19:00\"}')",
     )
-
     override val fullInstructions: String = buildString {
         appendLine("run_intent: Execute a supported native Android action or local calculation.")
         appendLine("Parameters: use the exact catalogue intent_name and a JSON object string with the shown field names.")
         appendLine("If instructions are requested first, call load_skill(\"run_intent\") first; wait for success.")
         appendLine("After successful load_skill, call run_intent once for the same request before replying; do not stop, reload, summarize, or ask the user to repeat.")
         appendLine("For bulk_add_to_list, call once with all items as a JSON array and the requested list_name.")
-        appendLine()
+        appendLine("If a list-add pronoun is unclear, ask instead of guessing; never create a list from a pronoun.")
         MODEL_ACTION_CATEGORIES.forEach { category ->
             val actions = category.actions.joinToString(", ") { action ->
                 "${action.name}(${action.parameterHelp})"
@@ -195,7 +194,8 @@ class RunIntentSkill @Inject constructor(
         appendLine("run_intent: use one exact catalogue intent_name and a JSON object string of parameters.")
         appendLine("After successful load_skill, call run_intent once for the original request before replying.")
         appendLine("For set_alarm, label may be a name given with called/named/labelled or a purpose after 'for'; never use a time, day, or part of day as the label.")
-        appendLine("bulk_add_to_list: include all items in one JSON array and the requested list_name.")
+        appendLine("For bulk_add_to_list, include all items in one JSON array and the requested list_name.")
+        appendLine("If a list-add pronoun is unclear, ask instead of guessing; never create a list from a pronoun.")
         appendLine("Callable intents and parameter hints:")
         MODEL_ACTION_CATEGORIES.forEach { category ->
             appendLine(

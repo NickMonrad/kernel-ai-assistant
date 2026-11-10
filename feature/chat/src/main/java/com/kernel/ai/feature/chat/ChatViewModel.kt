@@ -45,6 +45,7 @@ import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.skills.AnaphoricListAddResolver
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.LocalToolDiagnosticCapture
 import com.kernel.ai.core.skills.QuickIntentRouter
@@ -2384,6 +2385,12 @@ class ChatViewModel @Inject constructor(
             } else {
                 effectiveText = text
             }
+            if (!safeRunIntentTest) {
+                val previousUserMessage = _messages.value.dropLast(1)
+                    .lastOrNull { it.role == ChatMessage.Role.USER }
+                    ?.content
+                if (dispatchAnaphoricListAdd(text, previousUserMessage, convId)) return@launch
+            }
             val explicitWikipediaQuery = if (safeRunIntentTest) null else extractExplicitWikipediaQuery(text)
             val matchedIntent = explicitWikipediaQuery?.let {
                 QuickIntentRouter.MatchedIntent(
@@ -2431,6 +2438,7 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
             }
+
             val isCurrentConversationRecall =
                 !looksLikeToolQuery(text) &&
                     !containsExplicitToolActionVerb(text) &&
@@ -4605,6 +4613,110 @@ class ChatViewModel @Inject constructor(
      * reasonably want stored in memory — e.g. "I don't like aubergines", "My dog is called Biscuit".
      */
     private fun looksLikePersonalFact(text: String): Boolean = com.kernel.ai.feature.chat.looksLikePersonalFact(text)
+
+    private suspend fun dispatchAnaphoricListAdd(
+        userMessage: String,
+        previousUserMessage: String?,
+        convId: String,
+    ): Boolean {
+        val retrievedMemory = if (
+            AnaphoricListAddResolver.needsMemoryLookup(userMessage, previousUserMessage)
+        ) {
+            val searchMemory = skillRegistry.get("search_memory")
+            when {
+                searchMemory == null -> null
+                else -> when (
+                    val result = searchMemory.execute(
+                        SkillCall(searchMemory.name, mapOf("query" to userMessage)),
+                    )
+                ) {
+                    is SkillResult.DirectReply -> result.content
+                    is SkillResult.Success -> result.content
+                    else -> null
+                }
+            }
+        } else {
+            null
+        }
+        return when (
+            val resolution = AnaphoricListAddResolver.resolve(
+                userMessage,
+                previousUserMessage,
+                retrievedMemory,
+            )
+        ) {
+            null -> false
+            is AnaphoricListAddResolver.Result.Ask -> {
+                Log.d("KernelAI", "AnaphoricListAdd: clarification_required")
+                appendAssistantMessage(convId, resolution.question, shouldIndex = false)
+                true
+            }
+            is AnaphoricListAddResolver.Result.Add -> {
+                val intentName = if (resolution.items.size == 1) "add_to_list" else "bulk_add_to_list"
+                val intentParams = if (resolution.items.size == 1) {
+                    mapOf(
+                        "intent_name" to intentName,
+                        "item" to resolution.items.single(),
+                        "list_name" to resolution.listName,
+                    )
+                } else {
+                    mapOf(
+                        "intent_name" to intentName,
+                        "items" to org.json.JSONArray(resolution.items).toString(),
+                        "list_name" to resolution.listName,
+                    )
+                }
+                if (!validateBeforeDispatch(intentName, intentParams, convId)) return true
+
+                val runIntent = skillRegistry.get("run_intent")
+                if (runIntent == null) {
+                    appendAssistantMessage(
+                        convId,
+                        "I couldn't add that to your list just now.",
+                        shouldIndex = false,
+                    )
+                    return true
+                }
+
+                Log.d("KernelAI", "AnaphoricListAdd: resolved item_count=${resolution.items.size}")
+                when (val result = runIntent.execute(SkillCall(runIntent.name, intentParams))) {
+                    is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
+                        convId = convId,
+                        content = listOfNotNull(resolution.answerPrefix, result.content).joinToString(" "),
+                        skillName = intentName,
+                        requestJson = intentParams.toString(),
+                        isSuccess = true,
+                        presentation = result.presentation,
+                        spokenSummary = spokenSummaryFrom(result),
+                    )
+                    is SkillResult.Success -> appendAssistantMessageWithToolCall(
+                        convId = convId,
+                        content = listOfNotNull(resolution.answerPrefix, result.content).joinToString(" "),
+                        skillName = intentName,
+                        requestJson = intentParams.toString(),
+                        isSuccess = true,
+                        presentation = result.presentation,
+                        spokenSummary = spokenSummaryFrom(result),
+                    )
+                    is SkillResult.Failure -> appendAssistantMessage(
+                        convId,
+                        result.error,
+                        shouldIndex = false,
+                    )
+                    is SkillResult.CapabilityRequired -> {
+                        val message = capabilityRequiredMessage(result)
+                        appendAssistantMessage(convId, message, shouldIndex = false)
+                    }
+                    else -> appendAssistantMessage(
+                        convId,
+                        "I couldn't add that to your list just now.",
+                        shouldIndex = false,
+                    )
+                }
+                true
+            }
+        }
+    }
 
     /**
      * Validates intent params against [SlotValidationRegistry] before dispatch.
