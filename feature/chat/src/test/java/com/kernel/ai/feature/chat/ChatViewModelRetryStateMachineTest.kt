@@ -1410,6 +1410,32 @@ class ChatViewModelRetryStateMachineTest {
     }
 
     @Test
+    fun `missing add to list item clarification is displayed in chat`() = runTest(dispatcher) {
+        setupRunIntent(SkillResult.DirectReply("What would you like to add?"))
+
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = "Add an item to my shopping list.",
+        )
+        coEvery { inferenceEngine.generate(any()) } returns toolChainFlow(
+            tokens = listOf("Please specify an item."),
+            chain = {
+                realToolSet.runIntent(
+                    "add_to_list",
+                    """{"item":"an item","list_name":"shopping list"}""",
+                )
+            },
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("Add an item to my shopping list.")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.getConversationAsText().contains("What would you like to add?"))
+    }
+
+    @Test
     fun `unresolved favourite item asks instead of querying memory or dispatching a list add`() = runTest(dispatcher) {
         val searchMemory = setupSearchMemory(
             SkillResult.Success("Relevant filtered evidence: my favourite coffee is a flat white"),
