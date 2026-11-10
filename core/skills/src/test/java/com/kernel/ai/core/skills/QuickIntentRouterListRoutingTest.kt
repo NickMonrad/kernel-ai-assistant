@@ -94,6 +94,39 @@ class QuickIntentRouterListRoutingTest {
         assertEquals("milk", match.intent.params["item"])
         assertEquals("shopping list", match.intent.params["list_name"])
     }
+    @Test
+    fun `does not parse anaphoric add-to-list followups as create-list requests`() {
+        listOf(
+            "What's my favourite coffee and add it to my shopping list",
+            "add that to the grocery list",
+            "add them to my shopping list",
+            "create a to grocery list",
+        ).forEach { input ->
+            val result = router.route(input)
+
+            assertInstanceOf(QuickIntentRouter.RouteResult.FallThrough::class.java, result, input)
+        }
+    }
+
+    @Test
+    fun `routes explicit item addition and named list creation`() {
+        val addition = assertInstanceOf(
+            QuickIntentRouter.RouteResult.RegexMatch::class.java,
+            router.route("add eggs to my shopping list"),
+        )
+        assertEquals("add_to_list", addition.intent.intentName)
+        assertEquals("eggs", addition.intent.params["item"])
+
+        listOf("make a shopping list", "create a grocery list for my meal plan").forEach { input ->
+            val creation = assertInstanceOf(
+                QuickIntentRouter.RouteResult.RegexMatch::class.java,
+                router.route(input),
+                input,
+            )
+            assertEquals("create_list", creation.intent.intentName)
+        }
+    }
+
 
     @Test
     fun `routes add 111 over 70 to my blood pressure lost via list-tail mishear fix`() {

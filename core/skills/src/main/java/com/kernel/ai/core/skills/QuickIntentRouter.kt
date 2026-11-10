@@ -165,6 +165,14 @@ class QuickIntentRouter(
         """\b(list|lust|lost|last)\b\s*$""",
         RegexOption.IGNORE_CASE,
     )
+    private val ANAPHORIC_LIST_FOLLOW_UP_RE = Regex(
+        """\b(?:add|put)\s+(?:it|that|this|them|these|those)\s+(?:to|in|on)\b.*\blist\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val INVALID_LIST_CREATE_PREFIX_RE = Regex(
+        """\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)*(?:it|that|this|them)\b|\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)+to\s+""",
+        RegexOption.IGNORE_CASE,
+    )
 
 
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
@@ -3996,7 +4004,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+(list)""",
+                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)(?!list\b)(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
@@ -4008,7 +4016,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(.+?)\s+(list)""",
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
@@ -4792,6 +4800,11 @@ class QuickIntentRouter(
 
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
+        if (ANAPHORIC_LIST_FOLLOW_UP_RE.containsMatchIn(trimmed) ||
+            INVALID_LIST_CREATE_PREFIX_RE.containsMatchIn(trimmed)
+        ) {
+            return RouteResult.FallThrough(input = trimmed)
+        }
         // Normalize curly apostrophes for regex matching only. This covers STT and typed text,
         // including contraction tokens and possessive apostrophes in captured slots. The
         // classifier and fall-through continue to receive the original trimmed input.
