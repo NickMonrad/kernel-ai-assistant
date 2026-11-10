@@ -636,6 +636,13 @@ Native list actions resolve an existing exact title before case-insensitive, bou
 which list was intended; canonical names are used only for the established create-on-miss behavior.
 Matching never renames or rebinds a collection.
 
+Store questions of the form "what do I need [to get/buy] from/at [my/our/the/a] <place> [today/tonight/tomorrow/this week/this weekend/later/on the way home]" use
+`get_list_items` in both chat and Actions. `StoreListCatalog` is the single data table for
+generic shops, grocery chains, hardware stores, and pharmacies. Exact store-named lists win,
+then category list candidates are checked in order. A missing category list gets a friendly
+create-list prompt; another place reads its exact named list when present and otherwise
+continues to the model. Unrelated bring/know questions are not store-list requests. `Pak 'n Save` and `Pak n' Save` are accepted STT spellings of Pak'nSave.
+
 
 
 > **`convert_units` deterministic routing and reply contract:** `QuickIntentRouter` matches direct phrasing (`convert 5 miles to km`, `60 mph in m/s`), reversed phrasing (`how many cups in 2 L`), mixed-target phrasing (`convert 189 cm to feet and inches`), and spoken-STT variants (`convert 100 km an hour to metres a second`). The router normalises aliases before execution, including uppercase short forms like `L`/`mL`, natural spoken speed phrases (`km an hour`, `metres a second`), and mixed feet/inches input (`6 feet 2 inches` → total inches). `UnitConversionEvaluator` enforces same-category conversion only, rejects unsupported units and invalid physical values (for example below absolute zero), and marks non-terminating or mixed-unit results as approximate. Display text keeps full precision; spoken/TTS output uses `spokenSummary` rounded to 2 decimal places for verbose scalar results and 1 decimal place for the inches component of mixed feet/inches replies so speech stays concise without hiding exact on-screen values.

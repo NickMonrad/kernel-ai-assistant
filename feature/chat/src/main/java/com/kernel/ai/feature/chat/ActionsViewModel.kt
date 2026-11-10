@@ -187,6 +187,7 @@ class ActionsViewModel @Inject constructor(
     private data class ExecutedAction(
         val entity: QuickActionEntity,
         val spokenSummary: String?,
+        val fallThroughToModel: Boolean = false,
     )
 
     /**
@@ -1395,15 +1396,7 @@ class ActionsViewModel @Inject constructor(
                 when (routeResult) {
                     is QuickIntentRouter.RouteResult.FallThrough -> {
                         Log.d(TAG, "ActionsViewModel: FallThrough for \"$normalizedQuery\" → navigating to chat")
-                        val entity = QuickActionEntity(
-                            userQuery = normalizedQuery,
-                            skillName = "llm_fallthrough",
-                            resultText = "Sending to Jandal for processing…",
-                            isSuccess = true,
-                        )
-                        quickActionDao.insert(entity)
-                        speakForVoice(inputMode, entity.resultText)
-                        _events.emit(UiEvent.NavigateToChat(normalizedQuery, speakResponse = inputMode == InputMode.Voice))
+                        handoffToChatForModel(normalizedQuery, inputMode)
                     }
                     is QuickIntentRouter.RouteResult.NeedsSlot -> {
                         // Pause execution — show slot prompt in a ModalBottomSheet.
@@ -1421,28 +1414,14 @@ class ActionsViewModel @Inject constructor(
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
                         } else {
-                            val result = executeIntent(
-                                query = normalizedQuery,
-                                intentName = routeResult.intent.intentName,
-                                params = routeResult.intent.params,
-                                inputMode = inputMode,
-                            )
-                            quickActionDao.insert(result.entity)
-                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary, userValues = routeResult.intent.params.values)
+                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode)
                         }
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
                         } else {
-                            val result = executeIntent(
-                                query = normalizedQuery,
-                                intentName = routeResult.intent.intentName,
-                                params = routeResult.intent.params,
-                                inputMode = inputMode,
-                            )
-                            quickActionDao.insert(result.entity)
-                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary, userValues = routeResult.intent.params.values)
+                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode)
                         }
                     }
                 }
@@ -1823,6 +1802,7 @@ class ActionsViewModel @Inject constructor(
             ExecutedAction(
                 entity = buildEntityFromSkillResult(query, intentName, skillResult),
                 spokenSummary = spokenSummaryFrom(skillResult),
+                fallThroughToModel = (skillResult as? SkillResult.Failure)?.fallThroughToModel == true,
             )
         } else {
             Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
@@ -1836,6 +1816,37 @@ class ActionsViewModel @Inject constructor(
                 spokenSummary = null,
             )
         }
+    }
+
+    private suspend fun executeRoutedIntent(
+        query: String,
+        intent: QuickIntentRouter.MatchedIntent,
+        inputMode: InputMode,
+    ) {
+        val result = executeIntent(query, intent.intentName, intent.params, inputMode)
+        if (result.fallThroughToModel) {
+            handoffToChatForModel(query, inputMode)
+            return
+        }
+        quickActionDao.insert(result.entity)
+        speakForVoice(
+            inputMode,
+            result.entity.resultText,
+            spokenOverride = result.spokenSummary,
+            userValues = intent.params.values,
+        )
+    }
+
+    private suspend fun handoffToChatForModel(query: String, inputMode: InputMode) {
+        val entity = QuickActionEntity(
+            userQuery = query,
+            skillName = "llm_fallthrough",
+            resultText = "Sending to Jandal for processing…",
+            isSuccess = true,
+        )
+        quickActionDao.insert(entity)
+        speakForVoice(inputMode, entity.resultText)
+        _events.emit(UiEvent.NavigateToChat(query, speakResponse = inputMode == InputMode.Voice))
     }
 
     private suspend fun handoffMealPlannerToChat(query: String, inputMode: InputMode) {

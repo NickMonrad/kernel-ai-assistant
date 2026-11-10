@@ -98,4 +98,19 @@ class KernelNavHostRouteTest {
         assertNull(routeDraftForDelivery("external text", consumed = true))
         assertNull(routeDraftForDelivery("  ", consumed = false))
     }
+
+    @Test
+    fun `primary navigation to Chats does not restore a saved tab back stack`() {
+        assertEquals(false, shouldRestorePrimaryRouteState("tools", "conversation_list"))
+    }
+
+    @Test
+    fun `primary navigation between other tabs restores saved state`() {
+        assertEquals(true, shouldRestorePrimaryRouteState("conversation_list", "tools"))
+    }
+
+    @Test
+    fun `primary navigation from a transient route does not restore saved state`() {
+        assertEquals(false, shouldRestorePrimaryRouteState("actions?openSheet=true", "tools"))
+    }
 }

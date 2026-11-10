@@ -165,6 +165,14 @@ class QuickIntentRouter(
         """\b(list|lust|lost|last)\b\s*$""",
         RegexOption.IGNORE_CASE,
     )
+    private val ANAPHORIC_LIST_FOLLOW_UP_RE = Regex(
+        """\b(?:add|put)\s+(?:it|that|this|them|these|those)\s+(?:to|in|on)\b.*\blist\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val INVALID_LIST_CREATE_PREFIX_RE = Regex(
+        """\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)*(?:it|that|this|them)\b|\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)+to\s+""",
+        RegexOption.IGNORE_CASE,
+    )
 
 
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
@@ -866,7 +874,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """turn\s+off\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
+                """turn\s+off\s+(?:(all|both|my|our|the|that|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -895,7 +903,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer_named",
             regex = Regex(
-                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!the\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
+                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!(?:my|the|our|that)\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -906,7 +914,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|the|a)\s+)?(timers?|countdowns?)""",
+                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|our|the|that|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3996,7 +4004,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+(list)""",
+                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)(?!list\b)(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
@@ -4008,7 +4016,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(.+?)\s+(list)""",
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
@@ -4212,6 +4220,23 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
         ),
+        // "what do I need to get from the shops" / "what do I need from Bunnings"
+        // Captures any place; NativeIntentHandler resolves known store categories and named lists.
+        // Leading my/our/the/a and trailing time qualifiers (today, tomorrow, this week, later, ...) are stripped.
+        IntentPattern(
+            intentName = "get_list_items",
+            regex = Regex(
+                """^what\s+do\s+(?:i|we)\s+need(?:\s+to\s+(?:get|buy))?\s+(?:from|at)\s+(?:(?:the|a|my|our)\s+)?(.+?)(?:\s+(?:today|tonight|tomorrow|this\s+(?:week|weekend)|later|on\s+the\s+way\s+home))?[?.!]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "list_name" to match.groupValues[1].trim(),
+                    "fallthrough_on_missing" to "true",
+                )
+            },
+        ),
+
 
         // ── Save Memory ──
         // Pattern: "remember something" / "save something to memory" → ask what to remember
@@ -4792,6 +4817,11 @@ class QuickIntentRouter(
 
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
+        if (ANAPHORIC_LIST_FOLLOW_UP_RE.containsMatchIn(trimmed) ||
+            INVALID_LIST_CREATE_PREFIX_RE.containsMatchIn(trimmed)
+        ) {
+            return RouteResult.FallThrough(input = trimmed)
+        }
         // Normalize curly apostrophes for regex matching only. This covers STT and typed text,
         // including contraction tokens and possessive apostrophes in captured slots. The
         // classifier and fall-through continue to receive the original trimmed input.

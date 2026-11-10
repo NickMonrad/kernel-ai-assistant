@@ -45,6 +45,7 @@ import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.StoreListCatalog
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.ToolPresentation
@@ -269,6 +270,10 @@ class NativeIntentHandler @Inject constructor(
     companion object {
         private val INTENT_ALIASES = mapOf(
             "get_list" to "get_list_items",
+        )
+        private val INVALID_LIST_NAME_RE = Regex(
+            """^\s*(?:it|that|this|them)\b|^\s*to\s+(?:my|the)\b|\s+to\s+my\b""",
+            RegexOption.IGNORE_CASE,
         )
 
         /** Translates NZ/informal search terms to standard English for Maps queries. */
@@ -2063,6 +2068,22 @@ class NativeIntentHandler @Inject constructor(
         })
     }
 
+    private suspend fun resolveStoreList(rawName: String, mapping: StoreListCatalog.Mapping): ListResolution {
+        val rawResolution = resolveActiveList(rawName)
+        if (rawResolution.match != null || rawResolution.isAmbiguous) return rawResolution
+
+        for (storeListName in mapping.storeListNames) {
+            if (storeListName.equals(rawName.trim(), ignoreCase = true)) continue
+            val resolution = resolveActiveList(storeListName)
+            if (resolution.match != null || resolution.isAmbiguous) return resolution
+        }
+        for (categoryListName in mapping.category.listCandidates) {
+            val resolution = resolveActiveList(categoryListName)
+            if (resolution.match != null || resolution.isAmbiguous) return resolution
+        }
+        return ListResolution()
+    }
+
     private suspend fun resolveAnyLifecycleList(rawName: String): ListResolution {
         val requestedName = rawName.trim()
         listNameDao.getByNameAnyLifecycle(requestedName)?.let { return ListResolution(match = it) }
@@ -2166,6 +2187,9 @@ class NativeIntentHandler @Inject constructor(
 
     private fun createList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
+        if (INVALID_LIST_NAME_RE.containsMatchIn(raw)) {
+            return SkillResult.Failure("create_list", "That doesn't look like a list name.")
+        }
         val activeResolution = runBlocking { resolveActiveList(raw) }
         if (activeResolution.isAmbiguous) return ambiguousListReply()
         val anyLifecycleResolution = if (activeResolution.match == null) {
@@ -2202,19 +2226,27 @@ class NativeIntentHandler @Inject constructor(
 
     private fun getListItems(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: "shopping list"
-        val resolution = runBlocking { resolveActiveList(raw) }
+        val storeMapping = StoreListCatalog.find(raw)
+        val resolution = runBlocking {
+            if (storeMapping == null) resolveActiveList(raw) else resolveStoreList(raw, storeMapping)
+        }
         if (resolution.isAmbiguous) return ambiguousListReply()
         val activeList = resolution.match
         val requestedName = activeList?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
         val items = activeList?.let { runBlocking { listItemDao.getByList(it.id) } } ?: emptyList()
-        // A name that resolves to no ACTIVE list is a lookup failure, not an empty list.
-        // Collapsing both into an empty item list made typos, deleted lists and lists whose
-        // native lookup missed indistinguishable from a real list with no unchecked items.
-        val list = activeList
-            ?: return SkillResult.Failure(
+        val list = activeList ?: when {
+            storeMapping != null -> return SkillResult.DirectReply(StoreListCatalog.missingListReply(storeMapping))
+            params["fallthrough_on_missing"].equals("true", ignoreCase = true) ->
+                return SkillResult.Failure(
+                    "get_list_items",
+                    "I couldn't find a list called \"$requestedName\".",
+                    fallThroughToModel = true,
+                )
+            else -> return SkillResult.Failure(
                 "get_list_items",
                 "I couldn't find a list called \"$requestedName\".",
             )
+        }
         val listName = list.name
         return if (items.isEmpty()) {
             SkillResult.DirectReply(

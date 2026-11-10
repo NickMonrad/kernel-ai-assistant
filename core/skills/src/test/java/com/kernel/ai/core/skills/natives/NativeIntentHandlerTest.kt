@@ -111,6 +111,12 @@ class NativeIntentHandlerTest {
         intentName: String,
         params: Map<String, String>,
     ): SkillResult = runBlocking { handler.handle(intentName, params) }
+    private fun storeQuestionParams(query: String): Map<String, String> {
+        val route = com.kernel.ai.core.skills.QuickIntentRouter().route(query)
+            as com.kernel.ai.core.skills.QuickIntentRouter.RouteResult.RegexMatch
+        assertEquals("get_list_items", route.intent.intentName)
+        return route.intent.params
+    }
 
     private fun activeTimer(id: String, label: String?, durationMs: Long): ClockTimer {
         val startedAtMillis = System.currentTimeMillis()
@@ -997,6 +1003,183 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `Bunnings list takes precedence over category and shopping lists`() {
+        val bunnings = com.kernel.ai.core.memory.entity.ListNameEntity(id = 70L, name = "Bunnings", createdAt = 0L, updatedAt = 0L)
+        val hardware = com.kernel.ai.core.memory.entity.ListNameEntity(id = 71L, name = "hardware", createdAt = 0L, updatedAt = 0L)
+        val shopping = com.kernel.ai.core.memory.entity.ListNameEntity(id = 72L, name = "shopping list", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getByName("Bunnings") } returns bunnings
+        coEvery { listNameDao.getAll() } returns listOf(bunnings, hardware, shopping)
+        coEvery { listItemDao.getByList(70L) } returns listOf(
+            ListItemEntity(id = 1L, listId = 70L, text = "screws", createdAt = 0L, updatedAt = 0L),
+        )
+
+        val result = handleIntent("get_list_items", storeQuestionParams("what do I need from Bunnings"))
+
+        assertEquals("Bunnings (1 item):\n• screws", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listItemDao.getByList(70L) }
+        coVerify(exactly = 0) { listItemDao.getByList(72L) }
+    }
+
+    @Test
+    fun `hardware store falls back to hardware list before shopping list`() {
+        val hardware = com.kernel.ai.core.memory.entity.ListNameEntity(id = 73L, name = "hardware", createdAt = 0L, updatedAt = 0L)
+        val shopping = com.kernel.ai.core.memory.entity.ListNameEntity(id = 74L, name = "shopping list", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getAll() } returns listOf(hardware, shopping)
+        coEvery { listItemDao.getByList(73L) } returns listOf(
+            ListItemEntity(id = 2L, listId = 73L, text = "drill bits", createdAt = 0L, updatedAt = 0L),
+        )
+
+        val result = handleIntent("get_list_items", storeQuestionParams("what do I need from Mitre 10"))
+
+        assertEquals("hardware (1 item):\n• drill bits", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listItemDao.getByList(73L) }
+        coVerify(exactly = 0) { listItemDao.getByList(74L) }
+    }
+
+    @Test
+    fun `hardware question with only shopping list gives friendly category reply`() {
+        val shopping = com.kernel.ai.core.memory.entity.ListNameEntity(id = 75L, name = "shopping list", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getAll() } returns listOf(shopping)
+
+        val result = handleIntent("get_list_items", storeQuestionParams("what do I need from Bunnings"))
+
+        assertEquals(
+            "You don't have a Bunnings or hardware list yet. Say \"add screws to my Bunnings list\" to start one.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 0) { listItemDao.getByList(any()) }
+    }
+
+    @Test
+    fun `pharmacy query uses chemist list before pharmacy and never shopping`() {
+        val chemist = com.kernel.ai.core.memory.entity.ListNameEntity(id = 76L, name = "chemist", createdAt = 0L, updatedAt = 0L)
+        val pharmacy = com.kernel.ai.core.memory.entity.ListNameEntity(id = 77L, name = "pharmacy", createdAt = 0L, updatedAt = 0L)
+        val shopping = com.kernel.ai.core.memory.entity.ListNameEntity(id = 78L, name = "shopping list", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getAll() } returns listOf(chemist, pharmacy, shopping)
+        coEvery { listItemDao.getByList(76L) } returns listOf(
+            ListItemEntity(id = 3L, listId = 76L, text = "prescription", createdAt = 0L, updatedAt = 0L),
+        )
+
+        val result = handleIntent("get_list_items", storeQuestionParams("what do I need from Unichem"))
+
+        assertEquals("chemist (1 item):\n• prescription", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listItemDao.getByList(76L) }
+        coVerify(exactly = 0) { listItemDao.getByList(78L) }
+    }
+
+    @Test
+    fun `pharmacy question with only shopping list gives friendly category reply`() {
+        val shopping = com.kernel.ai.core.memory.entity.ListNameEntity(id = 79L, name = "shopping list", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getAll() } returns listOf(shopping)
+
+        val result = handleIntent("get_list_items", storeQuestionParams("what do I need from the chemist"))
+
+        assertEquals(
+            "You don't have a chemist or pharmacy list yet. Say \"add prescriptions to my chemist list\" to start one.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 0) { listItemDao.getByList(any()) }
+    }
+
+    @Test
+    fun `same-name Costco list wins over shopping list`() {
+        val costco = com.kernel.ai.core.memory.entity.ListNameEntity(id = 80L, name = "Costco", createdAt = 0L, updatedAt = 0L)
+        val shopping = com.kernel.ai.core.memory.entity.ListNameEntity(id = 81L, name = "shopping list", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getByName("Costco") } returns costco
+        coEvery { listNameDao.getAll() } returns listOf(costco, shopping)
+        coEvery { listItemDao.getByList(80L) } returns emptyList()
+
+        val result = handleIntent("get_list_items", storeQuestionParams("what do I need from Costco"))
+
+        assertEquals("Your Costco is empty.", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listItemDao.getByList(80L) }
+        coVerify(exactly = 0) { listItemDao.getByList(81L) }
+    }
+
+    @Test
+    fun `unknown place reads its named list when it exists`() {
+        val garden = com.kernel.ai.core.memory.entity.ListNameEntity(id = 82L, name = "garden centre", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getByName("garden centre") } returns garden
+        coEvery { listItemDao.getByList(82L) } returns emptyList()
+
+        val result = handleIntent("get_list_items", storeQuestionParams("what do I need from the garden centre"))
+
+        assertEquals("Your garden centre is empty.", (result as SkillResult.DirectReply).content)
+        coVerify(exactly = 1) { listItemDao.getByList(82L) }
+    }
+
+    @Test
+    fun `all grocery aliases resolve through the shopping list category`() {
+        val shopping = com.kernel.ai.core.memory.entity.ListNameEntity(id = 83L, name = "shopping list", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getByName("shopping list") } returns shopping
+        coEvery { listNameDao.getAll() } returns listOf(shopping)
+        coEvery { listItemDao.getByList(83L) } returns emptyList()
+        val aliases = listOf(
+            "shop", "shops", "supermarket", "grocery store", "store", "grocer",
+            "Woolworths", "Woolies", "Wollies", "Countdown", "New World", "Pak'nSave",
+            "Pak n Save", "PakNSave", "Pack and Save", "Pack n Save", "Pak and Save",
+            "Pak 'n Save", "Pak n' Save", "Pak'n Save",
+            "Four Square", "FreshChoice", "SuperValue", "Coles", "Aldi", "IGA",
+            "Harris Farm", "Foodland", "Drakes", "Costco",
+        )
+
+        aliases.forEach { alias ->
+            val result = handleIntent(
+                "get_list_items",
+                mapOf("list_name" to alias, "fallthrough_on_missing" to "true"),
+            )
+            assertEquals("Your shopping list is empty.", (result as SkillResult.DirectReply).content, alias)
+        }
+    }
+
+    @Test
+    fun `all hardware aliases resolve through the hardware list`() {
+        val hardware = com.kernel.ai.core.memory.entity.ListNameEntity(id = 84L, name = "hardware", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getByName("hardware") } returns hardware
+        coEvery { listNameDao.getAll() } returns listOf(hardware)
+        coEvery { listItemDao.getByList(84L) } returns emptyList()
+
+        listOf("Bunnings", "Mitre 10", "Placemakers", "Hammer Hardware", "Total Tools").forEach { alias ->
+            val result = handleIntent(
+                "get_list_items",
+                mapOf("list_name" to alias, "fallthrough_on_missing" to "true"),
+            )
+            assertEquals("Your hardware is empty.", (result as SkillResult.DirectReply).content, alias)
+        }
+    }
+
+    @Test
+    fun `all pharmacy aliases resolve through the chemist list`() {
+        val chemist = com.kernel.ai.core.memory.entity.ListNameEntity(id = 85L, name = "chemist", createdAt = 0L, updatedAt = 0L)
+        coEvery { listNameDao.getByName("chemist") } returns chemist
+        coEvery { listNameDao.getAll() } returns listOf(chemist)
+        coEvery { listItemDao.getByList(85L) } returns emptyList()
+
+        listOf(
+            "chemist", "the chemist", "pharmacy", "the pharmacy", "Chemist Warehouse",
+            "Unichem", "Life Pharmacy", "Priceline", "Amcal", "TerryWhite Chemmart",
+            "Terry White Chemmart",
+        ).forEach { alias ->
+            val result = handleIntent(
+                "get_list_items",
+                mapOf("list_name" to alias, "fallthrough_on_missing" to "true"),
+            )
+            assertEquals("Your chemist is empty.", (result as SkillResult.DirectReply).content, alias)
+        }
+    }
+
+    @Test
+    fun `unknown unlisted place marks native miss for model fallthrough`() {
+        val result = handleIntent(
+            "get_list_items",
+            storeQuestionParams("what do I need from the garden centre"),
+        )
+
+        assertEquals(true, (result as SkillResult.Failure).fallThroughToModel)
+        coVerify(exactly = 0) { listItemDao.getByList(any()) }
+    }
+
+    @Test
     fun `slot-filled exact titles win and conversational Shopping still resolves`() {
         val cases = listOf(
             Triple("On My Radar", 51L, "On My Radar"),
@@ -1380,6 +1563,24 @@ class NativeIntentHandlerTest {
             "Created list \"Meal Plan\".",
             (result as SkillResult.DirectReply).content,
         )
+        coVerify(exactly = 0) { mutations.createCollection(any()) }
+        coVerify(exactly = 0) { listNameDao.insert(any()) }
+    }
+
+    @Test
+    fun `create_list rejects anaphoric and prepositional list names`() {
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+
+        listOf("it to my shopping", "that groceries", "them", "to my shopping").forEach { name ->
+            val result = handleIntent(
+                handlerWithListMutations(mutations),
+                "create_list",
+                mapOf("list_name" to name),
+            )
+
+            assertInstanceOf(SkillResult.Failure::class.java, result, name)
+        }
+
         coVerify(exactly = 0) { mutations.createCollection(any()) }
         coVerify(exactly = 0) { listNameDao.insert(any()) }
     }

@@ -501,6 +501,32 @@ class QuickIntentRouterTest {
             assertEquals("10-minute", intent.params["name"], "name param should preserve the spoken duration token")
         }
 
+        @ParameterizedTest
+        @ValueSource(strings = ["cancel my timer", "stop my timer", "cancel our timer", "cancel that timer"])
+        fun `possessive and demonstrative timer requests route generically`(input: String) {
+            assertRegexMatch(regexOnlyRouter.route(input), "cancel_timer", input)
+        }
+
+        @Test
+        fun `cancel my pasta timer should route to cancel_timer_named with pasta name`() {
+            val result = regexOnlyRouter.route("cancel my pasta timer")
+            assertRegexMatch(result, "cancel_timer_named", "cancel my pasta timer")
+            assertEquals(
+                "pasta",
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["name"],
+            )
+        }
+
+        @Test
+        fun `cancel the egg timer should route to cancel_timer_named with egg name`() {
+            val result = regexOnlyRouter.route("cancel the egg timer")
+            assertRegexMatch(result, "cancel_timer_named", "cancel the egg timer")
+            assertEquals(
+                "egg",
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["name"],
+            )
+        }
+
         @Test
         fun `stop the pasta timer should route to cancel_timer_named`() {
             val result = regexOnlyRouter.route("stop the pasta timer")
@@ -2201,6 +2227,27 @@ class QuickIntentRouterTest {
             val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals(expectedList, intent.params["list_name"], "list_name for '$input'")
         }
+        @ParameterizedTest(name = "Store question: \"{0}\" → list_name={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#storeQuestionPhrases")
+        fun `routes store questions to list lookup`(input: String, expectedList: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_list_items", input)
+            val params = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+            assertEquals(expectedList, params["list_name"], "list_name for '$input'")
+            assertEquals("true", params["fallthrough_on_missing"])
+        }
+
+        @ParameterizedTest(name = "Unrelated need question falls through: \"{0}\"")
+        @ValueSource(strings = [
+            "what do I need to bring to the meeting",
+            "what do I need to know about the new store",
+            "what should I bring to the shops",
+            "what do I need to know about the shops today",
+        ])
+        fun `does not route unrelated need questions`(input: String) {
+            assertInstanceOf(QuickIntentRouter.RouteResult.FallThrough::class.java, regexOnlyRouter.route(input))
+        }
+
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -3839,6 +3886,63 @@ class QuickIntentRouterTest {
             Arguments.of("read me my grocery list", "grocery list"),
             Arguments.of("read my shopping list", "shopping list"),
             Arguments.of("get my to-do list", "to-do list"),
+        )
+
+        @JvmStatic
+        fun storeQuestionPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("What do I need to get from the shops", "shops"),
+            Arguments.of("what do we need from the shop", "shop"),
+            Arguments.of("what do we need from the supermarket", "supermarket"),
+            Arguments.of("what do I need to get at the supermarket", "supermarket"),
+            Arguments.of("what do I need from the grocery store", "grocery store"),
+            Arguments.of("what do I need from the store", "store"),
+            Arguments.of("what do I need from the grocer", "grocer"),
+            Arguments.of("what do I need to buy at Woolies", "Woolies"),
+            Arguments.of("what do I need from Woolworths", "Woolworths"),
+            Arguments.of("what do we need from Countdown", "Countdown"),
+            Arguments.of("what do I need from New World", "New World"),
+            Arguments.of("what do I need from Pak'nSave", "Pak'nSave"),
+            Arguments.of("what do I need from Pak n Save", "Pak n Save"),
+            Arguments.of("what do I need from PakNSave", "PakNSave"),
+            Arguments.of("what do I need from Pack and Save", "Pack and Save"),
+            Arguments.of("what do I need from Wollies", "Wollies"),
+            Arguments.of("what do we need from Four Square", "Four Square"),
+            Arguments.of("what do I need from FreshChoice", "FreshChoice"),
+            Arguments.of("what do I need from SuperValue", "SuperValue"),
+            Arguments.of("what do we need from Coles", "Coles"),
+            Arguments.of("what do I need from Aldi", "Aldi"),
+            Arguments.of("what do I need from IGA", "IGA"),
+            Arguments.of("what do we need from Harris Farm", "Harris Farm"),
+            Arguments.of("what do I need from Foodland", "Foodland"),
+            Arguments.of("what do I need from Drakes", "Drakes"),
+            Arguments.of("what do I need from Costco", "Costco"),
+            Arguments.of("what do I need from Bunnings", "Bunnings"),
+            Arguments.of("what do I need from Mitre 10", "Mitre 10"),
+            Arguments.of("what do I need from Placemakers", "Placemakers"),
+            Arguments.of("what do I need from Hammer Hardware", "Hammer Hardware"),
+            Arguments.of("what do I need from Total Tools", "Total Tools"),
+            Arguments.of("what do I need from the chemist", "chemist"),
+            Arguments.of("what do I need from the pharmacy", "pharmacy"),
+            Arguments.of("what do I need from Chemist Warehouse", "Chemist Warehouse"),
+            Arguments.of("what do we need from Unichem", "Unichem"),
+            Arguments.of("what do I need from Life Pharmacy", "Life Pharmacy"),
+            Arguments.of("what do I need from Priceline", "Priceline"),
+            Arguments.of("what do I need from Amcal", "Amcal"),
+            Arguments.of("what do I need from TerryWhite Chemmart", "TerryWhite Chemmart"),
+            Arguments.of("what do I need from the shops today", "shops"),
+            Arguments.of("what do I need from the shops tomorrow", "shops"),
+            Arguments.of("what do we need from the shops this week", "shops"),
+            Arguments.of("what do I need from the shops later", "shops"),
+            Arguments.of("what do I need from the shops tonight", "shops"),
+            Arguments.of("what do I need from the shops on the way home", "shops"),
+            Arguments.of("what do we need from Woolies this weekend", "Woolies"),
+            Arguments.of("what do I need from my chemist", "chemist"),
+            Arguments.of("what do we need from our chemist", "chemist"),
+            Arguments.of("what do I need from our shops tomorrow?", "shops"),
+            Arguments.of("what do I need from Pak 'n Save", "Pak 'n Save"),
+            Arguments.of("what do I need from Pak n' Save", "Pak n' Save"),
+            Arguments.of("what do I need from Pak'n Save", "Pak'n Save"),
+            Arguments.of("what do I need from the garden centre", "garden centre"),
         )
 
         // ── Weather ───────────────────────────────────────────────────────────────
