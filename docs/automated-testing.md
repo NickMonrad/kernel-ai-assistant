@@ -411,7 +411,7 @@ clock alert cleanup using **checked ADB commands** (verified via exit code):
 
 If cleanup fails and the device is still buzzing after a run:
 ```bash
-adb shell am force-stop com.kernel.ai.debug
+adb shell am force-stop ai.jandal.assistant.debug
 ```
 
 This is tracked in [#1275](https://github.com/NickMonrad/kernel-ai-assistant/issues/1275)

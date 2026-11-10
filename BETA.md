@@ -17,7 +17,7 @@ Older or low-memory phones may run slowly or not run the AI model at all. That's
 ## How to join
 
 1. **Join the tester group:** [Jandal AI testers](TESTER_GROUP_LINK). Joining adds your Google account email to the tester list.
-2. **Opt in on Google Play:** open [the Jandal AI testing page](https://play.google.com/apps/testing/com.kernel.ai) while signed in with the same Google account, then tap **Become a tester**.
+2. **Opt in on Google Play:** open [the Jandal AI testing page](https://play.google.com/apps/testing/ai.jandal.assistant) while signed in with the same Google account, then tap **Become a tester**.
 3. **Install Jandal AI** from the Google Play link on that page. Updates arrive through Play like any other app.
 4. **Stay opted in for at least 14 days in a row** and use Jandal the way you normally would. Google Play counts days you're opted in, so opting out before then (even briefly) restarts your count.
 

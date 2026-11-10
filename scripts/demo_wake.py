@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 
-PACKAGE = "com.kernel.ai.debug"
+from adb_harness.config import PACKAGE
 RECEIVER = f"{PACKAGE}/com.kernel.ai.debug.acoustic.AcousticStimulusReceiver"
 ACTION = "com.kernel.ai.debug.action.PLAY_ACOUSTIC_STIMULUS"
 ACTIVITY = "com.kernel.ai.MainActivity"

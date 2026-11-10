@@ -31,7 +31,7 @@ Because the Play Store manages the final signing key, the upload key is only use
 
 | Property | Value |
 |---|---|
-| `applicationId` | `com.kernel.ai` |
+| `applicationId` | `ai.jandal.assistant` |
 | `versionCode` | `1` (first release) |
 | `versionName` | `0.1.0` |
 | `compileSdk` | `36` |
@@ -74,8 +74,11 @@ Replace placeholders locally; never paste password values into chat, GitHub, or 
 ```bash
 chmod 600 keystore.properties
 ```
-Gradle uses this file only when present. All four entries and the keystore file are required; incomplete configuration fails without printing credential values. With no file, release builds remain unsigned for CI. The release variant keeps application ID `com.kernel.ai`.
+Gradle uses this file only when present. All four entries and the keystore file are required; incomplete configuration fails without printing credential values. With no file, release builds remain unsigned for CI. The release variant keeps application ID `ai.jandal.assistant`.
 
+## Migration impact
+
+Existing `com.kernel.ai` installs will not upgrade in place, and app data will not carry over to `ai.jandal.assistant`. The owner may uninstall the old app whenever they choose.
 Build from a clean checkout at the approved full source SHA. Nick must approve the monotonically increasing `versionCode`; choose one fixed ISO-8601 UTC `buildTimestamp` and reuse both values exactly for any rebuild. Gradle embeds the timestamp in `BuildConfig`, so fixing it avoids build-time variation in that field.
 
 ```bash
@@ -101,7 +104,7 @@ apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-relea
 sha256sum app/build/outputs/apk/release/app-release.apk
 ```
 
-Confirm `package: name='com.kernel.ai'` and the approved version values in the `aapt` output. Record the signer certificate digest from `apksigner` and the file digest from `sha256sum`. This creates a locally signed APK only; it does not upload to Play or prove Play-delivered signing/acceptance.
+Confirm `package: name='ai.jandal.assistant'` and the approved version values in the `aapt` output. Record the signer certificate digest from `apksigner` and the file digest from `sha256sum`. This creates a locally signed APK only; it does not upload to Play or prove Play-delivered signing/acceptance.
 
 The same local-only signing configuration can sign a release AAB:
 

@@ -1567,7 +1567,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         print()
         print("  [cleanup] ❌ CLEANUP FAILED — device may still have active alerts!")
         print("  [cleanup]    Run manually if buzzing persists:")
-        print("  [cleanup]      adb shell am force-stop com.kernel.ai.debug")
+        print(f"  [cleanup]      adb shell am force-stop {PACKAGE}")
         return EXIT_CLEANUP_FAILED
     if case_cleanup_failed:
         print()

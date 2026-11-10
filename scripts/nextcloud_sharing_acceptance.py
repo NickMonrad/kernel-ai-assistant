@@ -18,8 +18,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
+from adb_harness.config import PACKAGE
 
-APP_ID = "com.kernel.ai.debug"
+APP_ID = PACKAGE
 TEST_ID = f"{APP_ID}.test"
 RUNNER = "androidx.test.runner.AndroidJUnitRunner"
 TEST_CLASS = "com.kernel.ai.nextcloudacceptance.NextcloudSharingAcceptanceTest"

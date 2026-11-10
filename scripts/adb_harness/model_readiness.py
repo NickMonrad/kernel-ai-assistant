@@ -239,7 +239,7 @@ def _check_model_on_disk(model_file: str = S21_MODEL_FILE) -> bool:
     Works around logcat-clear edge cases where the model was already
     downloaded in a prior session but the ring buffer was emptied.
     """
-    pkg = "com.kernel.ai.debug"
+    pkg = PACKAGE
     path = f"/storage/emulated/0/Android/data/{pkg}/files/models/{model_file}"
     result = run_adb("shell", "ls", path)
     return result == path or path in result
@@ -258,7 +258,7 @@ _DANGEROUS_PERMISSIONS: list[str] = [
 ]
 
 
-def _grant_dangerous_permissions(pkg: str = "com.kernel.ai.debug") -> None:
+def _grant_dangerous_permissions(pkg: str = PACKAGE) -> None:
     """Pre-grant dangerous permissions via ``pm grant``.
 
     Runs before the app requests the permission so dialogs never appear.

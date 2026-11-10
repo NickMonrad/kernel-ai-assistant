@@ -906,7 +906,7 @@ Each spec includes: screen, pre-conditions, actions, assertions, and complexity.
 
 | Field | Value |
 |-------|-------|
-| **Pre-condition** | Fresh install (`adb shell pm clear com.kernel.ai.debug`) |
+| **Pre-condition** | Fresh install (`adb shell pm clear ai.jandal.assistant.debug`) |
 | **Screen** | Onboarding / Model Download |
 | **Actions** | 1. Launch app. 2. Wait for onboarding screen. |
 | **Assertions** | - Text "Gemma 4 E-2B" OR "Gemma 4 E-4B" visible. - Text "Arctic Embed M v1.5" visible. |

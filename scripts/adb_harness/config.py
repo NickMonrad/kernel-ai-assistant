@@ -19,7 +19,7 @@ ADB = (
     or os.path.expanduser("~/Android/Sdk/platform-tools/adb")
     or "/usr/bin/adb"
 )
-PACKAGE = "com.kernel.ai.debug"
+PACKAGE = "ai.jandal.assistant.debug"
 ACTIVITY = f"{PACKAGE}/com.kernel.ai.MainActivity"
 
 # ── Static patterns ──

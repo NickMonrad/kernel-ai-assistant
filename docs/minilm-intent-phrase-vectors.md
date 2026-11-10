@@ -20,16 +20,16 @@ adb -s "$ANDROID_SERIAL" install -r app/build/outputs/apk/androidTest/debug/app-
 # Optional classifier readiness measurement; this does not open a chat or write conversation data.
 adb -s "$ANDROID_SERIAL" shell am instrument -w \
   -e class com.kernel.ai.MiniLMIntentClassifierReadinessTest \
-  com.kernel.ai.debug.test/androidx.test.runner.AndroidJUnitRunner
+  ai.jandal.assistant.debug.test/androidx.test.runner.AndroidJUnitRunner
 adb -s "$ANDROID_SERIAL" shell am instrument -w \
   -e class com.kernel.ai.MiniLMPhraseVectorAssetGeneratorTest \
   -e generate_minilm_phrase_vector_asset true \
-  com.kernel.ai.debug.test/androidx.test.runner.AndroidJUnitRunner
+  ai.jandal.assistant.debug.test/androidx.test.runner.AndroidJUnitRunner
 ```
 Immediately pull the generated file from the debug app's external files directory, verify its inputs, then run the freshness test:
 
 ```sh
-adb -s "$ANDROID_SERIAL" pull /sdcard/Android/data/com.kernel.ai.debug/files/intent_phrase_vectors.bin \
+adb -s "$ANDROID_SERIAL" pull /sdcard/Android/data/ai.jandal.assistant.debug/files/intent_phrase_vectors.bin \
   app/src/main/assets/intent_phrase_vectors.bin
 sha256sum app/src/main/assets/minilm-l6-v2-int8.tflite \
   app/src/main/assets/vocab.txt app/src/main/assets/intent_phrases.json \
