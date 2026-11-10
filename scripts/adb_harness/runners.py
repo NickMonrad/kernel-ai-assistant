@@ -45,6 +45,7 @@ from adb_harness.model_readiness import (
     EXIT_CLEANUP_FAILED,
 )
 from adb_harness.device import (
+    capture_fresh_logcat,
     _keep_foreground_until_inference_starts,
     harness_token_extras,
     _filter_lines_after_boundary,
