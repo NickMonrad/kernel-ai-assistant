@@ -80,9 +80,11 @@ Release treatment:
 
 ## In-app disclosures required by #1263
 
-Issue #1263 requires offline in-app Open-source licences and Models, voices & wake word views in the shared Legal & Privacy surface tracked by #1260. The Open-source licences view was added in #1720; the Models, voices & wake word view is still outstanding. The requirement is not conditional on an SBOM revealing a licence that requires in-app reproduction.
+The Legal & Privacy route and offline Open-source licences screen are present in the current source. The screen displays `app/src/main/assets/legal/NOTICE.txt`; it does not generate per-component licence records from `releaseRuntimeClasspath`, and the NOTICE file is not a complete, verified release dependency notice set.
 
-The release still needs the #1260 surface, release-variant content generated or verified against the final artefact, and in-app validation. This sign-off snapshot is evidence, not a substitute for either required view.
+The required Models, voices & wake word view and Data & Privacy Summary navigation are not present. Privacy Policy and Terms of Use links are present. Do not treat the current legal surface as complete #1263 acceptance.
+
+Release disclosures remain blocked on reviewed metadata for every resolved release dependency and exposed/downloadable asset, required verbatim notices, and the release artifact/source reconciliation described below. Existing `verifyReleaseDependencyInventory` validates that graph metadata is explicitly unknown; it does not prove notice coverage or licensing.
 
 Other existing release obligations remain:
 
@@ -91,19 +93,20 @@ Other existing release obligations remain:
 - Play Store copy must not claim ownership of upstream models or voices;
 - final release-artefact audit must confirm bundled model files and debug-only dependencies.
 
-## Release artefact audit complete
+## Historical evidence and current blockers
 
-The following items were completed in #1259:
-
-- [x] Release runtime classpath dependency tree generated and compared against attribution docs — documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`
-- [x] Dependency gap report created at `build/reports/release-audit/attribution-gap-report.md` (gitignored build artifact)
-- [x] Release signing approach documented in `docs/PLAY_RELEASE_BUILD.md`
-- [x] Full audit report at `docs/release-audit/RELEASE_AUDIT.md`
+The #1259/#1273 release dependency tree, gap report, and AAB audit are historical and do not describe the current release variant. The current `generateReleaseDependencyInventory` task derives the graph from `releaseRuntimeClasspath`, but explicitly emits unknown licence, copyright, notice, and source metadata; its verifier checks that unresolved state rather than notice completeness.
 
 ## Remaining before closing #1263
-- [ ] Formal SBOM (CycloneDX/SPDX) or generated third-party notices — not yet produced; manual dependency review is the current evidence
-- [ ] Decide whether to add an SBOM generation plugin or accept manual review as sufficient
-- [ ] Confirm exact bundled/downloaded Vosk model provenance if exposed in release
-- [x] Nick's ownership/consent confirmation for Stage 3 wake-word recordings is recorded in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577).
-- [ ] Implement and validate both offline in-app disclosure views required by #1263 in the shared Legal & Privacy surface tracked by #1260.
-- [ ] Update #868 with final release scope
+
+- [ ] Generate or verify a complete notice set against the resolved release dependency graph, including all transitive/runtime and local file dependencies; preserve required notice text. No formal SBOM or completed generated notice set exists.
+- [ ] Reconcile the current release AAB/APK and packaged native/model/data payloads with that graph and notice set.
+- [ ] Resolve reviewed source/licence/notice metadata for bundled Vosk runtime/model, MiniLM conversion, tokenizer, wake-word upstream assets, and every release-visible or downloadable model/voice. Existing records identify specific unknown provenance and terms; do not infer clearance from generic project licences.
+- [ ] Record Sherpa/eSpeak/Piper native and `espeak-ng-data` source/notice mapping plus a release-linked corresponding-source/build path. #1474 is closed, but the factual evidence in its comments does not establish complete source-to-binary provenance or legal sufficiency; current owner direction excludes inadequately evidenced components from v0.1.
+- [ ] Implement and validate the offline Models, voices & wake word view, with source, licence/terms, relevant lineage, and release status for every exposed asset.
+- [ ] Add Data & Privacy Summary navigation to Legal & Privacy; Privacy Policy, Terms of Use, and Open-source licences navigation currently exist.
+- [ ] Run required release-build offline/accessibility/colour-mode checks after the missing view exists; device evidence remains uncollected for this worktree.
+- [x] Semaine is excluded from release visibility under #1258/#1268; CoriHigh is the sole release-visible Piper catalogue entry.
+- [x] Kokoro is documented as debug-only/post-launch for v0.1, with Sherpa package asset and upstream Kokoro lineage recorded.
+- [x] Maintainer confirmed consent/ownership of Stage 3 human wake-word recordings in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577).
+- [ ] Update #1014 and #441 with completed, candidate-linked release evidence; #868 is closed, but that does not close this release sign-off.
