@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "local_dependencies": [
+    {
+      "component_id": "file:third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar",
+      "artifact_path": "third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar",
+      "upstream_source": "https://github.com/k2-fsa/sherpa-onnx",
+      "source_build_reference": "scripts/sherpa-onnx-v1.13.0-inflect-build.md",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required",
+      "copyright_status": "under_review_owner_decision_required",
+      "required_notice": "app/src/main/assets/legal/NOTICE.txt",
+      "review_note": "Do not infer the license or redistribution terms of this modified local AAR. Resolve #1474 provenance, eSpeak/Sherpa notices, and release distribution terms with the owner."
+    }
+  ],
+  "native_libraries": [
+    {
+      "name": "libLiteRt.so",
+      "source_component": "com.google.ai.edge.litert:litert",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libLiteRtOpenClAccelerator.so",
+      "source_component": "com.google.ai.edge.litert:litert (transitive OpenCL accelerator binary; exact artifact mapping under review)",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libandroidx.graphics.path.so",
+      "source_component": "androidx.graphics:graphics-path",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libc++_shared.so",
+      "source_component": "Android NDK shared C++ runtime; used by multiple native components",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libdatastore_shared_counter.so",
+      "source_component": "androidx.datastore:datastore-core-android",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libjnidispatch.so",
+      "source_component": "net.java.dev.jna:jna",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libkernelvec.so",
+      "source_component": "com.google.ai.edge.litertlm:litertlm-android",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "liblitertlm_jni.so",
+      "source_component": "com.google.ai.edge.litertlm:litertlm-android",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libonnxruntime.so",
+      "source_component": "com.microsoft.onnxruntime:onnxruntime-android and local Sherpa AAR linkage",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libonnxruntime4j_jni.so",
+      "source_component": "com.microsoft.onnxruntime:onnxruntime-android",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libsherpa-onnx-jni.so",
+      "source_component": "file:third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    },
+    {
+      "name": "libvosk.so",
+      "source_component": "com.alphacephei:vosk-android",
+      "license_expression": null,
+      "license_status": "under_review_owner_decision_required"
+    }
+  ]
+}

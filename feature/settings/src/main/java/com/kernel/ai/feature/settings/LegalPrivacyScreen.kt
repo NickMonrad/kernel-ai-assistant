@@ -35,6 +35,8 @@ private const val NOTICE_ASSET_PATH = "legal/NOTICE.txt"
 fun LegalPrivacyScreen(
     onBack: () -> Unit,
     onOpenSourceLicenses: () -> Unit,
+    onOpenModelsVoicesWakeWord: () -> Unit,
+    onOpenDataPrivacySummary: () -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -84,17 +86,36 @@ fun LegalPrivacyScreen(
                 supportingContent = { Text("Licences for third-party software in Jandal") },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
+            ListItem(
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenModelsVoicesWakeWord),
+                headlineContent = { Text("Models, voices & wake word") },
+                supportingContent = { Text("Sources, licences and release status for model assets") },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenDataPrivacySummary),
+                headlineContent = { Text("Data & Privacy Summary") },
+                supportingContent = { Text("How Jandal handles your data") },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OpenSourceLicensesScreen(onBack: () -> Unit) {
+fun OpenSourceLicensesScreen(
+    onBack: () -> Unit,
+    aboutLibrariesJson: String,
+) {
     val context = LocalContext.current
     val notice = remember(context) {
         context.assets.open(NOTICE_ASSET_PATH).bufferedReader(Charsets.UTF_8).use { it.readText() }
     }
+    val libraries = com.mikepenz.aboutlibraries.ui.compose.produceLibraries { aboutLibrariesJson }.value
 
     Scaffold(
         topBar = {
@@ -108,24 +129,73 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
             )
         },
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            Text(
-                text = "Third-party software notices",
-                style = MaterialTheme.typography.titleMedium,
+        com.mikepenz.aboutlibraries.ui.compose.m3.LibrariesContainer(
+            libraries = libraries,
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            header = {
+                item {
+                    Text("Third-party software notices", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp))
+                    SelectionContainer {
+                        Text(notice, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    }
+                    Text("Resolved release dependencies", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp))
+                }
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ModelsVoicesWakeWordScreen(onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Models, voices & wake word") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
             )
-            SelectionContainer {
-                Text(
-                    text = notice,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+        },
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(rememberScrollState()),
+        ) {
+            ReleaseAssetAttributionCatalog.entries.forEach { asset ->
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text(asset.name, style = MaterialTheme.typography.titleSmall)
+                    Text("Source: ${asset.sourceText}", style = MaterialTheme.typography.bodySmall)
+                    Text("Licence / terms: ${asset.licenceText}", style = MaterialTheme.typography.bodySmall)
+                    Text("Lineage: ${asset.lineageText}", style = MaterialTheme.typography.bodySmall)
+                    Text("Release status: ${asset.releaseStatus}", style = MaterialTheme.typography.bodySmall)
+                }
+                HorizontalDivider()
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DataPrivacySummaryScreen(onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Data & Privacy Summary") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { innerPadding ->
+        Text(
+            "Data & Privacy Summary content is owned by issue #1260 and is not yet available.",
+            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp),
+            style = MaterialTheme.typography.bodyLarge,
+        )
     }
 }

@@ -2,17 +2,16 @@ import java.io.File
 import java.time.Instant
 import java.util.Properties
 import java.util.zip.ZipFile
-import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
-import java.security.MessageDigest
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
-import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.aboutlibraries.android)
+    alias(libs.plugins.cyclonedx)
 }
 
 val gitSha: String by lazy {
@@ -419,201 +418,6 @@ tasks.register("verifyTargetEventJournalReleaseIsolation") {
     }
 }
 
-/**
- * Writes the resolved release dependency graph as review inputs.
- *
- * This inventory is not a CycloneDX/SPDX SBOM or a licence determination. Licence and notice
- * metadata are deliberately reported as unknown until reviewed source metadata is supplied.
- */
-tasks.register("generateReleaseDependencyInventory") {
-    group = "verification"
-    description = "Writes a release dependency inventory and explicit licence/notice metadata gaps."
-
-    val reportDirectory = layout.buildDirectory.dir("reports/release-audit")
-    val inventoryFile = reportDirectory.map { it.file("release-runtime-dependency-inventory.json") }
-    val metadataGapsFile = reportDirectory.map { it.file("release-runtime-metadata-gaps.json") }
-    outputs.files(inventoryFile, metadataGapsFile)
-    // The resolved dependency graph and source commit are read during execution, not modeled as task inputs.
-    outputs.upToDateWhen { false }
-
-    doLast {
-        val configuration = configurations.getByName("releaseRuntimeClasspath")
-        val repositoryRoot = rootProject.projectDir.canonicalFile.toPath()
-
-        fun sha256(file: File): String {
-            val digest = MessageDigest.getInstance("SHA-256")
-            file.inputStream().buffered().use { input ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    digest.update(buffer, 0, count)
-                }
-            }
-            return digest.digest().joinToString("") { "%02x".format(it) }
-        }
-
-        val components = configuration.incoming.resolutionResult.allComponents.mapNotNull { component ->
-            when (val id = component.id) {
-                is ModuleComponentIdentifier -> mapOf(
-                    "component_id" to "${id.group}:${id.module}:${id.version}",
-                    "component_type" to "module",
-                    "artifact_file" to null,
-                    "artifact_sha256" to null,
-                    "artifact_hash_status" to "not_resolved_by_dependency_graph",
-                    "license_expression" to null,
-                    "license_status" to "unknown_not_collected",
-                    "copyright_status" to "unknown_not_collected",
-                    "notice_text_status" to "unknown_not_collected",
-                    "source_url_status" to "unknown_not_collected",
-                )
-                is ProjectComponentIdentifier -> if (id.projectPath == project.path) {
-                    null
-                } else {
-                    mapOf(
-                        "component_id" to "project:${id.projectPath}",
-                        "component_type" to "project",
-                        "artifact_file" to null,
-                        "artifact_sha256" to null,
-                        "artifact_hash_status" to "not_resolved_by_dependency_graph",
-                        "license_expression" to null,
-                        "license_status" to "unknown_not_collected",
-                        "copyright_status" to "unknown_not_collected",
-                        "notice_text_status" to "unknown_not_collected",
-                        "source_url_status" to "unknown_not_collected",
-                    )
-                }
-                else -> null
-            }
-        }
-        val fileDependencies = configuration.allDependencies
-            .withType(org.gradle.api.artifacts.FileCollectionDependency::class.java)
-            .flatMap { it.files.files }
-            .filter { it.isFile }
-            .map { file ->
-                val canonicalFile = file.canonicalFile
-                val path = canonicalFile.toPath()
-                    .takeIf { it.startsWith(repositoryRoot) }
-                    ?.let { repositoryRoot.relativize(it).toString().replace(File.separatorChar, '/') }
-                    ?: canonicalFile.name
-                mapOf(
-                    "component_id" to "file:$path",
-                    "component_type" to "file",
-                    "artifact_file" to path,
-                    "artifact_sha256" to sha256(canonicalFile),
-                    "artifact_hash_status" to "computed",
-                    "license_expression" to null,
-                    "license_status" to "unknown_not_collected",
-                    "copyright_status" to "unknown_not_collected",
-                    "notice_text_status" to "unknown_not_collected",
-                    "source_url_status" to "unknown_not_collected",
-                )
-            }
-        val entries = (components + fileDependencies).distinctBy { it.getValue("component_id") }
-            .sortedBy { it.getValue("component_id").toString() }
-        check(entries.isNotEmpty()) { "No dependencies resolved for releaseRuntimeClasspath." }
-
-        val commit = providers.exec {
-            commandLine("git", "rev-parse", "HEAD")
-        }.standardOutput.asText.get().trim()
-        val metadataGaps = entries.map { entry ->
-            mapOf(
-                "component_id" to entry.getValue("component_id"),
-                "status" to "unknown_not_collected",
-                "missing_metadata" to listOf(
-                    "license_expression",
-                    "copyright_attribution",
-                    "required_notice_text",
-                    "source_url",
-                ),
-            )
-        }
-        val inventory = mapOf(
-            "format" to "jandal-release-runtime-dependency-inventory",
-            "schema_version" to 1,
-            "is_formal_sbom" to false,
-            "sbom_note" to "Resolved dependency inventory only; not a CycloneDX/SPDX SBOM or licence determination.",
-            "source_commit" to commit,
-            "version_name" to android.defaultConfig.versionName,
-            "version_code" to android.defaultConfig.versionCode,
-            "configuration" to "releaseRuntimeClasspath",
-            "component_count" to entries.size,
-            "file_dependency_count" to fileDependencies.size,
-            "notice_input_status" to "requires_reviewed_licence_and_notice_metadata",
-            "components" to entries,
-        )
-        val metadataReport = mapOf(
-            "format" to "jandal-release-runtime-metadata-gaps",
-            "schema_version" to 1,
-            "source_commit" to commit,
-            "configuration" to "releaseRuntimeClasspath",
-            "status_note" to "unknown_not_collected means this task does not ingest reviewed licence metadata; it does not assert upstream metadata is absent.",
-            "component_count" to metadataGaps.size,
-            "gaps" to metadataGaps,
-        )
-        val inventoryOutput = inventoryFile.get().asFile
-        val gapsOutput = metadataGapsFile.get().asFile
-        inventoryOutput.parentFile.mkdirs()
-        inventoryOutput.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(inventory)) + "\n")
-        gapsOutput.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(metadataReport)) + "\n")
-    }
-}
-
-tasks.register("verifyReleaseDependencyInventory") {
-    group = "verification"
-    description = "Checks release inventory completeness and fail-closed metadata statuses."
-    dependsOn("generateReleaseDependencyInventory")
-
-    doLast {
-        val reportDirectory = layout.buildDirectory.dir("reports/release-audit").get().asFile
-        val inventory = JsonSlurper().parse(
-            reportDirectory.resolve("release-runtime-dependency-inventory.json"),
-        ) as Map<*, *>
-        val metadataReport = JsonSlurper().parse(
-            reportDirectory.resolve("release-runtime-metadata-gaps.json"),
-        ) as Map<*, *>
-        val components = inventory["components"] as List<*>
-        val gaps = metadataReport["gaps"] as List<*>
-        val componentIds = components.map { (it as Map<*, *>)["component_id"].toString() }
-        val gapIds = gaps.map { (it as Map<*, *>)["component_id"].toString() }
-
-        check(inventory["configuration"] == "releaseRuntimeClasspath")
-        check(inventory["is_formal_sbom"] == false)
-        check(inventory["source_commit"].toString().matches(Regex("[0-9a-f]{40}")))
-        check(inventory["version_name"].toString().isNotBlank())
-        check((inventory["version_code"] as Number).toInt() > 0)
-        check(components.isNotEmpty() && componentIds == componentIds.distinct().sorted())
-        check("project:${project.path}" !in componentIds)
-        check(inventory["component_count"] == components.size)
-        check(inventory["file_dependency_count"] == components.count {
-            (it as Map<*, *>)["component_type"] == "file"
-        })
-        check((inventory["file_dependency_count"] as Number).toInt() > 0)
-        check(componentIds == gapIds && metadataReport["component_count"] == gaps.size)
-        components.forEach { value ->
-            val component = value as Map<*, *>
-            check(component["license_expression"] == null)
-            check(component["license_status"] == "unknown_not_collected")
-            check(component["copyright_status"] == "unknown_not_collected")
-            check(component["notice_text_status"] == "unknown_not_collected")
-            check(component["source_url_status"] == "unknown_not_collected")
-            if (component["component_type"] == "file") {
-                check(component["artifact_hash_status"] == "computed")
-                check(component["artifact_sha256"].toString().matches(Regex("[0-9a-f]{64}")))
-            }
-        }
-        gaps.forEach { value ->
-            val gap = value as Map<*, *>
-            check(gap["status"] == "unknown_not_collected")
-            check(gap["missing_metadata"] == listOf(
-                "license_expression",
-                "copyright_attribution",
-                "required_notice_text",
-                "source_url",
-            ))
-        }
-    }
-}
 
 
 
@@ -681,4 +485,161 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
+}
+
+aboutLibraries {
+    offlineMode = false
+    collect {
+        configPath = file("src/main")
+        filterVariants.add("release")
+    }
+    export {
+        variant = "release"
+        prettyPrint = true
+    }
+    license {
+        strictMode = com.mikepenz.aboutlibraries.plugin.StrictMode.FAIL
+        // These are observed license identifiers, not legal distribution approvals.
+        // Adding any new identifier requires review; unresolved licenses remain a hard build failure.
+        allowedLicenses.addAll("ASDKL", "Apache-2.0", "BSD-3-Clause", "LGPL-2.1-or-later", "MIT", "PCSDKToS")
+    }
+}
+
+// AboutLibraries adds the generated release JSON as a resource directory. Keep its export
+// dependency explicit for AGP 9 task validation.
+tasks.configureEach {
+    if (name == "mergeReleaseResources" || name == "packageReleaseResources") {
+        dependsOn("exportLibraryDefinitionsRelease")
+    }
+}
+
+tasks.named<org.cyclonedx.gradle.CyclonedxDirectTask>("cyclonedxDirectBom") {
+    includeConfigs = listOf("releaseRuntimeClasspath")
+    testConfigs = emptyList()
+    jsonOutput = layout.buildDirectory.file("reports/sbom/release-runtime-bom.json")
+    xmlOutput = layout.buildDirectory.file("reports/sbom/release-runtime-bom.xml")
+}
+
+tasks.register("verifyReleaseAttributionMetadata") {
+    group = "verification"
+    description = "Checks releaseRuntimeClasspath licence coverage, local binary metadata, and packaged native libraries."
+    dependsOn("exportLibraryDefinitionsRelease", "cyclonedxDirectBom", "bundleRelease")
+
+    val aboutLibrariesFile = layout.buildDirectory.file(
+        "generated/aboutLibraries/release/res/raw/aboutlibraries.json",
+    )
+    val metadataFile = layout.projectDirectory.file("release-attribution-metadata.json")
+    val bundleFile = layout.buildDirectory.file("outputs/bundle/release/app-release.aab")
+    val reportFile = layout.buildDirectory.file("reports/release-audit/attribution-verification.json")
+    inputs.files(aboutLibrariesFile, metadataFile, bundleFile)
+    outputs.file(reportFile)
+
+    doLast {
+        val report = reportFile.get().asFile
+        report.parentFile.mkdirs()
+        val errors = mutableListOf<String>()
+        val aboutLibraries = JsonSlurper().parse(aboutLibrariesFile.get().asFile) as Map<*, *>
+        val libraryRows = aboutLibraries["libraries"] as List<*>
+        val libraryById = libraryRows.associate { row ->
+            val library = row as Map<*, *>
+            library["uniqueId"].toString() to library
+        }
+        val runtimeConfiguration = configurations.getByName("releaseRuntimeClasspath")
+        val moduleIds = runtimeConfiguration.incoming.resolutionResult.allComponents
+            .mapNotNull { component ->
+                (component.id as? ModuleComponentIdentifier)?.let { "${it.group}:${it.module}" }
+            }
+            .toSet()
+        val missingModuleLicences = moduleIds.filter { componentId ->
+            val platformBaseId = componentId.removeSuffix("-android").removeSuffix("-jvm")
+            val equivalentLibraries = libraryById.filterKeys { libraryId ->
+                libraryId == componentId ||
+                    libraryId == platformBaseId ||
+                    libraryId == "$platformBaseId-android" ||
+                    libraryId == "$platformBaseId-jvm"
+            }.values
+            equivalentLibraries.all { library ->
+                val licences = (library as Map<*, *>)["licenses"] as? List<*>
+                licences.isNullOrEmpty()
+            }
+        }.sorted()
+        if (missingModuleLicences.isNotEmpty()) {
+            errors += "Resolved release modules with missing licence metadata: ${missingModuleLicences.joinToString()}"
+        }
+
+        val repositoryRoot = rootProject.projectDir.canonicalFile.toPath()
+        val fileDependencies = runtimeConfiguration.allDependencies
+            .withType(org.gradle.api.artifacts.FileCollectionDependency::class.java)
+            .flatMap { it.files.files }
+            .filter { it.isFile }
+            .associate { file ->
+                val canonical = file.canonicalFile.toPath()
+                val relative = if (canonical.startsWith(repositoryRoot)) {
+                    repositoryRoot.relativize(canonical).toString().replace(File.separatorChar, '/')
+                } else {
+                    canonical.fileName.toString()
+                }
+                "file:$relative" to relative
+            }
+        val metadata = JsonSlurper().parse(metadataFile.asFile) as Map<*, *>
+        val localRows = metadata["local_dependencies"] as? List<*> ?: emptyList<Any>()
+        val localById = localRows.associate { row ->
+            val local = row as Map<*, *>
+            local["component_id"].toString() to local
+        }
+        val missingLocalRows = fileDependencies.keys - localById.keys
+        val staleLocalRows = localById.keys - fileDependencies.keys
+        if (missingLocalRows.isNotEmpty()) errors += "Local runtime dependencies missing explicit metadata: ${missingLocalRows.sorted().joinToString()}"
+        if (staleLocalRows.isNotEmpty()) errors += "Local metadata does not match release runtime dependencies: ${staleLocalRows.sorted().joinToString()}"
+        localById.forEach { (id, row) ->
+            val local = row as Map<*, *>
+            if (local["license_expression"]?.toString().isNullOrBlank() || local["license_status"] != "reviewed") {
+                errors += "$id has no reviewed licence expression; owner decision required."
+            }
+            val path = local["artifact_path"]?.toString()
+            if (path.isNullOrBlank() || !rootProject.file(path).isFile) errors += "$id is missing its artifact file."
+            val noticePath = local["required_notice"]?.toString()
+            if (noticePath.isNullOrBlank() || !rootProject.file(noticePath).isFile) errors += "$id is missing its required notice file."
+        }
+
+        val nativeRows = metadata["native_libraries"] as? List<*> ?: emptyList<Any>()
+        val nativeByName = nativeRows.associate { row ->
+            val native = row as Map<*, *>
+            native["name"].toString() to native
+        }
+        val bundle = bundleFile.get().asFile
+        val packagedNativeNames = ZipFile(bundle).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory && it.name.startsWith("base/lib/") && it.name.endsWith(".so") }
+                .map { it.name.substringAfterLast('/') }
+                .toSet()
+        }
+        if (packagedNativeNames != nativeByName.keys) {
+            errors += "Packaged native library metadata mismatch; missing=${(packagedNativeNames - nativeByName.keys).sorted()}, stale=${(nativeByName.keys - packagedNativeNames).sorted()}."
+        }
+        nativeByName.forEach { (name, row) ->
+            val native = row as Map<*, *>
+            if (native["license_expression"]?.toString().isNullOrBlank() || native["license_status"] != "reviewed") {
+                errors += "$name has no reviewed licence expression; owner decision required."
+            }
+            val sourceComponent = native["source_component"]?.toString()
+            if (sourceComponent.isNullOrBlank()) errors += "$name has no source component mapping."
+        }
+
+        val result = mapOf(
+            "format" to "jandal-release-attribution-verification",
+            "schema_version" to 1,
+            "configuration" to "releaseRuntimeClasspath",
+            "resolved_module_count" to moduleIds.size,
+            "module_count_with_licence_metadata" to moduleIds.size - missingModuleLicences.size,
+            "local_dependency_count" to fileDependencies.size,
+            "packaged_native_library_count" to packagedNativeNames.size,
+            "status" to if (errors.isEmpty()) "verified" else "owner_review_required",
+            "errors" to errors,
+        )
+        report.writeText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(result)) + "\n")
+        check(errors.isEmpty()) {
+            "Release attribution verification failed. See ${report.relativeTo(rootProject.projectDir)}:\n- ${errors.joinToString("\n- ")}"
+        }
+    }
 }

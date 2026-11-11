@@ -7,11 +7,11 @@ This document captures the release-attribution state after the Semaine release-v
 
 ## Status
 
-The release AAB audit and runtime dependency comparison recorded by #1259 / PR #1273 are historical, not current release acceptance. The current release wiring uses the custom Inflect-enabled Sherpa AAR; #1474 tracks the unresolved Piper/eSpeak provenance, component terms, notices, corresponding-source path, and candidate reconciliation. Formal SBOM (CycloneDX/SPDX) and generated third-party notices have not been produced.
+The current release attribution work generates third-party licence data from the RELEASE variant with AboutLibraries and a CycloneDX SBOM from `releaseRuntimeClasspath`. The pre-existing release wiring uses the custom Inflect-enabled Sherpa AAR; #1474 tracks unresolved Piper/eSpeak provenance, component terms, notices, corresponding-source path, and candidate reconciliation. Generated metadata is not legal approval.
 
 ## Pre-release-candidate status
 
-This remains a **pre-release-candidate attribution snapshot**, not a signed release candidate or Play acceptance. The historical AAB inspection does not close #1474; no candidate-linked SBOM/notices or exact release-artefact reconciliation are recorded here.
+This remains a **pre-release-candidate attribution snapshot**, not a signed release candidate or Play acceptance. Candidate-linked SBOM/notices and exact release artefact reconciliation remain required; the verification task reports unresolved local/native metadata rather than asserting clearance.
 
 ## Release scope decisions captured
 
@@ -80,12 +80,11 @@ Release treatment:
 
 ## In-app disclosures required by #1263
 
-The Legal & Privacy route and offline Open-source licences screen are present in the current source. The screen displays `app/src/main/assets/legal/NOTICE.txt`; it does not generate per-component licence records from `releaseRuntimeClasspath`, and the NOTICE file is not a complete, verified release dependency notice set.
+The Legal & Privacy route includes the generated Open-source licences screen, which preserves the existing `app/src/main/assets/legal/NOTICE.txt` text and adds AboutLibraries data generated for the RELEASE variant. A verification task compares metadata against `releaseRuntimeClasspath` and fails for missing module licences, unreviewed local/native records, or native-library inventory mismatches.
 
-The required Models, voices & wake word view and Data & Privacy Summary navigation are not present. Privacy Policy and Terms of Use links are present. Do not treat the current legal surface as complete #1263 acceptance.
+The offline Models, voices & wake word screen and Data & Privacy Summary navigation are implemented. The summary explicitly says its content is owned by #1260 and is not yet available. The asset screen draws model/STT/voice entries from the app's download catalogues, includes bundled/native/platform assets, marks on-demand and debug-only entries, and renders unknown attribution values as “Under review”.
 
-Release disclosures remain blocked on reviewed metadata for every resolved release dependency and exposed/downloadable asset, required verbatim notices, and the release artifact/source reconciliation described below. Existing `verifyReleaseDependencyInventory` validates that graph metadata is explicitly unknown; it does not prove notice coverage or licensing.
-
+These screens do not resolve owner/legal decisions. Release disclosures remain blocked on approved metadata for the custom Sherpa/eSpeak/Piper components, local AAR and bundled native libraries, bundled model assets and all exposed/downloadable models or voices, and recipient-facing notice/source completeness.
 Other existing release obligations remain:
 
 - repository `LICENSE` and `NOTICE` remain present;
@@ -95,18 +94,34 @@ Other existing release obligations remain:
 
 ## Historical evidence and current blockers
 
-The #1259/#1273 release dependency tree, gap report, and AAB audit are historical and do not describe the current release variant. The current `generateReleaseDependencyInventory` task derives the graph from `releaseRuntimeClasspath`, but explicitly emits unknown licence, copyright, notice, and source metadata; its verifier checks that unresolved state rather than notice completeness.
+The #1259/#1273 dependency tree and AAB audit are historical. This work adds a RELEASE-filtered AboutLibraries export, CycloneDX SBOM, and `verifyReleaseAttributionMetadata` check against `releaseRuntimeClasspath`, the local/native metadata file, and the current release AAB. The exact candidate dependency verification still fails closed while owner-review fields are unresolved.
 
 ## Remaining before closing #1263
 
-- [ ] Generate or verify a complete notice set against the resolved release dependency graph, including all transitive/runtime and local file dependencies; preserve required notice text. No formal SBOM or completed generated notice set exists.
-- [ ] Reconcile the current release AAB/APK and packaged native/model/data payloads with that graph and notice set.
-- [ ] Resolve reviewed source/licence/notice metadata for bundled Vosk runtime/model, MiniLM conversion, tokenizer, wake-word upstream assets, and every release-visible or downloadable model/voice. Existing records identify specific unknown provenance and terms; do not infer clearance from generic project licences.
-- [ ] Record Sherpa/eSpeak/Piper native and `espeak-ng-data` source/notice mapping plus a release-linked corresponding-source/build path. #1474 is closed, but the factual evidence in its comments does not establish complete source-to-binary provenance or legal sufficiency; current owner direction excludes inadequately evidenced components from v0.1.
-- [ ] Implement and validate the offline Models, voices & wake word view, with source, licence/terms, relevant lineage, and release status for every exposed asset.
-- [ ] Add Data & Privacy Summary navigation to Legal & Privacy; Privacy Policy, Terms of Use, and Open-source licences navigation currently exist.
-- [ ] Run required release-build offline/accessibility/colour-mode checks after the missing view exists; device evidence remains uncollected for this worktree.
-- [x] Semaine is excluded from release visibility under #1258/#1268; CoriHigh is the sole release-visible Piper catalogue entry.
-- [x] Kokoro is documented as debug-only/post-launch for v0.1, with Sherpa package asset and upstream Kokoro lineage recorded.
+- [x] Generate RELEASE-variant licence records and a CycloneDX SBOM from the resolved runtime configuration; preserve the original NOTICE text in the in-app screen.
+- [x] Inspect the current unsigned release AAB native libraries and assets; record the inventory and Sherpa/eSpeak runtime findings below.
+- [ ] Owner approval: decide distribution terms, licence/notice obligations, and recipient-facing corresponding-source delivery for the modified Sherpa/eSpeak/Piper AAR and native payload. #1474 tracks engineering provenance but does not constitute legal clearance.
+- [ ] Fill and approve exact licence/source/notice metadata for the local Sherpa AAR, its packaged JNI binary, and every native library listed below. `app/release-attribution-metadata.json` intentionally marks unresolved fields rather than inferring them.
+- [ ] Owner/legal review of bundled Vosk model provenance/terms, MiniLM converted-file provenance, tokenizer linkage, openWakeWord asset revisions, Hey Jandal model terms, and the release-exposed/downloadable model and voice catalogue. Specific unresolved model-family terms are called out in the in-app attribution entries.
+- [x] Implement the offline Models, voices & wake word view from the live model/STT/voice catalogues, including source, terms, lineage, release state, and “Under review” fallbacks.
+- [x] Add Data & Privacy Summary navigation and a placeholder stating that the content is owned by #1260 and is not yet available.
+- [ ] Collect visual/offline/accessibility and colour-mode evidence on a device. Phones were not used for this engineering work; no screenshot evidence is claimed.
+- [x] Semaine is excluded from release visibility under #1258/#1268; CoriHigh is the sole release-visible Piper catalogue voice. #1258 is closed after the implementation and docs decision.
+- [x] Kokoro is identified as debug-only/post-launch for v0.1, with Sherpa pack and upstream Kokoro lineage shown.
 - [x] Maintainer confirmed consent/ownership of Stage 3 human wake-word recordings in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577).
-- [ ] Update #1014 and #441 with completed, candidate-linked release evidence; #868 is closed, but that does not close this release sign-off.
+- [ ] Update #1014 and #441 with completed candidate-linked evidence; #868 being closed does not close this release sign-off.
+
+## Release AAB and Sherpa/eSpeak investigation
+
+Inspection of `app/build/outputs/bundle/release/app-release.aab` after `:app:bundleRelease` found these packaged native libraries:
+
+| ABI | Libraries |
+|---|---|
+| `arm64-v8a`, `x86_64` | `libLiteRt.so`, `libLiteRtOpenClAccelerator.so`, `libandroidx.graphics.path.so`, `libc++_shared.so`, `libdatastore_shared_counter.so`, `libjnidispatch.so`, `libkernelvec.so`, `liblitertlm_jni.so`, `libonnxruntime.so`, `libonnxruntime4j_jni.so`, `libsherpa-onnx-jni.so`, `libvosk.so` |
+| `armeabi-v7a`, `x86` | `libandroidx.graphics.path.so`, `libdatastore_shared_counter.so`, `libjnidispatch.so`, `libonnxruntime.so`, `libonnxruntime4j_jni.so`, `libsherpa-onnx-jni.so`, `libvosk.so` |
+
+The bundle includes `base/assets/vosk-model/**`, the MiniLM TFLite model and intent vectors, tokenizer vocabulary, all three wake-word ONNX files, and the original `legal/NOTICE.txt`. It does not include the CoriHigh or Inflect ONNX model downloads, a standalone eSpeak `.so`, or `espeak-ng-data`. The AAR itself contains `libsherpa-onnx-jni.so` for four ABIs; app packaging excludes its separate C and C++ API `.so` files.
+
+Sherpa is required at runtime for both release TTS paths: the CoriHigh controller reflects `OfflineTts`, loads `libsherpa-onnx-jni.so` and `libonnxruntime.so`, and configures the downloaded voice pack's `espeak-ng-data`; Inflect's custom JNI phonemizer is built into the Inflect-enabled Sherpa JNI library and also requires its downloaded eSpeak data directory. Both voice packs/data are downloaded on demand, not bundled. Without Sherpa JNI/ORT, CoriHigh is unavailable and Inflect cannot phonemize; the controllers can return unavailable so Android TTS fallback can take over. Without the downloaded eSpeak data, both release paths fail initialization/availability. Removing Sherpa would therefore disable these engine paths, not the Android TTS fallback.
+
+The AAR build manifest records pinned Sherpa/eSpeak/Piper source inputs and hashes, but no recipient-facing source/notice bundle. This investigation answers runtime/package content only; release distribution and notice compliance remain owner/legal decisions.

@@ -58,6 +58,9 @@ vosk = "0.3.75"
 commonsCompress = "1.27.1"
 glance = "1.1.1"
 # Coil
+# AboutLibraries 15.3 requires Kotlin 2.4; 14.1.0 is the latest stable line compatible with this Kotlin 2.3.21 / AGP 9 build.
+aboutLibraries = "14.1.0"
+cyclonedx = "3.5.1"
 coil = "3.1.0"
 
 [libraries]
@@ -145,6 +148,7 @@ glance-material3 = { group = "androidx.glance", name = "glance-material3", versi
 uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 test-runner = { group = "androidx.test", name = "runner", version.ref = "testRunner" }
 test-rules = { group = "androidx.test", name = "rules", version.ref = "testRules" }
+aboutlibraries-compose-m3 = { module = "com.mikepenz:aboutlibraries-compose-m3", version.ref = "aboutLibraries" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -153,3 +157,5 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 room = { id = "androidx.room", version.ref = "room" }
+aboutlibraries-android = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutLibraries" }
+cyclonedx = { id = "org.cyclonedx.bom", version.ref = "cyclonedx" }
