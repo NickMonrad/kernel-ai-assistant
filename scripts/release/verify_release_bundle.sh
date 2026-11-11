@@ -13,8 +13,11 @@ if command -v bundletool >/dev/null; then
   manifest=$(bundletool dump manifest --bundle="$AAB" --module=base)
 elif [[ -n "${BUNDLETOOL_JAR:-}" && -f "$BUNDLETOOL_JAR" ]] && command -v java >/dev/null; then
   manifest=$(java -jar "$BUNDLETOOL_JAR" dump manifest --bundle="$AAB" --module=base)
+elif [[ -n "${BUNDLETOOL_CLASSPATH:-}" ]] && command -v java >/dev/null; then
+  # Set by :app:verifyReleaseBundleForPlayUpload from Gradle's resolved bundletool dependency.
+  manifest=$(java -cp "$BUNDLETOOL_CLASSPATH" com.android.tools.build.bundletool.BundleToolMain dump manifest --bundle="$AAB" --module=base)
 else
-  echo "Missing required tool: bundletool (or set BUNDLETOOL_JAR)." >&2
+  echo "Missing required tool: bundletool (or set BUNDLETOOL_JAR, or run :app:verifyReleaseBundleForPlayUpload)." >&2
   exit 2
 fi
 cert_output=$(keytool -printcert -jarfile "$AAB" 2>&1) || cert_output=""

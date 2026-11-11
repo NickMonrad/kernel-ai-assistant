@@ -45,16 +45,23 @@ play {
     )
 }
 
+// Resolved by Gradle so the verifier never depends on a separately installed bundletool.
+val releaseBundletoolClasspath = configurations.detachedConfiguration(
+    dependencies.create(libs.bundletool.get()),
+)
+
 val verifyReleaseBundleForPlayUpload = tasks.register("verifyReleaseBundleForPlayUpload") {
     group = "verification"
     description = "Verifies the release AAB before a Play upload."
     dependsOn("bundleRelease")
+    inputs.files(releaseBundletoolClasspath)
     doLast {
         val bundle = layout.buildDirectory.file("outputs/bundle/release/app-release.aab").get().asFile
         check(bundle.isFile) { "Missing release bundle: ${bundle.path}" }
         val verifier = rootProject.file("scripts/release/verify_release_bundle.sh")
         providers.exec {
             commandLine("bash", verifier.absolutePath, bundle.absolutePath)
+            environment("BUNDLETOOL_CLASSPATH", releaseBundletoolClasspath.asPath)
         }.result.get().assertNormalExitValue()
     }
 }
