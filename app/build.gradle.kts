@@ -190,6 +190,147 @@ tasks.register("verifyReleaseApkArtifactSelection") {
     }
 }
 
+tasks.register("verifyReleaseJniKeepRules") {
+    group = "verification"
+    description = "Fails if R8 renames or removes classes reached by release JNI libraries."
+    dependsOn("minifyReleaseWithR8")
+
+    doLast {
+        val mappingFile = layout.buildDirectory.file("outputs/mapping/release/mapping.txt").get().asFile
+        val usageFile = layout.buildDirectory.file("outputs/mapping/release/usage.txt").get().asFile
+        check(mappingFile.isFile) { "Release R8 mapping file is missing: $mappingFile" }
+        check(usageFile.isFile) { "Release R8 usage file is missing: $usageFile" }
+
+        val jniPackages = listOf(
+            "ai.onnxruntime.",
+            "androidx.graphics.path.",
+            "com.google.ai.edge.",
+            "com.k2fsa.sherpa.onnx.",
+            "com.sun.jna.",
+            "org.tensorflow.lite.",
+            "org.vosk.",
+        )
+        val requiredClasses = listOf(
+            "ai.onnxruntime.OrtSession",
+            "androidx.datastore.core.NativeSharedCounter",
+            "androidx.graphics.path.ConicConverter",
+            "androidx.graphics.path.PathIteratorPreApi34Impl",
+            "com.google.ai.edge.litert.CompiledModel",
+            "com.google.ai.edge.litert.Environment",
+            "com.google.ai.edge.litert.LiteRtException",
+            "com.google.ai.edge.litert.TensorBuffer",
+            "com.google.ai.edge.litert.TensorBufferRequirements",
+            "com.google.ai.edge.litert.TensorType",
+            "com.google.ai.edge.litert.TensorType\$ElementType",
+            "com.google.ai.edge.litert.TensorType\$Layout",
+            "com.google.ai.edge.litertlm.LiteRtLmJni",
+            "com.google.ai.edge.litertlm.LiteRtLmJniException",
+            "com.google.ai.edge.litertlm.NativeLibraryLoader",
+            "com.k2fsa.sherpa.onnx.OfflineTts",
+            "com.sun.jna.Native",
+            "org.tensorflow.lite.InterpreterFactoryImpl",
+            "org.tensorflow.lite.NativeInterpreterWrapper",
+            "org.tensorflow.lite.NativeInterpreterWrapperExperimental",
+            "org.tensorflow.lite.NativeSignatureRunnerWrapper",
+            "org.tensorflow.lite.TensorFlowLite",
+            "org.tensorflow.lite.TensorImpl",
+            "org.vosk.Model",
+            "org.vosk.Recognizer",
+            "com.kernel.ai.core.voice.InflectPhonemizer",
+            "com.kernel.ai.core.memory.vector.VectorStoreJni",
+        )
+        val exactJniClasses = setOf(
+            "androidx.datastore.core.NativeSharedCounter",
+            "com.kernel.ai.core.voice.InflectPhonemizer",
+            "com.kernel.ai.core.memory.vector.VectorStoreJni",
+        )
+        val guardedClass: (String) -> Boolean = { name ->
+            (jniPackages.any(name::startsWith) || name in exactJniClasses) &&
+                !name.contains("\$\$ExternalSynthetic")
+        }
+        val mappingLines = mappingFile.readLines()
+        val mappingEntries = mappingLines.mapNotNull { line ->
+            if (line.startsWith(" ") || !line.endsWith(":") || " -> " !in line) {
+                null
+            } else {
+                line.removeSuffix(":").split(" -> ", limit = 2)
+                    .let { (original, obfuscated) -> original to obfuscated }
+            }
+        }
+        val mappedClasses = mappingEntries.map { (original, _) -> original }
+        val renamedClasses = mappingEntries.filter { (original, obfuscated) ->
+            guardedClass(original) && original != obfuscated
+        }.map { (original, _) -> original }
+        var currentClass: String? = null
+        val renamedMembers = mappingLines.mapNotNull { line ->
+            if (!line.startsWith(" ") && line.endsWith(":") && " -> " in line) {
+                currentClass = line.removeSuffix(":").substringBefore(" -> ")
+                null
+            } else if (currentClass?.let(guardedClass) == true && " -> " in line) {
+                val originalMember = line.substringBefore(" -> ")
+                    .trim()
+                    .substringBefore("(")
+                    .substringAfterLast(":")
+                    .substringAfterLast(" ")
+                val generatedMember = originalMember.startsWith("\$r8\$") ||
+                    originalMember.startsWith("-\$\$Nest\$")
+                if (generatedMember || '.' in originalMember) {
+                    null
+                } else {
+                    val obfuscatedMember = line.substringAfter(" -> ").substringBefore(" ")
+                    (originalMember != obfuscatedMember).takeIf { it }?.let {
+                        "$currentClass.$originalMember -> $obfuscatedMember"
+                    }
+                }
+            } else {
+                null
+            }
+        }
+        val missingClasses = requiredClasses.filterNot(mappedClasses::contains)
+        val mappedClassSet = mappedClasses.toSet()
+        val usageLines = usageFile.readLines()
+        var usageClass: String? = null
+        val removedClasses = usageLines.mapNotNull { line ->
+            if (!line.startsWith(" ") && line.endsWith(":")) {
+                usageClass = line.removeSuffix(":")
+                usageClass.takeIf { guardedClass(it) && it !in mappedClassSet }
+            } else {
+                null
+            }
+        }
+        usageClass = null
+        val removedMembers = usageLines.mapNotNull { line ->
+            if (!line.startsWith(" ") && line.endsWith(":")) {
+                usageClass = line.removeSuffix(":")
+                null
+            } else if (
+                line.startsWith("    ") &&
+                usageClass?.let(guardedClass) == true &&
+                "<clinit>" !in line
+            ) {
+                "$usageClass.${line.trim()}"
+            } else {
+                null
+            }
+        }
+        check(missingClasses.isEmpty()) {
+            "Release mapping does not contain required JNI classes: ${missingClasses.joinToString()}"
+        }
+        check(renamedClasses.isEmpty()) {
+            "R8 renamed JNI-reached classes: ${renamedClasses.joinToString()}"
+        }
+        check(renamedMembers.isEmpty()) {
+            "R8 renamed JNI-reached members: ${renamedMembers.joinToString()}"
+        }
+        check(removedClasses.isEmpty()) {
+            "R8 removed JNI-reached classes: ${removedClasses.joinToString()}"
+        }
+        check(removedMembers.isEmpty()) {
+            "R8 removed JNI-reached members: ${removedMembers.joinToString()}"
+        }
+    }
+}
+
 fun locateAapt2(): File {
     val sdkDirectory = sequenceOf(
         System.getenv("ANDROID_HOME"),
