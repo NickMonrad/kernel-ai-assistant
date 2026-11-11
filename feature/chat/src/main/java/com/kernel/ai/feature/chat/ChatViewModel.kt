@@ -128,6 +128,11 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
+internal fun shouldForceGpuConversationResetEachTurn(
+    backend: BackendType?,
+    isDebugBuild: Boolean,
+    debugForceReset: Boolean,
+): Boolean = backend == BackendType.GPU && (!isDebugBuild || debugForceReset)
 // Covers the 60s GPU attempt, CPU fallback, and cleanup; foreground and lock waits are excluded.
 internal const val MODEL_INITIALIZATION_WATCHDOG_MS = 150_000L
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
@@ -391,6 +396,13 @@ class ChatViewModel @Inject constructor(
 
     /** True while Gemma-4 is being lazily initialised in response to a [sendMessage] call. */
     private val _isLoadingModel = MutableStateFlow(false)
+    private val _isPreparingResponse = MutableStateFlow(false)
+    private val _debugForceGpuConversationReset = MutableStateFlow(false)
+    private var activeTurnAcceptedAtNanos = 0L
+    private var firstVisibleFeedbackLogged = false
+    private var activeTurnCommandId = ""
+    private var firstThinkingTextVisibleLogged = false
+    private var firstAnswerTokenVisibleLogged = false
 
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
@@ -494,12 +506,21 @@ class ChatViewModel @Inject constructor(
         }
 
 
+    private data class EngineCoreState(
+        val isReady: Boolean,
+        val isGenerating: Boolean,
+        val isLoadingModel: Boolean,
+        val conversationInitialized: Boolean,
+        val activeBackend: BackendType?,
+    )
     private data class EngineState(
         val isReady: Boolean,
         val isGenerating: Boolean,
         val isLoadingModel: Boolean,
         val conversationInitialized: Boolean,
         val activeBackend: BackendType?,
+        val isPreparingResponse: Boolean,
+        val debugForceGpuConversationReset: Boolean,
     )
     private data class InputState(
         val messages: List<ChatMessage>,
@@ -509,14 +530,30 @@ class ChatViewModel @Inject constructor(
         val conversationTitle: String?,
         val isSpeakingResponse: Boolean,
     )
-    private val engineState = combine(
+    private val engineCoreState = combine(
         inferenceEngine.isReady,
         inferenceEngine.isGenerating,
         _isLoadingModel,
         _conversationInitialized,
         inferenceEngine.activeBackend,
     ) { isReady, isGenerating, isLoadingModel, conversationInitialized, activeBackend ->
-        EngineState(isReady, isGenerating, isLoadingModel, conversationInitialized, activeBackend)
+        EngineCoreState(isReady, isGenerating, isLoadingModel, conversationInitialized, activeBackend)
+    }
+
+    private val engineState = combine(
+        engineCoreState,
+        _isPreparingResponse,
+        _debugForceGpuConversationReset,
+    ) { core, isPreparingResponse, debugForceGpuConversationReset ->
+        EngineState(
+            core.isReady,
+            core.isGenerating,
+            core.isLoadingModel,
+            core.conversationInitialized,
+            core.activeBackend,
+            isPreparingResponse,
+            debugForceGpuConversationReset,
+        )
     }
 
     private val inputState = combine(
@@ -618,6 +655,8 @@ class ChatViewModel @Inject constructor(
                 inputTextReplacementText = input.inputTextReplacement.text,
                 error = input.error,
                 isLoadingModel = engine.isLoadingModel,
+                isPreparingResponse = engine.isPreparingResponse,
+                debugForceGpuConversationReset = engine.debugForceGpuConversationReset,
                 showThinkingProcess = showThinking,
                 modelCapabilities = activeModel?.capabilities,
                 temperature = activeModelSettings?.temperature ?: 0.7f,
@@ -1950,6 +1989,29 @@ class ChatViewModel @Inject constructor(
     fun sendMessage() {
         sendMessage(SubmitMode.Text)
     }
+    fun setDebugForceGpuConversationResetEachTurn(enabled: Boolean) {
+        if (BuildConfig.DEBUG) _debugForceGpuConversationReset.value = enabled
+    }
+
+    fun logFirstVisibleResponseFeedback() {
+        if (!BuildConfig.DEBUG || firstVisibleFeedbackLogged || !_isPreparingResponse.value) return
+        firstVisibleFeedbackLogged = true
+        val elapsedMs = (System.nanoTime() - activeTurnAcceptedAtNanos) / 1_000_000
+        Log.d(TAG, "TTFT_STAGE commandId=$activeTurnCommandId stage=first_feedback_visible t_ms=$elapsedMs")
+    }
+    fun logFirstVisibleThinkingText() {
+        if (!BuildConfig.DEBUG || firstThinkingTextVisibleLogged) return
+        firstThinkingTextVisibleLogged = true
+        val elapsedMs = (System.nanoTime() - activeTurnAcceptedAtNanos) / 1_000_000
+        Log.d(TAG, "TTFT_STAGE commandId=$activeTurnCommandId stage=first_thinking_text_visible t_ms=$elapsedMs")
+    }
+
+    fun logFirstVisibleAnswerToken() {
+        if (!BuildConfig.DEBUG || firstAnswerTokenVisibleLogged) return
+        firstAnswerTokenVisibleLogged = true
+        val elapsedMs = (System.nanoTime() - activeTurnAcceptedAtNanos) / 1_000_000
+        Log.d(TAG, "TTFT_STAGE commandId=$activeTurnCommandId stage=first_answer_token_visible t_ms=$elapsedMs")
+    }
 
     private fun sendMessage(submitMode: SubmitMode) {
         val submittedText = _inputText.value.trim()
@@ -2009,6 +2071,11 @@ class ChatViewModel @Inject constructor(
         Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId input=${text.take(120)} submitMode=$submitMode")
         // #1618: per-stage turn timing; ms since the message was accepted. Logcat only.
         val turnAcceptedAtNanos = System.nanoTime()
+        activeTurnAcceptedAtNanos = turnAcceptedAtNanos
+        firstVisibleFeedbackLogged = false
+        firstThinkingTextVisibleLogged = false
+        firstAnswerTokenVisibleLogged = false
+        activeTurnCommandId = commandId
         fun logTurnStage(stage: String) {
             val elapsedMs = (System.nanoTime() - turnAcceptedAtNanos) / 1_000_000
             Log.d("KernelAI", "TTFT_STAGE commandId=$commandId stage=$stage t_ms=$elapsedMs")
@@ -2070,6 +2137,7 @@ class ChatViewModel @Inject constructor(
             var savedUserMsgId = ""
 
             try {
+            _isPreparingResponse.value = true
             val userMsgId = UUID.randomUUID().toString()
             val userMessage = ChatMessage(
                 id = userMsgId,
@@ -2983,6 +3051,7 @@ class ChatViewModel @Inject constructor(
                 isStreaming = true,
             )
             _messages.update { it + streamingPlaceholder }
+            _isPreparingResponse.value = false
 
             accumulatedContent = StringBuilder()
             accumulatedThinking = StringBuilder()
@@ -3086,9 +3155,14 @@ class ChatViewModel @Inject constructor(
 
             // GPU backends (e.g. Mali Exynos 2100) can corrupt tensor buffers between
             // turns, causing Status Code 13 on subsequent generations (#684, #1089).
-            // Force a fresh conversation per turn so history is injected via the
-            // system prompt rather than relying on KV cache across turns.
-            if (safeRunIntentTest || inferenceEngine.activeBackend.value == BackendType.GPU) {
+            // Release keeps the per-turn fresh Conversation workaround. Debug builds expose
+            // a default-off switch for testing shared conversation/KV-cache stability.
+            if (safeRunIntentTest || shouldForceGpuConversationResetEachTurn(
+                    backend = inferenceEngine.activeBackend.value,
+                    isDebugBuild = BuildConfig.DEBUG,
+                    debugForceReset = _debugForceGpuConversationReset.value,
+                )
+            ) {
                 needsHistoryReplay = true
             }
 
@@ -3335,6 +3409,7 @@ class ChatViewModel @Inject constructor(
 
             logTurnStage("generate_called")
             var firstTokenLogged = false
+            var firstThinkingTextLogged = false
             val generation = when {
                 loadSkillAbortProbe ->
                     inferenceEngine.generateDebugLoadSkillAbortProbe(debugTraceId = debugGenerationId)
@@ -3366,6 +3441,10 @@ class ChatViewModel @Inject constructor(
                         }
 
                         is GenerationResult.Thinking -> {
+                            if (!firstThinkingTextLogged && result.text.isNotBlank()) {
+                                logTurnStage("first_thinking_text")
+                                firstThinkingTextLogged = true
+                            }
                             accumulatedThinking.append(result.text)
                             _messages.update { msgs ->
                                 msgs.map { msg ->
@@ -3899,6 +3978,7 @@ class ChatViewModel @Inject constructor(
                     activeStreamingContent = StringBuilder()
                 }
             } finally {
+                _isPreparingResponse.value = false
                 kernelAIToolSet.setLoadSkillToolResultTokenBudget(null, null)
                 safeModelTestScope?.close()
                 if (restoreFullPromptAfterTurn || forceHistoryReplayAfterTurn) {

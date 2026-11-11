@@ -136,6 +136,20 @@ class ChatScreenKeepAwakeTest {
             ),
         )
     }
+    @Test
+    fun `shows inline indicator while response is being prepared before generation`() {
+        assertTrue(
+            shouldShowInlineGenerationIndicator(
+                readyState(
+                    isPreparingResponse = true,
+                    messages = listOf(
+                        ChatMessage(id = "user-1", role = ChatMessage.Role.USER, content = "hello"),
+                    ),
+                ),
+            ),
+        )
+    }
+
 
     @Test
     fun `hides inline generation indicator when assistant already has streaming bubble`() {
@@ -231,6 +245,7 @@ class ChatScreenKeepAwakeTest {
     private fun readyState(
         isGenerating: Boolean = false,
         isLoadingModel: Boolean = false,
+        isPreparingResponse: Boolean = false,
         messages: List<ChatMessage> = emptyList(),
     ) = ChatUiState.Ready(
         conversationId = "conv-1",
@@ -241,6 +256,7 @@ class ChatScreenKeepAwakeTest {
         inputText = "",
         error = null,
         isLoadingModel = isLoadingModel,
+        isPreparingResponse = isPreparingResponse,
         showThinkingProcess = true,
     )
 }

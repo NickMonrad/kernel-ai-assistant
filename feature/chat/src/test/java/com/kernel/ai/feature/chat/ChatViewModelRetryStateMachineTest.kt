@@ -1246,6 +1246,7 @@ class ChatViewModelRetryStateMachineTest {
         }
 
         val viewModel = createViewModel()
+        viewModel.setDebugForceGpuConversationResetEachTurn(true)
         advanceUntilIdle()
         viewModel.onInputChanged("Tell me about trains")
         viewModel.sendMessage()
@@ -1297,6 +1298,7 @@ class ChatViewModelRetryStateMachineTest {
         )
 
         val viewModel = createViewModel()
+        viewModel.setDebugForceGpuConversationResetEachTurn(true)
         advanceUntilIdle()
         viewModel.onInputChanged("Earlier marker: HISTORY-RECALL-604")
         viewModel.sendMessage()

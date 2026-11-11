@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -220,7 +221,7 @@ internal fun shouldKeepChatScreenAwake(
 }
 
 internal fun shouldShowInlineGenerationIndicator(state: ChatUiState.Ready): Boolean =
-    state.isGenerating &&
+    (state.isPreparingResponse || state.isGenerating) &&
         !state.isLoadingModel &&
         state.messages.lastOrNull()?.role == ChatMessage.Role.USER &&
         state.messages.none { it.role == ChatMessage.Role.ASSISTANT && it.isStreaming }
@@ -456,6 +457,9 @@ fun ChatScreen(
                 onInputChanged = viewModel::onInputChanged,
                 onSend = viewModel::sendMessage,
                 onCancel = viewModel::cancelGeneration,
+                onResponseFeedbackVisible = viewModel::logFirstVisibleResponseFeedback,
+                onFirstThinkingTextVisible = viewModel::logFirstVisibleThinkingText,
+                onFirstAnswerTokenVisible = viewModel::logFirstVisibleAnswerToken,
                 onStopVoicePlayback = viewModel::stopVoicePlayback,
                 onBack = onBack,
                 onNewConversation = {
@@ -688,6 +692,9 @@ fun ChatScreen(
                             model = currentModel!!,
                             capabilities = capabilities!!,
                             activeBackend = state.activeBackend,
+                            debugForceGpuConversationReset = state.debugForceGpuConversationReset,
+                            onDebugForceGpuConversationResetChange =
+                                viewModel::setDebugForceGpuConversationResetEachTurn,
                             temperature = temp,
                             onTemperatureChange = { temp = it },
                             topP = topP,
@@ -759,6 +766,9 @@ private fun ChatContent(
     showModelSettings: Boolean,
     activeModelName: String,
     onShowModelSettingsChange: (Boolean) -> Unit,
+    onResponseFeedbackVisible: () -> Unit,
+    onFirstThinkingTextVisible: () -> Unit,
+    onFirstAnswerTokenVisible: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -915,6 +925,8 @@ private fun ChatContent(
                                 userFontColor = state.userFontColor,
                                 assistantFontColor = state.assistantFontColor,
                                 bubbleThemeUserColor = state.bubbleThemeUserColor,
+                                onFirstThinkingTextVisible = onFirstThinkingTextVisible,
+                                onFirstAnswerTokenVisible = onFirstAnswerTokenVisible,
                                 bubbleThemeAssistantColor = state.bubbleThemeAssistantColor,
                             )
                         }
@@ -950,7 +962,8 @@ private fun ChatContent(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(16.dp),
+                                        .padding(16.dp)
+                                        .onGloballyPositioned { onResponseFeedbackVisible() },
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     Row(
@@ -1125,6 +1138,8 @@ internal fun MessageBubble(
     assistantFontColor: Long? = null,
     bubbleThemeUserColor: Long? = null,
     bubbleThemeAssistantColor: Long? = null,
+    onFirstThinkingTextVisible: () -> Unit = {},
+    onFirstAnswerTokenVisible: () -> Unit = {},
 ) {
     // ---- Visual customisation (#906) ----
     val fontSizeStyle = when (fontSize) {
@@ -1167,11 +1182,16 @@ internal fun MessageBubble(
         }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().onGloballyPositioned {
+            if (!isUser && message.isStreaming) {
+                if (!message.thinkingText.isNullOrBlank()) onFirstThinkingTextVisible()
+                if (message.content.isNotBlank()) onFirstAnswerTokenVisible()
+            }
+        },
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
     ) {
         // Thinking bubble — auto-expands while streaming, collapses when done, user-toggleable
-        if (showThinkingProcess && !message.thinkingText.isNullOrBlank()) {
+        if (showThinkingProcess && (!message.thinkingText.isNullOrBlank() || message.isStreaming)) {
             var userExpanded by rememberSaveable(key = "thinking_userExpanded") { mutableStateOf(false) }
             val expanded = userExpanded || message.isStreaming
             Column(modifier = Modifier.padding(bottom = 4.dp).testTag("think_bubble")) {
@@ -1244,23 +1264,25 @@ internal fun MessageBubble(
                         }
                     }
                 }
-                AnimatedVisibility(visible = expanded) {
-                    Surface(
-                        color = if (message.isStreaming)
-                            PauaPurple.copy(alpha = 0.08f)
-                        else
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .widthIn(max = 320.dp),
-                    ) {
-                        Text(
-                            text = message.thinkingText!!,
-                            style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(8.dp).testTag("think_bubble_content"),
-                        )
+                if (!message.thinkingText.isNullOrBlank()) {
+                    AnimatedVisibility(visible = expanded) {
+                        Surface(
+                            color = if (message.isStreaming)
+                                PauaPurple.copy(alpha = 0.08f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .widthIn(max = 320.dp),
+                        ) {
+                            Text(
+                                text = message.thinkingText!!,
+                                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(8.dp).testTag("think_bubble_content"),
+                            )
+                        }
                     }
                 }
             }
@@ -2835,6 +2857,8 @@ private fun ModelSettingsSheet(
     onTopKChange: (Int) -> Unit,
     showThinking: Boolean,
     onShowThinkingChange: (Boolean) -> Unit,
+    debugForceGpuConversationReset: Boolean,
+    onDebugForceGpuConversationResetChange: (Boolean) -> Unit,
     isApplying: Boolean = false,
     onApply: () -> Unit,
     onCancel: () -> Unit,
@@ -2948,6 +2972,31 @@ private fun ModelSettingsSheet(
                 Switch(
                     checked = showThinking,
                     onCheckedChange = onShowThinkingChange,
+                )
+            }
+        }
+
+        if (BuildConfig.DEBUG && activeBackend == BackendType.GPU) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Reset GPU conversation every turn (debug)",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Off reuses the conversation and KV cache. Debug-only; release behavior is unchanged.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = debugForceGpuConversationReset,
+                    onCheckedChange = onDebugForceGpuConversationResetChange,
+                    modifier = Modifier.testTag("debug_gpu_per_turn_reset_switch"),
                 )
             }
         }

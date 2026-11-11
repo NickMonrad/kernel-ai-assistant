@@ -1123,6 +1123,7 @@ class ChatViewModelInitTest {
             QuickIntentRouter.RouteResult.FallThrough(input = query)
 
         val viewModel = createViewModel(SavedStateHandle(mapOf("conversationId" to "conv-existing")))
+        viewModel.setDebugForceGpuConversationResetEachTurn(true)
         advanceUntilIdle()
         viewModel.onInputChanged(query)
         viewModel.sendMessage()
@@ -1281,8 +1282,7 @@ class ChatViewModelInitTest {
         every { slotValidationRegistry.validateParams(any(), any()) } returns null
         every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
-        // Force GPU backend so needsHistoryReplay is forced true every turn,
-        // testing that wasConversationReset correctly suppresses history replay.
+        // GPU reset behavior is controlled by the debug switch in unit tests.
         every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
         coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
             listOf("user-msg-1", "assistant-msg-1", "user-msg-2", "assistant-msg-2")
