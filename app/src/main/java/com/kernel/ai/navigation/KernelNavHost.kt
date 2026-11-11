@@ -70,6 +70,8 @@ import com.kernel.ai.feature.convert.mapQueryParamToConvertTab
 import com.kernel.ai.feature.settings.AppPermissionsScreen
 import com.kernel.ai.feature.settings.AboutScreen
 import com.kernel.ai.feature.settings.LegalPrivacyScreen
+import com.kernel.ai.feature.settings.ModelsVoicesWakeWordScreen
+import com.kernel.ai.feature.settings.DataPrivacySummaryScreen
 import com.kernel.ai.feature.settings.OpenSourceLicensesScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
 import com.kernel.ai.feature.settings.ImportantDatesScreen
@@ -107,6 +109,8 @@ private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={
 private const val ARG_SCROLL_TO = "scrollTo"
 internal const val ROUTE_ABOUT = "settings/about"
 private const val ROUTE_LEGAL_PRIVACY = "settings/legal_privacy"
+private const val ROUTE_MODELS_VOICES_WAKE_WORD = "settings/models_voices_wake_word"
+private const val ROUTE_DATA_PRIVACY_SUMMARY = "settings/data_privacy_summary"
 private const val ROUTE_OPEN_SOURCE_LICENSES = "settings/open_source_licenses"
 internal const val ROUTE_APP_PERMISSIONS = "settings/app_permissions"
 internal const val ROUTE_CHAT_PREFERENCES = "settings/chat_preferences"
@@ -907,17 +911,33 @@ fun KernelNavHost(
                 composable(ROUTE_LEGAL_PRIVACY) {
                     LegalPrivacyScreen(
                         onBack = { navController.popBackOrNavigateHome() },
-                        onOpenSourceLicenses = {
-                            navController.navigate(ROUTE_OPEN_SOURCE_LICENSES)
-                        },
+                        onOpenSourceLicenses = { navController.navigate(ROUTE_OPEN_SOURCE_LICENSES) },
+                        onOpenModelsVoicesWakeWord = { navController.navigate(ROUTE_MODELS_VOICES_WAKE_WORD) },
+                        onOpenDataPrivacySummary = { navController.navigate(ROUTE_DATA_PRIVACY_SUMMARY) },
                     )
                 }
 
                 composable(ROUTE_OPEN_SOURCE_LICENSES) {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val aboutLibrariesJson = remember {
+                        context.resources.openRawResource(com.kernel.ai.R.raw.aboutlibraries)
+                            .bufferedReader()
+                            .use { it.readText() }
+                    }
                     OpenSourceLicensesScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        aboutLibrariesJson = aboutLibrariesJson,
                     )
                 }
+
+                composable(ROUTE_MODELS_VOICES_WAKE_WORD) {
+                    ModelsVoicesWakeWordScreen(onBack = { navController.popBackOrNavigateHome() })
+                }
+
+                composable(ROUTE_DATA_PRIVACY_SUMMARY) {
+                    DataPrivacySummaryScreen(onBack = { navController.popBackOrNavigateHome() })
+                }
+
 
                 composable(ROUTE_APP_PERMISSIONS) {
                     AppPermissionsScreen(

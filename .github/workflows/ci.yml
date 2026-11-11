@@ -121,6 +121,7 @@ jobs:
             --apk app/build/outputs/apk/release/app-release-unsigned.apk \
             --aab app/build/outputs/bundle/release/app-release.aab
 
+
       - name: Lint
         continue-on-error: true
         id: gradle-lint
@@ -285,3 +286,18 @@ jobs:
             --title "$RELEASE_TITLE" \
             --notes "$RELEASE_NOTES" \
             --prerelease
+      - name: Verify release licence metadata and generate SBOM
+        id: release-attribution
+        run: ./gradlew :app:verifyReleaseAttributionMetadata
+
+      - name: Upload release attribution artifacts
+        if: always() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-attribution-${{ github.sha }}
+          path: |
+            app/build/reports/sbom/
+            app/build/generated/aboutLibraries/release/res/raw/aboutlibraries.json
+            app/build/reports/release-audit/attribution-verification.json
+          if-no-files-found: warn
+          retention-days: 30
