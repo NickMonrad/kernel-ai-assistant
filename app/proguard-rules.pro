@@ -3,6 +3,18 @@
 # LiteRT and LiteRT-LM JNI resolve these classes and members by name at runtime.
 -keep class com.google.ai.edge.** { *; }
 
+# LiteRT-LM builds tool declarations with Kotlin reflection over ToolSet classes: it reads
+# @Tool/@ToolParam annotations and function and parameter names. The @Tool methods are only
+# called reflectively, so without these rules R8 removes them as unused. The model then sees
+# no tools while tool-call constrained decoding is on, and every chat turn ends after the
+# opening thought marker (#1807). verifyReleaseJniKeepRules guards KernelAIToolSet.
+-keepattributes RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations,AnnotationDefault,Signature,InnerClasses,EnclosingMethod
+-keep class kotlin.Metadata { *; }
+-keep class * implements com.google.ai.edge.litertlm.ToolSet { *; }
+-keepclasseswithmembers class * {
+    @com.google.ai.edge.litertlm.Tool <methods>;
+}
+
 # LiteRT also packages legacy org.tensorflow.lite JNI entry points in libLiteRt.so;
 # the LiteRT AAR does not supply consumer keep rules for this namespace.
 -keep class org.tensorflow.lite.** { *; }
