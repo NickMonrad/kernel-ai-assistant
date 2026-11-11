@@ -7,12 +7,90 @@ import groovy.json.JsonSlurper
 import java.security.MessageDigest
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import com.github.triplet.gradle.androidpublisher.ReleaseStatus
+import com.github.triplet.gradle.androidpublisher.ResolutionStrategy
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.gradle.play.publisher)
+}
+
+val playTrack = providers.gradleProperty("playTrack").orElse("internal").get()
+check(playTrack in setOf("internal", "alpha", "beta")) {
+    "Invalid -PplayTrack='$playTrack'; allowed values are internal, alpha, beta. Production publishing is disabled."
+}
+
+val defaultPlayServiceAccountFile =
+    File(System.getProperty("user.home"), ".local/share/jandal/play-publisher.json")
+val configuredPlayServiceAccountPath = providers.gradleProperty("playServiceAccountFile")
+    .orElse(providers.environmentVariable("PLAY_SERVICE_ACCOUNT_FILE"))
+    .orNull
+val playServiceAccountFile = configuredPlayServiceAccountPath?.let(::file)
+    ?: defaultPlayServiceAccountFile
+val requestedTaskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
+val isPlayBundlePublishRequested = "publishReleaseBundle" in requestedTaskNames
+
+play {
+    if (isPlayBundlePublishRequested && playServiceAccountFile.isFile) {
+        serviceAccountCredentials.set(playServiceAccountFile)
+    }
+    track.set(playTrack)
+    releaseStatus.set(ReleaseStatus.COMPLETED)
+    defaultToAppBundles.set(true)
+    resolutionStrategy.set(
+        if (isPlayBundlePublishRequested) ResolutionStrategy.AUTO else ResolutionStrategy.IGNORE,
+    )
+}
+
+val verifyReleaseBundleForPlayUpload = tasks.register("verifyReleaseBundleForPlayUpload") {
+    group = "verification"
+    description = "Verifies the release AAB before a Play upload."
+    dependsOn("bundleRelease")
+    doLast {
+        val bundle = layout.buildDirectory.file("outputs/bundle/release/app-release.aab").get().asFile
+        check(bundle.isFile) { "Missing release bundle: ${bundle.path}" }
+        val verifier = rootProject.file("scripts/release/verify_release_bundle.sh")
+        providers.exec {
+            commandLine("bash", verifier.absolutePath, bundle.absolutePath)
+        }.result.get().assertNormalExitValue()
+    }
+}
+
+// GPP's version-code task runs before bundle creation, so reject missing keys before any task executes.
+gradle.taskGraph.whenReady {
+    val unsupportedPublisherTask = gradle.taskGraph.allTasks.firstOrNull { task ->
+        task.project == project &&
+            task.name != "publishReleaseBundle" &&
+            (task.name.startsWith("publish", ignoreCase = true) ||
+                task.name.startsWith("promote", ignoreCase = true) ||
+                task.name.startsWith("upload", ignoreCase = true))
+    }
+    if (unsupportedPublisherTask != null) {
+        throw org.gradle.api.GradleException(
+            "Only :app:publishReleaseBundle is enabled for Play uploads; APK, metadata, internal-sharing, and promotion tasks are disabled."
+        )
+    }
+    if (isPlayBundlePublishRequested && !playServiceAccountFile.isFile) {
+        throw org.gradle.api.GradleException(
+            "Play publishing credentials are missing. Set -PplayServiceAccountFile=/absolute/path/to/service-account.json or PLAY_SERVICE_ACCOUNT_FILE, or place the JSON at ~/.local/share/jandal/play-publisher.json."
+        )
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("promote", ignoreCase = true) ||
+        name.startsWith("upload", ignoreCase = true) ||
+        (name.startsWith("publish", ignoreCase = true) && name != "publishReleaseBundle")
+    ) {
+        enabled = false
+        group = null
+    }
+    if (name == "publishReleaseBundle") {
+        dependsOn(verifyReleaseBundleForPlayUpload)
+    }
 }
 
 val gitSha: String by lazy {
@@ -41,7 +119,11 @@ if (isolatedInflectProbe) {
     layout.buildDirectory.set(layout.projectDirectory.dir("build/inflectProbe"))
 }
 
-val releaseSigningProperties = rootProject.file("keystore.properties")
+val releaseSigningPropertiesFile = providers.gradleProperty("releaseSigningPropertiesFile")
+    .map { rootProject.file(it) }
+    .orElse(rootProject.file("keystore.properties"))
+    .get()
+val releaseSigningProperties = releaseSigningPropertiesFile
     .takeIf { it.isFile }
     ?.let { propertiesFile ->
         val properties = Properties().apply {
@@ -183,6 +265,147 @@ tasks.register("verifyReleaseApkArtifactSelection") {
         val buildDirectory = layout.buildDirectory.get().asFile
         check(releaseApkArtifact(buildDirectory, isSigned = true).name == "app-release.apk")
         check(releaseApkArtifact(buildDirectory, isSigned = false).name == "app-release-unsigned.apk")
+    }
+}
+
+tasks.register("verifyReleaseJniKeepRules") {
+    group = "verification"
+    description = "Fails if R8 renames or removes classes reached by release JNI libraries."
+    dependsOn("minifyReleaseWithR8")
+
+    doLast {
+        val mappingFile = layout.buildDirectory.file("outputs/mapping/release/mapping.txt").get().asFile
+        val usageFile = layout.buildDirectory.file("outputs/mapping/release/usage.txt").get().asFile
+        check(mappingFile.isFile) { "Release R8 mapping file is missing: $mappingFile" }
+        check(usageFile.isFile) { "Release R8 usage file is missing: $usageFile" }
+
+        val jniPackages = listOf(
+            "ai.onnxruntime.",
+            "androidx.graphics.path.",
+            "com.google.ai.edge.",
+            "com.k2fsa.sherpa.onnx.",
+            "com.sun.jna.",
+            "org.tensorflow.lite.",
+            "org.vosk.",
+        )
+        val requiredClasses = listOf(
+            "ai.onnxruntime.OrtSession",
+            "androidx.datastore.core.NativeSharedCounter",
+            "androidx.graphics.path.ConicConverter",
+            "androidx.graphics.path.PathIteratorPreApi34Impl",
+            "com.google.ai.edge.litert.CompiledModel",
+            "com.google.ai.edge.litert.Environment",
+            "com.google.ai.edge.litert.LiteRtException",
+            "com.google.ai.edge.litert.TensorBuffer",
+            "com.google.ai.edge.litert.TensorBufferRequirements",
+            "com.google.ai.edge.litert.TensorType",
+            "com.google.ai.edge.litert.TensorType\$ElementType",
+            "com.google.ai.edge.litert.TensorType\$Layout",
+            "com.google.ai.edge.litertlm.LiteRtLmJni",
+            "com.google.ai.edge.litertlm.LiteRtLmJniException",
+            "com.google.ai.edge.litertlm.NativeLibraryLoader",
+            "com.k2fsa.sherpa.onnx.OfflineTts",
+            "com.sun.jna.Native",
+            "org.tensorflow.lite.InterpreterFactoryImpl",
+            "org.tensorflow.lite.NativeInterpreterWrapper",
+            "org.tensorflow.lite.NativeInterpreterWrapperExperimental",
+            "org.tensorflow.lite.NativeSignatureRunnerWrapper",
+            "org.tensorflow.lite.TensorFlowLite",
+            "org.tensorflow.lite.TensorImpl",
+            "org.vosk.Model",
+            "org.vosk.Recognizer",
+            "com.kernel.ai.core.voice.InflectPhonemizer",
+            "com.kernel.ai.core.memory.vector.VectorStoreJni",
+        )
+        val exactJniClasses = setOf(
+            "androidx.datastore.core.NativeSharedCounter",
+            "com.kernel.ai.core.voice.InflectPhonemizer",
+            "com.kernel.ai.core.memory.vector.VectorStoreJni",
+        )
+        val guardedClass: (String) -> Boolean = { name ->
+            (jniPackages.any(name::startsWith) || name in exactJniClasses) &&
+                !name.contains("\$\$ExternalSynthetic")
+        }
+        val mappingLines = mappingFile.readLines()
+        val mappingEntries = mappingLines.mapNotNull { line ->
+            if (line.startsWith(" ") || !line.endsWith(":") || " -> " !in line) {
+                null
+            } else {
+                line.removeSuffix(":").split(" -> ", limit = 2)
+                    .let { (original, obfuscated) -> original to obfuscated }
+            }
+        }
+        val mappedClasses = mappingEntries.map { (original, _) -> original }
+        val renamedClasses = mappingEntries.filter { (original, obfuscated) ->
+            guardedClass(original) && original != obfuscated
+        }.map { (original, _) -> original }
+        var currentClass: String? = null
+        val renamedMembers = mappingLines.mapNotNull { line ->
+            if (!line.startsWith(" ") && line.endsWith(":") && " -> " in line) {
+                currentClass = line.removeSuffix(":").substringBefore(" -> ")
+                null
+            } else if (currentClass?.let(guardedClass) == true && " -> " in line) {
+                val originalMember = line.substringBefore(" -> ")
+                    .trim()
+                    .substringBefore("(")
+                    .substringAfterLast(":")
+                    .substringAfterLast(" ")
+                val generatedMember = originalMember.startsWith("\$r8\$") ||
+                    originalMember.startsWith("-\$\$Nest\$")
+                if (generatedMember || '.' in originalMember) {
+                    null
+                } else {
+                    val obfuscatedMember = line.substringAfter(" -> ").substringBefore(" ")
+                    (originalMember != obfuscatedMember).takeIf { it }?.let {
+                        "$currentClass.$originalMember -> $obfuscatedMember"
+                    }
+                }
+            } else {
+                null
+            }
+        }
+        val missingClasses = requiredClasses.filterNot(mappedClasses::contains)
+        val mappedClassSet = mappedClasses.toSet()
+        val usageLines = usageFile.readLines()
+        var usageClass: String? = null
+        val removedClasses = usageLines.mapNotNull { line ->
+            if (!line.startsWith(" ") && line.endsWith(":")) {
+                usageClass = line.removeSuffix(":")
+                usageClass.takeIf { guardedClass(it) && it !in mappedClassSet }
+            } else {
+                null
+            }
+        }
+        usageClass = null
+        val removedMembers = usageLines.mapNotNull { line ->
+            if (!line.startsWith(" ") && line.endsWith(":")) {
+                usageClass = line.removeSuffix(":")
+                null
+            } else if (
+                line.startsWith("    ") &&
+                usageClass?.let(guardedClass) == true &&
+                "<clinit>" !in line
+            ) {
+                "$usageClass.${line.trim()}"
+            } else {
+                null
+            }
+        }
+        check(missingClasses.isEmpty()) {
+            "Release mapping does not contain required JNI classes: ${missingClasses.joinToString()}"
+        }
+        check(renamedClasses.isEmpty()) {
+            "R8 renamed JNI-reached classes: ${renamedClasses.joinToString()}"
+        }
+        check(renamedMembers.isEmpty()) {
+            "R8 renamed JNI-reached members: ${renamedMembers.joinToString()}"
+        }
+        check(removedClasses.isEmpty()) {
+            "R8 removed JNI-reached classes: ${removedClasses.joinToString()}"
+        }
+        check(removedMembers.isEmpty()) {
+            "R8 removed JNI-reached members: ${removedMembers.joinToString()}"
+        }
     }
 }
 
