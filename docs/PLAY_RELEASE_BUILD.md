@@ -26,6 +26,8 @@ Because the Play Store manages the final signing key, the upload key is only use
 - `versionCode` is a monotonically increasing integer. Start at `1`.
 - The AAB is written to `app/build/outputs/bundle/release/app-release.aab`.
 - The `versionName` in `build.gradle.kts` is `"0.1.0"` for the initial release.
+- Pass `-PversionCode=1` for the first upload; Gradle reads it from the `versionCode` project property and otherwise defaults to `1`.
+- Release signing reads `keystore.properties` at the repository root. A detached worktree cannot see an unrelated main-checkout file. To use the owner's existing file without copying it, pass `-PreleaseSigningPropertiesFile=/absolute/path/to/keystore.properties`; this path names the properties file only and does not expose its contents.
 
 ### Build output
 
