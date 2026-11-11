@@ -28,8 +28,10 @@ open class BootCompletedReceiver : BroadcastReceiver() {
     @Inject lateinit var importantDateNotificationPreferences: ImportantDateNotificationPreferences
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
-
+        if (
+            intent.action != Intent.ACTION_BOOT_COMPLETED &&
+            intent.action != android.app.AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED
+        ) return
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {

@@ -463,8 +463,10 @@ class NativeIntentHandler @Inject constructor(
                 val formattedTime = formatter.format(Instant.ofEpochMilli(scheduled.triggerAtMillis))
                 val warningText = result.warnings.joinToString(" ") { warning ->
                     when (warning) {
+                        SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
+                            "Exact-alarm access is off. This event is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
                         SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are unavailable for this alarm."
+                            "Full-screen alerts are unavailable for this alarm; the alert will appear as a high-priority notification."
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The alarm may not persist across device restarts."
                     }
@@ -507,8 +509,10 @@ class NativeIntentHandler @Inject constructor(
                 }
                 val warningText = result.warnings.joinToString(" ") { warning ->
                     when (warning) {
+                        SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
+                            "Exact-alarm access is off. This timer is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
                         SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are unavailable for this timer."
+                            "Full-screen alerts are unavailable for this timer; the alert will appear as a high-priority notification."
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The timer may not persist across device restarts."
                     }
