@@ -98,6 +98,11 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
         </activity>
+        <activity
+            android:name=".alarm.RingingActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.KernelAI" />
 
         <!-- WorkManager foreground service for model downloads -->
         <service
