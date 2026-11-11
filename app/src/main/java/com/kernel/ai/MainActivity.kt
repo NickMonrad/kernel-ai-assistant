@@ -56,6 +56,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val PREFS_RUNTIME_PERMISSIONS = "runtime_permissions"
         private const val KEY_ONBOARDING_PERMISSIONS_REQUESTED = "onboarding_permissions_requested"
+
+        @Volatile
+        internal var isVisibleToUser: Boolean = false
     }
 
     @Inject lateinit var authRepository: HuggingFaceAuthRepository
@@ -160,6 +163,7 @@ class MainActivity : ComponentActivity() {
      */
     override fun onResume() {
         super.onResume()
+        isVisibleToUser = true
         lifecycleScope.launch {
             // Exact-alarm access can be revoked or granted in system settings while Jandal is
             // backgrounded. Re-evaluate and replace any OS-cancelled schedules on return.
@@ -168,6 +172,11 @@ class MainActivity : ComponentActivity() {
                 WakeWordService.start(this@MainActivity)
             }
         }
+    }
+
+    override fun onPause() {
+        isVisibleToUser = false
+        super.onPause()
     }
 
 
