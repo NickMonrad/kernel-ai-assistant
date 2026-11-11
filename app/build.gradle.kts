@@ -41,7 +41,11 @@ if (isolatedInflectProbe) {
     layout.buildDirectory.set(layout.projectDirectory.dir("build/inflectProbe"))
 }
 
-val releaseSigningProperties = rootProject.file("keystore.properties")
+val releaseSigningPropertiesFile = providers.gradleProperty("releaseSigningPropertiesFile")
+    .map { rootProject.file(it) }
+    .orElse(rootProject.file("keystore.properties"))
+    .get()
+val releaseSigningProperties = releaseSigningPropertiesFile
     .takeIf { it.isFile }
     ?.let { propertiesFile ->
         val properties = Properties().apply {
