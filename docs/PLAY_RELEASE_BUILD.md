@@ -23,10 +23,9 @@ Because the Play Store manages the final signing key, the upload key is only use
 ./gradlew clean :app:bundleRelease -PversionCode=N
 ```
 
-- `versionCode` is a monotonically increasing integer. Start at `1`.
-- The AAB is written to `app/build/outputs/bundle/release/app-release.aab`.
+- `versionCode` is a monotonically increasing integer. The AAB is written to `app/build/outputs/bundle/release/app-release.aab`.
 - The `versionName` in `build.gradle.kts` is `"0.1.0"` for the initial release.
-- Pass `-PversionCode=1` for the first upload; Gradle reads it from the `versionCode` project property and otherwise defaults to `1`.
+- Release builds use `-PversionCode=N` when an explicit code is required; otherwise they default to `1`.
 - Release signing reads `keystore.properties` at the repository root. A detached worktree cannot see an unrelated main-checkout file. To use the owner's existing file without copying it, pass `-PreleaseSigningPropertiesFile=/absolute/path/to/keystore.properties`; this path names the properties file only and does not expose its contents.
 
 ### Build output
@@ -122,8 +121,33 @@ The AAB is written to `app/build/outputs/bundle/release/app-release.aab`.
 
 ### CI builds
 
-CI intentionally does not receive or use release signing material. Its release APK/AAB outputs remain unsigned and are used only for build/packaging checks.
+CI intentionally does not receive or use release signing or Play credentials. Its release APK/AAB outputs remain unsigned and are used only for build/packaging checks. CI's explicit `-PversionCode=${{ github.run_number }}` is preserved for unsigned builds; GPP's `AUTO` resolution runs only for a publish task and selects the next Play versionCode when uploading.
 
+## One-command internal Play upload
+
+GPP is configured for local owner-run publishing only. Credential checks are gated to publish-bundle invocations, so missing Play credentials do not affect builds, tests, lint, or CI. The first app registration/upload must be completed manually in Play Console; subsequent signed releases can use GPP. The app applies the official `com.github.triplet.play` plugin, Gradle Play Publisher 4.1.1, the current stable release compatible with AGP 9.
+
+### One-time owner setup
+
+1. In Google Cloud Console, create a project (or select the owner-controlled project used for Jandal) and enable the **Google Play Android Developer API**.
+2. Create a service account in that project, then create and download a JSON key. Store it outside the repository at `$HOME/.local/share/jandal/play-publisher.json` (or supply `-PplayServiceAccountFile=/absolute/path/to/key.json` / `PLAY_SERVICE_ACCOUNT_FILE`).
+3. Protect it: `mkdir -p "$HOME/.local/share/jandal" && chmod 700 "$HOME/.local/share/jandal" && chmod 600 "$HOME/.local/share/jandal/play-publisher.json"`. Never commit, print, or copy this key into the checkout.
+4. In Play Console → **Users and permissions**, invite the service-account email and grant access only to **Jandal AI**. Enable testing-track release permissions only; do not grant production release or listing-management permissions.
+5. Keep the upload keystore and its local signing properties configured as described in [Signing Setup](#signing-setup). A detached worktree can refer to the owner's properties file by path without copying it.
+6. Install Google's [bundletool](https://github.com/google/bundletool/releases) outside the repository and keep its JAR at `$HOME/.local/share/jandal/bundletool.jar`; the upload verifier requires it. The command below passes it through `BUNDLETOOL_JAR`.
+
+### Publish to internal testing
+
+```bash
+ANDROID_HOME=~/Android/Sdk \
+BUNDLETOOL_JAR="$HOME/.local/share/jandal/bundletool.jar" \
+  ./gradlew :app:publishReleaseBundle \
+  -PreleaseSigningPropertiesFile="$HOME/.local/share/jandal/keystore.properties"
+```
+
+This uploads the signed release AAB to the **internal** track. `-PplayTrack` accepts only `internal`, `alpha` (closed testing), or `beta`; production and promotion tasks are disabled. GPP's `AUTO` version resolution chooses one more than the highest Play version for an upload, while explicit `-PversionCode` remains effective for non-publish builds such as CI. Release notes come from `app/src/main/play/release-notes/en-AU/default.txt`. Store listing text and images remain console-managed and are not part of bundle publishing.
+
+This local setup is option A. Option B, GitHub Actions publishing, is a possible future design and is not implemented.
 
 ## Security Rules
 
@@ -135,7 +159,7 @@ CI intentionally does not receive or use release signing material. Its release A
 
 ## Versioning Convention
 
-`versionCode` is a monotonically increasing integer; Nick must choose and approve the candidate value. `versionName` remains `"0.1.0"` for this release candidate.
+`versionCode` is a monotonically increasing integer. Local non-publish builds default to `1` unless `-PversionCode` is supplied. GPP `ResolutionStrategy.AUTO` resolves a publishing bundle to the next available Play versionCode; it does not change CI's explicit run-number versionCode because CI does not execute publish tasks. `versionName` remains `"0.1.0"` for this release candidate.
 
 
 

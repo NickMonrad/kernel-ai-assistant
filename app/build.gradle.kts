@@ -7,12 +7,90 @@ import groovy.json.JsonSlurper
 import java.security.MessageDigest
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import com.github.triplet.gradle.androidpublisher.ReleaseStatus
+import com.github.triplet.gradle.androidpublisher.ResolutionStrategy
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.gradle.play.publisher)
+}
+
+val playTrack = providers.gradleProperty("playTrack").orElse("internal").get()
+check(playTrack in setOf("internal", "alpha", "beta")) {
+    "Invalid -PplayTrack='$playTrack'; allowed values are internal, alpha, beta. Production publishing is disabled."
+}
+
+val defaultPlayServiceAccountFile =
+    File(System.getProperty("user.home"), ".local/share/jandal/play-publisher.json")
+val configuredPlayServiceAccountPath = providers.gradleProperty("playServiceAccountFile")
+    .orElse(providers.environmentVariable("PLAY_SERVICE_ACCOUNT_FILE"))
+    .orNull
+val playServiceAccountFile = configuredPlayServiceAccountPath?.let(::file)
+    ?: defaultPlayServiceAccountFile
+val requestedTaskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
+val isPlayBundlePublishRequested = "publishReleaseBundle" in requestedTaskNames
+
+play {
+    if (isPlayBundlePublishRequested && playServiceAccountFile.isFile) {
+        serviceAccountCredentials.set(playServiceAccountFile)
+    }
+    track.set(playTrack)
+    releaseStatus.set(ReleaseStatus.COMPLETED)
+    defaultToAppBundles.set(true)
+    resolutionStrategy.set(
+        if (isPlayBundlePublishRequested) ResolutionStrategy.AUTO else ResolutionStrategy.IGNORE,
+    )
+}
+
+val verifyReleaseBundleForPlayUpload = tasks.register("verifyReleaseBundleForPlayUpload") {
+    group = "verification"
+    description = "Verifies the release AAB before a Play upload."
+    dependsOn("bundleRelease")
+    doLast {
+        val bundle = layout.buildDirectory.file("outputs/bundle/release/app-release.aab").get().asFile
+        check(bundle.isFile) { "Missing release bundle: ${bundle.path}" }
+        val verifier = rootProject.file("scripts/release/verify_release_bundle.sh")
+        providers.exec {
+            commandLine("bash", verifier.absolutePath, bundle.absolutePath)
+        }.result.get().assertNormalExitValue()
+    }
+}
+
+// GPP's version-code task runs before bundle creation, so reject missing keys before any task executes.
+gradle.taskGraph.whenReady {
+    val unsupportedPublisherTask = gradle.taskGraph.allTasks.firstOrNull { task ->
+        task.project == project &&
+            task.name != "publishReleaseBundle" &&
+            (task.name.startsWith("publish", ignoreCase = true) ||
+                task.name.startsWith("promote", ignoreCase = true) ||
+                task.name.startsWith("upload", ignoreCase = true))
+    }
+    if (unsupportedPublisherTask != null) {
+        throw org.gradle.api.GradleException(
+            "Only :app:publishReleaseBundle is enabled for Play uploads; APK, metadata, internal-sharing, and promotion tasks are disabled."
+        )
+    }
+    if (isPlayBundlePublishRequested && !playServiceAccountFile.isFile) {
+        throw org.gradle.api.GradleException(
+            "Play publishing credentials are missing. Set -PplayServiceAccountFile=/absolute/path/to/service-account.json or PLAY_SERVICE_ACCOUNT_FILE, or place the JSON at ~/.local/share/jandal/play-publisher.json."
+        )
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("promote", ignoreCase = true) ||
+        name.startsWith("upload", ignoreCase = true) ||
+        (name.startsWith("publish", ignoreCase = true) && name != "publishReleaseBundle")
+    ) {
+        enabled = false
+        group = null
+    }
+    if (name == "publishReleaseBundle") {
+        dependsOn(verifyReleaseBundleForPlayUpload)
+    }
 }
 
 val gitSha: String by lazy {
