@@ -1,0 +1,1 @@
+First release of Jandal AI. Explore on-device AI, voice, and local memory.
