@@ -134,13 +134,12 @@ GPP is configured for local owner-run publishing only. Credential checks are gat
 3. Protect it: `mkdir -p "$HOME/.local/share/jandal" && chmod 700 "$HOME/.local/share/jandal" && chmod 600 "$HOME/.local/share/jandal/play-publisher.json"`. Never commit, print, or copy this key into the checkout.
 4. In Play Console → **Users and permissions**, invite the service-account email and grant access only to **Jandal AI**. Enable testing-track release permissions only; do not grant production release or listing-management permissions.
 5. Keep the upload keystore and its local signing properties configured as described in [Signing Setup](#signing-setup). A detached worktree can refer to the owner's properties file by path without copying it.
-6. Install Google's [bundletool](https://github.com/google/bundletool/releases) outside the repository and keep its JAR at `$HOME/.local/share/jandal/bundletool.jar`; the upload verifier requires it. The command below passes it through `BUNDLETOOL_JAR`.
+6. No separate bundletool install is needed: `:app:verifyReleaseBundleForPlayUpload` resolves bundletool through Gradle and passes it to the verifier. A `bundletool` on `PATH` or a `BUNDLETOOL_JAR` still takes precedence when present.
 
 ### Publish to internal testing
 
 ```bash
 ANDROID_HOME=~/Android/Sdk \
-BUNDLETOOL_JAR="$HOME/.local/share/jandal/bundletool.jar" \
   ./gradlew :app:publishReleaseBundle \
   -PreleaseSigningPropertiesFile="$HOME/.local/share/jandal/keystore.properties"
 ```

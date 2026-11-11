@@ -6,6 +6,8 @@ targetSdk = "36"
 
 # Kotlin & Android
 agp = "9.0.1"
+# Release-bundle verifier; keep in step with the version AGP bundles.
+bundletool = "1.18.3"
 kotlin = "2.3.21"
 ksp = "2.3.9"
 
@@ -61,6 +63,7 @@ glance = "1.1.1"
 coil = "3.1.0"
 
 [libraries]
+bundletool = { group = "com.android.tools.build", name = "bundletool", version.ref = "bundletool" }
 # Compose BOM
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
