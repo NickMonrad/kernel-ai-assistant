@@ -76,7 +76,7 @@ Replace placeholders locally; never paste password values into chat, GitHub, or 
 ```bash
 chmod 600 keystore.properties
 ```
-Gradle uses this file only when present. All four entries and the keystore file are required; incomplete configuration fails without printing credential values. With no file, release builds remain unsigned for CI. The release variant keeps application ID `ai.jandal.assistant`.
+Gradle uses this file only when present. All four entries and the keystore file are required; incomplete configuration fails without printing credential values. With no file, release builds remain unsigned for CI. The release variant keeps application ID `ai.jandal.assistant`. For a local signing-properties file outside the checkout, pass its path with `-PreleaseSigningPropertiesFile=/absolute/path/to/keystore.properties`; Gradle reads the file directly, and the file remains untracked.
 
 ## Migration impact
 
