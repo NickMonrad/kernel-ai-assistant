@@ -21,10 +21,14 @@ class ChatScreenThinkBubbleTest {
 
     private fun setContent(message: ChatMessage, showThinkingProcess: Boolean = true) {
         composeTestRule.setContent {
-            // MessageBubble is private; replicate the relevant composable tree
-            // by invoking the same composables from ChatScreen.kt.
-            // Use the shared fixture below to render the bubble standalone.
-            MessageBubbleFixture(message = message, showThinkingProcess = showThinkingProcess)
+            androidx.compose.material3.MaterialTheme {
+                MessageBubble(
+                    message = message,
+                    onCopy = {},
+                    onReport = {},
+                    showThinkingProcess = showThinkingProcess,
+                )
+            }
         }
     }
 
