@@ -26,6 +26,10 @@ sealed interface ChatUiState {
         val inputTextReplacementText: String = "",
         val error: String?,
         val isLoadingModel: Boolean = false,
+        /** True while a submitted message is being routed or prepared for generation. */
+        val isPreparingResponse: Boolean = false,
+        /** Debug-only GPU per-turn reset test switch; false preserves the shared KV cache. */
+        val debugForceGpuConversationReset: Boolean = false,
         /** Whether to show the model's thinking process tokens in the chat UI. */
         val showThinkingProcess: Boolean = true,
         val modelCapabilities: ModelCapabilities? = null,
