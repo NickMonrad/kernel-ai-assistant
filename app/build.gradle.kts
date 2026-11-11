@@ -303,7 +303,11 @@ tasks.register("verifyReleaseJniKeepRules") {
             if (!line.startsWith(" ") && line.endsWith(":")) {
                 usageClass = line.removeSuffix(":")
                 null
-            } else if (line.startsWith("    ") && usageClass?.let(guardedClass) == true) {
+            } else if (
+                line.startsWith("    ") &&
+                usageClass?.let(guardedClass) == true &&
+                "<clinit>" !in line
+            ) {
                 "$usageClass.${line.trim()}"
             } else {
                 null
