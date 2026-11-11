@@ -6,9 +6,9 @@ Jandal AI is a local-first Android assistant. It combines on-device chat, long-t
 
 ## Watch the intro
 
-<a href="https://youtube.com/shorts/DdskEMfqqsc"><img src="docs/demo/intro-thumbnail.jpg" alt="Jandal AI intro video on YouTube: Hey Jandal, Kiwi lists, timers, memory, local chat, weather and Nextcloud sync" width="200"></a>
+<a href="https://www.youtube.com/shorts/JgdP_gZtUBU"><img src="docs/demo/intro-thumbnail.jpg" alt="Jandal AI intro video on YouTube: Hey Jandal, Kiwi lists, timers, memory, local chat, weather and Nextcloud sync" width="200"></a>
 
-A two-minute tour on [YouTube](https://youtube.com/shorts/DdskEMfqqsc), recorded on a real phone with the AI running on-device (how it was made: [`docs/demo/shot-script.md`](docs/demo/shot-script.md)).
+A two-minute tour on [YouTube](https://www.youtube.com/shorts/JgdP_gZtUBU), recorded on a real phone with the AI running on-device (how it was made: [`docs/demo/shot-script.md`](docs/demo/shot-script.md)).
 
 ## How it works
 
