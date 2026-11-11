@@ -140,7 +140,9 @@ data class ClockPlatformState(
 enum class SchedulingWarning {
     /** [NotificationManager.canUseFullScreenIntent] returned false — alert may use a standard notification. */
     FULL_SCREEN_INTENT_UNAVAILABLE,
-    /** Device boot restore of scheduled events is limited or unavailable. */
+    /** Exact-alarm access is unavailable; Android may deliver this event later than requested. */
+    EXACT_ALARM_UNAVAILABLE,
+    /** Device boot restore of scheduled events may be limited or unavailable. */
     BOOT_RESTORE_LIMITED,
 }
 

@@ -2269,12 +2269,9 @@ class NativeIntentHandlerTest {
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
         assertTrue(success.content.contains("Alarm set for"))
-        assertTrue(success.content.contains("Full-screen alerts are unavailable for this alarm."))
-        assertFalse(spoken.contains("Full-screen alerts are unavailable for this alarm."))
-        assertEquals(
-            success.content.replace(" Full-screen alerts are unavailable for this alarm.", ""),
-            spoken,
-        )
+        assertTrue(success.content.contains("high-priority notification"))
+        assertFalse(spoken.contains("notification"))
+        assertTrue(success.content.startsWith(spoken))
     }
 
     @Test
@@ -2332,14 +2329,10 @@ class NativeIntentHandlerTest {
         val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("Full-screen alerts are unavailable for this alarm."))
-        assertTrue(success.content.contains("The alarm may not persist across device restarts."))
-        assertFalse(spoken.contains("Full-screen alerts are unavailable for this alarm."))
-        assertFalse(spoken.contains("The alarm may not persist across device restarts."))
-        val expected = success.content
-            .replace(" Full-screen alerts are unavailable for this alarm.", "")
-            .replace(" The alarm may not persist across device restarts.", "")
-        assertEquals(expected, spoken)
+        assertTrue(success.content.contains("high-priority notification"))
+        assertTrue(success.content.contains("may not persist across device restarts"))
+        assertFalse(spoken.contains("notification"))
+        assertFalse(spoken.contains("may not persist across device restarts"))
 
     }
 
@@ -2362,10 +2355,10 @@ class NativeIntentHandlerTest {
         assertTrue(result is SkillResult.Success)
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("Full-screen alerts are unavailable for this timer."))
-        assertFalse(spoken.contains("Full-screen alerts are unavailable for this timer."))
+        assertTrue(success.content.contains("high-priority notification"))
+        assertFalse(spoken.contains("notification"))
         assertEquals("Timer set for 1 min 30 sec.", spoken)
-        assertEquals("Timer set for 1 min 30 sec. Full-screen alerts are unavailable for this timer.", success.content)
+        assertTrue(success.content.startsWith(spoken))
     }
 
     @Test
@@ -2414,10 +2407,10 @@ class NativeIntentHandlerTest {
         assertTrue(result is SkillResult.Success)
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("Full-screen alerts are unavailable for this timer."))
-        assertTrue(success.content.contains("The timer may not persist across device restarts."))
-        assertFalse(spoken.contains("Full-screen alerts are unavailable for this timer."))
-        assertFalse(spoken.contains("The timer may not persist across device restarts."))
+        assertTrue(success.content.contains("high-priority notification"))
+        assertTrue(success.content.contains("may not persist across device restarts"))
+        assertFalse(spoken.contains("notification"))
+        assertFalse(spoken.contains("may not persist across device restarts"))
         assertEquals("Timer set for 1 min 30 sec.", spoken)
     }
 

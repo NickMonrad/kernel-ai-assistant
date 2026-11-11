@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var userProfileRepository: UserProfileRepository
 
+    @Inject lateinit var clockRepository: com.kernel.ai.core.memory.clock.ClockRepository
     @Inject lateinit var chatPreferences: ChatPreferences
 
     @Inject lateinit var favouriteShortcutRepository: com.kernel.ai.core.memory.shortcut.FavouriteShortcutRepository
@@ -160,6 +161,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
+            // Exact-alarm access can be revoked or granted in system settings while Jandal is
+            // backgrounded. Re-evaluate and replace any OS-cancelled schedules on return.
+            clockRepository.restoreScheduledEntries()
             if (wakeWordPreferences.heyJandalEnabled.first()) {
                 WakeWordService.start(this@MainActivity)
             }

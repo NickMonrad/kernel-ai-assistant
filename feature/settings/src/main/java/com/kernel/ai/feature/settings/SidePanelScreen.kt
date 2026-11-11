@@ -1,5 +1,8 @@
 package com.kernel.ai.feature.settings
 
+import android.app.AlarmManager
+
+import android.provider.Settings
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
@@ -53,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -103,6 +107,7 @@ fun SidePanelScreen(
     initialTab: String? = null,
     viewModel: SidePanelViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
     val timers by viewModel.timers.collectAsStateWithLifecycle()
     val recentCompletedTimers by viewModel.recentCompletedTimers.collectAsStateWithLifecycle()
@@ -256,7 +261,11 @@ fun SidePanelScreen(
             onDismissAlarm = { alarm -> pendingDismiss = alarm },
             onToggleAlarm = { alarm ->
                 viewModel.toggleEnabled(alarm) { success ->
-                    if (!success) schedulingError = "Couldn't update the alarm."
+                    if (!success) {
+                        schedulingError = "Couldn't update the alarm."
+                    } else if (!context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
+                        schedulingWarning = "Alarm enabled. Exact-alarm access is off, so timing may be less exact. Enable Alarms & reminders in Settings for more precise timing."
+                    }
                 }
             },
             onStartStopwatch = {
@@ -499,6 +508,20 @@ fun SidePanelScreen(
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { schedulingWarning = null }) { Text("OK") }
+            },
+            dismissButton = if (message.contains("Exact-alarm access is off")) {
+                {
+                    TextButton(onClick = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            },
+                        )
+                        schedulingWarning = null
+                    }) { Text("Alarms & reminders settings") }
+                }
+            } else {
+                null
             },
         )
     }
