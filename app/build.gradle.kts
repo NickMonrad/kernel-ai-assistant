@@ -323,11 +323,14 @@ tasks.register("verifyReleaseJniKeepRules") {
             "org.vosk.Recognizer",
             "com.kernel.ai.core.voice.InflectPhonemizer",
             "com.kernel.ai.core.memory.vector.VectorStoreJni",
+            // LiteRT-LM reflects over ToolSet methods and parameter names (#1807).
+            "com.kernel.ai.core.skills.KernelAIToolSet",
         )
         val exactJniClasses = setOf(
             "androidx.datastore.core.NativeSharedCounter",
             "com.kernel.ai.core.voice.InflectPhonemizer",
             "com.kernel.ai.core.memory.vector.VectorStoreJni",
+            "com.kernel.ai.core.skills.KernelAIToolSet",
         )
         val guardedClass: (String) -> Boolean = { name ->
             (jniPackages.any(name::startsWith) || name in exactJniClasses) &&
