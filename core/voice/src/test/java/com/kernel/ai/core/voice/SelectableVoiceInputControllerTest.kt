@@ -77,18 +77,34 @@ class SelectableVoiceInputControllerTest {
     // ── Auto routing (pure) ─────────────────────────────────────────────────
 
     @Test
-    fun `auto prefers on-device native for interactive capture`() {
+    fun `auto prefers zipformer when the online fallback is off`() {
         assertEquals(
-            AutoSttRoute.Native,
-            resolveAutoSttRoute(VoiceCaptureMode.Command, nativeOnDeviceReady = true, zipformerReady = true, allowOnlineFallback = false),
+            AutoSttRoute.Zipformer,
+            resolveAutoSttRoute(nativeOnDeviceReady = true, zipformerReady = true, allowOnlineFallback = false),
         )
     }
 
     @Test
-    fun `auto falls back to zipformer when native on-device is unavailable`() {
+    fun `auto uses android native when the online fallback is allowed`() {
+        assertEquals(
+            AutoSttRoute.Native,
+            resolveAutoSttRoute(nativeOnDeviceReady = true, zipformerReady = true, allowOnlineFallback = true),
+        )
+    }
+
+    @Test
+    fun `auto uses on-device native while zipformer downloads`() {
+        assertEquals(
+            AutoSttRoute.Native,
+            resolveAutoSttRoute(nativeOnDeviceReady = true, zipformerReady = false, allowOnlineFallback = false),
+        )
+    }
+
+    @Test
+    fun `auto uses zipformer when native is unavailable even with online fallback allowed`() {
         assertEquals(
             AutoSttRoute.Zipformer,
-            resolveAutoSttRoute(VoiceCaptureMode.Command, nativeOnDeviceReady = false, zipformerReady = true, allowOnlineFallback = true),
+            resolveAutoSttRoute(nativeOnDeviceReady = false, zipformerReady = true, allowOnlineFallback = true),
         )
     }
 
@@ -96,42 +112,33 @@ class SelectableVoiceInputControllerTest {
     fun `auto reports unavailable when neither recognizer is ready`() {
         assertEquals(
             AutoSttRoute.Unavailable,
-            resolveAutoSttRoute(VoiceCaptureMode.Command, nativeOnDeviceReady = false, zipformerReady = false, allowOnlineFallback = true),
-        )
-    }
-
-    @Test
-    fun `auto alert commands prefer zipformer unless online fallback is allowed`() {
-        assertEquals(
-            AutoSttRoute.Zipformer,
-            resolveAutoSttRoute(VoiceCaptureMode.AlertCommand, nativeOnDeviceReady = true, zipformerReady = true, allowOnlineFallback = false),
-        )
-        assertEquals(
-            AutoSttRoute.Native,
-            resolveAutoSttRoute(VoiceCaptureMode.AlertCommand, nativeOnDeviceReady = true, zipformerReady = true, allowOnlineFallback = true),
-        )
-    }
-
-    @Test
-    fun `auto alert commands use on-device native when zipformer is missing`() {
-        assertEquals(
-            AutoSttRoute.Native,
-            resolveAutoSttRoute(VoiceCaptureMode.AlertCommand, nativeOnDeviceReady = true, zipformerReady = false, allowOnlineFallback = false),
+            resolveAutoSttRoute(nativeOnDeviceReady = false, zipformerReady = false, allowOnlineFallback = true),
         )
     }
 
     // ── Controller wiring ───────────────────────────────────────────────────
 
     @Test
-    fun `auto starts native on-device without platform fallback by default`() = runTest(dispatcher) {
+    fun `auto starts zipformer by default without checking native support`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+
+        assertEquals(VoiceInputStartResult.Started(2L), controller().startListening(VoiceCaptureMode.Command))
+
+        coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any()) }
+        verify(exactly = 0) { recognitionSupport.getCaptureAvailability() }
+    }
+
+    @Test
+    fun `auto starts on-device native without platform fallback while zipformer downloads`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
         every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
 
         assertEquals(VoiceInputStartResult.Started(1L), controller().startListening(VoiceCaptureMode.Command))
 
         coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false) }
-        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any()) }
     }
 
     @Test
@@ -147,8 +154,9 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `auto uses zipformer when on-device native is unavailable`() = runTest(dispatcher) {
+    fun `auto with online fallback uses zipformer when on-device native is unavailable`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
+        every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(true)
         every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = false)
         coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
 

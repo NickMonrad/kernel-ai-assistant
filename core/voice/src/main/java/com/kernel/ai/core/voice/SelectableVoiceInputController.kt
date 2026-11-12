@@ -33,21 +33,22 @@ internal enum class AutoSttRoute {
 /**
  * Picks the recognizer for [VoiceInputEngine.Auto].
  *
- * Interactive captures prefer Android's on-device recognizer (best accuracy, still offline) and
- * fall back to Zipformer. Alert/wake commands only use Android native first when the user allows
- * the online platform service: that path starts on the platform recognizer (#1433), so without
- * that permission they prefer the offline Zipformer model.
+ * Without the online fallback, the offline Zipformer model is preferred: on the S23 Ultra,
+ * Android's on-device recognizer returned empty results for clearly audible speech that
+ * Zipformer transcribed (#1008). On-device Android recognition is only used while Zipformer
+ * is still downloading.
+ *
+ * With the online fallback allowed, Android native is preferred: it starts on-device and its
+ * existing fallback retries empty or failed on-device results on the platform service.
  */
 internal fun resolveAutoSttRoute(
-    mode: VoiceCaptureMode,
     nativeOnDeviceReady: Boolean,
     zipformerReady: Boolean,
     allowOnlineFallback: Boolean,
 ): AutoSttRoute = when {
-    mode == VoiceCaptureMode.AlertCommand && allowOnlineFallback && nativeOnDeviceReady -> AutoSttRoute.Native
-    mode == VoiceCaptureMode.AlertCommand && zipformerReady -> AutoSttRoute.Zipformer
-    nativeOnDeviceReady -> AutoSttRoute.Native
+    allowOnlineFallback && nativeOnDeviceReady -> AutoSttRoute.Native
     zipformerReady -> AutoSttRoute.Zipformer
+    nativeOnDeviceReady -> AutoSttRoute.Native
     else -> AutoSttRoute.Unavailable
 }
 
@@ -81,6 +82,12 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     private suspend fun startAuto(mode: VoiceCaptureMode, allowOnlineFallback: Boolean): VoiceInputStartResult {
+        val zipformerReady = sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER)
+        if (zipformerReady && !allowOnlineFallback) {
+            // Zipformer wins regardless of native support; skip the native availability check.
+            Log.i(TAG, "Auto STT route=${AutoSttRoute.Zipformer} mode=$mode allowOnlineFallback=false")
+            return startSherpa(mode)
+        }
         // Use the cached locale check when there is one; only run the slower live check for
         // interactive captures that have no cached answer yet.
         val availability = withContext(Dispatchers.Main.immediate) {
@@ -96,9 +103,7 @@ class SelectableVoiceInputController @Inject constructor(
         }
         val nativeOnDeviceReady = availability.blockingReason == null &&
             availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
-        val zipformerReady = sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER)
         val route = resolveAutoSttRoute(
-            mode = mode,
             nativeOnDeviceReady = nativeOnDeviceReady,
             zipformerReady = zipformerReady,
             allowOnlineFallback = allowOnlineFallback,

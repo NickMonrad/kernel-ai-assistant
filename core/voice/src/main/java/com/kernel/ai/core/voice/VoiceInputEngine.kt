@@ -8,7 +8,7 @@ enum class VoiceInputEngine(
 ) {
     Auto(
         displayName = "Automatic (recommended)",
-        description = "Uses Android's on-device speech recognition when this phone supports it, otherwise the offline Sherpa-ONNX Zipformer model.",
+        description = "Uses the offline Sherpa-ONNX Zipformer model. If you allow Google's speech service below, uses Android speech recognition instead.",
     ),
     AndroidNative(
         displayName = "Android native",
