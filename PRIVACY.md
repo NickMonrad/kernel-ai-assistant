@@ -12,7 +12,7 @@ Jandal's language-model inference uses models running on your device; the app do
 
 ### Speech, microphone, and wake word
 
-Speech features require microphone access. Vosk and Sherpa-ONNX speech recognition process audio with local models. Android native speech recognition may use on-device recognition when available or the recognition provider configured on the device. Jandal requests offline preference, but the configured provider may use network access; the actual backend and processing depend on the device and provider. Jandal does not control or verify that provider's processing, retention, or deletion practices.
+Speech features require microphone access. Sherpa-ONNX speech recognition processes audio with local models. Android native speech recognition uses the device's on-device recognizer. By default, Jandal does not fall back to the recognition provider configured on the device. If you turn on **Allow Google speech service when on-device recognition fails** in Settings › Voice, Android may retry with that provider, which may send audio over the network; the actual backend and processing then depend on the device and provider, and Jandal does not control or verify that provider's processing, retention, or deletion practices.
 
 If you enable **Listen for Hey Jandal**, the app keeps a microphone foreground service active and analyses audio on-device to detect the wake phrase. When the wake phrase is detected, Jandal starts a voice command using the selected speech-recognition engine. The selected engine therefore determines whether command audio may be handled by an Android-provided recognition service. You can turn off the wake-word feature in the app and revoke microphone permission in Android settings.
 

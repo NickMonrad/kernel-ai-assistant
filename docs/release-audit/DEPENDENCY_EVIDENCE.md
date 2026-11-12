@@ -2,6 +2,8 @@
 
 Historical baseline generated during #1259 / PR #1273; it is not a current-main release SBOM or final-candidate compliance audit. The custom Inflect-enabled Sherpa AAR and Piper/eSpeak scope are tracked by #1474.
 
+> **Update (#1008):** Vosk, its bundled ~73 MB model, `libvosk.so` and its JNA dependency (`libjnidispatch.so`) have since been removed from the app. Rows below that list them describe this historical snapshot only.
+
 ## Command Run
 
 ```bash

@@ -26,13 +26,6 @@
 # empty proguard.txt, so preserve the classes and native-facing members.
 -keep class com.k2fsa.sherpa.onnx.** { *; }
 
-# Vosk's model/recognizer API uses the JNA native backend and relies on stable names.
--keep class com.sun.jna.** { *; }
--keep class * implements com.sun.jna.** { *; }
-# JNA references desktop AWT in unused platform-specific code; Android has no AWT.
--dontwarn java.awt.**
--keep class org.vosk.** { *; }
-
 # These AndroidX native libraries export JNI methods with package/class names;
 # their AARs do not ship consumer keep rules for these bindings.
 -keep class androidx.datastore.core.NativeSharedCounter { *; }

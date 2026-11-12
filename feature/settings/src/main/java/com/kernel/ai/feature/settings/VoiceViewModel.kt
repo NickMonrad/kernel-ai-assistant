@@ -68,7 +68,7 @@ data class KokoroVoiceRowUiState(
 
 data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
-    val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Vosk,
+    val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Auto,
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
@@ -79,6 +79,7 @@ data class VoiceUiState(
     val maxSpokenSentences: Int = 0,
     val sherpaVoices: List<SherpaVoiceRowUiState>,
     val autoStartAlertVoiceCommandsEnabled: Boolean = true,
+    val allowOnlineSpeechFallback: Boolean = false,
     val androidNativeAvailabilityMessage: String? = null,
     val androidNativeLanguageSummary: String? = null,
     val hasDownloadedSherpaVoice: Boolean = false,
@@ -414,6 +415,11 @@ class VoiceViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            voiceInputPreferences.allowOnlineSpeechFallback.collect { allowed ->
+                _uiState.update { it.copy(allowOnlineSpeechFallback = allowed) }
+            }
+        }
+        viewModelScope.launch {
             voiceInputPreferences.autoStartAlertVoiceCommandsEnabled.collect { enabled ->
                 _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
             }
@@ -614,7 +620,7 @@ class VoiceViewModel @Inject constructor(
             }
             if (_uiState.value.selectedInputEngine == engine) {
                 withContext(Dispatchers.Main) {
-                    setVoiceInputEngine(VoiceInputEngine.Vosk)
+                    setVoiceInputEngine(VoiceInputEngine.Auto)
                 }
             }
         }
@@ -708,6 +714,13 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(activeSpeakerId = sid) }
         viewModelScope.launch {
             voiceOutputPreferences.setActiveSpeakerId(sid)
+        }
+    }
+
+    fun setAllowOnlineSpeechFallback(allowed: Boolean) {
+        _uiState.update { it.copy(allowOnlineSpeechFallback = allowed) }
+        viewModelScope.launch {
+            voiceInputPreferences.setAllowOnlineSpeechFallback(allowed)
         }
     }
 

@@ -26,6 +26,11 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "NativeVoiceInput"
 private const val ON_DEVICE_READY_TIMEOUT_MS = 1_500L
+/**
+ * With no platform fallback the startup timeout ends the session with an error instead of
+ * handing over, so allow slower on-device recognizers more time to become ready.
+ */
+internal const val ON_DEVICE_READY_TIMEOUT_NO_FALLBACK_MS = 5_000L
 private const val SESSION_RESULT_TIMEOUT_MS = 6_000L
 
 /**
@@ -102,19 +107,26 @@ internal enum class RecognizerBackend {
     Platform,
 }
 
-internal fun initialRecognizerBackend(mode: VoiceCaptureMode): RecognizerBackend =
-    if (mode == VoiceCaptureMode.AlertCommand) {
+internal fun initialRecognizerBackend(
+    mode: VoiceCaptureMode,
+    allowPlatformFallback: Boolean = true,
+): RecognizerBackend =
+    if (mode == VoiceCaptureMode.AlertCommand && allowPlatformFallback) {
         // Wake-word / alert flows are cue-driven. Starting on-device first can report ready,
         // play the cue, then silently fall back to platform seconds later on some devices
         // (observed on S23). Start directly on the vetted platform recognizer for alert
         // commands so the cue aligns with the backend that will actually capture speech.
+        // When the user has not allowed the online platform service, alert commands stay
+        // on the on-device recognizer.
         RecognizerBackend.Platform
     } else {
         RecognizerBackend.OnDevice
     }
 
-internal fun shouldRetryWithPlatformAfterStartupTimeout(backend: RecognizerBackend): Boolean =
-    backend == RecognizerBackend.OnDevice
+internal fun shouldRetryWithPlatformAfterStartupTimeout(
+    backend: RecognizerBackend,
+    allowPlatformFallback: Boolean = true,
+): Boolean = backend == RecognizerBackend.OnDevice && allowPlatformFallback
 
 internal fun shouldRetryWithPlatformAfterRecognitionError(
     backend: RecognizerBackend,
@@ -122,8 +134,10 @@ internal fun shouldRetryWithPlatformAfterRecognitionError(
     error: Int,
     heardSpeech: Boolean,
     sawPartialTranscript: Boolean,
+    allowPlatformFallback: Boolean = true,
 ): Boolean =
-    backend == RecognizerBackend.OnDevice &&
+    allowPlatformFallback &&
+        backend == RecognizerBackend.OnDevice &&
         when (error) {
             SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> true
             SpeechRecognizer.ERROR_NO_MATCH,
@@ -170,7 +184,8 @@ const val NO_SPEECH_WINDOW_EXHAUSTED = "no_speech_window_exhausted"
 internal fun shouldRetryWithPlatformAfterWatchdogTimeout(
     backend: RecognizerBackend,
     sawPartialTranscript: Boolean,
-): Boolean = backend == RecognizerBackend.OnDevice && !sawPartialTranscript
+    allowPlatformFallback: Boolean = true,
+): Boolean = allowPlatformFallback && backend == RecognizerBackend.OnDevice && !sawPartialTranscript
 
 
 @Singleton
@@ -204,6 +219,13 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private var startupFallbackJob: Job? = null
 
     /**
+     * Whether the current capture session may fall back to the platform (possibly online)
+     * recognition service. Set per session from the caller; see [startListening].
+     */
+    @Volatile
+    private var allowPlatformFallback: Boolean = false
+
+    /**
      * #1433: owned, cancellable pending in-place recognizer refresh.  Cancelled by
      * [stopListeningInternal], before scheduling a new refresh, and whenever the
      * capture session is replaced; the job re-checks [activeSessionId] after its
@@ -228,13 +250,34 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
 
 
-    override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
+    /** Starts an on-device-only session: the platform service is never used. */
+    override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
+        startListening(mode, allowPlatformFallback = false)
+
+    /**
+     * Starts a capture session. With [allowPlatformFallback] false the session uses only the
+     * on-device recognizer; failures surface as errors rather than retrying on the platform
+     * recognition service, which may send audio to an online service.
+     */
+    suspend fun startListening(
+        mode: VoiceCaptureMode,
+        allowPlatformFallback: Boolean,
+    ): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
             stopListeningInternal(emitStopped = false)
+            this@NativeAndroidVoiceInputController.allowPlatformFallback = allowPlatformFallback
 
 
-            val availability = if (shouldUseCachedCaptureAvailability(mode)) {
-                recognitionSupport.getCaptureAvailability()
+            // Reuse a cached "Ready" locale answer: the live check creates and destroys a
+            // throwaway recognizer, and that teardown can kill the shared on-device
+            // recognition service just after this session starts (ERROR_SERVER_DISCONNECTED,
+            // observed on the S23 Ultra, #1008).
+            val cachedAvailability = recognitionSupport.getCaptureAvailability()
+            val availability = if (
+                shouldUseCachedCaptureAvailability(mode) ||
+                cachedAvailability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
+            ) {
+                cachedAvailability
             } else {
                 recognitionSupport.getAvailability()
             }
@@ -256,7 +299,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 activeSessionId = sessionId
                 noSpeechRefreshCount = 0
                 readinessEmittedForSession = false
-                val startBackend = initialRecognizerBackend(mode)
+                val startBackend = initialRecognizerBackend(mode, allowPlatformFallback)
                 try {
                     startRecognizer(
                         sessionId = sessionId,
@@ -268,7 +311,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     // On-device recognizer failed to start (e.g. not installed, OOM). Clean up
                     // any partially-constructed recognizer before retrying with Platform, so we
                     // don't orphan an instance that could fire stale callbacks.
-                    if (startBackend == RecognizerBackend.OnDevice) {
+                    if (startBackend == RecognizerBackend.OnDevice && allowPlatformFallback) {
                         speechRecognizer?.apply {
                             runCatching { cancel() }
                             runCatching { destroy() }
@@ -385,13 +428,30 @@ class NativeAndroidVoiceInputController @Inject constructor(
         backend: RecognizerBackend,
     ) {
         startupFallbackJob?.cancel()
-        if (!shouldRetryWithPlatformAfterStartupTimeout(backend)) {
+        if (backend != RecognizerBackend.OnDevice) {
             startupFallbackJob = null
             return
         }
+        val readyTimeoutMs =
+            if (allowPlatformFallback) ON_DEVICE_READY_TIMEOUT_MS else ON_DEVICE_READY_TIMEOUT_NO_FALLBACK_MS
         startupFallbackJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
-            delay(ON_DEVICE_READY_TIMEOUT_MS)
+            delay(readyTimeoutMs)
             if (activeSessionId != sessionId) return@launch
+            if (!shouldRetryWithPlatformAfterStartupTimeout(backend, allowPlatformFallback)) {
+                // Online fallback not allowed: end the session instead of leaving it waiting
+                // on a recognizer that never became ready.
+                Log.w(TAG, "On-device recognizer never became ready for sessionId=$sessionId; platform fallback disabled")
+                _events.tryEmit(
+                    VoiceInputEvent.Error(
+                        mode = mode,
+                        captureSessionId = sessionId,
+                        message = "On-device speech recognition didn't start. Please try again.",
+                    ),
+                )
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+                return@launch
+            }
             Log.w(
                 TAG,
                 "On-device recognizer never became ready for sessionId=$sessionId; retrying with platform recognizer",
@@ -481,6 +541,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         availability: AndroidNativeRecognitionAvailability,
     ): Boolean {
         if (activeSessionId != sessionId) return false
+        if (!allowPlatformFallback) return false
 
         return runCatching {
             cancelStartupFallback()
@@ -529,6 +590,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     shouldRetryWithPlatformAfterWatchdogTimeout(
                         backend = backend,
                         sawPartialTranscript = sawPartialTranscript,
+                        allowPlatformFallback = allowPlatformFallback,
                     ) &&
                     retryWithPlatformRecognizer(
                         sessionId = sessionId,
@@ -627,6 +689,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     error = error,
                     heardSpeech = heardSpeech,
                     sawPartialTranscript = sawPartialTranscript,
+                    allowPlatformFallback = allowPlatformFallback,
                 ) &&
                 retryWithPlatformRecognizer(
                     sessionId = sessionId,

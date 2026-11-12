@@ -282,6 +282,7 @@ fun VoiceScreen(
         onWakeWordThresholdChanged = viewModel::setWakeWordThreshold,
         onVoiceInputEngineSelected = viewModel::setVoiceInputEngine,
         onAutoStartAlertVoiceCommandsEnabledChanged = viewModel::setAutoStartAlertVoiceCommandsEnabled,
+        onAllowOnlineSpeechFallbackChanged = viewModel::setAllowOnlineSpeechFallback,
         onSpokenResponsesEnabledChanged = viewModel::setSpokenResponsesEnabled,
         onVoiceOutputEngineSelected = viewModel::setVoiceOutputEngine,
         onSherpaVoiceSelected = viewModel::setSherpaVoice,
@@ -481,6 +482,7 @@ private fun VoiceScreenContent(
     onWakeWordThresholdChanged: (Float) -> Unit,
     onVoiceInputEngineSelected: (VoiceInputEngine) -> Unit,
     onAutoStartAlertVoiceCommandsEnabledChanged: (Boolean) -> Unit,
+    onAllowOnlineSpeechFallbackChanged: (Boolean) -> Unit,
     onSpokenResponsesEnabledChanged: (Boolean) -> Unit,
     onVoiceOutputEngineSelected: (VoiceOutputEngine) -> Unit,
     onSherpaVoiceSelected: (SherpaPiperVoice) -> Unit,
@@ -743,6 +745,26 @@ private fun VoiceScreenContent(
                     }
                 }
             }
+
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text("Allow Google speech service when on-device recognition fails") },
+                supportingContent = {
+                    Text(
+                        "Off: voice input never leaves this phone. On: if Android's on-device " +
+                            "recognizer can't start or doesn't catch you, Android may retry with " +
+                            "Google's online speech service, which sends your audio to Google. " +
+                            "Also makes Hey Jandal commands use it first.",
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.allowOnlineSpeechFallback,
+                        onCheckedChange = onAllowOnlineSpeechFallbackChanged,
+                    )
+                },
+            )
+            HorizontalDivider()
 
             Text(
                 text = "Clock alerts",
@@ -1779,6 +1801,7 @@ private fun VoiceScreenPreview() {
             onWakeWordThresholdChanged = {},
             onVoiceInputEngineSelected = {},
             onAutoStartAlertVoiceCommandsEnabledChanged = {},
+            onAllowOnlineSpeechFallbackChanged = {},
             onSpokenResponsesEnabledChanged = {},
             onVoiceOutputEngineSelected = {},
             onSherpaVoiceSelected = {},

@@ -47,6 +47,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
     @Inject lateinit var nextcloudSyncScheduler: Provider<NextcloudSyncScheduler>
     @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
+    @Inject lateinit var voiceDefaultsProvisioner: Provider<com.kernel.ai.core.voice.VoiceDefaultsProvisioner>
 
     /**
      * Test-only application variants may retain Hilt/WorkManager setup while avoiding normal
@@ -83,6 +84,9 @@ class KernelAIApplication : Application(), Configuration.Provider {
 
         clockTimerNotificationCoordinator.start()
         clockStopwatchNotificationCoordinator.start()
+        // #1008: queue the default voice models (Zipformer STT, Cori TTS) with the other
+        // first-run downloads, and remove the unpacked model left by the removed Vosk engine.
+        voiceDefaultsProvisioner.get().start()
         WorkManager.getInstance(this).enqueueUniqueWork(
             WORK_NAME_BACKFILL,
             ExistingWorkPolicy.KEEP,

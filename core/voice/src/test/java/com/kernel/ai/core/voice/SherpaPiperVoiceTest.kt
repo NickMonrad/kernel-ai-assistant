@@ -9,7 +9,7 @@ class SherpaPiperVoiceTest {
 
     @Test
     fun `unknown stored voice falls back to Jenny`() {
-        assertEquals(SherpaPiperVoice.JennyDioco, SherpaPiperVoice.fromStorage("not-a-real-voice"))
+        assertEquals(SherpaPiperVoice.CoriHigh, SherpaPiperVoice.fromStorage("not-a-real-voice"))
     }
 
     @Test

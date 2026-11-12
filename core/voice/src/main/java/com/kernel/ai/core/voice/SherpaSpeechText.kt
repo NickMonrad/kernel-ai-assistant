@@ -13,9 +13,12 @@ import android.util.Log
  * - Text with no final punctuation can end abruptly ("It's 8:31 am").
  * - "14 March" was heard as "forty March"; "the 14th of March" was not.
  *
+ * - Money and clock times were read mechanically (#1487): "$49.95" as "dollar forty nine
+ *   point nine five" and "8:00" as "eight zero zero". Both are spelled out here.
+ *
  * Everything else is left to eSpeak, which already reads minus signs, decimals, years,
- * times, ordinals, phone numbers and URLs: a wider normaliser (the Inflect frontend) broke
- * several of those. Only plain integers are spelled out.
+ * ordinals, phone numbers and URLs: a wider normaliser (the Inflect frontend) broke
+ * several of those. Only plain integers, dollar amounts and clock times are spelled out.
  */
 internal object SherpaSpeechText {
     private const val TAG = "KernelAI"
@@ -39,6 +42,13 @@ internal object SherpaSpeechText {
      */
     private val plainInteger = Regex(
         """(?<![\w.,:/$£€¥₹#+\-−])(?<!\d )([1-9]\d{0,2}(?:,\d{3}){1,2}|[1-9]\d{0,5})(?![\w%°:/]|[.,]\d|-\d| \d)""",
+    )
+    /** "$49.95", "$1,200", "$5": dollars with optional two-digit cents. */
+    private val money = Regex("""(?<![\w$])\$([1-9]\d{0,2}(?:,\d{3}){1,2}|[1-9]\d{0,8}|0)(?:\.(\d{2}))?(?![\d.,]\d|\w)""")
+
+    /** "8:00", "7:30 pm", "14:05": a clock time, not part of a longer number or ratio. */
+    private val clockTime = Regex(
+        """(?<![\w.:/])([01]?\d|2[0-3]):([0-5]\d)(?:\s?([AaPp])\.?[Mm]\.?)?(?![\w:]|[.,]\d)""",
     )
     private val terminalPause = Regex("""[.!?]["')\]]*$""")
     private val trailingSoftPause = Regex("""[,;:]+(["')\]]*)$""")
@@ -75,6 +85,8 @@ internal object SherpaSpeechText {
             value = brackets.replace(value) { m -> if (m.groupValues[1].isBlank()) "" else ", ${m.groupValues[1]}," }
         }
         value = dashes.replace(value, ", ")
+        value = money.replace(value) { m -> spokenMoney(m.groupValues[1], m.groupValues[2]) }
+        value = clockTime.replace(value) { m -> spokenTime(m.groupValues[1], m.groupValues[2], m.groupValues[3]) }
         value = plainInteger.replace(value) { m ->
             val raw = m.groupValues[1]
             val n = raw.replace(",", "").toInt()
@@ -91,6 +103,28 @@ internal object SherpaSpeechText {
             }
         }
         return value
+    }
+
+    private fun spokenMoney(rawDollars: String, rawCents: String): String {
+        val dollars = rawDollars.replace(",", "").toInt()
+        val cents = rawCents.ifEmpty { "0" }.toInt()
+        val dollarWords = "${words(dollars)} ${if (dollars == 1) "dollar" else "dollars"}"
+        if (cents == 0) return dollarWords
+        val centWords = "${words(cents)} ${if (cents == 1) "cent" else "cents"}"
+        return if (dollars == 0) centWords else "$dollarWords and $centWords"
+    }
+
+    private fun spokenTime(rawHour: String, rawMinute: String, meridiem: String): String {
+        val hour = rawHour.toInt()
+        val minute = rawMinute.toInt()
+        val suffix = if (meridiem.isEmpty()) "" else " ${meridiem.lowercase()}.m."
+        val minuteWords = when {
+            minute == 0 && hour > 12 && meridiem.isEmpty() -> "hundred"
+            minute == 0 -> "o'clock"
+            minute < 10 -> "oh ${words(minute)}"
+            else -> words(minute)
+        }
+        return "${words(hour)} $minuteWords$suffix"
     }
 
     private fun ordinalDay(raw: String): String = "the $raw${ordinalSuffix(raw.toInt())}"

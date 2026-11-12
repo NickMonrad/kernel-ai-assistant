@@ -6,14 +6,14 @@ enum class VoiceInputEngine(
     val warning: String? = null,
     val isSherpaFamily: Boolean = false,
 ) {
-    Vosk(
-        displayName = "Vosk",
-        description = "Offline-first voice recognition using the bundled local model.",
+    Auto(
+        displayName = "Automatic (recommended)",
+        description = "Uses Android's on-device speech recognition when this phone supports it, otherwise the offline Sherpa-ONNX Zipformer model.",
     ),
     AndroidNative(
         displayName = "Android native",
-        description = "Uses the platform speech recognizer and may work better for some accents or devices.",
-        warning = "Android native speech recognition may depend on device support, installed language packs, and recognizer availability. Offline behavior is not guaranteed on all devices.",
+        description = "Uses Android's on-device speech recognizer, which may work better for some accents or devices.",
+        warning = "Android native speech recognition depends on device support and installed language packs. It only falls back to Google's online speech service if you allow that below.",
     ),
     SherpaZipformer(
         displayName = "Sherpa-ONNX Zipformer",
@@ -40,8 +40,13 @@ enum class VoiceInputEngine(
     ;
 
     companion object {
+        /**
+         * Maps a stored engine name to an engine. Legacy values migrate: "SherpaOnnx" was the
+         * Zipformer engine before the Sherpa family split, and "Vosk" was removed (#1008), so
+         * former Vosk users land on [Auto]. Missing or unknown values also resolve to [Auto].
+         */
         fun fromStorage(value: String?): VoiceInputEngine =
             if (value == "SherpaOnnx") SherpaZipformer
-            else entries.firstOrNull { it.name == value } ?: Vosk
+            else entries.firstOrNull { it.name == value } ?: Auto
     }
 }

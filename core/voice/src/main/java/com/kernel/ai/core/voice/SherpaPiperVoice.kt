@@ -139,7 +139,7 @@ enum class SherpaPiperVoice(
 
     companion object {
         fun fromStorage(value: String?): SherpaPiperVoice =
-            entries.firstOrNull { it.name == value } ?: JennyDioco
+            entries.firstOrNull { it.name == value } ?: CoriHigh
 
         /** Returns entries visible for the given build type. */
         fun entriesForBuild(isRelease: Boolean): List<SherpaPiperVoice> =

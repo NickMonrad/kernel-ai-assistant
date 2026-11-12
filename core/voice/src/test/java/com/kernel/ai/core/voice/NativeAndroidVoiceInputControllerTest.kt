@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -38,6 +39,24 @@ class NativeAndroidVoiceInputControllerTest {
         assertEquals(true, shouldUseCachedCaptureAvailability(VoiceCaptureMode.AlertCommand))
     }
 
+
+    @Test
+    fun `pure fallback helpers never choose the platform when fallback is disallowed`() {
+        assertEquals(RecognizerBackend.OnDevice, initialRecognizerBackend(VoiceCaptureMode.AlertCommand, allowPlatformFallback = false))
+        assertEquals(false, shouldRetryWithPlatformAfterStartupTimeout(RecognizerBackend.OnDevice, allowPlatformFallback = false))
+        assertEquals(false, shouldRetryWithPlatformAfterWatchdogTimeout(RecognizerBackend.OnDevice, false, allowPlatformFallback = false))
+        assertEquals(
+            false,
+            shouldRetryWithPlatformAfterRecognitionError(
+                backend = RecognizerBackend.OnDevice,
+                mode = VoiceCaptureMode.Command,
+                error = SpeechRecognizer.ERROR_SERVER_DISCONNECTED,
+                heardSpeech = false,
+                sawPartialTranscript = false,
+                allowPlatformFallback = false,
+            ),
+        )
+    }
 
     @Test
     fun `initialRecognizerBackend starts alert commands on platform and other modes on device`() {
@@ -253,7 +272,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         runCurrent()
 
         // Act
-        val result = controller.startListening(VoiceCaptureMode.Command)
+        val result = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true)
 
         // Assert: overall result is Started (platform succeeded)
         val started = result as VoiceInputStartResult.Started
@@ -271,15 +290,69 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     }
 
     @Test
+    fun `without platform fallback an on-device start failure never touches the platform recognizer`() = runTest {
+        val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
+        every { onDeviceRecognizer.startListening(any()) } throws RuntimeException("on-device unavailable")
+
+        val result = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+    }
+
+    @Test
+    fun `the single-argument start is on-device only`() = runTest {
+        val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
+        every { onDeviceRecognizer.startListening(any()) } throws RuntimeException("on-device unavailable")
+
+        controller.startListening(VoiceCaptureMode.Command)
+
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+    }
+
+    @Test
+    fun `without platform fallback alert commands start on the on-device recognizer`() = runTest {
+        val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
+
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = false)
+
+        assertInstanceOf(VoiceInputStartResult.Started::class.java, result)
+        verify(exactly = 1) { onDeviceRecognizer.startListening(any()) }
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+    }
+
+    @Test
+    fun `without platform fallback a no-speech on-device error surfaces instead of retrying`() = runTest {
+        val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val listener = slot<RecognitionListener>()
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
+        every { onDeviceRecognizer.setRecognitionListener(capture(listener)) } just runs
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+        listener.captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        runCurrent()
+
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+        assertTrue(events.any { it is VoiceInputEvent.Error })
+        collector.cancel()
+    }
+
+    @Test
     fun `separate logical starts receive distinct capture session identifiers`() = runTest {
         val firstRecognizer = mockk<SpeechRecognizer>(relaxed = true)
         val secondRecognizer = mockk<SpeechRecognizer>(relaxed = true)
         every { recognitionSupport.createOnDeviceSpeechRecognizer() } returnsMany
             listOf(firstRecognizer, secondRecognizer)
 
-        val first = controller.startListening(VoiceCaptureMode.Command) as
+        val first = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true) as
             VoiceInputStartResult.Started
-        val second = controller.startListening(VoiceCaptureMode.Command) as
+        val second = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true) as
             VoiceInputStartResult.Started
 
         assertTrue(first.captureSessionId > 0L)
@@ -297,7 +370,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         every { onDeviceRecognizer.startListening(any()) } throws RuntimeException("on-device unavailable")
         every { platformRecognizer.startListening(any()) } throws RuntimeException("platform unavailable")
 
-        val result = controller.startListening(VoiceCaptureMode.Command)
+        val result = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true)
 
         assertEquals(true, result is VoiceInputStartResult.Unavailable)
     }
@@ -319,7 +392,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true) as
             VoiceInputStartResult.Started
         listener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
         runCurrent()
@@ -368,7 +441,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true) as
             VoiceInputStartResult.Started
         val sessionId = result.captureSessionId
         firstListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
@@ -424,7 +497,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true) as
             VoiceInputStartResult.Started
         val sessionId = result.captureSessionId
 
@@ -466,7 +539,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        controller.startListening(VoiceCaptureMode.AlertCommand)
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
         listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
         runCurrent()
         listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
@@ -505,7 +578,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true) as
             VoiceInputStartResult.Started
         val sessionId = result.captureSessionId
         listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
@@ -556,7 +629,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        controller.startListening(VoiceCaptureMode.AlertCommand)
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
         firstListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
         runCurrent()
         firstListener.captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
@@ -594,7 +667,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        controller.startListening(VoiceCaptureMode.AlertCommand)
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
         firstListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
         runCurrent()
         firstListener.captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
@@ -624,7 +697,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        val result = controller.startListening(VoiceCaptureMode.AlertCommand) as
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true) as
             VoiceInputStartResult.Started
         val sessionId = result.captureSessionId
         listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
@@ -658,7 +731,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        controller.startListening(VoiceCaptureMode.AlertCommand)
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
         // The original recognizer errors with no-speech before ever becoming ready.
         listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
         runCurrent()
@@ -686,7 +759,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         runCurrent()
 
         // Session 1: ready, then a no-match schedules an in-place refresh.
-        controller.startListening(VoiceCaptureMode.AlertCommand)
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
         listeners[0].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
         listeners[0].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
         runCurrent()
@@ -699,11 +772,11 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
 
         // Session 2 replaces session 1 while another refresh is pending; the stale
         // refresh must not create a recognizer for the old session.
-        controller.startListening(VoiceCaptureMode.AlertCommand)
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
         listeners[1].captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
         listeners[1].captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
         runCurrent()
-        controller.startListening(VoiceCaptureMode.AlertCommand)
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
         runCurrent()
         advanceTimeBy(300)
         runCurrent()
@@ -722,7 +795,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        controller.startListening(VoiceCaptureMode.AlertCommand)
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
         listener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
         runCurrent()
 
