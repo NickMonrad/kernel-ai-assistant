@@ -156,22 +156,44 @@ The local command above remains the alternative to publishing from GitHub.
 
 `.github/workflows/play-release.yml` runs the same `:app:publishReleaseBundle` task on a GitHub runner. It is `workflow_dispatch` only, refuses any ref other than `main`, and reads its credentials from secrets scoped to the `play-release` environment, so every run waits for the owner's approval before any secret is exposed. It offers only the `internal` and `alpha` (closed testing) tracks; there is no production option.
 
-One-time setup (repository **Settings › Environments**):
+#### One-time setup
 
-1. Create the environment `play-release`. Under **Deployment protection rules**, add the owner as a **required reviewer**; under **Deployment branches and tags**, choose **Selected branches and tags** and allow only `main`.
-2. Add these five **environment** secrets (not repository secrets):
+The `play-release` environment (repository **Settings › Environments › play-release**) is configured as:
 
-   | Secret | Value |
-   |---|---|
-   | `PLAY_UPLOAD_KEYSTORE_BASE64` | Output of `base64 -w0 jandal-upload.jks` |
-   | `PLAY_UPLOAD_STORE_PASSWORD` | Keystore password |
-   | `PLAY_UPLOAD_KEY_ALIAS` | Key alias, e.g. `jandal-upload` |
-   | `PLAY_UPLOAD_KEY_PASSWORD` | Key password |
-   | `PLAY_SERVICE_ACCOUNT_JSON` | Full contents of the service-account JSON key |
+| Setting | Value |
+|---|---|
+| Required reviewers | `NickMonrad` |
+| Prevent self-review | Off. The owner both starts and approves runs; turning it on would leave nobody able to approve. |
+| Allow administrators to bypass configured protection rules | Off, so admin rights cannot skip the approval. |
+| Deployment branches and tags | **Selected branches and tags**, `main` only |
 
-   Paste values with `gh secret set NAME --env play-release` (it prompts for the value) or the web form; never put them on a command line or in a file in the checkout. The service account already holds testing-track release permissions only.
+It holds these five **environment** secrets (not repository secrets):
 
-To publish: **Actions › Play release › Run workflow**, keep branch `main`, choose the track, then approve the pending deployment. Update `app/src/main/play/release-notes/en-AU/default.txt` on `main` first. The workflow decodes the keystore and writes the signing properties file and service-account JSON under `$RUNNER_TEMP` with `umask 077`, passes only their paths to Gradle, and deletes them in an always-run step. Passwords never appear as `-P` arguments.
+| Secret | Value | Set with |
+|---|---|---|
+| `PLAY_UPLOAD_KEYSTORE_BASE64` | `base64 -w0` of the upload keystore | `gh`, piped (below) |
+| `PLAY_SERVICE_ACCOUNT_JSON` | Full contents of the service-account JSON key | `gh`, stdin redirect (below) |
+| `PLAY_UPLOAD_STORE_PASSWORD` | Keystore password | Web UI |
+| `PLAY_UPLOAD_KEY_ALIAS` | Key alias, e.g. `jandal-upload` | Web UI |
+| `PLAY_UPLOAD_KEY_PASSWORD` | Key password | Web UI |
+
+Set the two file-based secrets on the owner host by streaming the files straight into `gh`, so the values never appear as a command-line argument, in shell history, on screen, or in a file in the checkout:
+
+```bash
+base64 -w0 ~/.local/share/jandal/jandal-upload.jks | gh secret set PLAY_UPLOAD_KEYSTORE_BASE64 --env play-release
+gh secret set PLAY_SERVICE_ACCOUNT_JSON --env play-release < ~/.local/share/jandal/play-publisher.json
+```
+
+Type the three short secrets in **Settings › Environments › play-release › Environment secrets › Add environment secret**. To rotate a value, repeat the same command or form; nothing else changes. The service account holds testing-track release permissions only (see [One-time owner setup](#one-time-owner-setup)), and the app's first upload must already have been made manually in Play Console, because `AUTO` version resolution reads the existing Play version codes.
+
+#### Release steps
+
+1. Update `app/src/main/play/release-notes/en-AU/default.txt` and merge it to `main`. The run builds the `main` commit current when it is started, so the notes must be merged first.
+2. **Actions › Play release › Run workflow**: leave **Use workflow from** on `main`, choose the track (`internal` or `alpha`), then **Run workflow**. Any other branch fails in the `Require main` job without requesting approval.
+3. Open the run. `Publish to Play` waits for review; choose **Review deployments**, tick `play-release`, then **Approve and deploy**. The job receives the secrets only after this approval.
+4. The job builds and signs the AAB, rejects it if unsigned (`verifyReleaseBundleForPlayUpload`), uploads it to the chosen track with the next Play `versionCode`, and removes the credentials. Check the release under the track in Play Console.
+
+The workflow decodes the keystore and writes the signing properties file and service-account JSON under `$RUNNER_TEMP` (outside the checkout) with `umask 077`, passes only their paths to Gradle, and deletes them in an always-run step. Passwords never appear as `-P` arguments.
 
 ## Security Rules
 
