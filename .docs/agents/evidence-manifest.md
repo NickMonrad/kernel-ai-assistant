@@ -131,7 +131,7 @@ It helps reviewers quickly understand what evidence was collected and what was w
 |----------|--------|---------|
 | Automated tests | ✅ | `./gradlew :feature:settings:testDebugUnitTest` passes |
 | CI run | ✅ | Run #987654 |
-| S23U device | ✅ | S23U SD 8 Gen 2, One UI 6.1, Android 16, USB |
+| S23U device | ✅ | S23U SD 8 Gen 2, One UI 8, Android 16, USB |
 | S21 device | N/A | No extra capacity or second-SoC comparison needed |
 | Screenshots | ✅ | `screenshots/pr-1234-model-info-before.png`, `screenshots/pr-1234-model-info-after.png` |
 | Manual on-device checks | N/A | No voice, audio, or permission changes |
@@ -140,7 +140,7 @@ It helps reviewers quickly understand what evidence was collected and what was w
 - `results/pr/1234/evidence.json`
 
 ### Device Details
-- **S23U:** One UI 6.1 / Android 16 / USB connection
+- **S23U:** One UI 8 / Android 16 / USB connection
 
 ### Evidence Waivers
 | Waived Item | Rationale |

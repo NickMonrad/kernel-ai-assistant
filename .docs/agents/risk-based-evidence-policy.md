@@ -14,6 +14,7 @@ three-tier risk classification and the minimum evidence expected for each tier.
    parallel runs, or a second-SoC comparison when a change is device-sensitive. Explicit
    issue/device requirements win. (Owner decision, 2026-11-14: "S23 should be primary
    test device, but we can use S21 if we need more test capacity.")
+   Suite-specific S21 gates still apply where tooling requires them: only a complete S21 `regression` run sets `release_gate_success` (`docs/automated-testing.md`); the S21 model-readiness preflight (`docs/testing/s21-model-readiness.md`) and the S21 `permission_flows` connected suite (`docs/adb-testing.md`) are S21-bound; and the wake-word acoustic harness names S21 as its launch-blocking target (`docs/testing/wake-word-acoustic-reliability-harness.md`). Those runs follow the Device Handling Rules below: explicit `adb -s <serial>`, no `./gradlew installDebug`, and no changes to the household S21's settings, permissions, or personal data.
 3. **Manual on-device testing is reserved for high-risk or hard-to-automate changes.**
    Do not require manual testing for every low-risk or CI-safe change.
 4. **Targeted validation is better than broad.** A focused unit test for the changed
@@ -87,8 +88,8 @@ the primary concern and interaction logic is unchanged.
 device-specific behaviour or where automated tests don't cover the full path.
 
 **When additional S21 use is justified:** Only when more test capacity is needed —
-parallel runs, or a second-SoC comparison when the change is device-sensitive
-(for example inference or GPU code).
+parallel runs, a second-SoC comparison when the change is device-sensitive
+(for example inference or GPU code), or lower-memory/degraded-device checks. Suite-specific S21 gates (see Guiding Principle 2) still apply where tooling requires them.
 
 **Manual on-device testing:** Not required unless the change touches audio focus,
 STT/TTS, wake-word, or permission flows (see subsystem review gates).
@@ -118,6 +119,7 @@ evidence.
 
 **When additional S21 capacity is justified:**
 - More test capacity is needed (parallel runs)
+- Lower-memory or degraded-device checks
 - Change is model/device-sensitive and a second-SoC (Exynos/Mali) comparison adds signal
 - Release confidence requires comparison evidence
 
@@ -144,7 +146,7 @@ evidence.
 | Device | Role | Evidence Scope |
 |--------|------|----------------|
 | S23U (SD 8 Gen 2) | Primary test device | Broad suites, baseline evidence, default for all tiers |
-| S21 (Exynos) | Secondary — extra capacity only | Parallel runs; second-SoC comparison for device-sensitive changes |
+| S21 (Exynos) | Secondary — extra capacity only | Parallel runs; second-SoC comparison for device-sensitive changes; lower-memory/degraded-device checks |
 
 ---
 

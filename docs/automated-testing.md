@@ -388,7 +388,7 @@ ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=ll
 | Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | Supplemental high-memory/modern-flagship device; experimental reference candidate (Android API 36) |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | Reference device — GPU-only |
 
-**Test-device roles:** Samsung Galaxy S23 Ultra is the primary/default physical test device, both for an unnamed *ad hoc* "test on device" task and for PR acceptance evidence under the risk-based evidence policy. Use S21 only when more test capacity is needed — parallel runs, a second-SoC comparison for device-sensitive changes, or lower-memory/degraded-device checks. Honor Magic8 Pro is supplemental coverage. Explicit issue/acceptance device or tier requirements take precedence. These roles do not change runtime `HardwareTier` or model-selection policy.
+**Test-device roles:** Samsung Galaxy S23 Ultra is the primary/default physical test device, both for an unnamed *ad hoc* "test on device" task and for PR acceptance evidence under the risk-based evidence policy. Use S21 only when more test capacity is needed — parallel runs, a second-SoC comparison for device-sensitive changes, or lower-memory/degraded-device checks — or where suite-specific tooling or explicit issue requirements apply. The canonical list is in `.docs/agents/risk-based-evidence-policy.md`. Honor Magic8 Pro is supplemental coverage. Explicit issue/acceptance device or tier requirements take precedence. These roles do not change runtime `HardwareTier` or model-selection policy.
 
 See [`docs/adb-testing.md`](./adb-testing.md) for device setup, USB/wireless debugging, and
 gotcha troubleshooting.

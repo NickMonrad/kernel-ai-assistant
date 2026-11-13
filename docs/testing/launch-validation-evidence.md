@@ -32,10 +32,9 @@ ADB device → adb_skill_test.py → scripts/test-reports/{ts}_skills.json
 
 ## Device-specific instructions
 
-### S21 (tracked reference)
+### S21 (tracked reference; suite-specific exception)
 
-The S21 (SM-G991B, serial `R5CR605B71K`) is the primary tracked device for
-launch validation. It runs the full action-routing skills suite.
+The S21 (SM-G991B, serial `R5CR605B71K`) is the tracked device for the E-2B full action-routing skills suite. This is a suite-specific exception under `.docs/agents/risk-based-evidence-policy.md`; S23U remains the primary device for PR evidence. Runs follow the policy's Device Handling Rules.
 
 ```bash
 # Full launch-scope validation (all phases, destructive excluded)
