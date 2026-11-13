@@ -2409,7 +2409,7 @@ private fun OnboardingContent(
 }
 
 @Composable
-private fun ConversationDownloadProgress(
+internal fun ConversationDownloadProgress(
     progress: Float?,
 ) {
     Spacer(modifier = Modifier.height(8.dp))
@@ -2515,7 +2515,7 @@ private fun ConversationModelRecommendationCard(
 }
 
 /** Compact byte formatting for inline use. */
-private fun formatBytesShort(bytes: Long): String = when {
+internal fun formatBytesShort(bytes: Long): String = when {
     bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000f)
     bytes >= 1_000_000L -> "%.0f MB".format(bytes / 1_000_000f)
     else -> "$bytes B"

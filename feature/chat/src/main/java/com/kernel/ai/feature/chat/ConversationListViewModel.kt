@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
+import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -12,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -20,7 +24,32 @@ import javax.inject.Inject
 @HiltViewModel
 class ConversationListViewModel @Inject constructor(
     private val repository: ConversationRepository,
+    private val chatPreferences: ChatPreferences,
+    private val downloadManager: ModelDownloadManager,
 ) : ViewModel() {
+
+    /** Null until preferences load, so a returning user never sees the welcome flash. */
+    val chatsWelcomeDismissed: StateFlow<Boolean?> = chatPreferences.chatsWelcomeDismissed
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val tabHintsDismissed: StateFlow<Boolean?> = chatPreferences.tabHintsDismissed
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val assistantReadiness: StateFlow<ConversationModelReadiness> = downloadManager.downloadStates
+        .map { states -> ConversationModelReadiness.compute(downloadManager.deviceTier, states) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            ConversationModelReadiness.compute(downloadManager.deviceTier, downloadManager.downloadStates.value),
+        )
+
+    init {
+        // The welcome is one-time: once the user has a conversation it never returns.
+        viewModelScope.launch {
+            repository.observeActive().first { it.isNotEmpty() }
+            chatPreferences.setChatsWelcomeDismissed(true)
+        }
+    }
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -62,6 +91,14 @@ class ConversationListViewModel @Inject constructor(
 
     private fun String.escapeLikeWildcards(): String =
         replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    fun hideWelcome() {
+        viewModelScope.launch { chatPreferences.setChatsWelcomeDismissed(true) }
+    }
+
+    fun dismissTabHints() {
+        viewModelScope.launch { chatPreferences.setTabHintsDismissed(true) }
+    }
 
     fun deleteConversation(conversation: ConversationEntity) {
         viewModelScope.launch {
