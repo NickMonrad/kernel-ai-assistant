@@ -291,9 +291,7 @@ tasks.register("verifyReleaseJniKeepRules") {
             "androidx.graphics.path.",
             "com.google.ai.edge.",
             "com.k2fsa.sherpa.onnx.",
-            "com.sun.jna.",
             "org.tensorflow.lite.",
-            "org.vosk.",
         )
         val requiredClasses = listOf(
             "ai.onnxruntime.OrtSession",
@@ -312,15 +310,12 @@ tasks.register("verifyReleaseJniKeepRules") {
             "com.google.ai.edge.litertlm.LiteRtLmJniException",
             "com.google.ai.edge.litertlm.NativeLibraryLoader",
             "com.k2fsa.sherpa.onnx.OfflineTts",
-            "com.sun.jna.Native",
             "org.tensorflow.lite.InterpreterFactoryImpl",
             "org.tensorflow.lite.NativeInterpreterWrapper",
             "org.tensorflow.lite.NativeInterpreterWrapperExperimental",
             "org.tensorflow.lite.NativeSignatureRunnerWrapper",
             "org.tensorflow.lite.TensorFlowLite",
             "org.tensorflow.lite.TensorImpl",
-            "org.vosk.Model",
-            "org.vosk.Recognizer",
             "com.kernel.ai.core.voice.InflectPhonemizer",
             "com.kernel.ai.core.memory.vector.VectorStoreJni",
             // LiteRT-LM reflects over ToolSet methods and parameter names (#1807).

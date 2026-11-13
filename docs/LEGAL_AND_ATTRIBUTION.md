@@ -54,7 +54,6 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Apache Commons Compress | `org.apache.commons:commons-compress` | Apache-2.0 | Include runtime notice if bundled; used for archive extraction. |
 | Google Play Services Location | `com.google.android.gms:play-services-location` | Google Play services / SDK terms, not normal OSS | Include privacy disclosure for location use; generated OSS notice may not apply. |
 | Coil | `io.coil-kt.coil3:coil-compose` | Apache-2.0 | Include runtime notice if bundled. |
-| Vosk Android | `com.alphacephei:vosk-android` | Apache-2.0 | Include runtime notice; model files still need their own source/licence if bundled/downloaded. |
 | ONNX Runtime Android | `com.microsoft.onnxruntime:onnxruntime-android` | MIT | Include MIT notice if bundled. |
 | LiteRT Interpreter API | `com.google.ai.edge.litert:litert` | Apache-2.0 plus bundled third-party notices | Include runtime notices from generated notice/SBOM. |
 | UIAutomator / AndroidX Test | `androidx.test:*` | Apache-2.0 | Test-only; exclude unless bundled in release. |
@@ -87,8 +86,6 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Engine/model | Role | Licence / terms | Launch treatment |
 |---|---|---|---|
 | Android native STT | Platform speech recognition path | Android platform/system service; offline behaviour device-dependent | Do not describe as guaranteed offline; include privacy/platform dependency wording. |
-| Vosk Android runtime | Offline STT library | Apache-2.0 | Runtime notice required if bundled. |
-| Vosk model files | Offline STT model data if bundled/downloaded | Must verify per model file | Add per-model source/licence once final Vosk model is confirmed. |
 | Sherpa Zipformer STT | Optional/default Sherpa STT model | Sherpa model source/licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa SenseVoice STT | Optional Sherpa STT model | Model licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa Whisper tiny.en STT | Optional Sherpa STT model | Code comments indicate Apache-2.0; verify upstream model page | Document source/licence before shipping/download exposure. |
@@ -148,7 +145,7 @@ Avoid promising that every feature is offline if a skill may call an external so
 - [x] #1263: release-attribution snapshot added in `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`.
 - [x] Wake-word training/provenance path is traceable through `training/wakeword/README.md` and `NOTICE`.
 - [x] Release runtime dependency evidence generated and compared against this table. Formal SBOM (CycloneDX/SPDX) not generated; Durable dependency review documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.
-- [ ] Confirm exact bundled/downloaded Vosk model provenance if Vosk model files are exposed in the release build.
+- [x] Vosk model provenance: no longer applicable. Vosk, its bundled model and its JNA dependency were removed under #1008.
 - [x] Nick confirmed ownership/consent for the real recordings used in the generated Hey Jandal Stage 3 wake-word model in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577).
 - [ ] #1263: Implement and validate both offline in-app disclosure views required for v0.1 through #1260 Legal & Privacy; this requirement is not conditional on SBOM findings.
 - [ ] Play Store privacy/data disclosures match the actual release build.

@@ -282,6 +282,7 @@ fun VoiceScreen(
         onWakeWordThresholdChanged = viewModel::setWakeWordThreshold,
         onVoiceInputEngineSelected = viewModel::setVoiceInputEngine,
         onAutoStartAlertVoiceCommandsEnabledChanged = viewModel::setAutoStartAlertVoiceCommandsEnabled,
+        onAllowOnlineSpeechFallbackChanged = viewModel::setAllowOnlineSpeechFallback,
         onSpokenResponsesEnabledChanged = viewModel::setSpokenResponsesEnabled,
         onVoiceOutputEngineSelected = viewModel::setVoiceOutputEngine,
         onSherpaVoiceSelected = viewModel::setSherpaVoice,
@@ -481,6 +482,7 @@ private fun VoiceScreenContent(
     onWakeWordThresholdChanged: (Float) -> Unit,
     onVoiceInputEngineSelected: (VoiceInputEngine) -> Unit,
     onAutoStartAlertVoiceCommandsEnabledChanged: (Boolean) -> Unit,
+    onAllowOnlineSpeechFallbackChanged: (Boolean) -> Unit,
     onSpokenResponsesEnabledChanged: (Boolean) -> Unit,
     onVoiceOutputEngineSelected: (VoiceOutputEngine) -> Unit,
     onSherpaVoiceSelected: (SherpaPiperVoice) -> Unit,
@@ -743,6 +745,28 @@ private fun VoiceScreenContent(
                     }
                 }
             }
+
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text("Allow online speech recognition") },
+                supportingContent = {
+                    Text(
+                        "Off: voice input never leaves this phone. On: Jandal uses Android " +
+                            "speech recognition, which is usually more accurate. Voice commands " +
+                            "try on-device recognition first and retry with your phone's speech " +
+                            "service (usually Google) if that fails; Hey Jandal and alarm commands " +
+                            "use that service straight away. That service may send your audio " +
+                            "off the phone.",
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.allowOnlineSpeechFallback,
+                        onCheckedChange = onAllowOnlineSpeechFallbackChanged,
+                    )
+                },
+            )
+            HorizontalDivider()
 
             Text(
                 text = "Clock alerts",
@@ -1779,6 +1803,7 @@ private fun VoiceScreenPreview() {
             onWakeWordThresholdChanged = {},
             onVoiceInputEngineSelected = {},
             onAutoStartAlertVoiceCommandsEnabledChanged = {},
+            onAllowOnlineSpeechFallbackChanged = {},
             onSpokenResponsesEnabledChanged = {},
             onVoiceOutputEngineSelected = {},
             onSherpaVoiceSelected = {},

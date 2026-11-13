@@ -75,7 +75,7 @@ Current S23U screenshots from a debug build, using synthetic data; these are not
 | Embeddings / RAG | Arctic Embed M v1.5 (768-dim), sqlite-vec cosine indexes |
 | Quick actions | Kotlin `QuickIntentRouter` with deterministic routing and slot filling |
 | Tool calling | LiteRT-LM native `@Tool` annotations and app-owned native skills |
-| STT | Android native STT, Vosk, Sherpa-ONNX Zipformer / SenseVoice / Whisper tiny.en / Paraformer |
+| STT | Automatic (offline Sherpa-ONNX Zipformer; Android speech recognition when online recognition is allowed), Android native, plus Sherpa-ONNX SenseVoice / Whisper tiny.en / Paraformer |
 | TTS | Sherpa-ONNX Piper/VITS voice packs, Android TTS fallback, Kokoro research path |
 | Wake word | Sherpa-ONNX verification and ONNX Runtime wake-word pipeline |
 | Auth for gated downloads | Hugging Face OAuth via AppAuth |

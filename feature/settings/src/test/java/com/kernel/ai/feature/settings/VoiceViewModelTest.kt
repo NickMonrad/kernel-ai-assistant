@@ -64,8 +64,9 @@ class VoiceViewModelTest {
     private val context: Context = mockk(relaxed = true)
     private val heyJandalEnabled = MutableStateFlow(false)
     private val wakeWordThreshold = MutableStateFlow(WAKE_WORD_DEFAULT_THRESHOLD)
-    private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
+    private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Auto)
     private val autoStartAlertVoiceCommandsEnabled = MutableStateFlow(true)
+    private val allowOnlineSpeechFallback = MutableStateFlow(false)
     private val spokenResponsesEnabled = MutableStateFlow(true)
     private val selectedOutputEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
     private val selectedSherpaVoice = MutableStateFlow(SherpaPiperVoice.JennyDioco)
@@ -120,6 +121,7 @@ class VoiceViewModelTest {
             )
         every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
         every { voiceInputPreferences.autoStartAlertVoiceCommandsEnabled } returns autoStartAlertVoiceCommandsEnabled
+        every { voiceInputPreferences.allowOnlineSpeechFallback } returns allowOnlineSpeechFallback
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
@@ -188,9 +190,19 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `voice input engine defaults to vosk when preference flow emits vosk`() = runTest {
+    fun `voice input engine defaults to auto when preference flow emits auto`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(VoiceInputEngine.Vosk, viewModel.uiState.value.selectedInputEngine)
+        assertEquals(VoiceInputEngine.Auto, viewModel.uiState.value.selectedInputEngine)
+    }
+
+    @Test
+    fun `online speech fallback is off by default and follows the preference`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, viewModel.uiState.value.allowOnlineSpeechFallback)
+
+        allowOnlineSpeechFallback.value = true
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, viewModel.uiState.value.allowOnlineSpeechFallback)
     }
 
     @Test
@@ -228,7 +240,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack or keep using Vosk for guaranteed local voice input.",
+            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack, or use Automatic or Sherpa-ONNX Zipformer for guaranteed local voice input.",
             viewModel.uiState.value.androidNativeAvailabilityMessage,
         )
     }
@@ -304,7 +316,7 @@ class VoiceViewModelTest {
         )
 
         assertEquals(
-            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack or keep using Vosk for guaranteed local voice input.",
+            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack, or use Automatic or Sherpa-ONNX Zipformer for guaranteed local voice input.",
             resolveAndroidNativeAvailabilityMessage(availability),
         )
     }

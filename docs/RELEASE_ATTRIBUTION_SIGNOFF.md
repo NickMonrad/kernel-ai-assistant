@@ -42,8 +42,7 @@ This remains a **pre-release-candidate attribution snapshot**, not a signed rele
 | Asset | Release role | Source / terms status | Sign-off status |
 |---|---|---|---|
 | Android native STT | Platform fallback/option. | Android platform/system service. | Store/privacy copy must not promise guaranteed offline operation for this path. |
-| Vosk Android runtime | Offline STT runtime. | Apache-2.0 runtime dependency. | Runtime notice required if bundled. |
-| Vosk model files | Offline STT data if exposed. | Per-model provenance must be checked against final selected/downloaded model. | Keep as sign-off item until exact release model is known. |
+| Vosk runtime and model | Removed under #1008. | Not shipped. | No sign-off needed. |
 | Sherpa Zipformer STT | Optional Sherpa STT model. | `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21`, documented as Apache-2.0 / upstream lineage. | OK if release-exposed; cite exact HF export page. |
 | Sherpa SenseVoice STT | Optional Sherpa STT model. | ONNX export from SenseVoice/FunASR. FunASR code is MIT; model weights use separate FunASR model licence. | Release docs must not describe as MIT-only. |
 | Sherpa Whisper tiny.en STT | Optional Sherpa STT model. | `csukuangfj/sherpa-onnx-whisper-tiny.en` plus upstream `openai/whisper-tiny.en`, Apache-2.0. | OK if release-exposed; cite both export and upstream model lineage. |
@@ -101,7 +100,7 @@ The #1259/#1273 release dependency tree, gap report, and AAB audit are historica
 
 - [ ] Generate or verify a complete notice set against the resolved release dependency graph, including all transitive/runtime and local file dependencies; preserve required notice text. No formal SBOM or completed generated notice set exists.
 - [ ] Reconcile the current release AAB/APK and packaged native/model/data payloads with that graph and notice set.
-- [ ] Resolve reviewed source/licence/notice metadata for bundled Vosk runtime/model, MiniLM conversion, tokenizer, wake-word upstream assets, and every release-visible or downloadable model/voice. Existing records identify specific unknown provenance and terms; do not infer clearance from generic project licences.
+- [ ] Resolve reviewed source/licence/notice metadata for MiniLM conversion, tokenizer, wake-word upstream assets, and every release-visible or downloadable model/voice. Existing records identify specific unknown provenance and terms; do not infer clearance from generic project licences.
 - [ ] Record Sherpa/eSpeak/Piper native and `espeak-ng-data` source/notice mapping plus a release-linked corresponding-source/build path. #1474 is closed, but the factual evidence in its comments does not establish complete source-to-binary provenance or legal sufficiency; current owner direction excludes inadequately evidenced components from v0.1.
 - [ ] Implement and validate the offline Models, voices & wake word view, with source, licence/terms, relevant lineage, and release status for every exposed asset.
 - [ ] Add Data & Privacy Summary navigation to Legal & Privacy; Privacy Policy, Terms of Use, and Open-source licences navigation currently exist.

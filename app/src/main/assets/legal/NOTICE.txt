@@ -32,12 +32,6 @@ Sherpa-ONNX v1.13.0
   This entry identifies the Sherpa-ONNX project licence only. It does not
   describe the complete custom AAR or its separately sourced components.
 
-Java Native Access (JNA) 5.18.1
-  Licensed under the Apache License, Version 2.0 or LGPL 2.1-or-later;
-  the Apache License option is selected here.
-  https://github.com/java-native-access/jna/blob/5.18.1/LICENSE
-  Used: native dispatch dependency of Vosk Android.
-
 sqlite-vec 0.1.9
   Copyright 2024 Alex Garcia
   Licensed under the MIT License

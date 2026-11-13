@@ -63,6 +63,35 @@ object TranscriptNormaliser {
     )
 
     /**
+     * #1820: a leading "add" misheard as "I've" / "I'd" / "ad" in a whole-utterance list
+     * command ("i've milk to my shopping list"). Only the full command shape is rewritten,
+     * and a following word that makes it an ordinary sentence ("I'd like …", "I've got …")
+     * leaves it alone.
+     */
+    private val MISHEARD_ADD_LIST_COMMAND = Regex(
+        """^\s*(?:i['’]ve|i['’]d|ad)\s+(.{1,40}?)\s+to\s+((?:my|the)\s+(?:[\w'’-]+\s+){0,3}list)\s*([.!?]*)\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * Words that, straight after "I've"/"I'd", make an ordinary sentence rather than a list
+     * item ("I'd stick to the list", "I've come back to my list"). Any word ending in -ed or
+     * -ing is treated the same way.
+     */
+    private val MISHEARD_ADD_VERB_STARTS = setOf(
+        "a", "add", "agree", "already", "also", "be", "been", "better", "come", "go", "gone",
+        "got", "had", "have", "head", "just", "keep", "like", "listen", "look", "love", "move",
+        "need", "never", "point", "prefer", "put", "rather", "refer", "return", "run", "say",
+        "send", "sent", "stay", "stick", "stuck", "switch", "talk", "to", "turn", "want",
+        "went", "write",
+    )
+
+    private fun looksLikeVerbStart(item: String): Boolean {
+        val first = item.trim().substringBefore(' ').lowercase().trim('\'', '’')
+        return first in MISHEARD_ADD_VERB_STARTS || first.endsWith("ed") || first.endsWith("ing")
+    }
+
+    /**
      * Normalise [text] by applying all replacement rules in order.
      *
      * - Returns [text] unchanged if blank.
@@ -81,6 +110,11 @@ object TranscriptNormaliser {
         }
         for ((re, replacement) in STT_UNIT_ALIAS_REPLACEMENTS) {
             out = re.replace(out, replacement)
+        }
+        MISHEARD_ADD_LIST_COMMAND.matchEntire(out)?.takeUnless { looksLikeVerbStart(it.groupValues[1]) }?.let { m ->
+            val before = out
+            out = "add ${m.groupValues[1]} to ${m.groupValues[2]}${m.groupValues[3]}"
+            Log.w(TAG, "MISHEARD_ADD applied to \"$before\" → \"$out\"")
         }
         return out
     }

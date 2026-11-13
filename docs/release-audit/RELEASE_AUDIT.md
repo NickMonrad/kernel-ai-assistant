@@ -2,6 +2,8 @@
 
 > **Historical audit snapshot:** This file records the AAB built from commit `059122dc`. The build metadata, hashes, sizes, and inspected contents below are intentionally preserved as audited. The embedding-model release architecture was subsequently superseded by #1559 / PR #1562; no replacement AAB audit has been performed in this documentation reconciliation.
 
+> **Update (#1008):** Vosk, its bundled ~73 MB model, `libvosk.so` and its JNA dependency (`libjnidispatch.so`) have since been removed from the app. Rows below that list them describe this historical snapshot only.
+
 ## Build Metadata
 
 | Property | Value |
