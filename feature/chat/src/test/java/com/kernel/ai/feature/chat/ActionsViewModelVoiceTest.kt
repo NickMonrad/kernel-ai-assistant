@@ -178,6 +178,16 @@ class ActionsViewModelVoiceTest {
         verify(exactly = 0) { quickIntentRouter.route(any()) }
     }
 
+    @Test
+    fun `SpeakingStarted after a voice output stop does not leave the card on Speaking`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        viewModel.stopVoiceOutput()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("abandoned chunk"))
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
 
     @Test
     fun `executeAction in voice mode speaks slot prompt for NeedsSlot`() = runTest(dispatcher) {

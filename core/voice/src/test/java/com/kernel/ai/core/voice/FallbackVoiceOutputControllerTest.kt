@@ -267,6 +267,46 @@ class FallbackVoiceOutputControllerTest {
     }
 
     @Test
+    fun `cancelling an Inflect streaming session never starts Android TTS`() = runTest(dispatcher) {
+        selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+        val request = VoiceSpeakRequest("Inflect cancel")
+        val inflectSession = mockk<VoiceOutputStreamingSession>()
+        coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { inflect.openStreamingSession(request) } returns inflectSession
+        coEvery { inflectSession.append(any(), any()) } returns VoiceOutputResult.Spoken
+        coEvery { inflectSession.cancel() } just runs
+
+        val session = buildController().openStreamingSession(request)
+        session.append("partial reply ", isFinal = false)
+        session.cancel()
+
+        coVerify(exactly = 1) { inflectSession.cancel() }
+        coVerify(exactly = 0) { androidTts.warmUp() }
+        coVerify(exactly = 0) { androidTts.speak(any()) }
+    }
+
+    @Test
+    fun `streaming Inflect fallback separates buffered sentences with a single space`() = runTest(dispatcher) {
+        selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+        val request = VoiceSpeakRequest(text = "")
+        val inflectSession = mockk<VoiceOutputStreamingSession>()
+        val fullText = "It's 22 degrees. Today's high is 28."
+        coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { inflect.openStreamingSession(request) } returns inflectSession
+        coEvery { inflectSession.append("It's 22 degrees.", false) } returns VoiceOutputResult.Spoken
+        coEvery { inflectSession.append("Today's high is 28.", true) } returns
+            VoiceOutputResult.Unavailable("phonemizer failed")
+        coEvery { androidTts.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { androidTts.speak(request.copy(text = fullText)) } returns VoiceOutputResult.Spoken
+
+        val session = buildController().openStreamingSession(request)
+        session.append("It's 22 degrees.", isFinal = false)
+        session.append("Today's high is 28.", isFinal = true)
+
+        coVerify(exactly = 1) { androidTts.speak(request.copy(text = fullText)) }
+    }
+
+    @Test
     fun `streaming Inflect final failure speaks the full buffered response with Android TTS`() =
         runTest(dispatcher) {
             selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental

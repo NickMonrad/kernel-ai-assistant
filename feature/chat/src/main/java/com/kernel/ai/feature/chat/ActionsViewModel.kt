@@ -317,6 +317,8 @@ class ActionsViewModel @Inject constructor(
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
     private var chunkedVoiceSpeechJob: Job? = null
+    /** Set by [cancelPendingVoiceSpeech]; cleared when the next reply starts speaking. */
+    private var voiceSpeechCancelled = false
     private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
@@ -506,6 +508,12 @@ class ActionsViewModel @Inject constructor(
             voiceOutputController.events.collect { event ->
                 when (event) {
                     is VoiceOutputEvent.SpeakingStarted -> {
+                        if (voiceSpeechCancelled) {
+                            // Speech the user abandoned can still report a start; no SpeakingStopped
+                            // follows it on Inflect, so accepting it would leave the card on Speaking.
+                            Log.d(TAG, "ActionsViewModel: ignoring SpeakingStarted after cancelled speech")
+                            return@collect
+                        }
                         cancelPendingVoiceSlotReplyRestart()
                         _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
                         if (event.text == expectedSlotPromptSpeech) {
@@ -2028,6 +2036,8 @@ class ActionsViewModel @Inject constructor(
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
+        // A new reply supersedes the cancellation, so its SpeakingStarted events count again.
+        voiceSpeechCancelled = false
         // A slot prompt must be spoken as one utterance: the slot-reply mic re-arm only trusts a
         // SpeakingStarted whose text equals expectedSlotPromptSpeech, and Android TTS streaming
         // reports the first (re-normalised) chunk instead. Slot prompts are one short question,
@@ -2081,11 +2091,12 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSpeech() {
         pendingVoiceSpeechJob?.cancel()
         pendingVoiceSpeechJob = null
+        voiceSpeechCancelled = true
         if (chunkedVoiceSpeechJob != null) {
             chunkedVoiceSpeechJob = null
-            // The user moved on mid-reply, so queued or playing sentence chunks would keep
-            // speaking over the new interaction. stop() halts them; Inflect emits no
-            // SpeakingStopped after stop(), so the playback state is reset here as well.
+            // The user moved on mid-reply, so sentence chunks would keep speaking over the new
+            // interaction while still queuing (Inflect: while playing). stop() halts them; Inflect
+            // emits no SpeakingStopped after stop(), so the playback state is reset here as well.
             voiceOutputController.stop()
             _voicePlaybackState.value = VoicePlaybackState.Idle
         }

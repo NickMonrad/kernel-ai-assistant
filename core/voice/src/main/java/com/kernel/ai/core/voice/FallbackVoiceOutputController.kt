@@ -172,7 +172,14 @@ class FallbackVoiceOutputController @Inject constructor(
                     isFinal: Boolean,
                 ): VoiceOutputResult {
                     if (isClosed) return VoiceOutputResult.Spoken
-                    if (text.isNotBlank()) bufferedText.append(text)
+                    if (text.isNotBlank()) {
+                        // Sentence chunks arrive without a separator; join them with one space so the
+                        // Android TTS fallback does not read "degrees.Today's" as one run.
+                        if (bufferedText.isNotEmpty() && !bufferedText.last().isWhitespace() && !text.first().isWhitespace()) {
+                            bufferedText.append(' ')
+                        }
+                        bufferedText.append(text)
+                    }
                     if (!isFinal) return inflectSession.append(text, isFinal = false)
 
                     isClosed = true

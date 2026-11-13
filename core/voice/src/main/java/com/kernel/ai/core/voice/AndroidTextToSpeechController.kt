@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** If a TTS utterance callback (onDone/onError/onStop) never fires, force SpeakingStopped after this delay. */
-private const val PLAYBACK_TIMEOUT_MS = 30_000L
+internal const val PLAYBACK_TIMEOUT_MS = 30_000L
 
 private const val TAG = "KernelAI"
 
