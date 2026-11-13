@@ -34,6 +34,7 @@ import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -315,7 +316,7 @@ class ActionsViewModel @Inject constructor(
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
-    private var chunkedVoiceSpeechInFlight = false
+    private var chunkedVoiceSpeechJob: Job? = null
     private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
@@ -2036,8 +2037,9 @@ class ActionsViewModel @Inject constructor(
             if (delayMs > 0) delay(delayMs)
             if (!spokenResponsesEnabled) return@launch
             // Other replies go sentence by sentence, so long ones (e.g. weather) start sooner.
+            val speechJob = currentCoroutineContext()[Job]
             val result = try {
-                chunkedVoiceSpeechInFlight = !isSlotPrompt
+                if (!isSlotPrompt) chunkedVoiceSpeechJob = speechJob
                 if (isSlotPrompt) {
                     voiceOutputController.speak(VoiceSpeakRequest(text = summary))
                 } else {
@@ -2049,7 +2051,9 @@ class ActionsViewModel @Inject constructor(
                 Log.e(TAG, "ActionsViewModel: chunked speech failed to start", e)
                 VoiceOutputResult.Unavailable("Voice playback failed to start.")
             } finally {
-                chunkedVoiceSpeechInFlight = false
+                // Identity check: a cancelled reply's finally must not clear the flag that
+                // now belongs to the reply that replaced it.
+                if (chunkedVoiceSpeechJob === speechJob) chunkedVoiceSpeechJob = null
             }
             when (result) {
                 is VoiceOutputResult.Spoken -> Unit
@@ -2077,11 +2081,13 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSpeech() {
         pendingVoiceSpeechJob?.cancel()
         pendingVoiceSpeechJob = null
-        if (chunkedVoiceSpeechInFlight) {
-            chunkedVoiceSpeechInFlight = false
-            // The user moved on mid-reply — drop the already-queued sentence chunks too,
-            // instead of letting the stale reply keep playing over the new interaction.
+        if (chunkedVoiceSpeechJob != null) {
+            chunkedVoiceSpeechJob = null
+            // The user moved on mid-reply, so queued or playing sentence chunks would keep
+            // speaking over the new interaction. stop() halts them; Inflect emits no
+            // SpeakingStopped after stop(), so the playback state is reset here as well.
             voiceOutputController.stop()
+            _voicePlaybackState.value = VoicePlaybackState.Idle
         }
     }
 

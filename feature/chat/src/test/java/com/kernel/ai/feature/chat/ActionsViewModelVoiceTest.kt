@@ -4350,4 +4350,49 @@ class ActionsViewModelVoiceTest {
 
         verify(exactly = 1) { voiceOutputController.stop() }
     }
+
+    @Test
+    fun `stopping an in-flight chunked reply resets speaking state to idle without SpeakingStopped`() = runTest(dispatcher) {
+        // Inflect's stop() emits no SpeakingStopped, so the VM itself must leave the Speaking state.
+        coEvery { voiceOutputController.openStreamingSession(any()) } coAnswers {
+            object : VoiceOutputStreamingSession {
+                override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+                    awaitCancellation()
+                }
+            }
+        }
+        val weatherSkill = mockk<Skill>()
+        every { quickIntentRouter.route("what's the weather in Wellington") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to "Wellington"),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+        every { weatherSkill.name } returns "get_weather"
+        every { weatherSkill.description } returns "Get weather"
+        every { weatherSkill.schema } returns SkillSchema()
+        coEvery { weatherSkill.execute(any()) } returns SkillResult.DirectReply(
+            content = "Wellington forecast",
+            spokenSummary = "In Wellington, it's 25 degrees and partly cloudy with northerly winds.",
+        )
+        every { quickIntentRouter.route("what's the time") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "what's the time")
+
+        viewModel.executeAction("what's the weather in Wellington", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("In Wellington, it's 25 degrees."))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Speaking("In Wellington, it's 25 degrees."),
+            viewModel.voicePlaybackState.value,
+        )
+
+        viewModel.executeAction("what's the time", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
 }

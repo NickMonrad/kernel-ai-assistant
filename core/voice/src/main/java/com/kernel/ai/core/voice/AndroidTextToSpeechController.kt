@@ -164,7 +164,7 @@ class AndroidTextToSpeechController @Inject constructor(
             isFinal = true,
         )
         if (result is VoiceOutputResult.Spoken) {
-            schedulePlaybackTimeout()
+            schedulePlaybackTimeoutFor(playbackToken)
         }
         return result
     }
@@ -190,7 +190,7 @@ class AndroidTextToSpeechController @Inject constructor(
                                 ?.finalChunkQueued = true
                         }
                         completePlaybackIfDrained(playbackToken)
-                        schedulePlaybackTimeout()
+                        schedulePlaybackTimeoutFor(playbackToken)
                     }
                     return VoiceOutputResult.Spoken
                 }
@@ -213,7 +213,7 @@ class AndroidTextToSpeechController @Inject constructor(
                     hasQueuedChunk = true
                     if (isFinal) {
                         isClosed = true
-                        schedulePlaybackTimeout()
+                        schedulePlaybackTimeoutFor(playbackToken)
                     }
                 }
                 return result
@@ -648,6 +648,16 @@ class AndroidTextToSpeechController @Inject constructor(
                 releaseAudioFocus()
                 _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
             }
+        }
+    }
+
+    /**
+     * Arms the safety-net timeout only while [playbackToken] still owns [activePlayback]. A stale
+     * session (superseded by a newer speak/stream) must not cancel the newer playback's timeout.
+     */
+    private fun schedulePlaybackTimeoutFor(playbackToken: Long) {
+        synchronized(playbackLock) {
+            if (activePlayback?.token == playbackToken) schedulePlaybackTimeout()
         }
     }
 
