@@ -6,6 +6,7 @@
   --ink: #1c1b1f;
   --muted: #4a4a4a;
   --green: #4f7942;
+  --on-green: #fff;
   --teal: #0d7a7a;
   --purple: #6b3fa0;
   --line: #d0ccc4;
@@ -24,6 +25,7 @@
     --ink: #e8e8e8;
     --muted: #b0b0b0;
     --green: #7aad6a;
+    --on-green: #1a1a1a;
     --teal: #5ec4b9;
     --purple: #b595e0;
     --line: #444;
@@ -106,7 +108,7 @@ h1 span { color: var(--green); }
 .requirements-inner > div { max-width: 760px; }
 .requirements-inner p:last-child { margin-bottom: 0; color: var(--muted); }
 
-.cta-button { display: inline-flex; min-height: 48px; align-items: center; justify-content: center; gap: 8px; padding: 12px 22px; border-radius: 999px; background: var(--green); color: var(--page); font-size: 1rem; font-weight: 750; text-decoration: none; }
+.cta-button { display: inline-flex; min-height: 48px; align-items: center; justify-content: center; gap: 8px; padding: 12px 22px; border-radius: 999px; background: var(--green); color: var(--on-green); font-size: 1rem; font-weight: 750; text-decoration: none; }
 .cta-button:hover { filter: brightness(1.08); }
 .cta-button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 .beta-hero { padding-block: 72px 48px; max-width: 900px; }
