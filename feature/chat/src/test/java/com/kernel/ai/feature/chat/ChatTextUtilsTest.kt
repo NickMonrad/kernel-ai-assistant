@@ -462,6 +462,138 @@ class ChatTextUtilsTest {
         }
     }
 
+    @Nested
+    @DisplayName("streaming speech chunking keeps structured values whole")
+    inner class StreamingSpeechStructuredValueTests {
+
+        /** Feeds [text] one character at a time, popping after each append like the token stream does. */
+        private fun streamChunks(text: String, minChunkLength: Int, preferredChunkLength: Int): List<String> {
+            val buffer = StringBuilder()
+            val chunks = mutableListOf<String>()
+            fun drain(force: Boolean) {
+                while (true) {
+                    chunks += popNextStreamingSpeechChunk(
+                        buffer = buffer,
+                        minChunkLength = minChunkLength,
+                        preferredChunkLength = preferredChunkLength,
+                        force = force,
+                    ) ?: break
+                }
+            }
+            text.forEach { char ->
+                buffer.append(char)
+                drain(force = false)
+            }
+            drain(force = true)
+            return chunks
+        }
+
+        /** Pops chunks from a fully buffered [text], like per-message playback does. */
+        private fun bufferedChunks(text: String, minChunkLength: Int, preferredChunkLength: Int): List<String> {
+            val buffer = StringBuilder(text)
+            val chunks = mutableListOf<String>()
+            while (buffer.isNotBlank()) {
+                chunks += popNextStreamingSpeechChunk(
+                    buffer = buffer,
+                    minChunkLength = minChunkLength,
+                    preferredChunkLength = preferredChunkLength,
+                    force = buffer.length < minChunkLength,
+                ) ?: break
+            }
+            if (buffer.isNotBlank()) chunks += finalizeChatTextForSpeech(buffer.toString())
+            return chunks
+        }
+
+        private fun assertValueSpokenWhole(chunks: List<String>, value: String) {
+            assertTrue(chunks.any { it.contains(value) }, "Expected \"$value\" whole in one chunk, got: $chunks")
+        }
+
+        @ParameterizedTest(name = "streamed \"{0}\" stays whole")
+        @ValueSource(strings = ["8:00", "\$1,200", "7:30 a.m.", "7:30 pm", "\$49.95", "NZ\$20.50", "US\$1,250.75", "3.14159", "12,500"])
+        fun `streamed value is never split across chunks at any position`(value: String) {
+            // Slide the value across the chunk limit so every split point inside it is exercised.
+            for (padding in 0..20) {
+                val text = "Okay ${"x".repeat(padding)} the answer is $value and that is the end of it"
+                for ((min, preferred) in listOf(8 to 16, 10 to 24, 16 to 32, 24 to 48)) {
+                    assertValueSpokenWhole(streamChunks(text, min, preferred), value)
+                    assertValueSpokenWhole(bufferedChunks(text, min, preferred), value)
+                }
+            }
+        }
+
+        @Test
+        fun `clock time at the length limit splits at the whitespace before it`() {
+            val buffer = StringBuilder("Your alarm is set for 8:00 tomorrow morning")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 26)
+
+            assertEquals("Your alarm is set for,", chunk)
+            assertEquals("8:00 tomorrow morning", buffer.toString())
+        }
+
+        @Test
+        fun `comma-grouped price is not split on its comma`() {
+            val buffer = StringBuilder("The laptop costs \$1,200 before the discount")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 22)
+
+            assertEquals("The laptop costs,", chunk)
+            assertTrue(buffer.startsWith("\$1,200"), "buffer was: $buffer")
+        }
+
+        @Test
+        fun `meridiem is not separated from its time`() {
+            val buffer = StringBuilder("The meeting starts at 7:30 a.m. in the hall")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 28)
+
+            assertEquals("The meeting starts at,", chunk)
+            assertTrue(buffer.startsWith("7:30 a.m."), "buffer was: $buffer")
+        }
+
+        @Test
+        fun `decimal price at the end of the stream buffer waits for more text`() {
+            val buffer = StringBuilder("Today the special offer price is \$49.")
+
+            assertNull(popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200))
+
+            buffer.append("95 for members.")
+            assertEquals(
+                "Today the special offer price is \$49.95 for members.",
+                popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200),
+            )
+        }
+
+        @Test
+        fun `ordinary long sentence still chunks on whitespace and sentence ends`() {
+            val text = "This is a perfectly normal long sentence with no numbers in it at all, " +
+                "and it keeps going for a while so the chunker has to split it somewhere sensible. " +
+                "Then a second sentence follows."
+
+            val chunks = bufferedChunks(text, minChunkLength = 24, preferredChunkLength = 48)
+
+            assertEquals(
+                listOf(
+                    "This is a perfectly normal long sentence with,",
+                    "no numbers in it at all, and it keeps going for,",
+                    "a while so the chunker has to split it,",
+                    "somewhere sensible. Then a second sentence,",
+                    "follows.",
+                ),
+                chunks,
+            )
+        }
+
+        @Test
+        fun `plain number followed by a comma and space still splits there`() {
+            val buffer = StringBuilder("In 2020, we moved to a new house near the beach")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 5, preferredChunkLength = 8)
+
+            assertEquals("In 2020,", chunk)
+        }
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // ANAPHORA DETECTION
     // ═════════════════════════════════════════════════════════════════════════

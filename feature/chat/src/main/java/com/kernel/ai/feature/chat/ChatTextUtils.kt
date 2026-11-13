@@ -4,6 +4,7 @@ import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.skills.isFactualWikipediaQuestion
 import com.kernel.ai.feature.chat.model.ToolCallInfo
+import java.util.regex.Pattern
 
 /**
  * Converts LaTeX expressions to Unicode and strips Markdown syntax,
@@ -237,7 +238,9 @@ private fun findSpeechChunkBoundary(
     for (index in text.indices) {
         val char = text[index]
 
-        if (char.isWhitespace()) {
+        // Boundaries that would cut a time, price or number in two are skipped, so the chunk falls
+        // back to an earlier boundary (usually the whitespace before the value) or waits for more text.
+        if (char.isWhitespace() && !splitsStructuredValue(text, index + 1)) {
             whitespaceBoundary = index + 1
         }
         when (char) {
@@ -245,7 +248,7 @@ private fun findSpeechChunkBoundary(
                 val next = text.getOrNull(index + 1)
                 if (next == null || next.isWhitespace() || next == '"' || next == '\'' || next == ')') {
                     val boundary = index + 1
-                    if (boundary >= minChunkLength) {
+                    if (boundary >= minChunkLength && !splitsStructuredValue(text, boundary)) {
                         return SpeechChunkBoundary(index = boundary, type = SpeechChunkBoundaryType.STRONG)
                     }
                 }
@@ -257,7 +260,9 @@ private fun findSpeechChunkBoundary(
                 }
             }
             ',', ';', ':' -> {
-                softBoundary = index + 1
+                if (!splitsStructuredValue(text, index + 1)) {
+                    softBoundary = index + 1
+                }
             }
         }
 
@@ -278,6 +283,48 @@ private fun findSpeechChunkBoundary(
     }
 
     return null
+}
+
+// A digit followed by a separator that may continue the number: "8:" | "00", "$1," | "200", "$49." | "95".
+private val NUMBER_SEPARATOR_TAIL: Pattern = Pattern.compile("""\d[.,:]$""")
+// A clock time that an am/pm suffix may still follow: "7:30" | "a.m.".
+private val CLOCK_TIME_TAIL: Pattern = Pattern.compile("""\d:\d{2}\s*$""")
+// A clock time with a partial meridiem: "7:30 a." | "m.".
+private val CLOCK_TIME_PARTIAL_MERIDIEM_TAIL: Pattern =
+    Pattern.compile("""\d:\d{2}\s*[ap]\.?\s?$""", Pattern.CASE_INSENSITIVE)
+// A meridiem after a clock time (am, pm, a.m., p.m.), or its start at the end of the buffer ("a.").
+private val MERIDIEM_HEAD: Pattern =
+    Pattern.compile("""(?:[ap]\.?\s?m(?![a-z])|[ap]\.?$)""", Pattern.CASE_INSENSITIVE)
+// The rest of a meridiem after "a." / "p.".
+private val MERIDIEM_REST_HEAD: Pattern = Pattern.compile("""m(?![a-z])""", Pattern.CASE_INSENSITIVE)
+private const val STRUCTURED_VALUE_LOOKBEHIND = 16
+
+/**
+ * True when splitting [text] at [boundary] would cut a clock time (`H:MM` with optional am/pm),
+ * a currency amount (`$`, `NZ$`, `US$`, `A$`) or a decimal/comma-grouped number in two.
+ *
+ * Speech normalisation downstream only reads these values correctly when they arrive whole. A
+ * boundary at the very end of a streaming buffer that may still be mid-value is unsafe too: the
+ * chunker then falls back to an earlier boundary or waits for more text.
+ */
+private fun splitsStructuredValue(text: String, boundary: Int): Boolean {
+    if (boundary <= 0) return false
+    val beforeStart = maxOf(0, boundary - STRUCTURED_VALUE_LOOKBEHIND)
+    fun beforeEndsWith(pattern: Pattern): Boolean =
+        pattern.matcher(text).region(beforeStart, boundary).find()
+
+    if (beforeEndsWith(NUMBER_SEPARATOR_TAIL) && (boundary >= text.length || text[boundary].isDigit())) {
+        return true
+    }
+
+    var next = boundary
+    while (next < text.length && text[next].isWhitespace()) next++
+    val restPending = next >= text.length
+    fun restStartsWith(pattern: Pattern): Boolean =
+        pattern.matcher(text).region(next, text.length).lookingAt()
+
+    if (beforeEndsWith(CLOCK_TIME_TAIL) && (restPending || restStartsWith(MERIDIEM_HEAD))) return true
+    return beforeEndsWith(CLOCK_TIME_PARTIAL_MERIDIEM_TAIL) && (restPending || restStartsWith(MERIDIEM_REST_HEAD))
 }
 
 /**
