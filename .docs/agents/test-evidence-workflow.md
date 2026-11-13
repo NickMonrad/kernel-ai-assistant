@@ -220,7 +220,7 @@ For **on-device evidence**, the agent (when required by the issue, risk policy, 
 **Agent guidance for on-device evidence:**
 
 - Determine whether on-device testing is required from the issue, `.docs/agents/risk-based-evidence-policy.md`, and applicable subsystem gates; do not ask again when those sources settle it. On-device testing requires a physical device, USB/wireless ADB connection, and the app to be installed — it is not a CI step.
-- Use a device already specified by the issue or user. Otherwise, S21 is the default evidence device; use S23U when the risk policy calls for a focused comparison. If the required device is unavailable, report the concrete blocker rather than repeatedly asking which device to use.
+- Use a device already specified by the issue or user. Otherwise, S23U is the default evidence device; use S21 only when more test capacity is needed per the risk policy. If the required device is unavailable, report the concrete blocker rather than repeatedly asking which device to use.
 - Keep testing and publication separate. Run authorised device tests without asking for publication permission, but **do not publish** to `test-results` unless the user explicitly requests it. Ask only if publication is requested but its scope is genuinely unresolved.
 - **Do not imply** on-device evidence is covered by CI or the PR-number-first workflow.
 - **Do not publish** on-device evidence without a real physical-device run and explicit scope, commit,

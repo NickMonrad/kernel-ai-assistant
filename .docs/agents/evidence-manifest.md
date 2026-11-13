@@ -38,8 +38,8 @@ It helps reviewers quickly understand what evidence was collected and what was w
 |----------|--------|---------|
 | Automated tests | ✅ / ⚠️ / ❌ | Commands run: `./gradlew ...` |
 | CI run | ✅ / ⚠️ / ❌ | Run # or URL: |
-| S21 device | ✅ / ⚠️ / ❌ / N/A | Model / Android version: |
 | S23U device | ✅ / ⚠️ / ❌ / N/A | Model / Android version: |
+| S21 device | ✅ / ⚠️ / ❌ / N/A | Model / Android version: |
 | Screenshots | ✅ / ⚠️ / ❌ / N/A | Path(s): |
 | Pre-flight oracle | ✅ / ⚠️ / ❌ / N/A | Status: |
 | Manual on-device checks | ✅ / ⚠️ / ❌ / N/A | Checks completed: |
@@ -52,8 +52,8 @@ It helps reviewers quickly understand what evidence was collected and what was w
 
 ### Device Details
 <!-- When device testing was performed -->
-- **S21:** One UI version / Android version / Connection (USB/TCP)
 - **S23U:** One UI version / Android version / Connection (USB/TCP)
+- **S21:** One UI version / Android version / Connection (USB/TCP)
 
 ### Manual Checks Completed
 <!-- Only if manual on-device testing was done -->
@@ -97,7 +97,7 @@ It helps reviewers quickly understand what evidence was collected and what was w
 
 - **Automated tests:** Unit and instrumentation tests run locally or in CI.
 - **CI run:** Link to the GitHub Actions run that validates this PR.
-- **S21 / S23U device:** Physical device test evidence from ADB harness or manual testing.
+- **S23U / S21 device:** Physical device test evidence from ADB harness or manual testing.
 - **Screenshots:** Before/after visual evidence for UI changes.
 - **Pre-flight oracle:** Harness health check (test harness changes only).
 - **Manual on-device checks:** Human-verified behaviour (audio, permissions, UI alignment).
@@ -110,7 +110,7 @@ It helps reviewers quickly understand what evidence was collected and what was w
 - **Manual review only:** Code review confidence without device testing.
 - **Waived evidence with rationale:** Intentionally skipped, documented with justification.
 
-## Example (Medium Risk S21-only PR)
+## Example (Medium Risk S23U-only PR)
 
 ```markdown
 ## Evidence Manifest
@@ -131,8 +131,8 @@ It helps reviewers quickly understand what evidence was collected and what was w
 |----------|--------|---------|
 | Automated tests | ✅ | `./gradlew :feature:settings:testDebugUnitTest` passes |
 | CI run | ✅ | Run #987654 |
-| S21 device | ✅ | S21 Exynos, One UI 6.1, Android 15, USB |
-| S23U device | N/A | No device-sensitive changes |
+| S23U device | ✅ | S23U SD 8 Gen 2, One UI 6.1, Android 16, USB |
+| S21 device | N/A | No extra capacity or second-SoC comparison needed |
 | Screenshots | ✅ | `screenshots/pr-1234-model-info-before.png`, `screenshots/pr-1234-model-info-after.png` |
 | Manual on-device checks | N/A | No voice, audio, or permission changes |
 
@@ -140,16 +140,16 @@ It helps reviewers quickly understand what evidence was collected and what was w
 - `results/pr/1234/evidence.json`
 
 ### Device Details
-- **S21:** One UI 6.1 / Android 15 / USB connection
+- **S23U:** One UI 6.1 / Android 16 / USB connection
 
 ### Evidence Waivers
 | Waived Item | Rationale |
 |-------------|-----------|
-| S23U evidence | No device-sensitive or inference changes |
+| S21 evidence | No extra capacity or second-SoC comparison needed |
 | Manual on-device checks | Settings-only change with no audio/permission impact |
 
 ### Known Limitations
-- Tested on S21 only; S23U visual differences possible but unlikely
+- Tested on S23U only; S21 (Exynos) differences possible but unlikely
 
 ### Deferred Follow-ups
 - (none)

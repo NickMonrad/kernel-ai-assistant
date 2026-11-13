@@ -20,7 +20,7 @@ Keeping the old generated table in active README links was misleading, so active
 The current plan is organised by gates rather than a single flat issue list:
 
 1. **Launch scope and backlog sanity** - keep `launch:blocking` trustworthy.
-2. **Test/evidence foundation** - make agent work and S21-first evidence reliable.
+2. **Test/evidence foundation** - make agent work and S23U-first evidence reliable.
 3. **Core app, accessibility, and first-run reliability** - model readiness, chat reliability, accessibility/readability, and fresh-install flow.
 4. **Permissions and Android capability repair** - contextual permission/repair UX.
 5. **Voice and wake-word launch-risk validation** - battery, STT/TTS, and voice claims.

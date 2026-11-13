@@ -24,8 +24,9 @@ This gate applies when the PR touches:
 
 ## When Manual On-Device Testing Is Required
 
-- **Required** for: model warmup timing on S21 (known intermittent timeout),
-  cross-command contamination validation
+- **Required** for: model warmup timing validation, cross-command contamination
+  validation (warmup timeouts are a known S21-specific intermittent issue when
+  that device is in use)
 - **Not required** for: pure unit-testable logic changes (context budget math,
   schema parsing), build/config changes
 
@@ -33,9 +34,8 @@ This gate applies when the PR touches:
 
 | Device | When |
 |--------|------|
-| S21 (Exynos) | Default — S21 has known warmup and Mali GPU issues that S23U does not expose |
-| S23U (SD 8 Gen 2) | Required when the change is GPU backend, device-specific model loading,
-  or S21 behaviour is ambiguous |
+| S23U (SD 8 Gen 2) | Primary — default for all LiteRT/model evidence |
+| S21 (Exynos) | Extra capacity only — second-SoC (Exynos/Mali warmup and GPU) comparison when the change is device-sensitive; see `.docs/agents/risk-based-evidence-policy.md` |
 
 ## Common Regressions to Check
 
@@ -47,7 +47,7 @@ This gate applies when the PR touches:
   schema or empty response
 - Context budget scaling: budget is proportional to window size, not absolute
   (see #1093)
-- Model warmup on S21: completes within expected window
+- Model warmup: completes within expected window (S21 has a known intermittent timeout)
 - `safeTokenCount()`: powers-of-2 token counts nudged ~2.4% to avoid Adreno
   reshape buffer bug
 
