@@ -45,7 +45,7 @@ Because the Play Store manages the final signing key, the upload key is only use
 
 ### Local builds
 
-For this first signed release, Nick creates a new upload keystore on a trusted local host. Do not create or store release keys in the repository or CI. Keep the keystore outside the checkout and on an encrypted, owner-controlled volume.
+For this first signed release, Nick creates a new upload keystore on a trusted local host. Do not create or store release keys in the repository or ordinary CI; the only CI copy is the `play-release` environment secrets described in [Publish from GitHub](#publish-from-github). Keep the keystore outside the checkout and on an encrypted, owner-controlled volume.
 
 Generate the key interactively with the JDK `keytool`; it prompts for passwords, which must not be passed as command-line arguments:
 
@@ -121,11 +121,11 @@ The AAB is written to `app/build/outputs/bundle/release/app-release.aab`.
 
 ### CI builds
 
-CI intentionally does not receive or use release signing or Play credentials. Its release APK/AAB outputs remain unsigned and are used only for build/packaging checks. CI's explicit `-PversionCode=${{ github.run_number }}` is preserved for unsigned builds; GPP's `AUTO` resolution runs only for a publish task and selects the next Play versionCode when uploading.
+Ordinary CI (`ci.yml`) still does not receive or use release signing or Play credentials; only the manual, approval-gated [Play release workflow](#publish-from-github) does. CI's release APK/AAB outputs remain unsigned and are used only for build/packaging checks. CI's explicit `-PversionCode=${{ github.run_number }}` is preserved for unsigned builds; GPP's `AUTO` resolution runs only for a publish task and selects the next Play versionCode when uploading.
 
 ## One-command internal Play upload
 
-GPP is configured for local owner-run publishing only. Credential checks are gated to publish-bundle invocations, so missing Play credentials do not affect builds, tests, lint, or CI. The first app registration/upload must be completed manually in Play Console; subsequent signed releases can use GPP. The app applies the official `com.github.triplet.play` plugin, Gradle Play Publisher 4.1.1, the current stable release compatible with AGP 9.
+GPP publishing runs either locally by the owner or from the manual, approval-gated [Play release workflow](#publish-from-github). Credential checks are gated to publish-bundle invocations, so missing Play credentials do not affect builds, tests, lint, or CI. The first app registration/upload must be completed manually in Play Console; subsequent signed releases can use GPP. The app applies the official `com.github.triplet.play` plugin, Gradle Play Publisher 4.1.1, the current stable release compatible with AGP 9.
 
 ### One-time owner setup
 
@@ -150,15 +150,36 @@ Update `app/src/main/play/release-notes/en-AU/default.txt` before each upload (P
 
 This uploads the signed release AAB to the **internal** track. `-PplayTrack` accepts only `internal`, `alpha` (closed testing), or `beta`; production and promotion tasks are disabled. GPP's `AUTO` version resolution chooses one more than the highest Play version for an upload, while explicit `-PversionCode` remains effective for non-publish builds such as CI. Release notes come from `app/src/main/play/release-notes/en-AU/default.txt`. Store listing text and images remain console-managed and are not part of bundle publishing.
 
-This local setup is option A. Option B, GitHub Actions publishing, is a possible future design and is not implemented.
+The local command above remains the alternative to publishing from GitHub.
+
+### Publish from GitHub
+
+`.github/workflows/play-release.yml` runs the same `:app:publishReleaseBundle` task on a GitHub runner. It is `workflow_dispatch` only, refuses any ref other than `main`, and reads its credentials from secrets scoped to the `play-release` environment, so every run waits for the owner's approval before any secret is exposed. It offers only the `internal` and `alpha` (closed testing) tracks; there is no production option.
+
+One-time setup (repository **Settings › Environments**):
+
+1. Create the environment `play-release`. Under **Deployment protection rules**, add the owner as a **required reviewer**; under **Deployment branches and tags**, choose **Selected branches and tags** and allow only `main`.
+2. Add these five **environment** secrets (not repository secrets):
+
+   | Secret | Value |
+   |---|---|
+   | `PLAY_UPLOAD_KEYSTORE_BASE64` | Output of `base64 -w0 jandal-upload.jks` |
+   | `PLAY_UPLOAD_STORE_PASSWORD` | Keystore password |
+   | `PLAY_UPLOAD_KEY_ALIAS` | Key alias, e.g. `jandal-upload` |
+   | `PLAY_UPLOAD_KEY_PASSWORD` | Key password |
+   | `PLAY_SERVICE_ACCOUNT_JSON` | Full contents of the service-account JSON key |
+
+   Paste values with `gh secret set NAME --env play-release` (it prompts for the value) or the web form; never put them on a command line or in a file in the checkout. The service account already holds testing-track release permissions only.
+
+To publish: **Actions › Play release › Run workflow**, keep branch `main`, choose the track, then approve the pending deployment. Update `app/src/main/play/release-notes/en-AU/default.txt` on `main` first. The workflow decodes the keystore and writes the signing properties file and service-account JSON under `$RUNNER_TEMP` with `umask 077`, passes only their paths to Gradle, and deletes them in an always-run step. Passwords never appear as `-P` arguments.
 
 ## Security Rules
 
 - Keystore files and passwords are never committed; `keystore.properties` is ignored and contains plaintext at rest.
 - Keep the locally generated upload keystore outside the checkout; retain encrypted backups, including one offline, and store passwords separately in a password manager.
-- Never pass passwords in command-line arguments, Gradle `-P`/`-D` properties, or CI. Gradle reads them only from the ignored local `keystore.properties`; restrict it to owner read/write.
+- Never pass passwords in command-line arguments or Gradle `-P`/`-D` properties. Gradle reads them only from a signing properties file: the ignored local `keystore.properties` (owner read/write only), or the owner-only temporary file the Play release workflow writes and deletes.
 - Play Console credentials and service-account keys remain outside the repository.
-- CI gets no release signing material and continues producing unsigned release outputs.
+- Ordinary CI gets no release signing material and continues producing unsigned release outputs. Only the manual Play release workflow, gated by the `play-release` environment's required reviewer and `main` branch restriction, receives signing and Play credentials.
 
 ## Versioning Convention
 
