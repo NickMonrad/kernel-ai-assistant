@@ -315,6 +315,7 @@ class ActionsViewModel @Inject constructor(
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
+    private var chunkedVoiceSpeechInFlight = false
     private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
@@ -2036,6 +2037,7 @@ class ActionsViewModel @Inject constructor(
             if (!spokenResponsesEnabled) return@launch
             // Other replies go sentence by sentence, so long ones (e.g. weather) start sooner.
             val result = try {
+                chunkedVoiceSpeechInFlight = !isSlotPrompt
                 if (isSlotPrompt) {
                     voiceOutputController.speak(VoiceSpeakRequest(text = summary))
                 } else {
@@ -2046,6 +2048,8 @@ class ActionsViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "ActionsViewModel: chunked speech failed to start", e)
                 VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            } finally {
+                chunkedVoiceSpeechInFlight = false
             }
             when (result) {
                 is VoiceOutputResult.Spoken -> Unit
@@ -2073,6 +2077,12 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSpeech() {
         pendingVoiceSpeechJob?.cancel()
         pendingVoiceSpeechJob = null
+        if (chunkedVoiceSpeechInFlight) {
+            chunkedVoiceSpeechInFlight = false
+            // The user moved on mid-reply — drop the already-queued sentence chunks too,
+            // instead of letting the stale reply keep playing over the new interaction.
+            voiceOutputController.stop()
+        }
     }
 
     private fun shouldSuppressDuplicateVoiceCommand(query: String, nowMs: Long = System.nanoTime() / 1_000_000L): Boolean {

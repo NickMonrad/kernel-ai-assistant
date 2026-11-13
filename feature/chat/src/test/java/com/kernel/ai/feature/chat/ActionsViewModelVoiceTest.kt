@@ -25,6 +25,7 @@ import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import io.mockk.Runs
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -34,6 +35,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -4308,4 +4310,44 @@ class ActionsViewModelVoiceTest {
             runCurrent()
             coVerify(exactly = 0) { voiceInputController.startListening(any()) }
         }
+
+    @Test
+    fun `new command during in-flight chunked reply stops queued playback immediately`() = runTest(dispatcher) {
+        // Chunked streaming session that never finishes its first append — the reply is "in flight".
+        coEvery { voiceOutputController.openStreamingSession(any()) } coAnswers {
+            object : VoiceOutputStreamingSession {
+                override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+                    awaitCancellation()
+                }
+            }
+        }
+        val weatherSkill = mockk<Skill>()
+        every { quickIntentRouter.route("what's the weather in Wellington") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to "Wellington"),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+        every { weatherSkill.name } returns "get_weather"
+        every { weatherSkill.description } returns "Get weather"
+        every { weatherSkill.schema } returns SkillSchema()
+        coEvery { weatherSkill.execute(any()) } returns SkillResult.DirectReply(
+            content = "Wellington forecast",
+            spokenSummary = "In Wellington, it's 25 degrees and partly cloudy with northerly winds.",
+        )
+        every { quickIntentRouter.route("what's the time") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "what's the time")
+
+        viewModel.executeAction("what's the weather in Wellington", InputMode.Voice)
+        advanceUntilIdle()
+        clearMocks(voiceOutputController, answers = false)
+
+        // cancelPendingVoiceSpeech() runs synchronously in executeAction — the stale chunked
+        // reply must stop before the launched handler (and its own stop()) even runs.
+        viewModel.executeAction("what's the time", InputMode.Voice)
+
+        verify(exactly = 1) { voiceOutputController.stop() }
+    }
 }

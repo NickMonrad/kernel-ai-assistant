@@ -3,6 +3,9 @@ package com.kernel.ai.feature.chat
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 internal const val VOICE_MIN_CHUNK_LENGTH = 72
 internal const val VOICE_PREFERRED_CHUNK_LENGTH = 180
@@ -20,24 +23,31 @@ internal suspend fun speakInSentenceChunks(
     text: String,
 ): VoiceOutputResult {
     val session = controller.openStreamingSession(VoiceSpeakRequest(text = text))
-    val buffer = StringBuilder(text)
-    while (buffer.isNotBlank()) {
-        val chunk = popNextStreamingSpeechChunk(
-            buffer = buffer,
-            minChunkLength = VOICE_MIN_CHUNK_LENGTH,
-            preferredChunkLength = VOICE_PREFERRED_CHUNK_LENGTH,
-            force = buffer.length < VOICE_MIN_CHUNK_LENGTH,
-        ) ?: break
-        val isLast = buffer.isBlank()
-        val result = session.append(chunk, isFinal = isLast)
-        if (result is VoiceOutputResult.Unavailable) {
-            // Close the session so the engine finishes what it already queued and still
-            // reports SpeakingStopped; otherwise listeners wait for a final chunk forever.
-            if (!isLast) session.append("", isFinal = true)
-            return result
+    try {
+        val buffer = StringBuilder(text)
+        while (buffer.isNotBlank()) {
+            val chunk = popNextStreamingSpeechChunk(
+                buffer = buffer,
+                minChunkLength = VOICE_MIN_CHUNK_LENGTH,
+                preferredChunkLength = VOICE_PREFERRED_CHUNK_LENGTH,
+                force = buffer.length < VOICE_MIN_CHUNK_LENGTH,
+            ) ?: break
+            val isLast = buffer.isBlank()
+            val result = session.append(chunk, isFinal = isLast)
+            if (result is VoiceOutputResult.Unavailable) {
+                // Close the session so the engine finishes what it already queued and still
+                // reports SpeakingStopped; otherwise listeners wait for a final chunk forever.
+                if (!isLast) session.append("", isFinal = true)
+                return result
+            }
+            if (isLast) return VoiceOutputResult.Spoken
         }
-        if (isLast) return VoiceOutputResult.Spoken
+        // Residual text that didn't form a clean chunk boundary.
+        return session.append(finalizeChatTextForSpeech(buffer.toString()), isFinal = true)
+    } catch (e: CancellationException) {
+        // Close the streaming session so the controller doesn't wait forever for a final
+        // chunk (stuck Speaking state / unclosed chunk channel).
+        withContext(NonCancellable) { runCatching { session.cancel() } }
+        throw e
     }
-    // Residual text that didn't form a clean chunk boundary.
-    return session.append(finalizeChatTextForSpeech(buffer.toString()), isFinal = true)
 }

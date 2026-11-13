@@ -193,6 +193,14 @@ class FallbackVoiceOutputController @Inject constructor(
                     }
                     return androidTts.speak(request.copy(text = finalText))
                 }
+
+                override suspend fun cancel() {
+                    if (isClosed) return
+                    isClosed = true
+                    // Close the inner session without the Android TTS fallback — cancellation
+                    // must not start speaking the buffered text.
+                    inflectSession.cancel()
+                }
             }
         }
         Log.i(
