@@ -50,9 +50,21 @@ Some features can read contacts or calendar entries when you grant the correspon
 
 ### Logs and sharing
 
-Jandal writes diagnostic messages while features run. Logs can contain request parameters and results, including text you entered, message recipients and contents, assistant replies, and your Hugging Face account name. Logs stay on your device unless you export them. The About screen offers a user-triggered **Export logs** action that can include recent process-exit information and current-process logs. If you choose an app from Android's share sheet, that app receives the export and handles it under its own policy. Review the contents before sharing. The retained last-uncaught-exception file is installed only in debuggable builds, not release builds.
+Jandal writes diagnostic messages while features run. Logs can contain request parameters and results, including text you entered, message recipients and contents, assistant replies, and your Hugging Face account name. Logs stay on your device unless you export them. The About screen offers a user-triggered **Export logs** action that can include recent process-exit information and current-process logs. Before export, Jandal removes chat and message text, speech transcripts, list items, memory text, assistant replies, email addresses, and phone numbers it finds in the log, replacing them with `[redacted]`; technical details such as timings, feature names, and error codes remain. Removal is pattern-based, so review the contents before sharing. If you choose an app from Android's share sheet, that app receives the export and handles it under its own policy. The retained last-uncaught-exception file is installed only in debuggable builds, not release builds.
 
 The current release dependency inventory contains no analytics, advertising, or crash-reporting SDKs. This does not describe data handling by the Android speech provider or other external services.
+
+### Support emails
+
+Settings › About › **Email support** helps you report a problem. It opens your own email app with a message addressed to jandal.ai.support@gmail.com. Nothing is sent unless you choose to press Send in your email app, and you can edit or delete anything before then. The message contains:
+
+- your phone's manufacturer and model, Android version, and the Jandal version, build type, and commit;
+- what you type in the "What happened?" box;
+- an attached log file, the same diagnostic export described above.
+
+By default, the attached log has your chats and messages removed as described above. If you tick **Include my chats and messages**, that removal is skipped, and the log can contain recent chat and message text, speech transcripts, list items, memory text, and assistant replies that were written to the log. The box is unticked each time you open the sheet.
+
+Support emails are received in a Gmail inbox operated by the Jandal developer and are used only to investigate and fix the problem you report and to reply to you. They are not used for advertising or shared with anyone else, except where Google, as the email provider, processes them under its own policy. We keep a support email and its attachment only as long as needed to resolve your report and follow up, and delete it no later than 12 months after the last message in the conversation. To ask us to delete a support email sooner, email **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)** from the same address. Your email app and provider keep their own copy of what you send under their own policies.
 
 ## Retention and deletion
 
@@ -72,4 +84,4 @@ This policy may be updated when Jandal's features or the services it connects to
 
 Jandal AI is open-source software developed at [github.com/NickMonrad/kernel-ai-assistant](https://github.com/NickMonrad/kernel-ai-assistant). For privacy questions or requests, email **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)**.
 
-_Effective date: 3 November 2026._
+_Effective date: 14 November 2026._

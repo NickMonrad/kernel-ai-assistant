@@ -5,6 +5,8 @@ import android.app.ApplicationExitInfo
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Process
 import androidx.core.content.FileProvider
 import androidx.datastore.core.DataStore
@@ -41,6 +43,7 @@ import javax.inject.Named
 data class AboutUiState(
     val verboseLogging: Boolean = false,
     val exportState: ExportState = ExportState.Idle,
+    val supportEmailState: ExportState = ExportState.Idle,
 )
 
 sealed class ExportState {
@@ -153,20 +156,13 @@ class AboutViewModel @Inject constructor(
         }
     }
 
+    /** Shares the diagnostic export through the share sheet. User content is always redacted. */
     fun exportLogs(buildInfo: DiagnosticBuildInfo) {
         _uiState.update { it.copy(exportState = ExportState.Loading) }
         viewModelScope.launch {
             try {
                 val shareIntent = withContext(ioDispatcher) {
-                    val content = buildDiagnosticExport(buildInfo)
-                    val timestamp = LocalDateTime.now().format(TIMESTAMP_FORMATTER)
-                    val logFile = File(context.cacheDir, "kernel_debug_log_${buildInfo.versionName}_$timestamp.txt")
-                    logFile.writeText(content)
-                    val uri = FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.fileprovider",
-                        logFile,
-                    )
+                    val uri = writeDiagnosticExport(buildInfo, includeUserContent = false)
                     val intent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_STREAM, uri)
@@ -182,14 +178,79 @@ class AboutViewModel @Inject constructor(
     }
 
     /**
+     * Builds a pre-filled support email (#1840) with the diagnostic export attached. The user
+     * reviews and sends it in their own email app. Chats and messages are redacted from the
+     * attachment unless [includeUserContent] is true.
+     */
+    fun emailSupport(
+        buildInfo: DiagnosticBuildInfo,
+        description: String,
+        includeUserContent: Boolean,
+        device: SupportDeviceInfo = SupportDeviceInfo.current(),
+    ) {
+        _uiState.update { it.copy(supportEmailState = ExportState.Loading) }
+        viewModelScope.launch {
+            try {
+                val chooser = withContext(ioDispatcher) {
+                    // A missing log must not stop the user reporting the problem.
+                    val export = runCatching { writeDiagnosticExport(buildInfo, includeUserContent) }
+                    val body = supportEmailBody(buildInfo, device, description, includeUserContent) +
+                        export.exceptionOrNull()?.let { "\nLog could not be attached: ${it.message}\n" }.orEmpty()
+                    val intent = buildSupportEmailIntent(
+                        subject = supportEmailSubject(buildInfo),
+                        body = body,
+                        attachment = export.getOrNull(),
+                    )
+                    val packageManager = runCatching { context.packageManager }.getOrNull()
+                    buildSupportEmailChooser(
+                        email = intent,
+                        emailPackages = packageManager?.let(::emailAppPackages).orEmpty(),
+                        canHandle = { target ->
+                            runCatching {
+                                packageManager?.queryIntentActivities(target, PackageManager.ResolveInfoFlags.of(0))
+                                    ?.isNotEmpty() == true
+                            }.getOrDefault(false)
+                        },
+                    )
+                }
+                _uiState.update { it.copy(supportEmailState = ExportState.Ready(chooser)) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(supportEmailState = ExportState.Error(e.message ?: "Could not prepare the email"))
+                }
+            }
+        }
+    }
+
+    fun clearSupportEmailState() {
+        _uiState.update { it.copy(supportEmailState = ExportState.Idle) }
+    }
+
+    private fun writeDiagnosticExport(buildInfo: DiagnosticBuildInfo, includeUserContent: Boolean): Uri {
+        val content = buildDiagnosticExport(buildInfo, includeUserContent)
+        val timestamp = LocalDateTime.now().format(TIMESTAMP_FORMATTER)
+        val logFile = File(context.cacheDir, "kernel_debug_log_${buildInfo.versionName}_$timestamp.txt")
+        logFile.writeText(content)
+        return FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            logFile,
+        )
+    }
+
+    /**
      * Assembles the bounded diagnostic text bundle. Each evidence source is isolated:
      * failure of one never prevents the others from exporting. Only when no useful
      * evidence exists at all does this throw, which surfaces as [ExportState.Error].
      */
-    private fun buildDiagnosticExport(buildInfo: DiagnosticBuildInfo): String {
+    private fun buildDiagnosticExport(buildInfo: DiagnosticBuildInfo, includeUserContent: Boolean): String {
         val warnings = mutableListOf<String>()
         val exitRecords = queryExitHistory(warnings)
         val logcat = captureCurrentLogcat(warnings)
+        val scrub: (String) -> String =
+            if (includeUserContent) { text -> text } else DiagnosticLogRedactor::redactText
+        val scrubLogcat: (String) -> String =
+            if (includeUserContent) { text -> text } else DiagnosticLogRedactor::redactLogcat
 
         if (exitRecords.isEmpty() && logcat.output == null) {
             val detail = logcat.failureDetail ?: "no recent process exits were recorded"
@@ -210,6 +271,14 @@ class AboutViewModel @Inject constructor(
             appendLine("Commit: ${buildInfo.gitSha}")
             appendLine("Built: ${buildInfo.buildTimestamp}")
             appendLine("Package: ${context.packageName}")
+            appendLine(
+                if (includeUserContent) {
+                    "User content: included (the user chose to include chats and messages)"
+                } else {
+                    "User content: removed (chats, messages, transcripts and lists are replaced with " +
+                        "${DiagnosticLogRedactor.REDACTED_MARKER})"
+                },
+            )
             appendLine()
             appendLine("Recent process exits")
             appendLine("--------------------")
@@ -218,7 +287,7 @@ class AboutViewModel @Inject constructor(
             } else {
                 exitRecords.forEachIndexed { index, record ->
                     val block = StringBuilder()
-                    runCatching { renderExitRecord(block, index + 1, record, warnings) }
+                    runCatching { renderExitRecord(block, index + 1, record, warnings, scrub) }
                         .onSuccess { append(block) }
                         .onFailure { e ->
                             warnings += "Could not render exit record ${index + 1}: " +
@@ -238,12 +307,12 @@ class AboutViewModel @Inject constructor(
             if (recordText.isNullOrBlank()) {
                 appendLine("No retained uncaught managed exception record found.")
             } else {
-                append(recordText)
+                append(scrub(recordText))
             }
             appendLine()
             appendLine("Current process logcat")
             appendLine("----------------------")
-            appendLine(logcat.output ?: "No current-process logcat captured (see Exporter warnings below).")
+            appendLine(logcat.output?.let(scrubLogcat) ?: "No current-process logcat captured (see Exporter warnings below).")
             appendLine()
             appendLine("Exporter warnings")
             appendLine("-----------------")
@@ -279,6 +348,7 @@ class AboutViewModel @Inject constructor(
         index: Int,
         info: ApplicationExitInfo,
         warnings: MutableList<String>,
+        scrub: (String) -> String,
     ) {
         sb.appendLine("Exit $index")
         sb.appendLine("Timestamp: ${EXIT_TIMESTAMP_FORMATTER.format(Instant.ofEpochMilli(info.timestamp).atOffset(ZoneOffset.UTC))}")
@@ -291,7 +361,7 @@ class AboutViewModel @Inject constructor(
         }
         sb.appendLine("Importance: ${formatImportance(info.importance)}")
         if (!info.description.isNullOrBlank()) {
-            sb.appendLine("Description: ${info.description}")
+            sb.appendLine("Description: ${scrub(info.description.orEmpty())}")
         }
         sb.appendLine("PSS: ${formatMemory(info.pss)}")
         sb.appendLine("RSS: ${formatMemory(info.rss)}")
