@@ -103,8 +103,10 @@ jobs:
             exit 1
           fi
 
-      - name: Cache Gradle packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      # Restore-only: this job holds signing and Play secrets, so it must never
+      # save a cache that later PR CI runs could restore.
+      - name: Restore Gradle packages
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |
             ~/.gradle/caches
@@ -114,25 +116,6 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-
-      - name: Cache Sherpa-ONNX AAR
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
-        with:
-          path: third_party/sherpa-onnx
-          key: sherpa-onnx-aar-1.13.0
-
-      - name: Download Sherpa-ONNX AAR
-        run: |
-          mkdir -p third_party/sherpa-onnx
-          AAR=third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar
-          if [ ! -f "$AAR" ]; then
-            echo "Downloading Sherpa-ONNX AAR…"
-            curl -fL -o "$AAR" \
-              https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.0/sherpa-onnx-1.13.0.aar
-            echo "Downloaded $(du -sh "$AAR" | cut -f1) AAR"
-          else
-            echo "AAR already present (cached)"
-          fi
 
       # ── Credentials (written outside the checkout, owner-only) ───────
       - name: Write signing and Play credentials
@@ -170,6 +153,16 @@ jobs:
 
           def esc(value):
               value = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r')
+              out = []
+              for ch in value:
+                  if ord(ch) <= 0x7E:
+                      out.append(ch)
+                  else:
+                      # Properties.load(InputStream) decodes ISO-8859-1, so emit UTF-16 code units.
+                      data = ch.encode('utf-16-be')
+                      for i in range(0, len(data), 2):
+                          out.append('\\u%04X' % int.from_bytes(data[i:i + 2], 'big'))
+              value = ''.join(out)
               if value[:1] in (' ', '\t', '\f'):
                   value = '\\' + value
               return value
@@ -197,7 +190,7 @@ jobs:
             internal|alpha) ;;
             *) echo "::error::Unsupported track '$PLAY_TRACK'"; exit 1 ;;
           esac
-          ./gradlew --no-daemon :app:publishReleaseBundle \
+          ./gradlew --no-daemon --no-build-cache :app:publishReleaseBundle \
             -PreleaseSigningPropertiesFile="$CRED_DIR/keystore.properties" \
             -PplayServiceAccountFile="$CRED_DIR/play-service-account.json" \
             -PplayTrack="$PLAY_TRACK"
