@@ -147,6 +147,8 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Log
@@ -2413,14 +2415,21 @@ internal fun ConversationDownloadProgress(
     progress: Float?,
 ) {
     Spacer(modifier = Modifier.height(8.dp))
+    val percent = progress?.takeIf { it > 0f }?.let { (it * 100).roundToInt() }
+    val progressModifier = Modifier
+        .fillMaxWidth()
+        .semantics {
+            contentDescription = "Model download progress"
+            if (percent != null) stateDescription = "$percent percent"
+        }
     if (progress != null && progress > 0f) {
         LinearProgressIndicator(
             progress = progress,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = progressModifier,
         )
     } else {
         LinearProgressIndicator(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = progressModifier,
         )
     }
 }

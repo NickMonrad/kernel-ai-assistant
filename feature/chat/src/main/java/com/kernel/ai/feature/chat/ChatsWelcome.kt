@@ -22,6 +22,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.KernelModel
@@ -40,13 +42,19 @@ internal sealed interface ChatsEmptyState {
 
 /** Assistant-files status as shown on the welcome. */
 internal sealed interface WelcomeDownload {
-    /** Assistant can chat now, so every example prompt works. */
+    /** Assistant can chat now, and no download is pending. */
     data object Ready : WelcomeDownload
 
-    /** Assistant files are downloading. [progress] is 0.0–1.0, or null when unknown. */
+    /**
+     * Assistant can chat now (the fallback model is installed), and the preferred model is downloading to replace it.
+     * [progress] is 0.0–1.0, or null when unknown.
+     */
+    data class Upgrading(val model: KernelModel, val progress: Float?) : WelcomeDownload
+
+    /** Assistant files are downloading and the assistant cannot chat yet. [progress] is 0.0–1.0, or null when unknown. */
     data class InProgress(val model: KernelModel, val progress: Float?) : WelcomeDownload
 
-    /** Nothing is downloading yet, and the assistant cannot chat until files arrive. */
+    /** Nothing is downloading, and the assistant cannot chat until files arrive. Offers a download action. */
     data class Waiting(val model: KernelModel) : WelcomeDownload
 }
 
@@ -68,9 +76,9 @@ internal fun chatsEmptyState(
 internal fun welcomeDownloadFor(readiness: ConversationModelReadiness): WelcomeDownload = when (readiness) {
     is ConversationModelReadiness.Ready,
     is ConversationModelReadiness.FallbackActive -> WelcomeDownload.Ready
-    is ConversationModelReadiness.Preparing ->
-        WelcomeDownload.InProgress(readiness.downloadingModel, readiness.progress)
     is ConversationModelReadiness.FallbackPreparing ->
+        WelcomeDownload.Upgrading(readiness.downloadingModel, readiness.progress)
+    is ConversationModelReadiness.Preparing ->
         WelcomeDownload.InProgress(readiness.downloadingModel, readiness.progress)
     is ConversationModelReadiness.ActionRequired -> WelcomeDownload.Waiting(readiness.recommendedModel)
 }
@@ -85,10 +93,13 @@ internal val welcomeExamplePrompts: List<WelcomeExamplePrompt> = listOf(
     WelcomeExamplePrompt("Tell me a kiwi fact", needsAssistantFiles = true),
 )
 
-/** Prompts that work in [download]. Until the assistant is ready, only quick-intent prompts are offered. */
-internal fun welcomeExamplePromptsFor(download: WelcomeDownload): List<WelcomeExamplePrompt> =
-    if (download == WelcomeDownload.Ready) welcomeExamplePrompts
-    else welcomeExamplePrompts.filterNot { it.needsAssistantFiles }
+/** Prompts that work in [download]. Until the assistant can chat, only quick-intent prompts are offered. */
+internal fun welcomeExamplePromptsFor(download: WelcomeDownload): List<WelcomeExamplePrompt> = when (download) {
+    WelcomeDownload.Ready,
+    is WelcomeDownload.Upgrading -> welcomeExamplePrompts
+    is WelcomeDownload.InProgress,
+    is WelcomeDownload.Waiting -> welcomeExamplePrompts.filterNot { it.needsAssistantFiles }
+}
 
 @Composable
 internal fun ChatsWelcome(
@@ -96,6 +107,7 @@ internal fun ChatsWelcome(
     showTabHints: Boolean,
     onStartChatting: () -> Unit,
     onExamplePrompt: (String) -> Unit,
+    onDownloadModel: (KernelModel) -> Unit,
     onDismissTabHints: () -> Unit,
     onHideWelcome: () -> Unit,
     modifier: Modifier = Modifier,
@@ -113,6 +125,7 @@ internal fun ChatsWelcome(
             text = "Kia ora, I'm Jandal",
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() },
         )
         Text(
             text = "I'm a private assistant that runs on this phone.",
@@ -125,8 +138,8 @@ internal fun ChatsWelcome(
             onClick = onStartChatting,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 56.dp)
                 .padding(top = 24.dp)
+                .heightIn(min = 56.dp)
                 .testTag("chats_welcome_start"),
         ) {
             Text("Start chatting")
@@ -134,15 +147,25 @@ internal fun ChatsWelcome(
 
         when (download) {
             WelcomeDownload.Ready -> Unit
+            is WelcomeDownload.Upgrading -> DownloadCard(
+                title = "Getting a better model",
+                body = "Jandal can chat now. A larger model, about ${formatBytesShort(download.model.approxSizeBytes)}, " +
+                    "is downloading to replace it. Keep Wi-Fi on until it finishes.",
+                progress = download.progress,
+            )
             is WelcomeDownload.InProgress -> DownloadCard(
+                title = "Getting Jandal ready",
                 body = "Downloading about ${formatBytesShort(download.model.approxSizeBytes)}. " +
                     "Keep Wi-Fi on until it finishes. Timers, weather and shopping lists already work.",
                 progress = download.progress,
             )
             is WelcomeDownload.Waiting -> DownloadCard(
+                title = "Getting Jandal ready",
                 body = "Jandal needs to download about ${formatBytesShort(download.model.approxSizeBytes)} " +
                     "before it can chat. Keep Wi-Fi on. Timers, weather and shopping lists already work.",
                 progress = null,
+                actionLabel = "Download ${download.model.displayName}",
+                onAction = { onDownloadModel(download.model) },
             )
         }
 
@@ -150,15 +173,15 @@ internal fun ChatsWelcome(
             Text(
                 text = "Try asking",
                 style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 24.dp).semantics { heading() },
             )
             examples.forEachIndexed { index, example ->
                 OutlinedButton(
                     onClick = { onExamplePrompt(example.text) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 48.dp)
                         .padding(top = 8.dp)
+                        .heightIn(min = 48.dp)
                         .testTag("chats_welcome_example_$index"),
                 ) {
                     Text(example.text)
@@ -176,7 +199,11 @@ internal fun ChatsWelcome(
                     .testTag("chats_welcome_tab_hints"),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Where to find things", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Where to find things",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.semantics { heading() },
+                    )
                     TabHintRow(label = "Chats", hint = "talk to Jandal")
                     TabHintRow(label = "Actions", hint = "quick commands, typed or spoken")
                     TabHintRow(label = "Tools", hint = "lists, timers and settings")
@@ -184,6 +211,7 @@ internal fun ChatsWelcome(
                         onClick = onDismissTabHints,
                         modifier = Modifier
                             .align(Alignment.Start)
+                            .padding(top = 8.dp)
                             .heightIn(min = 48.dp)
                             .testTag("chats_welcome_tab_hints_dismiss"),
                     ) {
@@ -196,8 +224,8 @@ internal fun ChatsWelcome(
         TextButton(
             onClick = onHideWelcome,
             modifier = Modifier
-                .heightIn(min = 48.dp)
                 .padding(top = 8.dp)
+                .heightIn(min = 48.dp)
                 .testTag("chats_welcome_hide"),
         ) {
             Text("Hide welcome")
@@ -207,7 +235,13 @@ internal fun ChatsWelcome(
 }
 
 @Composable
-private fun DownloadCard(body: String, progress: Float?) {
+private fun DownloadCard(
+    title: String,
+    body: String,
+    progress: Float?,
+    actionLabel: String? = null,
+    onAction: () -> Unit = {},
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(16.dp),
@@ -217,7 +251,7 @@ private fun DownloadCard(body: String, progress: Float?) {
             .testTag("chats_welcome_download"),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Getting Jandal ready", style = MaterialTheme.typography.titleSmall)
+            Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
             Text(
                 text = body,
                 style = MaterialTheme.typography.bodyMedium,
@@ -227,6 +261,18 @@ private fun DownloadCard(body: String, progress: Float?) {
             if (progress != null) {
                 ConversationDownloadProgress(progress = progress)
             }
+            if (actionLabel != null) {
+                Button(
+                    onClick = onAction,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .heightIn(min = 48.dp)
+                        .testTag("chats_welcome_download_action"),
+                ) {
+                    Text(actionLabel)
+                }
+            }
         }
     }
 }
@@ -234,7 +280,10 @@ private fun DownloadCard(body: String, progress: Float?) {
 @Composable
 private fun TabHintRow(label: String, hint: String) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .semantics(mergeDescendants = true) {},
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)

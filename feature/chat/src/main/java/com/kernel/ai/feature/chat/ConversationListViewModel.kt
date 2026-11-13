@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -44,11 +45,16 @@ class ConversationListViewModel @Inject constructor(
         )
 
     init {
-        // The welcome is one-time: once the user has a conversation it never returns.
+        // The welcome is one-time: once any conversation exists (archived included), it never returns.
         viewModelScope.launch {
-            repository.observeActive().first { it.isNotEmpty() }
+            repository.observeConversationCount().first { it > 0 }
             chatPreferences.setChatsWelcomeDismissed(true)
         }
+    }
+
+    /** Starts (or retries) the download of [model] from the welcome, same path as the chat recovery card. */
+    fun downloadAssistantModel(model: KernelModel) {
+        downloadManager.startDownload(model, force = false)
     }
 
     private val _searchQuery = MutableStateFlow("")

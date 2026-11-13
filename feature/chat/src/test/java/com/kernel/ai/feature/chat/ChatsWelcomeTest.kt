@@ -54,6 +54,25 @@ class ChatsWelcomeTest {
     }
 
     @Test
+    fun `fallback model installed while the preferred model downloads is an upgrade, not a wait`() {
+        val fallbackPreparing = ConversationModelReadiness.FallbackPreparing(
+            recommendedModel = KernelModel.GEMMA_4_E4B,
+            downloadingModel = KernelModel.GEMMA_4_E4B,
+            progress = 0.3f,
+        )
+        assertEquals(
+            ChatsEmptyState.Welcome(WelcomeDownload.Upgrading(KernelModel.GEMMA_4_E4B, progress = 0.3f)),
+            chatsEmptyState(welcomeDismissed = false, readiness = fallbackPreparing),
+        )
+    }
+
+    @Test
+    fun `every example prompt is offered while the fallback model already chats`() {
+        val upgrading = WelcomeDownload.Upgrading(KernelModel.GEMMA_4_E4B, progress = null)
+        assertEquals(welcomeExamplePrompts, welcomeExamplePromptsFor(upgrading))
+    }
+
+    @Test
     fun `returning user sees the normal empty state whatever the download state`() {
         listOf(ready, downloading, notStarted).forEach { readiness ->
             assertEquals(

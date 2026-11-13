@@ -309,6 +309,7 @@ fun ConversationListScreen(
                             showTabHints = tabHintsDismissed == false,
                             onStartChatting = onNewConversation,
                             onExamplePrompt = onOpenExamplePrompt,
+                            onDownloadModel = viewModel::downloadAssistantModel,
                             onDismissTabHints = viewModel::dismissTabHints,
                             onHideWelcome = viewModel::hideWelcome,
                         )
