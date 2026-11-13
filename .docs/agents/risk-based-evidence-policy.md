@@ -34,7 +34,7 @@ three-tier risk classification and the minimum evidence expected for each tier.
   - keep media and alarm volume low;
   - timers/alarms of 10 seconds or less only, and cancel everything started;
   - never uninstall or clear `ai.jandal.assistant` (Play build), `com.kernel.ai`, or `com.kernel.ai.debug`;
-  - no full-suite or alarm-producing runs between 21:00 and 07:00 `Australia/Brisbane`.
+  - no full-suite or alarm-producing runs between 21:00 and 06:00 `Australia/Brisbane`.
 - **Household devices.** The S21 (`R5CR605B71K`) is extra capacity with targeted runs only and belongs to another member of the household: agents must not change its settings, permissions, or personal data. Never touch the owner's personal Honor phone.
 
 Other documents should reference this section rather than duplicating these rules.
