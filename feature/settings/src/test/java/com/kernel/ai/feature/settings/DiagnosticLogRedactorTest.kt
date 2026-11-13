@@ -367,6 +367,48 @@ class DiagnosticLogRedactorTest {
                 "Recipe generation success: sessionId=s1, dayIndex=2, title=Mum's lasagne",
                 "Recipe generation success: sessionId=s1, dayIndex=2, title=$R",
             ),
+            // Brackets end only where their own type closes: smileys and brackets in text stay inside the map.
+            Arguments.of(
+                "NativeIntentHandler.handle: intent=send_sms params={contact=Mum, message=sorry :) see you at 5 at Dr Patel} source=quick",
+                "NativeIntentHandler.handle: intent=send_sms params=$R source=quick",
+            ),
+            Arguments.of(
+                "NativeIntentHandler.handle: intent=send_sms params={contact=Mum, message=ok (see you) [later]} source=quick",
+                "NativeIntentHandler.handle: intent=send_sms params=$R source=quick",
+            ),
+            Arguments.of(
+                "NativeIntentHandler.handle: intent=send_sms params={a={b=1} c=2} source=quick",
+                "NativeIntentHandler.handle: intent=send_sms params=$R source=quick",
+            ),
+            // A truncated map is redacted to the end of the message.
+            Arguments.of(
+                "NativeIntentHandler.handle: intent=send_sms params={contact=Mum, message=sorry :) see you at 5",
+                "NativeIntentHandler.handle: intent=send_sms params=$R",
+            ),
+            // Inner quotes and apostrophes stay inside the span; it closes at the last quote before the delimiter.
+            Arguments.of(
+                "classify('the kids' party at Sarah's place') -> birthday score=0.6",
+                "classify('$R') -> birthday score=0.6",
+            ),
+            Arguments.of(
+                "ADB_SLOT_STATE action=reply intent=send_sms slot=message reply=\"he said \"hi\" and left early\"",
+                "ADB_SLOT_STATE action=reply intent=send_sms slot=message reply=\"$R\"",
+            ),
+            // An unmatched opening quote is redacted to the end of the message.
+            Arguments.of(
+                "Speech parse failed: said \"running late to see you",
+                "Speech parse failed: said \"$R",
+            ),
+            Arguments.of(
+                "ToolSet: runIntent params not valid JSON — failing closed: Unterminated string at 31 {\"item\":\"egg",
+                "ToolSet: runIntent params not valid JSON — failing closed: Unterminated string at 31 {\"$R\":\"$R",
+            ),
+            Arguments.of("Speech says 'hello there", "Speech says '$R"),
+            // Contact resolution: the number is content, whatever its shape; the name is quoted.
+            Arguments.of("Contact resolved: 'Mum' → 021 1234", "Contact resolved: '$R' → $R"),
+            Arguments.of("Contact resolved: 'Sam' → 1234567", "Contact resolved: '$R' → $R"),
+            Arguments.of("Contact resolved: 'Sam' → +64 21 - 123 4567", "Contact resolved: '$R' → $R"),
+            Arguments.of("Dialing contact +64 21 - 123 4567", "Dialing contact $R"),
         )
 
         @JvmStatic
@@ -400,6 +442,12 @@ class DiagnosticLogRedactorTest {
             "--------- beginning of crash",
             "Timer fired at 2026-11-14 09:12:01.123 id=17 frame=1234.5678",
             "Shown 11-14 09:20:00.000 at offset 4321 of 8192",
+            // Byte counts, sizes and durations keep their digits, including 7-digit and unit-suffixed runs.
+            "Download complete: 1234567 bytes in 830ms",
+            "Cache size 12345678 bytes",
+            "Waited 12345678 ms before retry",
+            "Export written 2026-11-14 09:20:00.000 size=1048576 bytes",
+            "Generation complete: total=12345678ms",
         )
     }
 }

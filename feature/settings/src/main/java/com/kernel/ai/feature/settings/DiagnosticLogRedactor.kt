@@ -32,20 +32,22 @@ internal object DiagnosticLogRedactor {
     private val THREADTIME_LINE =
         Regex("""^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\s+\d+\s+\d+\s+[VDIWEF]\s+.*?: )(.*)$""")
 
-    /** A quoted span; the closing quote must not be followed by a word character. */
-    private val DOUBLE_QUOTED = Regex("""(?s)"(?:\\.|.)*?"(?!\w)""")
-    private val SINGLE_QUOTED = Regex("""(?s)(?<!\w)'(?:\\.|.)*?'(?!\w)""")
+    /** Characters that end a quoted span's search: the span closes at the last closing quote before one of these. */
+    private val QUOTE_BOUNDARIES = listOf("\n", " →", " —", " ->", ")")
+
     private val SMART_DOUBLE_QUOTED = Regex("""(?s)“.*?”""")
     private val SMART_SINGLE_QUOTED = Regex("""(?s)(?<!\w)‘.*?’(?!\w)""")
 
     private val EMAIL = Regex("""[\w.+-]+@[\w-]+(?:\.[\w-]+)+""")
 
     /**
-     * Phone-number-like digit runs (8–15 digits, optional `+`, up to two separators between digits:
-     * `(09) 123-4567`, `+1 (555) 123-4567`). A `.` separator is allowed only mid-run, so a
-     * timestamp's sub-second part (`09:20:00.000`) starts after `.`/`:` and is never a run start.
+     * Phone-number-like digit runs (8–15 digits, optional `+`, up to two separators between digits,
+     * or ` - `: `(09) 123-4567`, `+1 (555) 123-4567`, `+64 21 - 123 4567`). A `.` separator is allowed
+     * only mid-run, so a timestamp's sub-second part (`09:20:00.000`) starts after `.`/`:` and is never
+     * a run start. A run followed by a unit (`12345678 bytes`, `1234 ms`) is a size or duration.
+     * Seven-digit numbers are redacted only in contact-resolution lines (see [REST_OF_MESSAGE]).
      */
-    private val PHONE = Regex("""(?<![\w.=:/\-])(?!\d{4}-\d{2}-\d{2})\+?\d(?:[ \-().]{0,2}\d){7,14}(?![\w.])""")
+    private val PHONE = Regex("""(?<![\w.=:/\-])(?!\d{4}-\d{2}-\d{2})\+?\d(?:(?: - |[ \-().]{0,2})\d){7,14}(?![\w.])(?!\s*(?:bytes|KB|MB|GB|ms)\b)""")
 
     /** Weather cache keys `loc:<place>:(weekend|tomorrow|forecast:N|current)`: the place is content. */
     private val WEATHER_CACHE_LOCATION = Regex("""\bloc:.+?(?=:(?:weekend|tomorrow|forecast:\d+|current)\b)""")
@@ -99,6 +101,8 @@ internal object DiagnosticLogRedactor {
         // Geocoding errors: only the query line is redacted; a throwable's stack trace stays.
         Regex("""(Geocoding failed for: )[^\n]*"""),
         Regex("""(Country capital lookup failed for: )[^\n]*"""),
+        // Contact resolution: the number after the arrow is content; the quoted name is redacted below.
+        Regex("""(?s)(Contact resolved: .*? → ).*"""),
     )
 
     /** Tool calls whose whole argument list is content. */
@@ -161,11 +165,11 @@ internal object DiagnosticLogRedactor {
         }
         result = WEATHER_CACHE_LOCATION.replace(result, "loc:$REDACTED_MARKER")
         result = redactQuotedTranscripts(result)
-        result = DOUBLE_QUOTED.replace(result, "\"$REDACTED_MARKER\"")
-        result = SINGLE_QUOTED.replace(result, "'$REDACTED_MARKER'")
+        result = redactKeyValues(result)
+        result = redactQuotedSpans(result, '"')
+        result = redactQuotedSpans(result, '\'')
         result = SMART_DOUBLE_QUOTED.replace(result, "“$REDACTED_MARKER”")
         result = SMART_SINGLE_QUOTED.replace(result, "‘$REDACTED_MARKER’")
-        result = redactKeyValues(result)
         result = EMAIL.replace(result, REDACTED_MARKER)
         result = PHONE.replace(result, REDACTED_MARKER)
         return result
@@ -197,6 +201,54 @@ internal object DiagnosticLogRedactor {
         }
         out.append(text, cursor, text.length)
         return out.toString()
+    }
+
+    /**
+     * Redacts the content of `quote`-delimited spans, from each opening quote to its close. An
+     * apostrophe inside a word (`Sarah's`) does not open a span. A span with no closing quote is
+     * redacted to the end of the message, so a truncated quote never leaks its tail.
+     */
+    private fun redactQuotedSpans(text: String, quote: Char): String {
+        val out = StringBuilder()
+        var cursor = 0
+        var open = text.indexOf(quote)
+        while (open >= 0) {
+            val inWord = quote == '\'' && open > 0 && (text[open - 1].isLetterOrDigit() || text[open - 1] == '_')
+            if (inWord) {
+                open = text.indexOf(quote, open + 1)
+                continue
+            }
+            val close = closingQuote(text, open, quote)
+            out.append(text, cursor, open + 1).append(REDACTED_MARKER)
+            if (close < 0) {
+                cursor = text.length
+                break
+            }
+            cursor = close
+            open = text.indexOf(quote, close + 1)
+        }
+        out.append(text, cursor, text.length)
+        return out.toString()
+    }
+
+    /**
+     * Index of the quote closing the span opened at [open], or -1 when no quote follows it. The closing
+     * quote is the last one before the next [QUOTE_BOUNDARIES] entry that is not followed by a letter, so
+     * `"he said "hi" and left"` and `'the kids' party at Sarah's place'` stay whole.
+     */
+    private fun closingQuote(text: String, open: Int, quote: Char): Int {
+        val boundary = QUOTE_BOUNDARIES
+            .map { text.indexOf(it, open + 1) }
+            .filter { it >= 0 }
+            .minOrNull() ?: text.length
+        var last = -1
+        var i = text.indexOf(quote, open + 1)
+        while (i in 0 until boundary) {
+            val next = text.getOrNull(i + 1)
+            if (next == null || !(next.isLetterOrDigit() || next == '_')) last = i
+            i = text.indexOf(quote, i + 1)
+        }
+        return if (last >= 0) last else text.indexOf(quote, open + 1)
     }
 
     /** Replaces the arguments of each call matched by [callStart] (which ends just inside the `(`). */
@@ -259,13 +311,19 @@ internal object DiagnosticLogRedactor {
         return if (end >= 0) end else text.length
     }
 
-    /** End of a `{…}`/`[…]` payload, across lines; an unbalanced (truncated) payload runs to the end. */
+    /**
+     * End of a `{…}`/`[…]` payload, across lines. Only the bracket type that opened the value is
+     * counted, so a smiley or a bracket in the text (`:)`, `(see you)`) does not end it. A payload
+     * whose closing bracket never comes (truncated) runs to the end of the message.
+     */
     private fun bracketedEnd(text: String, start: Int): Int {
+        val open = text[start]
+        val close = if (open == '{') '}' else ']'
         var depth = 0
         for (i in start until text.length) {
             when (text[i]) {
-                '{', '[', '(' -> depth++
-                '}', ']', ')' -> {
+                open -> depth++
+                close -> {
                     depth--
                     if (depth == 0) return i + 1
                 }

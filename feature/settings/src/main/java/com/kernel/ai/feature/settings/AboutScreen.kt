@@ -40,6 +40,7 @@ import androidx.compose.material3.TopAppBar
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
@@ -82,7 +83,8 @@ fun AboutScreen(
         }
     }
 
-    LaunchedEffect(uiState.supportEmailState) {
+    // Launch only while resumed: a result that became ready in the background waits for the screen.
+    LifecycleResumeEffect(uiState.supportEmailState) {
         val state = uiState.supportEmailState
         if (state is ExportState.Ready) {
             // User-mediated: the chooser opens the user's email app; nothing is sent from here.
@@ -90,6 +92,7 @@ fun AboutScreen(
             viewModel.clearSupportEmailState()
             showSupportSheet = false
         }
+        onPauseOrDispose {}
     }
 
     if (showSupportSheet) {
