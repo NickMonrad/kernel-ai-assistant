@@ -9,6 +9,9 @@ import android.os.Build
 /** Dedicated Jandal support address, also published in PRIVACY.md. Never use a personal address. */
 internal const val SUPPORT_EMAIL_ADDRESS = "jandal.ai.support@gmail.com"
 
+/** Shown when no email app can receive the support email; there is deliberately no share-sheet fallback. */
+internal const val NO_EMAIL_APP_MESSAGE = "No email app found — email $SUPPORT_EMAIL_ADDRESS"
+
 /** Device identity included in a support email body (#1840). */
 data class SupportDeviceInfo(
     val manufacturer: String,
@@ -41,7 +44,10 @@ internal fun supportEmailBody(
     appendLine("App: v${buildInfo.versionName} (${buildInfo.versionCode}) ${buildInfo.buildType}")
     appendLine("Commit: ${buildInfo.gitSha}")
     appendLine("Built: ${buildInfo.buildTimestamp}")
-    appendLine("Chats and messages in attached log: ${if (includeUserContent) "included" else "removed"}")
+    appendLine(
+        "Chats and messages in attached log: " +
+            if (includeUserContent) "included" else "redacted (pattern-based; may be incomplete)",
+    )
     appendLine()
     appendLine("What happened:")
     append(description.trim().ifEmpty { "(not described)" })
@@ -82,15 +88,17 @@ internal fun emailAppPackages(packageManager: PackageManager): List<String> = ru
 /**
  * Chooser limited to email apps: one `ACTION_SEND` target per [emailPackages] entry that can
  * receive it. The share sheet ignores a `mailto:` selector, so the targets are listed explicitly.
- * With no email app found, it falls back to the normal share sheet.
+ * Returns null when no email app can receive it. There is no generic share-sheet fallback, so
+ * the caller must report [NO_EMAIL_APP_MESSAGE] instead (#1840).
  */
 internal fun buildSupportEmailChooser(
     email: Intent,
     emailPackages: List<String>,
     canHandle: (Intent) -> Boolean,
-): Intent {
-    val targets = emailPackages.map { Intent(email).setPackage(it) }.filter(canHandle)
-    if (targets.isEmpty()) return Intent.createChooser(email, SUPPORT_EMAIL_CHOOSER_TITLE)
+    targetFor: (String) -> Intent = { pkg -> Intent(email).apply { setPackage(pkg) } },
+): Intent? {
+    val targets = emailPackages.map(targetFor).filter(canHandle)
+    if (targets.isEmpty()) return null
     return Intent.createChooser(targets.first(), SUPPORT_EMAIL_CHOOSER_TITLE).apply {
         if (targets.size > 1) putExtra(Intent.EXTRA_INITIAL_INTENTS, targets.drop(1).toTypedArray())
     }

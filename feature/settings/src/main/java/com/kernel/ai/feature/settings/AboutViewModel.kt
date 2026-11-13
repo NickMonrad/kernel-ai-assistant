@@ -19,8 +19,11 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -177,6 +180,9 @@ class AboutViewModel @Inject constructor(
         }
     }
 
+    /** The in-flight email preparation; cancelled by [clearSupportEmailState] and by a newer send. */
+    private var supportEmailJob: Job? = null
+
     /**
      * Builds a pre-filled support email (#1840) with the diagnostic export attached. The user
      * reviews and sends it in their own email app. Chats and messages are redacted from the
@@ -188,8 +194,9 @@ class AboutViewModel @Inject constructor(
         includeUserContent: Boolean,
         device: SupportDeviceInfo = SupportDeviceInfo.current(),
     ) {
+        supportEmailJob?.cancel()
         _uiState.update { it.copy(supportEmailState = ExportState.Loading) }
-        viewModelScope.launch {
+        supportEmailJob = viewModelScope.launch {
             try {
                 val chooser = withContext(ioDispatcher) {
                     // A missing log must not stop the user reporting the problem.
@@ -213,8 +220,14 @@ class AboutViewModel @Inject constructor(
                         },
                     )
                 }
-                _uiState.update { it.copy(supportEmailState = ExportState.Ready(chooser)) }
+                // Cancelled by Cancel or a newer send: a stale result must never reach the UI.
+                ensureActive()
+                val next = chooser?.let { ExportState.Ready(it) } ?: ExportState.Error(NO_EMAIL_APP_MESSAGE)
+                _uiState.update { it.copy(supportEmailState = next) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                ensureActive()
                 _uiState.update {
                     it.copy(supportEmailState = ExportState.Error(e.message ?: "Could not prepare the email"))
                 }
@@ -223,12 +236,16 @@ class AboutViewModel @Inject constructor(
     }
 
     fun clearSupportEmailState() {
+        supportEmailJob?.cancel()
+        supportEmailJob = null
         _uiState.update { it.copy(supportEmailState = ExportState.Idle) }
     }
 
     private fun writeDiagnosticExport(buildInfo: DiagnosticBuildInfo, includeUserContent: Boolean): Uri {
         val content = buildDiagnosticExport(buildInfo, includeUserContent)
         val timestamp = LocalDateTime.now().format(TIMESTAMP_FORMATTER)
+        // Only the newest export is kept: earlier ones are removed before a new one is written (#1840).
+        context.cacheDir.listFiles { _, name -> name.startsWith("kernel_debug_log_") }?.forEach { it.delete() }
         val logFile = File(context.cacheDir, "kernel_debug_log_${buildInfo.versionName}_$timestamp.txt")
         logFile.writeText(content)
         return FileProvider.getUriForFile(
@@ -275,8 +292,7 @@ class AboutViewModel @Inject constructor(
                 if (includeUserContent) {
                     "User content: included (the user chose to include chats and messages)"
                 } else {
-                    "User content: removed (chats, messages, transcripts and lists are replaced with " +
-                        "${DiagnosticLogRedactor.REDACTED_MARKER})"
+                    "User content: redacted (pattern-based; may be incomplete)"
                 },
             )
             appendLine()

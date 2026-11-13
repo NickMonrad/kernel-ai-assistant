@@ -11,13 +11,18 @@ package com.kernel.ai.feature.settings
  *
  * The rules mirror how the app's own log statements carry user text:
  * - quoted spans (`transcript='…'`, `applied to "…" → "…"`, `'$name'`);
- * - values of known content keys (`input=…`, `params={…}`, `args=…`, `title=…`);
+ * - values of known content keys (`input=…`, `params={…}`, `args=…`, `title=…`, `snippet=…`);
  * - lines whose remainder is content (`llm_tools_assistant_reply: …`, `DirectReply: …`);
  * - tool calls whose arguments are content (`ToolSet: saveMemory(…)`);
  * - multi-line blocks that dump model output (`Profile LLM extraction succeeded:` + YAML);
+ * - locations and account names (`fetched … for <place>`, `user=<name>`);
  * - email addresses and phone numbers anywhere.
  *
- * It is deliberately conservative: when in doubt it redacts more, never less.
+ * Rules run on a logical message: consecutive logcat lines with the same header are one message,
+ * so a value or remainder that continues onto the next line is redacted to the end of the message.
+ * Unquoted values end only at the specific next key the app emits (see [VALUE_END_TOKENS]); when
+ * no known end exists they run to the end of the message. This is pattern-based and may be
+ * incomplete; when in doubt it redacts more, never less.
  */
 internal object DiagnosticLogRedactor {
 
@@ -43,34 +48,56 @@ internal object DiagnosticLogRedactor {
         "input", "transcript", "partial", "text", "query", "reply", "prompt", "content", "raw",
         "title", "dayTitle", "params", "parameters", "args", "utterance", "normalized",
         "expanded", "recovered", "location", "item", "items", "memory", "fact", "sentence",
+        "snippet", "definition", "term", "user",
     )
 
     /** Keys whose value is content only when it is a JSON/map payload (e.g. `skill={…}`). */
     private val PAYLOAD_ONLY_KEYS = setOf("skill")
 
+    /**
+     * Tokens the app emits right after a content value. A value ends at the first of these
+     * (so `input=remind me x=5 …` is not cut at `x=5`); with none present it runs to the end
+     * of the message. Only tokens the code actually emits belong here.
+     */
+    private val VALUE_END_TOKENS = mapOf(
+        "input" to listOf(" submitMode="),
+        "transcript" to listOf(" mode=", " language=", " submitMode="),
+        "snippet" to listOf(" | rank="),
+        "term" to listOf(" src="),
+    )
+
     private val KEY = Regex("""(?<![\w.])([A-Za-z_][\w]*)=""")
 
-    /** Start of the next `key=` token, which ends an unquoted value. */
-    private val NEXT_KEY = Regex(""",?\s+[A-Za-z_][\w.]*=""")
+    /** `transcript='…'` / `transcript="…"`: the quote is the last one before the next known key. */
+    private val TRANSCRIPT_OPEN = Regex("""(?<![\w.])transcript=(["'])""")
 
-    /** Markers after which the rest of the line is user or assistant content. */
-    private val REST_OF_LINE = listOf(
-        Regex("""(llm_tools_assistant_reply: )[^\n]*"""),
-        Regex("""(DirectReply: )[^\n]*"""),
-        Regex("""(Skipping duplicate initial query after restore: )[^\n]*"""),
-        Regex("""(Auto-titled conversation \S+: )[^\n]*"""),
-        Regex("""(with prompt: )[^\n]*"""),
-        Regex("""(dropped ungrounded sentence: )[^\n]*"""),
-        Regex("""(conversation title for \S+ to )[^\n]*"""),
-        Regex("""(SlotValidation: blocked \S+ — )[^\n]*"""),
+    /** Markers after which the rest of the logical message is user or assistant content. */
+    private val REST_OF_MESSAGE = listOf(
+        Regex("""(?s)(llm_tools_assistant_reply: ).*"""),
+        Regex("""(?s)(DirectReply: ).*"""),
+        Regex("""(?s)(Skipping duplicate initial query after restore: ).*"""),
+        Regex("""(?s)(Auto-titled conversation \S+: ).*"""),
+        Regex("""(?s)(with prompt: ).*"""),
+        Regex("""(?s)(dropped ungrounded sentence: ).*"""),
+        Regex("""(?s)(conversation title for \S+ to ).*"""),
+        Regex("""(?s)(SlotValidation: blocked \S+ — ).*"""),
+        // Account name (HuggingFaceAuthManager).
+        Regex("""(?s)(HF auth success — user: ).*"""),
+        // Places (GetWeatherSkill). The place is the last thing on these lines.
+        Regex("""(?s)(GetWeatherSkill: fetched \d+-day forecast for ).*"""),
+        Regex("""(?s)(GetWeatherSkill: fetched forecast for day \d+ \([^)\n]*\) for ).*"""),
+        Regex("""(?s)(GetWeatherSkill: fetched weather for ).*"""),
+        // Geocoding errors: only the query line is redacted; a throwable's stack trace stays.
+        Regex("""(Geocoding failed for: )[^\n]*"""),
+        Regex("""(Country capital lookup failed for: )[^\n]*"""),
     )
 
     /** Tool calls whose whole argument list is content. */
     private val TOOLSET_CONTENT_CALL =
-        Regex("""(ToolSet: (?:saveMemory|searchMemory|queryWikipedia|getWeather|runJs)\()[^\n]*(\))""")
+        Regex("""ToolSet: (?:saveMemory|searchMemory|queryWikipedia|getWeather|runJs)\(""")
 
     /** `runIntent(intent_name, {json})`: keep the intent name, drop the parameters. */
-    private val TOOLSET_RUN_INTENT = Regex("""(ToolSet: runIntent\([^,\n]*, )[^\n]*(\))""")
+    private val TOOLSET_RUN_INTENT = Regex("""ToolSet: runIntent\([^,\n)]*, """)
 
     /** Messages that continue with a multi-line dump of extracted or model content. */
     private val BLOCK_DUMP = Regex(
@@ -111,18 +138,19 @@ internal object DiagnosticLogRedactor {
         return out.joinToString("\n")
     }
 
-    /** Redacts free text: every line of [text] is treated as a log message body. */
-    fun redactText(text: String): String = text.lines().joinToString("\n") { redactMessage(it) }
+    /** Redacts free text (an exception record, a trace block): treated as one logical message. */
+    fun redactText(text: String): String = redactMessage(text)
 
-    /** Redacts one (possibly multi-line) log message body. */
+    /** Redacts one logical log message, which may span several lines. */
     fun redactMessage(message: String): String {
         if (message.isEmpty()) return message
         var result = BLOCK_DUMP.replace(message) { "${it.groupValues[1]}\n$REDACTED_MARKER" }
-        result = TOOLSET_RUN_INTENT.replace(result) { "${it.groupValues[1]}$REDACTED_MARKER${it.groupValues[2]}" }
-        result = TOOLSET_CONTENT_CALL.replace(result) { "${it.groupValues[1]}$REDACTED_MARKER${it.groupValues[2]}" }
-        REST_OF_LINE.forEach { rule ->
+        result = redactCallArguments(result, TOOLSET_RUN_INTENT)
+        result = redactCallArguments(result, TOOLSET_CONTENT_CALL)
+        REST_OF_MESSAGE.forEach { rule ->
             result = rule.replace(result) { "${it.groupValues[1]}$REDACTED_MARKER" }
         }
+        result = redactQuotedTranscripts(result)
         result = DOUBLE_QUOTED.replace(result, "\"$REDACTED_MARKER\"")
         result = SINGLE_QUOTED.replace(result, "'$REDACTED_MARKER'")
         result = SMART_DOUBLE_QUOTED.replace(result, "“$REDACTED_MARKER”")
@@ -131,6 +159,63 @@ internal object DiagnosticLogRedactor {
         result = EMAIL.replace(result, REDACTED_MARKER)
         result = PHONE.replace(result, REDACTED_MARKER)
         return result
+    }
+
+    /** Index of the first [VALUE_END_TOKENS] entry for [key] at or after [from], or -1. */
+    private fun endTokenIndex(text: String, from: Int, key: String): Int =
+        VALUE_END_TOKENS[key].orEmpty().map { text.indexOf(it, from) }.filter { it >= 0 }.minOrNull() ?: -1
+
+    /**
+     * `transcript='…'` and `transcript="…"` values may contain quotes of their own, so the
+     * closing quote is the last one before the next known key (or the message's final quote).
+     */
+    private fun redactQuotedTranscripts(text: String): String {
+        val out = StringBuilder()
+        var cursor = 0
+        for (match in TRANSCRIPT_OPEN.findAll(text)) {
+            val contentStart = match.range.last + 1
+            if (contentStart < cursor) continue
+            val quote = match.groupValues[1][0]
+            val endToken = endTokenIndex(text, contentStart, "transcript")
+            val contentEnd = when {
+                endToken >= 0 -> text.lastIndexOf(quote, endToken - 1).takeIf { it >= contentStart } ?: endToken
+                text.length - 1 >= contentStart && text.last() == quote -> text.length - 1
+                else -> text.length
+            }
+            out.append(text, cursor, contentStart).append(REDACTED_MARKER)
+            cursor = contentEnd
+        }
+        out.append(text, cursor, text.length)
+        return out.toString()
+    }
+
+    /** Replaces the arguments of each call matched by [callStart] (which ends just inside the `(`). */
+    private fun redactCallArguments(text: String, callStart: Regex): String {
+        val out = StringBuilder()
+        var cursor = 0
+        for (match in callStart.findAll(text)) {
+            val argsStart = match.range.last + 1
+            if (argsStart < cursor) continue
+            out.append(text, cursor, argsStart).append(REDACTED_MARKER)
+            cursor = closingParen(text, argsStart)
+        }
+        out.append(text, cursor, text.length)
+        return out.toString()
+    }
+
+    /** Index of the `)` closing a call whose arguments start at [from]; the message end if unclosed. */
+    private fun closingParen(text: String, from: Int): Int {
+        var depth = 1
+        for (i in from until text.length) {
+            when (text[i]) {
+                '(' -> depth++
+                ')' -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
+        }
+        return text.length
     }
 
     /** Replaces unquoted values of [CONTENT_KEYS] (and payload values of [PAYLOAD_ONLY_KEYS]). */
@@ -150,7 +235,7 @@ internal object DiagnosticLogRedactor {
                 cursor = valueStart
                 continue
             }
-            val valueEnd = if (isPayload) bracketedEnd(text, valueStart) else unquotedEnd(text, valueStart)
+            val valueEnd = if (isPayload && key !in VALUE_END_TOKENS) bracketedEnd(text, valueStart) else unquotedEnd(text, valueStart, key)
             out.append(text, cursor, valueStart).append(REDACTED_MARKER)
             cursor = valueEnd
         }
@@ -158,18 +243,16 @@ internal object DiagnosticLogRedactor {
         return out.toString()
     }
 
-    /** End of an unquoted value: the next ` key=` token or the end of the line. */
-    private fun unquotedEnd(text: String, start: Int): Int {
-        val lineEnd = text.indexOf('\n', start).let { if (it == -1) text.length else it }
-        val next = NEXT_KEY.find(text.substring(start, lineEnd))
-        return if (next == null) lineEnd else start + next.range.first
+    /** End of an unquoted value: its key's next known token, or the end of the message. */
+    private fun unquotedEnd(text: String, start: Int, key: String): Int {
+        val end = endTokenIndex(text, start, key)
+        return if (end >= 0) end else text.length
     }
 
-    /** End of a `{…}`/`[…]` payload; an unbalanced (truncated) payload runs to the end of the line. */
+    /** End of a `{…}`/`[…]` payload, across lines; an unbalanced (truncated) payload runs to the end. */
     private fun bracketedEnd(text: String, start: Int): Int {
         var depth = 0
-        var i = start
-        while (i < text.length && text[i] != '\n') {
+        for (i in start until text.length) {
             when (text[i]) {
                 '{', '[', '(' -> depth++
                 '}', ']', ')' -> {
@@ -177,8 +260,7 @@ internal object DiagnosticLogRedactor {
                     if (depth == 0) return i + 1
                 }
             }
-            i++
         }
-        return i
+        return text.length
     }
 }

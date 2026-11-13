@@ -5,6 +5,9 @@ import android.app.ApplicationExitInfo
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import androidx.core.content.FileProvider
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -14,6 +17,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
+import io.mockk.verify
 import java.io.IOException
 import java.io.InputStream
 
@@ -198,7 +202,7 @@ class AboutViewModelTest {
     }
 
     @Test
-    fun `exportLogs generates unique filenames per timestamp`() = testScope.runTest {
+    fun `exportLogs keeps only the newest export file`() = testScope.runTest {
         stubRuntime()
         mockShare()
 
@@ -208,7 +212,7 @@ class AboutViewModelTest {
         }
 
         val logFiles = cacheDir.listFiles()?.filter { it.name.endsWith(".txt") } ?: emptyList()
-        assertEquals(3, logFiles.map { it.name }.distinct().size)
+        assertEquals(1, logFiles.size)
     }
 
     @Test
@@ -639,6 +643,17 @@ class AboutViewModelTest {
 
     private val device = SupportDeviceInfo("samsung", "SM-S918B", "15", 35)
 
+    /** Makes one email app visible to the support chooser (#1840). */
+    private fun stubEmailApp(packageName: String = "com.google.android.gm") {
+        val packageManager: PackageManager = mockk()
+        every { context.packageManager } returns packageManager
+        every {
+            packageManager.queryIntentActivities(any<Intent>(), any<PackageManager.ResolveInfoFlags>())
+        } returns listOf(
+            ResolveInfo().apply { activityInfo = ActivityInfo().apply { this.packageName = packageName } },
+        )
+    }
+
     private fun runEmailSupport(includeUserContent: Boolean) {
         viewModel.emailSupport(buildInfo, "Alarm didn't ring", includeUserContent, device)
         testDispatcher.scheduler.advanceUntilIdle()
@@ -657,12 +672,13 @@ class AboutViewModelTest {
         assertFalse(content.contains("oat milk"))
         assertTrue(content.contains("transcript='[redacted]' language=en-NZ"))
         assertTrue(content.contains("commandId=c42 input=[redacted] submitMode=VOICE"))
-        assertTrue(content.contains("User content: removed"))
+        assertTrue(content.contains("User content: redacted (pattern-based; may be incomplete)"))
     }
 
     @Test
     fun `emailSupport removes user content when the box is not ticked`() = testScope.runTest {
         stubRuntime(logContent = userContentLog)
+        stubEmailApp()
         mockShare()
 
         runEmailSupport(includeUserContent = false)
@@ -690,6 +706,7 @@ class AboutViewModelTest {
     @Test
     fun `emailSupport still opens the email chooser when the log cannot be attached`() = testScope.runTest {
         stubRuntime()
+        stubEmailApp()
         mockkStatic(FileProvider::class)
         mockkStatic(Intent::class)
         every { FileProvider.getUriForFile(any(), any(), any()) } throws RuntimeException("disk full")
@@ -710,6 +727,7 @@ class AboutViewModelTest {
     @Test
     fun `emailSupport reports an error in its own state when the chooser cannot be built`() = testScope.runTest {
         stubRuntime()
+        stubEmailApp()
         mockkStatic(FileProvider::class)
         mockkStatic(Intent::class)
         every { FileProvider.getUriForFile(any(), any(), any()) } returns mockk()
@@ -721,5 +739,60 @@ class AboutViewModelTest {
         assertTrue(state is ExportState.Error)
         assertEquals("no chooser", (state as ExportState.Error).message)
         assertEquals(ExportState.Idle, viewModel.uiState.value.exportState)
+    }
+
+    @Test
+    fun `emailSupport with no email app reports that instead of opening a generic share sheet`() = testScope.runTest {
+        stubRuntime()
+        mockkStatic(FileProvider::class)
+        mockkStatic(Intent::class)
+        every { FileProvider.getUriForFile(any(), any(), any()) } returns mockk()
+        val packageManager: PackageManager = mockk()
+        every { context.packageManager } returns packageManager
+        every {
+            packageManager.queryIntentActivities(any<Intent>(), any<PackageManager.ResolveInfoFlags>())
+        } returns emptyList()
+
+        runEmailSupport(includeUserContent = false)
+
+        val state = viewModel.uiState.value.supportEmailState
+        assertTrue(state is ExportState.Error)
+        assertEquals("No email app found — email jandal.ai.support@gmail.com", (state as ExportState.Error).message)
+        verify(exactly = 0) { Intent.createChooser(any(), any()) }
+    }
+
+    @Test
+    fun `clearSupportEmailState cancels a send still preparing so no email is built`() = testScope.runTest {
+        stubRuntime()
+        stubEmailApp()
+        mockkStatic(Intent::class)
+        every { Intent.createChooser(any(), any()) } answers { firstArg() }
+
+        viewModel.emailSupport(buildInfo, "Alarm didn't ring", includeUserContent = false, device = device)
+        viewModel.clearSupportEmailState()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(ExportState.Idle, viewModel.uiState.value.supportEmailState)
+        verify(exactly = 0) { Intent.createChooser(any(), any()) }
+    }
+
+    @Test
+    fun `a newer send cancels an earlier send still preparing`() = testScope.runTest {
+        stubRuntime()
+        val packageManager: PackageManager = mockk()
+        every { context.packageManager } returns packageManager
+        every {
+            packageManager.queryIntentActivities(any<Intent>(), any<PackageManager.ResolveInfoFlags>())
+        } returns emptyList()
+
+        viewModel.emailSupport(buildInfo, "first", includeUserContent = false, device = device)
+        viewModel.emailSupport(buildInfo, "second", includeUserContent = false, device = device)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Only the newest send reaches the email-app lookup.
+        verify(exactly = 1) {
+            packageManager.queryIntentActivities(any<Intent>(), any<PackageManager.ResolveInfoFlags>())
+        }
+        assertTrue(viewModel.uiState.value.supportEmailState is ExportState.Error)
     }
 }

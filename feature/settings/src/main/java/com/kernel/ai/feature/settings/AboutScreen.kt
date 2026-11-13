@@ -197,7 +197,7 @@ fun AboutScreen(
                 modifier = Modifier.fillMaxWidth(),
                 headlineContent = { Text("Export logs") },
                 supportingContent = {
-                    Text("Share recent crash information and current logs. Chats and messages are removed.")
+                    Text("Share recent crash information and current logs. Chats and messages are redacted (pattern-based; may be incomplete).")
                 },
                 trailingContent = {
                     val isLoading = uiState.exportState is ExportState.Loading

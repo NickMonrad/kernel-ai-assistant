@@ -98,11 +98,139 @@ class DiagnosticLogRedactorTest {
         assertTrue(redacted.contains("at java.lang.Integer.parseInt(Integer.java:747)"))
     }
 
+    @Test
+    fun `redacts a DirectReply whose notes continue onto later logcat lines`() {
+        val logcat = """
+            11-14 09:20:00.000  4321  4321 D KernelAI: DirectReply: Your notes:
+            11-14 09:20:00.000  4321  4321 D KernelAI: - Buy eggs
+            11-14 09:20:00.000  4321  4321 D KernelAI: - Call the clinic about my biopsy
+        """.trimIndent()
+
+        assertEquals("11-14 09:20:00.000  4321  4321 D KernelAI: DirectReply: $r", DiagnosticLogRedactor.redactLogcat(logcat))
+    }
+
+    @Test
+    fun `redacts a list item value that continues onto later logcat lines`() {
+        val logcat = """
+            11-14 09:21:00.000  4321  4321 D ListsViewModel: created list items=eggs
+            11-14 09:21:00.000  4321  4321 D ListsViewModel: - oat milk
+        """.trimIndent()
+
+        assertEquals(
+            "11-14 09:21:00.000  4321  4321 D ListsViewModel: created list items=$r",
+            DiagnosticLogRedactor.redactLogcat(logcat),
+        )
+    }
+
+    @Test
+    fun `redacts a memory that continues onto later logcat lines`() {
+        val logcat = """
+            11-14 09:22:00.000  4321  4321 D KernelAI: ToolSet: saveMemory(My partner is called Sam
+            11-14 09:22:00.000  4321  4321 D KernelAI: and I'm allergic to peanuts)
+        """.trimIndent()
+
+        assertEquals(
+            "11-14 09:22:00.000  4321  4321 D KernelAI: ToolSet: saveMemory($r)",
+            DiagnosticLogRedactor.redactLogcat(logcat),
+        )
+    }
+
+    @Test
+    fun `redacts an input value that continues onto later logcat lines and keeps the submit mode`() {
+        val logcat = """
+            11-14 09:23:00.000  4321  4321 D KernelAI: ADB_INTENT_TRACE commandId=c42 input=remind me
+            11-14 09:23:00.000  4321  4321 D KernelAI: my PIN is 1234 submitMode=TEXT
+        """.trimIndent()
+
+        assertEquals(
+            "11-14 09:23:00.000  4321  4321 D KernelAI: ADB_INTENT_TRACE commandId=c42 input=$r submitMode=TEXT",
+            DiagnosticLogRedactor.redactLogcat(logcat),
+        )
+    }
+
+    @Test
+    fun `redacts a params payload whose message continues onto a later logcat line`() {
+        val logcat = """
+            11-14 09:24:00.000  4321  4321 D KernelAI: NativeIntentHandler.handle: intent=send_sms params={to=Sam, message=hi
+            11-14 09:24:00.000  4321  4321 D KernelAI: I'm at the clinic} source=quick
+        """.trimIndent()
+
+        assertEquals(
+            "11-14 09:24:00.000  4321  4321 D KernelAI: NativeIntentHandler.handle: intent=send_sms params=$r source=quick",
+            DiagnosticLogRedactor.redactLogcat(logcat),
+        )
+    }
+
+    @Test
+    fun `redacts a geocoding query but keeps the stack trace of the same logcat entry`() {
+        val logcat = """
+            11-14 09:25:00.000  4321  4400 W GetWeatherSkill: Geocoding failed for: 12 Smith Street
+            11-14 09:25:00.000  4321  4400 W GetWeatherSkill: java.io.IOException: timeout
+        """.trimIndent()
+
+        assertEquals(
+            """
+            11-14 09:25:00.000  4321  4400 W GetWeatherSkill: Geocoding failed for: $r
+            11-14 09:25:00.000  4321  4400 W GetWeatherSkill: java.io.IOException: timeout
+            """.trimIndent(),
+            DiagnosticLogRedactor.redactLogcat(logcat),
+        )
+    }
+
     companion object {
         private const val R = REDACTED_MARKER
 
         @JvmStatic
         fun redactedMessages(): List<Arguments> = listOf(
+            // Values end at the next key the app emits, or at the end of the message.
+            Arguments.of(
+                "ADB_INTENT_TRACE commandId=c1 input=remind me x=5 to call my lawyer about divorce",
+                "ADB_INTENT_TRACE commandId=c1 input=$R",
+            ),
+            Arguments.of(
+                "VoiceCommandService: handling transcript=\"text mum \"running late\" ok see you soon\" mode=WIDGET",
+                "VoiceCommandService: handling transcript=\"$R\" mode=WIDGET",
+            ),
+            Arguments.of(
+                "Android native STT result: sessionId=7 mode=COMMAND transcript=\"text mum \"running late\" ok see you soon\"",
+                "Android native STT result: sessionId=7 mode=COMMAND transcript=\"$R\"",
+            ),
+            // RAG candidate lines: each value ends at the next field the app emits.
+            Arguments.of(
+                "rank=0 term=Otaki src=core score=0.91 dist=0.090 access=1731 snippet=[Otaki] Beach is my home | rank=1 term=mum src=core score=0.50 dist=0.500 access=1700 snippet=[mum] Jane Doe",
+                "rank=0 term=$R src=core score=0.91 dist=0.090 access=1731 snippet=$R | rank=1 term=$R src=core score=0.50 dist=0.500 access=1700 snippet=$R",
+            ),
+            Arguments.of(
+                "Distilled candidates (1): rank=0 conv=42 src=episodic score=0.8 dist=0.200 snippet=Chat about divorce paperwork",
+                "Distilled candidates (1): rank=0 conv=42 src=episodic score=0.8 dist=0.200 snippet=$R",
+            ),
+            Arguments.of(
+                "Core candidate: definition=Likes flat whites in the morning",
+                "Core candidate: definition=$R",
+            ),
+            // Account names and locations.
+            Arguments.of(
+                "HuggingFaceAuthManager: restored auth=true, user=sam-jones",
+                "HuggingFaceAuthManager: restored auth=true, user=$R",
+            ),
+            Arguments.of("HF auth success — user: sam-jones", "HF auth success — user: $R"),
+            Arguments.of(
+                "GetWeatherSkill: fetched 7-day forecast for Bundaberg Central",
+                "GetWeatherSkill: fetched 7-day forecast for $R",
+            ),
+            Arguments.of(
+                "GetWeatherSkill: fetched forecast for day 2 (Tue 17 Nov) for Otaki Beach",
+                "GetWeatherSkill: fetched forecast for day 2 (Tue 17 Nov) for $R",
+            ),
+            Arguments.of(
+                "GetWeatherSkill: fetched weather for 12 Smith Street, Petone",
+                "GetWeatherSkill: fetched weather for $R",
+            ),
+            Arguments.of("Geocoding failed for: 12 Smith Street", "Geocoding failed for: $R"),
+            Arguments.of(
+                "Country capital lookup failed for: Narnia",
+                "Country capital lookup failed for: $R",
+            ),
             // STT transcripts and partials
             Arguments.of(
                 "Android native STT partial: sessionId=12 mode=COMMAND transcript='what's the weather in Taupō'",
@@ -213,6 +341,10 @@ class DiagnosticLogRedactorTest {
 
         @JvmStatic
         fun structuralMessages(): List<String> = listOf(
+            "HuggingFaceAuthManager: restored auth=true",
+            "RagRepository: rank=0 score=0.91 dist=0.090 access=1731",
+            "GetWeatherSkill: fetched 7-day forecast",
+            "ADB_INTENT_TRACE commandId=c42 submitMode=VOICE",
             "TTFT (Time to First Token): 2310ms [backend=GPU]",
             "Android native STT ready: sessionId=12 mode=COMMAND backend=ON_DEVICE",
             "Android native STT retried with platform recognizer after error=7 for sessionId=12 heardSpeech=true sawPartialTranscript=false",

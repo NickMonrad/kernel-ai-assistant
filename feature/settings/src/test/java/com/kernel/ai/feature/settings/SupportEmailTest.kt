@@ -31,7 +31,7 @@ class SupportEmailTest {
             App: v1.0.4 (4) release
             Commit: 3340e57b
             Built: 2026-11-14T09:00:00Z
-            Chats and messages in attached log: removed
+            Chats and messages in attached log: redacted (pattern-based; may be incomplete)
 
             What happened:
             The alarm didn't ring.
