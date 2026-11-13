@@ -31,6 +31,8 @@ paseo run --provider omp --new-workspace worktree --base main \
 
 Always give a new agent its own worktree (`--new-workspace worktree --base main`), so it never edits another agent's checkout.
 
+OMP agents can run their own subagents. `.omp/AGENTS.md` discourages nested delegation unless it is requested, so if the task has independent parts that would benefit, say so explicitly in the brief, for example "you may use subagents for the tests and the docs".
+
 ## Existing sessions: "closed" often means asleep
 
 Claude sessions with the OMP session-control connector can also message existing OMP sessions. The connector's tools are `list_sessions`, `get_session`, `send_prompt`, `get_transcript` and `interrupt`, on hosts `cachyos` and `plex`. The connector cannot create sessions; use `paseo run` for that.
