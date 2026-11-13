@@ -99,9 +99,10 @@ python3 scripts/publish_launch_validation_evidence.py \
 The S23 Ultra (SM-S918B) is the **reference** device. It runs the **reference
 model (Gemma 4 E-4B)** — NOT the tracked E-2B used on S21.
 
-> ⚠ **IMPORTANT: Do not run full suites on S23 Ultra.** It is a daily driver.
-> Only targeted smoke/comparison tests as explicitly approved by Nick.
-> Broad or full-suite runs are never permitted on this device.
+> **S23 Ultra is a dedicated test device (owner decision, 2026-11-14).** Full suites
+> are allowed on `RFCW11265XH`. Apply the house rules in the Device Handling Rules
+> section of `.docs/agents/risk-based-evidence-policy.md` (volume, timer/alarm limits,
+> protected packages, quiet hours, `adb -s` targeting).
 
 ```bash
 # Targeted smoke — individual phases only, short timeout
