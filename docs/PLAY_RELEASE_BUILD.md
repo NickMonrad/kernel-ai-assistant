@@ -139,10 +139,14 @@ GPP is configured for local owner-run publishing only. Credential checks are gat
 ### Publish to internal testing
 
 ```bash
-ANDROID_HOME=~/Android/Sdk \
+ANDROID_HOME=~/.local/share/android-sdk \
   ./gradlew :app:publishReleaseBundle \
   -PreleaseSigningPropertiesFile="$HOME/.local/share/jandal/keystore.properties"
 ```
+
+To publish to the closed test instead, add `-PplayTrack=alpha`. In this repo's main checkout the signing properties file is `keystore.properties` at the checkout root; pass that path when publishing from a worktree.
+
+Update `app/src/main/play/release-notes/en-AU/default.txt` before each upload (Play allows 500 characters).
 
 This uploads the signed release AAB to the **internal** track. `-PplayTrack` accepts only `internal`, `alpha` (closed testing), or `beta`; production and promotion tasks are disabled. GPP's `AUTO` version resolution chooses one more than the highest Play version for an upload, while explicit `-PversionCode` remains effective for non-publish builds such as CI. Release notes come from `app/src/main/play/release-notes/en-AU/default.txt`. Store listing text and images remain console-managed and are not part of bundle publishing.
 
