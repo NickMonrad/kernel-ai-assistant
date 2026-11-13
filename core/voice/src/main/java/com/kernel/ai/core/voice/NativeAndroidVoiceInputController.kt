@@ -279,7 +279,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
             ) {
                 cachedAvailability
             } else {
-                recognitionSupport.getAvailability()
+                recognitionSupport.getAvailability().also {
+                    // The live check's throwaway recognizer is torn down asynchronously and can
+                    // take the shared on-device service with it if a session starts at once
+                    // (ERROR_SERVER_DISCONNECTED on the S23 Ultra after a cold start, #1008).
+                    delay(LIVE_CHECK_SETTLE_MS)
+                }
             }
             availability.blockingReason?.let { reason ->
                 Log.w(
