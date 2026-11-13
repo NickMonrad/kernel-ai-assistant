@@ -1,0 +1,71 @@
+package com.kernel.ai.feature.chat
+
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceOutputStreamingSession
+import io.mockk.coEvery
+import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+class ChunkedSpeechTest {
+    private val appended = mutableListOf<Pair<String, Boolean>>()
+    private val session = object : VoiceOutputStreamingSession {
+        override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+            appended += text to isFinal
+            return VoiceOutputResult.Spoken
+        }
+    }
+    private val controller: VoiceOutputController = mockk {
+        coEvery { openStreamingSession(any()) } returns session
+    }
+
+    @Test
+    fun `a long weather reply is spoken in several chunks with the last one final`() = runTest {
+        val weather = "In Brisbane, it's 22 degrees, drizzle, feeling like 25 degrees. " +
+            "Today's high is 28 degrees, low is 21 degrees. " +
+            "Rain chance is 87 percent, so take an umbrella if you're heading out this afternoon."
+
+        assertEquals(VoiceOutputResult.Spoken, speakInSentenceChunks(controller, weather))
+
+        assertTrue(appended.size > 1, "expected more than one chunk, got $appended")
+        assertTrue(appended.last().second, "last chunk must be final")
+        assertTrue(appended.dropLast(1).none { it.second }, "only the last chunk is final")
+        assertEquals(
+            weather.replace(Regex("""\s+"""), " ").trim(),
+            appended.joinToString(" ") { it.first }.replace(Regex("""\s+"""), " ").trim(),
+        )
+    }
+
+    @Test
+    fun `a short reply is one final chunk`() = runTest {
+        speakInSentenceChunks(controller, "It's 6:22 AM.")
+        assertEquals(listOf("It's 6:22 AM." to true), appended)
+    }
+
+    @Test
+    fun `a chunk the engine rejects closes the session and reports unavailable`() = runTest {
+        val calls = mutableListOf<Pair<String, Boolean>>()
+        val failing = object : VoiceOutputStreamingSession {
+            override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+                calls += text to isFinal
+                return if (calls.size == 1) VoiceOutputResult.Unavailable("engine gone") else VoiceOutputResult.Spoken
+            }
+        }
+        val failingController: VoiceOutputController = mockk {
+            coEvery { openStreamingSession(any()) } returns failing
+        }
+        val text = "In Brisbane, it's 22 degrees, drizzle, feeling like 25 degrees. " +
+            "Today's high is 28 degrees, low is 21 degrees. " +
+            "Rain chance is 87 percent, so take an umbrella if you're heading out this afternoon."
+
+        assertEquals(
+            VoiceOutputResult.Unavailable("engine gone"),
+            speakInSentenceChunks(failingController, text),
+        )
+        assertEquals(2, calls.size, "expected the failed chunk then a closing final append: $calls")
+        assertEquals("" to true, calls.last())
+    }
+}

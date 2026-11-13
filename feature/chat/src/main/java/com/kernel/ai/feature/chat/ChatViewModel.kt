@@ -135,8 +135,8 @@ internal fun shouldForceGpuConversationResetEachTurn(
 ): Boolean = backend == BackendType.GPU && (!isDebugBuild || debugForceReset)
 // Covers the 60s GPU attempt, CPU fallback, and cleanup; foreground and lock waits are excluded.
 internal const val MODEL_INITIALIZATION_WATCHDOG_MS = 150_000L
-private const val CHAT_VOICE_MIN_CHUNK_LENGTH = 72
-private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = 180
+private const val CHAT_VOICE_MIN_CHUNK_LENGTH = VOICE_MIN_CHUNK_LENGTH
+private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = VOICE_PREFERRED_CHUNK_LENGTH
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
 private const val LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND = "__orchtest:load_skill_abort_replay"
 private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND = "__orchtest:load_skill_native_continuation"
@@ -1877,33 +1877,7 @@ class ChatViewModel @Inject constructor(
                 // Use the streaming session path so sentence 1 starts playing while
                 // sentence 2 is being synthesised — critical for long responses with
                 // high-quality voices (e.g. LessacHigh) which synthesise slowly.
-                val session = voiceOutputController.openStreamingSession(
-                    VoiceSpeakRequest(text = textToSpeak),
-                )
-                val buffer = StringBuilder(textToSpeak)
-                var finalised = false
-                while (buffer.isNotBlank()) {
-                    val isShort = buffer.length < CHAT_VOICE_MIN_CHUNK_LENGTH
-                    val chunk = popNextStreamingSpeechChunk(
-                        buffer = buffer,
-                        minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
-                        preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
-                        force = isShort,
-                    ) ?: break
-                    val isLast = buffer.isBlank()
-                    session.append(chunk, isFinal = isLast)
-                    if (isLast) {
-                        finalised = true
-                        break
-                    }
-                }
-                // Flush any residual text that didn't form a clean chunk boundary.
-                // Skip if the loop already sent isFinal=true on the last chunk.
-                if (!finalised) {
-                    val remaining = finalizeChatTextForSpeech(buffer.toString())
-                    session.append(remaining, isFinal = true)
-                }
-                VoiceOutputResult.Spoken
+                speakInSentenceChunks(voiceOutputController, textToSpeak)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

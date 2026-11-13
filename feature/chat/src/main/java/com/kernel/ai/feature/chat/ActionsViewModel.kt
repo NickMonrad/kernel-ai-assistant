@@ -32,6 +32,7 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -2025,10 +2026,28 @@ class ActionsViewModel @Inject constructor(
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
+        // A slot prompt must be spoken as one utterance: the slot-reply mic re-arm only trusts a
+        // SpeakingStarted whose text equals expectedSlotPromptSpeech, and Android TTS streaming
+        // reports the first (re-normalised) chunk instead. Slot prompts are one short question,
+        // so chunking would gain nothing.
+        val isSlotPrompt = summary == expectedSlotPromptSpeech
         pendingVoiceSpeechJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
             if (!spokenResponsesEnabled) return@launch
-            when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = summary))) {
+            // Other replies go sentence by sentence, so long ones (e.g. weather) start sooner.
+            val result = try {
+                if (isSlotPrompt) {
+                    voiceOutputController.speak(VoiceSpeakRequest(text = summary))
+                } else {
+                    speakInSentenceChunks(voiceOutputController, summary)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: chunked speech failed to start", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            }
+            when (result) {
                 is VoiceOutputResult.Spoken -> Unit
                 is VoiceOutputResult.Unavailable -> _error.value = result.message
             }
