@@ -19,6 +19,7 @@ paseo run --provider omp/anthropic/claude-haiku-5-5 --new-workspace worktree --b
 - Delegated agents use **Claude Haiku 5.5**: `--provider omp/anthropic/claude-haiku-5-5`.
 - **Code reviews** use **Claude Opus 5.5**: `--provider omp/anthropic/claude-opus-5-5 --thinking high`.
 - Always pass the model explicitly. Without it, Paseo uses its own default model, which the owner does not want.
+- The rule applies to `paseo run` only; it does not change the OMP `task`-tool rule in `.omp/AGENTS.md`.
 
 | Command | What it does |
 |---|---|
@@ -27,12 +28,24 @@ paseo run --provider omp/anthropic/claude-haiku-5-5 --new-workspace worktree --b
 | `paseo logs <id>` | Show an agent's activity |
 | `paseo attach <id>` | Stream a running agent's output |
 | `paseo stop <id>` | Interrupt a running agent (no-op when idle) |
+| `paseo wait <id>` | Wait for an agent to become idle |
+| `paseo inspect <id>` | Show detailed information about an agent |
 
 `paseo run --help` lists the model, thinking and mode options.
 
-Always give a new agent its own worktree (`--new-workspace worktree --base main`), so it never edits another agent's checkout.
+Review example (read-only, Claude Opus 5.5):
+
+```bash
+paseo run --provider omp/anthropic/claude-opus-5-5 --thinking high --new-workspace worktree --worktree-mode checkout-pr --pr-number <N> --title "Review PR #<N>" --no-wait "<brief>"
+```
+
+Always give a new agent its own worktree (`--new-workspace worktree --base main` for new work, `--worktree-mode checkout-pr` for an existing PR), so it never edits another agent's checkout.
 
 OMP agents can run their own subagents. `.omp/AGENTS.md` discourages nested delegation by default. Grant it in the brief only when the task has genuinely independent parts.
+
+Agents run with full access by default (no approval prompts), so the brief is the only guard. Review briefs must say read-only: do not edit, commit, push or comment.
+
+In checkout-pr worktrees the local branch name can differ from the PR branch (e.g. a -3 suffix). Briefs that let an agent push must tell it to push with: `git push origin HEAD:<pr-branch>`, and never create a new remote branch.
 
 ## Existing sessions: "closed" often means asleep
 
@@ -48,14 +61,10 @@ The agent knows only what the brief says. Include:
 2. The files or area to start from, and anything already ruled out.
 3. What "done" looks like: tests to run, and whether to open a draft PR and against which base.
 4. A pointer to `.omp/AGENTS.md` for commit, PR and review conventions, rather than restating them. OMP agents load it automatically; other agents must be told to read it.
-5. Device rules:
-   - Choose devices per `.docs/agents/risk-based-evidence-policy.md`.
-   - Always target a device explicitly with `adb -s <serial>`.
-   - Never use `./gradlew installDebug`. It installs on every connected phone.
-   - The S23 Ultra (`RFCW11265XH`) is the owner's test device, and agents may use it freely.
-   - The S21 belongs to another member of the household: use it only with the owner's explicit OK, and never change its settings or permissions.
-   - Never touch the owner's personal Honor phone.
+5. Devices: follow the Device Handling Rules in `.docs/agents/risk-based-evidence-policy.md` (S23 Ultra primary; the S21 belongs to another household member — extra capacity only, never change its settings, permissions or data; never touch the owner's Honor).
 6. Secrets: never read, print or copy `keystore.properties`, the upload keystore or the Play service-account key.
+7. Scope boundaries: what the agent must not touch.
+8. End the brief with: Do not merge — wait for review.
 
 ## Fallback
 
