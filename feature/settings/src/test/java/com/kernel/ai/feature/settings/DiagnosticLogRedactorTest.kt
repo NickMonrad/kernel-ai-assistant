@@ -231,6 +231,36 @@ class DiagnosticLogRedactorTest {
                 "Country capital lookup failed for: Narnia",
                 "Country capital lookup failed for: $R",
             ),
+            // Request and response payloads (ChatViewModel, MealPlannerCoordinator): trailing, so the rest is content.
+            Arguments.of(
+                "llm_tools_native_tool: tool=save_memory request={\"text\":\"my sister Jane lives in Wanaka\"",
+                "llm_tools_native_tool: tool=save_memory request=$R",
+            ),
+            Arguments.of(
+                "llm_tools_native_tool: tool=save_memory request=my sister Jane lives in Wanaka",
+                "llm_tools_native_tool: tool=save_memory request=$R",
+            ),
+            Arguments.of(
+                "Plan generation failed: sessionId=s9, attempt=1/2, errorCode=PLAN_JSON_INVALID, responsePreview={\"days\":[{\"name\":\"Aroha lasagne\"",
+                "Plan generation failed: sessionId=s9, attempt=1/2, errorCode=PLAN_JSON_INVALID, responsePreview=$R",
+            ),
+            // Weather cache keys carry the place (GetWeatherSkill); the cache shape stays.
+            Arguments.of(
+                "Weather cache stored: loc:Wanaka:forecast:3 (512 bytes)",
+                "Weather cache stored: loc:$R:forecast:3 (512 bytes)",
+            ),
+            Arguments.of(
+                "Raw cache read failed for key: loc:Palmerston North:weekend",
+                "Raw cache read failed for key: loc:$R:weekend",
+            ),
+            Arguments.of(
+                "Cache read failed for key: loc:Taupō:current",
+                "Cache read failed for key: loc:$R:current",
+            ),
+            // Formatted phone numbers (NativeIntentHandler): up to two separators between digits.
+            Arguments.of("Dialing contact (09) 123-4567 now", "Dialing contact ($R now"),
+            Arguments.of("Dialing contact +1 (555) 123-4567", "Dialing contact $R"),
+            Arguments.of("Dialing contact 09 123 4567 now", "Dialing contact $R now"),
             // STT transcripts and partials
             Arguments.of(
                 "Android native STT partial: sessionId=12 mode=COMMAND transcript='what's the weather in Taupō'",
@@ -368,6 +398,8 @@ class DiagnosticLogRedactorTest {
             "java.lang.IllegalStateException: engine closed",
             "\tat com.kernel.ai.core.inference.LiteRtInferenceEngine.generate(LiteRtInferenceEngine.kt:1512)",
             "--------- beginning of crash",
+            "Timer fired at 2026-11-14 09:12:01.123 id=17 frame=1234.5678",
+            "Shown 11-14 09:20:00.000 at offset 4321 of 8192",
         )
     }
 }

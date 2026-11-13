@@ -23,6 +23,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -125,6 +126,9 @@ class AboutViewModel @Inject constructor(
     val uiState: StateFlow<AboutUiState> = _uiState.asStateFlow()
 
     private val verboseLoggingMutex = Mutex()
+
+    /** Serialises export writes and the removal of older exports, so they never interleave. */
+    private val exportWriteMutex = Mutex()
 
     init {
         viewModelScope.launch {
@@ -241,13 +245,18 @@ class AboutViewModel @Inject constructor(
         _uiState.update { it.copy(supportEmailState = ExportState.Idle) }
     }
 
-    private fun writeDiagnosticExport(buildInfo: DiagnosticBuildInfo, includeUserContent: Boolean): Uri {
+    private suspend fun writeDiagnosticExport(buildInfo: DiagnosticBuildInfo, includeUserContent: Boolean): Uri {
         val content = buildDiagnosticExport(buildInfo, includeUserContent)
         val timestamp = LocalDateTime.now().format(TIMESTAMP_FORMATTER)
-        // Only the newest export is kept: earlier ones are removed before a new one is written (#1840).
-        context.cacheDir.listFiles { _, name -> name.startsWith("kernel_debug_log_") }?.forEach { it.delete() }
-        val logFile = File(context.cacheDir, "kernel_debug_log_${buildInfo.versionName}_$timestamp.txt")
-        logFile.writeText(content)
+        val logFile = exportWriteMutex.withLock {
+            // A cancelled export (superseded by a newer one) must not clean up after the newer file (#1840).
+            currentCoroutineContext().ensureActive()
+            // Only the newest export is kept: earlier ones are removed before a new one is written.
+            context.cacheDir.listFiles { _, name -> name.startsWith("kernel_debug_log_") }?.forEach { it.delete() }
+            File(context.cacheDir, "kernel_debug_log_${buildInfo.versionName}_$timestamp.txt").also {
+                it.writeText(content)
+            }
+        }
         return FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",

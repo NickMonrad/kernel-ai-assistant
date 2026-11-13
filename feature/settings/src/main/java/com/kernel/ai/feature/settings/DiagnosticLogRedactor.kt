@@ -40,8 +40,15 @@ internal object DiagnosticLogRedactor {
 
     private val EMAIL = Regex("""[\w.+-]+@[\w-]+(?:\.[\w-]+)+""")
 
-    /** Phone-number-like digit runs (8–15 digits, optional `+` and separators). */
-    private val PHONE = Regex("""(?<![\w.=:/\-])(?!\d{4}-\d{2}-\d{2})\+?\d(?:[ \-()]?\d){7,14}(?![\w.])""")
+    /**
+     * Phone-number-like digit runs (8–15 digits, optional `+`, up to two separators between digits:
+     * `(09) 123-4567`, `+1 (555) 123-4567`). A `.` separator is allowed only mid-run, so a
+     * timestamp's sub-second part (`09:20:00.000`) starts after `.`/`:` and is never a run start.
+     */
+    private val PHONE = Regex("""(?<![\w.=:/\-])(?!\d{4}-\d{2}-\d{2})\+?\d(?:[ \-().]{0,2}\d){7,14}(?![\w.])""")
+
+    /** Weather cache keys `loc:<place>:(weekend|tomorrow|forecast:N|current)`: the place is content. */
+    private val WEATHER_CACHE_LOCATION = Regex("""\bloc:.+?(?=:(?:weekend|tomorrow|forecast:\d+|current)\b)""")
 
     /** Keys whose value is user content regardless of shape. */
     private val CONTENT_KEYS = setOf(
@@ -87,6 +94,8 @@ internal object DiagnosticLogRedactor {
         Regex("""(?s)(GetWeatherSkill: fetched \d+-day forecast for ).*"""),
         Regex("""(?s)(GetWeatherSkill: fetched forecast for day \d+ \([^)\n]*\) for ).*"""),
         Regex("""(?s)(GetWeatherSkill: fetched weather for ).*"""),
+        // Request and response payloads: trailing fields, so the rest of the message is content.
+        Regex("""(?s)((?<![\w.])(?:request|responsePreview)=).*"""),
         // Geocoding errors: only the query line is redacted; a throwable's stack trace stays.
         Regex("""(Geocoding failed for: )[^\n]*"""),
         Regex("""(Country capital lookup failed for: )[^\n]*"""),
@@ -150,6 +159,7 @@ internal object DiagnosticLogRedactor {
         REST_OF_MESSAGE.forEach { rule ->
             result = rule.replace(result) { "${it.groupValues[1]}$REDACTED_MARKER" }
         }
+        result = WEATHER_CACHE_LOCATION.replace(result, "loc:$REDACTED_MARKER")
         result = redactQuotedTranscripts(result)
         result = DOUBLE_QUOTED.replace(result, "\"$REDACTED_MARKER\"")
         result = SINGLE_QUOTED.replace(result, "'$REDACTED_MARKER'")

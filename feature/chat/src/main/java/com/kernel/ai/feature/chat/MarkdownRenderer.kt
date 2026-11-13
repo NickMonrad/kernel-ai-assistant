@@ -828,13 +828,14 @@ private fun openUrlSafely(uriHandler: androidx.compose.ui.platform.UriHandler, u
     val safeUrl = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
     val uri = android.net.Uri.parse(safeUrl)
     if (uri.scheme != "http" && uri.scheme != "https") {
-        android.util.Log.w("MarkdownRenderer", "Blocked non-HTTP URI: $safeUrl")
+        android.util.Log.w("MarkdownRenderer", "Blocked non-HTTP URI scheme: ${uri.scheme}")
         return
     }
     try {
         uriHandler.openUri(safeUrl)
     } catch (e: Exception) {
-        android.util.Log.w("MarkdownRenderer", "Could not open URL: $safeUrl — ${e.message}")
+        // Query and fragment can carry tokens or personal data; the log keeps only scheme, host and path.
+        android.util.Log.w("MarkdownRenderer", "Could not open URL: ${safeUrl.substringBefore('?').substringBefore('#')} — ${e.message}")
     }
 }
 
