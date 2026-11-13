@@ -117,7 +117,8 @@ internal object SherpaSpeechText {
     private fun spokenTime(rawHour: String, rawMinute: String, meridiem: String): String {
         val hour = rawHour.toInt()
         val minute = rawMinute.toInt()
-        val suffix = if (meridiem.isEmpty()) "" else " ${meridiem.lowercase()}.m."
+        // "P M" as separate capitals: Cori reads "p.m." as one rushed syllable (#1487 device check).
+        val suffix = if (meridiem.isEmpty()) "" else " ${meridiem.uppercase()} M"
         val minuteWords = when {
             minute == 0 && hour > 12 && meridiem.isEmpty() -> "hundred"
             minute == 0 -> "o'clock"
