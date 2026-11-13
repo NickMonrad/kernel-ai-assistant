@@ -14,7 +14,12 @@ three-tier risk classification and the minimum evidence expected for each tier.
    parallel runs, or a second-SoC comparison when a change is device-sensitive. Explicit
    issue/device requirements win. (Owner decision, 2026-11-14: "S23 should be primary
    test device, but we can use S21 if we need more test capacity.")
-   Suite-specific S21 gates still apply where tooling requires them: only a complete S21 `regression` run sets `release_gate_success` (`docs/automated-testing.md`); the S21 model-readiness preflight (`docs/testing/s21-model-readiness.md`) and the S21 `permission_flows` connected suite (`docs/adb-testing.md`) are S21-bound; and the wake-word acoustic harness names S21 as its launch-blocking target (`docs/testing/wake-word-acoustic-reliability-harness.md`). Those runs follow the Device Handling Rules below: explicit `adb -s <serial>`, no `./gradlew installDebug`, and no changes to the household S21's settings, permissions, or personal data.
+   Suite-specific S21 gates still apply where tooling requires them:
+   - only a complete S21 `regression` run sets `release_gate_success` (`docs/automated-testing.md`);
+   - the S21 model-readiness preflight (`docs/testing/s21-model-readiness.md`) is S21-bound;
+   - the S21 `permission_flows` connected suite (`docs/adb-testing.md`) and the permission scenario runner (`scripts/run_permission_scenarios.py --device-id s21-exynos`, `docs/testing/permission-scenario-runner.md`) are S21-bound;
+   - the wake-word acoustic harness names S21 as its launch-blocking target (`docs/testing/wake-word-acoustic-reliability-harness.md`).
+   Those runs follow the Device Handling Rules below: explicit `adb -s <serial>` installs, no `./gradlew installDebug`, and the household-device limits for the S21.
 3. **Manual on-device testing is reserved for high-risk or hard-to-automate changes.**
    Do not require manual testing for every low-risk or CI-safe change.
 4. **Targeted validation is better than broad.** A focused unit test for the changed
@@ -28,14 +33,13 @@ three-tier risk classification and the minimum evidence expected for each tier.
 ## Device Handling Rules
 
 - **Target devices explicitly.** Always use `adb -s <serial>`
-  (S23U = `RFCW11265XH`, S21 = `R5CR605B71K`). Never use `./gradlew installDebug`,
-  which installs on every connected phone.
+  (S23U = `RFCW11265XH`, S21 = `R5CR605B71K`). Install the debug APK with `adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk`; never use `./gradlew installDebug`, which installs on every connected phone. Gradle connected-test tasks take `ANDROID_SERIAL=<serial>` as a prefix.
 - **S23 Ultra is a dedicated test device** (owner decision, 2026-11-14). Full suites are allowed on it (`RFCW11265XH`) under these house rules:
   - keep media and alarm volume low;
   - timers/alarms of 10 seconds or less only, and cancel everything started;
   - never uninstall or clear `ai.jandal.assistant` (Play build), `com.kernel.ai`, or `com.kernel.ai.debug`;
   - no full-suite or alarm-producing runs between 21:00 and 06:00 `Australia/Brisbane`.
-- **Household devices.** The S21 (`R5CR605B71K`) is extra capacity with targeted runs only and belongs to another member of the household: agents must not change its settings, permissions, or personal data. Never touch the owner's personal Honor phone.
+- **Household devices.** The S21 (`R5CR605B71K`) belongs to another member of the household: targeted runs only. Agents must not change its device-wide settings, other apps' permissions, or personal data. Jandal's own app permissions may be changed during S21-only permission suites (`permission_flows`, `scripts/run_permission_scenarios.py --device-id s21-exynos`) and must be restored to their pre-run state afterwards. Never touch the owner's personal Honor phone.
 
 Other documents should reference this section rather than duplicating these rules.
 

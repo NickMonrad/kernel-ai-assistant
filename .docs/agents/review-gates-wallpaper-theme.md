@@ -51,7 +51,8 @@ This gate applies when the PR touches:
 
 ```bash
 # Build for device testing
-./gradlew :app:installDebug
+./gradlew :app:assembleDebug
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 
 # Check wallpaper files in app storage
 adb shell ls /sdcard/Android/data/<package>/files/wallpapers/

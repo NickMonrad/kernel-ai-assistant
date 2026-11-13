@@ -110,7 +110,8 @@ An already-isolated agent checkout/worktree does not need another worktree. Veri
 ## Build commands
 
 ```bash
-./gradlew assembleDebug / installDebug / test / testDebugUnitTest / :core:inference:test / lint
+./gradlew assembleDebug / test / testDebugUnitTest / :core:inference:test / lint
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk   # never ./gradlew installDebug
 adb logcat -s KernelAI
 connectedDebugAndroidTest   # requires device
 ```

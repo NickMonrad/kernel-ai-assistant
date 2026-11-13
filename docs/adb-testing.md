@@ -4,10 +4,10 @@
 |--------|------|-----|---------|------|------|
 | Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP | Standard/default physical Android test device |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | FLAGSHIP | Reference device — GPU-only |
-| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Constrained/low-end test device; tracked reliability signal — see #1089 / #684 |
-| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | FLAGSHIP | Supplemental high-memory/modern-flagship device; experimental reference candidate (Android API 36) |
+| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Constrained/low-end test device; household member's phone — extra capacity, targeted runs only; tracked reliability signal — see #1089 / #684 |
+| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | FLAGSHIP | Owner's personal phone — not for agent testing |
 
-**Test-device roles:** PR evidence defaults to Samsung Galaxy S23 Ultra, which is also the standard/default device for an unnamed "test on device" task. Use Samsung Galaxy S21 only when more test capacity is needed (parallel runs, second-SoC comparison for device-sensitive changes, lower-memory/degraded-device checks) or when suite-specific tooling or explicit S21 requirements apply. Canonical rules: `.docs/agents/risk-based-evidence-policy.md`. Honor Magic8 Pro is supplemental high-memory/modern-flagship coverage, not the default. Explicit issue/acceptance device or tier requirements override. These testing roles do not change runtime `HardwareTier` or model-selection policy.
+**Test-device roles:** PR evidence defaults to Samsung Galaxy S23 Ultra, which is also the standard/default device for an unnamed "test on device" task. Use Samsung Galaxy S21 only when more test capacity is needed (parallel runs, second-SoC comparison for device-sensitive changes, lower-memory/degraded-device checks) or when suite-specific tooling or explicit S21 requirements apply; it belongs to another household member, so keep runs targeted. The owner's personal Honor Magic8 Pro is not for agent testing. Canonical rules: `.docs/agents/risk-based-evidence-policy.md`. Explicit issue/acceptance device or tier requirements override. These testing roles do not change runtime `HardwareTier` or model-selection policy.
 
 ---
 
@@ -59,7 +59,7 @@ export ANDROID_HOME=~/Library/Android/sdk
 
 ./gradlew assembleDebug
 
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---
@@ -386,7 +386,9 @@ of the DND Settings switch.
 ### Run locally on S21
 
 ```bash
-ANDROID_SERIAL=R5CR605B71K ./gradlew :app:installDebug :feature:settings:connectedDebugAndroidTest \
+./gradlew :app:assembleDebug
+adb -s R5CR605B71K install -r app/build/outputs/apk/debug/app-debug.apk
+ANDROID_SERIAL=R5CR605B71K ./gradlew :feature:settings:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=\
 com.kernel.ai.feature.settings.PermissionFlowContextualSmokeTest \
   -Pandroid.testInstrumentationRunnerArguments.unlock_pin=<PIN-if-locked>
