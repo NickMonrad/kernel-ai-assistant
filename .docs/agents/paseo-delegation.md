@@ -11,9 +11,14 @@ This guide covers how to delegate. For when, follow `.omp/AGENTS.md`, "Agent wor
 The `paseo` CLI creates and controls agents. It's installed on the owner's PC; check that `paseo` is on `PATH` before relying on it.
 
 ```bash
-paseo run --provider omp --new-workspace worktree --base main \
+paseo run --provider omp/anthropic/claude-haiku-5-5 --new-workspace worktree --base main \
   --new-branch <type>/<short-name> --title "<short title>" --no-wait "<brief>"
 ```
+
+**Model rule (owner's standing instruction):**
+- Delegated agents use **Claude Haiku 5.5**: `--provider omp/anthropic/claude-haiku-5-5`.
+- **Code reviews** use **Claude Opus 5.5**: `--provider omp/anthropic/claude-opus-5-5 --thinking high`.
+- Always pass the model explicitly. Without it, Paseo uses its own default model, which the owner does not want.
 
 | Command | What it does |
 |---|---|
