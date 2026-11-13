@@ -12,14 +12,14 @@ The `paseo` CLI creates and controls agents. It's installed on the owner's PC; c
 
 ```bash
 paseo run --provider omp/anthropic/claude-haiku-5-5 --new-workspace worktree --base main \
-  --new-branch <type>/<short-name> --title "<short title>" --no-wait "<brief>"
+  --new-branch <type>/<short-name> --mode full --title "<short title>" --no-wait "<brief>"
 ```
 
 **Model rule (owner's standing instruction):**
 - Delegated agents use **Claude Haiku 5.5**: `--provider omp/anthropic/claude-haiku-5-5`.
 - **Code reviews** use **Claude Opus 5.5**: `--provider omp/anthropic/claude-opus-5-5 --thinking high`.
 - Always pass the model explicitly. Without it, Paseo uses its own default model, which the owner does not want.
-- The rule applies to `paseo run` only; it does not change the OMP `task`-tool rule in `.omp/AGENTS.md`.
+- The rule applies to agents created through Paseo (`paseo run` or the Paseo MCP `create_agent` tool); it does not change the OMP `task`-tool rule in `.omp/AGENTS.md`.
 
 | Command | What it does |
 |---|---|
@@ -28,7 +28,7 @@ paseo run --provider omp/anthropic/claude-haiku-5-5 --new-workspace worktree --b
 | `paseo logs <id>` | Show an agent's activity |
 | `paseo attach <id>` | Stream a running agent's output |
 | `paseo stop <id>` | Interrupt a running agent (no-op when idle) |
-| `paseo wait <id>` | Wait for an agent to become idle |
+| `paseo wait <id>` | Wait for an agent to become idle; add `--timeout <seconds>` to cap the wait |
 | `paseo inspect <id>` | Show detailed information about an agent |
 
 `paseo run --help` lists the model, thinking and mode options.
@@ -36,16 +36,16 @@ paseo run --provider omp/anthropic/claude-haiku-5-5 --new-workspace worktree --b
 Review example (read-only, Claude Opus 5.5):
 
 ```bash
-paseo run --provider omp/anthropic/claude-opus-5-5 --thinking high --new-workspace worktree --worktree-mode checkout-pr --pr-number <N> --title "Review PR #<N>" --no-wait "<brief>"
+paseo run --provider omp/anthropic/claude-opus-5-5 --thinking high --mode full --new-workspace worktree --worktree-mode checkout-pr --pr-number <N> --title "Review PR #<N>" --no-wait "<brief>"
 ```
 
 Always give a new agent its own worktree (`--new-workspace worktree --base main` for new work, `--worktree-mode checkout-pr` for an existing PR), so it never edits another agent's checkout.
 
 OMP agents can run their own subagents. `.omp/AGENTS.md` discourages nested delegation by default. Grant it in the brief only when the task has genuinely independent parts.
 
-Agents run with full access by default (no approval prompts), so the brief is the only guard. Review briefs must say read-only: do not edit, commit, push or comment.
+Access mode: the default mode is not confirmed (`paseo run --help` lists `--mode` values without a default, and `paseo provider diagnostic omp` does not report modes), so pass `--mode full` explicitly. Review briefs must say read-only: do not edit, commit, push or comment.
 
-In checkout-pr worktrees the local branch name can differ from the PR branch (e.g. a -3 suffix). Briefs that let an agent push must tell it to push with: `git push origin HEAD:<pr-branch>`, and never create a new remote branch.
+In checkout-pr worktrees the local branch name can differ from the PR branch (e.g. a -3 suffix). Briefs that let an agent push must tell it to push with `git push origin HEAD:<pr-branch>`, where `<pr-branch>` comes from `gh pr view <N> --json headRefName -q .headRefName`. Never create a new remote branch.
 
 ## Existing sessions: "closed" often means asleep
 
@@ -61,7 +61,7 @@ The agent knows only what the brief says. Include:
 2. The files or area to start from, and anything already ruled out.
 3. What "done" looks like: tests to run, and whether to open a draft PR and against which base.
 4. A pointer to `.omp/AGENTS.md` for commit, PR and review conventions, rather than restating them. OMP agents load it automatically; other agents must be told to read it.
-5. Devices: follow the Device Handling Rules in `.docs/agents/risk-based-evidence-policy.md` (S23 Ultra primary; the S21 belongs to another household member — extra capacity only, never change its settings, permissions or data; never touch the owner's Honor).
+5. Devices: follow the Device Handling Rules in `.docs/agents/risk-based-evidence-policy.md`. OMP agents read it themselves; for non-OMP agents, paste those rules into the brief.
 6. Secrets: never read, print or copy `keystore.properties`, the upload keystore or the Play service-account key.
 7. Scope boundaries: what the agent must not touch.
 8. End the brief with: Do not merge — wait for review.
