@@ -243,4 +243,36 @@ class TranscriptNormaliserTest {
             assertEquals(once, twice, "Idempotence failed for input: $input")
         }
     }
+
+    // ── #1820 — "add" misheard as "I've" / "I'd" in list commands ───────────
+
+    @Test
+    fun `misheard add in a list command becomes add`() {
+        assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("i've milk to my shopping list"))
+        assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("i'd milk to my shopping list"))
+        assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("ive milk to my shopping list"))
+        assertEquals("add eggs and bread to the list.", TranscriptNormaliser.normalise("I've eggs and bread to the list."))
+        assertEquals("add apples to my weekend grocery list", TranscriptNormaliser.normalise("ad apples to my weekend grocery list"))
+    }
+
+    @Test
+    fun `ordinary sentences about lists are left alone`() {
+        listOf(
+            "I'd like to add milk to my shopping list",
+            "I've added milk to my shopping list",
+            "I've got milk to my shopping list",
+            "I'd love eggs on my list",
+            "I've been to the shops",
+            "i've milk in the fridge",
+            "add milk to my shopping list",
+        ).forEach { input ->
+            assertEquals(input, TranscriptNormaliser.normalise(input), "should be unchanged: $input")
+        }
+    }
+
+    @Test
+    fun `misheard add rule is idempotent`() {
+        val once = TranscriptNormaliser.normalise("i've milk to my shopping list")
+        assertEquals(once, TranscriptNormaliser.normalise(once))
+    }
 }

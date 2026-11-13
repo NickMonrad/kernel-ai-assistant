@@ -63,6 +63,17 @@ object TranscriptNormaliser {
     )
 
     /**
+     * #1820: a leading "add" misheard as "I've" / "I'd" / "ad" in a whole-utterance list
+     * command ("i've milk to my shopping list"). Only the full command shape is rewritten,
+     * and a following word that makes it an ordinary sentence ("I'd like …", "I've got …")
+     * leaves it alone.
+     */
+    private val MISHEARD_ADD_LIST_COMMAND = Regex(
+        """^\s*(?:i['’]?ve|i['’]?d|ad)\s+(?!(?:like|love|want|need|rather|prefer|go|be|been|have|had|got|better|just|never|also|already|added|put|to|a\s+look)\b)(.{1,40}?)\s+to\s+((?:my|the)\s+(?:[\w'’-]+\s+){0,3}list)\s*([.!?]*)\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
      * Normalise [text] by applying all replacement rules in order.
      *
      * - Returns [text] unchanged if blank.
@@ -81,6 +92,11 @@ object TranscriptNormaliser {
         }
         for ((re, replacement) in STT_UNIT_ALIAS_REPLACEMENTS) {
             out = re.replace(out, replacement)
+        }
+        MISHEARD_ADD_LIST_COMMAND.matchEntire(out)?.let { m ->
+            val before = out
+            out = "add ${m.groupValues[1]} to ${m.groupValues[2]}${m.groupValues[3]}"
+            Log.w(TAG, "MISHEARD_ADD applied to \"$before\" → \"$out\"")
         }
         return out
     }
