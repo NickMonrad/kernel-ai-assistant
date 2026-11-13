@@ -93,9 +93,9 @@ class NativeAndroidVoiceInputControllerTest {
     }
 
     @Test
-    fun `shouldRefreshAlertRecognizerOnNoSpeech refreshes only silent platform alert sessions`() {
-        // #1433: platform no-speech ERROR_NO_MATCH within an alert session is the
-        // only in-place-refresh case.
+    fun `shouldRefreshAlertRecognizerOnNoSpeech refreshes only silent alert sessions on either backend`() {
+        // #1433: a no-speech ERROR_NO_MATCH within an alert session is the only
+        // in-place-refresh case. #1008: on-device alert sessions refresh too.
         assertEquals(true, shouldRefreshAlertRecognizerOnNoSpeech(
             RecognizerBackend.Platform, VoiceCaptureMode.AlertCommand,
             heardSpeech = false, sawPartialTranscript = false,
@@ -108,7 +108,7 @@ class NativeAndroidVoiceInputControllerTest {
             RecognizerBackend.Platform, VoiceCaptureMode.AlertCommand,
             heardSpeech = false, sawPartialTranscript = true,
         ))
-        assertEquals(false, shouldRefreshAlertRecognizerOnNoSpeech(
+        assertEquals(true, shouldRefreshAlertRecognizerOnNoSpeech(
             RecognizerBackend.OnDevice, VoiceCaptureMode.AlertCommand,
             heardSpeech = false, sawPartialTranscript = false,
         ))
@@ -340,6 +340,46 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
 
         verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
         assertTrue(events.any { it is VoiceInputEvent.Error })
+        collector.cancel()
+    }
+
+    @Test
+    fun `without platform fallback an alert no-speech refresh stays on the on-device recognizer`() = runTest {
+        val first = mockk<SpeechRecognizer>(relaxed = true)
+        val second = mockk<SpeechRecognizer>(relaxed = true)
+        val firstListener = slot<RecognitionListener>()
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returnsMany listOf(first, second)
+        every { first.setRecognitionListener(capture(firstListener)) } just runs
+
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = false)
+        firstListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        firstListener.captured.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        verify(exactly = 2) { recognitionSupport.createOnDeviceSpeechRecognizer() }
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+        verify(exactly = 1) { second.startListening(any()) }
+    }
+
+    @Test
+    fun `without platform fallback a recognizer that never becomes ready ends the session`() = runTest {
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns recognizer
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+        advanceTimeBy(ON_DEVICE_READY_TIMEOUT_NO_FALLBACK_MS - 100)
+        runCurrent()
+        assertTrue(events.none { it is VoiceInputEvent.Error }, "no error before the timeout")
+
+        advanceTimeBy(200)
+        runCurrent()
+        assertTrue(events.any { it is VoiceInputEvent.Error })
+        assertTrue(events.any { it is VoiceInputEvent.ListeningStopped })
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
         collector.cancel()
     }
 

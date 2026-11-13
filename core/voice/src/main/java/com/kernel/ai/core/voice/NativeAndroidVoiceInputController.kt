@@ -152,23 +152,23 @@ internal fun shouldRetryWithPlatformAfterRecognitionError(
         }
 
 /**
- * #1433: refresh an alert-session platform recognizer IN PLACE after its own
+ * #1433: refresh an alert-session recognizer IN PLACE after its own
  * no-speech timeout (ERROR_NO_MATCH with no speech heard at all).  The platform
  * recognizer's no-speech window (~5 s observed on the S21) is shorter than the
  * cue-to-command handoff, so without the refresh the first wake session would
  * terminate before the command arrives and a retry session would become the
  * normal path.  The refresh reuses the same capture session id and emits no
  * events, so the session-level attempt count and journal correlation are
- * unchanged.
+ * unchanged.  #1008: applies to on-device alert sessions too (used when the online
+ * fallback is off); the refresh always restarts on the session's own backend.
  */
 internal fun shouldRefreshAlertRecognizerOnNoSpeech(
-    backend: RecognizerBackend,
+    @Suppress("UNUSED_PARAMETER") backend: RecognizerBackend,
     mode: VoiceCaptureMode,
     heardSpeech: Boolean,
     sawPartialTranscript: Boolean,
 ): Boolean =
-    backend == RecognizerBackend.Platform &&
-        mode == VoiceCaptureMode.AlertCommand &&
+    mode == VoiceCaptureMode.AlertCommand &&
         !heardSpeech &&
         !sawPartialTranscript
 
@@ -483,6 +483,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         sessionId: Long,
         mode: VoiceCaptureMode,
         availability: AndroidNativeRecognitionAvailability,
+        backend: RecognizerBackend,
     ) {
         inPlaceRefreshJob?.cancel()
         speechRecognizer?.apply {
@@ -499,7 +500,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     sessionId = sessionId,
                     mode = mode,
                     availability = availability,
-                    backend = RecognizerBackend.Platform,
+                    // Same backend as the session: an on-device session never becomes a
+                    // platform (possibly online) one through a refresh.
+                    backend = backend,
                     isRefreshed = true,
                 )
             } catch (e: CancellationException) {
@@ -725,7 +728,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 // bounded (MAX_NO_SPEECH_REFRESHES) so a false wake still terminates.
                 this@NativeAndroidVoiceInputController.noSpeechRefreshCount++
                 sessionCompleted = true
-                scheduleInPlaceRefresh(sessionId, mode, availability)
+                scheduleInPlaceRefresh(sessionId, mode, availability, backend)
                 Log.w(
                     TAG,
                     "Android native STT refreshed in place after no-speech no-match for sessionId=$sessionId " +

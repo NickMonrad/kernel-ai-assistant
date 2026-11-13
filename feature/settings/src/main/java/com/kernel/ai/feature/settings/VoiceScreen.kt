@@ -748,13 +748,15 @@ private fun VoiceScreenContent(
 
             ListItem(
                 modifier = Modifier.fillMaxWidth(),
-                headlineContent = { Text("Allow Google speech service when on-device recognition fails") },
+                headlineContent = { Text("Allow online speech recognition") },
                 supportingContent = {
                     Text(
-                        "Off: voice input never leaves this phone. On: Automatic uses Android " +
-                            "speech recognition, which is usually more accurate, and when the " +
-                            "on-device recognizer can't start or doesn't catch you, Android retries " +
-                            "with Google's online speech service, which sends your audio to Google.",
+                        "Off: voice input never leaves this phone. On: Jandal uses Android " +
+                            "speech recognition, which is usually more accurate. Voice commands " +
+                            "try on-device recognition first and retry with your phone's speech " +
+                            "service (usually Google) if that fails; Hey Jandal and alarm commands " +
+                            "use that service straight away. That service may send your audio " +
+                            "off the phone.",
                     )
                 },
                 trailingContent = {

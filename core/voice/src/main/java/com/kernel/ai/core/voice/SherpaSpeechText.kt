@@ -44,11 +44,11 @@ internal object SherpaSpeechText {
         """(?<![\w.,:/$£€¥₹#+\-−])(?<!\d )([1-9]\d{0,2}(?:,\d{3}){1,2}|[1-9]\d{0,5})(?![\w%°:/]|[.,]\d|-\d| \d)""",
     )
     /** "$49.95", "$1,200", "$5": dollars with optional two-digit cents. */
-    private val money = Regex("""(?<![\w$])\$([1-9]\d{0,2}(?:,\d{3}){1,2}|[1-9]\d{0,8}|0)(?:\.(\d{2}))?(?![\d.,]\d|\w)""")
+    private val money = Regex("""(?<![\w$])(NZ|US|AU|A)?\$([1-9]\d{0,2}(?:,\d{3}){1,2}|[1-9]\d{0,8}|0)(?:\.(\d{2}))?(?![\d.,]\d|\w)""")
 
     /** "8:00", "7:30 pm", "14:05": a clock time, not part of a longer number or ratio. */
     private val clockTime = Regex(
-        """(?<![\w.:/])([01]?\d|2[0-3]):([0-5]\d)(?:\s?([AaPp])\.?[Mm]\.?)?(?![\w:]|[.,]\d)""",
+        """(?<![\w.:/])([01]?\d|2[0-3]):([0-5]\d)(?:\s?([AaPp])\.?[Mm](\.)?)?(?![\w:]|[.,]\d)""",
     )
     private val terminalPause = Regex("""[.!?]["')\]]*$""")
     private val trailingSoftPause = Regex("""[,;:]+(["')\]]*)$""")
@@ -85,8 +85,13 @@ internal object SherpaSpeechText {
             value = brackets.replace(value) { m -> if (m.groupValues[1].isBlank()) "" else ", ${m.groupValues[1]}," }
         }
         value = dashes.replace(value, ", ")
-        value = money.replace(value) { m -> spokenMoney(m.groupValues[1], m.groupValues[2]) }
-        value = clockTime.replace(value) { m -> spokenTime(m.groupValues[1], m.groupValues[2], m.groupValues[3]) }
+        value = money.replace(value) { m -> spokenMoney(m.groupValues[2], m.groupValues[3], m.groupValues[1]) }
+        value = clockTime.replace(value) { m ->
+            // "p.m." can also end the sentence ("starts at 7:30 p.m. Bring snacks"): keep that stop.
+            val endsSentence = m.groupValues[4].isNotEmpty() &&
+                Regex("""^\s*(?:$|[A-Z])""").containsMatchIn(value.substring(m.range.last + 1))
+            spokenTime(m.groupValues[1], m.groupValues[2], m.groupValues[3]) + if (endsSentence) "." else ""
+        }
         value = plainInteger.replace(value) { m ->
             val raw = m.groupValues[1]
             val n = raw.replace(",", "").toInt()
@@ -105,10 +110,16 @@ internal object SherpaSpeechText {
         return value
     }
 
-    private fun spokenMoney(rawDollars: String, rawCents: String): String {
+    private fun spokenMoney(rawDollars: String, rawCents: String, currencyPrefix: String = ""): String {
         val dollars = rawDollars.replace(",", "").toInt()
         val cents = rawCents.ifEmpty { "0" }.toInt()
-        val dollarWords = "${words(dollars)} ${if (dollars == 1) "dollar" else "dollars"}"
+        val country = when (currencyPrefix.uppercase()) {
+            "NZ" -> "New Zealand "
+            "US" -> "US "
+            "AU", "A" -> "Australian "
+            else -> ""
+        }
+        val dollarWords = "${words(dollars)} $country${if (dollars == 1) "dollar" else "dollars"}"
         if (cents == 0) return dollarWords
         val centWords = "${words(cents)} ${if (cents == 1) "cent" else "cents"}"
         return if (dollars == 0) centWords else "$dollarWords and $centWords"
@@ -117,6 +128,9 @@ internal object SherpaSpeechText {
     private fun spokenTime(rawHour: String, rawMinute: String, meridiem: String): String {
         val hour = rawHour.toInt()
         val minute = rawMinute.toInt()
+        if (hour == 0 && meridiem.isEmpty()) {
+            return if (minute == 0) "midnight" else spokenTime("12", rawMinute, "a")
+        }
         // "P M" as separate capitals: Cori reads "p.m." as one rushed syllable (#1487 device check).
         val suffix = if (meridiem.isEmpty()) "" else " ${meridiem.uppercase()} M"
         val minuteWords = when {

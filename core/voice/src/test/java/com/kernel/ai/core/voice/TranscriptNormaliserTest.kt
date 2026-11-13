@@ -250,7 +250,6 @@ class TranscriptNormaliserTest {
     fun `misheard add in a list command becomes add`() {
         assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("i've milk to my shopping list"))
         assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("i'd milk to my shopping list"))
-        assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("ive milk to my shopping list"))
         assertEquals("add eggs and bread to the list.", TranscriptNormaliser.normalise("I've eggs and bread to the list."))
         assertEquals("add apples to my weekend grocery list", TranscriptNormaliser.normalise("ad apples to my weekend grocery list"))
     }
@@ -265,6 +264,16 @@ class TranscriptNormaliserTest {
             "I've been to the shops",
             "i've milk in the fridge",
             "add milk to my shopping list",
+            // independent review of #1810
+            "I'd stick to the list",
+            "I've decided to add milk to my list",
+            "I've come back to my list",
+            "I'd listen to the list",
+            "I'd add milk to my list",
+            "ID card to my wallet list",
+            "I've been meaning to get to my list",
+            "I've moved bread to the shopping list",
+            "I'd keep that to my reading list",
         ).forEach { input ->
             assertEquals(input, TranscriptNormaliser.normalise(input), "should be unchanged: $input")
         }

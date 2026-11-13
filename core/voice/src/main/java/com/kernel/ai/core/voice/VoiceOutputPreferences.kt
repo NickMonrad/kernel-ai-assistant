@@ -130,6 +130,10 @@ class VoiceOutputPreferences @Inject constructor(
         }
     }
 
+    /** True when the user (or a migration) has stored an output engine choice. */
+    suspend fun hasStoredEngine(): Boolean =
+        context.voiceOutputPrefsDataStore.data.first()[selectedEngineKey] != null
+
     suspend fun setSelectedEngine(engine: VoiceOutputEngine) {
         val effectiveEngine = VoiceOutputEngine.resolveForBuild(
             value = engine.name,

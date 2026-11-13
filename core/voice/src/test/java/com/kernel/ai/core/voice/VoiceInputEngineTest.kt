@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 
 class VoiceInputEngineTest {
     @Test
@@ -42,6 +44,18 @@ class VoiceInputEngineTest {
         assertEquals(
             SherpaSttModelSpec.ZIPFORMER.requiredFileNames.size,
             VoiceDefaultsProvisioner.zipformerModels().size,
+        )
+    }
+
+    @Test
+    fun `legacy Vosk cleanup only targets voice folders holding the Vosk model`(@TempDir tmp: File) {
+        val withVosk = File(tmp, "a").apply { File(this, "voice/vosk-model").mkdirs() }
+        val otherVoice = File(tmp, "b").apply { File(this, "voice/something-else").mkdirs() }
+        val noVoice = File(tmp, "c").apply { File(this, "models").mkdirs() }
+
+        assertEquals(
+            listOf(File(withVosk, "voice")),
+            VoiceDefaultsProvisioner.legacyVoskDirsToDelete(listOf(withVosk, otherVoice, noVoice)),
         )
     }
 }

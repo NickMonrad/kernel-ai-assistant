@@ -5,6 +5,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
@@ -14,6 +15,8 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
 
 private const val TAG = "SelectableVoiceInput"
+
+internal const val LIVE_CHECK_SETTLE_MS = 400L
 
 internal const val AUTO_STT_UNAVAILABLE_MESSAGE =
     "Voice input is still getting ready. The offline speech model is downloading, so try again in a minute."
@@ -90,12 +93,14 @@ class SelectableVoiceInputController @Inject constructor(
         }
         // Use the cached locale check when there is one; only run the slower live check for
         // interactive captures that have no cached answer yet.
+        var ranLiveCheck = false
         val availability = withContext(Dispatchers.Main.immediate) {
             val cached = androidNativeRecognitionSupport.getCaptureAvailability()
             if (
                 cached.localeStatus == AndroidNativeRecognitionLocaleStatus.Unknown &&
                 !shouldUseCachedCaptureAvailability(mode)
             ) {
+                ranLiveCheck = true
                 androidNativeRecognitionSupport.getAvailability()
             } else {
                 cached
@@ -114,7 +119,13 @@ class SelectableVoiceInputController @Inject constructor(
                 "zipformerReady=$zipformerReady allowOnlineFallback=$allowOnlineFallback",
         )
         return when (route) {
-            AutoSttRoute.Native -> startNative(mode, allowOnlineFallback)
+            AutoSttRoute.Native -> {
+                // The live check's throwaway recognizer is torn down asynchronously; starting
+                // a session immediately can lose the shared on-device service
+                // (ERROR_SERVER_DISCONNECTED on the S23 Ultra), so let it settle first.
+                if (ranLiveCheck) delay(LIVE_CHECK_SETTLE_MS)
+                startNative(mode, allowOnlineFallback)
+            }
             AutoSttRoute.Zipformer -> startSherpa(mode)
             AutoSttRoute.Unavailable -> VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE)
         }

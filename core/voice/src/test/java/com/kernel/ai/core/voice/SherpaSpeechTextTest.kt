@@ -79,10 +79,21 @@ class SherpaSpeechTextTest {
             "14:30             | fourteen thirty.",
             "Ratio 3:2         | Ratio 3:2.",
             "At 10:15:30       | At 10:15:30.",
+            "00:00             | midnight.",
+            "0:05              | twelve oh five A M.",
+            "NZ$20             | twenty New Zealand dollars.",
+            "US$1.50           | one US dollar and fifty cents.",
+            "A$5               | five Australian dollars.",
         ],
     )
     fun `money and clock times are spelled out for Piper`(input: String, expected: String) {
         assertEquals(expected, SherpaSpeechText.prepare(input))
+    }
+
+    @Test
+    fun `a time ending a sentence keeps the sentence stop`() {
+        assertEquals("It starts at seven thirty P M. Bring snacks.", SherpaSpeechText.prepare("It starts at 7:30 p.m. Bring snacks"))
+        assertEquals("Meet at seven thirty P M tomorrow.", SherpaSpeechText.prepare("Meet at 7:30 p.m. tomorrow"))
     }
 
     @Test
