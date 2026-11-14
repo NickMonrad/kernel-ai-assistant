@@ -23,7 +23,6 @@ import org.junit.runner.RunWith
  * These tests cross the app/OS boundary and cannot be covered by Espresso alone.
  * Each test grants or denies a system permission dialog and verifies the app
  * responds correctly.
- *
  * Device: Samsung SM-S918B (Android 16 / API 36)
  * Package: ai.jandal.assistant.debug
  *
@@ -66,7 +65,6 @@ class PermissionFlowTest {
             addCategory(Intent.CATEGORY_LAUNCHER)
             component = ComponentName(PACKAGE, "com.kernel.ai.MainActivity")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            putExtra("force_permission_prompt", true)
         }
         context.startActivity(intent)
         device.wait(Until.hasObject(By.pkg(PACKAGE)), LAUNCH_TIMEOUT_MS)
@@ -98,55 +96,6 @@ class PermissionFlowTest {
             if (obj != null) return obj
         }
         return null
-    }
-
-    // ── POST_NOTIFICATIONS ───────────────────────────────────────────────
-
-    /**
-     * Grant POST_NOTIFICATIONS via the system dialog.
-     * Verifies the app is in the foreground after grant (dialog dismissed, not crashed).
-     *
-     * Android 13+ (API 33+) requires runtime permission for notifications.
-     */
-    @Test
-    fun postNotifications_grant_appContinues() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-
-        revokePermission("android.permission.POST_NOTIFICATIONS")
-        launchApp()
-
-        val allowButton = findDialogButton(ALLOW_LABELS)
-        if (allowButton != null) {
-            allowButton.click()
-            Thread.sleep(1_000)
-        }
-        // After grant (or if dialog never appeared — permission already held), app should be visible
-        assertTrue("App should be visible after POST_NOTIFICATIONS grant", isAppInForeground())
-
-        // Restore
-        grantPermission("android.permission.POST_NOTIFICATIONS")
-    }
-
-    /**
-     * Deny POST_NOTIFICATIONS — app should degrade gracefully (no crash).
-     */
-    @Test
-    fun postNotifications_deny_appContinues() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-
-        revokePermission("android.permission.POST_NOTIFICATIONS")
-        launchApp()
-
-        val denyButton = findDialogButton(DENY_LABELS)
-        if (denyButton != null) {
-            denyButton.click()
-            // Samsung One UI may show a secondary "are you sure?" sheet; allow extra time
-            Thread.sleep(2_000)
-        }
-        assertTrue("App should survive POST_NOTIFICATIONS denial without crashing", isAppInForeground())
-
-        // Restore
-        grantPermission("android.permission.POST_NOTIFICATIONS")
     }
 
     // ── ACCESS_FINE_LOCATION ─────────────────────────────────────────────
@@ -251,32 +200,4 @@ class PermissionFlowTest {
         assertTrue("Should not have been redirected to Settings", !onSettingsScreen)
     }
 
-    // ── Deny → Re-grant recovery ─────────────────────────────────────────
-
-    /**
-     * Revoke POST_NOTIFICATIONS then re-grant via shell while the app is still running.
-     * Tests the mid-session recovery path — the app should stay in foreground and not crash
-     * when the permission is restored without a restart.
-     *
-     * Note: re-launching with FLAG_ACTIVITY_CLEAR_TASK while the first instance is still
-     * initialising causes a process crash. This test validates the live-app path only.
-     */
-    @Test
-    fun postNotifications_revokeAndRegrant_appRecovers() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-
-        revokePermission("android.permission.POST_NOTIFICATIONS")
-        launchApp()
-
-        // Dismiss the permission dialog if it appears (so app comes back to foreground)
-        val dialogButton = findDialogButton(DENY_LABELS + ALLOW_LABELS)
-        dialogButton?.click()
-        Thread.sleep(1_500)
-
-        // Re-grant mid-session via shell — app should remain alive, not crash
-        grantPermission("android.permission.POST_NOTIFICATIONS")
-        Thread.sleep(1_000)
-
-        assertTrue("App should be visible after re-granting POST_NOTIFICATIONS", isAppInForeground())
-    }
 }

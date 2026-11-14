@@ -51,7 +51,8 @@ object RuntimePermissionRepair {
         Manifest.permission.ACCESS_COARSE_LOCATION,
         Manifest.permission.ACCESS_FINE_LOCATION -> "android.permission-group.LOCATION"
         Manifest.permission.READ_CONTACTS -> "android.permission-group.CONTACTS"
-        Manifest.permission.READ_CALENDAR -> "android.permission-group.CALENDAR"
+        Manifest.permission.READ_CALENDAR,
+        Manifest.permission.WRITE_CALENDAR -> "android.permission-group.CALENDAR"
         Manifest.permission.RECORD_AUDIO -> "android.permission-group.MICROPHONE"
         Manifest.permission.POST_NOTIFICATIONS -> "android.permission-group.NOTIFICATIONS"
         else -> null

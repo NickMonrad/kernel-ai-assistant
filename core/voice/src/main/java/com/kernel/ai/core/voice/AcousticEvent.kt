@@ -84,6 +84,12 @@ object AcousticEventType {
     /** STT produced an error. Metadata: stable "category". */
     const val STT_ERROR = "STT_ERROR"
 
+    /**
+     * An on-device/platform recognizer failed and the capture moved to Zipformer for the session.
+     * Metadata: "reason" (stable category) and "mode". The saved engine setting is unchanged.
+     */
+    const val STT_ZIPFORMER_FALLBACK = "STT_ZIPFORMER_FALLBACK"
+
     /** Command handoff result. Metadata: "outcome" and optional stable "category". */
     const val COMMAND_ROUTING_RESULT = "COMMAND_ROUTING_RESULT"
 
@@ -121,6 +127,7 @@ object AcousticEventType {
         STT_PARTIAL,
         STT_FINAL,
         STT_ERROR,
+        STT_ZIPFORMER_FALLBACK,
         COMMAND_ROUTING_RESULT,
         SESSION_COMPLETED,
         SESSION_CANCELLED,

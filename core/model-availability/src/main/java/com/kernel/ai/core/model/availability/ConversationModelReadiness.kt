@@ -1,6 +1,7 @@
 package com.kernel.ai.core.model.availability
 
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.ConversationModelRules
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.hardware.HardwareTier
 
@@ -103,47 +104,33 @@ sealed interface ConversationModelReadiness {
             tier: HardwareTier,
             downloadStates: Map<KernelModel, DownloadState>,
         ): ConversationModelReadiness {
-            val e4bState = downloadStates[KernelModel.GEMMA_4_E4B]
-            val e2bState = downloadStates[KernelModel.GEMMA_4_E2B]
+            val isDownloaded = { model: KernelModel -> downloadStates[model] is DownloadState.Downloaded }
+            val auto = ConversationModelRules.autoConversationModel(tier)
+            val autoState = downloadStates[auto]
 
-            val e4bDownloaded = e4bState is DownloadState.Downloaded
-            val e2bDownloaded = e2bState is DownloadState.Downloaded
-            val e4bDownloading = e4bState is DownloadState.Downloading
-            val e2bDownloading = e2bState is DownloadState.Downloading
-
-            return when (tier) {
-                HardwareTier.FLAGSHIP -> when {
-                    e4bDownloaded -> Ready
-                    e2bDownloaded && e4bDownloading -> FallbackPreparing(
-                        recommendedModel = KernelModel.GEMMA_4_E4B,
+            return when {
+                isDownloaded(auto) -> Ready
+                ConversationModelRules.conversationReady(tier, isDownloaded) -> when (autoState) {
+                    is DownloadState.Downloading -> FallbackPreparing(
+                        recommendedModel = auto,
                         fallbackModel = KernelModel.GEMMA_4_E2B,
-                        downloadingModel = KernelModel.GEMMA_4_E4B,
-                        progress = e4bState.progress,
+                        downloadingModel = auto,
+                        progress = autoState.progress,
                     )
-                    e2bDownloaded -> FallbackActive(recommendedModel = KernelModel.GEMMA_4_E4B)
-                    e4bDownloading -> Preparing(
-                        downloadingModel = KernelModel.GEMMA_4_E4B,
-                        progress = e4bState.progress,
-                    )
-                    e2bDownloading -> Preparing(
-                        downloadingModel = KernelModel.GEMMA_4_E2B,
-                        progress = e2bState.progress,
-                    )
-                    else -> ActionRequired(
-                        recommendedModel = KernelModel.GEMMA_4_E4B,
-                        fallbackModel = KernelModel.GEMMA_4_E2B,
-                    )
+                    else -> FallbackActive(recommendedModel = auto)
                 }
-                else -> when {
-                    e2bDownloaded -> Ready
-                    e2bDownloading -> Preparing(
-                        downloadingModel = KernelModel.GEMMA_4_E2B,
-                        progress = e2bState.progress,
-                    )
-                    else -> ActionRequired(
-                        recommendedModel = KernelModel.GEMMA_4_E2B,
-                        fallbackModel = KernelModel.GEMMA_4_E2B,
-                    )
+                else -> {
+                    val pending = ConversationModelRules.selectableConversationModels(tier).firstNotNullOfOrNull { model ->
+                        (downloadStates[model] as? DownloadState.Downloading)?.let { model to it.progress }
+                    }
+                    if (pending != null) {
+                        Preparing(downloadingModel = pending.first, progress = pending.second)
+                    } else {
+                        ActionRequired(
+                            recommendedModel = auto,
+                            fallbackModel = KernelModel.GEMMA_4_E2B,
+                        )
+                    }
                 }
             }
         }

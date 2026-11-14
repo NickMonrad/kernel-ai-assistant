@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="com.kernel.ai.core.memory.QuickActionsMigrationTest" tests="1" failures="0" errors="0" skipped="0" time="1.221" timestamp="2026-11-14T10:38:08" hostname="localhost">
+  <properties>
+    <property name="device" value="SM-S918B - 16" />
+    <property name="flavor" value="" />
+    <property name="project" value=":core:memory" />
+  </properties>
+  <testcase name="migration 58 to 59 keeps existing quick action rows and leaves spokenSummary null" classname="com.kernel.ai.core.memory.QuickActionsMigrationTest" time="0.283" />
+</testsuite>

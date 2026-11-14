@@ -114,7 +114,7 @@ import java.time.ZoneId
         FavouriteShortcutEntity::class,
         RecentShortcutEntity::class,
     ],
-    version = 58,
+    version = 59,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -1050,6 +1050,12 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_57_58 = object : Migration(57, 58) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `lists` ADD COLUMN `defaultItemSort` TEXT DEFAULT NULL")
+            }
+        }
+        /** Adds spokenSummary to quick_actions so card read-aloud speaks the skill's summary (#1026). */
+        val MIGRATION_58_59 = object : Migration(58, 59) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `quick_actions` ADD COLUMN `spokenSummary` TEXT DEFAULT NULL")
             }
         }
     }

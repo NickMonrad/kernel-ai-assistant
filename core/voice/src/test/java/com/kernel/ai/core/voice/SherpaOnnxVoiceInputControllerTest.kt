@@ -5,10 +5,17 @@ import android.media.AudioManager
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import io.mockk.Called
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -20,6 +27,7 @@ import org.junit.jupiter.api.Test
 import java.io.File
 import java.nio.file.Files
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SherpaOnnxVoiceInputControllerTest {
 
     // Real temp directory used as the models dir — avoids mocking File I/O while
@@ -263,7 +271,61 @@ class SherpaOnnxVoiceInputControllerTest {
         assertFalse(controller.interactiveRecognizerActive)
     }
 
+    // ── #1853: stop while the recognizer loads ─────────────────────────────────
+
+    @Test
+    fun `stop while the recognizer loads never takes audio focus or opens the microphone`() = runTest {
+        val loading = holdRecognizerLoad()
+        val events = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { controller.events.collect { events += it } }
+        val start = async { controller.startListening(VoiceCaptureMode.Command) }
+        runCurrent() // the start is now waiting for the recognizer
+
+        controller.stopListening()
+        loading.finish()
+        val result = start.await()
+
+        val sessionId = (result as VoiceInputStartResult.Started).captureSessionId
+        verify { audioManager wasNot Called }
+        assertEquals(listOf(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, sessionId)), events)
+    }
+
+    @Test
+    fun `without a stop the loaded start goes on to request audio focus`() = runTest {
+        val loading = holdRecognizerLoad()
+        val start = async { controller.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+
+        loading.finish()
+        start.await()
+
+        // Unit tests have no AudioRecord, so the start ends Unavailable after taking focus.
+        verify(atLeast = 1) { audioManager.requestAudioFocus(any(), any(), any()) }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Holds the recognizer mutex so a start blocks in the load; [finish] supplies a recognizer. */
+    private fun holdRecognizerLoad(): RecognizerLoad {
+        val mutex = privateField("recognizerMutex") as Mutex
+        check(mutex.tryLock())
+        return RecognizerLoad(mutex)
+    }
+
+    private inner class RecognizerLoad(private val mutex: Mutex) {
+        fun finish() {
+            setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))
+            setPrivateField("recognizer", Any())
+            mutex.unlock()
+        }
+    }
+
+    private fun privateField(name: String): Any? =
+        SherpaOnnxVoiceInputController::class.java.getDeclaredField(name).apply { isAccessible = true }.get(controller)
+
+    private fun setPrivateField(name: String, value: Any?) {
+        SherpaOnnxVoiceInputController::class.java.getDeclaredField(name).apply { isAccessible = true }.set(controller, value)
+    }
 
     private fun createAllStubModelFiles() {
         listOf(

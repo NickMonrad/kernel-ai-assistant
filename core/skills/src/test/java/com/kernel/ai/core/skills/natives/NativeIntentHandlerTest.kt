@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.provider.ContactsContract
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.ClockAlarm
@@ -38,6 +39,7 @@ import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.repository.ListMutationBlockedException
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.memory.profile.UserProfileYaml
+import com.kernel.ai.core.skills.ContactLookupRecovery
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
 import io.mockk.Runs
@@ -76,6 +78,7 @@ class NativeIntentHandlerTest {
     private val contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true)
     private val importantDateRepository = mockk<ImportantDateRepository>(relaxed = true)
     private val calendarBirthdayLookup = mockk<CalendarBirthdayLookup>(relaxed = true)
+    private val calendarEventStore = mockk<CalendarEventStore>(relaxed = true)
     private val clockRepository = mockk<ClockRepository>(relaxed = true)
     private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
@@ -94,6 +97,7 @@ class NativeIntentHandlerTest {
         contactAliasRepository = contactAliasRepository,
         importantDateRepository = importantDateRepository,
         calendarBirthdayLookup = calendarBirthdayLookup,
+        calendarEventStore = calendarEventStore,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
         cookingConversionService = cookingConversionService,
@@ -139,6 +143,7 @@ class NativeIntentHandlerTest {
         contactAliasRepository = contactAliasRepository,
         importantDateRepository = importantDateRepository,
         calendarBirthdayLookup = calendarBirthdayLookup,
+        calendarEventStore = calendarEventStore,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
         cookingConversionService = cookingConversionService,
@@ -162,6 +167,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = cookingConversionService,
@@ -660,6 +666,45 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `make_call unresolved contact returns recovery actions and never dials`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        val result = handleIntent("make_call", mapOf("contact" to "Zephyrine Test"))
+
+        val failure = result as SkillResult.Failure
+        assertEquals("make_call", failure.skillName)
+        assertTrue(failure.error.contains("People & Contacts"))
+        assertEquals(ContactLookupRecovery.PEOPLE_DESTINATION, failure.actions.first().deepLink.destination)
+        assertEquals("true", failure.actions.first().deepLink.args[ContactLookupRecovery.ARG_CALL])
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `unresolved contact suggestion query runs off the caller thread`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        val suggestionThreads = mutableListOf<Thread>()
+        // CONTACTS URI is null in JVM tests, so identify the suggestion query by its projection.
+        every { contentResolver.query(any(), any(), any(), any(), any()) } answers {
+            val projection = secondArg<Array<out String>?>()
+            if (projection?.contentEquals(arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)) == true) {
+                suggestionThreads += Thread.currentThread()
+            }
+            null
+        }
+        val callerThread = Thread.currentThread()
+
+        handleIntent("make_call", mapOf("contact" to "Zephyrine Test"))
+
+        assertTrue(suggestionThreads.isNotEmpty())
+        assertTrue(suggestionThreads.all { it !== callerThread }, "caller=${callerThread.name} query=${suggestionThreads.map { it.name }}")
+    }
+
+    @Test
     fun `make_call literal phone number does not require contacts permission`() {
         every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
             PackageManager.PERMISSION_DENIED
@@ -699,6 +744,199 @@ class NativeIntentHandlerTest {
 
         assertEquals(SkillResult.Success("SMS composer opened for +64123456789."), result)
         verify(exactly = 0) { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) }
+    }
+
+    @Test
+    fun `send_email unresolved contact returns recovery actions and opens no composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        val failure = handleIntent(
+            "send_email",
+            mapOf("contact" to "Zephyrine Test", "subject" to "Hello", "body" to "World"),
+        ) as SkillResult.Failure
+
+        assertEquals("send_email", failure.skillName)
+        assertTrue(failure.actions.isNotEmpty())
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms unresolved named contact returns recovery actions and opens no composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        val failure = handleIntent(
+            "send_sms",
+            mapOf("contact" to "Zephyrine Test", "message" to "On my way"),
+        ) as SkillResult.Failure
+
+        assertEquals("send_sms", failure.skillName)
+        assertTrue(failure.actions.isNotEmpty())
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_email ambiguous contact opens composer without a recipient instead of recovery`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Alex One")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns emailCursor(
+            EmailRow("alex.one@example.com", "Alex One", contactId = "1"),
+            EmailRow("alex.two@example.com", "Alex Two", contactId = "2"),
+        )
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_email contact without any email opens composer without a recipient`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Alex One")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns emailCursor()
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms ambiguous contact opens composer without a number instead of recovery`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Sam Lee")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns phoneCursor(
+            PhoneRow(contactId = "1", displayName = "Sam Lee", phoneNumber = "021000001"),
+            PhoneRow(contactId = "2", displayName = "Sam Park", phoneNumber = "021000002"),
+        )
+
+        val result = handleIntent("send_sms", mapOf("contact" to "Sam", "message" to "On my way"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_email contact with several addresses and no default opens composer without a recipient`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Alex One")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns emailCursor(
+            EmailRow("alex.one@example.com", "Alex One", contactId = "1"),
+            EmailRow("alex.home@example.com", "Alex One", contactId = "1"),
+        )
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms contact with no phone number opens composer without a number`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Sam Lee")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns phoneCursor()
+
+        val result = handleIntent("send_sms", mapOf("contact" to "Sam", "message" to "On my way"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    /** Cursor for the contacts name query: one row per [names] entry, read through column 0. */
+    private fun contactNameCursor(vararg names: String): Cursor {
+        var index = -1
+        return mockk<Cursor>(relaxed = true) {
+            every { moveToNext() } answers { ++index < names.size }
+            every { getString(0) } answers { names[index] }
+        }
+    }
+
+    @Test
+    fun `send_email me never matches an unrelated contact containing me`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), any(), any(), any(), any())
+        } returns emailCursor(EmailRow("james@example.com", "James Mee", contactId = "9"))
+
+        val failure = handleIntent("send_email", mapOf("contact" to "me", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(failure is SkillResult.Failure)
+        verify(exactly = 0) { context.startActivity(any()) }
+        verify(exactly = 0) { contentResolver.query(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `text me still opens the SMS composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+
+        val result = handleIntent("send_sms", mapOf("contact" to "me", "message" to "On my way"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `self references without an own number never offer to add a contact`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        every { context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        for (self in listOf("me", "myself")) {
+            val call = handleIntent("make_call", mapOf("contact" to self)) as SkillResult.Failure
+            assertTrue(call.actions.isEmpty(), "make_call $self")
+            assertTrue(call.error.contains("your own number"), "make_call $self")
+
+            val email = handleIntent(
+                "send_email",
+                mapOf("contact" to self, "subject" to "Hello", "body" to "World"),
+            ) as SkillResult.Failure
+            assertTrue(email.actions.isEmpty(), "send_email $self")
+        }
+        verify(exactly = 0) { context.startActivity(any()) }
     }
 
     @Test
@@ -950,7 +1188,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added \"golden journey item\" to your widget test.",
+            "Added golden journey item to your widget test.",
             (result as SkillResult.DirectReply).content,
         )
         assertEquals(7L, insertedItem.captured.listId)
@@ -1490,7 +1728,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added \"Dessert\" to your Meal Plan.",
+            "Added Dessert to your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItem(42L, "Dessert", any(), any()) }
@@ -1511,10 +1749,44 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added 1 item to your Meal Plan:\nkiwi",
+            "Added kiwi to your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(42L, listOf("kiwi")) }
+    }
+
+    @Test
+    fun `every handled intent name reaches a dispatch branch`() {
+        val unhandled = NativeIntentHandler.HANDLED_INTENT_NAMES.filter { name ->
+            val result = handleIntent(name, emptyMap())
+            result is SkillResult.Failure && result.error.startsWith("Unknown intent")
+        }
+        assertEquals(emptyList<String>(), unhandled)
+    }
+
+    @Test
+    fun `add_to_list success is logged as a successful intent outcome`() {
+        stubMixedCaseMealPlan()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(42L, "Dessert", any(), any()) } returns 8L
+        coEvery { listItemDao.getByList(42L) } returns emptyList()
+        JandalEvents.install(java.io.File.createTempFile("jandal-intent-outcome", ".log"))
+
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to "Dessert", "list_name" to "meal plan"),
+        )
+        JandalEvents.awaitWritesForTest()
+
+        assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        JandalEvents.awaitWritesForTest()
+        val exported = JandalEvents.exportLines()
+        val line = exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1).last { " intent add_to_list " in it }
+        assertTrue(line.contains("success=true"), line)
+        assertTrue(line.contains("outcome=SUCCESS"), line)
     }
 
     @Test
@@ -1621,7 +1893,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added 2 items to your Meal Plan:\nDessert, Coffee",
+            "Added Dessert and Coffee to your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(42L, listOf("Dessert", "Coffee")) }
@@ -1643,7 +1915,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Removed \"Dessert\" from Meal Plan.",
+            "Removed Dessert from your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.deleteItem(8L) }
@@ -1763,8 +2035,9 @@ class NativeIntentHandlerTest {
 
         assertEquals(
             SkillResult.DirectReply(
-                "Added \"milk\" to your shopping list.",
+                "Added milk to your shopping list.",
                 presentation = addResult.let { (it as SkillResult.DirectReply).presentation },
+                spokenSummary = "Added milk to your shopping list.",
             ),
             addResult,
         )
@@ -1772,6 +2045,7 @@ class NativeIntentHandlerTest {
             SkillResult.DirectReply(
                 "shopping list (1 item):\n• milk",
                 presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+                spokenSummary = "Your shopping list has 1 item: milk.",
             ),
             readResult,
         )
@@ -1793,7 +2067,7 @@ class NativeIntentHandlerTest {
         )
         val groceryAlias = handleIntent("get_list_items", mapOf("list_name" to "grocery list"))
 
-        assertEquals("Added \"lactose-free yoghurt\" to your Shopping.", (result as SkillResult.DirectReply).content)
+        assertEquals("Added lactose-free yoghurt to your Shopping.", (result as SkillResult.DirectReply).content)
         assertEquals("Your Shopping is empty.", (groceryAlias as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { mutations.addItem(7L, "lactose-free yoghurt", any(), any()) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
@@ -1826,9 +2100,9 @@ class NativeIntentHandlerTest {
             mapOf("item" to "dessert", "list_name" to "Meal Plan list"),
         )
 
-        assertEquals("Added \"Dessert\" to your Meal Plan.", (add as SkillResult.DirectReply).content)
+        assertEquals("Added Dessert to your Meal Plan.", (add as SkillResult.DirectReply).content)
         assertEquals("Meal Plan (1 item):\n• Dessert", (read as SkillResult.DirectReply).content)
-        assertEquals("Removed \"Dessert\" from Meal Plan.", (remove as SkillResult.DirectReply).content)
+        assertEquals("Removed Dessert from your Meal Plan.", (remove as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { mutations.addItem(42L, "Dessert", any(), any()) }
         coVerify(exactly = 1) { mutations.deleteItem(8L) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
@@ -1854,11 +2128,104 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added 2 items to your Test hierarchy:\nPens, Paper",
+            "Added Pens and Paper to your Test hierarchy.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(73L, listOf("Pens", "Paper")) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
+    }
+
+    @Test
+    fun `bulk add of six items keeps the full sentence on screen and when spoken`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val items = listOf("Pens", "Paper", "Glue", "Tape", "Scissors", "Stapler")
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItems(73L, items) } returns items.indices.map { it.toLong() + 18L }
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "bulk_add_to_list",
+            mapOf("items" to """["Pens","Paper","Glue","Tape","Scissors","Stapler"]""", "list_name" to "Test hierarchy list"),
+        ) as SkillResult.DirectReply
+
+        assertEquals("Added Pens, Paper, Glue, Tape, Scissors and Stapler to your Test hierarchy.", result.content)
+        assertEquals("Added Pens, Paper, Glue, Tape, Scissors and Stapler to your Test hierarchy.", result.spokenSummary)
+    }
+
+    @Test
+    fun `remove of an item not on the list replies with a natural not-found sentence`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "remove_from_list",
+            mapOf("item" to "eggs", "list_name" to "Test hierarchy list"),
+        )
+
+        assertEquals(
+            "I couldn't find eggs in your Test hierarchy.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 0) { mutations.deleteItem(any()) }
+    }
+
+    @Test
+    fun `reading a long list speaks a summary instead of every bullet`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        val rows = listOf("Pens", "Paper", "Glue", "Tape", "Scissors", "Stapler", "Ruler", "Chalk", "Paint", "Brush")
+            .mapIndexed { index, text ->
+                ListItemEntity(id = index.toLong(), listId = 73L, text = text, createdAt = 0L, updatedAt = 0L)
+            }
+        coEvery { listItemDao.getByList(73L) } returns rows
+
+        val result = handleIntent("get_list_items", mapOf("list_name" to "Test hierarchy list")) as SkillResult.DirectReply
+
+        assertEquals(
+            "Your Test hierarchy has 10 items: Pens, Paper, Glue, Tape, Scissors, Stapler, Ruler, Chalk, Paint and Brush.",
+            result.spokenSummary,
+        )
+        assertTrue(result.content.contains("• Brush"), "on-screen reply must keep every item")
+    }
+
+    @Test
+    fun `add_to_list with a very long item speaks a short count that keeps the list name`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val longItem = "very long item ".repeat(20).trim()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(73L, longItem) } returns 18L
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to longItem, "list_name" to "Test hierarchy list"),
+        ) as SkillResult.DirectReply
+
+        assertEquals("Added $longItem to your Test hierarchy.", result.content)
+        assertEquals("Added 1 item to your Test hierarchy.", result.spokenSummary)
     }
 
     @Test
@@ -1956,7 +2323,7 @@ class NativeIntentHandlerTest {
 
         assertEquals("Test hierarchy list", match.intent.params["list_name"])
         assertEquals("Test hierarchy", match.intent.params["list_name_for_creation"])
-        assertEquals("Added \"lactose-free yoghurt\" to your test hierarchy.", (result as SkillResult.DirectReply).content)
+        assertEquals("Added lactose-free yoghurt to your test hierarchy.", (result as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { mutations.createCollection("test hierarchy") }
         coVerify(exactly = 1) { mutations.addItem(91L, "lactose-free yoghurt", any(), any()) }
     }
@@ -2015,6 +2382,7 @@ class NativeIntentHandlerTest {
             SkillResult.DirectReply(
                 "shopping list (1 item):\n• milk",
                 presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+                spokenSummary = "Your shopping list has 1 item: milk.",
             ),
             readResult,
         )
@@ -2725,6 +3093,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = cookingConversionService,
@@ -2873,6 +3242,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = cookingConversionService,
@@ -3917,6 +4287,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = memoryRepository,
             embeddingEngine = embeddingEngine,
             cookingConversionService = cookingConversionService,
@@ -4326,6 +4697,136 @@ class NativeIntentHandlerTest {
 
             // Must NOT be Success
             assertInstanceOf(SkillResult.CapabilityRequired::class.java, result)
+        }
+    }
+
+    @Nested
+    inner class UnknownIntentFallback {
+        private val calendarReply = UnknownIntentReplies.CALENDAR_READ_REPLY
+
+        @Test
+        fun `get_calendar gives calendar capability reply and keeps detail for the chip`() {
+            val result = handleIntent("get_calendar", mapOf("date" to "next week"))
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(calendarReply, failure.error)
+            assertFalse(failure.fallThroughToModel)
+            assertEquals("Unknown intent: get_calendar", failure.technicalDetail)
+            verify(exactly = 0) { context.startActivity(any()) }
+            coVerify(exactly = 0) { clockRepository.createAlarm(any()) }
+        }
+
+        @Test
+        fun `read_calendar gives calendar capability reply`() {
+            val result = handleIntent("read_calendar", emptyMap())
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(calendarReply, failure.error)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `write-style calendar name gets generic reply, not the read offer`() {
+            val failure = assertInstanceOf(
+                SkillResult.Failure::class.java,
+                handleIntent("add_calendar_event", emptyMap()),
+            )
+
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, failure.error)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `nonsense intent gives generic reply and does not echo the name to the user`() {
+            val result = handleIntent("frobnicate_widgets", emptyMap())
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, failure.error)
+            assertEquals("Unknown intent: frobnicate_widgets", failure.technicalDetail)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+    }
+
+    @Nested
+    @DisplayName("create_calendar_event")
+    inner class CreateCalendarEvent {
+        private val params = mapOf("title" to "Dentist", "date" to "2099-01-10")
+
+        @Test
+        @DisplayName("READ missing: asks for calendar capability instead of inserting")
+        fun readMissingRequestsCapability() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns false
+            every { calendarEventStore.hasWritePermission() } returns true
+
+            val result = handler.handle("create_calendar_event", params)
+
+            assertTrue(result is SkillResult.CapabilityRequired)
+            assertEquals(
+                com.kernel.ai.core.permissions.CapabilityKey.CalendarWrite,
+                (result as SkillResult.CapabilityRequired).capabilityKey,
+            )
+            verify(exactly = 0) { calendarEventStore.insertEvent(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("WRITE missing: asks for calendar capability instead of reporting no calendar")
+        fun writeMissingRequestsCapability() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns true
+            every { calendarEventStore.hasWritePermission() } returns false
+
+            val result = handler.handle("create_calendar_event", params)
+
+            assertTrue(result is SkillResult.CapabilityRequired)
+            verify(exactly = 0) { calendarEventStore.insertEvent(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("invitees: refuses so no event is inserted without them")
+        fun inviteesAreRefused() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns true
+            every { calendarEventStore.hasWritePermission() } returns true
+            every { calendarEventStore.findDefaultWritableCalendar() } returns WritableCalendar(7L, "Home")
+
+            val result = handler.handle("create_calendar_event", params + ("attendees" to "Sarah"))
+
+            assertTrue(result is SkillResult.Failure)
+            verify(exactly = 0) { calendarEventStore.insertEvent(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("no writable calendar: fails without inserting")
+        fun noWritableCalendarFails() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns true
+            every { calendarEventStore.hasWritePermission() } returns true
+            every { calendarEventStore.findDefaultWritableCalendar() } returns null
+
+            val result = handler.handle("create_calendar_event", params)
+
+            assertTrue(result is SkillResult.Failure)
+            verify(exactly = 0) { calendarEventStore.insertEvent(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("all-day: inserts into the default calendar at UTC midnight with UTC zone")
+        fun allDayInsertsAtUtcMidnight() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns true
+            every { calendarEventStore.hasWritePermission() } returns true
+            every { calendarEventStore.findDefaultWritableCalendar() } returns WritableCalendar(7L, "Home")
+            every { calendarEventStore.insertEvent(any(), any()) } returns 42L
+            val expectedBegin = LocalDate.of(2099, 1, 10).atStartOfDay(java.time.ZoneId.of("UTC"))
+                .toInstant().toEpochMilli()
+
+            val result = handler.handle("create_calendar_event", params)
+
+            assertTrue(result is SkillResult.Success)
+            verify(exactly = 1) {
+                calendarEventStore.insertEvent(
+                    calendarId = 7L,
+                    event = match {
+                        it.allDay && it.beginMillis == expectedBegin && it.timeZoneId == "UTC"
+                    },
+                )
+            }
         }
     }
 }

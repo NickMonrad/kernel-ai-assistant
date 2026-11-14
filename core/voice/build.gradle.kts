@@ -10,6 +10,7 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()
+        consumerProguardFiles("consumer-rules.pro")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -28,9 +29,10 @@ android {
         }
     }
 
-    sourceSets {
-        getByName("main").assets.setSrcDirs(emptyList<String>())
-    }
+    // #769: the module must not bundle the old sherpa-tts assets, so the default src/main/assets
+    // dir stays cleared. The lexicon (#1852) is added from its own dir below.
+    sourceSets.getByName("main").assets.setSrcDirs(emptyList<String>())
+    sourceSets.getByName("main").assets.srcDir("src/lexicon/assets")
 }
 
 // ── Sherpa-ONNX spike (reflection-only — no compile-time dependency on Sherpa) ──────
@@ -43,6 +45,8 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.coroutines.android)
     implementation(libs.datastore.preferences)
+    // Pronunciation lexicon JSON (#1852). org.json is stubbed in JVM unit tests.
+    implementation(libs.gson)
     // ONNX Runtime — wake word inference (OnnxWakeWordDetector, 3-stage openWakeWord pipeline)
     implementation(libs.onnxruntime.android)
     // JVM ONNX Runtime (CPU) — real-model Stage 3 classifier tests (WakeWordClassifierModelTest)

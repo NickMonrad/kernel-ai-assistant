@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
@@ -43,6 +44,8 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -52,6 +55,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -92,7 +96,10 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
+import com.kernel.ai.core.skills.SettingsDeepLink
+import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
@@ -134,10 +141,12 @@ fun ActionsScreen(
     onNewConversation: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToAppPermissions: () -> Unit = {},
+    onOpenSettingsDeepLink: (SettingsDeepLink) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val actions by viewModel.actions.collectAsStateWithLifecycle()
+    val speakingActionId by viewModel.speakingActionId.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
@@ -148,6 +157,7 @@ fun ActionsScreen(
     val handsFreeCallingState by viewModel.handsFreeCallingState.collectAsStateWithLifecycle()
     val dndState by viewModel.dndState.collectAsStateWithLifecycle()
     val writeSettingsState by viewModel.writeSettingsState.collectAsStateWithLifecycle()
+    val settingsActionState by viewModel.settingsActionState.collectAsStateWithLifecycle()
     val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
     val contactPermissionState by viewModel.contactPermissionState.collectAsStateWithLifecycle()
     val calendarPermissionState by viewModel.calendarPermissionState.collectAsStateWithLifecycle()
@@ -187,7 +197,16 @@ fun ActionsScreen(
     val microphonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.RECORD_AUDIO,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.RECORD_AUDIO,
+            ),
+        )
         Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted")
+        JandalEvents.record("permission", "record_audio", "granted" to granted)
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
@@ -201,6 +220,14 @@ fun ActionsScreen(
     val phonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.CALL_PHONE,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.CALL_PHONE,
+            ),
+        )
         if (granted) {
             viewModel.onPhonePermissionGranted()
         } else {
@@ -215,6 +242,14 @@ fun ActionsScreen(
     val weatherLocationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+        )
         if (granted) {
             viewModel.onWeatherLocationPermissionGranted()
         } else {
@@ -229,6 +264,14 @@ fun ActionsScreen(
     val contactPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.READ_CONTACTS,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.READ_CONTACTS,
+            ),
+        )
         if (granted) {
             viewModel.onContactPermissionGranted()
         } else {
@@ -243,6 +286,14 @@ fun ActionsScreen(
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.READ_CALENDAR,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.READ_CALENDAR,
+            ),
+        )
         if (granted) {
             viewModel.onCalendarPermissionGranted()
         } else {
@@ -342,8 +393,9 @@ fun ActionsScreen(
                 }
                 ActionsViewModel.UiEvent.RequestMicrophonePermission ->
                     showVoicePermissionPrompt = true
-                ActionsViewModel.UiEvent.RequestPhonePermission ->
+                ActionsViewModel.UiEvent.RequestPhonePermission -> {
                     phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+                }
                 is ActionsViewModel.UiEvent.LaunchDialer -> {
                     val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                         data = Uri.parse("tel:${Uri.encode(event.phoneNumber)}")
@@ -375,6 +427,7 @@ fun ActionsScreen(
                         context.startActivity(dndSettingsIntent)
                     }
                 }
+                is ActionsViewModel.UiEvent.OpenSettingsDeepLink -> onOpenSettingsDeepLink(event.link)
                 ActionsViewModel.UiEvent.OpenWriteSettings -> {
                     val writeSettingsIntent = Intent(
                         android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
@@ -386,12 +439,15 @@ fun ActionsScreen(
                         context.startActivity(writeSettingsIntent)
                     }
                 }
-                ActionsViewModel.UiEvent.RequestWeatherLocationPermission ->
+                ActionsViewModel.UiEvent.RequestWeatherLocationPermission -> {
                     weatherLocationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                ActionsViewModel.UiEvent.RequestReadContactsPermission ->
+                }
+                ActionsViewModel.UiEvent.RequestReadContactsPermission -> {
                     contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                ActionsViewModel.UiEvent.RequestReadCalendarPermission ->
+                }
+                ActionsViewModel.UiEvent.RequestReadCalendarPermission -> {
                     calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+                }
             }
         }
     }
@@ -679,6 +735,19 @@ fun ActionsScreen(
                             ActionHistoryCard(
                                 action = action,
                                 onDelete = { viewModel.deleteAction(action.id) },
+                                isSpeaking = speakingActionId == action.id,
+                                onSpeak = {
+                                    viewModel.toggleSpeakAction(
+                                        action.id,
+                                        quickActionSpeechText(
+                                            spokenSummary = action.spokenSummary,
+                                            resultText = action.resultText,
+                                            presentationJson = action.presentationJson,
+                                            isSuccess = action.isSuccess,
+                                        ),
+                                    )
+                                },
+                                onReleaseSpeech = { viewModel.releaseActionSpeech(action.id) },
                             )
                         }
                     }
@@ -878,6 +947,15 @@ fun ActionsScreen(
             ),
             dialogTestTag = "permission_dialog_write_settings",
             onDismissRequest = { viewModel.dismissWriteSettingsDialog() },
+        )
+    }
+
+    // In-app recovery actions for a failed lookup (#1859). Nothing is called or sent from here.
+    settingsActionState?.let { state ->
+        SettingsActionChooserDialog(
+            state = state,
+            onSelect = viewModel::onSettingsActionSelected,
+            onDismiss = viewModel::dismissSettingsActionDialog,
         )
     }
 
@@ -1700,6 +1778,9 @@ private fun VoiceCaptureCard(
 private fun ActionHistoryCard(
     action: QuickActionEntity,
     onDelete: () -> Unit,
+    isSpeaking: Boolean,
+    onSpeak: () -> Unit,
+    onReleaseSpeech: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var isOverflowing by remember { mutableStateOf(false) }
@@ -1707,6 +1788,7 @@ private fun ActionHistoryCard(
     val presentation = remember(action.presentationJson) {
         ToolPresentationJson.fromJsonString(action.presentationJson)
     }
+    DisposableEffect(action.id) { onDispose { onReleaseSpeech() } }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1723,7 +1805,7 @@ private fun ActionHistoryCard(
                 .fillMaxWidth()
                 .padding(12.dp),
         ) {
-            // Header: icon + query + delete
+            // Header: status icon, skill name, then speak, copy and delete actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1755,6 +1837,18 @@ private fun ActionHistoryCard(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onSpeak) {
+                        Icon(
+                            imageVector = if (isSpeaking) {
+                                Icons.AutoMirrored.Filled.VolumeUp
+                            } else {
+                                Icons.AutoMirrored.Outlined.VolumeUp
+                            },
+                            contentDescription = if (isSpeaking) "Stop reading" else "Read aloud",
+                            modifier = Modifier.size(18.dp),
+                            tint = LocalContentColor.current.copy(alpha = if (isSpeaking) 1f else 0.6f),
+                        )
+                    }
                     IconButton(
                         onClick = {
                             clipboardManager.setText(
@@ -1831,4 +1925,22 @@ private fun formatActionHistoryClipboardText(action: QuickActionEntity): String 
 private fun formatActionTimestamp(millis: Long): String {
     val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
     return sdf.format(Date(millis))
+}
+
+/**
+ * Text a quick-action card reads aloud. Priority: the skill's own spoken summary (#1026 review B2),
+ * then the presentation summary for successful rich cards, then the raw reply.
+ */
+internal fun quickActionSpeechText(
+    spokenSummary: String?,
+    resultText: String,
+    presentationJson: String?,
+    isSuccess: Boolean,
+): String {
+    spokenSummary?.takeIf { it.isNotBlank() }?.let { return it }
+    if (isSuccess) {
+        ToolPresentationJson.fromJsonString(presentationJson)?.toSpokenSummary()
+            ?.takeIf { it.isNotBlank() }?.let { return it }
+    }
+    return resultText
 }

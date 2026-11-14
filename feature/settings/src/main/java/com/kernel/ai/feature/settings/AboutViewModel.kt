@@ -15,6 +15,8 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -100,6 +102,7 @@ class AboutViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     @Named("about") private val dataStore: DataStore<Preferences>,
     private val voiceOutputPreferences: VoiceOutputPreferences,
+    private val setupWizardPreferences: SetupWizardPreferences,
 ) : ViewModel() {
 
     @VisibleForTesting
@@ -124,6 +127,14 @@ class AboutViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(AboutUiState(verboseLogging = defaultVerboseLoggingEnabled))
     val uiState: StateFlow<AboutUiState> = _uiState.asStateFlow()
+
+    /** Debug builds only: restarts the setup wizard from its first step. Deletes no data (models stay). */
+    fun restartSetupWizardAsFirstRun(onReady: () -> Unit) {
+        viewModelScope.launch {
+            setupWizardPreferences.restartFromFirstStep()
+            onReady()
+        }
+    }
 
     private val verboseLoggingMutex = Mutex()
 
@@ -281,6 +292,7 @@ class AboutViewModel @Inject constructor(
         val scrubTrace: (String) -> String =
             if (includeUserContent) { text -> text } else DiagnosticLogRedactor::redactTraceText
 
+        val eventLines = JandalEvents.exportLines()
         if (exitRecords.isEmpty() && logcat.output == null) {
             val detail = logcat.failureDetail ?: "no recent process exits were recorded"
             throw Exception(
@@ -337,6 +349,8 @@ class AboutViewModel @Inject constructor(
             } else {
                 append(scrub(recordText))
             }
+            appendLine()
+            append(renderJandalEventSection(eventLines, scrub))
             appendLine()
             appendLine("Current process logcat")
             appendLine("----------------------")

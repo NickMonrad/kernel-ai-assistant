@@ -35,6 +35,7 @@ import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -258,6 +259,10 @@ class ClockAlertService : Service() {
     private val activeAlerts = linkedSetOf<TriggeredClockAlert>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var voiceEventsJob: Job? = null
+    /** Collects notes for the current alert capture (#1853 Zipformer hand-off, #1866). */
+    private var voiceNoticeJob: Job? = null
+    /** Latest note for the current alert capture, shown before the listening prompt. */
+    private var voiceNotice: String? = null
     private var voicePreferencesJob: Job? = null
 
     private val notificationManager: NotificationManager
@@ -400,6 +405,7 @@ class ClockAlertService : Service() {
         captureSessionId = null
         voiceInputController.stopListening()
         voiceEventsJob?.cancel()
+        voiceNoticeJob?.cancel()
         voicePreferencesJob?.cancel()
         clockSoundConfigJob?.cancel()
         clockAlertConfigJob?.cancel()
@@ -720,6 +726,7 @@ class ClockAlertService : Service() {
         isVoiceListening = true
         handledVoiceTranscript = false
         captureSessionId = null
+        clearVoiceNotice()
         voiceStatusMessage = if (autoStarted) "Listening for alert commands…" else alertVoiceListeningPrompt(alert.type)
         duckPlaybackForVoiceControl()
         refreshForeground()
@@ -740,6 +747,7 @@ class ClockAlertService : Service() {
                         for (event in result.ownedStartEvents) {
                             handleVoiceEvent(event)
                         }
+                        watchVoiceNotices(result.captureSessionId)
                     }
                     is CaptureStartResult.Unavailable -> {
                         if (voiceJournal === attemptJournal) {
@@ -770,7 +778,7 @@ class ClockAlertService : Service() {
                         journal.record(AcousticEventType.STT_READY)
                         recordClockAlertCue(journal, startListeningCuePlayer)
                     }
-                    currentAlert()?.let { voiceStatusMessage = alertVoiceListeningPrompt(it.type) }
+                    currentAlert()?.let { voiceStatusMessage = listeningStatus(it) }
                     refreshForeground()
                 }
             }
@@ -877,11 +885,37 @@ class ClockAlertService : Service() {
         }
         return success
     }
+    /**
+     * Shows the notes for alert capture [sessionId] in the alert notification, ahead of the
+     * listening prompt. The latest note is replayed, so one posted during the start is kept.
+     */
+    private fun watchVoiceNotices(sessionId: Long) {
+        voiceNoticeJob?.cancel()
+        voiceNoticeJob = serviceScope.launch {
+            voiceInputController.noticesFor(sessionId).collect { note ->
+                if (captureSessionId != sessionId || !isVoiceListening) return@collect
+                voiceNotice = note
+                currentAlert()?.let { voiceStatusMessage = listeningStatus(it) }
+                refreshForeground()
+            }
+        }
+    }
+
+    private fun clearVoiceNotice() {
+        voiceNoticeJob?.cancel()
+        voiceNoticeJob = null
+        voiceNotice = null
+    }
+
+    private fun listeningStatus(alert: TriggeredClockAlert): String =
+        listOfNotNull(voiceNotice, alertVoiceListeningPrompt(alert.type)).joinToString(" ")
+
     private fun finishVoiceCapture(
         message: String,
         cancellationCategory: String,
     ) {
         isVoiceListening = false
+        clearVoiceNotice()
         captureSessionId = null
         handledVoiceTranscript = false
         voiceStatusMessage = message

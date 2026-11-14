@@ -61,7 +61,7 @@ class InflectMicroVoiceOutputController @Inject constructor(
             val pitch = voiceOutputPreferences.voicePitch.first()
             var started = false
             try {
-                val normalized = InflectMicroTextFrontend.normalize(request.text)
+                val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(request.text))
                 require(normalized.isNotBlank()) { "Inflect normalization produced empty text" }
                 val chunks = InflectMicroTextFrontend.phonemizeChunks(normalized) { chunkText ->
                     InflectMicroTextFrontend.applyPhonemeOverrides(

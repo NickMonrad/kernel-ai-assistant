@@ -1,4 +1,5 @@
 package com.kernel.ai.feature.settings
+import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
@@ -94,7 +95,7 @@ class AboutViewModelTest {
         // Default: no exit history unless a test stubs ActivityManager explicitly.
         every { context.getSystemService(ActivityManager::class.java) } returns null
         preferencesState.value = emptyPreferences()
-        viewModel = AboutViewModel(context, dataStore, voiceOutputPreferences)
+        viewModel = AboutViewModel(context, dataStore, voiceOutputPreferences, mockk<SetupWizardPreferences>(relaxed = true))
         viewModel.ioDispatcher = testDispatcher
     }
 

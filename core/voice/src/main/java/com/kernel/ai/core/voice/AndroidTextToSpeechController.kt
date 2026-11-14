@@ -8,6 +8,9 @@ import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.TtsFailure
+import com.kernel.ai.core.inference.diagnostics.TtsEngineKind
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import javax.inject.Inject
@@ -150,8 +153,9 @@ class AndroidTextToSpeechController @Inject constructor(
     }
 
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult {
-        val text = request.text.trim()
+        val text = SpeechCardText.speakable(request.text).trim()
         if (text.isBlank()) return VoiceOutputResult.Spoken
+        JandalEvents.record("tts", "speak_start", "chars" to text.length)
         val playbackToken = nextPlaybackToken()
         synchronized(playbackLock) {
             activePlayback = ActivePlayback(token = playbackToken)
@@ -174,6 +178,7 @@ class AndroidTextToSpeechController @Inject constructor(
         request: VoiceSpeakRequest,
     ): VoiceOutputStreamingSession {
         val playbackToken = nextPlaybackToken()
+        JandalEvents.record("tts", "speak_start", "streaming" to true)
         return object : VoiceOutputStreamingSession {
             private var hasQueuedChunk = false
             private var isClosed = false
@@ -181,7 +186,7 @@ class AndroidTextToSpeechController @Inject constructor(
             override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
                 if (isClosed) return VoiceOutputResult.Spoken
 
-                val normalized = text.trim()
+                val normalized = SpeechCardText.speakable(text)
                 if (normalized.isBlank()) {
                     if (isFinal) {
                         isClosed = true
@@ -257,6 +262,7 @@ class AndroidTextToSpeechController @Inject constructor(
                 }
                 completePlaybackIfDrained(playbackToken)
             }
+            JandalEvents.record("tts", "speak_failed", "category" to TtsFailure.UNAVAILABLE)
             return VoiceOutputResult.Unavailable(message)
         }
 
@@ -335,6 +341,7 @@ class AndroidTextToSpeechController @Inject constructor(
             }
         }
         completePlaybackIfDrained(playbackToken)
+        JandalEvents.record("tts", "speak_failed", "category" to TtsFailure.ENGINE_START)
         return VoiceOutputResult.Unavailable("Text-to-speech could not start speech. Check the TTS engine and try again.")
     }
 
@@ -523,6 +530,7 @@ class AndroidTextToSpeechController @Inject constructor(
                 }
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
+                    JandalEvents.record("tts", "utterance_error", "code" to errorCode)
                     onUtteranceFinished(utteranceId)
                 }
 
@@ -538,6 +546,10 @@ class AndroidTextToSpeechController @Inject constructor(
             throw cancelled
         }
         if (status == TextToSpeech.SUCCESS) {
+            JandalEvents.record(
+                "tts", "engine_init", "ready" to true,
+                "engine" to (if (enginePackage == "com.google.android.tts") TtsEngineKind.GOOGLE else TtsEngineKind.OTHER),
+            )
             return ReadyEngine(instance = engine, enginePackage = enginePackage)
         }
 
@@ -551,6 +563,7 @@ class AndroidTextToSpeechController @Inject constructor(
             installedEngines = engine.engines
         }
         engine.shutdown()
+        JandalEvents.record("tts", "engine_init", "ready" to false)
         return null
     }
 
@@ -588,6 +601,7 @@ class AndroidTextToSpeechController @Inject constructor(
             cancelPlaybackTimeout()
             releaseAudioFocus()
             _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
+            JandalEvents.record("tts", "speak_end")
         }
     }
 

@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,11 +48,16 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.kernel.ai.core.voice.WakeWordHandoff
+import com.kernel.ai.core.permissions.recordPermissionResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.latestNoticeFor
+import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -99,6 +105,15 @@ class VoiceCommandActivity : ComponentActivity() {
     private val requestMicPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        recordPermissionResult(
+            Manifest.permission.RECORD_AUDIO,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                this,
+                Manifest.permission.RECORD_AUDIO,
+            ),
+        )
+        JandalEvents.record("permission", "record_audio", "granted" to granted)
         if (granted) startVoiceSession() else finish()
     }
 
@@ -308,6 +323,8 @@ class VoiceCommandActivity : ComponentActivity() {
         }
 
         var retryAttempted = false
+        var captureSessionId: Long? = null
+        var noticeJob: Job? = null
         lifecycleScope.launch {
             suspend fun showUnavailableAndFinish(message: String) {
                 val errorText = message.ifBlank { "Voice commands are unavailable right now." }
@@ -316,6 +333,23 @@ class VoiceCommandActivity : ComponentActivity() {
                 delay(2_000)
                 if (!isFinishing) finish()
             }
+
+            // #1853/#1866: notes for this capture (a Zipformer hand-off) are shown as a toast, so
+            // they stay visible if the overlay navigates or finishes.
+            fun bindCapture(result: VoiceInputStartResult.Started) {
+                noticeJob?.cancel()
+                captureSessionId = result.captureSessionId
+                noticeJob = launch {
+                    voiceInputController.noticesFor(result.captureSessionId).collect { note ->
+                        Toast.makeText(this@VoiceCommandActivity, note, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+
+            // A capture that already moved to Zipformer is not retried: the retry would start
+            // the failing Android native recognizer again.
+            fun mayRetry(): Boolean =
+                !retryAttempted && captureSessionId?.let { voiceInputController.latestNoticeFor(it) } == null
 
             val eventCollectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
                 voiceInputController.events.collect { event ->
@@ -329,12 +363,12 @@ class VoiceCommandActivity : ComponentActivity() {
                             if (transcript.isNotBlank() && !isFinishing) {
                                 navigator.navigateToActions(this@VoiceCommandActivity, transcript, isVoice = true)
                                 finish()
-                            } else if (!retryAttempted) {
+                            } else if (mayRetry()) {
                                 retryAttempted = true
                                 partialText = ""
                                 Log.d(TAG, "VoiceCommandActivity: blank transcript — retrying")
                                 when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
-                                    is VoiceInputStartResult.Started -> Unit
+                                    is VoiceInputStartResult.Started -> bindCapture(result)
                                     is VoiceInputStartResult.Unavailable -> showUnavailableAndFinish(result.message)
                                 }
                             } else {
@@ -343,12 +377,12 @@ class VoiceCommandActivity : ComponentActivity() {
                         }
                         is VoiceInputEvent.Error -> {
                             Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
-                            if (!retryAttempted) {
+                            if (mayRetry()) {
                                 retryAttempted = true
                                 partialText = ""
                                 Log.d(TAG, "VoiceCommandActivity: retrying after error")
                                 when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
-                                    is VoiceInputStartResult.Started -> Unit
+                                    is VoiceInputStartResult.Started -> bindCapture(result)
                                     is VoiceInputStartResult.Unavailable -> showUnavailableAndFinish(result.message)
                                 }
                             } else {
@@ -361,7 +395,7 @@ class VoiceCommandActivity : ComponentActivity() {
             }
 
             when (val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
-                is VoiceInputStartResult.Started -> Unit
+                is VoiceInputStartResult.Started -> bindCapture(startResult)
                 is VoiceInputStartResult.Unavailable -> {
                     eventCollectorJob.cancel()
                     showUnavailableAndFinish(startResult.message)

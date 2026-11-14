@@ -5,6 +5,9 @@ import android.content.Context
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
+import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
+import com.kernel.ai.core.voice.VoiceCapabilities
+import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.InflectMicroModelSpec
@@ -38,7 +41,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
-import com.kernel.ai.core.model.availability.UnavailableReason
 import com.kernel.ai.core.model.availability.toAvailability
 import com.kernel.ai.core.permissions.MicrophoneReadiness
 import javax.inject.Inject
@@ -82,6 +84,8 @@ data class VoiceUiState(
     val allowOnlineSpeechFallback: Boolean = false,
     val androidNativeAvailabilityMessage: String? = null,
     val androidNativeLanguageSummary: String? = null,
+    val androidNativeCapabilities: VoiceCapabilities? = null,
+    val androidNativeLocaleReady: Boolean = true,
     val hasDownloadedSherpaVoice: Boolean = false,
     val isSelectedSherpaVoiceDownloaded: Boolean = false,
     /** Active speaker ID for multi-speaker voices (VCTK). Stored as sid 0–108. */
@@ -116,8 +120,6 @@ data class VoiceUiState(
     val sherpaVoiceAvailability: Map<SherpaPiperVoice, ModelAvailabilityState> = emptyMap(),
     /** Per-voice availability state for Kokoro voices. */
     val kokoroVoiceAvailability: Map<SherpaKokoroVoice, ModelAvailabilityState> = emptyMap(),
-    /** Per-engine availability state for Sherpa STT models. */
-    val sherpaSttAvailability: Map<VoiceInputEngine, ModelAvailabilityState> = emptyMap(),
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
@@ -136,9 +138,7 @@ internal fun VoicePackDownloadState.toModelAvailability(): ModelAvailabilityStat
     is VoicePackDownloadState.Error -> ModelAvailabilityState.ActionRequired(
         ActionReason.DownloadFailed(message)
     )
-    is VoicePackDownloadState.NotDownloaded -> ModelAvailabilityState.Unavailable(
-        UnavailableReason.NotBundled
-    )
+    is VoicePackDownloadState.NotDownloaded -> ModelAvailabilityState.NotDisplayed
 }
 
 /**
@@ -204,20 +204,23 @@ internal fun aggregateInflectMicroAvailability(
         )
     }
 
-    return ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled)
+    return ModelAvailabilityState.NotDisplayed
 }
 
 /**
  * Maps a [SherpaSttDownloadState] to the UI-layer [ModelAvailabilityState].
+ *
+ * An idle, not-yet-downloaded model is downloadable, not unbundled: it maps to
+ * [ModelAvailabilityState.NotDisplayed] (no badge; the Download action is shown). Mapping it to
+ * `NotBundled` told users the model could not be obtained while the card offered a Download button.
  */
 internal fun SherpaSttDownloadState.toModelAvailability(): ModelAvailabilityState = when {
     isDownloaded -> ModelAvailabilityState.Ready
     isDownloading -> ModelAvailabilityState.Preparing(progress = progress, isAutoQueued = false)
     issue?.licenceRequired == true -> ModelAvailabilityState.ActionRequired(ActionReason.LicenseRequired)
     issue != null -> ModelAvailabilityState.ActionRequired(ActionReason.DownloadFailed(issue.message))
-    else -> ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled)
+    else -> ModelAvailabilityState.NotDisplayed
 }
-
 
 @HiltViewModel
 class VoiceViewModel @Inject constructor(
@@ -264,6 +267,8 @@ class VoiceViewModel @Inject constructor(
                 it.copy(
                     androidNativeAvailabilityMessage = nativeWarning,
                     androidNativeLanguageSummary = availability.languageSummary,
+                    androidNativeLocaleReady = availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready,
+                    androidNativeCapabilities = runCatching { readVoiceCapabilities(context) }.getOrNull(),
                 )
             }
         }
@@ -462,9 +467,6 @@ class VoiceViewModel @Inject constructor(
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
                         sherpaSttStates = perFamilyStates,
-                        sherpaSttAvailability = perFamilyStates.mapValues { (_, state) ->
-                            state.toModelAvailability()
-                        },
                     )
                 }
             }
