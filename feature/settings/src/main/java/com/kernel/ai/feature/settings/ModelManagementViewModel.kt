@@ -17,6 +17,9 @@ import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.VoiceOutputEngine
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.model.availability.ModelRoleSection
 import com.kernel.ai.core.model.availability.ModelRoles
 import com.kernel.ai.core.model.availability.StillNeededItem
@@ -68,15 +71,11 @@ data class ModelManagementUiState(
 )
 
 /** Read-only status for a voice section on the Models screen. Managed in Voice settings. */
-enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED }
+enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED, BUILT_IN, OTHER_ENGINE }
 
-/** Speech recognition (Zipformer) needs all four of these files on disk. */
-internal val ZIPFORMER_STT_MODELS: List<KernelModel> = listOf(
-    KernelModel.SHERPA_STT_ENCODER,
-    KernelModel.SHERPA_STT_DECODER,
-    KernelModel.SHERPA_STT_JOINER,
-    KernelModel.SHERPA_STT_TOKENS,
-)
+/** Files the Zipformer recognizer needs, taken from the core spec so the two lists cannot drift. */
+internal val ZIPFORMER_STT_MODELS: List<KernelModel> =
+    KernelModel.entries.filter { it.fileName in SherpaSttModelSpec.ZIPFORMER.requiredFileNames }
 
 internal fun speechStatusOf(states: Map<KernelModel, DownloadState>): VoiceSectionStatus {
     val files = ZIPFORMER_STT_MODELS.map { states[it] ?: DownloadState.NotDownloaded }
@@ -87,11 +86,17 @@ internal fun speechStatusOf(states: Map<KernelModel, DownloadState>): VoiceSecti
     }
 }
 
-internal fun voiceOutputStatusOf(state: VoicePackDownloadState?): VoiceSectionStatus = when (state) {
-    is VoicePackDownloadState.Downloaded -> VoiceSectionStatus.READY
-    is VoicePackDownloadState.Downloading -> VoiceSectionStatus.DOWNLOADING
-    else -> VoiceSectionStatus.NOT_DOWNLOADED
-}
+/** The voice-output row follows the selected engine. Only the Sherpa engine uses the Cori pack. */
+internal fun voiceOutputStatusOf(engine: VoiceOutputEngine, state: VoicePackDownloadState?): VoiceSectionStatus =
+    when (engine) {
+        VoiceOutputEngine.AndroidTts -> VoiceSectionStatus.BUILT_IN
+        VoiceOutputEngine.SherpaExperimental -> when (state) {
+            is VoicePackDownloadState.Downloaded -> VoiceSectionStatus.READY
+            is VoicePackDownloadState.Downloading -> VoiceSectionStatus.DOWNLOADING
+            else -> VoiceSectionStatus.NOT_DOWNLOADED
+        }
+        else -> VoiceSectionStatus.OTHER_ENGINE
+    }
 
 private data class StorageMetrics(
     val used: Long = 0,
@@ -106,6 +111,7 @@ class ModelManagementViewModel @Inject constructor(
     private val jandalPersona: JandalPersona,
     private val gatedModelStatusRepository: GatedModelStatusRepository,
     private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager,
+    private val voiceOutputPreferences: VoiceOutputPreferences,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -149,6 +155,7 @@ class ModelManagementViewModel @Inject constructor(
         _storageMetrics,
         _gatedStatuses,
         sherpaVoicePackDownloadManager.downloadStates,
+        voiceOutputPreferences.selectedEngine,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val downloadStates = array[0] as Map<KernelModel, DownloadState>
@@ -164,6 +171,7 @@ class ModelManagementViewModel @Inject constructor(
         val gatedStatuses = array[7] as Map<KernelModel, GatedModelStatus>
         @Suppress("UNCHECKED_CAST")
         val voicePacks = array[8] as Map<SherpaPiperVoice, VoicePackDownloadState>
+        val engine = array[9] as VoiceOutputEngine
 
         val filteredModels = KernelModel.entries.filter {
             it.showInModelManagement && !it.isDeprecated
@@ -197,7 +205,7 @@ class ModelManagementViewModel @Inject constructor(
             stillNeeded = ModelRoles.stillNeeded(tier = tier, states = downloadStates),
             deviceTier = tier,
             speechRecognitionStatus = speechStatusOf(downloadStates),
-            voiceOutputStatus = voiceOutputStatusOf(voicePacks[SherpaPiperVoice.CoriHigh]),
+            voiceOutputStatus = voiceOutputStatusOf(engine, voicePacks[SherpaPiperVoice.CoriHigh]),
         )
     }.stateIn(
         scope = viewModelScope,

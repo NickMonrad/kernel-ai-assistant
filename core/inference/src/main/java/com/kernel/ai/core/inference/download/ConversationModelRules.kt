@@ -43,15 +43,20 @@ object ConversationModelRules {
                 .all(isDownloaded)
 
     /**
-     * The conversation model that answers: the user's pick when it is on disk, otherwise the
-     * tier default when on disk, otherwise E-2B. Callers check [conversationReady] first.
+     * The conversation model that answers: the user's pick when this tier can select it and it
+     * is on disk, otherwise the tier default when on disk, otherwise E-2B. A saved pick the tier
+     * cannot select (an old E-4B choice below flagship) is ignored. Callers check
+     * [conversationReady] first.
      */
     fun effectiveConversationModel(
         userPreference: KernelModel?,
         tier: HardwareTier,
         isDownloaded: (KernelModel) -> Boolean,
     ): KernelModel {
-        if (userPreference != null && isDownloaded(userPreference)) return userPreference
+        val selectable = selectableConversationModels(tier)
+        if (userPreference != null && userPreference in selectable && isDownloaded(userPreference)) {
+            return userPreference
+        }
         val tierModel = autoConversationModel(tier)
         if (isDownloaded(tierModel)) return tierModel
         return KernelModel.GEMMA_4_E2B

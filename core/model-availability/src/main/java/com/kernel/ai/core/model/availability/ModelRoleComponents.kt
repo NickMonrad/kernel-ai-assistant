@@ -32,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.KernelModel
@@ -54,6 +56,7 @@ fun ModelSectionShell(
                 text = title,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.semantics { heading() },
             )
             Text(
                 text = summary,
@@ -134,7 +137,7 @@ fun RoleSectionView(
                         state = availabilityOf(row.model),
                         required = row.required,
                         recommended = row.recommended,
-                        selected = if (onSelect != null) section.preferred == row.model else null,
+                        selected = if (onSelect != null) section.preferred == row.model && row.selectable else null,
                         onSelect = if (onSelect != null && row.selectable) ({ onSelect(row.model) }) else null,
                         onPrimary = onPrimary,
                         canDelete = canDelete(row.model),
@@ -164,7 +167,7 @@ fun RoleSectionView(
                             state = availabilityOf(row.model),
                             required = false,
                             recommended = row.recommended,
-                            selected = if (onSelect != null) section.preferred == row.model else null,
+                            selected = if (onSelect != null) section.preferred == row.model && row.selectable else null,
                             onSelect = if (onSelect != null && row.selectable) ({ onSelect(row.model) }) else null,
                             onPrimary = onPrimary,
                             canDelete = canDelete(row.model),
@@ -224,7 +227,7 @@ private fun GroupLabel(text: String) {
         text = text,
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 0.dp),
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 0.dp).semantics { heading() },
     )
 }
 
@@ -276,8 +279,17 @@ private fun ModelRoleRowItem(
 ) {
     val ready = state is ModelAvailabilityState.Ready
     val primaryLabel = primaryLabelFor(state)
-    val selectableModifier = if (selected != null && onSelect != null) {
-        Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
+    val selectableModifier = if (selected != null) {
+        Modifier
+            .selectable(
+                selected = selected,
+                enabled = onSelect != null,
+                role = Role.RadioButton,
+                onClick = onSelect ?: {},
+            )
+            .semantics {
+                if (onSelect == null) stateDescription = ModelRoleCopy.NOT_ON_THIS_PHONE
+            }
     } else {
         Modifier
     }

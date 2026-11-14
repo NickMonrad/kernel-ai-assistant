@@ -139,4 +139,41 @@ class ModelRolesTest {
     fun `everything installed on mid range leaves nothing still needed`() {
         assertTrue(ModelRoles.stillNeeded(HardwareTier.MID_RANGE, states(e2b, arcticM, arcticVocab)).isEmpty())
     }
+
+    // ── Regressions from round-2 review ──────────────────────────────────────
+
+    @Test
+    fun `mid range E-4B downloading with E-2B missing still asks for E-2B`() {
+        val st: Map<KernelModel, DownloadState> = KernelModel.entries.associateWith { m ->
+            if (m == e4b) DownloadState.Downloading(progress = 0.4f) else DownloadState.NotDownloaded
+        }
+        val s = ModelRoles.sections(null, HardwareTier.MID_RANGE, st)
+        assertEquals(RoleStatus.MISSING, chat(s).status)
+        val item = ModelRoles.stillNeeded(HardwareTier.MID_RANGE, st).first { it.role == ModelRole.CHAT_BRAIN }
+        assertEquals(RoleStatus.MISSING, item.status)
+        assertEquals(listOf(e2b), item.downloadModels)
+        assertNull(item.progress)
+    }
+
+    @Test
+    fun `flagship E-4B downloading still reports chat as downloading`() {
+        val st: Map<KernelModel, DownloadState> = KernelModel.entries.associateWith { m ->
+            if (m == e4b) DownloadState.Downloading(progress = 0.4f) else DownloadState.NotDownloaded
+        }
+        assertEquals(RoleStatus.DOWNLOADING, chat(ModelRoles.sections(null, HardwareTier.FLAGSHIP, st)).status)
+        assertEquals(0.4f, ModelRoles.stillNeeded(HardwareTier.FLAGSHIP, st).first { it.role == ModelRole.CHAT_BRAIN }.progress)
+    }
+
+    @Test
+    fun `mid range old E-4B preference runs E-2B and keeps E-2B required`() {
+        val st = states(e2b, e4b, arcticM, arcticVocab)
+        val section = chat(ModelRoles.sections(e4b, HardwareTier.MID_RANGE, st))
+        assertEquals(e2b, section.using)
+        assertEquals(RoleStatus.READY, section.status)
+        val rows = section.rows.associateBy { it.model }
+        assertTrue(rows.getValue(e2b).required)
+        assertEquals(ModelGroup.IN_USE, rows.getValue(e2b).group)
+        assertFalse(rows.getValue(e4b).selectable)
+        assertTrue(ModelRoles.deletionBreaksApp(e2b, HardwareTier.MID_RANGE, st))
+    }
 }

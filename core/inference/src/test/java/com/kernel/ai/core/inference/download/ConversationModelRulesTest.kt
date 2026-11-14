@@ -59,4 +59,10 @@ class ConversationModelRulesTest {
         assertEquals(listOf(e2b), ConversationModelRules.selectableConversationModels(HardwareTier.LOW_POWER))
         assertEquals(listOf(e4b, e2b), ConversationModelRules.selectableConversationModels(HardwareTier.FLAGSHIP))
     }
+
+    @Test
+    fun `non-flagship ignores a saved E-4B preference even when E-4B is installed`() {
+        assertEquals(e2b, ConversationModelRules.effectiveConversationModel(e4b, HardwareTier.MID_RANGE, have(e2b, e4b)))
+        assertEquals(e2b, ConversationModelRules.effectiveConversationModel(e4b, HardwareTier.LOW_POWER, have(e2b, e4b)))
+    }
 }

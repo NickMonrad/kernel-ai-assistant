@@ -13,6 +13,8 @@ import com.kernel.ai.core.inference.prefs.ModelPreferences
 import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
+import com.kernel.ai.core.voice.VoiceOutputEngine
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -37,6 +39,7 @@ class ModelManagementUpdateTest {
     private val persona = mockk<JandalPersona>(relaxed = true)
     private val gatedStatusRepository = mockk<GatedModelStatusRepository>(relaxed = true)
     private val voicePacks = mockk<SherpaVoicePackDownloadManager>(relaxed = true)
+    private val voiceOutputPreferences = mockk<VoiceOutputPreferences>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val viewModelStore = ViewModelStore()
 
@@ -53,6 +56,7 @@ class ModelManagementUpdateTest {
         every { persona.personaMode } returns MutableStateFlow(PersonaMode.HALF)
         every { gatedStatusRepository.get(any()) } returns flowOf(GatedModelStatus.NONE)
         every { voicePacks.downloadStates } returns MutableStateFlow(emptyMap())
+        every { voiceOutputPreferences.selectedEngine } returns flowOf(VoiceOutputEngine.AndroidTts)
     }
 
     @AfterEach
@@ -75,6 +79,7 @@ class ModelManagementUpdateTest {
             gatedModelStatusRepository = gatedStatusRepository,
             context = context,
             sherpaVoicePackDownloadManager = voicePacks,
+            voiceOutputPreferences = voiceOutputPreferences,
         )
         viewModelStore.put("model-management", viewModel)
 

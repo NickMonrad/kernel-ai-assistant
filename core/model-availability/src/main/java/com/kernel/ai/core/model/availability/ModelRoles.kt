@@ -104,13 +104,25 @@ object ModelRoles {
     fun isReady(model: KernelModel, states: Map<KernelModel, DownloadState>): Boolean =
         model.isBundled || states[model] is DownloadState.Downloaded
 
+    /**
+     * Models that can make [role] ready on [tier]. The chat brain is limited to the tier's
+     * selectable models, so E-4B downloading on a non-flagship phone never counts as progress.
+     */
+    private fun candidatesFor(role: ModelRole, members: List<KernelModel>, tier: HardwareTier): List<KernelModel> =
+        if (role == ModelRole.CHAT_BRAIN) {
+            members.filter { it in ConversationModelRules.selectableConversationModels(tier) }
+        } else {
+            members
+        }
+
     fun roleStatus(role: ModelRole, states: Map<KernelModel, DownloadState>, tier: HardwareTier): RoleStatus {
         val members = visibleMembers(role)
         return when (role.requirement) {
             RoleRequirement.NONE -> RoleStatus.READY
             RoleRequirement.ANY_ONE -> when {
                 chatReady(tier, states) -> RoleStatus.READY
-                members.any { states[it] is DownloadState.Downloading } -> RoleStatus.DOWNLOADING
+                candidatesFor(role, members, tier).any { states[it] is DownloadState.Downloading } ->
+                    RoleStatus.DOWNLOADING
                 else -> RoleStatus.MISSING
             }
             RoleRequirement.ALL -> when {
@@ -225,7 +237,7 @@ object ModelRoles {
             val status = roleStatus(role, states, tier)
             if (status == RoleStatus.READY) return@mapNotNull null
             val members = visibleMembers(role)
-            val downloading = members.firstOrNull { states[it] is DownloadState.Downloading }
+            val downloading = candidatesFor(role, members, tier).firstOrNull { states[it] is DownloadState.Downloading }
             val downloadModels = when (role.requirement) {
                 RoleRequirement.ANY_ONE -> listOf(autoChatModel(tier)).filter { it in members }
                 RoleRequirement.ALL -> members.filter { !isReady(it, states) && it.isRequired }

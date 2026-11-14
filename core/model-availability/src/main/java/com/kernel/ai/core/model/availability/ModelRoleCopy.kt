@@ -47,7 +47,7 @@ object ModelRoleCopy {
     // ── Per-model purpose (headline) and technical name (secondary) ──────────
     fun purpose(model: KernelModel): String = when (model) {
         KernelModel.GEMMA_4_E4B -> "Answers your questions and chats, with more detail."
-        KernelModel.GEMMA_4_E2B -> "Smaller, faster option for low-end phones"
+        KernelModel.GEMMA_4_E2B -> "Fast chat model that runs on any supported phone."
         KernelModel.ARCTIC_EMBED_M_V1_5 -> "Helps Jandal remember and find things you've told it."
         KernelModel.ARCTIC_EMBED_V1_5_VOCAB -> "Vocabulary that memory search needs alongside Arctic Embed."
         KernelModel.MINI_LM -> "Recognises common requests like alarms and timers, offline."
@@ -109,9 +109,12 @@ object ModelRoleCopy {
 
     // ── Voice sections (read-only; managed in Voice settings) ──────────────
     const val STT_SECTION_TITLE = "Speech recognition (Zipformer): turns your voice into text, offline"
-    const val TTS_SECTION_TITLE = "Jandal's voice (Cori): reads replies aloud"
+    const val TTS_SECTION_TITLE = "Voice output: reads replies aloud"
     const val MANAGE_VOICE_ACTION = "Manage in Voice settings"
     const val VOICE_READY = "Ready"
     const val VOICE_DOWNLOADING = "Downloading"
     const val VOICE_NOT_DOWNLOADED = "Not downloaded"
+    const val VOICE_BUILT_IN = "Using Android's built-in voice"
+    const val VOICE_OTHER_ENGINE = "Another voice is selected in Voice settings"
+    const val NOT_ON_THIS_PHONE = "Not available on this phone"
 }
