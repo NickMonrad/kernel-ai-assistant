@@ -10,6 +10,9 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import com.kernel.ai.core.skills.SettingsAction
+import com.kernel.ai.core.skills.SettingsDeepLink
+import com.kernel.ai.core.skills.SkillResult
 import org.junit.jupiter.params.provider.ValueSource
 
 /**
@@ -220,6 +223,17 @@ class ChatTextUtilsTest {
                 "aye-aye unchanged",
                 normalizeChatTextForSpeech("aye-aye unchanged"),
             )
+        }
+
+        @Test
+        fun `weather card through chat speech keeps degrees and drops card separators`() {
+            val card = "☀️ Oakland — 11°C · Clear sky\n🌡 Today: H:17°C / L:10°C\n💧 Humidity: 92%"
+            val result = normalizeChatTextForSpeech(card)
+            assertTrue(result.contains("11°C"), "degrees kept, got: $result")
+            assertTrue(result.contains("high 17"), "high read out, got: $result")
+            assertTrue(result.contains("low 10"), "low read out, got: $result")
+            assertFalse(result.contains("·") || result.contains("/") || result.contains("|"), "separators removed, got: $result")
+            assertFalse(result.contains(".."), "no doubled full stop, got: $result")
         }
 
         @Test
@@ -1671,5 +1685,32 @@ class ChatTextUtilsTest {
         )) {
             assertFalse(containsExplicitToolActionVerb(q), q)
         }
+    }
+
+    @Test
+    fun `recovery failure opens the chat chooser with its actions and message`() {
+        val actions = listOf(
+            SettingsAction("Add to contacts", SettingsDeepLink("contact_aliases", mapOf("alias" to "wife"))),
+            SettingsAction("Choose from contacts", SettingsDeepLink("contact_aliases", mapOf("pick" to "true"))),
+        )
+        val failure = SkillResult.Failure(
+            skillName = "make_call",
+            error = "I don't know who your wife is yet. Add them in Settings → People & Contacts.",
+            technicalDetail = "Unresolved contact: make_call",
+            actions = actions,
+        )
+
+        val state = settingsActionStateFor(failure)
+
+        assertNotNull(state)
+        assertEquals(failure.error, state!!.message)
+        assertEquals(actions, state.actions)
+    }
+
+    @Test
+    fun `plain failure opens no chat chooser`() {
+        val failure = SkillResult.Failure(skillName = "make_call", error = "Dialer exploded")
+
+        assertNull(settingsActionStateFor(failure))
     }
 }

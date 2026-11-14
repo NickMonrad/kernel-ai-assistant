@@ -26,6 +26,8 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Calendar lookup for synced contact birthdays -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Adds events to the default calendar for "schedule ..." requests; requested in App Permissions -->
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <!-- Microphone access for offline Quick Actions voice input -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Required to read/write the Do Not Disturb (interruption filter) policy -->

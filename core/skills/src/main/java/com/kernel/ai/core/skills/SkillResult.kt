@@ -61,6 +61,11 @@ sealed class SkillResult {
      *   this flag yet; that gap is tracked in #1876.
      * - [technicalDetail] is the diagnostic (e.g. "Unknown intent: x"). It is shown on tool chips
      *   and sent to the model under the `detail` key. It is never shown in bubbles, cards or speech.
+     *   Setting it also stops the prefixes above, so [error] is shown as written.
+     * - [actions] are optional in-app recovery buttons for failures the user can fix inside the app
+     *   (e.g. "Add in People & Contacts" for an unknown contact). Every action only opens an in-app
+     *   screen; none performs a side effect. [error] always names the in-app next step, because
+     *   surfaces that don't render buttons (chat text, model tool replies, voice) print only [error].
      *
      * A Failure with both [fallThroughToModel] and [technicalDetail] is handled as a fallthrough.
      */
@@ -69,6 +74,7 @@ sealed class SkillResult {
         val error: String,
         val fallThroughToModel: Boolean = false,
         val technicalDetail: String? = null,
+        val actions: List<SettingsAction> = emptyList(),
     ) : SkillResult()
     /** Skill output was malformed JSON or failed schema validation. */
     data class ParseError(val rawOutput: String, val reason: String) : SkillResult()

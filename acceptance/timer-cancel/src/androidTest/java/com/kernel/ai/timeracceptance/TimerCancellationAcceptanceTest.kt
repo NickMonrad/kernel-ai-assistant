@@ -20,6 +20,7 @@ import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.natives.CalendarBirthdayLookup
+import com.kernel.ai.core.skills.natives.CalendarEventStore
 import com.kernel.ai.core.skills.natives.ClockAlertController
 import com.kernel.ai.core.skills.natives.CookingConversionService
 import com.kernel.ai.core.skills.natives.CurrencyConversionService
@@ -60,6 +61,7 @@ class TimerCancellationAcceptanceTest {
             contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true),
             importantDateRepository = mockk<ImportantDateRepository>(relaxed = true),
             calendarBirthdayLookup = mockk<CalendarBirthdayLookup>(relaxed = true),
+            calendarEventStore = mockk<CalendarEventStore>(relaxed = true),
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = mockk<CookingConversionService>(relaxed = true),
