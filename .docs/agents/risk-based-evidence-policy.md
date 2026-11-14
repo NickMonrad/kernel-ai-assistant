@@ -7,14 +7,11 @@ three-tier risk classification and the minimum evidence expected for each tier.
 
 1. **Low-risk changes stay lightweight.** Docs, copy changes, and refactors with no
    behaviour change do not require device testing, screenshots, or broad regression runs.
-2. **PR evidence defaults to the S23U.** The S23U (Snapdragon 8 Gen 2) is the primary
-   on-device test device for broad/regular acceptance evidence when it is connected and
-   available; if a required device is unavailable, report the blocker. The S21 (Exynos)
-   is a secondary device used only when more test capacity is needed — for example
-   parallel runs, or a second-SoC comparison when a change is device-sensitive. Explicit
-   issue/device requirements win. (Owner decision, 2026-11-14: "S23 should be primary
-   test device, but we can use S21 if we need more test capacity.")
-   Suite-specific S21 gates still apply where tooling requires them:
+2. **PR evidence defaults to the S23U.** The S23U (`RFCW11265XH`, Snapdragon 8 Gen 2) is the primary on-device test device for everything except the named S21-bound gates below; if it is unavailable, report the blocker. The S21 (`R5CR605B71K`, Exynos) is used only for:
+   - the named S21-bound gates listed below, which keep their existing S21 scope;
+   - targeted extra-capacity runs (parallel runs, or a second-SoC comparison when a change is device-sensitive).
+   Both S21 uses run at low media/alarm volume and never between 21:00 and 06:00 `Australia/Brisbane`. Explicit issue/device requirements win. (Owner decision, 2026-11-14: "S23 should be primary test device, but we can use S21 if we need more test capacity.")
+   Named S21-bound gates (existing scope, unchanged):
    - only a complete S21 `regression` run sets `release_gate_success` (`docs/automated-testing.md`);
    - the S21 model-readiness preflight (`docs/testing/s21-model-readiness.md`) is S21-bound;
    - the S21 `permission_flows` connected suite (`docs/adb-testing.md`) and the permission scenario runner (`scripts/run_permission_scenarios.py --device-id s21-exynos`, `docs/testing/permission-scenario-runner.md`) are S21-bound;
@@ -39,7 +36,7 @@ three-tier risk classification and the minimum evidence expected for each tier.
   - timers/alarms of 10 seconds or less only, and cancel everything started;
   - never uninstall or clear `ai.jandal.assistant` (Play build), `com.kernel.ai`, or `com.kernel.ai.debug`;
   - no full-suite or alarm-producing runs between 21:00 and 06:00 `Australia/Brisbane`.
-- **Household devices.** The S21 (`R5CR605B71K`) belongs to another member of the household: targeted runs only. Agents must not change its device-wide settings, other apps' permissions, or personal data. Jandal's own app permissions may be changed during S21-only permission suites (`permission_flows`, `scripts/run_permission_scenarios.py --device-id s21-exynos`) and must be restored to their pre-run state afterwards. Never touch the owner's personal Honor phone.
+- **Household devices.** The S21 (`R5CR605B71K`) belongs to another member of the household: use only for the named gates and targeted extra-capacity runs, at low volume, and never 21:00–06:00 `Australia/Brisbane`. Agents must not change its device-wide settings, other apps' permissions, or personal data. Jandal's own app permissions may be changed during S21-only permission suites (`permission_flows`, `scripts/run_permission_scenarios.py --device-id s21-exynos`) and must be restored to their pre-run state afterwards. Never touch the owner's personal Honor phone.
 
 Other documents should reference this section rather than duplicating these rules.
 

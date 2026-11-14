@@ -4,10 +4,10 @@
 |--------|------|-----|---------|------|------|
 | Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP | Standard/default physical Android test device |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | FLAGSHIP | Reference device — GPU-only |
-| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Constrained/low-end test device; household member's phone — extra capacity, targeted runs only; tracked reliability signal — see #1089 / #684 |
+| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Household member's phone — used only for the named S21-bound gates (release-gate `regression`, wake-word harness S21 role, `permission_flows`, S21 model-readiness) and targeted extra-capacity runs, at low volume and never in quiet hours 21:00–06:00 `Australia/Brisbane`; tracked reliability signal — see #1089 / #684 |
 | Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | FLAGSHIP | Owner's personal phone — not for agent testing |
 
-**Test-device roles:** PR evidence defaults to Samsung Galaxy S23 Ultra, which is also the standard/default device for an unnamed "test on device" task. Use Samsung Galaxy S21 only when more test capacity is needed (parallel runs, second-SoC comparison for device-sensitive changes, lower-memory/degraded-device checks) or when suite-specific tooling or explicit S21 requirements apply; it belongs to another household member, so keep runs targeted. The owner's personal Honor Magic8 Pro is not for agent testing. Canonical rules: `.docs/agents/risk-based-evidence-policy.md`. Explicit issue/acceptance device or tier requirements override. These testing roles do not change runtime `HardwareTier` or model-selection policy.
+**Test-device roles:** The S23 Ultra (`RFCW11265XH`) is the primary test device for everything else, and the default for PR evidence and for any unnamed "test on device" task. The S21 (`R5CR605B71K`) is used only for the named S21-bound gates above and for targeted extra-capacity runs (parallel runs, second-SoC comparison for device-sensitive changes, lower-memory/degraded-device checks), at low volume and never between 21:00 and 06:00 `Australia/Brisbane`. It belongs to another household member, so keep runs targeted. The owner's personal Honor Magic8 Pro is not for agent testing. Canonical rules: `.docs/agents/risk-based-evidence-policy.md`. Explicit issue/acceptance device or tier requirements override. These testing roles do not change runtime `HardwareTier` or model-selection policy.
 
 ---
 
