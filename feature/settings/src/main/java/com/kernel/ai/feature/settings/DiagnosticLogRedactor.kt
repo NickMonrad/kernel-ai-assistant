@@ -96,6 +96,11 @@ internal object DiagnosticLogRedactor {
         Regex("""(?s)(GetWeatherSkill: fetched \d+-day forecast for ).*"""),
         Regex("""(?s)(GetWeatherSkill: fetched forecast for day \d+ \([^)\n]*\) for ).*"""),
         Regex("""(?s)(GetWeatherSkill: fetched weather for ).*"""),
+        // Retry labels can carry the place name (defence in depth; GetWeatherSkill no longer adds it).
+        Regex("""(?s)((?:Weekend Forecast|Forecast|Weather) API \().*"""),
+        // org.json parse errors echo the raw parameters ("... at character 31 of {…}", "Value {…} of type …").
+        Regex("""(?s)( at character \d+ of ).*"""),
+        Regex("""(?s)(\bValue ).*? of type.*"""),
         // Content-carrying keys: the value and everything after it is content.
         Regex("""(?s)((?<![\w.])(?:params|reply|request|responsePreview)=).*"""),
         // Geocoding errors: only the query line is redacted; a throwable's stack trace stays.

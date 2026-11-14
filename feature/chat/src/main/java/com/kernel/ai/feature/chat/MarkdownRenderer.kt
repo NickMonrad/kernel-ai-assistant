@@ -834,8 +834,8 @@ private fun openUrlSafely(uriHandler: androidx.compose.ui.platform.UriHandler, u
     try {
         uriHandler.openUri(safeUrl)
     } catch (e: Exception) {
-        // Query and fragment can carry tokens or personal data; the log keeps only scheme, host and path.
-        android.util.Log.w("MarkdownRenderer", "Could not open URL: ${safeUrl.substringBefore('?').substringBefore('#')} — ${e.message}")
+        // Query and fragment can carry tokens or personal data; the log keeps only the host.
+        android.util.Log.w("MarkdownRenderer", "Could not open URL for host ${uri.host} — ${e.javaClass.simpleName}")
     }
 }
 

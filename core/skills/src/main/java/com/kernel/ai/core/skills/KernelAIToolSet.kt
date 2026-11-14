@@ -634,7 +634,7 @@ class KernelAIToolSet @Inject constructor(
         } catch (e: Exception) {
             if (parameters.isNotBlank()) {
                 val error = "Invalid parameters: expected a JSON object. Got: ${parameters.take(120)}"
-                Log.w(TAG, "ToolSet: runIntent params not valid JSON — failing closed: ${e.message}")
+                Log.w(TAG, "ToolSet: runIntent params not valid JSON — failing closed: ${e.javaClass.simpleName}")
                 lastToolResult = error
                 recordToolOutcome("run_intent", succeeded = false)
                 captureTerminalResult("run_intent")
@@ -681,7 +681,7 @@ class KernelAIToolSet @Inject constructor(
             }
             args["skill_name"] = skillName
         } catch (e: Exception) {
-            Log.w(TAG, "ToolSet: runJs params parse failed, treating as empty: ${e.message}")
+            Log.w(TAG, "ToolSet: runJs params parse failed, treating as empty: ${e.javaClass.simpleName}")
         }
 
         val result = executeSkill("run_js", args, diagnosticOrder)

@@ -391,7 +391,7 @@ class AboutViewModel @Inject constructor(
         sb.appendLine("PSS: ${formatMemory(info.pss)}")
         sb.appendLine("RSS: ${formatMemory(info.rss)}")
         when (info.reason) {
-            ApplicationExitInfo.REASON_ANR -> renderAnrTrace(sb, info, warnings)
+            ApplicationExitInfo.REASON_ANR -> renderAnrTrace(sb, info, warnings, scrub)
             ApplicationExitInfo.REASON_CRASH_NATIVE -> renderNativeTraceNote(sb, info, warnings)
             else -> renderTraceAvailability(sb, info, warnings)
         }
@@ -399,12 +399,17 @@ class AboutViewModel @Inject constructor(
     }
 
     /** Renders a textual ANR trace (bounded to [ANR_TRACE_MAX_CHARS]); never fails the export. */
-    private fun renderAnrTrace(sb: StringBuilder, info: ApplicationExitInfo, warnings: MutableList<String>) {
+    private fun renderAnrTrace(
+        sb: StringBuilder,
+        info: ApplicationExitInfo,
+        warnings: MutableList<String>,
+        scrub: (String) -> String,
+    ) {
         val state = queryTraceState(info)
         if (state is TraceState.Available) {
             sb.appendLine("System trace available: yes")
             sb.appendLine("ANR trace excerpt:")
-            sb.append(state.text ?: "")
+            sb.append(scrub(state.text ?: ""))
             if (state.truncated) {
                 sb.appendLine("\n[ANR trace excerpt truncated at $ANR_TRACE_MAX_CHARS characters]")
             }

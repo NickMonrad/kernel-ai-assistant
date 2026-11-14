@@ -447,6 +447,20 @@ class DiagnosticLogRedactorTest {
             Arguments.of("Dialing tel:0211234567 now", "Dialing tel:$r now"),
             Arguments.of("Dialing 021 – 123 4567 now", "Dialing $r now"),
             Arguments.of("Latency 021 123 4567 ms", "Latency $r ms"),
+            // Weather retry labels: the place name is content and everything after the label prefix goes.
+            Arguments.of("Weekend Forecast API (Petone, Lower Hutt) failed after 3 retries", "Weekend Forecast API ($r"),
+            Arguments.of("Forecast API (Petone, Lower Hutt, 3 days) failed (attempt 1/3)", "Forecast API ($r"),
+            Arguments.of("Forecast API (day 2 of Petone) failed (attempt 1/3)", "Forecast API ($r"),
+            Arguments.of("Weather API (Petone, Lower Hutt) failed after 3 retries", "Weather API ($r"),
+            // org.json parse errors echo the raw parameters.
+            Arguments.of(
+                "ToolSet: runIntent params not valid JSON: Unterminated string at character 31 of {\"item\":\"egg",
+                "ToolSet: runIntent params not valid JSON: Unterminated string at character 31 of $r",
+            ),
+            Arguments.of(
+                "ToolSet: runJs failed: Value {\"item\":\"egg\"} of type org.json.JSONObject cannot be a string",
+                "ToolSet: runJs failed: Value $r",
+            ),
         )
 
         @JvmStatic
