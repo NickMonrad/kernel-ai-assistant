@@ -1,37 +1,63 @@
-# Pronunciation lexicon (Sherpa voices)
+# Pronunciation lexicon (#1852)
 
-File: `core/voice/src/main/assets/pronunciation_lexicon.json`
-Applied by `SherpaSpeechText.prepare` to Piper and Kokoro text before synthesis (#1852).
+Whole-word respellings applied to text before the Sherpa voices (Piper, Kokoro) speak it.
+
+## Where it lives
+
+- Data: `core/voice/src/lexicon/assets/pronunciation_lexicon.json`. The module keeps the
+  `#769` override that clears `src/main/assets`, and adds this directory as an extra asset source.
+- Code: `core/voice/src/main/java/com/kernel/ai/core/voice/PronunciationLexicon.kt`.
+  Applied first in `SherpaSpeechText.prepare`, which Piper and Kokoro both call.
+- R8: `core/voice/consumer-rules.pro` keeps the Gson-read `RawFile` / `RawEntry` fields. Without
+  it, release builds rename the fields and every entry parses as null.
 
 ## Format
 
 ```json
-{
-  "entries": [
-    { "word": "Petone", "say": "Pih-toh-nee", "verify": false }
-  ]
-}
+{ "entries": [ { "word": "Petone", "say": "Pih-toe-nee", "verify": false } ] }
 ```
 
-| Field | Required | Meaning |
-|---|---|---|
-| `word` | yes | The written form to find. |
-| `say` | yes | The respelling the voice should read. Written as spoken words, with hyphens between syllables. |
-| `verify` | no (default `false`) | `true` = not yet checked by the owner by ear. The entry is still applied. |
+- `word`: the written form. Matched case-insensitively.
+- `say`: the respelling the voice reads. Must be non-blank.
+- `verify`: `true` marks an entry the owner has not listened to yet. It is still applied.
 
-Matching rules:
-- case-insensitive (`petone`, `PETONE` and `Petone` all match);
-- whole words only: a letter or digit on either side blocks the match, so `Petone` does not change `Petonei`, and macrons count as letters;
-- punctuation around the word is kept (`Petone, Lower Hutt.` → `Pih-toh-nee, Lower Hutt.`);
-- `word` and `say` must be non-blank, otherwise the whole file is rejected and nothing is applied (logged as a warning).
+## Matching rules
+
+- Whole words only. A letter or digit on either side blocks a match, so Māori macrons count as
+  letters: `Ōtaki` does not match inside `xŌtaki`.
+- Punctuation is kept: `Petone, Lower Hutt.` becomes `Pih-toe-nee, Lower Hutt.`
+- One combined pattern, longest word first. Multi-word entries (`Te Awamutu`) match as one unit,
+  and a longer entry wins over a shorter one that starts the same way.
+- Replaced text is not re-scanned.
+- A missing or malformed asset leaves the lexicon empty and logs a warning. Speech still works,
+  with words spoken as written.
+
+## Status of seed entries
+
+| Name | Result | Basis |
+|---|---|---|
+| Petone | `Pih-toe-nee`, verify false | Owner confirmed on #1852 (best of 7 variants). Note: the owner's string is `Pih-toe-nee`; earlier drafts used `Pih-toh-nee`. |
+| Taupō | `Toe-paw`, verify true | IDP IELTS NZ guide (ielts.co.nz, "New Zealand place names commonly mispronounced"). eSpeak en-gb-x-rp gives `tˈɔːpəʊ`. |
+| Taihape | `Tie-ha-peh`, verify true | Same IDP IELTS guide. eSpeak gives `tˈeɪheɪp`. |
+| Pūkekohe | dropped | eSpeak `pjˈuːkɪkˌəʊh` is wrong. No documentary respelling could be read: the Waikato Māori pronunciation audio could not be checked and the Tripadvisor forum is not a source. |
+| Whakatāne | dropped | eSpeak `wˈækɐtˌeɪn` is wrong (wh as w). The Waikato page has audio only; not checked. |
+| Te Awamutu | dropped | eSpeak `tˈiː ɐwˈæmuːtˌuː` is wrong. Waikato audio only; not checked. |
+| Porirua | dropped | eSpeak `pɔːɹˈɜːjuːɐ` is wrong. No readable source. |
+| Other seeds (Whanganui, Ōtaki, Waikanae, Paraparaumu, Whakatāne spelling, Matamata, Tauranga, Hāwera, Rotorua) | not added | eSpeak output not clearly wrong; not listened to. |
+
+The NZ Geographic Board gazetteer (gazetteer.linz.govt.nz) and Te Aka Māori Dictionary were
+attempted and returned no pronunciation text.
 
 ## Adding an entry
 
-1. Render the word with the Cori pack and listen. Only add a word that sounds wrong.
-2. Use a widely documented respelling. Do not guess: if you are not sure, add the entry with `"verify": true` and ask the owner to listen.
-3. Add a case to `PronunciationLexiconTest` if the entry covers a new pattern.
-4. Keep entries sorted by `word`.
+1. Confirm the name is wrong: render it with eSpeak (`espeak-ng -v en-gb-x-rp --ipa "<name>"`)
+   and listen on the Cori or Kokoro voice.
+2. Cite a readable source for the respelling and add the entry with `"verify": true`.
+3. The owner listens and flips `verify` to `false`, or the entry is removed.
+4. Add a test if the entry exercises new matching behaviour.
 
-## Status
+## Not done here
 
-- `Petone` → `Pih-toh-nee`: owner-verified (listening check with Cori, 2026-11-14, best of 7 variants).
+Hotwords for the Zipformer STT were investigated (#1852) and are not enabled in this PR. The
+conclusion and the blocker are recorded at the `createStream` call in
+`SherpaOnnxVoiceInputController.kt`, and a follow-up issue tracks enabling them.

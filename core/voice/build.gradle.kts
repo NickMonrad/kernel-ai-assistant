@@ -10,6 +10,7 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()
+        consumerProguardFiles("consumer-rules.pro")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -28,7 +29,10 @@ android {
         }
     }
 
-    // Assets: pronunciation_lexicon.json (#1852). Default src/main/assets is used.
+    // #769: the module must not bundle the old sherpa-tts assets, so the default src/main/assets
+    // dir stays cleared. The lexicon (#1852) is added from its own dir below.
+    sourceSets.getByName("main").assets.setSrcDirs(emptyList<String>())
+    sourceSets.getByName("main").assets.srcDir("src/lexicon/assets")
 }
 
 // ── Sherpa-ONNX spike (reflection-only — no compile-time dependency on Sherpa) ──────

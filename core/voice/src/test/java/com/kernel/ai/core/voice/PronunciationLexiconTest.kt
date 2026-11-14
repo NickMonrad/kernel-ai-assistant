@@ -2,7 +2,6 @@ package com.kernel.ai.core.voice
 
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -21,12 +20,12 @@ class PronunciationLexiconTest {
     @Test
     fun `parses word, say and verify and defaults verify to false`() {
         val entries = PronunciationLexicon.parse(
-            """{"entries":[{"word":"Petone","say":"Pih-toh-nee"},{"word":"Taupō","say":"Tow-paw","verify":true}]}""",
+            """{"entries":[{"word":"Petone","say":"Pih-toe-nee"},{"word":"Taupō","say":"Toe-paw","verify":true}]}""",
         )
         assertEquals(
             listOf(
-                PronunciationLexicon.Entry("Petone", "Pih-toh-nee", verify = false),
-                PronunciationLexicon.Entry("Taupō", "Tow-paw", verify = true),
+                PronunciationLexicon.Entry("Petone", "Pih-toe-nee", verify = false),
+                PronunciationLexicon.Entry("Taupō", "Toe-paw", verify = true),
             ),
             entries,
         )
@@ -40,34 +39,53 @@ class PronunciationLexiconTest {
     }
 
     @Test
-    fun `shipped asset parses and contains the owner-verified Petone entry`() {
+    fun `shipped asset parses and contains the owner-confirmed Petone entry`() {
         // Unit tests run with the module directory as the working directory.
-        val json = File("src/main/assets/${PronunciationLexicon.ASSET_NAME}").readText()
+        val json = File("src/lexicon/assets/${PronunciationLexicon.ASSET_NAME}").readText()
         val petone = PronunciationLexicon.parse(json).single { it.word == "Petone" }
-        assertEquals("Pih-toh-nee", petone.say)
-        assertFalse(petone.verify)
+        assertEquals("Pih-toe-nee", petone.say)
+        assertEquals(false, petone.verify)
     }
 
     @Test
     fun `replaces the whole word and keeps surrounding punctuation`() {
-        install("Petone" to "Pih-toh-nee")
-        assertEquals("Pih-toh-nee, Lower Hutt.", PronunciationLexicon.apply("Petone, Lower Hutt."))
-        assertEquals("Pih-toh-nee's station?", PronunciationLexicon.apply("Petone's station?"))
+        install("Petone" to "Pih-toe-nee")
+        assertEquals("Pih-toe-nee, Lower Hutt.", PronunciationLexicon.apply("Petone, Lower Hutt."))
+        assertEquals("Pih-toe-nee's station?", PronunciationLexicon.apply("Petone's station?"))
     }
 
     @Test
     fun `matching is case insensitive`() {
-        install("Petone" to "Pih-toh-nee")
-        assertEquals("Pih-toh-nee", PronunciationLexicon.apply("petone"))
-        assertEquals("Pih-toh-nee", PronunciationLexicon.apply("PETONE"))
+        install("Petone" to "Pih-toe-nee")
+        assertEquals("Pih-toe-nee", PronunciationLexicon.apply("petone"))
+        assertEquals("Pih-toe-nee", PronunciationLexicon.apply("PETONE"))
     }
 
     @Test
     fun `does not match inside a longer word, including after a macron`() {
-        install("Petone" to "Pih-toh-nee", "Ōtaki" to "Oh-tah-kee")
+        install("Petone" to "Pih-toe-nee", "Ōtaki" to "Oh-tah-kee")
         assertEquals("Petonei", PronunciationLexicon.apply("Petonei"))
         assertEquals("xŌtaki", PronunciationLexicon.apply("xŌtaki"))
         assertEquals("Oh-tah-kee", PronunciationLexicon.apply("Ōtaki"))
+    }
+
+    @Test
+    fun `multi-word entry matches as one unit`() {
+        install("Te Awamutu" to "Tay ah-wah-moo-too")
+        assertEquals("Tay ah-wah-moo-too is north.", PronunciationLexicon.apply("Te Awamutu is north."))
+        assertEquals("Tay ah-wah-moo-too", PronunciationLexicon.apply("te awamutu"))
+    }
+
+    @Test
+    fun `longer entry wins over a shorter entry that starts the same way`() {
+        install("Hutt" to "Hut", "Lower Hutt" to "Lower Hut-uh")
+        assertEquals("Lower Hut-uh and Hut", PronunciationLexicon.apply("Lower Hutt and Hutt"))
+    }
+
+    @Test
+    fun `replacements are not re-scanned, so one entry cannot trigger another`() {
+        install("Petone" to "Taupō", "Taupō" to "Toe-paw")
+        assertEquals("Taupō", PronunciationLexicon.apply("Petone"))
     }
 
     @Test
@@ -78,9 +96,9 @@ class PronunciationLexiconTest {
 
     @Test
     fun `Sherpa speech preparation applies the lexicon before number handling`() {
-        install("Petone" to "Pih-toh-nee")
+        install("Petone" to "Pih-toe-nee")
         assertEquals(
-            "Pih-toh-nee is twelve minutes away.",
+            "Pih-toe-nee is twelve minutes away.",
             SherpaSpeechText.prepare("Petone is 12 minutes away."),
         )
     }

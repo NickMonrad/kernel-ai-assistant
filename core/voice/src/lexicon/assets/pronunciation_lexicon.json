@@ -1,0 +1,19 @@
+{
+  "entries": [
+    {
+      "word": "Petone",
+      "say": "Pih-toe-nee",
+      "verify": false
+    },
+    {
+      "word": "Taupō",
+      "say": "Toe-paw",
+      "verify": true
+    },
+    {
+      "word": "Taihape",
+      "say": "Tie-ha-peh",
+      "verify": true
+    }
+  ]
+}
