@@ -687,6 +687,28 @@ private fun VoiceScreenContent(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
+                if (onlineSpeechToggleVisible(selected = uiState.selectedInputEngine, row = engine)) {
+                    ListItem(
+                        modifier = Modifier.fillMaxWidth(),
+                        headlineContent = { Text("Allow online speech recognition") },
+                        supportingContent = {
+                            Text(
+                                "Off: voice input never leaves this phone. On: Jandal uses Android " +
+                                    "speech recognition, which is usually more accurate. Voice commands " +
+                                    "try on-device recognition first and retry with your phone's speech " +
+                                    "service (usually Google) if that fails; Hey Jandal and alarm commands " +
+                                    "use that service straight away. That service may send your audio " +
+                                    "off the phone.",
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = uiState.allowOnlineSpeechFallback,
+                                onCheckedChange = onAllowOnlineSpeechFallbackChanged,
+                            )
+                        },
+                    )
+                }
                 // Sherpa-family STT: always show download card until the model is downloaded;
                 // once downloaded, only show the card when the engine is actively selected.
                 if (engine.isSherpaFamily) {
@@ -746,26 +768,6 @@ private fun VoiceScreenContent(
                 }
             }
 
-            ListItem(
-                modifier = Modifier.fillMaxWidth(),
-                headlineContent = { Text("Allow online speech recognition") },
-                supportingContent = {
-                    Text(
-                        "Off: voice input never leaves this phone. On: Jandal uses Android " +
-                            "speech recognition, which is usually more accurate. Voice commands " +
-                            "try on-device recognition first and retry with your phone's speech " +
-                            "service (usually Google) if that fails; Hey Jandal and alarm commands " +
-                            "use that service straight away. That service may send your audio " +
-                            "off the phone.",
-                    )
-                },
-                trailingContent = {
-                    Switch(
-                        checked = uiState.allowOnlineSpeechFallback,
-                        onCheckedChange = onAllowOnlineSpeechFallbackChanged,
-                    )
-                },
-            )
             HorizontalDivider()
 
             Text(
@@ -1819,4 +1821,9 @@ private fun VoiceScreenPreview() {
     }
 }
 
-
+/**
+ * The "Allow online speech recognition" switch is shown under an engine row only when that row is
+ * the selected engine and the engine is Automatic or Android native (the only engines it affects).
+ */
+internal fun onlineSpeechToggleVisible(selected: VoiceInputEngine, row: VoiceInputEngine): Boolean =
+    row == selected && (row == VoiceInputEngine.Auto || row == VoiceInputEngine.AndroidNative)

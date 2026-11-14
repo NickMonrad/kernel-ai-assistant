@@ -209,15 +209,18 @@ internal fun aggregateInflectMicroAvailability(
 
 /**
  * Maps a [SherpaSttDownloadState] to the UI-layer [ModelAvailabilityState].
+ *
+ * An idle, not-yet-downloaded model is downloadable, not unbundled: it maps to
+ * [ModelAvailabilityState.NotDisplayed] (no badge; the Download action is shown). Mapping it to
+ * `NotBundled` told users the model could not be obtained while the card offered a Download button.
  */
 internal fun SherpaSttDownloadState.toModelAvailability(): ModelAvailabilityState = when {
     isDownloaded -> ModelAvailabilityState.Ready
     isDownloading -> ModelAvailabilityState.Preparing(progress = progress, isAutoQueued = false)
     issue?.licenceRequired == true -> ModelAvailabilityState.ActionRequired(ActionReason.LicenseRequired)
     issue != null -> ModelAvailabilityState.ActionRequired(ActionReason.DownloadFailed(issue.message))
-    else -> ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled)
+    else -> ModelAvailabilityState.NotDisplayed
 }
-
 
 @HiltViewModel
 class VoiceViewModel @Inject constructor(
