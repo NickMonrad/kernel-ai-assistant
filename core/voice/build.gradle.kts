@@ -28,9 +28,7 @@ android {
         }
     }
 
-    sourceSets {
-        getByName("main").assets.setSrcDirs(emptyList<String>())
-    }
+    // Assets: pronunciation_lexicon.json (#1852). Default src/main/assets is used.
 }
 
 // ── Sherpa-ONNX spike (reflection-only — no compile-time dependency on Sherpa) ──────
@@ -43,6 +41,8 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.coroutines.android)
     implementation(libs.datastore.preferences)
+    // Pronunciation lexicon JSON (#1852). org.json is stubbed in JVM unit tests.
+    implementation(libs.gson)
     // ONNX Runtime — wake word inference (OnnxWakeWordDetector, 3-stage openWakeWord pipeline)
     implementation(libs.onnxruntime.android)
     // JVM ONNX Runtime (CPU) — real-model Stage 3 classifier tests (WakeWordClassifierModelTest)
