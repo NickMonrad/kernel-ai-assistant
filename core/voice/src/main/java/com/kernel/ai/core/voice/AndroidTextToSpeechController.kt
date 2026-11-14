@@ -180,7 +180,7 @@ class AndroidTextToSpeechController @Inject constructor(
             override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
                 if (isClosed) return VoiceOutputResult.Spoken
 
-                val normalized = text.trim()
+                val normalized = SpeechCardText.speakable(text)
                 if (normalized.isBlank()) {
                     if (isFinal) {
                         isClosed = true

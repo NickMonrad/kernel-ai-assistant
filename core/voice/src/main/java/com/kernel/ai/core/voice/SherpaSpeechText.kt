@@ -32,6 +32,7 @@ internal object SherpaSpeechText {
     private val citation = Regex("""\s*\[\d{1,3}]""")
     private val brackets = Regex("""\s*[(\[]\s*([^()\[\]]*?)\s*[)\]]""")
     private val dashes = Regex("""\s*[—–]\s*""")
+
     /**
      * A plain integer: not part of a decimal, time, version, phone number, URL, money,
      * range, ordinal, percentage or unit-glued token, not next to another digit group
@@ -72,7 +73,7 @@ internal object SherpaSpeechText {
     }
 
     internal fun prepareUnchecked(text: String, chunkEnd: Boolean): String {
-        var value = SpeechCardText.speakable(text).trim()
+        var value = PronunciationLexicon.apply(SpeechCardText.speakable(text))
         if (value.isEmpty()) return value
         value = dayRange.replace(value) { m ->
             "${ordinalDay(m.groupValues[1])} to ${ordinalDay(m.groupValues[2])} of ${m.groupValues[3]}"

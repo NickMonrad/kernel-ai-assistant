@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 
@@ -21,9 +22,17 @@ class SpeakableCardTextTest {
             "Clock 8:31 and 14/03 stay ; Clock 8:31 and 14/03 stay",
             "See https://example.com/page-2 ; See https://example.com/page-2",
             "Note: it's late ; Note: it's late",
+            "Shipping → Auckland ; Shipping to Auckland",
+            "H:17°F / L:9°F ; high 17 Fahrenheit, low 9 Fahrenheit",
         ],
     )
     fun `card notation is cleaned and nothing else changes`(input: String, expected: String) {
         assertEquals(expected, SpeechCardText.speakable(input))
+    }
+
+    @Test
+    fun `line breaks after clause punctuation do not double the full stop`() {
+        assertEquals("Done. Next", SpeechCardText.speakable("Done.\nNext"))
+        assertEquals("list: - milk", SpeechCardText.speakable("list:\n- milk"))
     }
 }

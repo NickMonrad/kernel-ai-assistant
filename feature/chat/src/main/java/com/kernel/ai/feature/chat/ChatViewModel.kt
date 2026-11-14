@@ -92,6 +92,8 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.latestNoticeFor
+import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -136,7 +138,6 @@ internal fun shouldForceGpuConversationResetEachTurn(
 // Covers the 60s GPU attempt, CPU fallback, and cleanup; foreground and lock waits are excluded.
 internal const val MODEL_INITIALIZATION_WATCHDOG_MS = 150_000L
 private const val CHAT_VOICE_MIN_CHUNK_LENGTH = VOICE_MIN_CHUNK_LENGTH
-private const val TOOL_SPOKEN_OVERRIDE_LIMIT = 50
 private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = VOICE_PREFERRED_CHUNK_LENGTH
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
 private const val LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND = "__orchtest:load_skill_abort_replay"
@@ -356,8 +357,6 @@ class ChatViewModel @Inject constructor(
     private var activeStreamingThinking = StringBuilder()
     private var activeVoiceStreamingSession: VoiceOutputStreamingSession? = null
     private var activeVoiceStreamingBuffer = StringBuilder()
-    /** Speaker-button text per assistant message when a tool's spoken summary replaced its reply. */
-    private val toolSpokenOverrides = LinkedHashMap<String, String>()
     private var isVoiceStreamingEnabledForTurn = false
     private var suppressVoiceOutputForCurrentResponse = false
     private var spokenResponsesEnabled = true
@@ -421,6 +420,10 @@ class ChatViewModel @Inject constructor(
     */
     private var chatCommandVoiceRetryCount = 0
     private var awaitingVoicePlaybackCompletion = false
+
+    /** Capture session of the current chat voice input; its notes are shown (#1853, #1866). */
+    private var chatVoiceSessionId: Long? = null
+    private var chatVoiceNoticeJob: Job? = null
 
     /** Active voice interaction mode, or null when no voice session is running (#741). */
     private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
@@ -756,13 +759,16 @@ class ChatViewModel @Inject constructor(
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
-                        // #790: Retry once before surfacing the error to the user.
-                        if (chatCommandVoiceRetryCount < 1) {
+                        // #790: Retry once before surfacing the error to the user. #1853: not after
+                        // a Zipformer hand-off; a retry would start the failing native recognizer again.
+                        val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
+                        if (chatCommandVoiceRetryCount < 1 && !handedOff) {
                             chatCommandVoiceRetryCount++
                             Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
                             _voiceCaptureState.value = VoiceCaptureState.Preparing
                             when (val r = voiceInputController.startListening(VoiceCaptureMode.Command)) {
                                 is VoiceInputStartResult.Started -> {
+                                    bindChatVoiceSession(r.captureSessionId)
                                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                                     }
@@ -1613,6 +1619,14 @@ class ChatViewModel @Inject constructor(
     private fun ownsCommandVoiceCapture(): Boolean =
         _voiceCaptureState.value != VoiceCaptureState.Idle
 
+    /** Shows the notes for this chat capture (#1853 Zipformer hand-off, #1866) in the error line. */
+    private fun bindChatVoiceSession(captureSessionId: Long) {
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceSessionId = captureSessionId
+        chatVoiceNoticeJob = viewModelScope.launch {
+            voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
+        }
+    }
 
     private fun startVoiceInput(mode: VoiceMode) {
         if (inferenceEngine.isGenerating.value || _isLoadingModel.value) return
@@ -1629,6 +1643,7 @@ class ChatViewModel @Inject constructor(
             _voiceCaptureState.value = VoiceCaptureState.Preparing
             when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
                 is VoiceInputStartResult.Started -> {
+                    bindChatVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }
@@ -1656,6 +1671,7 @@ class ChatViewModel @Inject constructor(
             _voiceCaptureState.value = VoiceCaptureState.Preparing
             when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
                 is VoiceInputStartResult.Started -> {
+                    bindChatVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }
@@ -1833,6 +1849,10 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
+        // A note from a hand-off that lands just before the stop must not show while idle.
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceNoticeJob = null
+        chatVoiceSessionId = null
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
@@ -1872,7 +1892,7 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         voiceOutputController.stop()
         _speakingMessageId.value = messageId
-        val normalizedText = normalizeChatTextForSpeech(toolSpokenOverrides[messageId] ?: text)
+        val normalizedText = normalizeChatTextForSpeech(text)
         speakMessageJob = viewModelScope.launch {
             val maxSentences = voiceOutputPreferences.maxSpokenSentences.first()
             val textToSpeak = truncateForSpeech(normalizedText, maxSentences)
@@ -3690,7 +3710,6 @@ class ChatViewModel @Inject constructor(
                                     toolCall.resultText,
                                     toolCall.spokenSummary,
                                 )
-                                rememberToolSpokenOverride(assistantMsgId, toolSpokenOverride)
                                 finalizeVoicePlaybackForResponse(resultContent, toolSpokenOverride)
                                 // Do NOT set needsHistoryReplay here — KV cache remains valid after
                                 // native tool calls and forcing a replay drops prior turns from the
@@ -3818,13 +3837,7 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(displayContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
-                                val toolSpokenOverride = toolSpokenOverrideFor(
-                                    displayContent,
-                                    kernelAIToolSet.lastToolResult(),
-                                    kernelAIToolSet.lastToolSpokenSummary(),
-                                )
-                                rememberToolSpokenOverride(assistantMsgId, toolSpokenOverride)
-                                finalizeVoicePlaybackForResponse(displayContent, toolSpokenOverride)
+                                finalizeVoicePlaybackForResponse(displayContent)
                             }
 
                             // Clear streaming tracking now that the message is fully persisted.
@@ -4278,7 +4291,9 @@ class ChatViewModel @Inject constructor(
         activeVoiceStreamingBuffer.append(token)
         // After a tool with a spoken summary ran this turn, hold the text: the final reply is either
         // that summary or the model's own words, decided in finalizeVoicePlaybackForResponse.
-        if (kernelAIToolSet.lastToolSpokenSummary() == null) drainVoiceStreamingBuffer(force = false)
+        val summaryToolRan = kernelAIToolSet.terminalToolSpokenSummary() != null ||
+            kernelAIToolSet.terminalToolPresentation()?.toSpokenSummary() != null
+        if (!summaryToolRan) drainVoiceStreamingBuffer(force = false)
     }
 
     private suspend fun drainVoiceStreamingBuffer(force: Boolean) {
@@ -4327,15 +4342,6 @@ class ChatViewModel @Inject constructor(
         activeVoiceStreamingSession = null
         activeVoiceStreamingBuffer = StringBuilder()
         isVoiceStreamingEnabledForTurn = false
-    }
-
-    /** Speaker-button text for a message whose reply was spoken as a tool's summary. */
-    private fun rememberToolSpokenOverride(messageId: String, spokenText: String?) {
-        if (spokenText == null) return
-        if (toolSpokenOverrides.size >= TOOL_SPOKEN_OVERRIDE_LIMIT) {
-            toolSpokenOverrides.remove(toolSpokenOverrides.keys.first())
-        }
-        toolSpokenOverrides[messageId] = spokenText
     }
 
     private suspend fun speakVoiceChunk(

@@ -107,8 +107,8 @@ internal fun normalizeChatTextForSpeech(text: String): String =
         .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break
         .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start
         .replace(Regex("""(?m)^\s*[-*•]\s*"""), "")       // strip bullet markers at line start (lone * has no trailing ws)
-        .replace(Regex("""[•‣◦∙⋅·]\s*"""), "")           // strip any remaining inline bullet chars
-        .let(SpeechCardText::speakable)                   // card separators and line breaks; list rules above need the newlines
+        .let(SpeechCardText::speakable)                   // card separators (incl. spaced ·) and line breaks, before the bullet rule drops ·
+        .replace(Regex("""[•‣◦∙⋅]\s*"""), "")           // strip any remaining inline bullet chars
         .let(::normalizeFractionsForSpeech)               // expand fractions/units before pronunciation overrides
         .replace(Regex("""(?<!\d):(?!\d)(?!//)\s*"""), ". ")   // non-numeric colons → sentence break (preserves ://)
         .replace(Regex("""[—–]\s*"""), ", ")              // em/en dashes → natural comma pause

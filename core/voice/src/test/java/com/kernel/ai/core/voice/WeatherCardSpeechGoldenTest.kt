@@ -41,4 +41,17 @@ class WeatherCardSpeechGoldenTest {
         val once = SpeechCardText.speakable(card)
         assertEquals(once, SpeechCardText.speakable(once))
     }
+
+    @Test
+    fun `installed lexicon entry and card cleanup both apply in sherpa order`() {
+        PronunciationLexicon.install(listOf(PronunciationLexicon.Entry("Taupō", "Toe-paw", false)))
+        try {
+            assertEquals(
+                "Toe-paw, high seventeen.",
+                SherpaSpeechText.prepare(SpeechCardText.speakable("☀️ Taupō — H:17°C")),
+            )
+        } finally {
+            PronunciationLexicon.install(emptyList())
+        }
+    }
 }
