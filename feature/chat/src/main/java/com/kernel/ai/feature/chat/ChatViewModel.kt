@@ -3541,7 +3541,7 @@ class ChatViewModel @Inject constructor(
                             // tool was invoked this turn for UI metadata.
                             val nativeToolCall = kernelAIToolSet.terminalToolName()?.let { name ->
                                 val request = kernelAIToolSet.terminalToolRequest() ?: ""
-                                val result = kernelAIToolSet.terminalToolResult() ?: ""
+                                val result = kernelAIToolSet.terminalToolDetail() ?: ""
                                 ToolCallInfo(
                                     skillName = name,
                                     requestJson = request,
@@ -4229,15 +4229,10 @@ class ChatViewModel @Inject constructor(
                 val toolCall = ToolCallInfo(
                     skillName = result.skillName,
                     requestJson = extracted,
-                    resultText = result.error,
+                    resultText = failureChipText(result),
                     isSuccess = false,
                 )
-                val response = if (result.skillName == "send_email") {
-                    result.error
-                } else {
-                    "I tried to do that but something went wrong: ${result.error}"
-                }
-                Pair(toolCall, response)
+                Pair(toolCall, failureChatReply(result))
             }
             is SkillResult.CapabilityRequired -> null
             is SkillResult.ParseError, is SkillResult.UnknownSkill -> null

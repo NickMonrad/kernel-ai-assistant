@@ -1916,7 +1916,7 @@ class ActionsViewModel @Inject constructor(
         is SkillResult.Failure -> QuickActionEntity(
             userQuery = query,
             skillName = skillName,
-            resultText = "Action failed: ${result.error}",
+            resultText = failureCardText(result),
             isSuccess = false,
         )
         is SkillResult.CapabilityRequired -> {
@@ -2529,3 +2529,10 @@ class ActionsViewModel @Inject constructor(
             setOf("hundred", "thousand", "oh", "o")
     }
 }
+
+/**
+ * Quick Actions card text for a failed skill. A set [SkillResult.Failure.technicalDetail] means
+ * [SkillResult.Failure.error] is already a complete reply, so no "Action failed:" prefix is added.
+ */
+internal fun failureCardText(result: SkillResult.Failure): String =
+    if (result.technicalDetail != null) result.error else "Action failed: ${result.error}"
