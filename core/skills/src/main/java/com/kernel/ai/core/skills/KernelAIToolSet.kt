@@ -210,6 +210,7 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var lastToolName: String? = null
     @Volatile private var lastToolRequest: String? = null
     @Volatile private var lastToolResult: String? = null
+    @Volatile private var lastToolDetail: String? = null
     @Volatile private var lastToolPresentation: ToolPresentation? = null
     @Volatile private var lastToolSpokenSummary: String? = null
     @Volatile private var lastToolWasDirectReply: Boolean = false
@@ -224,6 +225,7 @@ class KernelAIToolSet @Inject constructor(
     private var attemptTerminalToolCalled = false
     private val turnToolNames = mutableListOf<String>()
     @Volatile private var terminalToolName: String? = null
+    @Volatile private var terminalToolDetail: String? = null
     @Volatile private var terminalToolRequest: String? = null
     @Volatile private var terminalToolResult: String? = null
     @Volatile private var terminalToolPresentation: ToolPresentation? = null
@@ -283,6 +285,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolName = null
         lastToolRequest = null
         lastToolResult = null
+        lastToolDetail = null
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
@@ -290,6 +293,7 @@ class KernelAIToolSet @Inject constructor(
         terminalToolName = null
         terminalToolRequest = null
         terminalToolResult = null
+        terminalToolDetail = null
         terminalToolPresentation = null
         terminalToolSpokenSummary = null
         terminalToolWasDirectReply = false
@@ -309,10 +313,11 @@ class KernelAIToolSet @Inject constructor(
         lastToolName = null
         lastToolRequest = null
         lastToolResult = null
+        lastToolDetail = null
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
-        // Preserve terminalToolName, terminalToolRequest, terminalToolResult,
+        // Preserve terminalToolName, terminalToolRequest, terminalToolResult, terminalToolDetail,
         // terminalToolPresentation, terminalToolSpokenSummary, terminalToolWasDirectReply,
         // terminalToolOutcome — these represent the turn's latest executable tool.
         // Cleared only in resetTurnState().
@@ -357,6 +362,9 @@ class KernelAIToolSet @Inject constructor(
 
     /** The last terminal tool result, or null. */
     fun terminalToolResult(): String? = terminalToolResult
+
+    /** Chip text for the terminal tool: the diagnostic when present, else the bubble text. */
+    fun terminalToolDetail(): String? = terminalToolDetail ?: terminalToolResult
 
     /** The last terminal tool presentation, or null. */
     fun terminalToolPresentation(): ToolPresentation? = terminalToolPresentation
@@ -467,6 +475,7 @@ class KernelAIToolSet @Inject constructor(
             terminalToolName = lastToolName
             terminalToolRequest = lastToolRequest
             terminalToolResult = lastToolResult
+            terminalToolDetail = lastToolDetail
             terminalToolPresentation = lastToolPresentation
             terminalToolSpokenSummary = lastToolSpokenSummary
             terminalToolWasDirectReply = lastToolWasDirectReply
@@ -488,6 +497,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolName = name
         lastToolRequest = request
         lastToolResult = null
+        lastToolDetail = null
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
@@ -873,6 +883,7 @@ class KernelAIToolSet @Inject constructor(
             val succeeded = result is SkillResult.Success || result is SkillResult.DirectReply
             recordToolOutcome(skillName, succeeded)
             lastToolWasDirectReply = result is SkillResult.DirectReply
+            lastToolDetail = (result as? SkillResult.Failure)?.technicalDetail
             lastToolPresentation = when (result) {
                 is SkillResult.Success -> result.presentation
                 is SkillResult.DirectReply -> result.presentation
@@ -903,7 +914,8 @@ class KernelAIToolSet @Inject constructor(
             val toolResult = when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
                 is SkillResult.DirectReply -> mapOf("result" to result.content)
-                is SkillResult.Failure -> mapOf("error" to result.error)
+                is SkillResult.Failure -> mapOf("error" to result.error) +
+                    (result.technicalDetail?.let { mapOf("detail" to it) } ?: emptyMap())
                 is SkillResult.ParseError -> mapOf("error" to "Parse error: ${result.reason}")
                 is SkillResult.UnknownSkill -> mapOf("error" to "Unknown skill: ${result.skillName}")
                 is SkillResult.CapabilityRequired -> mapOf(
