@@ -15,6 +15,8 @@ import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.SettingsAction
+import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
@@ -127,6 +129,8 @@ class ActionsViewModel @Inject constructor(
         object RepairCalendarPermission : UiEvent
         /** Navigate to app settings to repair microphone permission. */
         object RepairMicrophonePermission : UiEvent
+        /** Open an in-app destination for a failed lookup's recovery action (#1859). Never dials. */
+        data class OpenSettingsDeepLink(val link: SettingsDeepLink) : UiEvent
         /** Open Android DND special-access settings for notification policy grant. */
         object OpenDndSettings : UiEvent
         /** Open Android write-settings special-access panel for the user to grant. */
@@ -224,6 +228,12 @@ class ActionsViewModel @Inject constructor(
         val isAccessBlocked: Boolean = false,
     )
 
+    /** Non-null while the chooser for a failed lookup's in-app recovery actions is shown (#1859). */
+    data class SettingsActionState(
+        val message: String,
+        val actions: List<SettingsAction>,
+    )
+
     /** State for the contextual weather-location permission dialog. */
     data class WeatherLocationState(
         /** True when the user has permanently denied the permission. */
@@ -286,6 +296,8 @@ class ActionsViewModel @Inject constructor(
     /** Non-null while the write-settings special-access contextual surface should be shown. */
     private val _writeSettingsState = MutableStateFlow<WriteSettingsState?>(null)
     val writeSettingsState: StateFlow<WriteSettingsState?> = _writeSettingsState.asStateFlow()
+    private val _settingsActionState = MutableStateFlow<SettingsActionState?>(null)
+    val settingsActionState: StateFlow<SettingsActionState?> = _settingsActionState.asStateFlow()
 
     /** Non-null while the contextual weather-location permission dialog should be shown. */
     private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
@@ -1312,6 +1324,17 @@ class ActionsViewModel @Inject constructor(
         _error.value = null
     }
 
+    /** Dismiss the settings-action chooser without opening anything. */
+    fun dismissSettingsActionDialog() {
+        _settingsActionState.value = null
+    }
+
+    /** The user chose a recovery action: hand its in-app destination to the screen. */
+    fun onSettingsActionSelected(link: SettingsDeepLink) {
+        _settingsActionState.value = null
+        viewModelScope.launch { _events.emit(UiEvent.OpenSettingsDeepLink(link)) }
+    }
+
     /**
      * Called when the app resumes after the user returns from write-settings panel.
      * Re-checks access and either retries the original brightness action or shows a blocked result.
@@ -1810,6 +1833,10 @@ class ActionsViewModel @Inject constructor(
                 _microphoneState.value = MicrophoneState()
             }
 
+            if (skillResult is SkillResult.Failure && skillResult.actions.isNotEmpty()) {
+                _settingsActionState.value = SettingsActionState(skillResult.error, skillResult.actions)
+            }
+
             ExecutedAction(
                 entity = buildEntityFromSkillResult(query, intentName, skillResult),
                 spokenSummary = spokenSummaryFrom(skillResult),
@@ -1875,6 +1902,7 @@ class ActionsViewModel @Inject constructor(
     private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
         is SkillResult.DirectReply -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
         is SkillResult.Success -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        is SkillResult.Failure -> if (result.actions.isNotEmpty()) result.error else null
         else -> null
     }
 

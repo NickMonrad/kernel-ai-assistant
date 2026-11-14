@@ -595,6 +595,11 @@ fun KernelNavHost(
                             autoOpenSheet = openSheet,
                             autoStartVoiceCommand = startVoice,
                             initialQuery = widgetQuery,
+                        onOpenSettingsDeepLink = { link ->
+                            settingsDeepLinkRoute(link)?.let { route ->
+                                navController.navigate(route) { launchSingleTop = true }
+                            }
+                        },
                             initialQueryIsVoice = widgetVoice,
                             adbSlotReply = initialSlotReply,
                             draftQuery = draftQuery,
@@ -930,9 +935,13 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_CONTACT_ALIASES) {
+                composable(
+                    route = CONTACT_ALIAS_ROUTE_PATTERN,
+                    arguments = CONTACT_ALIAS_NAV_ARGS,
+                ) { backStackEntry ->
                     ContactAliasesScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        prefill = contactAliasPrefillFrom(backStackEntry.arguments),
                     )
                 }
 
