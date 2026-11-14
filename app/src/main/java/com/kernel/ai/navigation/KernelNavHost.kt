@@ -525,6 +525,11 @@ fun KernelNavHost(
                                     launchSingleTop = true
                                 }
                             },
+                            onOpenExamplePrompt = { prompt ->
+                                navController.navigate(buildActionsDraftRoute(prompt)) {
+                                    launchSingleTop = true
+                                }
+                            },
                             onOpenDrawer = {
                                 coroutineScope.launch { drawerState.open() }
                             },

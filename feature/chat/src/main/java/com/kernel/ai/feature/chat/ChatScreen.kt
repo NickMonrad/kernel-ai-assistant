@@ -147,6 +147,8 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Log
@@ -2409,18 +2411,25 @@ private fun OnboardingContent(
 }
 
 @Composable
-private fun ConversationDownloadProgress(
+internal fun ConversationDownloadProgress(
     progress: Float?,
 ) {
     Spacer(modifier = Modifier.height(8.dp))
+    val percent = progress?.takeIf { it > 0f }?.let { (it * 100).roundToInt() }
+    val progressModifier = Modifier
+        .fillMaxWidth()
+        .semantics {
+            contentDescription = "Download progress"
+            if (percent != null) stateDescription = "$percent percent"
+        }
     if (progress != null && progress > 0f) {
         LinearProgressIndicator(
             progress = progress,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = progressModifier,
         )
     } else {
         LinearProgressIndicator(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = progressModifier,
         )
     }
 }
@@ -2515,7 +2524,7 @@ private fun ConversationModelRecommendationCard(
 }
 
 /** Compact byte formatting for inline use. */
-private fun formatBytesShort(bytes: Long): String = when {
+internal fun formatBytesShort(bytes: Long): String = when {
     bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000f)
     bytes >= 1_000_000L -> "%.0f MB".format(bytes / 1_000_000f)
     else -> "$bytes B"
