@@ -3526,13 +3526,47 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `get_date_diff mum birthday with calendar sync off returns sync hint with settings action`() {
+    fun `get_date_diff mum birthday requires calendar permission when lookup denied`() {
         stubNoStoredOrCalendarDates(hasCalendarPermission = false)
 
         val result = handleIntent("get_date_diff", mapOf("target_date" to "mum's birthday"))
 
+        val required = assertCapabilityRequired(result, CapabilityKey.CalendarLookup, "get_date_diff")
+        assertEquals(mapOf("target_date" to "mum's birthday"), required.contextParams)
+    }
+
+    @Test
+    fun `get_date_diff anniversary does not ask for calendar permission and offers add when nothing matches`() {
+        stubNoStoredOrCalendarDates(hasCalendarPermission = false)
+
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "our anniversary"))
+
         val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
-        assertEquals("I can't see any birthdays yet. Turn on calendar sync and I'll know them.", failure.error)
+        assertEquals(
+            "Couldn't find our anniversary in your important dates or calendar, no dramas. " +
+                "Say \"our anniversary is 3 June\" to teach Jandal.",
+            failure.error,
+        )
+        assertEquals(
+            listOf(
+                SettingsAction(
+                    label = "Add an important date",
+                    deepLink = SettingsDeepLink("important_dates", mapOf("add" to "true", "label" to "our anniversary")),
+                ),
+            ),
+            failure.actions,
+        )
+        verify(exactly = 0) { calendarBirthdayLookup.hasPermission() }
+    }
+
+    @Test
+    fun `get_date_diff birthday with permission and no dates anywhere returns sync hint with settings action`() {
+        stubNoStoredOrCalendarDates(hasCalendarPermission = true)
+
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "mum's birthday"))
+
+        val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+        assertEquals("Nothing saved yet, no dramas. Turn on calendar sync and I'll check your birthdays.", failure.error)
         assertEquals(
             listOf(
                 SettingsAction(
@@ -3545,14 +3579,29 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `get_date_diff anniversary with calendar sync off returns sync hint with settings action`() {
-        stubNoStoredOrCalendarDates(hasCalendarPermission = false)
+    fun `get_date_diff unresolved birthday with saved dates returns not-found with add action`() {
+        stubNoStoredOrCalendarDates(hasCalendarPermission = true)
+        coEvery { importantDateRepository.getAll() } returns listOf(
+            ImportantDateEntity(label = "Freya", normalizedLabel = "freya", month = 6, day = 22, year = null),
+        )
 
-        val result = handleIntent("get_date_diff", mapOf("target_date" to "our anniversary"))
+        val result = handleIntent("get_date_diff", mapOf("target_date" to "Sam's birthday"))
 
         val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
-        assertEquals("I can't see any birthdays yet. Turn on calendar sync and I'll know them.", failure.error)
-        assertEquals("sync", failure.actions.single().deepLink.args.keys.single())
+        assertEquals(
+            "Couldn't find Sam's birthday in your important dates or calendar, no dramas. " +
+                "Say \"Sam's birthday is 3 June\" to teach Jandal.",
+            failure.error,
+        )
+        assertEquals(
+            listOf(
+                SettingsAction(
+                    label = "Add an important date",
+                    deepLink = SettingsDeepLink("important_dates", mapOf("add" to "true", "label" to "Sam's birthday")),
+                ),
+            ),
+            failure.actions,
+        )
     }
 
     @Test
@@ -3573,29 +3622,6 @@ class NativeIntentHandlerTest {
 
         assertInstanceOf(SkillResult.DirectReply::class.java, result)
         verify(exactly = 0) { calendarBirthdayLookup.hasPermission() }
-    }
-
-    @Test
-    fun `get_date_diff unresolved calendar label with sync on returns not-found with add action`() {
-        stubNoStoredOrCalendarDates(hasCalendarPermission = true)
-
-        val result = handleIntent("get_date_diff", mapOf("target_date" to "Sam's birthday"))
-
-        val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
-        assertEquals(
-            "I couldn't find Sam's birthday in your important dates or calendar. " +
-                "Say \"Sam's birthday is 3 June\" to teach me.",
-            failure.error,
-        )
-        assertEquals(
-            listOf(
-                SettingsAction(
-                    label = "Add an important date",
-                    deepLink = SettingsDeepLink("important_dates", mapOf("add" to "true", "label" to "Sam's birthday")),
-                ),
-            ),
-            failure.actions,
-        )
     }
 
     @Test

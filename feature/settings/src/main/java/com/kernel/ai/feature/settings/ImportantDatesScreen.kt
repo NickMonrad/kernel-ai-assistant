@@ -63,6 +63,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,8 +98,8 @@ fun ImportantDatesScreen(
     val coroutineScope = rememberCoroutineScope()
     var editingDate by remember { mutableStateOf<ImportantDateListItem?>(null) }
     var pendingDelete by remember { mutableStateOf<ImportantDateListItem?>(null) }
-    var createRequested by remember { mutableStateOf(false) }
-    var createLabel by remember { mutableStateOf("") }
+    var createRequested by rememberSaveable { mutableStateOf(false) }
+    var createLabel by rememberSaveable { mutableStateOf("") }
     var showTimePicker by remember { mutableStateOf(false) }
     var showCalendarPermissionRationale by remember { mutableStateOf(false) }
     var showCalendarPermissionSettingsHint by remember { mutableStateOf(false) }
@@ -156,9 +157,16 @@ fun ImportantDatesScreen(
         }
     }
 
-    LaunchedEffect(deepLink) {
-        if (deepLink.syncRequested) onCalendarBirthdaysToggle(true)
-        deepLink.addLabel?.let { label ->
+    // One-shot arrival request from a settings-action link. Copied into saveable state on first composition
+    // and cleared once applied, so recomposition, rotation and back navigation never replay it.
+    var pendingDeepLink by rememberSaveable(stateSaver = ImportantDatesDeepLinkSaver) {
+        mutableStateOf(deepLink.takeIf { it.syncRequested || it.addLabel != null })
+    }
+    LaunchedEffect(pendingDeepLink) {
+        val request = pendingDeepLink ?: return@LaunchedEffect
+        pendingDeepLink = null
+        if (request.syncRequested) onCalendarBirthdaysToggle(true)
+        request.addLabel?.let { label ->
             createLabel = label
             createRequested = true
         }

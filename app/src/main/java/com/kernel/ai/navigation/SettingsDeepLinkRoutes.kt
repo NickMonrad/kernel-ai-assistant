@@ -55,19 +55,15 @@ internal val IMPORTANT_DATES_NAV_ARGS: List<NamedNavArgument> = IMPORTANT_DATES_
  * destinations, so a stale link does nothing rather than crashing.
  */
 internal fun settingsDeepLinkRoute(link: SettingsDeepLink): String? = when (link.destination) {
-    ContactLookupRecovery.PEOPLE_DESTINATION -> {
-        val query = CONTACT_ALIAS_ROUTE_ARGS.mapNotNull { key ->
-            link.args[key]?.let { "$key=${encodeRouteQueryValue(it)}" }
-        }
-        if (query.isEmpty()) ROUTE_CONTACT_ALIASES else "$ROUTE_CONTACT_ALIASES?${query.joinToString("&")}"
-    }
-    ImportantDateRecovery.IMPORTANT_DATES_DESTINATION -> {
-        val query = IMPORTANT_DATES_ROUTE_ARGS.mapNotNull { key ->
-            link.args[key]?.let { "$key=${encodeRouteQueryValue(it)}" }
-        }
-        if (query.isEmpty()) ROUTE_IMPORTANT_DATES else "$ROUTE_IMPORTANT_DATES?${query.joinToString("&")}"
-    }
+    ContactLookupRecovery.PEOPLE_DESTINATION -> routeWithQuery(ROUTE_CONTACT_ALIASES, CONTACT_ALIAS_ROUTE_ARGS, link)
+    ImportantDateRecovery.IMPORTANT_DATES_DESTINATION -> routeWithQuery(ROUTE_IMPORTANT_DATES, IMPORTANT_DATES_ROUTE_ARGS, link)
     else -> null
+}
+
+/** Builds `route?key=value&...` from the [keys] present in [link], percent-encoding every value. */
+private fun routeWithQuery(route: String, keys: List<String>, link: SettingsDeepLink): String {
+    val query = keys.mapNotNull { key -> link.args[key]?.let { "$key=${encodeRouteQueryValue(it)}" } }
+    return if (query.isEmpty()) route else "$route?${query.joinToString("&")}"
 }
 
 /** Reads the prefill args from a People & Contacts back-stack entry. */
@@ -80,9 +76,18 @@ internal fun contactAliasPrefillFrom(args: Bundle?): ContactAliasPrefill = Conta
 )
 
 /** Reads the arrival requests from an Important dates back-stack entry (#1860). */
-internal fun importantDatesDeepLinkFrom(args: Bundle?): ImportantDatesDeepLink = ImportantDatesDeepLink(
-    syncRequested = args?.getString(ImportantDateRecovery.ARG_SYNC) == "true",
-    addLabel = args?.getString(ImportantDateRecovery.ARG_LABEL)?.takeIf {
-        args.getString(ImportantDateRecovery.ARG_ADD) == "true" && it.isNotBlank()
-    },
+internal fun importantDatesDeepLinkFrom(args: Bundle?): ImportantDatesDeepLink = importantDatesDeepLinkFrom(
+    sync = args?.getString(ImportantDateRecovery.ARG_SYNC),
+    add = args?.getString(ImportantDateRecovery.ARG_ADD),
+    label = args?.getString(ImportantDateRecovery.ARG_LABEL),
 )
+
+/**
+ * Pure form of [importantDatesDeepLinkFrom]: `sync` and `add` are the raw `"true"` flags, and a blank
+ * [label] never opens the editor with an empty name.
+ */
+internal fun importantDatesDeepLinkFrom(sync: String?, add: String?, label: String?): ImportantDatesDeepLink =
+    ImportantDatesDeepLink(
+        syncRequested = sync == "true",
+        addLabel = label?.takeIf { add == "true" && it.isNotBlank() },
+    )

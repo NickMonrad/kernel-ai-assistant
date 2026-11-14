@@ -2772,8 +2772,19 @@ class NativeIntentHandler @Inject constructor(
             }
             val lower = targetStr.lowercase(Locale.ENGLISH)
             if (isLikelyCalendarDateLabel(lower)) {
-                if (!calendarBirthdayLookup.hasPermission()) {
-                    return ImportantDateRecovery.syncOffFailure("get_date_diff")
+                // Only birthday queries read Android Calendar. Other labels get not-found plus Add.
+                if (lower.contains("birthday")) {
+                    if (!calendarBirthdayLookup.hasPermission()) {
+                        return SkillResult.CapabilityRequired(
+                            capabilityKey = CapabilityKey.CalendarLookup,
+                            skillName = "get_date_diff",
+                            contextParams = mapOf("target_date" to targetStr),
+                        )
+                    }
+                    val nothingSaved = runBlocking { importantDateRepository.getAll() }.isEmpty()
+                    if (nothingSaved && calendarBirthdayLookup.getAllBirthdays().isEmpty()) {
+                        return ImportantDateRecovery.noDatesYetFailure("get_date_diff")
+                    }
                 }
                 return ImportantDateRecovery.notFoundFailure("get_date_diff", targetStr)
             }
