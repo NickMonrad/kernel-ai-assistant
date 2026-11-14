@@ -160,6 +160,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
@@ -254,6 +255,8 @@ fun ChatScreen(
     externalDraft: String? = null,
     onExternalDraftConsumed: () -> Unit = {},
     onBack: () -> Unit = {},
+    /** #1859: opens an in-app Settings destination for a failed lookup's recovery action. Never dials. */
+    onOpenSettingsDeepLink: (SettingsDeepLink) -> Unit = {},
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
@@ -266,6 +269,7 @@ fun ChatScreen(
     val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
     val microphoneState by viewModel.microphoneState.collectAsStateWithLifecycle()
     val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
+    val settingsActionState by viewModel.settingsActionState.collectAsStateWithLifecycle()
     val mealPlannerActivity by viewModel.mealPlannerActivity.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -600,6 +604,17 @@ fun ChatScreen(
                         onDismissRequest = { viewModel.dismissMicrophoneRepairDialog() },
                     )
                 }
+            }
+            // In-app recovery actions for a failed lookup (#1859). Nothing is called or sent from here.
+            settingsActionState?.let { state ->
+                SettingsActionChooserDialog(
+                    state = state,
+                    onSelect = { link ->
+                        viewModel.dismissSettingsActionDialog()
+                        onOpenSettingsDeepLink(link)
+                    },
+                    onDismiss = viewModel::dismissSettingsActionDialog,
+                )
             }
             weatherLocationState?.let { weatherState ->
                 PermissionOverlayDialog(
