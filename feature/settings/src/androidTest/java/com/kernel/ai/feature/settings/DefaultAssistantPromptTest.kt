@@ -54,7 +54,7 @@ class DefaultAssistantPromptTest {
         composeTestRule.onNodeWithText("Set Hey Jandal as default assistant")
             .assertIsDisplayed()
         composeTestRule.onNodeWithText(
-            "Hey Jandal needs to be set as your default assistant to respond to the wake word."
+            "Tap Digital assistant app, then choose Jandal. Android will open the settings page next."
         ).assertIsDisplayed()
         composeTestRule.onNodeWithText("Set as default").assertIsDisplayed()
         composeTestRule.onNodeWithText("Not now").assertIsDisplayed()

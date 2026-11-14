@@ -34,6 +34,16 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.ActivityCompat
+import com.kernel.ai.core.permissions.PermissionRoute
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +53,13 @@ fun AppPermissionsScreen(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsState()
+
+    val context = LocalContext.current
+    val requestPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        viewModel.refresh()
+    }
 
     // Auto-refresh when returning from system settings (e.g. after toggling permissions)
     DisposableEffect(lifecycleOwner) {
@@ -87,7 +104,7 @@ fun AppPermissionsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                text = "Review the permissions and Android access Jandal uses for specific features. Tap an item to repair access in Android settings.",
+                text = "Review the permissions and Android access Jandal uses for specific features. Allow requests access here. Special access opens Android settings.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -96,13 +113,22 @@ fun AppPermissionsScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             uiState.permissions.forEach { perm ->
+                val shouldShowRationale = context.findActivity()?.let { activity ->
+                    ActivityCompat.shouldShowRequestPermissionRationale(activity, perm.permission)
+                } ?: false
+                val route = viewModel.routeFor(perm, shouldShowRationale)
                 PermissionRow(
                     item = perm,
+                    route = route,
                     onFix = {
-                        if (perm.isSpecial) {
-                            viewModel.openSpecialPermissionSettings(perm.permission)
-                        } else {
-                            viewModel.openAppInfoSettings()
+                        when (route) {
+                            PermissionRoute.Granted -> Unit
+                            PermissionRoute.RequestInApp -> {
+                                viewModel.markRuntimePermissionRequested(perm.permission)
+                                requestPermissionLauncher.launch(perm.permission)
+                            }
+                            PermissionRoute.AppInfo -> viewModel.openRuntimePermissionAppInfo(perm.permission)
+                            PermissionRoute.SpecialAccess -> viewModel.openSpecialPermissionSettings(perm.permission)
                         }
                     },
                 )
@@ -116,6 +142,7 @@ fun AppPermissionsScreen(
 @Composable
 private fun PermissionRow(
     item: AppPermissionItem,
+    route: PermissionRoute,
     onFix: () -> Unit,
 ) {
     val tint = if (item.isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
@@ -141,11 +168,24 @@ private fun PermissionRow(
             )
         },
         trailingContent = {
-            Icon(
-                imageVector = if (item.isGranted) Icons.Default.Check else Icons.Default.Close,
-                contentDescription = if (item.isGranted) "${item.label} granted" else "${item.label} not granted",
-                tint = tint,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val actionLabel = when (route) {
+                    PermissionRoute.Granted -> null
+                    PermissionRoute.RequestInApp -> "Allow"
+                    PermissionRoute.AppInfo -> "Open app settings"
+                    PermissionRoute.SpecialAccess -> "Opens Android settings"
+                }
+                if (actionLabel != null) {
+                    TextButton(onClick = onFix) {
+                        Text(actionLabel)
+                    }
+                }
+                Icon(
+                    imageVector = if (item.isGranted) Icons.Default.Check else Icons.Default.Close,
+                    contentDescription = if (item.isGranted) "${item.label} granted" else "${item.label} not granted",
+                    tint = tint,
+                )
+            }
         },
         overlineContent = {
             if (item.isSpecial) {
@@ -157,4 +197,10 @@ private fun PermissionRow(
             }
         },
     )
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

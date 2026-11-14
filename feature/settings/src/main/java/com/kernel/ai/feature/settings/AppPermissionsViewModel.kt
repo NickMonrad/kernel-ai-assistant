@@ -7,6 +7,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import com.kernel.ai.core.permissions.PermissionRequestStore
+import com.kernel.ai.core.permissions.PermissionRoute
+import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.decidePermissionRoute
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -103,6 +107,8 @@ class AppPermissionsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(AppPermissionsUiState())
     val uiState: StateFlow<AppPermissionsUiState> = _uiState.asStateFlow()
 
+    private val requestStore = PermissionRequestStore(context)
+
     init {
         refresh()
     }
@@ -126,6 +132,25 @@ class AppPermissionsViewModel @Inject constructor(
             context.startActivity(intent)
         } ?: openAppInfoSettings()
     }
+
+    /** Opens App info with the permission hint for a runtime permission that is permanently denied. */
+    fun openRuntimePermissionAppInfo(permission: String) {
+        context.startActivity(RuntimePermissionRepair.intentFor(context, permission))
+    }
+
+    /** Records that the in-app runtime request was launched for [permission]. */
+    fun markRuntimePermissionRequested(permission: String) {
+        requestStore.markRequested(permission)
+    }
+
+    /** Decides how a "grant access" action for [item] must proceed. */
+    fun routeFor(item: AppPermissionItem, shouldShowRationale: Boolean): PermissionRoute =
+        decidePermissionRoute(
+            isGranted = item.isGranted,
+            isSpecialAccess = item.isSpecial,
+            wasRequestedBefore = requestStore.wasRequested(item.permission),
+            shouldShowRationale = shouldShowRationale,
+        )
 
     private fun buildPermissionList(): List<AppPermissionItem> {
 

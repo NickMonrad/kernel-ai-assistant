@@ -43,7 +43,7 @@
 
     <!-- Default assistant role setup -->
     <string name="default_assistant_setup_title">Set Hey Jandal as default assistant</string>
-    <string name="default_assistant_setup_description">Hey Jandal needs to be set as your default assistant to respond to the wake word.</string>
+    <string name="default_assistant_setup_description">Tap Digital assistant app, then choose Jandal. Android will open the settings page next.</string>
     <string name="default_assistant_setup_grant">Set as default</string>
     <string name="default_assistant_setup_cancel">Not now</string>
     <string name="default_assistant_setup_success_title">Default assistant set</string>

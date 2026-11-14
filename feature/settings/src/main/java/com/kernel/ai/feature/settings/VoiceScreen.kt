@@ -85,7 +85,7 @@ import kotlin.math.roundToInt
 import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
+import android.content.ActivityNotFoundException
 import android.util.Log
 import android.provider.Settings
 import android.Manifest
@@ -222,6 +222,7 @@ fun VoiceScreen(
 
     var showDefaultAssistantPrompt by remember { mutableStateOf(false) }
     var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
+    var showDefaultAssistantNotSetYet by remember { mutableStateOf(false) }
 
     val assistantRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -231,8 +232,21 @@ fun VoiceScreen(
         if (roleGranted) {
             showDefaultAssistantSuccess = true
         } else {
-            // Role not granted — let the user try again.
-            showDefaultAssistantPrompt = true
+            // Role still not held — show the short note, not the full prompt again.
+            showDefaultAssistantNotSetYet = true
+        }
+    }
+
+    // Opens the voice-input settings page (holds "Digital assistant app"); falls back to default apps.
+    fun openAssistantSettings() {
+        try {
+            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+        } catch (_: ActivityNotFoundException) {
+            try {
+                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            } catch (_: ActivityNotFoundException) {
+                // No assistant or default-apps page on this device — nothing more we can open.
+            }
         }
     }
 
@@ -426,34 +440,40 @@ fun VoiceScreen(
         DefaultAssistantPrompt(
             onGrant = {
                 showDefaultAssistantPrompt = false
-                // Launch the assistant role setup intent
-                val manufacturer = Build.MANUFACTURER
-                val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
-                    manufacturer.equals("honor", ignoreCase = true)
-                when {
-                    usesSettingsFlow -> {
-                        try {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-                        } catch (_: Exception) {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                        }
-                    }
-                    else -> {
-                        val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                        if (intent != null) {
-                            assistantRoleLauncher.launch(intent)
-                        } else {
-                            try {
-                                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                            } catch (_: Exception) {
-                                // No standard default-apps page — nothing more we can do.
-                            }
-                        }
-                    }
-                }
+                openAssistantSettings()
             },
             onCancel = {
                 showDefaultAssistantPrompt = false
+            },
+        )
+    }
+
+    // Role still not held after returning from Settings: short note with Try again.
+    if (showDefaultAssistantNotSetYet) {
+        PermissionOverlayDialog(
+            title = "Not set yet",
+            body = "Jandal isn't your default assistant yet. Tap Try again to reopen Settings, then tap Digital assistant app and choose Jandal.",
+            actions = listOf(
+                PermissionDialogAction(
+                    label = "Try again",
+                    testTag = "default_assistant_not_set_try_again",
+                    onClick = {
+                        showDefaultAssistantNotSetYet = false
+                        openAssistantSettings()
+                    },
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = "Not now",
+                    testTag = "default_assistant_not_set_not_now",
+                    onClick = {
+                        showDefaultAssistantNotSetYet = false
+                    },
+                ),
+            ),
+            dialogTestTag = "default_assistant_not_set_yet",
+            onDismissRequest = {
+                showDefaultAssistantNotSetYet = false
             },
         )
     }
