@@ -347,6 +347,7 @@ fun VoiceScreen(
         onCancelSherpaVoice = viewModel::cancelSherpaVoiceDownload,
         onDeleteSherpaVoice = viewModel::deleteSherpaVoice,
         onPlaySherpaSample = viewModel::playSherpaSample,
+        onUseMobileDataForVoices = viewModel::useMobileDataForVoices,
         onDownloadKokoroVoice = viewModel::downloadKokoroVoice,
         onCancelKokoroVoice = viewModel::cancelKokoroVoiceDownload,
         onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
@@ -554,6 +555,7 @@ private fun VoiceScreenContent(
     onCancelSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onPlaySherpaSample: (SherpaPiperVoice) -> Unit = { _ -> },
+    onUseMobileDataForVoices: () -> Unit = {},
     onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onCancelKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
@@ -992,11 +994,23 @@ private fun VoiceScreenContent(
                         )
                     },
                 )
+                if (engine == VoiceOutputEngine.SherpaExperimental && engineSelected) {
+                    Text(
+                        text = sherpaVoiceStatusLine(
+                            voice = uiState.selectedSherpaVoice,
+                            state = uiState.sherpaVoices
+                                .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                    )
+                }
                 HorizontalDivider()
             }
 
             Text(
-                text = "Choose one spoken output engine. Android TTS and Sherpa Piper are alternative playback paths, so only the selected engine will speak.",
+                text = "Choose how Jandal speaks. Only the selected option speaks.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1009,7 +1023,7 @@ private fun VoiceScreenContent(
             val showSherpaVoiceControls = sherpaSelected
             if (showSherpaVoiceControls) {
                 Text(
-                    text = "Sherpa Piper voice",
+                    text = "Voice",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -1017,14 +1031,14 @@ private fun VoiceScreenContent(
 
                 val sherpaHelpText = when {
                     !uiState.hasDownloadedSherpaVoice ->
-                        "Download a Sherpa voice pack below before Sherpa Piper can speak."
+                        "Download a voice below before this option can speak."
                     !uiState.isSelectedSherpaVoiceDownloaded ->
-                        "Your saved Sherpa voice is not downloaded on this device. Download it again or choose another installed voice below."
+                        "Your saved voice is not downloaded on this device. Download it again or choose another installed voice below."
                     else ->
-                        "Only downloaded voices can be selected. Android TTS is disabled while Sherpa Piper is selected above."
+                        "Only downloaded voices can be selected. Android TTS speaks only while it is selected above."
                 }
                 VoiceInfoCard(
-                    title = "Sherpa Piper is active",
+                    title = "${uiState.selectedSherpaVoice.displayName} is active",
                     message = sherpaHelpText,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
@@ -1035,7 +1049,9 @@ private fun VoiceScreenContent(
                     mutableStateOf(true)
                 }
 
-                uiState.sherpaVoices.forEach { voiceRow ->
+                val sortedVoices = uiState.sherpaVoices
+                    .sortedByDescending { it.voice == uiState.selectedSherpaVoice }
+                sortedVoices.forEach { voiceRow ->
                     val isSelected = uiState.selectedSherpaVoice == voiceRow.voice
                     val isDownloaded = voiceRow.downloadState is VoicePackDownloadState.Downloaded
                     val isMultiSpeaker = voiceRow.voice == SherpaPiperVoice.VctkMedium ||
@@ -1047,7 +1063,7 @@ private fun VoiceScreenContent(
                     ) {
                         ModelCardCompact(
                             title = voiceRow.voice.displayName,
-                            description = "${voiceRow.voice.description} ${formatBytes(voiceRow.voice.approxDownloadBytes)}.",
+                            description = voiceRow.voice.description,
                             state = uiState.sherpaVoiceAvailability[voiceRow.voice]
                                 ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
                             modifier = Modifier.weight(1f),
@@ -1058,6 +1074,12 @@ private fun VoiceScreenContent(
                             enabled = isDownloaded,
                         )
                     }
+                    Text(
+                        text = "About ${formatBytes(voiceRow.voice.approxDownloadBytes)} download",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                    )
                     val voiceRowState = voiceRow.downloadState
                     when (voiceRowState) {
                         is VoicePackDownloadState.NotDownloaded -> {
@@ -1069,6 +1091,20 @@ private fun VoiceScreenContent(
                             }
                         }
                         is VoicePackDownloadState.Downloading -> {
+                            if (voiceRowState.waitingForWifi) {
+                                Text(
+                                    text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                )
+                                Button(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                    onClick = onUseMobileDataForVoices,
+                                ) {
+                                    Text("Use mobile data")
+                                }
+                            }
                             OutlinedButton(
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                                 onClick = { onCancelSherpaVoice(voiceRow.voice) },
@@ -1146,6 +1182,14 @@ private fun VoiceScreenContent(
                             }
                         }
                     }
+                }
+                uiState.sherpaSampleError?.let { message ->
+                    Text(
+                        text = "Play sample failed: $message",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
                 }
 
                 // Speech rate slider — range 0.5–1.5 in steps of 0.05 (19 discrete steps)
@@ -1939,3 +1983,17 @@ private fun VoiceScreenPreview() {
  */
 internal fun onlineSpeechToggleVisible(selected: VoiceInputEngine, row: VoiceInputEngine): Boolean =
     row == selected && (row == VoiceInputEngine.Auto || row == VoiceInputEngine.AndroidNative)
+
+/** One-line status for the selected Piper voice, shown under the Piper option. */
+private fun sherpaVoiceStatusLine(voice: SherpaPiperVoice, state: VoicePackDownloadState?): String =
+    when (state) {
+        is VoicePackDownloadState.Downloaded -> "${voice.displayName} · Ready"
+        is VoicePackDownloadState.Downloading ->
+            if (state.waitingForWifi) {
+                "${voice.displayName} · Waiting for Wi-Fi"
+            } else {
+                "${voice.displayName} · Downloading ${(state.progress * 100).toInt()}%"
+            }
+        is VoicePackDownloadState.Error -> "${voice.displayName} · Download failed"
+        else -> "${voice.displayName} · Not downloaded"
+    }

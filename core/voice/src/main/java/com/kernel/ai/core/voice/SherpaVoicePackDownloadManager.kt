@@ -330,6 +330,10 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                             downloadedBytes = downloadedBytes,
                             bytesPerSecond = bps,
                             remainingMs = remainingMs,
+                            waitingForWifi = info.state == WorkInfo.State.ENQUEUED &&
+                                DownloadConsent.effectiveForManualDownload(
+                                    downloadNetworkPreferences.choice.first(),
+                                ) == DownloadNetworkChoice.WIFI_ONLY,
                         )
                     }
 

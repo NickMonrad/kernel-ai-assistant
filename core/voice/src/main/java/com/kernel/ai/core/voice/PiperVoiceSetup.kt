@@ -21,16 +21,16 @@ class PiperVoiceSetup @Inject constructor(
     private val voicePackDownloadManager: SherpaVoicePackDownloadManager,
 ) {
     /**
-     * Call after the user picks [engine]. Starts the selected voice when Piper was picked and the
-     * voice is not on the device yet. Returns true when a download was requested.
+     * Call after the user picks [engine]. When Piper was picked, starts the selected voice if it is
+     * missing or its last attempt failed. Returns that voice so the caller can show its progress
+     * (including "Waiting for Wi-Fi"), or null when [engine] is not Piper.
      */
-    suspend fun onEngineChosen(engine: VoiceOutputEngine): Boolean {
-        if (engine != VoiceOutputEngine.SherpaExperimental) return false
+    suspend fun onEngineChosen(engine: VoiceOutputEngine): SherpaPiperVoice? {
+        if (engine != VoiceOutputEngine.SherpaExperimental) return null
         val voice = voiceOutputPreferences.selectedSherpaVoice.first()
         val state = voicePackDownloadManager.downloadStates.value[voice] ?: VoicePackDownloadState.NotDownloaded
-        if (!shouldStartDownload(state)) return false
-        voicePackDownloadManager.startDownload(voice)
-        return true
+        if (shouldStartDownload(state)) voicePackDownloadManager.startDownload(voice)
+        return voice
     }
 
     companion object {

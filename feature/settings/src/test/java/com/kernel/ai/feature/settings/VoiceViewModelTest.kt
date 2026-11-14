@@ -14,6 +14,9 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaKokoroVoice
+import com.kernel.ai.core.voice.PiperVoiceSetup
+import com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -94,10 +97,11 @@ class VoiceViewModelTest {
             KernelModel.entries.associateWith { DownloadState.NotDownloaded as DownloadState },
         )
     private lateinit var viewModel: VoiceViewModel
-    private val voiceOutputController: com.kernel.ai.core.voice.VoiceOutputController = mockk(relaxed = true)
+    private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
+    private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
 
     @Test
-    fun `play sample speaks only for a downloaded voice`() = runTest {
+    fun `play sample speaks through Sherpa only for a downloaded voice`() = runTest {
         sherpaDownloadStates.value = mapOf(
             SherpaPiperVoice.JennyDioco to VoicePackDownloadState.Downloaded("/voices/jenny"),
         )
@@ -105,11 +109,34 @@ class VoiceViewModelTest {
 
         viewModel.playSherpaSample(SherpaPiperVoice.JennyDioco)
         testDispatcher.scheduler.advanceUntilIdle()
-        coVerify(exactly = 1) { voiceOutputController.speak(any()) }
+        coVerify(exactly = 1) { sherpaVoiceOutputController.speak(any()) }
 
         viewModel.playSherpaSample(SherpaPiperVoice.NorthernEnglishMale)
         testDispatcher.scheduler.advanceUntilIdle()
-        coVerify(exactly = 1) { voiceOutputController.speak(any()) }
+        coVerify(exactly = 1) { sherpaVoiceOutputController.speak(any()) }
+    }
+
+    @Test
+    fun `failed Play sample surfaces why Sherpa could not speak`() = runTest {
+        sherpaDownloadStates.value = mapOf(
+            SherpaPiperVoice.JennyDioco to VoicePackDownloadState.Downloaded("/voices/jenny"),
+        )
+        coEvery { sherpaVoiceOutputController.speak(any()) } returns
+            VoiceOutputResult.Unavailable("Sherpa generate failed: test")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.playSherpaSample(SherpaPiperVoice.JennyDioco)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("Sherpa generate failed: test", viewModel.uiState.value.sherpaSampleError)
+    }
+
+    @Test
+    fun `choosing Piper hands the engine to PiperVoiceSetup exactly once`() = runTest {
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.SherpaExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { piperVoiceSetup.onEngineChosen(VoiceOutputEngine.SherpaExperimental) }
     }
 
     private fun newViewModel() = VoiceViewModel(
@@ -122,7 +149,8 @@ class VoiceViewModelTest {
         modelDownloadManager,
         hardwareProfileDetector,
         context,
-        voiceOutputController,
+        sherpaVoiceOutputController,
+        piperVoiceSetup,
     )
 
     @BeforeEach
@@ -253,7 +281,8 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             context,
-            voiceOutputController,
+            sherpaVoiceOutputController,
+            piperVoiceSetup,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -284,7 +313,8 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             context,
-            voiceOutputController,
+            sherpaVoiceOutputController,
+            piperVoiceSetup,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -315,7 +345,8 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             context,
-            voiceOutputController,
+            sherpaVoiceOutputController,
+            piperVoiceSetup,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -423,7 +454,8 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             releaseContext,
-            voiceOutputController,
+            sherpaVoiceOutputController,
+            piperVoiceSetup,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -455,7 +487,8 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             releaseContext,
-            voiceOutputController,
+            sherpaVoiceOutputController,
+            piperVoiceSetup,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -508,26 +541,18 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `both Inflect graphs downloaded still require shared frontend for readiness`() =
-        runTest {
-            modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
-                put(
-                    KernelModel.INFLECT_MICRO_DURATION,
-                    DownloadState.Downloaded("/models/duration.onnx"),
-                )
-                put(
-                    KernelModel.INFLECT_MICRO_DECODE,
-                    DownloadState.Downloaded("/models/decode.onnx"),
-                )
-            }
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            assertEquals(
-                ModelAvailabilityState.NotDisplayed,
-                viewModel.uiState.value.inflectMicroAvailability,
-            )
-            assertFalse(viewModel.uiState.value.isInflectMicroReady)
+    fun `Inflect is ready once both graphs and the selected Cori frontend are downloaded`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloaded("/models/duration.onnx"))
+            put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Downloaded("/models/decode.onnx"))
         }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloaded("/voices/jenny"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isInflectMicroReady)
+    }
 
     @Test
     fun `partial Inflect graph availability never maps to ready`() = runTest {
@@ -820,7 +845,8 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             releaseContext,
-            voiceOutputController,
+            sherpaVoiceOutputController,
+            piperVoiceSetup,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -868,7 +894,8 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             releaseContext,
-            voiceOutputController,
+            sherpaVoiceOutputController,
+            piperVoiceSetup,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -927,7 +954,7 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `cancelInflectMicroDownload cancels active graphs and selected frontend`() = runTest {
+    fun `cancelInflectMicroDownload cancels only Inflect graphs and leaves the Cori pack running`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
             put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloading(progress = 0.4f))
             put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Downloaded("/models/decode.onnx"))
@@ -943,10 +970,10 @@ class VoiceViewModelTest {
 
         io.mockk.verify(exactly = 1) {
             modelDownloadManager.cancelDownload(KernelModel.INFLECT_MICRO_DURATION)
-            sherpaVoicePackDownloadManager.cancelDownload(SherpaPiperVoice.JennyDioco)
         }
         io.mockk.verify(exactly = 0) {
             modelDownloadManager.cancelDownload(KernelModel.INFLECT_MICRO_DECODE)
+            sherpaVoicePackDownloadManager.cancelDownload(any())
         }
     }
 

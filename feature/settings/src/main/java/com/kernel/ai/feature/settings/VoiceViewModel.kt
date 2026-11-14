@@ -12,9 +12,10 @@ import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaPiperVoice
-import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.PiperVoiceSetup
-import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController
+import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
+import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -26,6 +27,7 @@ import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
@@ -77,6 +79,8 @@ data class VoiceUiState(
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
+    /** Why the last Play sample did not speak; null when it spoke or was never played. */
+    val sherpaSampleError: String? = null,
     val sherpaSpeed: Float = 0.85f,
     val sherpaPitch: Float = 1.0f,
     val sherpaGain: Float = 1.5f,
@@ -238,9 +242,9 @@ class VoiceViewModel @Inject constructor(
     private val modelDownloadManager: ModelDownloadManager,
     private val hardwareProfileDetector: HardwareProfileDetector,
     @ApplicationContext private val context: Context,
-    private val voiceOutputController: VoiceOutputController,
+    private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController,
+    private val piperVoiceSetup: PiperVoiceSetup,
 ) : ViewModel() {
-    private val piperVoiceSetup = PiperVoiceSetup(voiceOutputPreferences, sherpaVoicePackDownloadManager)
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
     private val inflectReleaseEligible: Boolean =
@@ -565,19 +569,12 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
+    /** Cancels only Inflect graph downloads. The shared frontend pack belongs to the Piper row, so it keeps running. */
     fun cancelInflectMicroDownload() {
         val currentStates = modelDownloadManager.downloadStates.value
         inflectModels
             .filter { currentStates[it] is DownloadState.Downloading }
             .forEach { modelDownloadManager.cancelDownload(it) }
-
-        val selectedVoice = _uiState.value.selectedSherpaVoice
-        if (
-            sherpaVoicePackDownloadManager.downloadStates.value[selectedVoice] is
-                VoicePackDownloadState.Downloading
-        ) {
-            sherpaVoicePackDownloadManager.cancelDownload(selectedVoice)
-        }
     }
 
     fun deleteInflectMicro() {
@@ -656,12 +653,20 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
+    /** Lets voice packs waiting on Wi-Fi download over mobile data; the manager re-queues them on the change. */
+    fun useMobileDataForVoices() {
+        modelDownloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
+    }
+
     /** Speaks a fixed sample through the selected output engine. Only for a downloaded voice; never automatic. */
     fun playSherpaSample(voice: SherpaPiperVoice) {
         val row = _uiState.value.sherpaVoices.firstOrNull { it.voice == voice }
         if (row?.downloadState !is VoicePackDownloadState.Downloaded) return
         viewModelScope.launch {
-            voiceOutputController.speak(VoiceSpeakRequest(text = SHERPA_SAMPLE_TEXT))
+            val result = sherpaVoiceOutputController.speak(VoiceSpeakRequest(text = SHERPA_SAMPLE_TEXT))
+            _uiState.update {
+                it.copy(sherpaSampleError = (result as? VoiceOutputResult.Unavailable)?.message)
+            }
         }
     }
 

@@ -28,9 +28,9 @@ private const val LEGACY_VOSK_DIR = "voice"
  *
  * - queues the offline Zipformer STT model when the selected input engine needs it
  *   ([VoiceInputEngine.Auto] uses it as the offline fallback and for alert commands);
- * - queues the selected Piper voice only when the user has explicitly stored a Piper engine choice.
- *   The default engine never downloads a voice on its own: Voice settings and the setup wizard
- *   start it with one tap under the download network choice (#1868);
+ * - queues the selected Sherpa voice (Cori by default) when the effective engine is Sherpa Piper.
+ *   That is the tier default on fresh installs, so it starts after the wizard's network choice.
+ *   A stored Android TTS choice never queues it. Choosing Piper later goes through [PiperVoiceSetup];
  * - deletes the unpacked model left behind by the removed Vosk engine.
  *
  * Downloads go through the existing managers, so they are no-ops when the files exist and they
@@ -77,13 +77,13 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     private suspend fun queueSpeechOutputVoice() {
         if (prefs.getBoolean(KEY_VOICE_QUEUED, false)) return
-        if (!voiceOutputPreferences.hasStoredEngine()) return
-        if (voiceOutputPreferences.selectedEngine.first() != VoiceOutputEngine.SherpaExperimental) return
+        val engine = voiceOutputPreferences.selectedEngine.first()
         val voice = voiceOutputPreferences.selectedSherpaVoice.first()
-        if (!voice.isDownloaded(context)) {
+        if (shouldQueueSpeechOutputVoice(engine, voice.isDownloaded(context))) {
             Log.i(TAG, "Queuing Piper voice ${voice.name}")
             voicePackDownloadManager.startDownload(voice)
         }
+        // Marked on every decided path, so a voice the user cancels or deletes is not queued again.
         prefs.edit().putBoolean(KEY_VOICE_QUEUED, true).apply()
     }
 
@@ -96,6 +96,10 @@ class VoiceDefaultsProvisioner @Inject constructor(
     }
 
     companion object {
+        /** Queue the voice once the engine is decided: only when Piper is effective and the voice is missing. */
+        internal fun shouldQueueSpeechOutputVoice(engine: VoiceOutputEngine, voiceDownloaded: Boolean): Boolean =
+            engine == VoiceOutputEngine.SherpaExperimental && !voiceDownloaded
+
         private const val PREFS_NAME = "voice_defaults_provisioner"
         private const val KEY_ZIPFORMER_QUEUED = "zipformer_queued_v1"
         private const val KEY_VOICE_QUEUED = "piper_voice_queued_v1"
