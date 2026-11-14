@@ -57,13 +57,36 @@ These are the structured logcat markers the harness reads. They are emitted by t
 | Marker | Report field | Format | Example |
 |--------|-------------|--------|---------|
 | `llm_tools_route` | `route_marker` | `result=<value> best_guess=<intent> confidence=<float>` | `result=fallthrough best_guess=null confidence=0.0` |
-| `llm_tools_native_tool` | `native_tool_marker` | Full tool-call JSON | `{"name":"query_wikipedia","arguments":{...}}` |
-| `llm_tools_legacy_tool` | `legacy_tool_marker` | Raw `<\|tool_call\|>` text | `<\|tool_call\|>call:query_wikipedia{query:...}` |
-| `llm_tools_skill_result` | `skill_result_marker` | `skill=... mode=<mode> success=<bool>` | `skill={"name":"query_wikipedia",...} mode=direct_reply success=true` |
+| `llm_tools_native_tool` | `native_tool_marker` | `tool=<safe name> requestLen=<n>`; verbose adds ` request=<json>` | `tool=query_wikipedia requestLen=84` |
+| `llm_tools_legacy_tool` | `legacy_tool_marker` | `tool=<safe name> len=<n>`; verbose adds ` raw=<text>` | `tool=query_wikipedia len=60` |
+| `llm_tools_skill_result` | `skill_result_marker` | `tool=<safe name> mode=<mode> success=<bool>` | `tool=query_wikipedia mode=direct_reply success=true` |
 | `llm_tools_message_toolcall_saved` | `message_saved_marker` | `id=<uuid> tool=<name>` | `id=7e195582-... tool=query_wikipedia` |
 | `tool_chip_visible` | `chip_text` | `tool=<name>` | `tool=query_wikipedia` |
 | `event_seq` | `tool_event_evidence` | `tool_call` or `tool_result` name and safe result fields | `tool_result name=load_skill resultType=Success ...` |
 | `llm_tools_tool_sequence` | `tool_sequence_marker` | `attempt=<tool> turn=<ordered tools> terminal=<tool>` | `attempt=run_intent turn=load_skill>run_intent terminal=run_intent` |
+
+## Debug verbose content (harness)
+
+Default logs carry sanitised identifiers only: tool/skill and intent names (`[a-z0-9_]`, truncated),
+parameter keys, and lengths. Reply text, parameter values, tool request JSON and raw legacy text
+are logged only when `DebugVerboseLog.active()` is true. That needs a debug build and a launch that
+carries the harness token (`adb_harness_token` extra, written with `run-as`). `MainActivity` sets the
+flag on every launch, so any launch without a valid token turns it off. Release builds never set it.
+
+This is a separate, debug-only, per-launch switch. It does not read the Settings "Verbose Logging"
+preference (`verbose_logging`); see `docs/SPECIFICATION.md` §7.3.
+
+Verbose lines the harness reads:
+
+| Line | Used for |
+|------|----------|
+| `verbose_params: intent=<name> params={k=v,...}` | parameter value checks (`extract_intent`) |
+| `verbose_direct_reply: <text>` | DirectReply reply text (`extract_reply`) |
+| `verbose_reply: <text>` | LLM fallthrough reply text (`extract_reply`) |
+
+Verbose lines still carry user content (including calendar titles and locations). Enable them only
+for local debugging. `ADB_INTENT_TRACE input=` is `redacted` unless verbose is on; the harness matches
+cases on the verbose form, so harness launches must carry the token.
 
 ## Fresh per-case log boundary
 
@@ -187,8 +210,8 @@ arguments and result content.
 The runtime log forms are:
 
 ```text
-event_seq: tool_call name=load_skill args=<omitted>
-event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content=<omitted>
+event_seq: tool_call name=load_skill argsLen=<n> args={"skill_name":"run_intent"}
+event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content="<first 256 chars>"
 llm_tools_tool_sequence: attempt=run_intent turn=load_skill>run_intent terminal=run_intent
 ```
 
