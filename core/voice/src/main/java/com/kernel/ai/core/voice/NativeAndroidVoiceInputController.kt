@@ -15,12 +15,12 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -181,6 +181,15 @@ internal fun shouldRefreshAlertRecognizerOnNoSpeech(
  */
 const val NO_SPEECH_WINDOW_EXHAUSTED = "no_speech_window_exhausted"
 
+/**
+ * Stable categories for on-device failures that the controller can hand to another recognizer
+ * (Zipformer) without user action: the recognizer never became ready, or it stopped responding
+ * before returning a result. Recognizer-reported errors (no match, speech timeout, network) keep
+ * a null category and are surfaced as-is.
+ */
+const val NATIVE_NOT_READY = "native_not_ready"
+const val NATIVE_STALLED = "native_stalled"
+
 internal fun shouldRetryWithPlatformAfterWatchdogTimeout(
     backend: RecognizerBackend,
     sawPartialTranscript: Boolean,
@@ -194,8 +203,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private val recognitionSupport: AndroidNativeRecognitionSupport,
 ) : VoiceInputController {
 
-    private val _events = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 8)
-    override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
+    private val _events = VoiceEventQueue(CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+    override val events: Flow<VoiceInputEvent> = _events.events
 
 
     private val audioManager by lazy {
@@ -451,6 +460,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         mode = mode,
                         captureSessionId = sessionId,
                         message = "On-device speech recognition didn't start. Please try again.",
+                        category = NATIVE_NOT_READY,
                     ),
                 )
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
@@ -642,7 +652,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         ) {
                             NO_SPEECH_WINDOW_EXHAUSTED
                         } else {
-                            null
+                            NATIVE_STALLED
                         },
                     ),
                 )

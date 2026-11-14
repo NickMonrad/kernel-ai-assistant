@@ -379,6 +379,9 @@ class ActionsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            voiceInputController.notices.collect { note -> _error.value = note }
+        }
+        viewModelScope.launch {
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
@@ -414,7 +417,11 @@ class ActionsViewModel @Inject constructor(
                         }
                     }
                     is VoiceInputEvent.Error -> {
-                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        if (!ownsVoiceCapture(event.mode)) {
+                            // Terminal errors always reach the user (#1853): ownership gating dropped them silently.
+                            _error.value = event.message
+                            return@collect
+                        }
                         // #790: Auto-retry with reprompt on voice errors during slot-fill or idle command.
                         when (event.mode) {
                             VoiceCaptureMode.SlotReply -> {

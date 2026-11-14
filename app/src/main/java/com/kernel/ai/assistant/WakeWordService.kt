@@ -298,6 +298,7 @@ internal suspend fun runWakeAttempt(
                     AcousticEventType.STT_ERROR,
                     metadata = { mapOf("category" to "stt_recognition_failed") },
                 )
+                terminalEvent.message.takeIf { it.isNotBlank() }?.let(onError)
                 // #1433: when the first session's no-speech window is fully exhausted
                 // (in-place refreshes spent and the platform still heard nothing), the
                 // command window has closed — a second attempt would only re-wait.

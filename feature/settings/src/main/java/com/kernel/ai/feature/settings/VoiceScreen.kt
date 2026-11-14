@@ -68,8 +68,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.HonorCameraCoexistence
+import com.kernel.ai.core.voice.androidNativeWarning
 import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
@@ -625,6 +626,19 @@ private fun VoiceScreenContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             VoiceInputEngine.entries.forEach { engine ->
+                val zipformerDownloaded =
+                    uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
+                val nativeWarningKind = if (engine == VoiceInputEngine.AndroidNative) {
+                    uiState.androidNativeCapabilities?.let { capabilities ->
+                        androidNativeWarning(
+                            capabilities = capabilities,
+                            localeReady = uiState.androidNativeLocaleReady,
+                            onlineAllowed = uiState.allowOnlineSpeechFallback,
+                        )
+                    }
+                } else {
+                    null
+                }
                 val warning = when (engine) {
                     VoiceInputEngine.AndroidNative ->
                         uiState.androidNativeAvailabilityMessage ?: engine.warning
@@ -659,7 +673,22 @@ private fun VoiceScreenContent(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
-                            if (engine == VoiceInputEngine.AndroidNative && warning != null) {
+                            if (engine == VoiceInputEngine.AndroidNative && nativeWarningKind != null) {
+                                VoiceWarningCard(
+                                    message = androidNativeWarningMessage(nativeWarningKind, zipformerDownloaded),
+                                    modifier = Modifier.padding(top = 8.dp),
+                                )
+                                Row(modifier = Modifier.padding(top = 4.dp)) {
+                                    TextButton(onClick = { onVoiceInputEngineSelected(VoiceInputEngine.Auto) }) {
+                                        Text("Use Automatic")
+                                    }
+                                    if (!uiState.allowOnlineSpeechFallback) {
+                                        TextButton(onClick = { onAllowOnlineSpeechFallbackChanged(true) }) {
+                                            Text("Allow online")
+                                        }
+                                    }
+                                }
+                            } else if (engine == VoiceInputEngine.AndroidNative && warning != null) {
                                 VoiceWarningCard(
                                     message = warning,
                                     modifier = Modifier.padding(top = 8.dp),
@@ -1566,6 +1595,24 @@ private fun KokoroSpeakerSelector(
                 }
             }
         }
+    }
+}
+
+private fun androidNativeWarningMessage(warning: AndroidNativeWarning, zipformerDownloaded: Boolean): String {
+    val fallback = if (zipformerDownloaded) {
+        "Sherpa-ONNX Zipformer is downloaded, so Automatic will use it."
+    } else {
+        "Download Sherpa-ONNX Zipformer for guaranteed offline voice input."
+    }
+    return when (warning) {
+        AndroidNativeWarning.NoRecognitionService ->
+            "Android speech recognition is not available on this device. $fallback"
+        AndroidNativeWarning.NoOnDeviceRecognizer ->
+            "No on-device Android speech recognizer. Offline capture cannot work. $fallback"
+        AndroidNativeWarning.LanguagePackMissing ->
+            "The on-device language pack for this device is missing. $fallback"
+        AndroidNativeWarning.OnlineOff ->
+            "Online speech is off. If the on-device recognizer stays silent, voice input stalls. $fallback"
     }
 }
 

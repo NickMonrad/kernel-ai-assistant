@@ -1,7 +1,12 @@
 package com.kernel.ai.core.voice
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicLong
 
 sealed interface VoiceInputStartResult {
@@ -56,6 +61,12 @@ sealed interface VoiceInputEvent {
 interface VoiceInputController {
     val events: Flow<VoiceInputEvent> get() = emptyFlow()
 
+    /**
+     * Best-effort user-facing notes, such as a Zipformer hand-off after Android native failed.
+     * Not terminal: a note emitted with no collector is not replayed.
+     */
+    val notices: Flow<String> get() = emptyFlow()
+
     suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult
 
     fun stopListening()
@@ -71,4 +82,27 @@ interface VoiceInputController {
      * [kotlinx.coroutines.runBlocking] when calling a [suspend] override.
      */
     suspend fun transcribeBlocking(pcm: ShortArray): String? = null
+}
+
+/**
+ * Ordered, lossless hand-off from a controller's callbacks to its collectors. [tryEmit] queues
+ * synchronously and never drops; a pump forwards each event to a [MutableSharedFlow].
+ *
+ * The previous `MutableSharedFlow(extraBufferCapacity = 8).tryEmit` returned false and dropped
+ * terminal Error/ListeningStopped events whenever the buffer was full, which left the UI
+ * stalled with no message (#1853).
+ */
+internal class VoiceEventQueue(scope: CoroutineScope) {
+    private val queue = Channel<VoiceInputEvent>(Channel.UNLIMITED)
+    private val shared = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 64)
+
+    val events: Flow<VoiceInputEvent> = shared.asSharedFlow()
+
+    init {
+        scope.launch {
+            for (event in queue) shared.emit(event)
+        }
+    }
+
+    fun tryEmit(event: VoiceInputEvent): Boolean = queue.trySend(event).isSuccess
 }
