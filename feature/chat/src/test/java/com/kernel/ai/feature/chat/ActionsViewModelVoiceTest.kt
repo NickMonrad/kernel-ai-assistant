@@ -4497,6 +4497,33 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `tapping a card clears a voice reply's Speaking banner`() = runTest(dispatcher) {
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Voice reply."))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Speaking("Voice reply."),
+            viewModel.voicePlaybackState.value,
+        )
+
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+        assertEquals("card-a", viewModel.speakingActionId.value)
+    }
+
+    @Test
+    fun `card whose speech stops without ever starting is cleared`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertNull(viewModel.speakingActionId.value)
+    }
+
+    @Test
     fun `stale stop from the previous card does not clear the card now speaking`() = runTest(dispatcher) {
         viewModel.toggleSpeakAction("card-a", "First reply.")
         advanceUntilIdle()

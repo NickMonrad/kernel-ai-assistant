@@ -84,9 +84,11 @@ class VoiceCommandHandler @Inject constructor(
             navigator.navigateToChat(context, transcript)
             return
         }
-        val entity = buildEntity(transcript, intentName, skillResult)
+        val entity = buildEntity(transcript, intentName, skillResult).copy(
+            spokenSummary = spokenSummaryFrom(skillResult),
+        )
         quickActionDao.insert(entity)
-        val spokenText = spokenSummaryFrom(skillResult) ?: entity.resultText
+        val spokenText = entity.spokenSummary ?: entity.resultText
         voiceOutputController.speak(VoiceSpeakRequest(spokenText))
     }
 

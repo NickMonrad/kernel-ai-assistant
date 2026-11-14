@@ -1790,7 +1790,7 @@ private fun ActionHistoryCard(
                 .fillMaxWidth()
                 .padding(12.dp),
         ) {
-            // Header: icon + query + delete
+            // Header: status icon, skill name, then speak, copy and delete actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
