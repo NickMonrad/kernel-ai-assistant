@@ -3,14 +3,18 @@ package com.kernel.ai.core.voice
 import android.util.Log
 
 /**
- * Debug-only trace of what each voice output engine starts speaking, and when.
+ * Trace of what each voice output engine starts speaking, and when.
+ *
+ * The `speaking_started` lines are debug-only: they are written only when [enabled] is set
+ * (debug builds) and the `KernelAI_TTS` log property is on. The epoch-stamped `SpeakingStarted`
+ * line from [logSpeakingStarted] carries no text and is always logged.
  *
  * Used by the #1736 showcase capture runner, which reads `adb logcat -s KernelAI_TTS` to
  * regenerate Jandal's spoken replies with the same voice and place them at the moment
  * playback started (Android does not let other apps record USAGE_ASSISTANT audio).
  *
  * One line per chunk, logged when that chunk starts playing, so a streamed reply gives one
- * line per sentence with its own start time. Two gates must both be open:
+ * line per sentence with its own start time. Both gates must be open for the text lines:
  * - [enabled], which the app sets only in debug builds;
  * - the log property, which only the capture runner sets
  *   (`adb shell setprop log.tag.KernelAI_TTS DEBUG`). An ordinary debug build therefore never
@@ -28,6 +32,10 @@ object VoiceOutputTrace {
     /** Test seam; production writes to logcat. */
     @Volatile
     internal var sink: ((String) -> Unit)? = null
+
+    /** Test seam for [logSpeakingStarted]; production writes to logcat. */
+    @Volatile
+    internal var startSink: ((String) -> Unit)? = null
 
     /**
      * `speaking_started engine=<e> chars=<n> part=<i>/<k> text=<text>`, where `chars` is the
@@ -49,5 +57,16 @@ object VoiceOutputTrace {
         } else if (Log.isLoggable(TAG, Log.DEBUG)) {
             lines(engine, text).forEach { Log.d(TAG, it) }
         }
+    }
+
+    /**
+     * Epoch-stamped `KernelAI` log at the moment playback starts (#1872). Carries only the engine
+     * and character count, never the text, so it is safe in ordinary logs and measurable with
+     * `adb logcat -v epoch -s KernelAI`.
+     */
+    fun logSpeakingStarted(engine: String, chars: Int) {
+        val line = "SpeakingStarted engine=$engine chars=$chars epochMs=${System.currentTimeMillis()}"
+        val testSink = startSink
+        if (testSink != null) testSink(line) else Log.i("KernelAI", line)
     }
 }

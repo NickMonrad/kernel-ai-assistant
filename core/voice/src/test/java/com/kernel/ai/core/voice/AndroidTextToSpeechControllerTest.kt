@@ -344,6 +344,29 @@ class AndroidTextToSpeechControllerTest {
     }
 
     @Test
+    fun `SpeakingStarted is logged once for a multi-chunk reply`() = runTest(dispatcher) {
+        val started = mutableListOf<String>()
+        VoiceOutputTrace.startSink = { started += it }
+        try {
+            val (controller, factory) = buildController()
+            val session = controller.openStreamingSession(VoiceSpeakRequest(text = "", locale = Locale.US))
+            session.append("First sentence.", isFinal = false)
+            session.append("Second sentence.", isFinal = false)
+            session.append("Third sentence.", isFinal = true)
+            val engine = factory.created.last()
+            val listener = slot<UtteranceProgressListener>()
+            verify { engine.setOnUtteranceProgressListener(capture(listener)) }
+            val ids = mutableListOf<String>()
+            verify { engine.speak(any(), any(), any(), capture(ids)) }
+            ids.forEach { listener.captured.onStart(it) }
+            assertEquals(1, started.size, "one SpeakingStarted per reply: $started")
+            assertTrue(started.single().startsWith("SpeakingStarted engine=android_tts chars=15 epochMs="))
+        } finally {
+            VoiceOutputTrace.startSink = null
+        }
+    }
+
+    @Test
     fun `speak falls back from unavailable regional locale to available language locale`() =
         runTest(dispatcher) {
             val (controller, factory) = buildController(

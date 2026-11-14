@@ -79,6 +79,7 @@ class InflectMicroVoiceOutputController @Inject constructor(
                         if (!started) {
                             requestAudioFocus()
                             VoiceOutputTrace.speakingStarted("inflect", request.text)
+                            VoiceOutputTrace.logSpeakingStarted("inflect", request.text.length)
                             eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStarted(request.text))
                             started = true
                         }
