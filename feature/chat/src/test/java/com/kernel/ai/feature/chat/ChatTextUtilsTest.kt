@@ -455,6 +455,70 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `NZ and AU street and place abbreviations do not end a chunk`() {
+            val buffer = StringBuilder(
+                "Walk up the slopes of Mt. Ruapehu before lunch. Then head down the Great North Rd. to the cafe.",
+            )
+
+            val first = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+            val second = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("Walk up the slopes of Mt. Ruapehu before lunch.", first)
+            assertEquals("Then head down the Great North Rd. to the cafe.", second)
+        }
+
+        @Test
+        fun `no is not an abbreviation so it still ends a chunk`() {
+            val buffer = StringBuilder("The answer is no. Then we leave the house now.")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("The answer is no.", chunk)
+        }
+
+        @Test
+        fun `abbreviation after an opening bracket or quote does not end a chunk`() {
+            val bracketed = StringBuilder("Ask (Dr. Smith) today. Then leave now.")
+            val quoted = StringBuilder("The sign read \"Mt. Ruapehu\" today. Then leave now.")
+
+            assertEquals(
+                "Ask (Dr. Smith) today.",
+                popNextStreamingSpeechChunk(buffer = bracketed, minChunkLength = 10, preferredChunkLength = 200),
+            )
+            assertEquals(
+                "The sign read \"Mt. Ruapehu\" today.",
+                popNextStreamingSpeechChunk(buffer = quoted, minChunkLength = 10, preferredChunkLength = 200),
+            )
+        }
+
+        @Test
+        fun `a capital initial that closes a sentence ends a chunk`() {
+            val buffer = StringBuilder("Visit the U.S. Meanwhile, rest here now.")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("Visit the U.S.", chunk)
+        }
+
+        @Test
+        fun `a single capital initial that closes a sentence ends a chunk`() {
+            val buffer = StringBuilder("Choose option B. Then rest here now.")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("Choose option B.", chunk)
+        }
+
+        @Test
+        fun `initials inside a name do not split the name`() {
+            val buffer = StringBuilder("Read J. R. R. Tolkien today. Then rest here now.")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("Read J. R. R. Tolkien today.", chunk)
+        }
+
+        @Test
         fun `forced final chunk adds sentence punctuation when missing`() {
             assertEquals(
                 "moh-reh-nah everyone.",

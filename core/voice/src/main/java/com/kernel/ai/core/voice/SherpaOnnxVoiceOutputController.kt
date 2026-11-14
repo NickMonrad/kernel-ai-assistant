@@ -198,7 +198,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     requestAudioFocus()
                     VoiceOutputTrace.speakingStarted("sherpa", spokenText)
                     VoiceOutputTrace.logSpeakingStarted(
-                        if (voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental) "kokoro" else "sherpa",
+                        if (isKokoro) "kokoro" else "sherpa",
                         spokenText.length,
                     )
                     _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
@@ -255,6 +255,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 chunks = chunks,
                 speakerCount = speakerCount,
                 activeSid = activeSid,
+                isKokoro = isKokoro,
             )
         }
         synchronized(playbackLock) {
@@ -417,6 +418,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         chunks: Channel<StreamingChunk>,
         speakerCount: Int,
         activeSid: Int,
+        isKokoro: Boolean,
     ) {
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
@@ -469,7 +471,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                         VoiceOutputTrace.speakingStarted("sherpa_stream", chunk.text)
                         if (!emittedStarted) {
                             VoiceOutputTrace.logSpeakingStarted(
-                                if (voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental) "kokoro" else "sherpa",
+                                if (isKokoro) "kokoro" else "sherpa",
                                 chunk.text.length,
                             )
                             _events.emit(VoiceOutputEvent.SpeakingStarted(request.text.ifBlank { "" }))

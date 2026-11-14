@@ -66,11 +66,17 @@ private fun formatToolCallForClipboard(toolCall: ToolCallInfo): String = buildSt
  * If [text] contains fewer than [maxSentences] sentence-ending boundaries the full text
  * is returned so short responses are never cut off.
  */
-private val KNOWN_ABBREV = setOf("dr", "mr", "mrs", "ms", "prof", "st", "vs", "etc", "jr", "sr")
+private val KNOWN_ABBREV = setOf(
+    "dr", "mr", "mrs", "ms", "prof", "jr", "sr", "vs", "etc",
+    // NZ/AU street and place forms: "Mt. Ruapehu", "Great North Rd. Ponsonby".
+    "st", "rd", "ave", "pl", "cres", "hwy", "tce", "ln", "blvd", "ct", "rte", "pde", "cct", "ste", "mt",
+)
 private val INITIALS_REGEX = Regex("""([A-Za-z]\.)+""")  // matches "U.S.", "e.g.", "i.e."
+private val CAPITAL_INITIALS_REGEX = Regex("""([A-Z]\.)+""")  // "B.", "U.S."; not "e.g."
 
+// Quotes and brackets can open a token: "(Dr." and "\"Mt." are still the abbreviation.
 private fun isAbbreviationFragment(fragment: String): Boolean {
-    val trimmed = fragment.trim()
+    val trimmed = fragment.trim().trimStart('(', '[', '"', '\'')
     if (trimmed.contains(' ')) return false          // multi-word — never an abbreviation fragment
     val withoutTrailingPunct = trimmed.trimEnd('.', '!', '?', '"', '\'', ')')
     return withoutTrailingPunct.lowercase() in KNOWN_ABBREV ||
@@ -82,6 +88,31 @@ private fun endsWithAbbreviation(text: String, periodIndex: Int): Boolean {
     var start = periodIndex
     while (start > 0 && !text[start - 1].isWhitespace()) start--
     return isAbbreviationFragment(text.substring(start, periodIndex + 1))
+}
+
+/**
+ * True when the `.` at [periodIndex] ends a capital initial (`option B.`, `the U.S.`) that
+ * closes a sentence: the next word starts with a capital and is not an initial, and the word
+ * before the initial is not an initial (`J. R. R. Tolkien` never splits inside the name).
+ * Limitation: a name such as "John F. Kennedy" splits after "F." because "Kennedy" looks like a new sentence.
+ */
+private fun endsInitialSentence(text: String, periodIndex: Int): Boolean {
+    var start = periodIndex
+    while (start > 0 && !text[start - 1].isWhitespace()) start--
+    val token = text.substring(start, periodIndex + 1).trimStart('(', '[', '"', '\'')
+    if (!CAPITAL_INITIALS_REGEX.matches(token)) return false
+
+    val nextWord = Regex("""\S+""").find(text, periodIndex + 1)?.takeIf { match ->
+        match.range.first > periodIndex + 1      // a whitespace must separate the period and the word
+    }?.value ?: return false
+    if (!nextWord[0].isUpperCase() || Regex("""[A-Z]\.""").matches(nextWord.take(2))) return false
+
+    var prevEnd = start
+    while (prevEnd > 0 && text[prevEnd - 1].isWhitespace()) prevEnd--
+    var prevStart = prevEnd
+    while (prevStart > 0 && !text[prevStart - 1].isWhitespace()) prevStart--
+    val prev = text.substring(prevStart, prevEnd).trimStart('(', '[', '"', '\'')
+    return !INITIALS_REGEX.matches(prev)
 }
 
 internal fun truncateForSpeech(text: String, maxSentences: Int): String {
@@ -259,7 +290,7 @@ private fun findSpeechChunkBoundary(
                 if (next == null || next.isWhitespace() || next == '"' || next == '\'' || next == ')') {
                     val boundary = index + 1
                     if (boundary >= minChunkLength && !splitsStructuredValue(text, boundary) &&
-                        !(char == '.' && endsWithAbbreviation(text, index))
+                        !(char == '.' && endsWithAbbreviation(text, index) && !endsInitialSentence(text, index))
                     ) {
                         return SpeechChunkBoundary(index = boundary, type = SpeechChunkBoundaryType.STRONG)
                     }

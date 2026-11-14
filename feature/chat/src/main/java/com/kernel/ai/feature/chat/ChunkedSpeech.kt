@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 internal const val VOICE_FIRST_CHUNK_MIN_LENGTH = 40
 internal const val VOICE_MIN_CHUNK_LENGTH = 72
 internal const val VOICE_PREFERRED_CHUNK_LENGTH = 180
+internal const val VOICE_MIN_FINAL_CHUNK_LENGTH = 20
 
 /**
  * Speaks [text] through a streaming session, one sentence-sized chunk at a time, so the first
@@ -31,12 +32,19 @@ internal suspend fun speakInSentenceChunks(
             // A short first chunk lets playback start while the rest is synthesised (#1872).
             val minLength = if (isFirst) VOICE_FIRST_CHUNK_MIN_LENGTH else VOICE_MIN_CHUNK_LENGTH
             val preferredLength = VOICE_PREFERRED_CHUNK_LENGTH
-            val chunk = popNextStreamingSpeechChunk(
+            var chunk = popNextStreamingSpeechChunk(
                 buffer = buffer,
                 minChunkLength = minLength,
                 preferredChunkLength = preferredLength,
                 force = buffer.length < minLength,
             ) ?: break
+            // A tail under ~20 characters ("Thanks.") would be a separate, barely audible chunk;
+            // fold it into this one. The whole reply is known here, so the tail is final.
+            val tail = buffer.toString().trim()
+            if (tail.isNotEmpty() && tail.length < VOICE_MIN_FINAL_CHUNK_LENGTH) {
+                buffer.setLength(0)
+                chunk = "$chunk ${finalizeChatTextForSpeech(tail)}"
+            }
             isFirst = false
             val isLast = buffer.isBlank()
             val result = session.append(chunk, isFinal = isLast)

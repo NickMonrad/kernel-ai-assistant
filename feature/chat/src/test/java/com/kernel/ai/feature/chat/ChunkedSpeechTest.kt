@@ -84,6 +84,18 @@ class ChunkedSpeechTest {
     }
 
     @Test
+    fun `a short final sentence is folded into the chunk before it`() = runTest {
+        val reply = "In Palmerston North, Manawatu-Wanganui, it's 24 degrees with partly cloudy skies " +
+            "and a light breeze, feeling like 25 degrees. Thanks."
+
+        speakInSentenceChunks(controller, reply)
+
+        assertEquals(1, appended.size, "a 7-character tail must not be its own chunk: $appended")
+        assertTrue(appended.single().first.endsWith("feeling like 25 degrees. Thanks."), "chunks: $appended")
+        assertTrue(appended.single().second, "the only chunk must be final")
+    }
+
+    @Test
     fun `a chunk the engine rejects closes the session and reports unavailable`() = runTest {
         val calls = mutableListOf<Pair<String, Boolean>>()
         val failing = object : VoiceOutputStreamingSession {
