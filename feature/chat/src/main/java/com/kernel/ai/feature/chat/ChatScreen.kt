@@ -407,6 +407,7 @@ fun ChatScreen(
                     // Silently denied: the system will not prompt again, so send the user to App info.
                     if (silent) openRuntimePermissionRepair(permission)
                 }
+                if (results.values.all { it }) viewModel.onCalendarPermissionGranted() else viewModel.onCalendarPermissionDenied()
             }
             fun requestCalendarPermissions(permissions: List<String>) {
                 val store = PermissionRequestStore.from(context)
@@ -430,6 +431,9 @@ fun ChatScreen(
                 if (toRequest.isNotEmpty()) {
                     pendingCalendarLaunchedAt = android.os.SystemClock.elapsedRealtime()
                     calendarPermissionLauncher.launch(toRequest.toTypedArray())
+                } else {
+                    // Every permission is already granted (e.g. granted in Settings): resume directly.
+                    viewModel.onCalendarPermissionGranted()
                 }
             }
 

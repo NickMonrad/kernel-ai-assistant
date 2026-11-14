@@ -512,6 +512,67 @@ class ChatViewModelQuickIntentRouterTest {
     }
 
     @Test
+    fun `calendar grant re-runs the pending read request and answers it`() = runTest(dispatcher) {
+        var calendarResult: SkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.CalendarLookup,
+            skillName = "read_calendar_events",
+        )
+        val calendarSkill = object : Skill {
+            override val name = "read_calendar_events"
+            override val description = "Read calendar events"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = calendarResult
+        }
+        every { skillRegistry.get("read_calendar_events") } returns calendarSkill
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's on my calendar today")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        assertTrue(
+            viewModel.getConversationAsText().contains("Allow Calendar in app permissions"),
+            viewModel.getConversationAsText(),
+        )
+
+        calendarResult = SkillResult.Success("You have 1 event today: Dentist at 9 AM.")
+        viewModel.onCalendarPermissionGranted()
+        advanceUntilIdle()
+
+        val text = viewModel.getConversationAsText()
+        assertTrue(text.contains("You have 1 event today: Dentist at 9 AM."), text)
+        // Denial/grant clears the pending request: a second grant must not re-run it.
+        viewModel.onCalendarPermissionGranted()
+        advanceUntilIdle()
+        assertEquals(text, viewModel.getConversationAsText())
+    }
+
+    @Test
+    fun `calendar denial drops the pending read request`() = runTest(dispatcher) {
+        val calendarSkill = object : Skill {
+            override val name = "read_calendar_events"
+            override val description = "Read calendar events"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarLookup,
+                skillName = "read_calendar_events",
+            )
+        }
+        every { skillRegistry.get("read_calendar_events") } returns calendarSkill
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's on my calendar today")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        val before = viewModel.getConversationAsText()
+
+        viewModel.onCalendarPermissionDenied()
+        viewModel.onCalendarPermissionGranted()
+        advanceUntilIdle()
+
+        assertEquals(before, viewModel.getConversationAsText())
+    }
+
+    @Test
     fun `weather with location still routes through QIR and preserves location`() = runTest(dispatcher) {
         val input = "what's the weather in London"
 

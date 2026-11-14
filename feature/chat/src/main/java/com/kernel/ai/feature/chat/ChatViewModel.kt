@@ -269,6 +269,13 @@ class ChatViewModel @Inject constructor(
         val submitMode: SubmitMode,
     )
 
+    private data class PendingCalendarPermissionAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val submitMode: SubmitMode,
+    )
+
     /** The voice mode the user chose before requesting mic permission (OneShot or BackAndForth). */
     private val _pendingChatMicMode = MutableStateFlow<VoiceMode?>(null)
 
@@ -306,6 +313,7 @@ class ChatViewModel @Inject constructor(
     private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
     private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
+    private var pendingCalendarPermissionAction: PendingCalendarPermissionAction? = null
     private var awaitingWeatherLocationSettingsReturn = false
     private val denialClassifier = PermissionDenialClassifier()
     val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
@@ -1797,6 +1805,25 @@ class ChatViewModel @Inject constructor(
         _error.value = null
     }
 
+    /** Re-runs the pending calendar request after the in-chat calendar permission prompt is granted. */
+    fun onCalendarPermissionGranted() {
+        val pending = pendingCalendarPermissionAction ?: return
+        pendingCalendarPermissionAction = null
+        pendingVoiceReply = pending.submitMode == SubmitMode.Voice
+        viewModelScope.launch {
+            val convId = conversationId ?: return@launch
+            retryWeatherLocationAction(
+                convId,
+                PendingWeatherLocationAction(pending.query, pending.intentName, pending.params, pending.submitMode),
+            )
+        }
+    }
+
+    /** Drops the pending calendar request when the in-chat calendar permission prompt is denied. */
+    fun onCalendarPermissionDenied() {
+        pendingCalendarPermissionAction = null
+    }
+
     /** Retries the original local-weather request after ACCESS_COARSE_LOCATION is granted. */
     fun onWeatherLocationPermissionGranted() {
         awaitingWeatherLocationSettingsReturn = false
@@ -2916,6 +2943,16 @@ class ChatViewModel @Inject constructor(
                                 )
                             } else {
                                 val message = capabilityRequiredMessage(skillResult)
+                                if (skillResult.capabilityKey == CapabilityKey.CalendarLookup ||
+                                    skillResult.capabilityKey == CapabilityKey.CalendarWrite
+                                ) {
+                                    pendingCalendarPermissionAction = PendingCalendarPermissionAction(
+                                        query = text,
+                                        intentName = matchedIntent.intentName,
+                                        params = callParams,
+                                        submitMode = submitMode,
+                                    )
+                                }
                                 requestCalendarPermissionIfNeeded(skillResult.capabilityKey)
                                 appendAssistantMessage(
                                     convId = convId,

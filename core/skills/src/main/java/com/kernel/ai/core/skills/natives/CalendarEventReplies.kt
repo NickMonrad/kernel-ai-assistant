@@ -151,7 +151,7 @@ object CalendarEventReplies {
         calendarName: String?,
         zone: ZoneId,
     ): String {
-        val calendarPart = calendarName?.takeIf { it.isNotBlank() }?.let { " to $it" } ?: ""
+        val calendarPart = spokenCalendarName(calendarName)?.let { " to $it" } ?: ""
         return if (allDay) {
             val day = Instant.ofEpochMilli(beginMillis).atZone(ZoneOffset.UTC).toLocalDate()
             "Added '$title'$calendarPart for ${day.format(DAY_FORMAT)}, all day."
@@ -169,7 +169,7 @@ object CalendarEventReplies {
 
     private fun describe(event: CalendarEventRecord, zone: ZoneId, withDay: Boolean): String {
         val title = event.title.ifBlank { "Untitled event" }
-        val calendarPart = event.calendarName.takeIf { it.isNotBlank() }?.let { ", on $it" } ?: ""
+        val calendarPart = spokenCalendarName(event.calendarName)?.let { ", on $it" } ?: ""
         val locationPart = event.location?.let { ", at $it" } ?: ""
         val whenPart = if (event.allDay) {
             val day = Instant.ofEpochMilli(event.beginMillis).atZone(ZoneOffset.UTC).toLocalDate()
@@ -182,6 +182,15 @@ object CalendarEventReplies {
         }
         return "$whenPart: $title$calendarPart$locationPart".replaceFirstChar { it.uppercaseChar() }
     }
+
+    /**
+     * Calendar name for speech and display, or null when it is blank or looks like an email address.
+     * Google accounts default the calendar name to the account email; that must not be read aloud.
+     */
+    fun spokenCalendarName(name: String?): String? =
+        name?.trim()?.takeIf { it.isNotEmpty() && !EMAIL_LIKE.containsMatchIn(it) }
+
+    private val EMAIL_LIKE = Regex("""[^\s@]+@[^\s@]+""")
 
     private fun nextMonday(date: LocalDate): LocalDate =
         date.with(TemporalAdjusters.next(DayOfWeek.MONDAY))

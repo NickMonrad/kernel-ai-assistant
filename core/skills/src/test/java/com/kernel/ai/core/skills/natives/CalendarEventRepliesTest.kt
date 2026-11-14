@@ -174,4 +174,59 @@ class CalendarEventRepliesTest {
             assertFalse(CalendarEventReplies.matchesKeyword(event, "gym"))
         }
     }
+
+    @Nested
+    inner class CalendarNames {
+        private val day = LocalDate.of(2026, 6, 1)
+
+        private fun timedIn(calendar: String) = CalendarEventRecord(
+            title = "Dentist",
+            beginMillis = day.atTime(9, 0).atZone(utc).toInstant().toEpochMilli(),
+            endMillis = day.atTime(10, 0).atZone(utc).toInstant().toEpochMilli(),
+            allDay = false,
+            calendarName = calendar,
+            location = null,
+        )
+
+        @Test
+        fun readReplyOmitsGoogleAccountEmailCalendarName() {
+            val reply = CalendarEventReplies.formatRead(
+                CalendarRange.TODAY, null, listOf(timedIn("nick.monrad@gmail.com")), utc,
+            )
+            assertFalse(reply.contains("@"), reply)
+            assertFalse(reply.contains("gmail"), reply)
+            assertFalse(reply.contains(" on "), reply)
+            assertTrue(reply.contains("Dentist"), reply)
+        }
+
+        @Test
+        fun readReplyKeepsPlainCalendarName() {
+            val reply = CalendarEventReplies.formatRead(
+                CalendarRange.TODAY, null, listOf(timedIn("Work")), utc,
+            )
+            assertTrue(reply.contains(", on Work"), reply)
+        }
+
+        @Test
+        fun createdReplyOmitsEmailCalendarName() {
+            val begin = day.atTime(9, 0).atZone(utc).toInstant().toEpochMilli()
+            val reply = CalendarEventReplies.formatCreated(
+                title = "Dentist",
+                beginMillis = begin,
+                endMillis = begin + 3_600_000L,
+                allDay = false,
+                calendarName = "nick.monrad@gmail.com",
+                zone = utc,
+            )
+            assertFalse(reply.contains("@"), reply)
+            assertFalse(reply.contains(" to nick"), reply)
+        }
+
+        @Test
+        fun spokenCalendarNameDropsEmailShapedAndBlankNames() {
+            assertEquals(null, CalendarEventReplies.spokenCalendarName("  "))
+            assertEquals(null, CalendarEventReplies.spokenCalendarName("Work (me@example.com)"))
+            assertEquals("Work", CalendarEventReplies.spokenCalendarName(" Work "))
+        }
+    }
 }
