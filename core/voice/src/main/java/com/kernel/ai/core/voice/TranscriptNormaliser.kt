@@ -51,6 +51,15 @@ object TranscriptNormaliser {
         Regex("""\bfattypucker\b""", RegexOption.IGNORE_CASE) to "wharepaku",
     )
 
+    /** Auckland mishears from STT: #1894. Whole-word only; "Oakland" is deliberately untouched. */
+    private val AUCKLAND_REPLACEMENTS: List<Pair<Regex, String>> = listOf(
+        // "weather an <Auckland-ish>" → "weather in Auckland" (only the weather phrasing; "an" is never the intended word here)
+        Regex("""\b(weather)\s+an\s+(?:aukland|orkland|ockland|auckland)\b""", RegexOption.IGNORE_CASE) to "$1 in Auckland",
+        Regex("""\baukland\b""", RegexOption.IGNORE_CASE) to "Auckland",
+        Regex("""\borkland\b""", RegexOption.IGNORE_CASE) to "Auckland",
+        Regex("""\bockland\b""", RegexOption.IGNORE_CASE) to "Auckland",
+    )
+
     /** Unit/abbreviation normalisations: #1017. */
     private val STT_UNIT_ALIAS_REPLACEMENTS: List<Pair<Regex, String>> = listOf(
         // #1017 — mls / Mills / mils / ml's -> ml
@@ -72,6 +81,9 @@ object TranscriptNormaliser {
     fun normalise(text: String): String {
         if (text.isBlank()) return text
         var out = text
+        for ((re, replacement) in AUCKLAND_REPLACEMENTS) {
+            out = re.replace(out, replacement)
+        }
         for ((re, replacement) in KIWI_PHONETIC_REPLACEMENTS) {
             val before = out
             out = re.replace(out, replacement)

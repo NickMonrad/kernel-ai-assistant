@@ -241,6 +241,55 @@ internal fun wmoDescription(code: Int): String = when (code) {
     else -> "Unknown"
 }
 
+/** A geocoding match and the country it resolved to (#1894). */
+internal data class GeocodeCandidate(
+    val lat: Double,
+    val lon: Double,
+    val countryCode: String?,
+    val countryName: String?,
+)
+
+/** Geocoding outcome; separates "no such place" from "service unreachable". */
+internal sealed class GeocodeOutcome {
+    data class Found(val candidate: GeocodeCandidate) : GeocodeOutcome()
+    data object NotFound : GeocodeOutcome()
+    data object Unavailable : GeocodeOutcome()
+}
+
+internal fun parseGeocodeCandidate(obj: JSONObject?): GeocodeCandidate? {
+    if (obj == null) return null
+    val lat = obj.optString("lat").toDoubleOrNull() ?: return null
+    val lon = obj.optString("lon").toDoubleOrNull() ?: return null
+    val address = obj.optJSONObject("address")
+    return GeocodeCandidate(
+        lat = lat,
+        lon = lon,
+        countryCode = address?.optString("country_code")?.takeIf { it.isNotBlank() },
+        countryName = address?.optString("country")?.takeIf { it.isNotBlank() },
+    )
+}
+
+/** Prefer the best-ranked candidate in the highest-priority country; otherwise keep provider order. */
+internal fun rankGeocodeCandidates(
+    candidates: List<GeocodeCandidate>,
+    preferredCountryCodes: List<String>,
+): GeocodeCandidate? {
+    if (candidates.isEmpty()) return null
+    return preferredCountryCodes.asSequence()
+        .mapNotNull { code -> candidates.firstOrNull { it.countryCode.equals(code, ignoreCase = true) } }
+        .firstOrNull() ?: candidates.first()
+}
+
+/** Append the country name when the match is outside the user's home (first preferred) country. */
+internal fun weatherLocationLabel(
+    query: String,
+    candidate: GeocodeCandidate,
+    preferredCountryCodes: List<String>,
+): String {
+    val home = preferredCountryCodes.firstOrNull() ?: return query
+    val countryName = candidate.countryName ?: return query
+    return if (candidate.countryCode.equals(home, ignoreCase = true)) query else "$query, $countryName"
+}
 // ── Weather lookup mode and failure reason helpers ──────────────────────────
 
 /**
@@ -263,6 +312,7 @@ internal enum class WeatherLookupFailureReason {
     CURRENT_LOCATION_UNAVAILABLE,
     NAMED_LOCATION_NOT_FOUND,
     API_UNAVAILABLE,
+    GEOCODE_UNAVAILABLE,
 }
 
 /** Human-readable user-facing message for each failure reason. */
@@ -275,6 +325,8 @@ internal fun weatherFailureMessage(reason: WeatherLookupFailureReason): String =
         "I couldn't find that location for weather. Try another city, like \"weather in Brisbane\"."
     WeatherLookupFailureReason.API_UNAVAILABLE ->
         "Unable to fetch weather data right now. Please try again in a moment."
+    WeatherLookupFailureReason.GEOCODE_UNAVAILABLE ->
+        "I couldn't reach the location service just now. Please try again in a moment."
 }
 // ── Weather cache constants ──────────────────────────────────────────────────
 
@@ -600,12 +652,21 @@ class GetWeatherSkill @Inject constructor(
         targetWeekend: Boolean = false,
         cacheKey: String,
     ): LiveFetchResult {
-        val resolvedLocationName = resolveIndirectLocationReference(locationName) ?: locationName
-        val coordinates = geocodeLocation(resolvedLocationName)
-            ?: run {
-                Log.i(TAG, "Named-location weather geocode failed for '$resolvedLocationName'")
+        val query = resolveIndirectLocationReference(locationName) ?: locationName
+        val preferred = preferredCountryCodes()
+        val candidate = when (val outcome = geocodeLocation(query, preferred)) {
+            is GeocodeOutcome.Found -> outcome.candidate
+            GeocodeOutcome.NotFound -> {
+                Log.i(TAG, "Named-location weather geocode: no match")
                 return LiveFetchResult.Failed(WeatherLookupFailureReason.NAMED_LOCATION_NOT_FOUND)
             }
+            GeocodeOutcome.Unavailable -> {
+                Log.w(TAG, "Named-location weather geocode unavailable")
+                return LiveFetchResult.Failed(WeatherLookupFailureReason.GEOCODE_UNAVAILABLE)
+            }
+        }
+        val resolvedLocationName = weatherLocationLabel(query, candidate, preferred)
+        val coordinates = candidate.lat to candidate.lon
 
         val result = when {
             targetWeekend -> fetchWeekendForecast(
@@ -684,28 +745,62 @@ class GetWeatherSkill @Inject constructor(
         }
     }
 
-    private suspend fun geocodeLocation(locationName: String): Pair<Double, Double>? = withContext(Dispatchers.IO) {
-        try {
+    private suspend fun geocodeLocation(locationName: String, preferredCountryCodes: List<String>): GeocodeOutcome =
+        withContext(Dispatchers.IO) {
             val url = "https://nominatim.openstreetmap.org/search" +
                 "?q=${java.net.URLEncoder.encode(locationName, "UTF-8")}" +
-                "&format=json&limit=1"
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "KernelAI/1.0 (Android)")
-                .build()
+                "&format=json&limit=5&addressdetails=1"
+            val body = retryWithBackoff("Geocode") {
+                val request = Request.Builder().url(url).header("User-Agent", "KernelAI/1.0 (Android)").build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw IllegalStateException("Geocode returned ${response.code}")
+                    response.body?.string() ?: throw IllegalStateException("Empty geocode response")
+                }
+            } ?: return@withContext GeocodeOutcome.Unavailable
+            try {
+                val array = org.json.JSONArray(body)
+                val candidates = (0 until array.length()).mapNotNull { parseGeocodeCandidate(array.optJSONObject(it)) }
+                rankGeocodeCandidates(candidates, preferredCountryCodes)
+                    ?.let { GeocodeOutcome.Found(it) } ?: GeocodeOutcome.NotFound
+            } catch (e: org.json.JSONException) {
+                Log.w(TAG, "Geocode response unparseable")
+                GeocodeOutcome.Unavailable
+            }
+        }
+
+    /**
+     * Country codes to bias geocoding toward, most preferred first: the country of the last known
+     * device location (only when location permission is granted), then the device locale regions.
+     */
+    private suspend fun preferredCountryCodes(): List<String> {
+        val lastKnownCountry = if (
+            ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            getLastKnownLocation()?.let { countryCodeAt(it.latitude, it.longitude) }
+        } else {
+            null
+        }
+        val localeCountries = runCatching {
+            val locales = context.resources.configuration.locales
+            (0 until locales.size()).mapNotNull { locales[it].country.takeIf { c -> c.isNotBlank() }?.lowercase() }
+        }.getOrDefault(emptyList())
+        return (listOfNotNull(lastKnownCountry) + localeCountries).distinct()
+    }
+
+    private suspend fun countryCodeAt(lat: Double, lon: Double): String? = withContext(Dispatchers.IO) {
+        try {
+            val url = "https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json&zoom=3"
+            val request = Request.Builder().url(url).header("User-Agent", "KernelAI/1.0 (Android)").build()
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
-                val jsonArray = org.json.JSONArray(body)
-                if (jsonArray.length() == 0) return@withContext null
-                val firstResult = jsonArray.getJSONObject(0)
-                val lat = firstResult.optDouble("lat", Double.NaN)
-                val lon = firstResult.optDouble("lon", Double.NaN)
-                if (lat.isNaN() || lon.isNaN()) return@withContext null
-                Pair(lat, lon)
+                JSONObject(body).optJSONObject("address")?.optString("country_code")?.takeIf { it.isNotBlank() }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Geocoding failed for: $locationName", e)
+            Log.w(TAG, "Country lookup for location bias failed")
             null
         }
     }
