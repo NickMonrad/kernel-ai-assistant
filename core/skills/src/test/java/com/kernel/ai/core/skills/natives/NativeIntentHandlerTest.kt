@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.provider.ContactsContract
 import android.util.Log
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.ClockAlarm
@@ -1515,6 +1516,40 @@ class NativeIntentHandlerTest {
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(42L, listOf("kiwi")) }
+    }
+
+    @Test
+    fun `every handled intent name reaches a dispatch branch`() {
+        val unhandled = NativeIntentHandler.HANDLED_INTENT_NAMES.filter { name ->
+            val result = handleIntent(name, emptyMap())
+            result is SkillResult.Failure && result.error.startsWith("Unknown intent")
+        }
+        assertEquals(emptyList<String>(), unhandled)
+    }
+
+    @Test
+    fun `add_to_list success is logged as a successful intent outcome`() {
+        stubMixedCaseMealPlan()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(42L, "Dessert", any(), any()) } returns 8L
+        coEvery { listItemDao.getByList(42L) } returns emptyList()
+        JandalEvents.install(java.io.File.createTempFile("jandal-intent-outcome", ".log"))
+
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to "Dessert", "list_name" to "meal plan"),
+        )
+        JandalEvents.awaitWritesForTest()
+
+        assertInstanceOf(SkillResult.DirectReply::class.java, result)
+        JandalEvents.awaitWritesForTest()
+        val exported = JandalEvents.exportLines()
+        val line = exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1).last { " intent add_to_list " in it }
+        assertTrue(line.contains("success=true"), line)
+        assertTrue(line.contains("outcome=SUCCESS"), line)
     }
 
     @Test

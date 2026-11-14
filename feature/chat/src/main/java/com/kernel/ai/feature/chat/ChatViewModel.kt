@@ -50,6 +50,8 @@ import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.LocalToolDiagnosticCapture
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
+import com.kernel.ai.core.skills.SkillOutcomeEvents
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.toSpokenSummary
@@ -92,6 +94,8 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.latestNoticeFor
+import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -418,6 +422,10 @@ class ChatViewModel @Inject constructor(
     */
     private var chatCommandVoiceRetryCount = 0
     private var awaitingVoicePlaybackCompletion = false
+
+    /** Capture session of the current chat voice input; its notes are shown (#1853, #1866). */
+    private var chatVoiceSessionId: Long? = null
+    private var chatVoiceNoticeJob: Job? = null
 
     /** Active voice interaction mode, or null when no voice session is running (#741). */
     private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
@@ -753,13 +761,16 @@ class ChatViewModel @Inject constructor(
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
-                        // #790: Retry once before surfacing the error to the user.
-                        if (chatCommandVoiceRetryCount < 1) {
+                        // #790: Retry once before surfacing the error to the user. #1853: not after
+                        // a Zipformer hand-off; a retry would start the failing native recognizer again.
+                        val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
+                        if (chatCommandVoiceRetryCount < 1 && !handedOff) {
                             chatCommandVoiceRetryCount++
                             Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
                             _voiceCaptureState.value = VoiceCaptureState.Preparing
                             when (val r = voiceInputController.startListening(VoiceCaptureMode.Command)) {
                                 is VoiceInputStartResult.Started -> {
+                                    bindChatVoiceSession(r.captureSessionId)
                                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                                     }
@@ -1492,7 +1503,7 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        when (val result = skill.execute(SkillCall(skill.name, callParams))) {
+        when (val result = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.OTHER)) {
             is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
                 convId = convId,
                 content = result.content,
@@ -1610,6 +1621,14 @@ class ChatViewModel @Inject constructor(
     private fun ownsCommandVoiceCapture(): Boolean =
         _voiceCaptureState.value != VoiceCaptureState.Idle
 
+    /** Shows the notes for this chat capture (#1853 Zipformer hand-off, #1866) in the error line. */
+    private fun bindChatVoiceSession(captureSessionId: Long) {
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceSessionId = captureSessionId
+        chatVoiceNoticeJob = viewModelScope.launch {
+            voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
+        }
+    }
 
     private fun startVoiceInput(mode: VoiceMode) {
         if (inferenceEngine.isGenerating.value || _isLoadingModel.value) return
@@ -1626,6 +1645,7 @@ class ChatViewModel @Inject constructor(
             _voiceCaptureState.value = VoiceCaptureState.Preparing
             when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
                 is VoiceInputStartResult.Started -> {
+                    bindChatVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }
@@ -1653,6 +1673,7 @@ class ChatViewModel @Inject constructor(
             _voiceCaptureState.value = VoiceCaptureState.Preparing
             when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
                 is VoiceInputStartResult.Started -> {
+                    bindChatVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }
@@ -1830,6 +1851,10 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
+        // A note from a hand-off that lands just before the stop must not show while idle.
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceNoticeJob = null
+        chatVoiceSessionId = null
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
@@ -2232,7 +2257,7 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         if (skill != null) {
-                            val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                            val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.SLOT_FILL)
                             when (skillResult) {
                                 is SkillResult.DirectReply -> {
                                     appendAssistantMessageWithToolCall(
@@ -2300,7 +2325,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         Log.d("KernelAI", "RecoveryConfirmation: dispatching ${pendingConfirmation.intentName}")
-                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.CONFIRMATION)
                         when (skillResult) {
                             is SkillResult.DirectReply -> {
                                 appendAssistantMessageWithToolCall(
@@ -2354,7 +2379,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
-                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.CONFIRMATION)
                         when (skillResult) {
                             is SkillResult.DirectReply -> {
                                 appendAssistantMessageWithToolCall(
@@ -2510,7 +2535,7 @@ class ChatViewModel @Inject constructor(
                     )
                     return@launch
                 }
-                when (val result = searchMemory.execute(SkillCall(searchMemory.name, mapOf("query" to text)))) {
+                when (val result = SkillOutcomeEvents.execute(searchMemory, mapOf("query" to text), IntentRoute.OTHER)) {
                     is SkillResult.DirectReply -> {
                         appendAssistantMessageWithToolCall(
                             convId = convId,
@@ -2615,7 +2640,7 @@ class ChatViewModel @Inject constructor(
                                     return@launch
                                 }
                                 Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} params=$callParams")
-                                val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                                val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.RECOVERY)
                                 when (skillResult) {
                                     is SkillResult.DirectReply -> {
                                         appendAssistantMessageWithToolCall(
@@ -2742,7 +2767,15 @@ class ChatViewModel @Inject constructor(
                 }
                 if (skill != null) {
                     Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} params=$callParams")
-                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    val skillResult = SkillOutcomeEvents.execute(
+                        skill,
+                        callParams,
+                        when (routeResult) {
+                            is QuickIntentRouter.RouteResult.RegexMatch -> IntentRoute.QUICK_REGEX
+                            is QuickIntentRouter.RouteResult.ClassifierMatch -> IntentRoute.QUICK_CLASSIFIER
+                            else -> IntentRoute.OTHER
+                        },
+                    )
                     when (skillResult) {
                         is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
                             // Skill produced a complete, self-contained reply — show it verbatim
@@ -2935,7 +2968,7 @@ class ChatViewModel @Inject constructor(
                         Log.d("KernelAI", "AnaphoricIntent: slot_validation_blocked intent=${anaphoricIntent.intentName}")
                         return@launch
                     }
-                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.OTHER)
                     when (skillResult) {
                         is SkillResult.DirectReply -> {
                             appendAssistantMessageWithToolCall(
@@ -4705,7 +4738,7 @@ class ChatViewModel @Inject constructor(
                 }
 
                 Log.d("KernelAI", "AnaphoricListAdd: resolved item_count=${resolution.items.size}")
-                when (val result = runIntent.execute(SkillCall(runIntent.name, intentParams))) {
+                when (val result = SkillOutcomeEvents.execute(runIntent, intentParams, IntentRoute.OTHER)) {
                     is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
                         convId = convId,
                         content = result.content,
