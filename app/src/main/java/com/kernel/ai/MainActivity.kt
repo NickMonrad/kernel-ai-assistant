@@ -34,33 +34,8 @@ import net.openid.appauth.AuthorizationException
 import net.openid.appauth.AuthorizationResponse
 import javax.inject.Inject
 import dagger.hilt.android.AndroidEntryPoint
-/**
-    * Build the list of runtime permissions that should be requested at startup.
-    * Currently only POST_NOTIFICATIONS is included (needed for alarms, timers,
-    * reminders, and download progress). Other runtime permissions (Location,
-    * Contacts, Calendar, Phone) are requested on first feature use via
-    * contextual permission overlays (#1312).
-    *
-    * @param context Application context.
-    * @param sdkInt Device SDK version (injected for test determinism).
-    */
-    internal fun buildMissingStartupPermissions(context: android.content.Context, sdkInt: Int = Build.VERSION.SDK_INT): List<String> {
-        return buildList {
-            if (sdkInt >= Build.VERSION_CODES.TIRAMISU &&
-                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                add(android.Manifest.permission.POST_NOTIFICATIONS)
-            }
-
-        }
-    }
-
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    companion object {
-        private const val PREFS_RUNTIME_PERMISSIONS = "runtime_permissions"
-        private const val KEY_ONBOARDING_PERMISSIONS_REQUESTED = "onboarding_permissions_requested"
-    }
-
     @Inject lateinit var authRepository: HuggingFaceAuthRepository
 
     /** Injected for ADB `--es profile_text` test support — triggers profile parse + logcat output. */
@@ -111,21 +86,6 @@ class MainActivity : ComponentActivity() {
     )
     private val externalDraft = mutableStateOf<ExternalDraftRequest?>(null)
 
-    private val requestOnboardingPermissions =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            results.forEach { (permission, granted) ->
-                recordPermissionResult(
-                    permission,
-                    granted,
-                    shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
-                        this,
-                        permission,
-                    ),
-                )
-            }
-            JandalEvents.record("permission", "notification_result", "granted" to (results[android.Manifest.permission.POST_NOTIFICATIONS] == true))
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -144,7 +104,6 @@ class MainActivity : ComponentActivity() {
             publishExternalDraft(delivery)
             handleAdbProfileText(delivery.profileText)
         }
-        requestStartupPermissionsIfNeeded()
         setContent {
             val useSystemColorsState = chatPreferences.useSystemColors
                 .collectAsState(initial = true)
@@ -282,23 +241,4 @@ class MainActivity : ComponentActivity() {
 
 
 
-    private fun requestStartupPermissionsIfNeeded() {
-        val prefs = getSharedPreferences(PREFS_RUNTIME_PERMISSIONS, MODE_PRIVATE)
-        val forcePromptForTests = intent?.getBooleanExtra("force_permission_prompt", false) == true
-        if (!forcePromptForTests && prefs.getBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, false)) return
-
-        val missingPermissions = buildMissingStartupPermissions(this@MainActivity)
-
-        if (missingPermissions.isEmpty()) {
-            prefs.edit().putBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, true).apply()
-            return
-        }
-
-        // Mark before launch so a config change / activity restart doesn't re-trigger a staggered
-        // sequence of permission prompts across multiple app opens.
-        if (!forcePromptForTests) {
-            prefs.edit().putBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, true).apply()
-        }
-        requestOnboardingPermissions.launch(missingPermissions.toTypedArray())
-    }
 }

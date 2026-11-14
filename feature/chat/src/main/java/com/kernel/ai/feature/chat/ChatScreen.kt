@@ -195,6 +195,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import com.kernel.ai.core.inference.ModelCapabilities
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
+import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.verticalScroll
@@ -324,6 +325,9 @@ fun ChatScreen(
         }
     }
     var showModelSettings by remember { mutableStateOf(false) }
+    val startModelDownload = rememberDownloadNotificationGate { id ->
+        id?.let { viewModel.retryDownload(KernelModel.valueOf(it)) }
+    }
 
     when (val state = uiState) {
         is ChatUiState.Loading -> LoadingContent()
@@ -334,8 +338,8 @@ fun ChatScreen(
         is ChatUiState.ModelsNotReady -> OnboardingContent(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
-            onRetry = viewModel::retryDownload,
-            onDownloadModel = viewModel::retryDownload,
+            onRetry = { model -> startModelDownload(model.name) },
+            onDownloadModel = { model -> startModelDownload(model.name) },
             onStartAuth = viewModel::startAuth,
             onNavigateToModelManagement = onNavigateToModelManagement,
             hfAuthenticated = state.hfAuthenticated,
