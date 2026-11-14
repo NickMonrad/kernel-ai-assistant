@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import com.kernel.ai.core.permissions.recordRuntimePermissionRequest
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -187,6 +188,7 @@ fun ImportantDatesScreen(
                                 ) {
                                     showCalendarPermissionRationale = true
                                 } else {
+                                    context.recordRuntimePermissionRequest(Manifest.permission.READ_CALENDAR)
                                     calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                                 }
                             }
@@ -342,6 +344,7 @@ fun ImportantDatesScreen(
                 TextButton(
                     onClick = {
                         showCalendarPermissionRationale = false
+                        context.recordRuntimePermissionRequest(Manifest.permission.READ_CALENDAR)
                         calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                     },
                 ) {

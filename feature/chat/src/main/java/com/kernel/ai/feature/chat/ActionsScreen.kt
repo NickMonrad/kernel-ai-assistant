@@ -93,6 +93,7 @@ import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.recordRuntimePermissionRequest
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
@@ -342,8 +343,10 @@ fun ActionsScreen(
                 }
                 ActionsViewModel.UiEvent.RequestMicrophonePermission ->
                     showVoicePermissionPrompt = true
-                ActionsViewModel.UiEvent.RequestPhonePermission ->
+                ActionsViewModel.UiEvent.RequestPhonePermission -> {
+                    context.recordRuntimePermissionRequest(Manifest.permission.CALL_PHONE)
                     phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+                }
                 is ActionsViewModel.UiEvent.LaunchDialer -> {
                     val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                         data = Uri.parse("tel:${Uri.encode(event.phoneNumber)}")
@@ -386,12 +389,18 @@ fun ActionsScreen(
                         context.startActivity(writeSettingsIntent)
                     }
                 }
-                ActionsViewModel.UiEvent.RequestWeatherLocationPermission ->
+                ActionsViewModel.UiEvent.RequestWeatherLocationPermission -> {
+                    context.recordRuntimePermissionRequest(Manifest.permission.ACCESS_COARSE_LOCATION)
                     weatherLocationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                ActionsViewModel.UiEvent.RequestReadContactsPermission ->
+                }
+                ActionsViewModel.UiEvent.RequestReadContactsPermission -> {
+                    context.recordRuntimePermissionRequest(Manifest.permission.READ_CONTACTS)
                     contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                ActionsViewModel.UiEvent.RequestReadCalendarPermission ->
+                }
+                ActionsViewModel.UiEvent.RequestReadCalendarPermission -> {
+                    context.recordRuntimePermissionRequest(Manifest.permission.READ_CALENDAR)
                     calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+                }
             }
         }
     }
@@ -1077,10 +1086,12 @@ fun ActionsScreen(
             config = promptConfig,
             onGrant = {
                 showVoicePermissionPrompt = false
+                context.recordRuntimePermissionRequest(Manifest.permission.RECORD_AUDIO)
                 microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             },
             onRetry = {
                 showVoicePermissionPrompt = false
+                context.recordRuntimePermissionRequest(Manifest.permission.RECORD_AUDIO)
                 microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             },
             onOpenSettings = {

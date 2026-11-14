@@ -47,6 +47,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.kernel.ai.core.voice.WakeWordHandoff
+import com.kernel.ai.core.permissions.recordRuntimePermissionRequest
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -113,6 +114,7 @@ class VoiceCommandActivity : ComponentActivity() {
             // Permission missing — request it and return. The activity must not fall through
             // to startVoiceSession() until the permission result callback returns granted;
             // startVoiceSession() is called from the callback on grant, or finish() on deny.
+            recordRuntimePermissionRequest(Manifest.permission.RECORD_AUDIO)
             requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
             return
         }

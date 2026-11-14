@@ -102,6 +102,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.recordRuntimePermissionRequest
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -308,6 +309,7 @@ fun VoiceScreen(
                     showMicDurableRequiredDialog = true
                 }
             } else {
+                context.recordRuntimePermissionRequest(Manifest.permission.RECORD_AUDIO)
                 micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
         },

@@ -18,6 +18,7 @@ import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.collectAsState
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.permissions.recordRuntimePermissionRequest
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.ui.theme.KernelAITheme
@@ -284,6 +285,7 @@ class MainActivity : ComponentActivity() {
         if (!forcePromptForTests) {
             prefs.edit().putBoolean(KEY_ONBOARDING_PERMISSIONS_REQUESTED, true).apply()
         }
+        recordRuntimePermissionRequest(*missingPermissions.toTypedArray())
         requestOnboardingPermissions.launch(missingPermissions.toTypedArray())
     }
 }

@@ -24,6 +24,10 @@ enum class PermissionRoute {
  * Permanent denial is detected as: the permission was requested by this app before
  * ([wasRequestedBefore], because `shouldShowRequestPermissionRationale` is also false
  * before the first request) AND [shouldShowRationale] is false.
+ *
+ * Use this for "what does the action button do". [PermissionDenialClassifier] (microphone
+ * denial/repair copy) is a separate classifier of denial history; #1855 should use this
+ * route function for the wizard and unify the two only when the classifier's inputs match.
  */
 fun decidePermissionRoute(
     isGranted: Boolean,
@@ -40,7 +44,9 @@ fun decidePermissionRoute(
 /**
  * Persists whether this app has launched the in-app runtime request for a permission.
  * Needed because a never-requested permission and a permanently denied one both report
- * `shouldShowRequestPermissionRationale == false`.
+ * `shouldShowRequestPermissionRationale == false`. A system dialog dismissed without a choice
+ * is recorded as requested; Android does not set USER_FIXED for it, so the route stays in-app
+ * until a real denial occurs.
  */
 class PermissionRequestStore(context: Context) {
 
@@ -60,4 +66,14 @@ class PermissionRequestStore(context: Context) {
     private companion object {
         const val PREFS_NAME = "runtime_permission_requests"
     }
+}
+
+/**
+ * Call immediately before launching any runtime permission request, from every call site.
+ * Without it a permanent denial from that site is not recorded and the App Permissions row
+ * keeps offering "Allow" instead of App info.
+ */
+fun Context.recordRuntimePermissionRequest(vararg permissions: String) {
+    val store = PermissionRequestStore(this)
+    permissions.forEach(store::markRequested)
 }

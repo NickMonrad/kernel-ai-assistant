@@ -159,6 +159,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.recordRuntimePermissionRequest
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
@@ -372,10 +373,12 @@ fun ChatScreen(
             LaunchedEffect(Unit) {
                 viewModel.events.collect { event ->
                     when (event) {
-                        ChatViewModel.UiEvent.RequestWeatherLocationPermission ->
+                        ChatViewModel.UiEvent.RequestWeatherLocationPermission -> {
+                            context.recordRuntimePermissionRequest(Manifest.permission.ACCESS_COARSE_LOCATION)
                             weatherLocationPermissionLauncher.launch(
                                 Manifest.permission.ACCESS_COARSE_LOCATION,
                             )
+                        }
                         ChatViewModel.UiEvent.RepairWeatherLocationPermission ->
                             openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
                     }
@@ -518,12 +521,14 @@ fun ChatScreen(
                     onGrant = {
                         showVoicePermissionPrompt = false
                         pendingVoiceAction?.let { action ->
+                            context.recordRuntimePermissionRequest(Manifest.permission.RECORD_AUDIO)
                             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     },
                     onRetry = {
                         showVoicePermissionPrompt = false
                         pendingVoiceAction?.let { action ->
+                            context.recordRuntimePermissionRequest(Manifest.permission.RECORD_AUDIO)
                             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     },
