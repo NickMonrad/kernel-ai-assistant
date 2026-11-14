@@ -538,6 +538,10 @@ class AndroidTextToSpeechController @Inject constructor(
             throw cancelled
         }
         if (status == TextToSpeech.SUCCESS) {
+            JandalEvents.record(
+                "tts", "engine_init", "ready" to true,
+                "google_engine" to (enginePackage == "com.google.android.tts"),
+            )
             return ReadyEngine(instance = engine, enginePackage = enginePackage)
         }
 
@@ -551,6 +555,7 @@ class AndroidTextToSpeechController @Inject constructor(
             installedEngines = engine.engines
         }
         engine.shutdown()
+        JandalEvents.record("tts", "engine_init", "ready" to false)
         return null
     }
 

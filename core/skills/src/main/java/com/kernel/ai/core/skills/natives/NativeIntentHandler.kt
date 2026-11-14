@@ -21,6 +21,7 @@ import android.util.Log
 import android.view.KeyEvent
 
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.AlarmDraft
@@ -49,6 +50,7 @@ import com.kernel.ai.core.skills.StoreListCatalog
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.ToolPresentation
+import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
 import java.time.Instant
@@ -160,13 +162,15 @@ class NativeIntentHandler @Inject constructor(
     private val listMutations: ListMutationRepository? = null,
 ) {
 
+    private val intentRegistry = IntentContractRegistry()
+
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
         val normalizedName = normalizeIntentName(intentName)
         if (normalizedName != intentName) {
             Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
         }
         Log.d(TAG, "NativeIntentHandler.handle: intent=$normalizedName params=$params")
-        return try {
+        val result = try {
             when (normalizedName) {
                 "toggle_flashlight_on" -> setTorch(true)
                 "toggle_flashlight_off" -> setTorch(false)
@@ -246,6 +250,14 @@ class NativeIntentHandler @Inject constructor(
             Log.e(TAG, "NativeIntentHandler.handle($normalizedName) failed", e)
             SkillResult.Failure("run_intent", e.message ?: "Unknown error")
         }
+        recordIntentOutcome(normalizedName, result)
+        return result
+    }
+
+    /** Outcome only: registered intent names, never params or result text (#1870). */
+    private fun recordIntentOutcome(normalizedName: String, result: SkillResult) {
+        val name = if (intentRegistry.get(normalizedName) != null) normalizedName else "unknown_intent"
+        JandalEvents.record("intent", name, "success" to (result is SkillResult.Success))
     }
 
     /**

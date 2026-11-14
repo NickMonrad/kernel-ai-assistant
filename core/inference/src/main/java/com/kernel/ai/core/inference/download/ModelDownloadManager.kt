@@ -317,8 +317,16 @@ class ModelDownloadManager @Inject constructor(
         _downloadStates.update { it.toMutableMap().apply { put(model, state) } }
         // Transitions only: progress ticks within one state are not recorded.
         if (previous?.javaClass != state.javaClass) {
-            JandalEvents.record("download", "state", "model" to model.name, "state" to state.javaClass.simpleName)
+            JandalEvents.record("download", "state", "model" to model.name, "state" to state.toJandalStateName())
         }
+    }
+
+    /** Fixed names for the diagnostic log. `javaClass.simpleName` is obfuscated in release builds. */
+    private fun DownloadState.toJandalStateName(): String = when (this) {
+        DownloadState.NotDownloaded -> "NOT_DOWNLOADED"
+        is DownloadState.Downloaded -> "DOWNLOADED"
+        is DownloadState.Error -> "ERROR"
+        else -> "DOWNLOADING"
     }
 
     // Issue 3 fix: guard against launching duplicate observeWorkInfo coroutines

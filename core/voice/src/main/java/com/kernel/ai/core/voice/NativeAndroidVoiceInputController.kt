@@ -11,6 +11,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -662,6 +663,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             cancelStartupFallback()
             resetSessionWatchdog()
             Log.i(TAG, "Android native STT ready: sessionId=$sessionId mode=$mode backend=$backend")
+            JandalEvents.record("voice", "stt_ready", "mode" to mode)
             // #1433: readiness is idempotent per capture session.  An in-place
             // recognizer refresh must not re-emit ListeningStarted (the wake-command
             // path already played its cue, and ClockAlertService plays its listening
@@ -690,6 +692,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
         override fun onError(error: Int) {
             if (sessionCompleted || activeSessionId != sessionId) return
+            JandalEvents.record("voice", "stt_error", "code" to error)
             if (
                 shouldRetryWithPlatformAfterRecognitionError(
                     backend = backend,
@@ -775,6 +778,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         override fun onResults(results: Bundle?) {
             if (sessionCompleted || activeSessionId != sessionId) return
             val transcript = extractBestTranscript(results)
+            JandalEvents.record("voice", "stt_result", "chars" to transcript.length, "blank" to transcript.isBlank())
             sessionCompleted = true
             cancelStartupFallback()
             cancelSessionWatchdog()

@@ -2,12 +2,14 @@ package com.kernel.ai.core.inference.diagnostics
 
 import android.util.Log
 import java.io.File
-import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.ArrayDeque
+import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
@@ -26,16 +28,49 @@ const val JANDAL_EVENT_MAX_AGE_MS = 24L * 60 * 60 * 1000
 /** Most fields one event may carry; extras are dropped. */
 internal const val JANDAL_EVENT_MAX_FIELDS = 8
 
-/** Replaces any value that is not a safe identifier. */
+/** A persisted file larger than this is not read; it is replaced on the next rewrite. */
+internal const val JANDAL_EVENT_MAX_FILE_BYTES = 512L * 1024
+
+/** Stands in for any value or identifier that is not on the allowlist. */
 internal const val JANDAL_EVENT_REDACTED = "[redacted]"
 
-private const val MAX_TOKEN_LENGTH = 48
-private val SAFE_TOKEN = Regex("[A-Za-z0-9_.:\\-]{1,$MAX_TOKEN_LENGTH}")
+/** Category, name and field keys: short lowercase snake_case constants written in code. */
+private val IDENTIFIER = Regex("[a-z][a-z0-9_]{0,31}")
 
-/** Phone numbers and other long digit runs are never safe identifiers. */
-private val LONG_DIGIT_RUN = Regex("\\d{7,}")
+/** Enum constant names, e.g. `NATIVE`, `DOWNLOADING`. */
+private val ENUM_TOKEN = Regex("[A-Z][A-Z0-9_]{0,47}")
 
-/** One structured app event. Every string field has passed [sanitizeJandalValue]. */
+/**
+ * Counts, durations and ids. Limited to nine digits so a phone number or epoch timestamp
+ * cannot pass as a number. Use elapsed milliseconds, not epoch time.
+ */
+private val NUMBER = Regex("-?\\d{1,9}(\\.\\d{1,3})?")
+
+/**
+ * Allowed field values, in the order they are tested:
+ * `true`/`false`, a bounded number, or an enum constant name. Free-form strings are never
+ * allowed, so call sites cannot pass transcripts, names, numbers or params by accident.
+ */
+internal fun sanitizeJandalValue(raw: Any?): String = when (raw) {
+    is Boolean -> raw.toString()
+    is Int, is Long -> raw.toString().takeIf { NUMBER.matches(it) } ?: JANDAL_EVENT_REDACTED
+    is Float, is Double -> {
+        val d = (raw as Number).toDouble()
+        if (d.isFinite()) d.toString().takeIf { NUMBER.matches(it) } ?: JANDAL_EVENT_REDACTED
+        else JANDAL_EVENT_REDACTED
+    }
+    is Enum<*> -> raw.name.takeIf { ENUM_TOKEN.matches(it) } ?: JANDAL_EVENT_REDACTED
+    else -> JANDAL_EVENT_REDACTED
+}
+
+/** Re-applies the allowlist to a value read back from disk. Only rendered tokens are valid. */
+private fun sanitizeStoredValue(text: String): String = when {
+    text == "true" || text == "false" -> text
+    NUMBER.matches(text) || ENUM_TOKEN.matches(text) -> text
+    else -> JANDAL_EVENT_REDACTED
+}
+
+/** One structured app event. Every field value has passed the allowlist. */
 data class JandalEvent(
     val timestampMs: Long,
     val category: String,
@@ -44,45 +79,28 @@ data class JandalEvent(
 )
 
 /**
- * Builds a sanitised [JandalEvent]. Callers pass categories, enum names, ids, counts,
- * durations and booleans. Free text (transcripts, message bodies, names, numbers,
- * raw tool params) is replaced with [JANDAL_EVENT_REDACTED]: a value survives only if it
- * is a short identifier made of letters, digits and `_ . : -`, with no run of seven digits.
+ * Builds a [JandalEvent]. Category and name must match [IDENTIFIER] or become
+ * [JANDAL_EVENT_REDACTED]. Field keys that do not match are dropped. Values go through
+ * [sanitizeJandalValue].
  */
 internal fun buildJandalEvent(
     timestampMs: Long,
-    category: Any?,
-    name: Any?,
+    category: String,
+    name: String,
     fields: Map<String, Any?>,
 ): JandalEvent {
-    val sanitizedFields = LinkedHashMap<String, String>()
+    val out = LinkedHashMap<String, String>()
     for ((key, value) in fields) {
-        if (sanitizedFields.size >= JANDAL_EVENT_MAX_FIELDS) break
-        sanitizedFields[sanitizeJandalValue(key)] = sanitizeJandalValue(value)
+        if (out.size >= JANDAL_EVENT_MAX_FIELDS) break
+        if (!IDENTIFIER.matches(key)) continue
+        out[key] = sanitizeJandalValue(value)
     }
     return JandalEvent(
         timestampMs = timestampMs,
-        category = sanitizeJandalValue(category),
-        name = sanitizeJandalValue(name),
-        fields = sanitizedFields,
+        category = if (IDENTIFIER.matches(category)) category else JANDAL_EVENT_REDACTED,
+        name = if (IDENTIFIER.matches(name)) name else JANDAL_EVENT_REDACTED,
+        fields = out,
     )
-}
-
-/** Returns [raw] when it is a safe identifier, otherwise [JANDAL_EVENT_REDACTED]. */
-internal fun sanitizeJandalValue(raw: Any?): String {
-    val text = when (raw) {
-        is String -> raw
-        is Enum<*> -> raw.name
-        is Boolean, is Int, is Long -> raw.toString()
-        is Float -> if (raw.isFinite()) raw.toString() else return JANDAL_EVENT_REDACTED
-        is Double -> if (raw.isFinite()) raw.toString() else return JANDAL_EVENT_REDACTED
-        else -> return JANDAL_EVENT_REDACTED
-    }
-    return if (SAFE_TOKEN.matches(text) && !LONG_DIGIT_RUN.containsMatchIn(text)) {
-        text
-    } else {
-        JANDAL_EVENT_REDACTED
-    }
 }
 
 /**
@@ -90,80 +108,82 @@ internal fun sanitizeJandalValue(raw: Any?): String {
  * once [capacity] is exceeded.
  */
 class JandalEventBuffer(private val capacity: Int = JANDAL_EVENT_CAPACITY) {
-    init {
-        require(capacity > 0) { "capacity must be positive" }
-    }
-
     private val lock = Any()
     private val events = ArrayDeque<JandalEvent>()
 
-    fun add(event: JandalEvent) {
-        synchronized(lock) {
-            events.addLast(event)
-            while (events.size > capacity) events.removeFirst()
-        }
+    fun add(event: JandalEvent) = synchronized(lock) {
+        events.addLast(event)
+        while (events.size > capacity) events.removeFirst()
     }
 
-    /** Inserts older [olderEvents] (oldest first) before everything already held. */
-    fun prepend(olderEvents: List<JandalEvent>) {
-        synchronized(lock) {
-            for (event in olderEvents.asReversed()) events.addFirst(event)
-            while (events.size > capacity) events.removeFirst()
-        }
+    /** Adds older events in front, keeping the newest when the buffer overflows. */
+    fun prepend(older: List<JandalEvent>) = synchronized(lock) {
+        for (event in older.asReversed()) events.addFirst(event)
+        while (events.size > capacity) events.removeFirst()
     }
 
-    /** Oldest first. */
     fun snapshot(): List<JandalEvent> = synchronized(lock) { events.toList() }
 }
 
 /**
- * Persists a [JandalEventBuffer] to one line-per-event text file so events survive process
- * death. Lines are appended; the file is rewritten from memory once [capacity] lines have
- * been appended since the last rewrite, which bounds the file to about twice [capacity].
- * Not thread-safe: the caller serialises calls.
+ * Persists events to one line per event. Only the single writer thread may call this class.
+ * [persisted] mirrors exactly what is on disk, so a rewrite can never duplicate or drop an
+ * event that an earlier append already wrote.
  */
 internal class JandalEventStore(
     private val file: File,
     private val buffer: JandalEventBuffer,
     private val capacity: Int = JANDAL_EVENT_CAPACITY,
 ) {
-    private var appendsSinceRewrite = 0
+    private val persisted = ArrayDeque<JandalEvent>()
+    private var linesOnDisk = 0
 
-    /** Reads the file, keeping only events inside the age window. A missing or unreadable file is empty. */
+    /** Reads the file on the writer thread. Oversized files are not read; the next append replaces them. */
     fun load(nowMs: Long) {
-        val loaded = try {
-            if (file.exists()) file.readLines() else emptyList()
-        } catch (e: IOException) {
-            Log.w(TAG, "JandalEvents: could not read event file: ${e.javaClass.simpleName}")
-            emptyList()
+        if (!file.isFile) return
+        if (file.length() > JANDAL_EVENT_MAX_FILE_BYTES) {
+            // Silent by design: core:inference has no Android Log stubs in JVM tests.
+            linesOnDisk = 2 * capacity
+            return
         }
-        val recent = loaded
-            .mapNotNull(::parseJandalEventLine)
+        val lines = file.readLines().filter { it.isNotBlank() }
+        linesOnDisk = lines.size
+        val events = lines.mapNotNull { parseJandalEventLine(it) }
             .filter { nowMs - it.timestampMs in 0..JANDAL_EVENT_MAX_AGE_MS }
-        buffer.prepend(recent)
+            .takeLast(capacity)
+        persisted.addAll(events)
+        buffer.prepend(events)
+        if (linesOnDisk >= 2 * capacity) rewrite()
     }
 
     fun append(event: JandalEvent) {
-        try {
-            file.appendText(event.toLine() + "\n")
-            appendsSinceRewrite++
-            if (appendsSinceRewrite >= capacity) rewrite()
-        } catch (e: IOException) {
-            Log.w(TAG, "JandalEvents: append failed: ${e.javaClass.simpleName}")
-        }
+        persisted.addLast(event)
+        while (persisted.size > capacity) persisted.removeFirst()
+        linesOnDisk++
+        if (linesOnDisk >= 2 * capacity) rewrite() else file.appendText(event.toLine() + "\n")
     }
 
+    /** Rewrites from [persisted] via temp file and rename, so the file holds at most [capacity] lines. */
     private fun rewrite() {
-        val tmp = File(file.parentFile, "${file.name}.tmp")
-        tmp.writeText(buffer.snapshot().joinToString(separator = "") { it.toLine() + "\n" })
-        Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        appendsSinceRewrite = 0
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        tmp.writeText(persisted.joinToString(separator = "") { it.toLine() + "\n" })
+        try {
+            Files.move(
+                tmp.toPath(),
+                file.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+        linesOnDisk = persisted.size
     }
 }
 
 internal fun JandalEvent.toLine(): String = buildString {
     append(timestampMs).append('|').append(category).append('|').append(name)
-    fields.forEach { (key, value) -> append('|').append(key).append('=').append(value) }
+    for ((k, v) in fields) append('|').append(k).append('=').append(v)
 }
 
 /** Parses one line written by [toLine]; returns null for a malformed line. Values are re-sanitised. */
@@ -171,69 +191,27 @@ internal fun parseJandalEventLine(line: String): JandalEvent? {
     val parts = line.split('|')
     if (parts.size < 3) return null
     val timestamp = parts[0].toLongOrNull() ?: return null
-    val fields = LinkedHashMap<String, Any?>()
-    for (part in parts.drop(3)) {
-        val eq = part.indexOf('=')
+    val category = parts[1]
+    val name = parts[2]
+    if (!IDENTIFIER.matches(category) || !IDENTIFIER.matches(name)) return null
+    val fields = LinkedHashMap<String, String>()
+    for (pair in parts.drop(3)) {
+        val eq = pair.indexOf('=')
         if (eq <= 0) return null
-        fields[part.substring(0, eq)] = part.substring(eq + 1)
+        val key = pair.substring(0, eq)
+        if (!IDENTIFIER.matches(key)) return null
+        fields.putIfAbsent(key, sanitizeStoredValue(pair.substring(eq + 1)))
     }
-    return buildJandalEvent(timestamp, parts[1], parts[2], fields)
+    return JandalEvent(timestamp, category, name, fields)
 }
 
 private val EXPORT_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss.SSS")
 
 /** One export line: `MM-dd HH:mm:ss.SSS category name key=value ...`. */
 internal fun JandalEvent.toExportLine(zone: ZoneId): String = buildString {
-    append(EXPORT_TIME.withZone(zone).format(Instant.ofEpochMilli(timestampMs)))
+    append(EXPORT_TIME.format(Instant.ofEpochMilli(timestampMs).atZone(zone)))
     append(' ').append(category).append(' ').append(name)
-    fields.forEach { (key, value) -> append(' ').append(key).append('=').append(value) }
-}
-
-/**
- * App-wide entry point for Jandal's own diagnostic events (#1870). Logcat is hidden on some
- * OEM builds (MagicOS), so the support export reads these instead.
- *
- * Usage: `JandalEvents.record("voice", "stt_ready", "engine" to "native", "ms" to 240)`.
- * Pass only categories, enum names, ids, counts, durations and booleans. Never pass
- * transcripts, message bodies, contact names or numbers, or raw tool params. Anything that
- * looks like free text is redacted, but that is a backstop and not a licence to send it.
- */
-object JandalEvents {
-    private val buffer = JandalEventBuffer()
-    private val writer: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "jandal-events").apply { isDaemon = true }
-    }
-
-    @Volatile
-    private var store: JandalEventStore? = null
-
-    /** Loads persisted events from [file] and persists later events there. Call once at app start. */
-    fun install(file: File) {
-        val newStore = JandalEventStore(file, buffer)
-        newStore.load(System.currentTimeMillis())
-        store = newStore
-    }
-
-    fun record(category: String, name: String, vararg fields: Pair<String, Any?>) {
-        record(category, name, fields.toMap())
-    }
-
-    fun record(category: String, name: String, fields: Map<String, Any?>) {
-        val event = buildJandalEvent(System.currentTimeMillis(), category, name, fields)
-        buffer.add(event)
-        val target = store ?: return
-        try {
-            writer.execute { target.append(event) }
-        } catch (_: RejectedExecutionException) {
-            // Executor shut down (process exit); the in-memory copy is still recorded.
-        }
-    }
-
-    /** Export lines for events inside the age window, oldest first. */
-    fun exportLines(
-        nowMs: Long = System.currentTimeMillis(),
-        zone: ZoneId = ZoneId.systemDefault(),
-    ): List<String> = renderJandalEventLines(buffer.snapshot(), nowMs, zone)
+    for ((k, v) in fields) append(' ').append(k).append('=').append(v)
 }
 
 /** Export lines for events inside the age window, oldest first. */
@@ -244,3 +222,83 @@ internal fun renderJandalEventLines(
 ): List<String> = events
     .filter { nowMs - it.timestampMs in 0..JANDAL_EVENT_MAX_AGE_MS }
     .map { it.toExportLine(zone) }
+
+/**
+ * App-wide entry point for Jandal's own diagnostic events (#1870). Logcat is hidden on some
+ * OEM builds (MagicOS), so the support export reads these instead.
+ *
+ * Usage: `JandalEvents.record("voice", "stt_route", "route" to SttRoute.NATIVE, "ready" to true)`.
+ * Values must be booleans, counts (up to nine digits) or enum constants. Strings are always
+ * redacted. Category and name must be lowercase snake_case constants.
+ *
+ * Writes go through one daemon thread. [record] never blocks on disk, and no failure in the
+ * diagnostics path can reach the app.
+ */
+object JandalEvents {
+    private val buffer = JandalEventBuffer(JANDAL_EVENT_CAPACITY)
+    private val writer: ExecutorService = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "jandal-events").apply { isDaemon = true }
+    }
+
+    // Accessed only on the writer thread.
+    private var store: JandalEventStore? = null
+    private var installed = false
+    private val beforeInstall = ArrayDeque<JandalEvent>()
+
+    /**
+     * Loads persisted events and starts persisting. Idempotent. Events recorded before this
+     * call are kept in memory and written once the file is open.
+     */
+    fun install(file: File) = submit {
+        if (installed) return@submit
+        installed = true
+        val s = JandalEventStore(file, buffer)
+        s.load(System.currentTimeMillis())
+        store = s
+        while (beforeInstall.isNotEmpty()) s.append(beforeInstall.removeFirst())
+    }
+
+    fun record(category: String, name: String, vararg fields: Pair<String, Any?>) =
+        record(category, name, fields.toMap())
+
+    fun record(category: String, name: String, fields: Map<String, Any?>) {
+        val event = try {
+            buildJandalEvent(System.currentTimeMillis(), category, name, fields)
+        } catch (t: Throwable) {
+            return
+        }
+        buffer.add(event)
+        submit {
+            val s = store
+            if (s != null) {
+                s.append(event)
+            } else {
+                beforeInstall.addLast(event)
+                while (beforeInstall.size > JANDAL_EVENT_CAPACITY) beforeInstall.removeFirst()
+            }
+        }
+    }
+
+    /** Export lines for the support attachment. Covers this session plus any loaded history. */
+    fun exportLines(nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): List<String> =
+        renderJandalEventLines(buffer.snapshot(), nowMs, zone)
+
+    /** Blocks until queued writes finish. For tests only; not for production code. */
+    fun awaitWritesForTest() {
+        writer.submit(Callable {}).get()
+    }
+
+    private fun submit(block: () -> Unit) {
+        try {
+            writer.execute {
+                try {
+                    block()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Jandal event write failed; diagnostics skipped", t)
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            // Writer shut down: diagnostics are best-effort.
+        }
+    }
+}

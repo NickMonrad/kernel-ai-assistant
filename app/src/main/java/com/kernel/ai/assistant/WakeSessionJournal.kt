@@ -14,9 +14,8 @@ internal class WakeSessionJournal(
         sessionId: Long,
         metadata: () -> Map<String, String>,
     ) -> Unit = { type, generationId, sessionId, metadata ->
-        val values = metadata()
-        AcousticJournalBridge.record(type, generationId, sessionId, metadata = { values })
-        JandalEvents.record("wake", type, mapOf("generation" to generationId, "session" to sessionId) + values)
+        AcousticJournalBridge.record(type, generationId, sessionId, metadata = metadata)
+        recordWakeJandalEvent(type, generationId, sessionId)
     },
 ) {
     private var started = false
@@ -57,4 +56,19 @@ internal class WakeSessionJournal(
     private companion object {
         val EMPTY_METADATA: () -> Map<String, String> = { emptyMap() }
     }
+}
+
+/**
+ * Wake events for the support export (#1870). Carries only the event type and ids: metadata
+ * is not forwarded, so transcript hashes and outcome strings never reach the log. Partial
+ * transcripts are skipped so they cannot push older events out of the buffer.
+ */
+internal fun recordWakeJandalEvent(type: String, generationId: Long, sessionId: Long) {
+    if (type == AcousticEventType.STT_PARTIAL) return
+    JandalEvents.record(
+        "wake",
+        type.lowercase(),
+        "generation" to generationId,
+        "session" to sessionId,
+    )
 }
