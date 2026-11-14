@@ -1,0 +1,2 @@
+11-14 23:51:57.657 D/KernelAI( 2073): Sherpa streaming chunk: 7991ms for 143 chars, sid=0
+11-14 23:51:57.660 D/KernelAI_TTS( 2073): speaking_started engine=sherpa_stream chars=143 part=1/1 text=In Brisbane, it's twenty degrees, mainly clear, feeling like twenty three degrees. Today's high is twenty seven degrees, low is twenty degrees.

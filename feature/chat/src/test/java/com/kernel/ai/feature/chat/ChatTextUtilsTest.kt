@@ -226,6 +226,17 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `weather card through chat speech keeps degrees and drops card separators`() {
+            val card = "☀️ Oakland — 11°C · Clear sky\n🌡 Today: H:17°C / L:10°C\n💧 Humidity: 92%"
+            val result = normalizeChatTextForSpeech(card)
+            assertTrue(result.contains("11°C"), "degrees kept, got: $result")
+            assertTrue(result.contains("high 17"), "high read out, got: $result")
+            assertTrue(result.contains("low 10"), "low read out, got: $result")
+            assertFalse(result.contains("·") || result.contains("/") || result.contains("|"), "separators removed, got: $result")
+            assertFalse(result.contains(".."), "no doubled full stop, got: $result")
+        }
+
+        @Test
         fun `converts bullet list breaks into speakable sentence pauses`() {
             assertEquals(
                 "apples. bread",
