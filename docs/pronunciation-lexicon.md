@@ -23,8 +23,10 @@ Whole-word respellings applied to text before the Sherpa voices (Piper, Kokoro) 
 
 ## Matching rules
 
-- Whole words only. A letter or digit on either side blocks a match, so Māori macrons count as
-  letters: `Ōtaki` does not match inside `xŌtaki`.
+- Whole words only. A letter or digit on either side blocks a match, so `Ōtaki` does not match
+  inside `xŌtaki`.
+- Macrons and case are folded: `Taupo`, `Taupō`, `TAUPO` and the decomposed `Tau\u0304po` all match
+  one entry. Input is NFC-normalised; output is NFC text.
 - Punctuation is kept: `Petone, Lower Hutt.` becomes `Pih-toe-nee, Lower Hutt.`
 - One combined pattern, longest word first. Multi-word entries (`Te Awamutu`) match as one unit,
   and a longer entry wins over a shorter one that starts the same way.
@@ -43,7 +45,8 @@ Whole-word respellings applied to text before the Sherpa voices (Piper, Kokoro) 
 | Whakatāne | dropped | eSpeak `wˈækɐtˌeɪn` is wrong (wh as w). The Waikato page has audio only; not checked. |
 | Te Awamutu | dropped | eSpeak `tˈiː ɐwˈæmuːtˌuː` is wrong. Waikato audio only; not checked. |
 | Porirua | dropped | eSpeak `pɔːɹˈɜːjuːɐ` is wrong. No readable source. |
-| Other seeds (Whanganui, Ōtaki, Waikanae, Paraparaumu, Whakatāne spelling, Matamata, Tauranga, Hāwera, Rotorua) | not added | eSpeak output not clearly wrong; not listened to. |
+| Whanganui, Tauranga, Matamata, Paraparaumu | not added (pending owner pick) | eSpeak output is anglicised (wh→w, `Tauranga` ≈ "tor-ang-ga"). The IDP IELTS page gives corrections: `Toe-rung-a`, `Mutter-mutter`, `Para-para-umoo`, and Whanganui `Wanga-nu-ee`. Cori candidates rendered in `nz-names-audio/` for the owner to listen. |
+| Ōtaki, Waikanae, Whakatāne spelling, Hāwera, Rotorua | not added | eSpeak output not clearly wrong; not listened to. |
 
 The NZ Geographic Board gazetteer (gazetteer.linz.govt.nz) and Te Aka Māori Dictionary were
 attempted and returned no pronunciation text.

@@ -4,8 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
-import java.util.Locale
-import java.util.regex.Matcher
+import java.text.Normalizer
 import java.util.regex.Pattern
 
 /**
@@ -14,10 +13,11 @@ import java.util.regex.Pattern
  * Data: `core/voice/src/lexicon/assets/pronunciation_lexicon.json`. Format and how to add entries:
  * `docs/pronunciation-lexicon.md`.
  *
- * Matching is case-insensitive, on whole words only (a letter or digit on either side blocks a
- * match, so Māori macrons count as letters), and leaves surrounding punctuation alone. All entries
- * are matched in one pass, longest word first, so multi-word entries and overlaps resolve the same
- * way every time. Entries with `verify: true` are applied too; the flag marks them for owner review.
+ * Matching is on NFC text with macrons folded and case ignored, so "Taupo", "Taupō" and a
+ * decomposed "Tau\u0304po" all match the same entry. It is whole-word only (a letter or digit on
+ * either side blocks a match) and leaves surrounding punctuation alone. All entries are matched in
+ * one pass, longest word first. Entries with `verify: true` are applied too; the flag marks them
+ * for owner review.
  */
 internal object PronunciationLexicon {
     private const val TAG = "KernelAI"
@@ -37,10 +37,15 @@ internal object PronunciationLexicon {
         @SerializedName("verify") val verify: Boolean?,
     )
 
-    /** Single combined pattern (longest word first) and a lowercase-word → say lookup. */
+    /** Combined pattern over folded words (longest first) and folded-word → say lookup. */
     private data class Table(val pattern: Pattern?, val says: Map<String, String>)
 
     private val EMPTY = Table(pattern = null, says = emptyMap())
+
+    private val MACRON_BASE: Map<Char, Char> = mapOf(
+        'ā' to 'a', 'ē' to 'e', 'ī' to 'i', 'ō' to 'o', 'ū' to 'u',
+        'Ā' to 'a', 'Ē' to 'e', 'Ī' to 'i', 'Ō' to 'o', 'Ū' to 'u',
+    )
 
     @Volatile private var table: Table = EMPTY
     @Volatile private var loaded = false
@@ -81,29 +86,42 @@ internal object PronunciationLexicon {
         }
         val says = LinkedHashMap<String, String>()
         for (entry in entries) {
-            says.putIfAbsent(entry.word.lowercase(Locale.ROOT), entry.say)
+            says.putIfAbsent(fold(entry.word), entry.say)
         }
         val alternation = says.keys
             .sortedByDescending { it.length }
             .joinToString("|") { Pattern.quote(it) }
-        val pattern = Pattern.compile(
-            "(?<![\\p{L}\\p{N}])(?:$alternation)(?![\\p{L}\\p{N}])",
-            Pattern.CASE_INSENSITIVE or Pattern.UNICODE_CASE,
-        )
+        val pattern = Pattern.compile("(?<![\\p{L}\\p{N}])(?:$alternation)(?![\\p{L}\\p{N}])")
         table = Table(pattern, says)
         loaded = true
+    }
+
+    /**
+     * NFC-normalises, then folds macrons and case one char at a time. The result has the same
+     * length and indices as the NFC input, so matches on folded text map straight back onto it.
+     */
+    internal fun fold(s: String): String {
+        val nfc = Normalizer.normalize(s, Normalizer.Form.NFC)
+        val out = CharArray(nfc.length)
+        for (i in nfc.indices) {
+            out[i] = Character.toLowerCase(MACRON_BASE[nfc[i]] ?: nfc[i])
+        }
+        return String(out)
     }
 
     fun apply(text: String): String {
         val current = table
         val pattern = current.pattern ?: return text
-        val matcher = pattern.matcher(text)
-        val out = StringBuffer()
+        val nfc = Normalizer.normalize(text, Normalizer.Form.NFC)
+        val matcher = pattern.matcher(fold(nfc))
+        val out = StringBuilder()
+        var last = 0
         while (matcher.find()) {
-            val say = current.says.getValue(matcher.group().lowercase(Locale.ROOT))
-            matcher.appendReplacement(out, Matcher.quoteReplacement(say))
+            out.append(nfc, last, matcher.start())
+            out.append(current.says.getValue(matcher.group()))
+            last = matcher.end()
         }
-        matcher.appendTail(out)
+        out.append(nfc, last, nfc.length)
         return out.toString()
     }
 }

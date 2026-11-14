@@ -62,6 +62,28 @@ class PronunciationLexiconTest {
     }
 
     @Test
+    fun `macrons fold both ways and NFD input matches`() {
+        install("Taupō" to "Toe-paw")
+        assertEquals("Toe-paw", PronunciationLexicon.apply("Taupō"))
+        assertEquals("Toe-paw", PronunciationLexicon.apply("Taupo"))
+        assertEquals("Toe-paw", PronunciationLexicon.apply("TAUPO"))
+        assertEquals("Toe-paw", PronunciationLexicon.apply("Tau\u0304po"))
+        assertEquals("Toe-paw", PronunciationLexicon.apply("Tau\u0304po".uppercase()))
+    }
+
+    @Test
+    fun `macron-less entry matches macron input`() {
+        install("Taupo" to "Toe-paw")
+        assertEquals("Toe-paw", PronunciationLexicon.apply("Taupō"))
+    }
+
+    @Test
+    fun `NFD output keeps surrounding text in NFC`() {
+        install("Taupo" to "Toe-paw")
+        assertEquals("to Toe-paw.", PronunciationLexicon.apply("to Tau\u0304po."))
+    }
+
+    @Test
     fun `does not match inside a longer word, including after a macron`() {
         install("Petone" to "Pih-toe-nee", "Ōtaki" to "Oh-tah-kee")
         assertEquals("Petonei", PronunciationLexicon.apply("Petonei"))
