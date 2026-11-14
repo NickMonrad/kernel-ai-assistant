@@ -319,6 +319,7 @@ internal fun GettingStartedContent(
     onStartChatting: () -> Unit,
     onExamplePrompt: (String) -> Unit,
     onDownloadModel: (KernelModel) -> Unit,
+    onUseMobileData: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     ChatsWelcome(
@@ -327,6 +328,7 @@ internal fun GettingStartedContent(
         onStartChatting = onStartChatting,
         onExamplePrompt = onExamplePrompt,
         onDownloadModel = onDownloadModel,
+        onUseMobileData = onUseMobileData,
         onDismissTabHints = {},
         onHideWelcome = {},
         reopened = true,

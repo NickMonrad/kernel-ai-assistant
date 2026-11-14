@@ -104,6 +104,21 @@ class ChatsWelcomeTest {
     }
 
     @Test
+    fun `welcome waits while the setup wizard is up or its state is unknown`() {
+        listOf(true, null).forEach { pending ->
+            assertEquals(
+                ChatsEmptyState.Loading,
+                chatsEmptyState(welcomeDismissed = false, readiness = notStarted, setupWizardPending = pending),
+                "pending=$pending",
+            )
+        }
+        assertEquals(
+            ChatsEmptyState.Welcome(WelcomeDownload.Waiting(KernelModel.GEMMA_4_E4B)),
+            chatsEmptyState(welcomeDismissed = false, readiness = notStarted, setupWizardPending = false),
+        )
+    }
+
+    @Test
     fun `all example prompts are offered once the assistant is ready`() {
         assertEquals(welcomeExamplePrompts, welcomeExamplePromptsFor(WelcomeDownload.Ready))
     }

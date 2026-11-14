@@ -75,6 +75,20 @@ class ChatsDownloadBannerTest {
     }
 
     @Test
+    fun `download queued for Wi-Fi says so instead of showing progress`() {
+        val queued = ConversationModelReadiness.ActionRequired(recommendedModel = KernelModel.GEMMA_4_E4B)
+        val b = chatsDownloadBanner(
+            queued,
+            ChatsEmptyState.Plain,
+            isInSelectionMode = false,
+            showArchived = false,
+            waitingForWifi = setOf(KernelModel.GEMMA_4_E4B),
+        )
+        assertEquals("Waiting for Wi-Fi", b?.text)
+        assertTrue(b?.waitingForWifi == true)
+    }
+
+    @Test
     fun `try asking chips show only for a near-empty plain list with no search`() {
         fun chips(count: Int?, state: ChatsEmptyState = ChatsEmptyState.Plain, query: String = "") =
             showTryAskingChips(count, state, showArchived = false, isInSelectionMode = false, searchQuery = query)

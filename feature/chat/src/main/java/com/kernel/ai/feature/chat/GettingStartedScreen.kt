@@ -16,6 +16,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
@@ -56,6 +57,7 @@ fun GettingStartedScreen(
             onStartChatting = onStartChatting,
             onExamplePrompt = onExamplePrompt,
             onDownloadModel = viewModel::downloadAssistantModel,
+            onUseMobileData = viewModel::useMobileData,
             modifier = Modifier.padding(innerPadding),
         )
     }
@@ -69,19 +71,26 @@ class GettingStartedViewModel @Inject constructor(
     internal val download: StateFlow<WelcomeDownload> = combine(
         downloadManager.downloadStates,
         ChatsDebugOverrides.simulateDownload,
-    ) { states, simulate -> downloadFor(states, simulate) }
+        downloadManager.waitingForWifi,
+    ) { states, simulate, waiting -> downloadFor(states, waiting, simulate) }
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            downloadFor(downloadManager.downloadStates.value, simulate = false),
+            downloadFor(downloadManager.downloadStates.value, downloadManager.waitingForWifi.value, simulate = false),
         )
 
     fun downloadAssistantModel(model: KernelModel) {
         downloadManager.startDownload(model, force = false)
     }
 
+    /** Chooses mobile data for downloads waiting on Wi-Fi, same as the first-run welcome (#1855). */
+    fun useMobileData() {
+        downloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
+    }
+
     private fun downloadFor(
         states: Map<KernelModel, com.kernel.ai.core.inference.download.DownloadState>,
+        waitingForWifi: Set<KernelModel>,
         simulate: Boolean,
     ): WelcomeDownload {
         val readiness: ConversationModelReadiness = if (simulate) {
@@ -89,6 +98,6 @@ class GettingStartedViewModel @Inject constructor(
         } else {
             ConversationModelReadiness.compute(downloadManager.deviceTier, states)
         }
-        return welcomeDownloadFor(readiness, states)
+        return welcomeDownloadFor(readiness, states, waitingForWifi)
     }
 }

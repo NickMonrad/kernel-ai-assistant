@@ -19,6 +19,7 @@ class ChatsWelcomeReopenedTest {
                 onStartChatting = {},
                 onExamplePrompt = {},
                 onDownloadModel = {},
+                onUseMobileData = {},
             )
         }
         composeRule.onNodeWithTag("chats_welcome_tab_hints").assertExists()
@@ -35,6 +36,7 @@ class ChatsWelcomeReopenedTest {
                 onStartChatting = {},
                 onExamplePrompt = {},
                 onDownloadModel = {},
+                onUseMobileData = {},
                 onDismissTabHints = {},
                 onHideWelcome = {},
             )
