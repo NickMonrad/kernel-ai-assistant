@@ -1,4 +1,5 @@
 package com.kernel.ai.core.skills
+import com.kernel.ai.core.skills.natives.CalendarLogRedaction
 
 import android.util.Log
 import com.google.ai.edge.litertlm.Tool
@@ -605,7 +606,7 @@ class KernelAIToolSet @Inject constructor(
             return denyInSafeModelTest("run_intent", request, arguments)
         }
         val diagnosticOrder = recordToolCall("run_intent", request, arguments)
-        Log.d(TAG, "ToolSet: runIntent($intentName, $parameters)")
+        Log.d(TAG, "ToolSet: runIntent($intentName, ${CalendarLogRedaction.params(intentName, parameters)})")
 
         val reservedSkillNames = setOf(
             "load_skill",
@@ -908,7 +909,7 @@ class KernelAIToolSet @Inject constructor(
                         "resultType=${result::class.simpleName} " +
                         "directReply=$lastToolWasDirectReply " +
                         "returnedToGemma=$returnedToGemma " +
-                        "content=\"${resultContent.take(256).replace("\n", "\\n").replace("\"", "\\\"")}\"",
+                        "content=\"${CalendarLogRedaction.text(skillName, resultContent, 256).replace("\n", "\\n").replace("\"", "\\\"")}\"",
                 )
             }
             val toolResult = when (result) {

@@ -1952,7 +1952,13 @@ class ActionsViewModel @Inject constructor(
                 val contact = result.contextParams["contact"] ?: ""
                 "Jandal needs contact access to find $contact."
             } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
-                "Jandal needs calendar access to find important dates and birthdays."
+                if (result.skillName == "read_calendar_events") {
+                    "Jandal needs calendar access to read your events."
+                } else {
+                    "Jandal needs calendar access to find important dates and birthdays."
+                }
+            } else if (result.capabilityKey == CapabilityKey.CalendarWrite) {
+                "Jandal needs calendar read and write access to add events. Allow it in app permissions, then ask again."
             } else if (result.capabilityKey == CapabilityKey.VoiceInput) {
                 "Jandal needs microphone access for voice input."
             } else {

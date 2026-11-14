@@ -54,6 +54,7 @@ import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.natives.isPersonalMemoryRecallQuery
+import com.kernel.ai.core.skills.natives.CalendarLogRedaction
 import com.kernel.ai.core.skills.natives.isCurrentConversationRecallQuery
 import com.kernel.ai.core.skills.intent.IntentCandidate
 import com.kernel.ai.core.skills.intent.RecoveryResult
@@ -250,6 +251,7 @@ class ChatViewModel @Inject constructor(
     sealed interface UiEvent {
         data object RequestWeatherLocationPermission : UiEvent
         data object RepairWeatherLocationPermission : UiEvent
+        data object RequestCalendarWritePermission : UiEvent
     }
 
     /** State for the contextual local-weather location permission dialog. */
@@ -2637,7 +2639,7 @@ class ChatViewModel @Inject constructor(
                                     Log.d("KernelAI", "RecoveryOrchestrator: slot_validation_blocked intent=${recovery.intentName}")
                                     return@launch
                                 }
-                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} params=$callParams")
+                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} params=${CalendarLogRedaction.params(recovery.intentName, callParams)}")
                                 val skillResult = skill.execute(SkillCall(skill.name, callParams))
                                 when (skillResult) {
                                     is SkillResult.DirectReply -> {
@@ -2764,13 +2766,13 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
                 if (skill != null) {
-                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} params=$callParams")
+                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} params=${CalendarLogRedaction.params(matchedIntent.intentName, callParams)}")
                     val skillResult = skill.execute(SkillCall(skill.name, callParams))
                     when (skillResult) {
                         is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
                             // Skill produced a complete, self-contained reply — show it verbatim
                             // and bypass the LLM entirely to avoid number/unit corruption.
-                            Log.d("KernelAI", "DirectReply: ${skillResult.content.take(200)}")
+                            Log.d("KernelAI", "DirectReply: ${CalendarLogRedaction.text(skill.name, skillResult.content, 200)}")
                             appendAssistantMessageWithToolCall(
                                 convId = convId,
                                 content = skillResult.content,
@@ -2899,6 +2901,7 @@ class ChatViewModel @Inject constructor(
                                 )
                             } else {
                                 val message = capabilityRequiredMessage(skillResult)
+                                requestCalendarWritePermissionIfNeeded(skillResult)
                                 appendAssistantMessage(
                                     convId = convId,
                                     content = message,
@@ -3604,7 +3607,7 @@ class ChatViewModel @Inject constructor(
                                     "llm_tools_legacy_tool: raw=${fullContent.take(500)}",
                                 )
                                 // E2E marker: legacy assistant reply text (collapse newlines to avoid logcat splits)
-                                Log.d("KernelAI", "llm_tools_assistant_reply: ${fullContent.take(1000).replace('\n', ' ')}")
+                                Log.d("KernelAI", "llm_tools_assistant_reply: ${CalendarLogRedaction.text(fullContent, fullContent, 1000).replace('\n', ' ')}")
                                 tryExecuteToolCall(fullContent)
                             } else null
                             if (nativeToolCall != null || toolCallResult != null) {
@@ -3658,7 +3661,7 @@ class ChatViewModel @Inject constructor(
                                 }
 
                                 // E2E marker: assistant reply text (collapse newlines to avoid logcat splits)
-                                Log.d("KernelAI", "llm_tools_assistant_reply: ${resultContent.take(1000).replace('\n', ' ')}")
+                                Log.d("KernelAI", "llm_tools_assistant_reply: ${CalendarLogRedaction.text(text, resultContent, 1000).replace('\n', ' ')}")
 
                                 // Update streaming message with result text
                                 _messages.update { msgs ->
@@ -4217,7 +4220,7 @@ class ChatViewModel @Inject constructor(
         // E2E marker: skill execution result
         Log.d(
             "KernelAI",
-            "llm_tools_skill_result: skill=${extracted.take(200)} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
+            "llm_tools_skill_result: skill=${CalendarLogRedaction.text(extracted, extracted, 200)} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
         )
         return when (result) {
             is SkillResult.Success -> {
@@ -4447,11 +4450,18 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Asks for calendar read and write in-app; the chat message says to repeat the request after granting. */
+    private fun requestCalendarWritePermissionIfNeeded(result: SkillResult) {
+        if (result is SkillResult.CapabilityRequired && result.capabilityKey == CapabilityKey.CalendarWrite) {
+            viewModelScope.launch { _events.emit(UiEvent.RequestCalendarWritePermission) }
+        }
+    }
+
     private fun capabilityRequiredMessage(result: com.kernel.ai.core.skills.SkillResult.CapabilityRequired): String =
         if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
             "Jandal needs Location access for local weather. Turn on Location in app permissions, or ask for weather in a named city."
         } else if (result.capabilityKey == CapabilityKey.CalendarWrite) {
-            "Jandal needs permission to add calendar events. Allow Calendar events in app permissions, then ask again."
+            "Jandal needs Calendar read and write access to add events. Allow Calendar in app permissions, then ask again."
         } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
             "Jandal needs calendar access to read your events. Allow Calendar in app permissions, then ask again."
         } else {
@@ -4758,6 +4768,7 @@ class ChatViewModel @Inject constructor(
                     )
                     is SkillResult.CapabilityRequired -> {
                         val message = capabilityRequiredMessage(result)
+                        requestCalendarWritePermissionIfNeeded(result)
                         appendAssistantMessage(convId, message, shouldIndex = false)
                     }
                     else -> appendAssistantMessage(

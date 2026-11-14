@@ -1155,7 +1155,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "read_calendar_events",
             regex = Regex(
-                """^(?:what\s+do\s+i\s+have|what\s+have\s+i\s+got|do\s+i\s+have\s+(?:anything|something))\b.*\b(?:today|tomorrow|this\s+week|next\s+week|coming\s+up|upcoming)\b.*$""",
+                """^(?!.*\blist\b)(?:what\s+do\s+i\s+have|what\s+have\s+i\s+got|do\s+i\s+have\s+(?:anything|something))\b.*\b(?:today|tomorrow|this\s+week|next\s+week|coming\s+up|upcoming)\b.*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> calendarReadParams(raw) },
@@ -1163,7 +1163,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "read_calendar_events",
             regex = Regex(
-                """^when(?:'s|\s+is)\s+my\s+(?:next\s+)?(?!.*\b(?:birthday|anniversary)\b)(.{2,40}?)(?:\s+(?:appointment|appointments|meeting|event|class|booking))?\s*\??$""",
+                """^when(?:[’']s|\s+is)\s+my\s+(?:next\s+)?(?!.*\b(?:birthday|anniversary)\b)(.{2,40}?)\s+(?:appointments?|meetings?|events?|class|booking|session|call)\s*\??$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { m, raw -> calendarReadParams(raw, keyword = m.groupValues[1].trim()) },

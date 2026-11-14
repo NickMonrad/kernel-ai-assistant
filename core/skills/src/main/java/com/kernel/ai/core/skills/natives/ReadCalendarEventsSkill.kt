@@ -6,6 +6,7 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillParameter
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
@@ -14,7 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Reads upcoming calendar events. Reachable as the `read_calendar_events` skill (quick-intent routing,
+ * Reads calendar events. Reachable as the `read_calendar_events` skill (quick-intent routing,
  * skill registry, load_skill) and as the `read_calendar_events` run_intent action (E4B tool calls).
  */
 @Singleton
@@ -41,12 +42,13 @@ class ReadCalendarEventsSkill @Inject constructor(
         ),
     )
 
-    override suspend fun execute(call: SkillCall): SkillResult = withContext(Dispatchers.Default) {
+    override suspend fun execute(call: SkillCall): SkillResult = withContext(Dispatchers.IO) {
         readCalendarEvents(
             store = store,
             params = call.arguments,
             today = LocalDate.now(),
             zone = ZoneId.systemDefault(),
+            now = Instant.now(),
         )
     }
 }
@@ -57,6 +59,7 @@ internal fun readCalendarEvents(
     params: Map<String, String>,
     today: LocalDate,
     zone: ZoneId,
+    now: Instant,
 ): SkillResult {
     if (!store.hasReadPermission()) {
         return SkillResult.CapabilityRequired(
@@ -73,12 +76,10 @@ internal fun readCalendarEvents(
             error = "I can read today, tomorrow, this week, next week or the next 7 days.",
         )
     }
-    val (begin, end) = if (range == null && keyword != null) {
-        CalendarEventReplies.keywordWindowMillis(today, zone)
-    } else {
-        CalendarEventReplies.windowMillis(range, today, zone)
-    }
-    val events = store.queryInstances(begin, end)
+    val window = CalendarEventReplies.readWindow(range, keyword != null, today, zone, now)
+    val events = store
+        .queryInstances(window.fromDate, window.toDateExclusive)
+        .filter { CalendarEventReplies.isInWindow(it, window) }
     val reply = CalendarEventReplies.formatRead(range, keyword, events, zone)
     return SkillResult.DirectReply(content = reply, spokenSummary = reply)
 }

@@ -167,7 +167,7 @@ class NativeIntentHandler @Inject constructor(
         if (normalizedName != intentName) {
             Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
         }
-        Log.d(TAG, "NativeIntentHandler.handle: intent=$normalizedName params=$params")
+        Log.d(TAG, "NativeIntentHandler.handle: intent=$normalizedName params=${CalendarLogRedaction.params(normalizedName, params)}")
         return try {
             when (normalizedName) {
                 "toggle_flashlight_on" -> setTorch(true)
@@ -188,7 +188,7 @@ class NativeIntentHandler @Inject constructor(
                 "get_stopwatch_status" -> getStopwatchStatus()
                 "cancel_alarm" -> cancelAlarm(params)
                 "create_calendar_event" -> createCalendarEvent(params)
-                "read_calendar_events" -> readCalendarEvents(calendarEventStore, params, LocalDate.now(), ZoneId.systemDefault())
+                "read_calendar_events" -> readCalendarEvents(calendarEventStore, params, LocalDate.now(), ZoneId.systemDefault(), Instant.now())
                 "get_battery" -> getBattery()
                 "get_time", "get_date" -> getTime(params)
                 "toggle_dnd_on" -> setDoNotDisturb(true)
@@ -910,7 +910,15 @@ class NativeIntentHandler @Inject constructor(
             begin to end
         }
 
-        if (!calendarEventStore.hasWritePermission()) {
+        // Invitees cannot be written yet. Refuse rather than insert an event that silently lacks them.
+        if (params["attendees"]?.isNotBlank() == true) {
+            return SkillResult.Failure(
+                "run_intent",
+                "I can't invite people to events yet, so I haven't added '$title'. Add it in your calendar app.",
+            )
+        }
+        // Create needs READ too: the default calendar is chosen by querying the calendars table.
+        if (!calendarEventStore.hasReadPermission() || !calendarEventStore.hasWritePermission()) {
             return SkillResult.CapabilityRequired(
                 capabilityKey = CapabilityKey.CalendarWrite,
                 skillName = "create_calendar_event",
@@ -941,9 +949,7 @@ class NativeIntentHandler @Inject constructor(
             calendarName = calendar.displayName,
             zone = zone,
         )
-        // Attendees are not written yet; say so rather than silently dropping them.
-        val attendeeNote = if (params["attendees"]?.isNotBlank() == true) " I didn't add the attendees." else ""
-        return SkillResult.Success(confirmation + attendeeNote)
+        return SkillResult.Success(confirmation)
     }
 
     // ── Battery ───────────────────────────────────────────────────────────────

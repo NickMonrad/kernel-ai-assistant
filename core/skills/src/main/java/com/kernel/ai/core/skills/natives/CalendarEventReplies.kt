@@ -34,6 +34,17 @@ enum class CalendarRange(val wireName: String, val phrase: String) {
     }
 }
 
+/**
+ * What a read may return. [fromDate, toDateExclusive) is the local-day range used for all-day events,
+ * whose stored BEGIN is UTC midnight. [fromMillis, toMillis) is the instant range used for timed events.
+ */
+data class ReadWindow(
+    val fromDate: LocalDate,
+    val toDateExclusive: LocalDate,
+    val fromMillis: Long,
+    val toMillis: Long,
+)
+
 /** Pure calendar read/create logic: windows, keyword filtering and voice-friendly wording. No Android types. */
 object CalendarEventReplies {
 
@@ -44,23 +55,45 @@ object CalendarEventReplies {
     private val DAY_FORMAT = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH)
     private const val MAX_LISTED_EVENTS = 8
 
-    /** Start (inclusive) and end (exclusive) of [range] in epoch millis, interpreted in [zone]. */
-    fun windowMillis(range: CalendarRange?, today: LocalDate, zone: ZoneId): Pair<Long, Long> {
-        val (startDate, endDate) = when (range) {
-            CalendarRange.TODAY, null -> today to today.plusDays(1)
-            CalendarRange.TOMORROW -> today.plusDays(1) to today.plusDays(2)
-            CalendarRange.THIS_WEEK -> today to nextMonday(today)
-            CalendarRange.NEXT_WEEK -> nextMonday(today) to nextMonday(today).plusWeeks(1)
-            CalendarRange.UPCOMING -> today to today.plusDays(7)
+    /**
+     * Window for a read. "Upcoming" and keyword searches start at [now], so events that already
+     * ended are not listed as the next match. Explicit day ranges start at local midnight.
+     */
+    fun readWindow(
+        range: CalendarRange?,
+        hasKeyword: Boolean,
+        today: LocalDate,
+        zone: ZoneId,
+        now: Instant,
+    ): ReadWindow {
+        val startsNow = range == CalendarRange.UPCOMING || (range == null && hasKeyword)
+        val (fromDate, toDate) = when {
+            range == null && hasKeyword -> today to today.plusDays(KEYWORD_LOOKAHEAD_DAYS)
+            else -> when (range) {
+                CalendarRange.TODAY, null -> today to today.plusDays(1)
+                CalendarRange.TOMORROW -> today.plusDays(1) to today.plusDays(2)
+                CalendarRange.THIS_WEEK -> today to nextMonday(today)
+                CalendarRange.NEXT_WEEK -> nextMonday(today) to nextMonday(today).plusWeeks(1)
+                CalendarRange.UPCOMING -> today to today.plusDays(7)
+            }
         }
-        return startDate.atStartOfDay(zone).toInstant().toEpochMilli() to
-            endDate.atStartOfDay(zone).toInstant().toEpochMilli()
+        val fromMillis = if (startsNow) now.toEpochMilli() else fromDate.atStartOfDay(zone).toInstant().toEpochMilli()
+        return ReadWindow(
+            fromDate = fromDate,
+            toDateExclusive = toDate,
+            fromMillis = fromMillis,
+            toMillis = toDate.atStartOfDay(zone).toInstant().toEpochMilli(),
+        )
     }
 
-    /** Keyword window for searches with no explicit range. */
-    fun keywordWindowMillis(today: LocalDate, zone: ZoneId): Pair<Long, Long> =
-        today.atStartOfDay(zone).toInstant().toEpochMilli() to
-            today.plusDays(KEYWORD_LOOKAHEAD_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
+    /** True when [event] falls inside [window]. Exact for both all-day rows (by day) and timed rows (by instant). */
+    fun isInWindow(event: CalendarEventRecord, window: ReadWindow): Boolean =
+        if (event.allDay) {
+            val day = Instant.ofEpochMilli(event.beginMillis).atZone(ZoneOffset.UTC).toLocalDate()
+            !day.isBefore(window.fromDate) && day.isBefore(window.toDateExclusive)
+        } else {
+            event.beginMillis < window.toMillis && event.endMillis > window.fromMillis
+        }
 
     /** Case-insensitive match on title, calendar name or location. */
     fun matchesKeyword(event: CalendarEventRecord, keyword: String): Boolean {

@@ -196,7 +196,7 @@ class AppPermissionsViewModel @Inject constructor(
             ),
             AppPermissionItem(
                 label = "Calendar events",
-                description = "Adding events to your default calendar",
+                description = "Adding events to your default calendar. Also needs Calendar above.",
                 permission = Manifest.permission.WRITE_CALENDAR,
             ),
         )

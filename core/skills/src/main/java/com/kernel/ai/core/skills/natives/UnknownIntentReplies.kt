@@ -13,7 +13,7 @@ object UnknownIntentReplies {
     const val GENERIC_REPLY = "I couldn't do that one. Try asking another way."
 
     const val CALENDAR_READ_REPLY =
-        "I can read your calendar: try asking what's on today, what you have this week, or when your next dentist appointment is."
+        "I can read your calendar for today, tomorrow, this week, next week or the next 7 days, or find a specific event such as your next dentist appointment."
 
     const val EMAIL_READ_REPLY = "I can't read your email yet, but I can send one."
 

@@ -171,8 +171,10 @@ object CapabilityRegistry {
         CapabilityDefinition(
             key = CapabilityKey.CalendarWrite,
             label = "Calendar events",
-            description = "Add events to your default calendar when you ask Jandal to schedule something.",
+            description = "Add events to your default calendar when you ask Jandal to schedule something. " +
+                "Needs both calendar read and write, because the default calendar is chosen from the calendars on the phone.",
             requirements = listOf(
+                CapabilityRequirement.RuntimePermission(Manifest.permission.READ_CALENDAR),
                 CapabilityRequirement.RuntimePermission(Manifest.permission.WRITE_CALENDAR),
             ),
         ),
