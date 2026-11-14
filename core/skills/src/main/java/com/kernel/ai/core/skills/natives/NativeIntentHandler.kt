@@ -349,23 +349,18 @@ class NativeIntentHandler @Inject constructor(
         
         val resolvedEmail = resolveContactEmail(contact)
             ?: contact.takeIf(::looksLikeEmailAddress)
+            ?: return contactNotFound("send_email", contact)
 
         val encodedSubject = Uri.encode(subject)
         val encodedBody = Uri.encode(body)
         // Email address must NOT be percent-encoded (RFC 6068) — only query params are encoded
-        val mailtoUri = resolvedEmail?.let {
-            Uri.parse("mailto:$it?subject=$encodedSubject&body=$encodedBody")
-        } ?: Uri.parse("mailto:?subject=$encodedSubject&body=$encodedBody")
+        val mailtoUri = Uri.parse("mailto:$resolvedEmail?subject=$encodedSubject&body=$encodedBody")
         val intent = Intent(Intent.ACTION_SENDTO, mailtoUri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         return try {
             context.startActivity(intent)
-            if (resolvedEmail != null) {
-                SkillResult.Success("Email composer opened to $resolvedEmail.")
-            } else {
-                SkillResult.Success("Email composer opened. Couldn't prefill recipient for $contact.")
-            }
+            SkillResult.Success("Email composer opened to $resolvedEmail.")
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure(
                 "send_email",
@@ -390,10 +385,13 @@ class NativeIntentHandler @Inject constructor(
             )
         }
         
-        // resolveContactNumber returns null for self-terms when own number unavailable;
-        // fall back to blank URI rather than passing the literal word through as a number.
-        val number = contact?.let { resolveContactNumber(it) }
-            ?: contact?.takeIf { it.none { c -> c.isLetter() } }  // keep raw numeric strings
+        // A named contact that doesn't resolve gets an in-app recovery result, not a blank composer.
+        // Self-terms may legitimately resolve to null when the own number is unknown.
+        val resolved = contact?.let { resolveContactNumber(it) }
+        if (contact != null && resolved == null && isNamedContactLookup(contact)) {
+            return contactNotFound("send_sms", contact)
+        }
+        val number = resolved ?: contact?.takeIf { it.none { c -> c.isLetter() } }  // keep raw numeric strings
         val smsUri = if (!number.isNullOrBlank()) "smsto:${Uri.encode(number)}" else "smsto:"
         val intent = Intent(Intent.ACTION_SENDTO).apply {
             data = Uri.parse(smsUri)
@@ -1354,10 +1352,7 @@ class NativeIntentHandler @Inject constructor(
         
         val phoneNumber = resolveContactNumber(contact)
             ?: if (looksLikeNumber) contact
-            else return SkillResult.Failure(
-                "make_call",
-                "Couldn't find a contact for '$contact'. You can add them in Settings → People & Contacts.",
-            )
+            else return contactNotFound("make_call", contact)
         return try {
             // Use ACTION_CALL to auto-dial (hands-free use case — e.g. driving).
             val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
@@ -1414,12 +1409,48 @@ class NativeIntentHandler @Inject constructor(
         val isSuperPrimary: Boolean,
         val phoneType: Int,
     )
+
+    /** Own-number self references. These may resolve to null without being a missing contact. */
+    private val selfContactTerms = setOf("myself", "me", "my number", "my phone", "my cell")
+
+    private fun isNamedContactLookup(contact: String): Boolean =
+        contact.any { it.isLetter() } && contact.trim().lowercase() !in selfContactTerms
+
+    /** Recovery result for a named contact that could not be resolved. */
+    private fun contactNotFound(skillName: String, contact: String): SkillResult.Failure =
+        ContactLookupRecovery.notFoundResult(skillName, contact, suggestContactNames(contact))
+
+    /** Sound-alike contact names for [query]. Empty without READ_CONTACTS or when the query fails. */
+    @SuppressLint("MissingPermission")
+    private fun suggestContactNames(query: String): List<String> {
+        if (context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return emptyList()
+        }
+        return try {
+            val names = context.contentResolver.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) cursor.getString(0)?.let(::add)
+                }
+            }.orEmpty()
+            ContactLookupRecovery.nearMatches(query, names)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Contact name lookup denied", e)
+            emptyList()
+        }
+    }
     @SuppressLint("MissingPermission")
     private fun resolveContactNumber(name: String): String? {
         // 0. Self-referential aliases — resolve to device's own phone number
-        val selfTerms = setOf("myself", "me", "my number", "my phone", "my cell")
         val normalised0 = name.trim().lowercase()
-        if (normalised0 in selfTerms) {
+        if (normalised0 in selfContactTerms) {
             val ownNumber = try {
                 val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
                 tm?.line1Number?.takeIf { it.isNotBlank() }
