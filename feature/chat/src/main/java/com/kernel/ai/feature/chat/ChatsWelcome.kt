@@ -162,7 +162,7 @@ internal fun ChatsWelcome(
             WelcomeDownload.Ready -> Unit
             is WelcomeDownload.Upgrading -> DownloadCard(
                 title = "Getting a better Jandal",
-                body = "Jandal can chat now. A better version of Jandal, about ${formatBytesShort(download.model.approxSizeBytes)}, " +
+                body = "Jandal can chat now. A better version (about ${formatBytesShort(download.model.approxSizeBytes)}) " +
                     "is downloading. Keep Wi-Fi on until it finishes.",
                 progress = download.progress,
             )
@@ -224,7 +224,7 @@ internal fun ChatsWelcome(
                     )
                     TabHintRow(
                         label = "Actions",
-                        hint = "Quick things like timers, lists and weather, without starting a chat.",
+                        hint = "Quick things like timers, reminders and weather, without starting a chat.",
                         prominent = true,
                     )
                     TabHintRow(label = "Chats", hint = "Talk to Jandal in a full conversation.")
