@@ -1,22 +1,24 @@
 package com.kernel.ai.feature.chat
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -26,13 +28,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import kotlin.math.roundToInt
 
@@ -120,8 +123,11 @@ internal fun welcomeExamplePromptsFor(download: WelcomeDownload): List<WelcomeEx
     is WelcomeDownload.Waiting -> welcomeExamplePrompts.filterNot { it.needsAssistantFiles }
 }
 
-/** Clearance under the welcome so the main + FAB (56dp, 16dp end margin, 16dp gap) never covers its content. */
-private val FabClearance = 88.dp
+/** Bottom clearance for the main + FAB (56dp, 16dp end margin, 16dp gap) at the end of the welcome. */
+private val WelcomeFabBottomClearance = 88.dp
+
+/** End clearance for the main + FAB column (16dp margin + 56dp FAB + 8dp gap), so no card or tip sits under it. */
+private val WelcomeFabEndClearance = 80.dp
 
 @Composable
 internal fun ChatsWelcome(
@@ -132,9 +138,10 @@ internal fun ChatsWelcome(
     onDownloadModel: (KernelModel) -> Unit,
     onDismissTabHints: () -> Unit,
     onHideWelcome: () -> Unit,
-    /** Bottom inset from the Chats scaffold, so content clears the navigation bar and the FAB. */
-    bottomInset: Dp = 0.dp,
-    /** Reopened from the menu: drops the hide and "Got it" controls, which only belong to first run. */
+    /**
+     * Reopened from the menu (Getting started). There is no main FAB over it, so it keeps no FAB clearance, and it
+     * has no hide or "Got it" controls, which belong to first run only.
+     */
     reopened: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -143,7 +150,11 @@ internal fun ChatsWelcome(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = bottomInset)
+            .padding(
+                start = 24.dp,
+                top = 16.dp,
+                end = if (reopened) 24.dp else 24.dp + WelcomeFabEndClearance,
+            )
             .testTag("chats_welcome"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -242,31 +253,60 @@ internal fun ChatsWelcome(
                     )
                     TabHintRow(label = "Chats", hint = "Talk to Jandal in a full conversation.")
                     TabHintRow(label = "Tools", hint = "Lists, notes, clock, conversions and settings, all in one place.")
-                    if (!reopened) TextButton(
-                        onClick = onDismissTabHints,
-                        modifier = Modifier
-                            .align(Alignment.Start)
-                            .padding(top = 8.dp)
-                            .heightIn(min = 48.dp)
-                            .testTag("chats_welcome_tab_hints_dismiss"),
-                    ) {
-                        Text("Got it")
+                    if (!reopened) {
+                        TextButton(
+                            onClick = onDismissTabHints,
+                            modifier = Modifier
+                                .align(Alignment.Start)
+                                .padding(top = 8.dp)
+                                .heightIn(min = 48.dp)
+                                .testTag("chats_welcome_tab_hints_dismiss"),
+                        ) {
+                            Text("Got it")
+                        }
                     }
                 }
             }
         }
 
-        if (!reopened) TextButton(
-            onClick = onHideWelcome,
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .heightIn(min = 48.dp)
-                .testTag("chats_welcome_hide"),
-        ) {
-            Text("Hide welcome")
+        if (!reopened) {
+            TextButton(
+                onClick = onHideWelcome,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .heightIn(min = 48.dp)
+                    .testTag("chats_welcome_hide"),
+            ) {
+                Text("Hide welcome")
+            }
+            Spacer(Modifier.height(WelcomeFabBottomClearance))
         }
-        Spacer(Modifier.height(FabClearance))
     }
+}
+
+/**
+ * Getting started reopened from the Chats menu or Settings → About. Shows the same welcome content as first run,
+ * without the hide and "Got it" controls.
+ */
+@Composable
+internal fun GettingStartedContent(
+    download: WelcomeDownload,
+    onStartChatting: () -> Unit,
+    onExamplePrompt: (String) -> Unit,
+    onDownloadModel: (KernelModel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ChatsWelcome(
+        download = download,
+        showTabHints = true,
+        onStartChatting = onStartChatting,
+        onExamplePrompt = onExamplePrompt,
+        onDownloadModel = onDownloadModel,
+        onDismissTabHints = {},
+        onHideWelcome = {},
+        reopened = true,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -330,55 +370,106 @@ private fun TabHintRow(label: String, hint: String, prominent: Boolean = false) 
     }
 }
 
-/** Chats banner for a conversation-model download that is still running once the welcome is gone. */
+// ── Chats: download banner once the welcome is gone ────────────────────────────────────────────
+
+/** Banner text and progress. [progress] is null when unknown (queued, waiting for Wi-Fi, or not reported yet). */
 internal data class DownloadBanner(val title: String, val progress: Float?) {
     val text: String
-        get() = progress?.let { "$title: ${(it * 100).roundToInt()}%" } ?: "$title…"
+        get() = progress?.let { "$title: ${percentOf(it)}%" } ?: "$title…"
 }
 
-/** The banner for [readiness], or null when no conversation model is downloading. */
-internal fun chatsDownloadBanner(readiness: ConversationModelReadiness): DownloadBanner? = when (readiness) {
-    is ConversationModelReadiness.FallbackPreparing -> DownloadBanner("Getting a better Jandal", readiness.progress)
-    is ConversationModelReadiness.Preparing -> DownloadBanner("Getting Jandal ready", readiness.progress)
-    else -> null
+/** Progress is shown below 100% until the download completes; a value of 1.0 while still downloading reads as 99%. */
+private const val MAX_BANNER_PROGRESS = 0.99f
+
+/**
+ * Normalises raw download progress for display. Zero, negative, and NaN values mean "not started or unknown" (for
+ * example, queued until Wi-Fi), so they become null and the banner shows an indeterminate bar rather than 0%.
+ */
+internal fun bannerProgress(raw: Float?): Float? =
+    raw?.takeIf { !it.isNaN() && it > 0f }?.coerceAtMost(MAX_BANNER_PROGRESS)
+
+private fun percentOf(progress: Float): Int = (progress * 100).roundToInt().coerceIn(1, 99)
+
+/**
+ * The Chats banner for [readiness], or null when it should not show: the welcome is still up (it shows progress
+ * itself), selection mode is on, the archived view is open, or no conversation model is downloading.
+ */
+internal fun chatsDownloadBanner(
+    readiness: ConversationModelReadiness,
+    welcomeState: ChatsEmptyState,
+    isInSelectionMode: Boolean,
+    showArchived: Boolean,
+): DownloadBanner? {
+    if (welcomeState != ChatsEmptyState.Plain || isInSelectionMode || showArchived) return null
+    return when (readiness) {
+        is ConversationModelReadiness.FallbackPreparing ->
+            DownloadBanner("Getting a better Jandal", bannerProgress(readiness.progress))
+        is ConversationModelReadiness.Preparing ->
+            DownloadBanner("Getting Jandal ready", bannerProgress(readiness.progress))
+        else -> null
+    }
 }
 
 @Composable
 internal fun ChatsDownloadBanner(banner: DownloadBanner, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
-        onClick = onClick,
         color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        modifier = modifier.fillMaxWidth().testTag("chats_download_banner"),
+        shape = RoundedCornerShape(16.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("chats_download_banner")
+            .clickable(role = Role.Button, onClickLabel = "Open getting started", onClick = onClick)
+            // One focus stop: TalkBack reads the text once; the bar is decorative (its value is in the text).
+            .semantics(mergeDescendants = true) {},
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(banner.text, style = MaterialTheme.typography.bodyMedium)
-            banner.progress?.let { ConversationDownloadProgress(progress = it) }
+            val progress = banner.progress
+            val barModifier = Modifier.fillMaxWidth().padding(top = 8.dp).clearAndSetSemantics {}
+            if (progress != null) {
+                LinearProgressIndicator(progress = progress, modifier = barModifier)
+            } else {
+                LinearProgressIndicator(modifier = barModifier)
+            }
         }
     }
 }
 
-/** Getting started, reopened from the Chats menu. Nothing is reset: the welcome stays hidden for first-run purposes. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Example prompts shown in a short row on Chats until the user has about three conversations.
+ */
+internal fun showTryAskingChips(
+    conversationCount: Int,
+    welcomeState: ChatsEmptyState,
+    showArchived: Boolean,
+    isInSelectionMode: Boolean,
+    searchQuery: String,
+): Boolean =
+    welcomeState == ChatsEmptyState.Plain &&
+        !showArchived &&
+        !isInSelectionMode &&
+        searchQuery.isBlank() &&
+        conversationCount < TRY_ASKING_CHIPS_MAX_CONVERSATIONS
+
+internal const val TRY_ASKING_CHIPS_MAX_CONVERSATIONS = 3
+
 @Composable
-internal fun GettingStartedSheet(
-    download: WelcomeDownload,
-    onDismiss: () -> Unit,
-    onStartChatting: () -> Unit,
-    onExamplePrompt: (String) -> Unit,
-    onDownloadModel: (KernelModel) -> Unit,
+internal fun TryAskingChips(
+    prompts: List<WelcomeExamplePrompt>,
+    onPrompt: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f)) {
-            ChatsWelcome(
-                download = download,
-                showTabHints = true,
-                onStartChatting = onStartChatting,
-                onExamplePrompt = onExamplePrompt,
-                onDownloadModel = onDownloadModel,
-                onDismissTabHints = {},
-                onHideWelcome = {},
-                reopened = true,
+    LazyRow(
+        modifier = modifier.fillMaxWidth().testTag("chats_try_asking"),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(prompts) { prompt ->
+            AssistChip(
+                onClick = { onPrompt(prompt.text) },
+                label = { Text(prompt.text) },
+                modifier = Modifier.heightIn(min = 48.dp),
             )
         }
     }

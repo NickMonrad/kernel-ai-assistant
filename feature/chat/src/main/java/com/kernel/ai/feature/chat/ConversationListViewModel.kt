@@ -28,6 +28,19 @@ class ConversationListViewModel @Inject constructor(
     private val chatPreferences: ChatPreferences,
     private val downloadManager: ModelDownloadManager,
 ) : ViewModel() {
+    // Debug-only overrides (BuildConfig.DEBUG). In memory, reset on process restart; release builds never set them.
+    private val _debugShowWelcome = MutableStateFlow(false)
+    private val _debugSimulateDownload = MutableStateFlow(false)
+    val debugShowWelcome: StateFlow<Boolean> = _debugShowWelcome.asStateFlow()
+    val debugSimulateDownload: StateFlow<Boolean> = _debugSimulateDownload.asStateFlow()
+
+    fun toggleDebugWelcome() {
+        if (BuildConfig.DEBUG) _debugShowWelcome.update { !it }
+    }
+
+    fun toggleDebugDownload() {
+        if (BuildConfig.DEBUG) _debugSimulateDownload.update { !it }
+    }
 
     /**
      * Null until both the welcome preference and the total conversation count (archived included) have loaded.
@@ -36,21 +49,33 @@ class ConversationListViewModel @Inject constructor(
     val chatsWelcomeDismissed: StateFlow<Boolean?> = combine(
         chatPreferences.chatsWelcomeDismissed,
         repository.observeConversationCount(),
-    ) { dismissed, count -> dismissed || count > 0 }
+        _debugShowWelcome,
+    ) { dismissed, count, forced -> !forced && (dismissed || count > 0) }
         .stateIn<Boolean?>(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Total conversations, archived included. Drives the "Try asking" row on Chats. */
+    val conversationCount: StateFlow<Int> = repository.observeConversationCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     val downloadStates = downloadManager.downloadStates
 
     val tabHintsDismissed: StateFlow<Boolean?> = chatPreferences.tabHintsDismissed
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val assistantReadiness: StateFlow<ConversationModelReadiness> = downloadManager.downloadStates
-        .map { states -> ConversationModelReadiness.compute(downloadManager.deviceTier, states) }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            ConversationModelReadiness.compute(downloadManager.deviceTier, downloadManager.downloadStates.value),
-        )
+    val assistantReadiness: StateFlow<ConversationModelReadiness> = combine(
+        downloadManager.downloadStates,
+        _debugSimulateDownload,
+    ) { states, simulate ->
+        if (simulate) {
+            ConversationModelReadiness.Preparing(KernelModel.GEMMA_4_E4B, 0.42f)
+        } else {
+            ConversationModelReadiness.compute(downloadManager.deviceTier, states)
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        ConversationModelReadiness.compute(downloadManager.deviceTier, downloadManager.downloadStates.value),
+    )
 
     init {
         // The welcome is one-time: once any conversation exists (archived included), it never returns.

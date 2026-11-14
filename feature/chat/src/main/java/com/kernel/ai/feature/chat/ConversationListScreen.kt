@@ -92,6 +92,7 @@ fun ConversationListScreen(
     onOpenDrawer: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onOpenExamplePrompt: (String) -> Unit = {},
+    onNavigateToGettingStarted: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
@@ -114,7 +115,9 @@ fun ConversationListScreen(
     val pendingRename = pendingRenameId?.let { id -> conversations.find { it.id == id } }
     var contextMenuTarget by remember { mutableStateOf<ConversationEntity?>(null) }
     var showOverflowMenu by remember { mutableStateOf(false) }
-    var showGettingStarted by rememberSaveable { mutableStateOf(false) }
+    val conversationCount by viewModel.conversationCount.collectAsStateWithLifecycle()
+    val debugShowWelcome by viewModel.debugShowWelcome.collectAsStateWithLifecycle()
+    val debugSimulateDownload by viewModel.debugSimulateDownload.collectAsStateWithLifecycle()
 
     // ── Drag-and-drop local state (optimistic UI) ──────────────────────────
     var localPinned by remember { mutableStateOf(pinnedConversations) }
@@ -204,9 +207,29 @@ fun ConversationListScreen(
                                     leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
                                     onClick = {
                                         showOverflowMenu = false
-                                        showGettingStarted = true
+                                        onNavigateToGettingStarted()
                                     },
                                 )
+                                if (BuildConfig.DEBUG) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(if (debugShowWelcome) "Debug: hide forced welcome" else "Debug: show first-run welcome")
+                                        },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            viewModel.toggleDebugWelcome()
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(if (debugSimulateDownload) "Debug: stop simulated download" else "Debug: simulate download")
+                                        },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            viewModel.toggleDebugDownload()
+                                        },
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = {
                                         Text(
@@ -272,16 +295,6 @@ fun ConversationListScreen(
                 .fillMaxSize()
                 .padding(top = innerPadding.calculateTopPadding()),
         ) {
-            // Download progress stays visible once the welcome is gone (the welcome shows it while it is up).
-            chatsDownloadBanner(assistantReadiness)?.let { banner ->
-                if (!isInSelectionMode && !showArchived && welcomeState == ChatsEmptyState.Plain) {
-                    ChatsDownloadBanner(
-                        banner = banner,
-                        onClick = { showGettingStarted = true },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-            }
             // Search bar — hidden in selection mode
             if (!isInSelectionMode) {
                 OutlinedTextField(
@@ -300,6 +313,19 @@ fun ConversationListScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            chatsDownloadBanner(assistantReadiness, welcomeState, isInSelectionMode, showArchived)?.let { banner ->
+                ChatsDownloadBanner(
+                    banner = banner,
+                    onClick = onNavigateToGettingStarted,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            if (showTryAskingChips(conversationCount, welcomeState, showArchived, isInSelectionMode, searchQuery)) {
+                TryAskingChips(
+                    prompts = welcomeExamplePromptsFor(welcomeDownloadFor(assistantReadiness, downloadStates)),
+                    onPrompt = onOpenExamplePrompt,
                 )
             }
 
@@ -335,7 +361,7 @@ fun ConversationListScreen(
                             onDownloadModel = viewModel::downloadAssistantModel,
                             onDismissTabHints = viewModel::dismissTabHints,
                             onHideWelcome = viewModel::hideWelcome,
-                            bottomInset = innerPadding.calculateBottomPadding(),
+                            modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
                         )
                     } else if (welcomeState == ChatsEmptyState.Plain) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -544,21 +570,6 @@ fun ConversationListScreen(
         } // end Column
     }
 
-    if (showGettingStarted) {
-        GettingStartedSheet(
-            download = welcomeDownloadFor(assistantReadiness, downloadStates),
-            onDismiss = { showGettingStarted = false },
-            onStartChatting = {
-                showGettingStarted = false
-                onNewConversation()
-            },
-            onExamplePrompt = {
-                showGettingStarted = false
-                onOpenExamplePrompt(it)
-            },
-            onDownloadModel = viewModel::downloadAssistantModel,
-        )
-    }
 
     // Archive confirmation dialog
     pendingArchive?.let { conversation ->

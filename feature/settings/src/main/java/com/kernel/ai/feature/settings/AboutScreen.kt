@@ -56,6 +56,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 fun AboutScreen(
     onBack: () -> Unit,
     onNavigateToLegalPrivacy: () -> Unit,
+    onNavigateToGettingStarted: () -> Unit,
     versionName: String,
     versionCode: Int,
     buildType: String,
@@ -171,6 +172,18 @@ fun AboutScreen(
                     .clickable(onClick = onNavigateToLegalPrivacy),
                 headlineContent = { Text("Legal & privacy") },
                 supportingContent = { Text("Privacy policy, terms, and open-source licences") },
+                trailingContent = {
+                    Icon(Icons.Default.ChevronRight, contentDescription = null)
+                },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onNavigateToGettingStarted),
+                headlineContent = { Text("Getting started") },
+                supportingContent = { Text("Tips, example prompts and assistant download status") },
                 trailingContent = {
                     Icon(Icons.Default.ChevronRight, contentDescription = null)
                 },
