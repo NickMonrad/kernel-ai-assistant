@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import com.kernel.ai.core.permissions.PermissionRequestStore
+import com.kernel.ai.core.permissions.PermissionRoute
+import com.kernel.ai.core.permissions.decidePermissionRoute
 import com.kernel.ai.core.permissions.recordPermissionResult
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -134,12 +137,19 @@ fun ImportantDatesScreen(
                 }
             } else {
                 val activity = context.findActivity()
-                if (activity != null &&
+                val rationale = activity != null &&
                     ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CALENDAR)
-                ) {
-                    showCalendarPermissionRationale = true
-                } else {
-                    calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+                // Android will not show the prompt once permanently denied, so the request would do nothing.
+                val route = decidePermissionRoute(
+                    isGranted = false,
+                    isSpecialAccess = false,
+                    wasDeniedBefore = PermissionRequestStore.from(context).wasDenied(Manifest.permission.READ_CALENDAR),
+                    shouldShowRationale = rationale,
+                )
+                when {
+                    route == PermissionRoute.AppInfo -> context.openAppPermissionSettings()
+                    rationale -> showCalendarPermissionRationale = true
+                    else -> calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                 }
             }
         } else if (uiState.calendarPermissionGranted) {

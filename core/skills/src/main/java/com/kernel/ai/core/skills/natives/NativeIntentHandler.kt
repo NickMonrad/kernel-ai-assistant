@@ -2781,10 +2781,10 @@ class NativeIntentHandler @Inject constructor(
                             contextParams = mapOf("target_date" to targetStr),
                         )
                     }
-                    val nothingSaved = runBlocking { importantDateRepository.getAll() }.isEmpty()
-                    if (nothingSaved && calendarBirthdayLookup.getAllBirthdays().isEmpty()) {
-                        return ImportantDateRecovery.noDatesYetFailure("get_date_diff")
+                    if (calendarBirthdayLookup.getAllBirthdays().isEmpty()) {
+                        return ImportantDateRecovery.calendarNoBirthdaysFailure("get_date_diff", targetStr)
                     }
+                    return ImportantDateRecovery.notFoundFailure("get_date_diff", targetStr, searchedCalendar = true)
                 }
                 return ImportantDateRecovery.notFoundFailure("get_date_diff", targetStr)
             }
