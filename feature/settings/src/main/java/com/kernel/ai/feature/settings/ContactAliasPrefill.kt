@@ -14,4 +14,5 @@ data class ContactAliasPrefill(
     val openAdd: Boolean = false,
     val openPicker: Boolean = false,
     val suggestedName: String? = null,
+    val callRequested: Boolean = false,
 )

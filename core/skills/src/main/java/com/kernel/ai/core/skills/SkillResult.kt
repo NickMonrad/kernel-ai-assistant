@@ -51,8 +51,8 @@ sealed class SkillResult {
      *
      *  [actions] are optional in-app recovery buttons for failures the user can fix inside the app
      *  (e.g. "Add in People & Contacts" for an unknown contact). Every action only opens an in-app
-     *  screen; none performs a side effect. Surfaces that don't render buttons show [error] as
-     *  before, so existing consumers are unaffected.
+     *  screen; none performs a side effect. [error] always names the in-app next step, because
+     *  surfaces that don't render buttons (chat text, model tool replies, voice) print only [error].
      *
      *  [fallThroughToModel] asks conversational callers to continue with the user's original
      *  request instead of displaying this internal miss. */

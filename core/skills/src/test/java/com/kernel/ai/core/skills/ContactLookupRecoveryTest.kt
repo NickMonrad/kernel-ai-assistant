@@ -51,8 +51,26 @@ class ContactLookupRecoveryTest {
     }
 
     @Test
-    fun `near match ignores unrelated names and short words`() {
-        assertTrue(ContactLookupRecovery.nearMatches("Sam", listOf("Sal Jones", "Tom")).isEmpty())
+    fun `near match finds a contact by surname`() {
+        assertEquals(listOf("Laurelle Smith"), ContactLookupRecovery.nearMatches("Smith", listOf("Laurelle Smith")))
+    }
+
+    @ParameterizedTest(name = "\"{0}\" does not suggest \"{1}\"")
+    @CsvSource(
+        "John, Joan",
+        "John, Jane",
+        "John, Jenny",
+        "Kate, Keith",
+        "Bill, Bella",
+        "Mary, Maria",
+        "Mary, Mario",
+        "Mary, Myra",
+        "Dana, Dan",
+        "Dana, Dean",
+        "Sam, Sal Jones",
+    )
+    fun `near match rejects false positives`(query: String, candidate: String) {
+        assertTrue(ContactLookupRecovery.nearMatches(query, listOf(candidate)).isEmpty())
     }
 
     @Test
@@ -67,9 +85,9 @@ class ContactLookupRecoveryTest {
     }
 
     @Test
-    fun `relationship failure carries one add action and no picker`() {
+    fun `relationship failure keeps Settings guidance in the text and carries one add action`() {
         val result = ContactLookupRecovery.notFoundResult("make_call", "my wife")
-        assertEquals("I don't know who your wife is yet.", result.error)
+        assertEquals("I don't know who your wife is yet. Add them in Settings → People & Contacts.", result.error)
         assertEquals(1, result.actions.size)
         val link = result.actions.single().deepLink
         assertEquals(ContactLookupRecovery.PEOPLE_DESTINATION, link.destination)
@@ -79,14 +97,26 @@ class ContactLookupRecoveryTest {
     }
 
     @Test
-    fun `unknown name failure offers add and picker actions`() {
-        val result = ContactLookupRecovery.notFoundResult("make_call", "Sam")
-        assertEquals("Couldn't find Sam.", result.error)
+    fun `unknown name failure keeps Settings guidance and offers add and picker actions`() {
+        val result = ContactLookupRecovery.notFoundResult("send_sms", "Sam")
+        assertEquals("Couldn't find Sam. Add them in Settings → People & Contacts.", result.error)
         assertEquals(
             listOf("Add in People & Contacts", "Pick from contacts"),
             result.actions.map { it.label },
         )
         assertEquals("true", result.actions[1].deepLink.args[ContactLookupRecovery.ARG_PICK])
+    }
+
+    @Test
+    fun `call failure marks the link so the add flow may offer to dial`() {
+        val result = ContactLookupRecovery.notFoundResult("make_call", "Sam", callRequested = true)
+        assertEquals("true", result.actions.first().deepLink.args[ContactLookupRecovery.ARG_CALL])
+    }
+
+    @Test
+    fun `non-call failure does not mark the link as a call`() {
+        val result = ContactLookupRecovery.notFoundResult("send_sms", "Sam")
+        assertNull(result.actions.first().deepLink.args[ContactLookupRecovery.ARG_CALL])
     }
 
     @Test
@@ -96,18 +126,29 @@ class ContactLookupRecoveryTest {
             "Laurel",
             nearMatches = listOf("Laurelle Smith"),
         )
-        assertEquals("I couldn't find Laurel. Did you mean Laurelle Smith?", result.error)
+        assertEquals(
+            "I couldn't find Laurel. Did you mean Laurelle Smith? Add them in Settings → People & Contacts.",
+            result.error,
+        )
         val suggestion = result.actions.first()
         assertEquals("Yes, Laurelle Smith", suggestion.label)
         assertEquals("Laurelle Smith", suggestion.deepLink.args[ContactLookupRecovery.ARG_SUGGESTED])
         assertEquals("laurel", suggestion.deepLink.args[ContactLookupRecovery.ARG_ALIAS])
-        assertTrue(result.actions.none { it.deepLink.args.containsKey("call") })
     }
 
     @Test
-    fun `failure result is a Failure so text-only surfaces keep working`() {
-        val result = ContactLookupRecovery.notFoundResult("send_sms", "Sam")
-        assertTrue(result is SkillResult.Failure)
-        assertEquals("send_sms", (result as SkillResult.Failure).skillName)
+    fun `several near matches are named in the text`() {
+        val result = ContactLookupRecovery.notFoundResult(
+            "make_call",
+            "Laurel",
+            nearMatches = listOf("Laurelle Smith", "Laurel Day"),
+        )
+        assertTrue(result.error.contains("Laurelle Smith or Laurel Day"))
+    }
+
+    @Test
+    fun `leading our and your are not stripped so alias keys match the repository`() {
+        val result = ContactLookupRecovery.notFoundResult("send_sms", "our mum")
+        assertEquals("our mum", result.actions.first().deepLink.args[ContactLookupRecovery.ARG_ALIAS])
     }
 }

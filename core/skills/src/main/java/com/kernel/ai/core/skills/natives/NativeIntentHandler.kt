@@ -1466,7 +1466,7 @@ class NativeIntentHandler @Inject constructor(
         
         val phoneNumber = resolveContactNumber(contact)
             ?: if (looksLikeNumber) contact
-            else return contactNotFound("make_call", contact)
+            else return contactNotFound("make_call", contact, callRequested = true)
         return try {
             // Use ACTION_CALL to auto-dial (hands-free use case — e.g. driving).
             val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
@@ -1531,8 +1531,17 @@ class NativeIntentHandler @Inject constructor(
         contact.any { it.isLetter() } && contact.trim().lowercase() !in selfContactTerms
 
     /** Recovery result for a named contact that could not be resolved. */
-    private fun contactNotFound(skillName: String, contact: String): SkillResult.Failure =
-        ContactLookupRecovery.notFoundResult(skillName, contact, suggestContactNames(contact))
+    private fun contactNotFound(skillName: String, contact: String, callRequested: Boolean = false): SkillResult.Failure =
+        ContactLookupRecovery.notFoundResult(
+            skillName = skillName,
+            query = contact,
+            nearMatches = if (ContactLookupRecovery.relationshipWordOf(contact) == null) {
+                suggestContactNames(contact)
+            } else {
+                emptyList()
+            },
+            callRequested = callRequested,
+        )
 
     /** Sound-alike contact names for [query]. Empty without READ_CONTACTS or when the query fails. */
     @SuppressLint("MissingPermission")
@@ -1546,7 +1555,7 @@ class NativeIntentHandler @Inject constructor(
             val names = context.contentResolver.query(
                 ContactsContract.Contacts.CONTENT_URI,
                 arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY),
-                null,
+                "${ContactsContract.Contacts.HAS_PHONE_NUMBER} = 1",
                 null,
                 null,
             )?.use { cursor ->

@@ -5,13 +5,16 @@ import java.text.Normalizer
 /**
  * Turns a failed contact lookup into a [SkillResult.Failure] that carries in-app recovery actions.
  *
+ * `error` always carries the text-only guidance ("…in Settings → People & Contacts"), because chat
+ * and model replies print only `error`. `actions` are extra buttons for surfaces that render them.
+ *
  * Three cases:
- * - Relationship words ("wife", "mum", "boss") get "I don't know who your wife is yet." and one
- *   action that opens the alias add flow with the word prefilled.
- * - Other names get "Couldn't find Sam." with add and picker actions.
- * - Sound-alike near misses ("Laurel" for "Laurelle") get one suggestion per candidate. Choosing a
- *   suggestion only opens People & Contacts with that contact prefilled. The user confirms by
- *   saving the alias, so nothing is dialled without confirmation.
+ * - Relationship words ("wife", "mum", "boss") get one action that opens the alias add flow with the
+ *   word prefilled.
+ * - Other names get add and picker actions.
+ * - Near misses ("Laurel" for "Laurelle") get one suggestion per candidate. Choosing a suggestion
+ *   only opens People & Contacts with that contact's name prefilled. The user confirms by picking
+ *   the contact and saving, so nothing is dialled without confirmation.
  *
  * This object is pure Kotlin with no Android dependencies, so it is unit-testable.
  */
@@ -28,11 +31,16 @@ object ContactLookupRecovery {
     /** `"true"` opens the system contact picker straight away. */
     const val ARG_PICK = "pick"
 
-    /** Display name of a suggested contact. The add flow resolves it to a number for review. */
+    /** Display name of a suggested contact, shown as a hint in the add flow. */
     const val ARG_SUGGESTED = "suggested"
+
+    /** `"true"` when the failed request was a call, so the add flow may offer to dial after saving. */
+    const val ARG_CALL = "call"
 
     /** Upper bound on suggestions offered for one failed lookup. */
     const val MAX_SUGGESTIONS = 3
+
+    private const val GUIDANCE = "Add them in Settings → People & Contacts."
 
     private val RELATIONSHIP_WORDS = setOf(
         "wife", "husband", "partner", "girlfriend", "boyfriend", "fiance", "fiancee",
@@ -45,7 +53,8 @@ object ContactLookupRecovery {
         "flatmate", "roommate",
     )
 
-    private val LEADING_DETERMINERS = listOf("my ", "the ", "our ", "your ")
+    /** Same leading words that `ContactAliasRepository.normalise` strips, so alias keys agree. */
+    private val LEADING_DETERMINERS = listOf("my ", "the ")
 
     /**
      * Returns the relationship word for [query] ("my wife" -> "wife"), or null if [query] is not a
@@ -55,9 +64,9 @@ object ContactLookupRecovery {
         normaliseQuery(query).takeIf { it in RELATIONSHIP_WORDS }
 
     /**
-     * Sound-alike key for one word. Approximates Double Metaphone for the English-ish names in a
-     * contact list: `ph`→`f`, `ck`/`q`→`k`, soft `c`→`s`, `z`→`s`, `x`→`ks`, `h` dropped, then
-     * vowels (except the first letter) and repeated letters collapsed.
+     * Sound-alike key for one word. Approximates Double Metaphone for English-ish names:
+     * `ph`→`f`, `ck`/`q`→`k`, soft `c`→`s`, `z`→`s`, `x`→`ks`, `h` dropped, then vowels (except
+     * the first letter) and repeated letters collapsed.
      * Examples: Laurel and Laurelle → "lrl"; Shaun and Sean → "sn"; Katherine and Kathryn → "ktrn".
      */
     fun phoneticKey(word: String): String {
@@ -84,10 +93,12 @@ object ContactLookupRecovery {
     /**
      * Contact display names that plausibly match [query], best first, at most [limit].
      *
-     * Tokens are compared pairwise from the start of each name, so "Laurel" matches "Laurelle
-     * Smith". A token matches when it is equal, within a small edit distance (2 for 6+ letters, 1
-     * for 4–5, 0 for shorter words), or has the same [phoneticKey] (4+ letters). Relationship words
-     * are not matched here; callers handle them first.
+     * Every query token must match some token of the candidate name, in any order, so "Smith"
+     * finds "Laurelle Smith" and "Laurel" finds "Laurelle Smith". A token matches when it is equal,
+     * within edit distance 2 (6+ letters; exact for shorter words), or shares a [phoneticKey] with
+     * at least 3 consonants on both sides, with both words 4+ letters. Two-consonant keys such as
+     * "jn" (John/Joan/Jane) never match, which keeps short names from colliding.
+     * Relationship words are not matched here; callers handle them first.
      */
     fun nearMatches(query: String, candidateNames: Collection<String>, limit: Int = MAX_SUGGESTIONS): List<String> {
         val queryTokens = tokenise(normaliseQuery(query))
@@ -96,11 +107,16 @@ object ContactLookupRecovery {
             .distinct()
             .mapNotNull { name ->
                 val candidateTokens = tokenise(name)
-                if (candidateTokens.size < queryTokens.size) return@mapNotNull null
-                val pairs = queryTokens.indices.map { queryTokens[it] to candidateTokens[it] }
-                if (!pairs.all { (q, c) -> tokensMatch(q, c) }) return@mapNotNull null
-                val distance = pairs.sumOf { (q, c) -> editDistance(q, c) }
-                name to distance
+                if (candidateTokens.isEmpty()) return@mapNotNull null
+                var total = 0
+                for (q in queryTokens) {
+                    val best = candidateTokens
+                        .filter { tokensMatch(q, it) }
+                        .minOfOrNull { editDistance(q, it) }
+                        ?: return@mapNotNull null
+                    total += best
+                }
+                name to total
             }
             .sortedWith(compareBy({ it.second }, { it.first }))
             .map { it.first }
@@ -111,27 +127,30 @@ object ContactLookupRecovery {
      * Builds the failure returned when [query] matches no contact.
      *
      * @param nearMatches display names from [nearMatches]; empty when there are none.
+     * @param callRequested true when the failed request was a call (`make_call`).
      */
     fun notFoundResult(
         skillName: String,
         query: String,
         nearMatches: List<String> = emptyList(),
+        callRequested: Boolean = false,
     ): SkillResult.Failure {
         val displayQuery = query.trim()
         val alias = normaliseQuery(query)
+        val callArg = if (callRequested) mapOf(ARG_CALL to "true") else emptyMap()
         val addLink = SettingsDeepLink(
             destination = PEOPLE_DESTINATION,
-            args = mapOf(ARG_ALIAS to alias, ARG_ADD to "true"),
+            args = mapOf(ARG_ALIAS to alias, ARG_ADD to "true") + callArg,
         )
         val pickLink = SettingsDeepLink(
             destination = PEOPLE_DESTINATION,
-            args = mapOf(ARG_ALIAS to alias, ARG_ADD to "true", ARG_PICK to "true"),
+            args = mapOf(ARG_ALIAS to alias, ARG_ADD to "true", ARG_PICK to "true") + callArg,
         )
 
         relationshipWordOf(query)?.let { word ->
             return SkillResult.Failure(
                 skillName = skillName,
-                error = "I don't know who your $word is yet.",
+                error = "I don't know who your $word is yet. $GUIDANCE",
                 actions = listOf(SettingsAction("Add $word in People & Contacts", addLink)),
             )
         }
@@ -139,16 +158,16 @@ object ContactLookupRecovery {
         if (nearMatches.isNotEmpty()) {
             val single = nearMatches.size == 1
             val message = if (single) {
-                "I couldn't find $displayQuery. Did you mean ${nearMatches.first()}?"
+                "I couldn't find $displayQuery. Did you mean ${nearMatches.first()}? $GUIDANCE"
             } else {
-                "I couldn't find $displayQuery. Did you mean one of these?"
+                "I couldn't find $displayQuery. Did you mean ${nearMatches.joinToString(" or ")}? $GUIDANCE"
             }
             val suggestions = nearMatches.map { name ->
                 SettingsAction(
                     label = if (single) "Yes, $name" else name,
                     deepLink = SettingsDeepLink(
                         destination = PEOPLE_DESTINATION,
-                        args = mapOf(ARG_ALIAS to alias, ARG_ADD to "true", ARG_SUGGESTED to name),
+                        args = mapOf(ARG_ALIAS to alias, ARG_ADD to "true", ARG_SUGGESTED to name) + callArg,
                     ),
                 )
             }
@@ -161,7 +180,7 @@ object ContactLookupRecovery {
 
         return SkillResult.Failure(
             skillName = skillName,
-            error = "Couldn't find $displayQuery.",
+            error = "Couldn't find $displayQuery. $GUIDANCE",
             actions = listOf(
                 SettingsAction("Add in People & Contacts", addLink),
                 SettingsAction("Pick from contacts", pickLink),
@@ -188,14 +207,11 @@ object ContactLookupRecovery {
 
     private fun tokensMatch(query: String, candidate: String): Boolean {
         if (query == candidate) return true
-        val maxDistance = when {
-            query.length >= 6 -> 2
-            query.length >= 4 -> 1
-            else -> 0
-        }
+        val maxDistance = if (query.length >= 6) 2 else 0
         if (editDistance(query, candidate) <= maxDistance) return true
-        return query.length >= 4 && candidate.length >= 4 &&
-            phoneticKey(query) == phoneticKey(candidate)
+        if (query.length < 4 || candidate.length < 4) return false
+        val key = phoneticKey(query)
+        return key.length >= 3 && key == phoneticKey(candidate)
     }
 
     private fun editDistance(a: String, b: String): Int {

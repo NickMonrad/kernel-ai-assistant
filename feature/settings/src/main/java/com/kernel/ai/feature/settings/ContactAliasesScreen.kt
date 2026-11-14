@@ -52,11 +52,14 @@ import com.kernel.ai.core.memory.entity.ContactAliasEntity
 fun ContactAliasesScreen(
     onBack: () -> Unit = {},
     prefill: ContactAliasPrefill? = null,
+    onPrefillConsumed: () -> Unit = {},
     viewModel: ContactAliasesViewModel = hiltViewModel(),
 ) {
     val aliases by viewModel.aliases.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(prefill?.openAdd == true) }
     // Set after a successful save: offers to open the dialer for the contact (never places a call).
+    // Prefill is one-shot: mark consumed so rotation/process death does not reopen the dialog.
+    LaunchedEffect(prefill) { if (prefill != null) onPrefillConsumed() }
     var callOffer by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     Scaffold(
@@ -134,7 +137,7 @@ fun ContactAliasesScreen(
             onSave = { alias, displayName, contactId, phoneNumber ->
                 viewModel.addAlias(alias, displayName, contactId, phoneNumber)
                 showAddDialog = false
-                callOffer = displayName to phoneNumber
+                if (prefill?.callRequested == true) callOffer = displayName to phoneNumber
             },
         )
     }
@@ -149,7 +152,8 @@ fun ContactAliasesScreen(
 }
 
 private const val SPELLING_HINT =
-    "Tip: add sound-alike spellings, like \"laurel\" for Laurelle, so Jandal understands how you say names."
+    "Add nicknames like \"wife\" or \"Mum\" so you can say \"call Mum\".\n" +
+        "Tip: add sound-alike spellings, like \"laurel\" for Laurelle, so Jandal understands how you say names."
 
 @Composable
 private fun AliasRow(
@@ -189,9 +193,12 @@ private fun CallOfferDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    context.startActivity(
-                        Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phoneNumber)}")),
-                    )
+                    // No dialer installed or launch refused: the alias is already saved, so ignore.
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phoneNumber)}")),
+                        )
+                    }
                     onDismiss()
                 },
             ) { Text("Open dialer") }

@@ -151,6 +151,7 @@ private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
 private const val STATE_ROUTE_DRAFT_CONSUMED = "routeDraftConsumed"
+private const val STATE_CONTACT_PREFILL_CONSUMED = "contactPrefillConsumed"
 private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS, ROUTE_TOOLS)
@@ -939,9 +940,14 @@ fun KernelNavHost(
                     route = CONTACT_ALIAS_ROUTE_PATTERN,
                     arguments = CONTACT_ALIAS_NAV_ARGS,
                 ) { backStackEntry ->
+                    // Prefill is one-shot: consumed flag survives rotation and process death.
+                    val prefillConsumed = backStackEntry.savedStateHandle.get<Boolean>(STATE_CONTACT_PREFILL_CONSUMED) == true
                     ContactAliasesScreen(
                         onBack = { navController.popBackOrNavigateHome() },
-                        prefill = contactAliasPrefillFrom(backStackEntry.arguments),
+                        prefill = contactAliasPrefillFrom(backStackEntry.arguments).takeUnless { prefillConsumed },
+                        onPrefillConsumed = {
+                            backStackEntry.savedStateHandle[STATE_CONTACT_PREFILL_CONSUMED] = true
+                        },
                     )
                 }
 

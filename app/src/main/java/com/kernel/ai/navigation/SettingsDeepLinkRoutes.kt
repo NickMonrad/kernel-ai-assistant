@@ -14,6 +14,7 @@ private val CONTACT_ALIAS_ROUTE_ARGS = listOf(
     ContactLookupRecovery.ARG_ADD,
     ContactLookupRecovery.ARG_PICK,
     ContactLookupRecovery.ARG_SUGGESTED,
+    ContactLookupRecovery.ARG_CALL,
 )
 
 /** Route pattern for People & Contacts with optional prefill args (#1859). */
@@ -48,4 +49,5 @@ internal fun contactAliasPrefillFrom(args: Bundle?): ContactAliasPrefill = Conta
     openAdd = args?.getString(ContactLookupRecovery.ARG_ADD) == "true",
     openPicker = args?.getString(ContactLookupRecovery.ARG_PICK) == "true",
     suggestedName = args?.getString(ContactLookupRecovery.ARG_SUGGESTED)?.takeIf { it.isNotBlank() },
+    callRequested = args?.getString(ContactLookupRecovery.ARG_CALL) == "true",
 )
