@@ -107,9 +107,9 @@ class CalendarEventStore @Inject constructor(
     }
 
     /**
-     * The calendar new events go into: a visible calendar the user can write to, primary first, then
-     * lowest id so the choice is stable when several accounts qualify. Null when there is none, or
-     * when READ_CALENDAR is missing (the calendars table is not readable without it).
+     * The calendar new events go into: a visible calendar the user can write to, lowest id first so
+     * the choice is stable. The provider has no is_primary column on all devices, so it is not sorted on.
+     * Null when there is none, or when READ_CALENDAR is missing (the calendars table is not readable without it).
      */
     fun findDefaultWritableCalendar(): WritableCalendar? {
         if (!hasReadPermission()) return null
@@ -125,7 +125,7 @@ class CalendarEventStore @Inject constructor(
             projection,
             selection,
             args,
-            "${CalendarContract.Calendars.IS_PRIMARY} DESC, ${CalendarContract.Calendars._ID} ASC",
+            "${CalendarContract.Calendars._ID} ASC",
         )?.use { cursor ->
             val idIndex = cursor.getColumnIndexOrThrow(CalendarContract.Calendars._ID)
             val nameIndex = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME)
