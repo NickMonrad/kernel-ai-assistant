@@ -90,7 +90,7 @@ class SelectableVoiceInputController @Inject constructor(
         if (zipformerReady && !allowOnlineFallback) {
             // Zipformer wins regardless of native support; skip the native availability check.
             Log.i(TAG, "Auto STT route=${AutoSttRoute.Zipformer} mode=$mode allowOnlineFallback=false")
-            JandalEvents.record("voice", "stt_route", "route" to AutoSttRoute.Zipformer.name, "online_fallback" to false)
+            JandalEvents.record("voice", "stt_route", "route" to AutoSttRoute.Zipformer, "online_fallback" to false)
             return startSherpa(mode)
         }
         // Use the cached locale check when there is one; only run the slower live check for
@@ -121,7 +121,7 @@ class SelectableVoiceInputController @Inject constructor(
                 "zipformerReady=$zipformerReady allowOnlineFallback=$allowOnlineFallback",
         )
         JandalEvents.record(
-            "voice", "stt_route", "route" to route.name,
+            "voice", "stt_route", "route" to route,
             "native_ready" to nativeOnDeviceReady, "zipformer_ready" to zipformerReady,
             "online_fallback" to allowOnlineFallback,
         )

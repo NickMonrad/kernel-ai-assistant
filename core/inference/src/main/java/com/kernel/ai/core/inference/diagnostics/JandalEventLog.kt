@@ -28,6 +28,9 @@ enum class DownloadStateKind { NOT_DOWNLOADED, DOWNLOADED, ERROR, DOWNLOADING }
 /** Lifecycle and permission outcomes. Fixed enum values only (#1870). */
 enum class LifecycleOutcome { STARTED, STOPPED, REFUSED_NO_MIC_PERMISSION, GRANTED, DENIED }
 
+/** TTS failure categories. Fixed enum values only (#1870). */
+enum class TtsFailure { UNAVAILABLE, ENGINE_START }
+
 /** Most events kept in memory and on disk (ring buffer; oldest evicted first). */
 const val JANDAL_EVENT_CAPACITY = 500
 
@@ -68,7 +71,7 @@ internal fun sanitizeJandalValue(raw: Any?): String = when (raw) {
         if (d.isFinite()) d.toString().takeIf { NUMBER.matches(it) } ?: JANDAL_EVENT_REDACTED
         else JANDAL_EVENT_REDACTED
     }
-    is Enum<*> -> raw.name.takeIf { ENUM_TOKEN.matches(it) } ?: JANDAL_EVENT_REDACTED
+    is Enum<*> -> raw.name.uppercase().takeIf { ENUM_TOKEN.matches(it) } ?: JANDAL_EVENT_REDACTED
     else -> JANDAL_EVENT_REDACTED
 }
 

@@ -9,6 +9,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.TtsFailure
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import javax.inject.Inject
@@ -258,7 +259,7 @@ class AndroidTextToSpeechController @Inject constructor(
                 }
                 completePlaybackIfDrained(playbackToken)
             }
-            JandalEvents.record("tts", "speak_failed", "category" to "unavailable")
+            JandalEvents.record("tts", "speak_failed", "category" to TtsFailure.UNAVAILABLE)
             return VoiceOutputResult.Unavailable(message)
         }
 
@@ -337,7 +338,7 @@ class AndroidTextToSpeechController @Inject constructor(
             }
         }
         completePlaybackIfDrained(playbackToken)
-        JandalEvents.record("tts", "speak_failed", "category" to "engine_start")
+        JandalEvents.record("tts", "speak_failed", "category" to TtsFailure.ENGINE_START)
         return VoiceOutputResult.Unavailable("Text-to-speech could not start speech. Check the TTS engine and try again.")
     }
 
