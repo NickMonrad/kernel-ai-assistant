@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import android.content.pm.ApplicationInfo
 import android.content.Context
 import android.os.StatFs
 import androidx.lifecycle.ViewModel
@@ -14,7 +15,9 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import com.kernel.ai.core.inference.hardware.HardwareTier
-import com.kernel.ai.core.model.availability.ConversationModelReadiness
+import com.kernel.ai.core.model.availability.ModelRoleSection
+import com.kernel.ai.core.model.availability.ModelRoles
+import com.kernel.ai.core.model.availability.StillNeededItem
 import com.kernel.ai.core.model.availability.AvailabilitySummary
 import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
@@ -50,9 +53,11 @@ data class ModelManagementUiState(
     val preferredModel: KernelModel? = null,
     val personaMode: PersonaMode = PersonaMode.HALF,
     val availabilitySummary: AvailabilitySummary = AvailabilitySummary(total = 0),
-    /** Whether a conversation model is installed and which recovery path is appropriate. */
-    val conversationReadiness: ConversationModelReadiness? = null,
-    /** Current device hardware tier, used for readiness messaging. */
+    /** Role sections for the Models screen, in display order. */
+    val roleSections: List<ModelRoleSection> = emptyList(),
+    /** Required roles that are not ready. Empty means "All set". */
+    val stillNeeded: List<StillNeededItem> = emptyList(),
+    /** Current device hardware tier: drives recommendations and "Not needed on this phone". */
     val deviceTier: HardwareTier? = null,
 )
 
@@ -142,7 +147,7 @@ class ModelManagementViewModel @Inject constructor(
             downloadSources = downloadSources,
             gatedStatuses = gatedStatuses,
         )
-        val tier = modelDownloadManager.deviceTier
+        val tier = debugTierOverride() ?: modelDownloadManager.deviceTier
         ModelManagementUiState(
             models = models,
             totalStorageUsedBytes = storage.used,
@@ -152,10 +157,8 @@ class ModelManagementViewModel @Inject constructor(
             preferredModel = preferredModel,
             personaMode = personaMode,
             availabilitySummary = summary,
-            conversationReadiness = ConversationModelReadiness.compute(
-                tier = tier,
-                downloadStates = downloadStates,
-            ),
+            roleSections = ModelRoles.sections(preferred = preferredModel, tier = tier, states = downloadStates),
+            stillNeeded = ModelRoles.stillNeeded(tier = tier, states = downloadStates),
             deviceTier = tier,
         )
     }.stateIn(
@@ -216,6 +219,16 @@ class ModelManagementViewModel @Inject constructor(
     fun startAuth() = authRepository.startAuthFlow()
 
     fun signOut() = authRepository.signOut()
+
+    /**
+     * Debug builds only: `files/models/debug-tier.txt` containing FLAGSHIP, MID_RANGE or LOW_POWER
+     * emulates that tier for screenshots. Release builds ignore it.
+     */
+    private fun debugTierOverride(): HardwareTier? {
+        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return null
+        val file = java.io.File(context.getExternalFilesDir("models"), "debug-tier.txt")
+        return runCatching { HardwareTier.valueOf(file.readText().trim()) }.getOrNull()
+    }
 
     private fun calculateStorageUsed(): Long =
         KernelModel.entries.sumOf { model ->
