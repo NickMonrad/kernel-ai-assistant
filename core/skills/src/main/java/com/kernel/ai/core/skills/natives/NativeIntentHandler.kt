@@ -2153,6 +2153,7 @@ class NativeIntentHandler @Inject constructor(
         return SkillResult.DirectReply(
             ListConfirmationText.added(listOf(item), listName),
             presentation = buildListPreview(listName, items),
+            spokenSummary = ListConfirmationText.spokenAdded(listOf(item), listName),
         )
     }
 
@@ -2269,7 +2270,7 @@ class NativeIntentHandler @Inject constructor(
                 presentation = buildListPreview(listName, emptyList(), "No items yet."),
             )
         } else {
-            val bullets = items.joinToString("\n") { "• ${it.text}" }
+            val bullets = items.mapNotNull { ListConfirmationText.speakableName(it.text)?.let { name -> "• $name" } }.joinToString("\n")
             SkillResult.DirectReply(
                 "$listName (${items.size} item${if (items.size == 1) "" else "s"}):\n$bullets",
                 presentation = buildListPreview(listName, items),

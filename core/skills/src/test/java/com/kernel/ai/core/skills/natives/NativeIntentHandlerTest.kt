@@ -1765,6 +1765,7 @@ class NativeIntentHandlerTest {
             SkillResult.DirectReply(
                 "Added milk to your shopping list.",
                 presentation = addResult.let { (it as SkillResult.DirectReply).presentation },
+                spokenSummary = "Added milk to your shopping list.",
             ),
             addResult,
         )
@@ -1863,7 +1864,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `bulk add of many items keeps the full text on screen and speaks a count`() {
+    fun `bulk add of six items keeps the full sentence on screen and when spoken`() {
         val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
             id = 73L,
             name = "Test hierarchy",
@@ -1882,7 +1883,7 @@ class NativeIntentHandlerTest {
         ) as SkillResult.DirectReply
 
         assertEquals("Added Pens, Paper, Glue, Tape, Scissors and Stapler to your Test hierarchy.", result.content)
-        assertEquals("Added 6 items to your Test hierarchy.", result.spokenSummary)
+        assertEquals("Added Pens, Paper, Glue, Tape, Scissors and Stapler to your Test hierarchy.", result.spokenSummary)
     }
 
     @Test
@@ -1926,10 +1927,33 @@ class NativeIntentHandlerTest {
         val result = handleIntent("get_list_items", mapOf("list_name" to "Test hierarchy list")) as SkillResult.DirectReply
 
         assertEquals(
-            "Your Test hierarchy has 10 items: Pens, Paper, Glue, Tape and 6 more.",
+            "Your Test hierarchy has 10 items: Pens, Paper, Glue, Tape, Scissors, Stapler, Ruler, Chalk, Paint and Brush.",
             result.spokenSummary,
         )
         assertTrue(result.content.contains("• Brush"), "on-screen reply must keep every item")
+    }
+
+    @Test
+    fun `add_to_list with a very long item speaks a short count that keeps the list name`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val longItem = "very long item ".repeat(20).trim()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(73L, longItem) } returns 18L
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to longItem, "list_name" to "Test hierarchy list"),
+        ) as SkillResult.DirectReply
+
+        assertEquals("Added $longItem to your Test hierarchy.", result.content)
+        assertEquals("Added 1 item to your Test hierarchy.", result.spokenSummary)
     }
 
     @Test
