@@ -62,6 +62,7 @@ fun SettingsScreen(
     onNavigateToModelSettings: () -> Unit = {},
     onNavigateToModelManagement: (preferred: Boolean) -> Unit = {},
     onNavigateToChatPreferences: () -> Unit = {},
+    onNavigateToSetupWizard: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     onNavigateToAppPermissions: () -> Unit = {},
     onNavigateToNextcloud: () -> Unit = {},
@@ -259,6 +260,15 @@ fun SettingsScreen(
             )
             HorizontalDivider()
 
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToSetupWizard() },
+                headlineContent = { Text("Set up Jandal again") },
+                supportingContent = { Text("How Jandal works and download options") },
+                leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+            )
+            HorizontalDivider()
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()

@@ -59,7 +59,12 @@ internal sealed interface WelcomeDownload {
      * Nothing is downloading, and the assistant cannot chat until files arrive. Offers a download action.
      * [failed] is true when the last attempt errored, so the card says so and offers a retry.
      */
-    data class Waiting(val model: KernelModel, val failed: Boolean = false) : WelcomeDownload
+    data class Waiting(
+        val model: KernelModel,
+        val failed: Boolean = false,
+        /** True when the download is queued for Wi-Fi and the phone is on mobile data (#1855). */
+        val waitingForWifi: Boolean = false,
+    ) : WelcomeDownload
 }
 
 /**
@@ -74,15 +79,17 @@ internal fun chatsEmptyState(
     welcomeDismissed: Boolean?,
     readiness: ConversationModelReadiness,
     downloadStates: Map<KernelModel, DownloadState> = emptyMap(),
+    waitingForWifi: Set<KernelModel> = emptySet(),
 ): ChatsEmptyState = when (welcomeDismissed) {
     null -> ChatsEmptyState.Loading
     true -> ChatsEmptyState.Plain
-    false -> ChatsEmptyState.Welcome(welcomeDownloadFor(readiness, downloadStates))
+    false -> ChatsEmptyState.Welcome(welcomeDownloadFor(readiness, downloadStates, waitingForWifi))
 }
 
 internal fun welcomeDownloadFor(
     readiness: ConversationModelReadiness,
     downloadStates: Map<KernelModel, DownloadState> = emptyMap(),
+    waitingForWifi: Set<KernelModel> = emptySet(),
 ): WelcomeDownload = when (readiness) {
     is ConversationModelReadiness.Ready,
     is ConversationModelReadiness.FallbackActive -> WelcomeDownload.Ready
@@ -93,6 +100,7 @@ internal fun welcomeDownloadFor(
     is ConversationModelReadiness.ActionRequired -> WelcomeDownload.Waiting(
         model = readiness.recommendedModel,
         failed = downloadStates[readiness.recommendedModel] is DownloadState.Error,
+        waitingForWifi = readiness.recommendedModel in waitingForWifi,
     )
 }
 
@@ -121,6 +129,7 @@ internal fun ChatsWelcome(
     onStartChatting: () -> Unit,
     onExamplePrompt: (String) -> Unit,
     onDownloadModel: (KernelModel) -> Unit,
+    onUseMobileData: () -> Unit,
     onDismissTabHints: () -> Unit,
     onHideWelcome: () -> Unit,
     modifier: Modifier = Modifier,
@@ -172,19 +181,29 @@ internal fun ChatsWelcome(
                     "Keep Wi-Fi on until it finishes. Timers, weather and shopping lists already work.",
                 progress = download.progress,
             )
-            is WelcomeDownload.Waiting -> DownloadCard(
-                title = if (download.failed) "Download failed" else "Getting Jandal ready",
-                body = if (download.failed) {
-                    "Jandal couldn't finish downloading about ${formatBytesShort(download.model.approxSizeBytes)}. " +
-                        "Check your connection, then try again. Timers, weather and shopping lists already work."
-                } else {
-                    "Jandal needs to download about ${formatBytesShort(download.model.approxSizeBytes)} " +
-                        "before it can chat. Keep Wi-Fi on. Timers, weather and shopping lists already work."
-                },
-                progress = null,
-                actionLabel = if (download.failed) "Try again" else "Download now",
-                onAction = { onDownloadModel(download.model) },
-            )
+            is WelcomeDownload.Waiting -> when {
+                download.waitingForWifi -> DownloadCard(
+                    title = "Waiting for Wi-Fi",
+                    body = "Jandal will download about ${formatBytesShort(download.model.approxSizeBytes)} " +
+                        "when Wi-Fi is available. Timers, weather and shopping lists already work.",
+                    progress = null,
+                    actionLabel = "Use mobile data",
+                    onAction = onUseMobileData,
+                )
+                else -> DownloadCard(
+                    title = if (download.failed) "Download failed" else "Getting Jandal ready",
+                    body = if (download.failed) {
+                        "Jandal couldn't finish downloading about ${formatBytesShort(download.model.approxSizeBytes)}. " +
+                            "Check your connection, then try again. Timers, weather and shopping lists already work."
+                    } else {
+                        "Jandal needs to download about ${formatBytesShort(download.model.approxSizeBytes)} " +
+                            "before it can chat. Keep Wi-Fi on. Timers, weather and shopping lists already work."
+                    },
+                    progress = null,
+                    actionLabel = if (download.failed) "Try again" else "Download now",
+                    onAction = { onDownloadModel(download.model) },
+                )
+            }
         }
 
         if (examples.isNotEmpty()) {

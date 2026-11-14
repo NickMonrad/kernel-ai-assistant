@@ -65,6 +65,7 @@ import androidx.navigation.navArgument
 import com.kernel.ai.feature.chat.ActionsScreen
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
+import com.kernel.ai.feature.chat.setup.SetupWizardScreen
 import com.kernel.ai.feature.convert.ConvertScreen
 import com.kernel.ai.feature.convert.mapQueryParamToConvertTab
 import com.kernel.ai.feature.settings.AppPermissionsScreen
@@ -98,6 +99,7 @@ private const val ROUTE_ACTIONS_OPEN = "actions?openSheet=true"
 private const val ROUTE_ACTIONS_VOICE = "actions?startVoice=true"
 private const val ROUTE_CHAT = "chat"
 internal const val ROUTE_SETTINGS = "settings"
+internal const val ROUTE_SETUP_WIZARD = "setup_wizard"
 internal const val ROUTE_USER_PROFILE = "settings/user_profile"
 internal const val ROUTE_MEMORY = "settings/memory"
 internal const val ROUTE_IMPORTANT_DATES = "settings/important_dates"
@@ -507,6 +509,9 @@ fun KernelNavHost(
                 composable(ROUTE_LIST) {
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ConversationListScreen(
+                            onOpenSetupWizard = {
+                                navController.navigate(ROUTE_SETUP_WIZARD) { launchSingleTop = true }
+                            },
                             onOpenConversation = { id ->
                                 navController.navigate("$ROUTE_CHAT/$id")
                             },
@@ -721,6 +726,13 @@ fun KernelNavHost(
                     )
                 }
 
+                composable(ROUTE_SETUP_WIZARD) {
+                    SetupWizardScreen(
+                        onExit = { navController.popBackOrNavigateHome() },
+                        onDone = { navController.popBackOrNavigateHome() },
+                    )
+                }
+
                 composable(ROUTE_SETTINGS) {
                     SettingsScreen(
                         onBack = { navController.popBackOrNavigateHome() },
@@ -742,6 +754,9 @@ fun KernelNavHost(
                         },
                         onNavigateToChatPreferences = {
                             navController.navigate(ROUTE_CHAT_PREFERENCES)
+                        },
+                        onNavigateToSetupWizard = {
+                            navController.navigate(ROUTE_SETUP_WIZARD) { launchSingleTop = true }
                         },
                         onNavigateToAbout = {
                             navController.navigate(ROUTE_ABOUT)

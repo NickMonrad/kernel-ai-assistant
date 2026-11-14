@@ -6,7 +6,9 @@ import androidx.work.Constraints
 import android.content.pm.ApplicationInfo
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
+import com.kernel.ai.core.inference.download.DownloadConsent
+import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
+import kotlinx.coroutines.flow.first
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
@@ -41,6 +43,7 @@ private const val TAG = "KernelAI"
 class SherpaVoicePackDownloadManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val sherpaController: SherpaOnnxVoiceOutputController,
+    private val downloadNetworkPreferences: DownloadNetworkPreferences,
 ) {
     private val workManager = WorkManager.getInstance(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -118,6 +121,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                     updateState(voice, VoicePackDownloadState.Downloading())
                 }
 
+                val network = DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first())
                 val request = OneTimeWorkRequestBuilder<VoicePackDownloadWorker>()
                     .setInputData(
                         Data.Builder()
@@ -131,7 +135,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                     .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                     .setConstraints(
                         Constraints.Builder()
-                            .setRequiredNetworkType(NetworkType.CONNECTED)
+                            .setRequiredNetworkType(network.requiredNetworkType)
                             .build()
                     )
                     .build()
@@ -203,6 +207,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                     updateKokoroState(voice, VoicePackDownloadState.Downloading())
                 }
 
+                val network = DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first())
                 val request = OneTimeWorkRequestBuilder<VoicePackDownloadWorker>()
                     .setInputData(
                         Data.Builder()
@@ -216,7 +221,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                     .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                     .setConstraints(
                         Constraints.Builder()
-                            .setRequiredNetworkType(NetworkType.CONNECTED)
+                            .setRequiredNetworkType(network.requiredNetworkType)
                             .build()
                     )
                     .build()

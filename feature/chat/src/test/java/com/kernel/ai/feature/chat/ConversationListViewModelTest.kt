@@ -6,6 +6,10 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.memory.repository.ConversationRepository
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
+import com.kernel.ai.core.inference.setup.SetupWizardPreferences
+import com.kernel.ai.core.inference.setup.SetupWizardProgress
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -34,6 +38,8 @@ class ConversationListViewModelTest {
     private val repository: ConversationRepository = mockk(relaxed = true)
     private val chatPreferences: ChatPreferences = mockk(relaxed = true)
     private val downloadManager: ModelDownloadManager = mockk(relaxed = true)
+    private val downloadNetworkPreferences: DownloadNetworkPreferences = mockk(relaxed = true)
+    private val setupWizardPreferences: SetupWizardPreferences = mockk(relaxed = true)
 
     /** Total conversations, archived included. Tests set this before creating the view model. */
     private val conversationCount = MutableStateFlow(0)
@@ -48,6 +54,9 @@ class ConversationListViewModelTest {
         every { chatPreferences.tabHintsDismissed } returns flowOf(false)
         every { downloadManager.downloadStates } returns MutableStateFlow<Map<KernelModel, DownloadState>>(emptyMap())
         every { downloadManager.deviceTier } returns HardwareTier.FLAGSHIP
+        every { downloadNetworkPreferences.choice } returns flowOf(DownloadNetworkChoice.WIFI_ONLY)
+        every { setupWizardPreferences.progress } returns flowOf(SetupWizardProgress(decided = true, completed = true))
+        every { downloadManager.waitingForWifi } returns MutableStateFlow(emptySet())
     }
 
     @AfterEach
@@ -57,7 +66,7 @@ class ConversationListViewModelTest {
 
     @Test
     fun `first run keeps the welcome until a conversation exists`() {
-        ConversationListViewModel(repository, chatPreferences, downloadManager)
+        ConversationListViewModel(repository, chatPreferences, downloadManager, downloadNetworkPreferences, setupWizardPreferences)
         dispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 0) { chatPreferences.setChatsWelcomeDismissed(any()) }
 
@@ -70,14 +79,14 @@ class ConversationListViewModelTest {
     fun `returning user whose chats are all archived never sees the welcome again`() {
         // Active list is empty, but the user has archived conversations: the welcome must stay hidden.
         conversationCount.value = 3
-        ConversationListViewModel(repository, chatPreferences, downloadManager)
+        ConversationListViewModel(repository, chatPreferences, downloadManager, downloadNetworkPreferences, setupWizardPreferences)
         dispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 1) { chatPreferences.setChatsWelcomeDismissed(true) }
     }
 
     @Test
     fun `hiding the welcome persists the dismissal`() {
-        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager, downloadNetworkPreferences, setupWizardPreferences)
         viewModel.hideWelcome()
         dispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 1) { chatPreferences.setChatsWelcomeDismissed(true) }
@@ -85,7 +94,7 @@ class ConversationListViewModelTest {
 
     @Test
     fun `dismissing tab hints persists only the tab-hint flag`() {
-        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager, downloadNetworkPreferences, setupWizardPreferences)
         viewModel.dismissTabHints()
         dispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 1) { chatPreferences.setTabHintsDismissed(true) }
@@ -94,7 +103,7 @@ class ConversationListViewModelTest {
 
     @Test
     fun `welcome download action uses the same start path as the chat recovery card`() {
-        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager, downloadNetworkPreferences, setupWizardPreferences)
         viewModel.downloadAssistantModel(KernelModel.GEMMA_4_E4B)
         verify(exactly = 1) { downloadManager.startDownload(KernelModel.GEMMA_4_E4B, false, any()) }
     }
@@ -102,7 +111,7 @@ class ConversationListViewModelTest {
     @Test
     fun `welcome state is unknown until the conversation count has loaded`() {
         every { repository.observeConversationCount() } returns MutableSharedFlow()
-        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager, downloadNetworkPreferences, setupWizardPreferences)
         val collector = CoroutineScope(dispatcher).launch { viewModel.chatsWelcomeDismissed.collect {} }
         dispatcher.scheduler.advanceUntilIdle()
         assertNull(viewModel.chatsWelcomeDismissed.value)
@@ -113,7 +122,7 @@ class ConversationListViewModelTest {
     fun `returning user with conversations never sees the welcome, even before the preference is written`() {
         every { chatPreferences.chatsWelcomeDismissed } returns flowOf(false)
         conversationCount.value = 2
-        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager, downloadNetworkPreferences, setupWizardPreferences)
         val collector = CoroutineScope(dispatcher).launch { viewModel.chatsWelcomeDismissed.collect {} }
         dispatcher.scheduler.advanceUntilIdle()
         assertEquals(true, viewModel.chatsWelcomeDismissed.value)
@@ -123,7 +132,7 @@ class ConversationListViewModelTest {
     @Test
     fun `first run with no conversations shows the welcome once both values have loaded`() {
         every { chatPreferences.chatsWelcomeDismissed } returns flowOf(false)
-        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager, downloadNetworkPreferences, setupWizardPreferences)
         val collector = CoroutineScope(dispatcher).launch { viewModel.chatsWelcomeDismissed.collect {} }
         dispatcher.scheduler.advanceUntilIdle()
         assertEquals(false, viewModel.chatsWelcomeDismissed.value)
@@ -133,7 +142,7 @@ class ConversationListViewModelTest {
     @Test
     fun `hidden welcome stays hidden when there are no conversations`() {
         every { chatPreferences.chatsWelcomeDismissed } returns flowOf(true)
-        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager, downloadNetworkPreferences, setupWizardPreferences)
         val collector = CoroutineScope(dispatcher).launch { viewModel.chatsWelcomeDismissed.collect {} }
         dispatcher.scheduler.advanceUntilIdle()
         assertEquals(true, viewModel.chatsWelcomeDismissed.value)
