@@ -368,22 +368,20 @@ class NativeIntentHandler @Inject constructor(
             )
         }
         
+        // Self-references ("me", "my number") never name a contact, so they skip the contacts lookup entirely.
         // A named contact that exists but has no single address (ambiguous, no primary, no email) opens the
         // composer with no recipient, as before #1859, so the user can pick one there. Recovery is only for no match.
         val recipient = when {
             looksLikeEmailAddress(contact) -> contact
-            else -> resolveContactEmail(contact) ?: run {
-                if (contactMatchExists(contact)) {
-                    ""
-                } else if (isNamedContactLookup(contact)) {
-                    return contactNotFound("send_email", contact)
-                } else {
-                    return SkillResult.Failure(
-                        skillName = "send_email",
-                        error = "I can't find an email address for \"$contact\" yet. Give me the address to send to.",
-                        technicalDetail = "No email address resolved for: $contact",
-                    )
-                }
+            !isNamedContactLookup(contact) -> return SkillResult.Failure(
+                skillName = "send_email",
+                error = "I can't find an email address for \"$contact\" yet. Give me the address to send to.",
+                technicalDetail = "No email address resolved for: $contact",
+            )
+            else -> resolveContactEmail(contact) ?: if (contactMatchExists(contact)) {
+                ""
+            } else {
+                return contactNotFound("send_email", contact)
             }
         }
 
@@ -1567,27 +1565,59 @@ class NativeIntentHandler @Inject constructor(
         contact.any { it.isLetter() } && contact.trim().lowercase() !in selfContactTerms
 
     /**
-     * True when [name] matches an alias or any contact name, even one with no phone number or email.
+     * True when [name] matches an alias or a contact display name, even one with no phone number or email.
+     * Uses the same query shape and scoring as the email lookup, so "exists" means the same thing everywhere.
      * Decides between "no such contact" recovery and an empty composer when no single address is chosen.
+     * Runs the contacts query on [Dispatchers.IO].
      */
     private suspend fun contactMatchExists(name: String): Boolean {
         val aliasKey = name.trim().lowercase().removePrefix("my ").removePrefix("the ").trim()
         if (contactAliasRepository.getByAlias(aliasKey) != null) return true
-        val tokens = tokenizeContactLookupTerms(name)
-        if (tokens.isEmpty()) return false
-        return try {
-            context.contentResolver.query(
-                ContactsContract.Contacts.CONTENT_URI,
-                arrayOf(ContactsContract.Contacts._ID),
-                tokens.joinToString(" AND ") { "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?" },
-                tokens.map { "%$it%" }.toTypedArray(),
-                null,
-            )?.use { it.count > 0 } ?: false
-        } catch (e: SecurityException) {
-            Log.w(TAG, "READ_CONTACTS not granted — cannot check contact existence for '$name'", e)
-            false
+        val requestedKey = normalizeContactLookupKey(name)
+        val requestedTokens = tokenizeContactLookupTerms(name)
+        if (requestedTokens.isEmpty()) return false
+        return withContext(Dispatchers.IO) {
+            try {
+                val exactNames = queryContactDisplayNames(
+                    selection = requestedTokens.joinToString(" AND ") {
+                        "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?"
+                    },
+                    selectionArgs = requestedTokens.map { "%$it%" }.toTypedArray(),
+                )
+                val names = if (exactNames.isNotEmpty() || requestedTokens.size <= 1) {
+                    exactNames
+                } else {
+                    queryContactDisplayNames(
+                        selection = requestedTokens.joinToString(" OR ") {
+                            "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?"
+                        },
+                        selectionArgs = requestedTokens.map { "%$it%" }.toTypedArray(),
+                    )
+                }
+                names.any { scoreContactNameMatch(requestedKey, requestedTokens, it) != null }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "READ_CONTACTS not granted — cannot check contact existence for '$name'", e)
+                false
+            } catch (e: Exception) {
+                Log.w(TAG, "Contact existence lookup failed for '$name'", e)
+                false
+            }
         }
     }
+
+    @SuppressLint("MissingPermission")
+    private fun queryContactDisplayNames(selection: String, selectionArgs: Array<String>): List<String> =
+        context.contentResolver.query(
+            ContactsContract.Contacts.CONTENT_URI,
+            arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY),
+            selection,
+            selectionArgs,
+            null,
+        )?.use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) cursor.getString(0)?.let(::add)
+            }
+        }.orEmpty()
 
     /** Recovery result for a named contact that could not be resolved. */
     private suspend fun contactNotFound(skillName: String, contact: String, callRequested: Boolean = false): SkillResult.Failure =
@@ -2002,8 +2032,15 @@ class NativeIntentHandler @Inject constructor(
         requestedKey: String,
         requestedTokens: List<String>,
         candidate: ContactEmailCandidate,
+    ): Int? = scoreContactNameMatch(requestedKey, requestedTokens, candidate.displayName)
+
+    /** Ranks one contact display name against a lookup; null when it is not a match. Shared by all lookups. */
+    private fun scoreContactNameMatch(
+        requestedKey: String,
+        requestedTokens: List<String>,
+        displayName: String,
     ): Int? {
-        val candidateKey = normalizeContactLookupKey(candidate.displayName)
+        val candidateKey = normalizeContactLookupKey(displayName)
         if (candidateKey.isBlank()) return null
         val candidateTokens = candidateKey.split(" ").filter { it.isNotBlank() }
         val requestedPhrase = requestedTokens.joinToString(" ")

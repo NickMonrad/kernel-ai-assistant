@@ -17,6 +17,8 @@ import androidx.core.content.ContextCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.voice.AcousticEventType
 import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
+import com.kernel.ai.core.voice.NATIVE_NOT_READY
+import com.kernel.ai.core.voice.NATIVE_STALLED
 import com.kernel.ai.core.voice.AcousticJournalBridge
 import com.kernel.ai.core.voice.CameraForegroundMonitor
 import com.kernel.ai.core.voice.HonorCameraCoexistence
@@ -33,6 +35,8 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.core.voice.latestNoticeFor
+import com.kernel.ai.core.voice.noticesFor
 import com.kernel.ai.core.voice.WakeWordHandoff
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
@@ -157,16 +161,30 @@ internal sealed interface WakeAttemptOutcome {
 
     /**
      * Recogniser started but produced no useful result.
-     * [skipRetry] suppresses the session-level retry: set only for the
-     * no-speech-window-exhausted case (#1433) where the command window has closed
-     * and a second attempt would only re-wait.  The journal's STT_ERROR category
-     * remains the standard "stt_recognition_failed".
+     * [skipRetry] suppresses the session-level retry: set for the no-speech-window-exhausted
+     * case (#1433), where the command window has closed and a second attempt would only
+     * re-wait; for a native recognizer that never became ready or stalled before speech with no
+     * Zipformer to take over (#1853); and after a Zipformer hand-off, where a retry would start
+     * the failing native recognizer again.  The journal's STT_ERROR category remains the
+     * standard "stt_recognition_failed".
+     * [errorMessage] is the recognizer's terminal error, shown only if no retry follows.
      */
-    data class NoTranscript(val category: String, val skipRetry: Boolean = false) : WakeAttemptOutcome
+    data class NoTranscript(
+        val category: String,
+        val skipRetry: Boolean = false,
+        val errorMessage: String? = null,
+    ) : WakeAttemptOutcome
 
     /** STT could not be started. */
     data object Unavailable : WakeAttemptOutcome
 }
+
+/**
+ * Terminal error categories that end the wake session without the bounded retry. The native
+ * ones mean the on-device recognizer never became ready or stalled before speech with no
+ * Zipformer to take over; a retry would wait the same way again (#1853).
+ */
+private val NO_RETRY_ERROR_CATEGORIES = setOf(NO_SPEECH_WINDOW_EXHAUSTED, NATIVE_STALLED, NATIVE_NOT_READY)
 
 /**
  * Thrown from [runWakeAttempt] when event collection fails.
@@ -184,8 +202,11 @@ internal class WakeAttemptCollectionException(
  * Creates a temporary buffered collector before calling [startListening] so
  * events emitted synchronously before the call returns are not lost.
  * Plays the cue only after [VoiceInputEvent.ListeningStarted].
- * The collector and channel are always cleaned up in [finally].
- * [onError] is called for non-fatal user-facing messages.
+ * The collectors and channel are always cleaned up in [finally].
+ * [onError] is called for non-fatal user-facing messages: a start failure, and every
+ * controller note for this capture (#1853 Zipformer hand-off). A terminal recognition error is
+ * returned in [WakeAttemptOutcome.NoTranscript.errorMessage] instead, so the session shows it
+ * only when no retry follows.
  *
  * Throws [WakeAttemptCollectionException] when event collection fails,
  * distinguishing pre-readiness from post-readiness failures.
@@ -209,6 +230,7 @@ internal suspend fun runWakeAttempt(
             attemptEvents.close(e)
         }
     }
+    var noticeJob: Job? = null
     try {
         var reachedReadiness = false
         try {
@@ -229,6 +251,11 @@ internal suspend fun runWakeAttempt(
             }
 
             val captureSessionId = startResult.captureSessionId
+            // #1853/#1866: notes for this capture (a Zipformer hand-off) are shown at once. The
+            // latest note is replayed, so one posted during startListening is not lost.
+            noticeJob = launch(start = CoroutineStart.UNDISPATCHED) {
+                voiceInputController.noticesFor(captureSessionId).collect { onError(it) }
+            }
             suspend fun awaitEvent(
                 isTerminal: (VoiceInputEvent) -> Boolean,
             ): VoiceInputEvent {
@@ -298,16 +325,23 @@ internal suspend fun runWakeAttempt(
                     AcousticEventType.STT_ERROR,
                     metadata = { mapOf("category" to "stt_recognition_failed") },
                 )
+                // The hand-off note is posted before the replacement recognizer's events, so it
+                // is already in the controller's replay cache here.
+                val handedOff = voiceInputController.latestNoticeFor(captureSessionId) != null
                 // #1433: when the first session's no-speech window is fully exhausted
                 // (in-place refreshes spent and the platform still heard nothing), the
                 // command window has closed — a second attempt would only re-wait.
                 // Genuine failures (any other error) still use the bounded retry.
                 WakeAttemptOutcome.NoTranscript(
                     "stt_recognition_failed",
-                    skipRetry = terminalEvent.category == NO_SPEECH_WINDOW_EXHAUSTED,
+                    skipRetry = handedOff || terminalEvent.category in NO_RETRY_ERROR_CATEGORIES,
+                    errorMessage = terminalEvent.message.takeIf { it.isNotBlank() },
                 )
             } else {
-                WakeAttemptOutcome.NoTranscript("stt_stopped_without_result")
+                WakeAttemptOutcome.NoTranscript(
+                    "stt_stopped_without_result",
+                    skipRetry = voiceInputController.latestNoticeFor(captureSessionId) != null,
+                )
             }
         } catch (e: WakeAttemptCollectionException) {
             throw e
@@ -318,6 +352,7 @@ internal suspend fun runWakeAttempt(
             throw WakeAttemptCollectionException(category, e)
         }
     } finally {
+        noticeJob?.cancel()
         collectorJob.cancelAndJoin()
         attemptEvents.cancel()
     }
@@ -336,11 +371,14 @@ internal data class WakeSessionCaptureResult(
  *
  * Runs up to 2 attempts via [runAttempt], stopping at the first transcript.
  * Returns the transcript (if any) and the final cancellation category.
+ * [onFinalError] receives the terminal recognition error of the last attempt, once, when the
+ * session ends without a transcript; an error that is followed by a retry is not shown.
  *
  * Throws [WakeAttemptCollectionException] from individual attempts.
  * Does NOT convert [CancellationException].
  */
 internal suspend fun runWakeCaptureSession(
+    onFinalError: (String) -> Unit = {},
     runAttempt: suspend (attempt: Int) -> WakeAttemptOutcome,
 ): WakeSessionCaptureResult {
     var transcript: String? = null
@@ -359,7 +397,9 @@ internal suspend fun runWakeCaptureSession(
             }
             is WakeAttemptOutcome.NoTranscript -> {
                 cancellationCategory = outcome.category
-                if (attempt < 2 && !outcome.skipRetry) continue else break
+                if (attempt < 2 && !outcome.skipRetry) continue
+                outcome.errorMessage?.let(onFinalError)
+                break
             }
             is WakeAttemptOutcome.Unavailable -> {
                 cancellationCategory = "stt_unavailable"
@@ -430,7 +470,7 @@ internal suspend fun runWakeCommandHandoff(
     var cancellationCategory = "stt_no_final_result"
 
     try {
-        val sessionResult = runWakeCaptureSession { attempt ->
+        val sessionResult = runWakeCaptureSession(onFinalError = onError) { attempt ->
             // #1502: the microphone can be yielded mid-session (Honor Camera taking the
             // foreground). Starting another attempt would take it straight back and block
             // camera recording again, so the retry loop is closed instead.

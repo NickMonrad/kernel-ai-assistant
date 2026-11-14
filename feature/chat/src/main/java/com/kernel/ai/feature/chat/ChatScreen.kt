@@ -160,6 +160,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
 import com.kernel.ai.core.skills.SettingsDeepLink
+import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
@@ -361,6 +362,14 @@ fun ChatScreen(
             val weatherLocationPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission(),
             ) { granted ->
+                context.recordPermissionResult(
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                    granted,
+                    shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                        context as android.app.Activity,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ),
+                )
                 if (granted) {
                     viewModel.onWeatherLocationPermissionGranted()
                 } else {
@@ -376,10 +385,11 @@ fun ChatScreen(
             LaunchedEffect(Unit) {
                 viewModel.events.collect { event ->
                     when (event) {
-                        ChatViewModel.UiEvent.RequestWeatherLocationPermission ->
+                        ChatViewModel.UiEvent.RequestWeatherLocationPermission -> {
                             weatherLocationPermissionLauncher.launch(
                                 Manifest.permission.ACCESS_COARSE_LOCATION,
                             )
+                        }
                         ChatViewModel.UiEvent.RepairWeatherLocationPermission ->
                             openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
                     }
@@ -389,6 +399,14 @@ fun ChatScreen(
             val micPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission(),
             ) { granted ->
+                context.recordPermissionResult(
+                    Manifest.permission.RECORD_AUDIO,
+                    granted,
+                    shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                        context as android.app.Activity,
+                        Manifest.permission.RECORD_AUDIO,
+                    ),
+                )
                 val action = pendingVoiceAction
                 Log.d("ChatScreen", "Microphone permission result granted=$granted action=$action")
                 if (granted) {

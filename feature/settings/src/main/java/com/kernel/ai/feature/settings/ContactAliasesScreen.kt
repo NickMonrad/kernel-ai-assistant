@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import android.content.ContentUris
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,8 +39,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -61,7 +62,13 @@ fun ContactAliasesScreen(
     // cleared on dismiss, on save, or once the picker has been launched, so recomposition, rotation and
     // process death never reuse it.
     var pendingPrefill by rememberSaveable(stateSaver = ContactAliasPrefillSaver) { mutableStateOf(prefill) }
-    var callOffer by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // Saved so the "Call now?" offer survives rotation; it only opens the dialer when the user taps.
+    var callOffer by rememberSaveable(
+        stateSaver = listSaver<Pair<String, String>?, String>(
+            save = { it?.let { pair -> listOf(pair.first, pair.second) } ?: emptyList() },
+            restore = { if (it.size == 2) it[0] to it[1] else null },
+        ),
+    ) { mutableStateOf<Pair<String, String>?>(null) }
 
     Scaffold(
         topBar = {
@@ -202,7 +209,7 @@ private fun CallOfferDialog(
                     // No dialer installed or launch refused: the alias is already saved, so ignore.
                     runCatching {
                         context.startActivity(
-                            Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phoneNumber)}")),
+                            Intent(Intent.ACTION_DIAL, "tel:${Uri.encode(phoneNumber)}".toUri()),
                         )
                     }
                     onDismiss()

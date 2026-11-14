@@ -782,7 +782,7 @@ class NativeIntentHandlerTest {
         coEvery { contactAliasRepository.getByAlias(any()) } returns null
         every {
             contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
-        } returns contactExistsCursor(true)
+        } returns contactNameCursor("Alex One")
         every {
             contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
         } returns emailCursor(
@@ -803,7 +803,7 @@ class NativeIntentHandlerTest {
         coEvery { contactAliasRepository.getByAlias(any()) } returns null
         every {
             contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
-        } returns contactExistsCursor(true)
+        } returns contactNameCursor("Alex One")
         every {
             contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
         } returns emailCursor()
@@ -821,7 +821,7 @@ class NativeIntentHandlerTest {
         coEvery { contactAliasRepository.getByAlias(any()) } returns null
         every {
             contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
-        } returns contactExistsCursor(true)
+        } returns contactNameCursor("Sam Lee")
         every {
             contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
         } returns phoneCursor(
@@ -835,8 +835,53 @@ class NativeIntentHandlerTest {
         verify(exactly = 1) { context.startActivity(any()) }
     }
 
-    private fun contactExistsCursor(found: Boolean): Cursor =
-        mockk<Cursor>(relaxed = true) { every { count } returns if (found) 1 else 0 }
+    @Test
+    fun `send_email contact with several addresses and no default opens composer without a recipient`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Alex One")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns emailCursor(
+            EmailRow("alex.one@example.com", "Alex One", contactId = "1"),
+            EmailRow("alex.home@example.com", "Alex One", contactId = "1"),
+        )
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms contact with no phone number opens composer without a number`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Sam Lee")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns phoneCursor()
+
+        val result = handleIntent("send_sms", mapOf("contact" to "Sam", "message" to "On my way"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    /** Cursor for the contacts name query: one row per [names] entry, read through column 0. */
+    private fun contactNameCursor(vararg names: String): Cursor {
+        var index = -1
+        return mockk<Cursor>(relaxed = true) {
+            every { moveToNext() } answers { ++index < names.size }
+            every { getString(0) } answers { names[index] }
+        }
+    }
 
     @Test
     fun `text me still opens the SMS composer`() {

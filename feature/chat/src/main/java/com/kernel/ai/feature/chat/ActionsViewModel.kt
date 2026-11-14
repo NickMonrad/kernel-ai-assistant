@@ -33,6 +33,8 @@ import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
+import com.kernel.ai.core.voice.latestNoticeFor
+import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -362,6 +364,9 @@ class ActionsViewModel @Inject constructor(
     private var recentVoiceCommand: String? = null
     private var recentVoiceCommandAtMs: Long = 0L
     private var spokenResponsesEnabled = true
+    /** Capture session this screen started; errors and notes are shown only for it (#1853). */
+    private var actionsVoiceSessionId: Long? = null
+    private var actionsVoiceNoticeJob: Job? = null
 
     /**
      * Tracks how many automatic voice retries have been attempted for the current
@@ -426,13 +431,24 @@ class ActionsViewModel @Inject constructor(
                         }
                     }
                     is VoiceInputEvent.Error -> {
-                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        if (!ownsVoiceCapture(event.mode)) {
+                            // Other surfaces' captures (wake, chat, widget) are not ours. Show only the
+                            // session this screen started; stopping clears the binding.
+                            if (event.captureSessionId != 0L && event.captureSessionId == actionsVoiceSessionId) {
+                                _error.value = event.message
+                            }
+                            return@collect
+                        }
                         // #790: Auto-retry with reprompt on voice errors during slot-fill or idle command.
+                        // #1853: a capture that already moved to Zipformer is not retried; a retry
+                        // would start the failing Android native recognizer again.
+                        val handedOff = actionsVoiceSessionId
+                            ?.let { voiceInputController.latestNoticeFor(it) } != null
                         when (event.mode) {
                             VoiceCaptureMode.SlotReply -> {
                                 val pending = _pendingSlot.value
                                 if (pending != null && pending.inputMode == InputMode.Voice &&
-                                    slotReplyVoiceRetryCount < SLOT_REPLY_MAX_VOICE_RETRIES
+                                    slotReplyVoiceRetryCount < SLOT_REPLY_MAX_VOICE_RETRIES && !handedOff
                                 ) {
                                     slotReplyVoiceRetryCount++
                                     Log.d(
@@ -455,18 +471,19 @@ class ActionsViewModel @Inject constructor(
                                     _slotPromptPlaybackStarted.value = false
                                     speakForVoice(InputMode.Voice, retryPrompt, spokenOverride = spokenRetry)
                                 } else {
-                                    // Budget exhausted or no slot active — keep slot visible, let user type.
+                                    // Budget exhausted, no slot active, or handed off: keep slot visible, let user type.
                                     Log.d(
                                         TAG,
-                                        "ActionsViewModel: slot-reply voice error — retry budget exhausted, " +
+                                        "ActionsViewModel: slot-reply voice error — no retry (handedOff=$handedOff), " +
                                             "waiting for manual input",
                                     )
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
+                                    if (handedOff) _error.value = event.message
                                     setSlotReplyAutoRearmArmed(false, "slotReplyVoiceRetryExhausted")
                                 }
                             }
                             VoiceCaptureMode.Command -> {
-                                if (commandVoiceRetryCount < COMMAND_MAX_VOICE_RETRIES) {
+                                if (commandVoiceRetryCount < COMMAND_MAX_VOICE_RETRIES && !handedOff) {
                                     commandVoiceRetryCount++
                                     Log.d(
                                         TAG,
@@ -590,8 +607,24 @@ class ActionsViewModel @Inject constructor(
     }
 
     fun stopVoiceCapture() {
+        unbindActionsVoiceSession()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    /** Shows this screen's capture notes (#1853 Zipformer hand-off, #1866) until unbound. */
+    private fun bindActionsVoiceSession(captureSessionId: Long) {
+        actionsVoiceNoticeJob?.cancel()
+        actionsVoiceSessionId = captureSessionId
+        actionsVoiceNoticeJob = viewModelScope.launch {
+            voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
+        }
+    }
+
+    private fun unbindActionsVoiceSession() {
+        actionsVoiceNoticeJob?.cancel()
+        actionsVoiceNoticeJob = null
+        actionsVoiceSessionId = null
     }
 
     fun stopVoiceOutput(reason: String = "manual") {
@@ -614,6 +647,7 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
+        unbindActionsVoiceSession()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
         voiceOutputController.stop()
@@ -2037,6 +2071,7 @@ class ActionsViewModel @Inject constructor(
             when (val result = voiceInputController.startListening(mode)) {
                 is VoiceInputStartResult.Started -> {
                     Log.d(TAG, "ActionsViewModel: voiceInputController.startListening started mode=$mode")
+                    bindActionsVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value is VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
                     }
