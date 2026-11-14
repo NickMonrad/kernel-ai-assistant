@@ -12,6 +12,7 @@ import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
+import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -35,6 +36,7 @@ class ModelManagementUpdateTest {
     private val authRepository = mockk<HuggingFaceAuthRepository>(relaxed = true)
     private val persona = mockk<JandalPersona>(relaxed = true)
     private val gatedStatusRepository = mockk<GatedModelStatusRepository>(relaxed = true)
+    private val voicePacks = mockk<SherpaVoicePackDownloadManager>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val viewModelStore = ViewModelStore()
 
@@ -50,6 +52,7 @@ class ModelManagementUpdateTest {
         every { modelPreferences.preferredConversationModel } returns flowOf(null)
         every { persona.personaMode } returns MutableStateFlow(PersonaMode.HALF)
         every { gatedStatusRepository.get(any()) } returns flowOf(GatedModelStatus.NONE)
+        every { voicePacks.downloadStates } returns MutableStateFlow(emptyMap())
     }
 
     @AfterEach
@@ -71,6 +74,7 @@ class ModelManagementUpdateTest {
             jandalPersona = persona,
             gatedModelStatusRepository = gatedStatusRepository,
             context = context,
+            sherpaVoicePackDownloadManager = voicePacks,
         )
         viewModelStore.put("model-management", viewModel)
 

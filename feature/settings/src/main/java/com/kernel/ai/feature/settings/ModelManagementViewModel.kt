@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.settings
 
-import android.content.pm.ApplicationInfo
 import android.content.Context
 import android.os.StatFs
 import androidx.lifecycle.ViewModel
@@ -15,6 +14,9 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
+import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.model.availability.ModelRoleSection
 import com.kernel.ai.core.model.availability.ModelRoles
 import com.kernel.ai.core.model.availability.StillNeededItem
@@ -59,7 +61,37 @@ data class ModelManagementUiState(
     val stillNeeded: List<StillNeededItem> = emptyList(),
     /** Current device hardware tier: drives recommendations and "Not needed on this phone". */
     val deviceTier: HardwareTier? = null,
+    /** Speech recognition (Zipformer) status, read-only on the Models screen. */
+    val speechRecognitionStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
+    /** Jandal's voice (Cori) status, read-only on the Models screen. */
+    val voiceOutputStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
 )
+
+/** Read-only status for a voice section on the Models screen. Managed in Voice settings. */
+enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED }
+
+/** Speech recognition (Zipformer) needs all four of these files on disk. */
+internal val ZIPFORMER_STT_MODELS: List<KernelModel> = listOf(
+    KernelModel.SHERPA_STT_ENCODER,
+    KernelModel.SHERPA_STT_DECODER,
+    KernelModel.SHERPA_STT_JOINER,
+    KernelModel.SHERPA_STT_TOKENS,
+)
+
+internal fun speechStatusOf(states: Map<KernelModel, DownloadState>): VoiceSectionStatus {
+    val files = ZIPFORMER_STT_MODELS.map { states[it] ?: DownloadState.NotDownloaded }
+    return when {
+        files.all { it is DownloadState.Downloaded } -> VoiceSectionStatus.READY
+        files.any { it is DownloadState.Downloading } -> VoiceSectionStatus.DOWNLOADING
+        else -> VoiceSectionStatus.NOT_DOWNLOADED
+    }
+}
+
+internal fun voiceOutputStatusOf(state: VoicePackDownloadState?): VoiceSectionStatus = when (state) {
+    is VoicePackDownloadState.Downloaded -> VoiceSectionStatus.READY
+    is VoicePackDownloadState.Downloading -> VoiceSectionStatus.DOWNLOADING
+    else -> VoiceSectionStatus.NOT_DOWNLOADED
+}
 
 private data class StorageMetrics(
     val used: Long = 0,
@@ -73,6 +105,7 @@ class ModelManagementViewModel @Inject constructor(
     private val authRepository: HuggingFaceAuthRepository,
     private val jandalPersona: JandalPersona,
     private val gatedModelStatusRepository: GatedModelStatusRepository,
+    private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -115,6 +148,7 @@ class ModelManagementViewModel @Inject constructor(
         jandalPersona.personaMode,
         _storageMetrics,
         _gatedStatuses,
+        sherpaVoicePackDownloadManager.downloadStates,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val downloadStates = array[0] as Map<KernelModel, DownloadState>
@@ -128,6 +162,8 @@ class ModelManagementViewModel @Inject constructor(
         val personaMode = array[5] as PersonaMode
         val storage = array[6] as StorageMetrics
         val gatedStatuses = array[7] as Map<KernelModel, GatedModelStatus>
+        @Suppress("UNCHECKED_CAST")
+        val voicePacks = array[8] as Map<SherpaPiperVoice, VoicePackDownloadState>
 
         val filteredModels = KernelModel.entries.filter {
             it.showInModelManagement && !it.isDeprecated
@@ -147,7 +183,7 @@ class ModelManagementViewModel @Inject constructor(
             downloadSources = downloadSources,
             gatedStatuses = gatedStatuses,
         )
-        val tier = debugTierOverride() ?: modelDownloadManager.deviceTier
+        val tier = modelDownloadManager.deviceTier
         ModelManagementUiState(
             models = models,
             totalStorageUsedBytes = storage.used,
@@ -160,6 +196,8 @@ class ModelManagementViewModel @Inject constructor(
             roleSections = ModelRoles.sections(preferred = preferredModel, tier = tier, states = downloadStates),
             stillNeeded = ModelRoles.stillNeeded(tier = tier, states = downloadStates),
             deviceTier = tier,
+            speechRecognitionStatus = speechStatusOf(downloadStates),
+            voiceOutputStatus = voiceOutputStatusOf(voicePacks[SherpaPiperVoice.CoriHigh]),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -219,16 +257,6 @@ class ModelManagementViewModel @Inject constructor(
     fun startAuth() = authRepository.startAuthFlow()
 
     fun signOut() = authRepository.signOut()
-
-    /**
-     * Debug builds only: `files/models/debug-tier.txt` containing FLAGSHIP, MID_RANGE or LOW_POWER
-     * emulates that tier for screenshots. Release builds ignore it.
-     */
-    private fun debugTierOverride(): HardwareTier? {
-        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return null
-        val file = java.io.File(context.getExternalFilesDir("models"), "debug-tier.txt")
-        return runCatching { HardwareTier.valueOf(file.readText().trim()) }.getOrNull()
-    }
 
     private fun calculateStorageUsed(): Long =
         KernelModel.entries.sumOf { model ->

@@ -891,6 +891,7 @@ fun KernelNavHost(
                     val scrollTo = backStackEntry.arguments?.getBoolean(ARG_SCROLL_TO) ?: false
                     ModelManagementScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        onOpenVoiceSettings = { navController.navigate(ROUTE_VOICE) },
                         scrollToConversationModel = scrollTo,
                     )
                 }

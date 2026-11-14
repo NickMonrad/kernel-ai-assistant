@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,14 +33,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -50,8 +50,9 @@ import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.ModelRole
 import com.kernel.ai.core.model.availability.ModelRoleCopy
-import com.kernel.ai.core.model.availability.RoleSectionView
 import com.kernel.ai.core.model.availability.ModelRoles
+import com.kernel.ai.core.model.availability.RoleSectionView
+import com.kernel.ai.core.model.availability.StatusSectionView
 import com.kernel.ai.core.model.availability.StillNeededCard
 import com.kernel.ai.core.model.availability.toAvailability
 
@@ -65,6 +66,7 @@ private const val FIRST_ROLE_ITEM_INDEX = 2
 @Composable
 fun ModelManagementScreen(
     onBack: () -> Unit = {},
+    onOpenVoiceSettings: () -> Unit = {},
     scrollToConversationModel: Boolean = false,
     viewModel: ModelManagementViewModel = hiltViewModel(),
 ) {
@@ -89,8 +91,9 @@ fun ModelManagementScreen(
     }
     val chatUsing = uiState.roleSections.firstOrNull { it.role == ModelRole.CHAT_BRAIN }?.using
 
-    // A required model waiting for the user to confirm deletion.
-    var pendingDelete by remember { mutableStateOf<KernelModel?>(null) }
+    // Name of a model waiting for delete confirmation. Stored as a name so it survives rotation.
+    var pendingDeleteName by rememberSaveable { mutableStateOf<String?>(null) }
+    val pendingDelete = pendingDeleteName?.let { name -> KernelModel.entries.firstOrNull { it.name == name } }
 
     LaunchedEffect(scrollToConversationModel, uiState.roleSections.size) {
         if (scrollToConversationModel && uiState.roleSections.isNotEmpty()) {
@@ -152,6 +155,7 @@ fun ModelManagementScreen(
                     },
                     onPrimary = { model ->
                         when (val avail = availabilityOf(model)) {
+                            ModelAvailabilityState.Ready -> viewModel.updateModel(model)
                             is ModelAvailabilityState.ActionRequired -> when (avail.reason) {
                                 is ActionReason.SignInRequired -> viewModel.startAuth()
                                 is ActionReason.LicenseRequired ->
@@ -174,12 +178,36 @@ fun ModelManagementScreen(
                             model != chatUsing
                     },
                     onDelete = { model ->
-                        if (ModelRoles.deletionBreaksRole(model, downloadStates)) {
-                            pendingDelete = model
+                        val tier = uiState.deviceTier
+                        if (tier != null && ModelRoles.deletionBreaksApp(model, tier, downloadStates)) {
+                            pendingDeleteName = model.name
                         } else {
                             viewModel.deleteModel(model)
                         }
                     },
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                HorizontalDivider()
+            }
+
+            // ── Voice sections (read-only; managed in Voice settings) ─────────
+            item(key = "speech_recognition") {
+                StatusSectionView(
+                    title = ModelRoleCopy.STT_SECTION_TITLE,
+                    summary = "Managed in Voice settings.",
+                    statusText = "Status: ${voiceStatusText(uiState.speechRecognitionStatus)}",
+                    actionLabel = ModelRoleCopy.MANAGE_VOICE_ACTION,
+                    onAction = onOpenVoiceSettings,
+                )
+                HorizontalDivider()
+            }
+            item(key = "voice_output") {
+                StatusSectionView(
+                    title = ModelRoleCopy.TTS_SECTION_TITLE,
+                    summary = "Managed in Voice settings.",
+                    statusText = "Status: ${voiceStatusText(uiState.voiceOutputStatus)}",
+                    actionLabel = ModelRoleCopy.MANAGE_VOICE_ACTION,
+                    onAction = onOpenVoiceSettings,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
                 HorizontalDivider()
@@ -225,24 +253,28 @@ fun ModelManagementScreen(
 
     pendingDelete?.let { model ->
         AlertDialog(
-            onDismissRequest = { pendingDelete = null },
+            onDismissRequest = { pendingDeleteName = null },
             title = { Text(ModelRoleCopy.DELETE_WARNING_TITLE) },
-            text = {
-                Text("${ModelRoleCopy.purpose(model)} (${model.displayName}). ${ModelRoleCopy.DELETE_WARNING_BODY}")
-            },
+            text = { Text(ModelRoleCopy.deleteWarningBody(model)) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         viewModel.deleteModel(model)
-                        pendingDelete = null
+                        pendingDeleteName = null
                     },
                 ) { Text(ModelRoleCopy.DELETE_ACTION) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text(ModelRoleCopy.CANCEL_ACTION) }
+                TextButton(onClick = { pendingDeleteName = null }) { Text(ModelRoleCopy.CANCEL_ACTION) }
             },
         )
     }
+}
+
+private fun voiceStatusText(status: VoiceSectionStatus): String = when (status) {
+    VoiceSectionStatus.READY -> ModelRoleCopy.VOICE_READY
+    VoiceSectionStatus.DOWNLOADING -> ModelRoleCopy.VOICE_DOWNLOADING
+    VoiceSectionStatus.NOT_DOWNLOADED -> ModelRoleCopy.VOICE_NOT_DOWNLOADED
 }
 
 private fun modeTitle(mode: PersonaMode): String = when (mode) {

@@ -1,18 +1,19 @@
 package com.kernel.ai.core.model.availability
 
+import com.kernel.ai.core.inference.download.ConversationModelRules
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.hardware.HardwareTier
 
 /**
- * A job the user needs a model for. The Models screen, the setup wizard (#1855) and the
- * welcome (#1849) all group models by role, so the grouping lives here, not in any screen.
+ * A group of models that do one job. Each role says how many of its members must be on disk
+ * for the role to work.
  */
 enum class ModelRole(
     val members: List<KernelModel>,
     val requirement: RoleRequirement,
 ) {
-    /** One conversation model is enough. The tier decides which one is preferred. */
+    /** One conversation model is enough, subject to the tier rules in [ConversationModelRules]. */
     CHAT_BRAIN(
         members = listOf(KernelModel.GEMMA_4_E4B, KernelModel.GEMMA_4_E2B),
         requirement = RoleRequirement.ANY_ONE,
@@ -43,12 +44,14 @@ data class ModelRoleRow(
     val model: KernelModel,
     val state: DownloadState,
     val group: ModelGroup,
-    /** Used for the role's "Using:" header and for "Delete would break" checks. */
+    /** Used for the role's "Using:" header and for the Delete-in-use guard. */
     val inUse: Boolean,
     /** Required for the role to work right now. Drives the Required tag. */
     val required: Boolean,
     /** Tier-recommended for this phone. Drives sort order and the recommended note. */
     val recommended: Boolean,
+    /** Whether tapping the row chooses it. False when the tier cannot run this model. */
+    val selectable: Boolean,
 )
 
 data class ModelRoleSection(
@@ -67,8 +70,8 @@ data class StillNeededItem(
     val status: RoleStatus,
     /** Progress 0..1 while [status] is DOWNLOADING, null if unknown. */
     val progress: Float?,
-    /** Model the card's Download action starts. Null when nothing is missing. */
-    val downloadModel: KernelModel?,
+    /** Models the card's Download action starts, in order. Empty when nothing can be downloaded. */
+    val downloadModels: List<KernelModel>,
 )
 
 /** Pure role rules. No Android or Compose dependencies, so this is unit-tested directly. */
@@ -79,26 +82,23 @@ object ModelRoles {
         role.members.filter { it.showInModelManagement && !it.isDeprecated }
 
     /** Tier-preferred chat model; the one used when the user has not chosen. */
-    fun autoChatModel(tier: HardwareTier): KernelModel =
-        if (tier == HardwareTier.FLAGSHIP) KernelModel.GEMMA_4_E4B else KernelModel.GEMMA_4_E2B
+    fun autoChatModel(tier: HardwareTier): KernelModel = ConversationModelRules.autoConversationModel(tier)
+
+    /** True when chat can run on [tier] with the models in [states]. */
+    fun chatReady(tier: HardwareTier, states: Map<KernelModel, DownloadState>): Boolean =
+        ConversationModelRules.conversationReady(tier) { isReady(it, states) }
 
     /**
-     * The chat model that answers right now: the user's choice if it is installed, otherwise
-     * the tier default if installed, otherwise the other chat model if installed, otherwise null.
+     * The chat model that answers right now, or null when chat cannot run. Mirrors the engine's
+     * choice via [ConversationModelRules.effectiveConversationModel].
      */
     fun chatBrainUsing(
         preferred: KernelModel?,
         tier: HardwareTier,
         states: Map<KernelModel, DownloadState>,
     ): KernelModel? {
-        val wanted = preferred ?: autoChatModel(tier)
-        val other = if (wanted == KernelModel.GEMMA_4_E4B) KernelModel.GEMMA_4_E2B else KernelModel.GEMMA_4_E4B
-        return when {
-            isReady(wanted, states) -> wanted
-            isReady(autoChatModel(tier), states) -> autoChatModel(tier)
-            isReady(other, states) -> other
-            else -> null
-        }
+        if (!chatReady(tier, states)) return null
+        return ConversationModelRules.effectiveConversationModel(preferred, tier) { isReady(it, states) }
     }
 
     fun isReady(model: KernelModel, states: Map<KernelModel, DownloadState>): Boolean =
@@ -109,7 +109,7 @@ object ModelRoles {
         return when (role.requirement) {
             RoleRequirement.NONE -> RoleStatus.READY
             RoleRequirement.ANY_ONE -> when {
-                chatBrainUsing(null, tier, states) != null -> RoleStatus.READY
+                chatReady(tier, states) -> RoleStatus.READY
                 members.any { states[it] is DownloadState.Downloading } -> RoleStatus.DOWNLOADING
                 else -> RoleStatus.MISSING
             }
@@ -122,22 +122,19 @@ object ModelRoles {
     }
 
     /**
-     * Whether deleting [model] would leave its role unable to work. The screen asks for
-     * confirmation first when this is true.
+     * Whether deleting [model] would stop the app from working: chat or memory search would
+     * fall below its requirement. Uses the same rule as the app's readiness gate, so it covers
+     * E-2B on non-flagship tiers, memory files, and not E-2B when E-4B still serves flagship chat.
      */
-    fun deletionBreaksRole(
+    fun deletionBreaksApp(
         model: KernelModel,
+        tier: HardwareTier,
         states: Map<KernelModel, DownloadState>,
     ): Boolean {
-        val role = roleOf(model) ?: return false
-        if (!isReady(model, states)) return false
-        return when (role.requirement) {
-            RoleRequirement.NONE -> false
-            RoleRequirement.ALL -> model.isRequired
-            RoleRequirement.ANY_ONE -> role.members
-                .filter { it != model }
-                .none { isReady(it, states) }
-        }
+        if (model.isBundled || !isReady(model, states)) return false
+        val before = ConversationModelRules.appRequiredReady(tier) { isReady(it, states) }
+        val after = ConversationModelRules.appRequiredReady(tier) { it != model && isReady(it, states) }
+        return before && !after
     }
 
     fun roleOf(model: KernelModel): ModelRole? =
@@ -189,13 +186,15 @@ object ModelRoles {
         val required = when (role.requirement) {
             RoleRequirement.NONE -> false
             RoleRequirement.ALL -> model.isRequired
-            // With nothing installed, the tier default is the download the role needs.
+            // With nothing usable installed, the tier default is the download the role needs.
             RoleRequirement.ANY_ONE -> if (using == null) {
                 model == autoChatModel(tier)
             } else {
-                model == using && deletionBreaksRole(model, states)
+                model == using && deletionBreaksApp(model, tier, states)
             }
         }
+        val selectable = ready && (role != ModelRole.CHAT_BRAIN ||
+            model in ConversationModelRules.selectableConversationModels(tier))
         val group = when {
             ready && inUse -> ModelGroup.IN_USE
             ready -> ModelGroup.OPTIONAL
@@ -212,6 +211,7 @@ object ModelRoles {
             inUse = inUse,
             required = required,
             recommended = recommended,
+            selectable = selectable,
         )
     }
 
@@ -226,17 +226,16 @@ object ModelRoles {
             if (status == RoleStatus.READY) return@mapNotNull null
             val members = visibleMembers(role)
             val downloading = members.firstOrNull { states[it] is DownloadState.Downloading }
-            val downloadModel = when (role.requirement) {
-                RoleRequirement.ANY_ONE -> autoChatModel(tier).takeIf { it in members }
-                    ?: members.first()
-                RoleRequirement.ALL -> members.firstOrNull { !isReady(it, states) && it.isRequired }
-                RoleRequirement.NONE -> null
+            val downloadModels = when (role.requirement) {
+                RoleRequirement.ANY_ONE -> listOf(autoChatModel(tier)).filter { it in members }
+                RoleRequirement.ALL -> members.filter { !isReady(it, states) && it.isRequired }
+                RoleRequirement.NONE -> emptyList()
             }
             StillNeededItem(
                 role = role,
                 status = status,
                 progress = (downloading?.let { states[it] } as? DownloadState.Downloading)?.progress,
-                downloadModel = downloadModel,
+                downloadModels = downloadModels,
             )
         }
 }

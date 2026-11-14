@@ -1,7 +1,7 @@
 package com.kernel.ai.core.model.availability
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
@@ -27,24 +29,54 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.KernelModel
 
 /**
- * One role's section: header ("Using: …" + why), then rows grouped into
+ * Shared shell for one titled section on the Models screen: a title, one summary line, then
+ * the section's content. Not tied to [KernelModel], so the speech and voice sections and the
+ * setup wizard (#1855) use it too.
+ */
+@Composable
+fun ModelSectionShell(
+    title: String,
+    summary: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        content()
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * One role's section on the Models screen: "Using: …" and why, then rows grouped into
  * In use / Optional / Not needed on this phone, with "More models" collapsed.
  *
- * Reused by the Models screen, the setup wizard (#1855) and the welcome (#1849).
- *
  * @param availabilityOf maps a model to the availability state the row shows.
- * @param onSelect called when a ready chat model is tapped. Null = rows are not selectable.
- * @param onAutoSelect called when "Choose automatically" is tapped. Null = no auto row.
- * @param onPrimary the row's main action (Download, Cancel, Retry, Sign in…). The caller
- *   decides what it means from the state.
+ * @param onSelect called when a selectable chat model is chosen. Null = the role has no radio.
+ * @param onAutoSelect called when "Choose automatically" is chosen. Null = no auto row.
+ * @param onPrimary the row's main action (Download, Update, Cancel, Retry, Sign in…). The
+ *   caller decides what it means from the state.
  * @param canDelete whether a ready row may offer Delete.
- * @param onDelete called when Delete is tapped; the caller confirms if the delete would break the role.
+ * @param onDelete called when Delete is tapped; the caller confirms when deletion breaks the app.
  */
 @Composable
 fun RoleSectionView(
@@ -61,22 +93,14 @@ fun RoleSectionView(
     val recommendedForTier = section.rows.firstOrNull { it.recommended }?.model
     var moreExpanded by rememberSaveable(role.name) { mutableStateOf(false) }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        // ── Header ─────────────────────────────────────────────────────────
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+    ModelSectionShell(
+        title = ModelRoleCopy.roleTitle(role),
+        summary = ModelRoleCopy.roleSummary(role),
+        modifier = modifier,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
             Text(
-                text = ModelRoleCopy.roleTitle(role),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = ModelRoleCopy.roleSummary(role),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = ModelRoleCopy.usingLine(role, section.using),
+                text = ModelRoleCopy.usingLine(section.using),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
             )
@@ -89,32 +113,34 @@ fun RoleSectionView(
             }
         }
 
-        if (onAutoSelect != null) {
-            ChoiceRow(
-                title = ModelRoleCopy.AUTO_CHOICE_TITLE,
-                supporting = ModelRoleCopy.AUTO_CHOICE_SUPPORTING,
-                selected = section.preferred == null,
-                onClick = onAutoSelect,
-            )
-        }
-
-        // ── Groups ─────────────────────────────────────────────────────────
-        listOf(ModelGroup.IN_USE, ModelGroup.OPTIONAL, ModelGroup.NOT_NEEDED).forEach { group ->
-            val rows = section.rows.filter { it.group == group }
-            if (rows.isEmpty()) return@forEach
-            GroupLabel(ModelRoleCopy.groupTitle(group)!!)
-            rows.forEach { row ->
-                ModelRoleRowItem(
-                    model = row.model,
-                    state = availabilityOf(row.model),
-                    required = row.required,
-                    recommended = row.recommended,
-                    selected = if (onSelect != null) section.using == row.model else null,
-                    onSelect = onSelect,
-                    onPrimary = onPrimary,
-                    canDelete = canDelete(row.model),
-                    onDelete = onDelete,
+        val choiceModifier = if (onSelect != null) Modifier.selectableGroup() else Modifier
+        Column(modifier = choiceModifier) {
+            if (onAutoSelect != null) {
+                ChoiceRow(
+                    title = ModelRoleCopy.AUTO_CHOICE_TITLE,
+                    supporting = ModelRoleCopy.AUTO_CHOICE_SUPPORTING,
+                    selected = section.preferred == null,
+                    onClick = onAutoSelect,
                 )
+            }
+
+            listOf(ModelGroup.IN_USE, ModelGroup.OPTIONAL, ModelGroup.NOT_NEEDED).forEach { group ->
+                val rows = section.rows.filter { it.group == group }
+                if (rows.isEmpty()) return@forEach
+                GroupLabel(ModelRoleCopy.groupTitle(group)!!)
+                rows.forEach { row ->
+                    ModelRoleRowItem(
+                        model = row.model,
+                        state = availabilityOf(row.model),
+                        required = row.required,
+                        recommended = row.recommended,
+                        selected = if (onSelect != null) section.preferred == row.model else null,
+                        onSelect = if (onSelect != null && row.selectable) ({ onSelect(row.model) }) else null,
+                        onPrimary = onPrimary,
+                        canDelete = canDelete(row.model),
+                        onDelete = onDelete,
+                    )
+                }
             }
         }
 
@@ -126,27 +152,69 @@ fun RoleSectionView(
                 modifier = Modifier.padding(horizontal = 8.dp),
             ) {
                 Text(
-                    if (moreExpanded) "Hide ${ModelRoleCopy.MORE_MODELS_TITLE.lowercase()}"
+                    if (moreExpanded) ModelRoleCopy.HIDE_MORE_MODELS
                     else "${ModelRoleCopy.MORE_MODELS_TITLE} · ${ModelRoleCopy.moreModelsCount(more.size)}",
                 )
             }
             if (moreExpanded) {
-                more.forEach { row ->
-                    ModelRoleRowItem(
-                        model = row.model,
-                        state = availabilityOf(row.model),
-                        required = false,
-                        recommended = row.recommended,
-                        selected = if (onSelect != null) section.using == row.model else null,
-                        onSelect = onSelect,
-                        onPrimary = onPrimary,
-                        canDelete = canDelete(row.model),
-                        onDelete = onDelete,
-                    )
+                Column(modifier = choiceModifier) {
+                    more.forEach { row ->
+                        ModelRoleRowItem(
+                            model = row.model,
+                            state = availabilityOf(row.model),
+                            required = false,
+                            recommended = row.recommended,
+                            selected = if (onSelect != null) section.preferred == row.model else null,
+                            onSelect = if (onSelect != null && row.selectable) ({ onSelect(row.model) }) else null,
+                            onPrimary = onPrimary,
+                            canDelete = canDelete(row.model),
+                            onDelete = onDelete,
+                        )
+                    }
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * A read-only section with one status line and one action that opens the owning settings
+ * page. Used for speech recognition and voice output, which are managed in Voice settings.
+ */
+@Composable
+fun StatusSectionView(
+    title: String,
+    summary: String,
+    statusText: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ModelSectionShell(title = title, summary = summary, modifier = modifier) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onAction,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "$actionLabel: $title" },
+                ) {
+                    Text(actionLabel)
+                }
+            }
+        }
     }
 }
 
@@ -170,11 +238,11 @@ private fun ChoiceRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onClick)
+        RadioButton(selected = selected, onClick = null)
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
@@ -190,26 +258,32 @@ private fun ChoiceRow(
 /**
  * One model row: plain-English purpose as the headline, technical name and size as secondary
  * text, a Required tag where it applies, and one primary action plus an optional Delete.
+ *
+ * @param selected null when the role has no radio; otherwise whether this row is the chosen one.
+ * @param onSelect null when the row cannot be chosen (the radio is shown disabled).
  */
 @Composable
-fun ModelRoleRowItem(
+private fun ModelRoleRowItem(
     model: KernelModel,
     state: ModelAvailabilityState,
     required: Boolean,
     recommended: Boolean,
     selected: Boolean?,
-    onSelect: ((KernelModel) -> Unit)?,
+    onSelect: (() -> Unit)?,
     onPrimary: (KernelModel) -> Unit,
     canDelete: Boolean,
     onDelete: (KernelModel) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val ready = state is ModelAvailabilityState.Ready
     val primaryLabel = primaryLabelFor(state)
-    val rowClick = if (onSelect != null && ready) ({ onSelect(model) }) else null
+    val selectableModifier = if (selected != null && onSelect != null) {
+        Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
+    } else {
+        Modifier
+    }
 
     Surface(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         shape = MaterialTheme.shapes.medium,
@@ -217,16 +291,14 @@ fun ModelRoleRowItem(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (rowClick != null) Modifier.clickable(onClick = rowClick) else Modifier),
+                modifier = Modifier.fillMaxWidth().then(selectableModifier),
                 verticalAlignment = Alignment.Top,
             ) {
                 if (selected != null) {
                     RadioButton(
                         selected = selected,
-                        onClick = rowClick,
-                        enabled = rowClick != null,
+                        onClick = null,
+                        enabled = onSelect != null,
                     )
                     Spacer(Modifier.width(4.dp))
                 }
@@ -234,15 +306,11 @@ fun ModelRoleRowItem(
                     Text(
                         text = ModelRoleCopy.purpose(model),
                         style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = ModelRoleCopy.technicalLine(model),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                     if (required) {
                         Text(
@@ -271,7 +339,8 @@ fun ModelRoleRowItem(
                 )
             }
 
-            if (primaryLabel != null || (canDelete && ready)) {
+            val showDelete = canDelete && ready
+            if (primaryLabel != null || showDelete) {
                 Spacer(Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -280,15 +349,19 @@ fun ModelRoleRowItem(
                     if (primaryLabel != null) {
                         Button(
                             onClick = { onPrimary(model) },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { contentDescription = "$primaryLabel ${model.displayName}" },
                         ) {
                             Text(primaryLabel)
                         }
                     }
-                    if (canDelete && ready) {
+                    if (showDelete) {
                         OutlinedButton(
                             onClick = { onDelete(model) },
-                            modifier = if (primaryLabel == null) Modifier.fillMaxWidth() else Modifier,
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { contentDescription = "${ModelRoleCopy.DELETE_ACTION} ${model.displayName}" },
                         ) {
                             Text(ModelRoleCopy.DELETE_ACTION)
                         }
@@ -300,16 +373,16 @@ fun ModelRoleRowItem(
 }
 
 private fun primaryLabelFor(state: ModelAvailabilityState): String? = when (state) {
-    ModelAvailabilityState.Ready -> null
-    is ModelAvailabilityState.Preparing -> if (state.isAutoQueued) null else ModelRoleCopy.CANCEL_ACTION
     ModelAvailabilityState.NotDisplayed -> ModelRoleCopy.DOWNLOAD_ACTION
+    is ModelAvailabilityState.Preparing -> if (state.isAutoQueued) null else ModelRoleCopy.CANCEL_ACTION
     else -> defaultActionLabel(state)
 }
 
 /**
  * The "Still needed" card at the top of the Models screen, and the same state the wizard and
- * welcome show. Lists each required role that is not ready, with one action per row.
- * When nothing is missing it collapses to the "All set" line with a tick.
+ * welcome show. Lists each required role that is not ready, with one Download action per row
+ * that starts every missing file in that role. When nothing is missing it collapses to the
+ * "All set" line with a tick.
  */
 @Composable
 fun StillNeededCard(
@@ -363,10 +436,10 @@ fun StillNeededCard(
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }
                     }
-                    RoleStatus.MISSING -> item.downloadModel?.let { model ->
+                    RoleStatus.MISSING -> if (item.downloadModels.isNotEmpty()) {
                         Spacer(Modifier.height(4.dp))
                         Button(
-                            onClick = { onDownload(model) },
+                            onClick = { item.downloadModels.forEach(onDownload) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(ModelRoleCopy.DOWNLOAD_ACTION)

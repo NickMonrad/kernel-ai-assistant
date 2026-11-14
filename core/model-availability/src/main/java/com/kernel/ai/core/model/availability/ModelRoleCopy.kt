@@ -26,10 +26,8 @@ object ModelRoleCopy {
     }
 
     /** "Using: <model>" header line. Null when nothing is installed for the role. */
-    fun usingLine(role: ModelRole, using: KernelModel?): String = when {
-        using == null -> "Using: nothing yet"
-        else -> "Using: ${using.displayName}"
-    }
+    fun usingLine(using: KernelModel?): String =
+        if (using == null) "Using: nothing yet" else "Using: ${using.displayName}"
 
     /** Note under the "Using" line explaining why that model was picked. */
     fun usingNote(
@@ -38,10 +36,11 @@ object ModelRoleCopy {
         preferred: KernelModel?,
         recommendedForTier: KernelModel?,
     ): String? = when {
-        using == null -> "Not downloaded yet"
+        using == null -> if (role == ModelRole.CHAT_BRAIN) "Not downloaded yet" else null
         role != ModelRole.CHAT_BRAIN -> null
         preferred != null && preferred == using -> "Chosen by you"
-        using == recommendedForTier -> "Recommended for this phone"
+        preferred != null -> "Your choice isn't available on this phone right now"
+        using == recommendedForTier -> RECOMMENDED_NOTE
         else -> "Chosen automatically"
     }
 
@@ -78,19 +77,23 @@ object ModelRoleCopy {
     }
 
     const val MORE_MODELS_TITLE = "More models"
+    const val HIDE_MORE_MODELS = "Hide more models"
     fun moreModelsCount(count: Int): String = if (count == 1) "1 more model" else "$count more models"
 
-    // ── Delete confirmation ─────────────────────────────────────────────────
-    const val DELETE_ACTION = "Delete"
+    // ── Row actions ─────────────────────────────────────────────────────────
+    const val UPDATE_ACTION = "Update"
+    const val DOWNLOAD_ACTION = "Download"
     const val CANCEL_ACTION = "Cancel"
+    const val DELETE_ACTION = "Delete"
+
+    // ── Delete confirmation ─────────────────────────────────────────────────
     const val DELETE_WARNING_TITLE = "Delete a required model?"
-    const val DELETE_WARNING_BODY =
-        "Jandal needs this model to work. Until it is downloaded again, chat or memory search may stop."
+    fun deleteWarningBody(model: KernelModel): String =
+        "Jandal needs ${model.displayName} to work. Until it is downloaded again, chat or memory search may stop."
 
     // ── Still needed card ───────────────────────────────────────────────────
     const val STILL_NEEDED_TITLE = "Still needed"
     const val ALL_SET_TEXT = "All set: Jandal has everything it needs"
-    const val DOWNLOAD_ACTION = "Download"
 
     fun stillNeededLabel(item: StillNeededItem): String {
         val name = roleTitle(item.role)
@@ -103,4 +106,12 @@ object ModelRoleCopy {
                 ?: "$name: downloading"
         }
     }
+
+    // ── Voice sections (read-only; managed in Voice settings) ──────────────
+    const val STT_SECTION_TITLE = "Speech recognition (Zipformer): turns your voice into text, offline"
+    const val TTS_SECTION_TITLE = "Jandal's voice (Cori): reads replies aloud"
+    const val MANAGE_VOICE_ACTION = "Manage in Voice settings"
+    const val VOICE_READY = "Ready"
+    const val VOICE_DOWNLOADING = "Downloading"
+    const val VOICE_NOT_DOWNLOADED = "Not downloaded"
 }

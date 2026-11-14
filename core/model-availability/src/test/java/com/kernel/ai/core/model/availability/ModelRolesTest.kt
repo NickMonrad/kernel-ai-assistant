@@ -5,148 +5,138 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ModelRolesTest {
 
-    private val done = DownloadState.Downloaded("/x")
-    private val none = DownloadState.NotDownloaded
-
+    private val e4b = KernelModel.GEMMA_4_E4B
+    private val e2b = KernelModel.GEMMA_4_E2B
     private val arcticM = KernelModel.ARCTIC_EMBED_M_V1_5
     private val arcticVocab = KernelModel.ARCTIC_EMBED_V1_5_VOCAB
 
+    /** Every model is NotDownloaded except the ones listed, which are Downloaded. */
     private fun states(vararg downloaded: KernelModel): Map<KernelModel, DownloadState> =
-        KernelModel.entries.associateWith { if (it in downloaded) done else none }
+        KernelModel.entries.associateWith {
+            if (it in downloaded) DownloadState.Downloaded("/models/${it.name}") else DownloadState.NotDownloaded
+        }
 
-    private fun chat(sections: List<ModelRoleSection>) = sections.first { it.role == ModelRole.CHAT_BRAIN }
-    private fun ModelRoleSection.row(model: KernelModel) = rows.first { it.model == model }
+    private fun chat(section: List<ModelRoleSection>) = section.first { it.role == ModelRole.CHAT_BRAIN }
+    private fun memory(section: List<ModelRoleSection>) = section.first { it.role == ModelRole.MEMORY_SEARCH }
 
-    // ── E-2B is never a plain missing Download when E-4B is in use ─────────
+    // ── Chat brain readiness by tier ─────────────────────────────────────────
 
     @Test
-    fun `E-2B is a More models row, not a plain download, when E-4B is installed and in use`() {
-        val s = states(KernelModel.GEMMA_4_E4B, arcticM, arcticVocab)
-        val section = chat(ModelRoles.sections(preferred = null, tier = HardwareTier.FLAGSHIP, states = s))
-
-        assertEquals(KernelModel.GEMMA_4_E4B, section.using)
-        assertEquals(ModelGroup.MORE_MODELS, section.row(KernelModel.GEMMA_4_E2B).group)
-        assertEquals(ModelGroup.IN_USE, section.row(KernelModel.GEMMA_4_E4B).group)
+    fun `mid range with only E-2B is ready and uses E-2B`() {
+        val s = ModelRoles.sections(null, HardwareTier.MID_RANGE, states(e2b))
+        assertEquals(RoleStatus.READY, chat(s).status)
+        assertEquals(e2b, chat(s).using)
     }
 
     @Test
-    fun `E-2B is Optional when it is installed but E-4B is in use`() {
-        val s = states(KernelModel.GEMMA_4_E4B, KernelModel.GEMMA_4_E2B)
-        val section = chat(ModelRoles.sections(preferred = null, tier = HardwareTier.FLAGSHIP, states = s))
-
-        assertEquals(ModelGroup.OPTIONAL, section.row(KernelModel.GEMMA_4_E2B).group)
-        assertFalse(section.row(KernelModel.GEMMA_4_E2B).inUse)
+    fun `mid range with only E-4B is not ready and asks for E-2B`() {
+        val st = states(e4b)
+        val s = ModelRoles.sections(null, HardwareTier.MID_RANGE, st)
+        assertEquals(RoleStatus.MISSING, chat(s).status)
+        assertNull(chat(s).using)
+        assertEquals(listOf(e2b), ModelRoles.stillNeeded(HardwareTier.MID_RANGE, st).first { it.role == ModelRole.CHAT_BRAIN }.downloadModels)
     }
 
     @Test
-    fun `E-2B chosen by the user is in use and E-4B stays downloadable`() {
-        val s = states(KernelModel.GEMMA_4_E4B, KernelModel.GEMMA_4_E2B)
-        val section = chat(ModelRoles.sections(preferred = KernelModel.GEMMA_4_E2B, tier = HardwareTier.FLAGSHIP, states = s))
-
-        assertEquals(KernelModel.GEMMA_4_E2B, section.using)
-        assertTrue(section.row(KernelModel.GEMMA_4_E2B).inUse)
-        assertEquals(ModelGroup.OPTIONAL, section.row(KernelModel.GEMMA_4_E4B).group)
+    fun `low power behaves like mid range`() {
+        assertEquals(RoleStatus.READY, chat(ModelRoles.sections(null, HardwareTier.LOW_POWER, states(e2b))).status)
+        assertEquals(RoleStatus.MISSING, chat(ModelRoles.sections(null, HardwareTier.LOW_POWER, states(e4b))).status)
     }
 
-    // ── Tier: E-4B is not needed on a non-flagship phone ───────────────────
-
     @Test
-    fun `E-4B is Not needed on this phone when the tier is not flagship`() {
-        val section = chat(ModelRoles.sections(preferred = null, tier = HardwareTier.MID_RANGE, states = states()))
-
-        assertEquals(ModelGroup.NOT_NEEDED, section.row(KernelModel.GEMMA_4_E4B).group)
-        assertEquals(ModelGroup.NOT_NEEDED, section.row(KernelModel.GEMMA_4_E4B).group)
-        assertTrue(section.row(KernelModel.GEMMA_4_E2B).required)
+    fun `flagship with only E-4B is ready and uses E-4B`() {
+        val s = ModelRoles.sections(null, HardwareTier.FLAGSHIP, states(e4b))
+        assertEquals(RoleStatus.READY, chat(s).status)
+        assertEquals(e4b, chat(s).using)
     }
 
-    // ── Still needed ──────────────────────────────────────────────────────
+    @Test
+    fun `non-flagship offers E-4B as not selectable even when installed`() {
+        val s = ModelRoles.sections(null, HardwareTier.MID_RANGE, states(e2b, e4b))
+        val rows = chat(s).rows.associateBy { it.model }
+        assertFalse(rows.getValue(e4b).selectable)
+        assertTrue(rows.getValue(e2b).selectable)
+    }
 
     @Test
-    fun `nothing installed lists chat brain and memory search as still needed`() {
+    fun `flagship offers both chat models as selectable`() {
+        val s = ModelRoles.sections(null, HardwareTier.FLAGSHIP, states(e2b, e4b))
+        assertTrue(chat(s).rows.all { it.selectable })
+    }
+
+    @Test
+    fun `saved pick that is not installed falls back to the tier default`() {
+        val s = ModelRoles.sections(e2b, HardwareTier.FLAGSHIP, states(e4b))
+        assertEquals(e4b, chat(s).using)
+        assertEquals(e2b, chat(s).preferred)
+    }
+
+    @Test
+    fun `chat still needed on flagship with nothing installed downloads E-4B`() {
         val items = ModelRoles.stillNeeded(HardwareTier.FLAGSHIP, states())
+        assertEquals(listOf(e4b), items.first { it.role == ModelRole.CHAT_BRAIN }.downloadModels)
+    }
 
-        assertEquals(listOf(ModelRole.CHAT_BRAIN, ModelRole.MEMORY_SEARCH), items.map { it.role })
-        assertEquals(KernelModel.GEMMA_4_E4B, items.first { it.role == ModelRole.CHAT_BRAIN }.downloadModel)
-        assertEquals(arcticM, items.first { it.role == ModelRole.MEMORY_SEARCH }.downloadModel)
-        assertEquals(RoleStatus.MISSING, items.first { it.role == ModelRole.CHAT_BRAIN }.status)
+    // ── Deletion guard ───────────────────────────────────────────────────────
+
+    @Test
+    fun `mid range deleting E-2B breaks the app even when E-4B is installed`() {
+        val st = states(e2b, e4b, arcticM, arcticVocab)
+        assertTrue(ModelRoles.deletionBreaksApp(e2b, HardwareTier.MID_RANGE, st))
     }
 
     @Test
-    fun `E-2B alone satisfies chat, so chat is not still needed`() {
-        val items = ModelRoles.stillNeeded(HardwareTier.FLAGSHIP, states(KernelModel.GEMMA_4_E2B))
-
-        assertTrue(items.none { it.role == ModelRole.CHAT_BRAIN })
+    fun `flagship deleting E-2B does not break the app while E-4B is installed`() {
+        val st = states(e2b, e4b, arcticM, arcticVocab)
+        assertFalse(ModelRoles.deletionBreaksApp(e2b, HardwareTier.FLAGSHIP, st))
     }
 
     @Test
-    fun `memory search with only one of its two files is still needed, pointing at the missing file`() {
-        val s = states(KernelModel.GEMMA_4_E4B, arcticM)
-        val item = ModelRoles.stillNeeded(HardwareTier.FLAGSHIP, s).single()
-
-        assertEquals(ModelRole.MEMORY_SEARCH, item.role)
-        assertEquals(RoleStatus.MISSING, item.status)
-        assertEquals(arcticVocab, item.downloadModel)
+    fun `flagship deleting E-4B does not break the app while E-2B is installed`() {
+        val st = states(e2b, e4b, arcticM, arcticVocab)
+        assertFalse(ModelRoles.deletionBreaksApp(e4b, HardwareTier.FLAGSHIP, st))
     }
 
     @Test
-    fun `everything required installed leaves no still-needed lines`() {
-        val s = states(KernelModel.GEMMA_4_E4B, arcticM, arcticVocab)
-        assertTrue(ModelRoles.stillNeeded(HardwareTier.FLAGSHIP, s).isEmpty())
+    fun `deleting a required memory file breaks the app`() {
+        val st = states(e2b, arcticM, arcticVocab)
+        assertTrue(ModelRoles.deletionBreaksApp(arcticVocab, HardwareTier.MID_RANGE, st))
+        assertTrue(ModelRoles.deletionBreaksApp(arcticM, HardwareTier.LOW_POWER, st))
     }
 
     @Test
-    fun `an in-progress download reports DOWNLOADING with its progress`() {
-        val s = states(arcticM, arcticVocab) +
-            (KernelModel.GEMMA_4_E4B to DownloadState.Downloading(progress = 0.42f))
-        val item = ModelRoles.stillNeeded(HardwareTier.FLAGSHIP, s).single()
-
-        assertEquals(RoleStatus.DOWNLOADING, item.status)
-        assertEquals("Chat brain: downloading 42%", ModelRoleCopy.stillNeededLabel(item))
+    fun `quick commands model never breaks the app`() {
+        assertFalse(ModelRoles.deletionBreaksApp(KernelModel.MINI_LM, HardwareTier.MID_RANGE, states(KernelModel.MINI_LM)))
     }
 
-    // ── Delete guard ──────────────────────────────────────────────────────
+    // ── Memory search ────────────────────────────────────────────────────────
 
     @Test
-    fun `deleting the only chat model breaks the role`() {
-        val s = states(KernelModel.GEMMA_4_E4B)
-        assertTrue(ModelRoles.deletionBreaksRole(KernelModel.GEMMA_4_E4B, s))
+    fun `memory still needed downloads both files when both are missing`() {
+        val items = ModelRoles.stillNeeded(HardwareTier.MID_RANGE, states(e2b))
+        assertEquals(listOf(arcticM, arcticVocab), items.first { it.role == ModelRole.MEMORY_SEARCH }.downloadModels)
     }
 
     @Test
-    fun `deleting E-2B while E-4B is installed does not break chat`() {
-        val s = states(KernelModel.GEMMA_4_E4B, KernelModel.GEMMA_4_E2B)
-        assertFalse(ModelRoles.deletionBreaksRole(KernelModel.GEMMA_4_E2B, s))
+    fun `memory still needed downloads only the missing file`() {
+        val items = ModelRoles.stillNeeded(HardwareTier.MID_RANGE, states(e2b, arcticM))
+        assertEquals(listOf(arcticVocab), items.first { it.role == ModelRole.MEMORY_SEARCH }.downloadModels)
     }
 
     @Test
-    fun `deleting a required memory file breaks memory search`() {
-        val s = states(arcticM, arcticVocab)
-        assertTrue(ModelRoles.deletionBreaksRole(arcticVocab, s))
+    fun `memory is ready only when both files are installed`() {
+        assertEquals(RoleStatus.READY, memory(ModelRoles.sections(null, HardwareTier.MID_RANGE, states(arcticM, arcticVocab))).status)
+        assertEquals(RoleStatus.MISSING, memory(ModelRoles.sections(null, HardwareTier.MID_RANGE, states(arcticM))).status)
     }
 
     @Test
-    fun `a bundled model never breaks a role`() {
-        assertFalse(ModelRoles.deletionBreaksRole(KernelModel.MINI_LM, states()))
-    }
-
-    // ── Chat brain resolution ─────────────────────────────────────────────
-
-    @Test
-    fun `chat falls back to the other model when the preferred one is not installed`() {
-        val s = states(KernelModel.GEMMA_4_E2B)
-        assertEquals(
-            KernelModel.GEMMA_4_E2B,
-            ModelRoles.chatBrainUsing(preferred = KernelModel.GEMMA_4_E4B, tier = HardwareTier.FLAGSHIP, states = s),
-        )
-    }
-
-    @Test
-    fun `chat is null when nothing is installed`() {
-        assertEquals(null, ModelRoles.chatBrainUsing(null, HardwareTier.FLAGSHIP, states()))
+    fun `everything installed on mid range leaves nothing still needed`() {
+        assertTrue(ModelRoles.stillNeeded(HardwareTier.MID_RANGE, states(e2b, arcticM, arcticVocab)).isEmpty())
     }
 }
