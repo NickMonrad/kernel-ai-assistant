@@ -258,45 +258,22 @@ class ModelDownloadManager @Inject constructor(
     }
 
     /** True when all models required for this device tier are present on disk. */
-    fun areRequiredModelsDownloaded(): Boolean {
-        val tier = hardwareProfileDetector.profile.tier
-        // On FLAGSHIP, either E4B or E2B satisfies the conversation model requirement
-        val conversationModelReady = when (tier) {
-            HardwareTier.FLAGSHIP ->
-                KernelModel.GEMMA_4_E4B.isDownloaded(context) ||
-                KernelModel.GEMMA_4_E2B.isDownloaded(context)
-            else -> KernelModel.GEMMA_4_E2B.isDownloaded(context)
-        }
-        val otherRequiredReady = KernelModel.entries
-            .filter { it.isRequired && it != KernelModel.GEMMA_4_E2B }
-            .all { it.isDownloaded(context) }
-        return conversationModelReady && otherRequiredReady
-    }
+    fun areRequiredModelsDownloaded(): Boolean =
+        ConversationModelRules.appRequiredReady(hardwareProfileDetector.profile.tier) { it.isDownloaded(context) }
 
     /**
-     * Returns the best available conversation model.
-     *
-     * Priority:
-     * 1. User-set preference (DataStore) — if the model is downloaded.
-     * 2. Tier-based auto-select (e.g. E-4B on FLAGSHIP) — if downloaded.
-     * 3. E-2B fallback (always available as required model).
-     *
-     * If the user-preferred model is not downloaded, falls back to tier/auto logic
-     * and logs a warning.
+     * Returns the conversation model that answers now. The user's pick wins when on disk;
+     * otherwise the tier default, otherwise E-2B. Logs a warning when the pick is missing.
      */
     suspend fun preferredConversationModel(): KernelModel {
         val userPref = modelPreferences.preferredConversationModel.first()
-        if (userPref != null) {
-            if (userPref.isDownloaded(context)) {
-                return userPref
-            } else {
-                Log.w(TAG, "User-preferred model ${userPref.displayName} not downloaded — falling back to auto")
-            }
+        if (userPref != null && !userPref.isDownloaded(context)) {
+            Log.w(TAG, "User-preferred model ${userPref.displayName} not downloaded — falling back to auto")
         }
-        val tier = hardwareProfileDetector.profile.tier
-        val tierModel = KernelModel.entries
-            .firstOrNull { it.preferredForTier == tier && it.isDownloaded(context) }
-        return tierModel ?: KernelModel.GEMMA_4_E2B
+        return ConversationModelRules.effectiveConversationModel(
+            userPreference = userPref,
+            tier = hardwareProfileDetector.profile.tier,
+        ) { it.isDownloaded(context) }
     }
 
     /**
