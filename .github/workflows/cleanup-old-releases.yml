@@ -44,15 +44,18 @@ jobs:
             --limit 200 \
             --json tagName,publishedAt,isPrerelease > releases.json
 
-          # Protected tags are never candidates, even if marked pre-release:
-          # debug-latest, build-* (Play/tester builds), v0.1.* (tester GitHub releases).
-          # publishedAt is normalised to whole seconds so string comparison against the
-          # cutoff is correct when gh emits fractional seconds.
+          if [ "$(jq length releases.json)" -ge 200 ]; then
+            echo "::warning::Listed 200 releases (the limit); older releases beyond it are not considered."
+          fi
+
+          # Allowlist: only pr-<number> pre-releases. Everything else is never a candidate,
+          # including debug-latest, build-*, v0.1.* tester releases and model-* releases
+          # that the app downloads. publishedAt is normalised to whole seconds so the
+          # string comparison against the cutoff is correct.
           jq -r --arg cutoff "$CUTOFF" '
             .[]
             | select(.isPrerelease == true)
-            | select(.tagName != "debug-latest")
-            | select((.tagName | startswith("build-") or startswith("v0.1.")) | not)
+            | select(.tagName | test("^pr-[0-9]+$"))
             | select((.publishedAt | sub("\\.[0-9]+Z$"; "Z")) < $cutoff)
             | .tagName
           ' releases.json > candidates.txt

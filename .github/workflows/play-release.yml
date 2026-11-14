@@ -186,67 +186,57 @@ jobs:
           echo "CRED_DIR=$CRED_DIR" >> "$GITHUB_ENV"
           echo "Credentials written to \$RUNNER_TEMP/play-release (owner-only)."
 
-      # ── Publish ──────────────────────────────────────────────────────
-      - name: Publish release bundle to Play (${{ inputs.track }})
+      # ── Build and publish ────────────────────────────────────────────
+      # One Gradle run, so GPP's AUTO versionCode is shared by the tester APK and the
+      # bundle. assembleRelease is ordered before publishReleaseBundle (build.gradle.kts),
+      # so a failed APK build stops the run before anything reaches Play.
+      - name: Build tester APK and publish release bundle to Play (${{ inputs.track }})
         env:
           PLAY_TRACK: ${{ inputs.track }}
+          BUILD_APK: ${{ inputs.track == 'alpha' || inputs.github_release }}
         run: |
+          set -euo pipefail
           case "$PLAY_TRACK" in
             internal|alpha) ;;
             *) echo "::error::Unsupported track '$PLAY_TRACK'"; exit 1 ;;
           esac
-          ./gradlew --no-daemon --no-build-cache :app:publishReleaseBundle \
+          TASKS=(:app:publishReleaseBundle)
+          if [ "$BUILD_APK" = "true" ]; then
+            TASKS=(:app:assembleRelease "${TASKS[@]}")
+          fi
+          ./gradlew --no-daemon --no-build-cache "${TASKS[@]}" \
             -PreleaseSigningPropertiesFile="$CRED_DIR/keystore.properties" \
             -PplayServiceAccountFile="$CRED_DIR/play-service-account.json" \
             -PplayTrack="$PLAY_TRACK"
 
-      # ── Tester APK (GitHub release only; same commit and versionCode as Play) ──
-      # GPP's AUTO resolution picks the Play versionCode during publish, so read it
-      # back from the uploaded bundle rather than guessing it.
-      - name: Read Play versionCode from the bundle
-        if: ${{ inputs.track == 'alpha' || inputs.github_release }}
+      - name: Remove credentials
+        if: always()
         run: |
-          set -euo pipefail
-          BT_VERSION=$(sed -n 's/^bundletool = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
-          test -n "$BT_VERSION"
-          BT_JAR="$RUNNER_TEMP/bundletool-$BT_VERSION.jar"
-          curl -fsSL --retry 3 -o "$BT_JAR" \
-            "https://repo1.maven.org/maven2/com/android/tools/build/bundletool/$BT_VERSION/bundletool-$BT_VERSION.jar"
-          VERSION_CODE=$(java -jar "$BT_JAR" dump manifest \
-            --bundle=app/build/outputs/bundle/release/app-release.aab --module=base \
-            | python3 -c 'import sys, xml.etree.ElementTree as ET; print(ET.fromstring(sys.stdin.read()).attrib["{http://schemas.android.com/apk/res/android}versionCode"])')
-          case "$VERSION_CODE" in
-            ''|*[!0-9]*) echo "::error::Could not read a numeric versionCode from the bundle."; exit 1 ;;
-          esac
-          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
-          rm -f "$BT_JAR"
+          rm -rf "$RUNNER_TEMP/play-release"
+          echo "Credential directory removed."
 
-      - name: Build signed tester APK
-        if: ${{ inputs.track == 'alpha' || inputs.github_release }}
-        run: |
-          set -euo pipefail
-          ./gradlew --no-daemon --no-build-cache :app:assembleRelease \
-            -PversionCode="$VERSION_CODE" \
-            -PversionName="0.1.$VERSION_CODE" \
-            -PreleaseSigningPropertiesFile="$CRED_DIR/keystore.properties"
-
-      # Single APK asset named for Obtainium; checksum and notes stay out of the asset list.
+      # ── Tester APK checks and staging (no secrets needed) ────────────
+      # Reads package, versionCode and versionName from the APK itself, so the GitHub
+      # release reports exactly what the APK installs as.
       - name: Verify and stage tester APK
         if: ${{ inputs.track == 'alpha' || inputs.github_release }}
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/release/app-release.apk
           AAB=app/build/outputs/bundle/release/app-release.aab
-          VERSION_NAME="0.1.$VERSION_CODE"
-          BT_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          BT_DIR=$(printf '%s\n' "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
 
           BADGING=$("$BT_DIR/aapt2" dump badging "$APK")
-          for expected in "name='ai.jandal.assistant'" "versionCode='$VERSION_CODE'" "versionName='$VERSION_NAME'"; do
-            if ! grep -qF "$expected" <<<"$BADGING"; then
-              echo "::error::APK badging does not contain $expected"
-              exit 1
-            fi
-          done
+          PACKAGE=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$BADGING" | head -1)
+          VERSION_CODE=$(sed -n "s/^package: .* versionCode='\([0-9]*\)'.*/\1/p" <<<"$BADGING" | head -1)
+          VERSION_NAME=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" <<<"$BADGING" | head -1)
+          if [ "$PACKAGE" != "ai.jandal.assistant" ]; then
+            echo "::error::APK package is '$PACKAGE', expected ai.jandal.assistant."; exit 1
+          fi
+          if [ -z "$VERSION_CODE" ] || [ -z "$VERSION_NAME" ] || [ "${VERSION_NAME##*.}" != "$VERSION_CODE" ]; then
+            echo "::error::APK versionName '$VERSION_NAME' does not end with versionCode '$VERSION_CODE'."
+            exit 1
+          fi
 
           APK_CERT=$("$BT_DIR/apksigner" verify --print-certs "$APK" \
             | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f')
@@ -255,13 +245,14 @@ jobs:
             echo "::error::APK signer does not match the uploaded bundle's upload certificate."
             exit 1
           fi
+          echo "APK $VERSION_NAME (versionCode $VERSION_CODE) signed by SHA-256 $APK_CERT, matching the upload certificate."
 
           STAGE="$RUNNER_TEMP/tester-release"
           mkdir -p "$STAGE"
           cp "$APK" "$STAGE/jandal-ai-$VERSION_NAME.apk"
           cp app/src/main/play/release-notes/en-AU/default.txt "$STAGE/release-notes.txt"
+          echo "$APK_CERT" > "$STAGE/signer-sha256.txt"
           (cd "$STAGE" && sha256sum "jandal-ai-$VERSION_NAME.apk" > sha256.txt)
-          echo "Staged jandal-ai-$VERSION_NAME.apk (signer matches the upload certificate)."
 
       - name: Upload tester APK for the release job
         if: ${{ inputs.track == 'alpha' || inputs.github_release }}
@@ -272,16 +263,10 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Remove credentials
-        if: always()
-        run: |
-          rm -rf "$RUNNER_TEMP/play-release"
-          echo "Credential directory removed."
-
   # Holds contents: write only. No secrets, no environment, no signing material:
   # it downloads the APK staged by the publish job and creates the release.
   github-release:
-    name: Publish tester APK on GitHub
+    name: Publish tester APK on GitHub (${{ inputs.track }})
     needs: publish
     if: ${{ inputs.track == 'alpha' || inputs.github_release }}
     runs-on: ubuntu-latest
@@ -298,8 +283,14 @@ jobs:
       - name: Create full GitHub release with the APK
         env:
           GH_TOKEN: ${{ github.token }}
+          TRACK: ${{ inputs.track }}
         run: |
           set -euo pipefail
+          case "$TRACK" in
+            alpha) TRACK_LABEL="closed testing (alpha)" ;;
+            internal) TRACK_LABEL="internal testing" ;;
+            *) echo "::error::Unsupported track '$TRACK'"; exit 1 ;;
+          esac
           cd tester-release
           APK_FILES=(jandal-ai-*.apk)
           if [ "${#APK_FILES[@]}" -ne 1 ] || [ ! -f "${APK_FILES[0]}" ]; then
@@ -310,26 +301,32 @@ jobs:
           VERSION_NAME="${APK#jandal-ai-}"
           VERSION_NAME="${VERSION_NAME%.apk}"
           SHA256=$(cut -d ' ' -f1 sha256.txt)
+          SIGNER=$(cat signer-sha256.txt)
+          echo "Publishing $APK (SHA-256 $SHA256, signer SHA-256 $SIGNER) from the $TRACK_LABEL build."
 
           {
-            echo "Play test build for Jandal AI $VERSION_NAME, built from the same commit and versionCode as the Play closed-testing upload."
+            echo "Play test build for Jandal AI $VERSION_NAME, built from the same commit and versionCode as the Play $TRACK_LABEL upload."
             echo
             echo "## What's new"
             cat release-notes.txt
             echo
             echo
-            echo "## Checksum"
+            echo "## Checksum and signer"
             echo
             echo "SHA-256 of \`$APK\`:"
             echo
             echo "\`$SHA256\`"
+            echo
+            echo "Signer certificate SHA-256 (upload key):"
+            echo
+            echo "\`$SIGNER\`"
             echo
             echo "## Install"
             echo
             echo "- Download \`$APK\`, allow installs from your browser, and open it."
             echo "- Updates: install the newer APK over the top; settings and downloads are kept."
             echo "- **Can't mix with Play installs.** Play re-signs with Google's app-signing key, so this APK has a different signature. Switching between Play and this APK needs an uninstall first, which deletes the app's data and downloaded models."
-            echo "- No automatic updates in the app. Obtainium users: see the Obtainium section of docs/PLAY_RELEASE_BUILD.md."
+            echo "- Obtainium: see the [Obtainium section](https://github.com/NickMonrad/kernel-ai-assistant/blob/main/docs/PLAY_RELEASE_BUILD.md#obtainium) of docs/PLAY_RELEASE_BUILD.md."
             echo "- Feedback: Settings → About → Email support, or a GitHub issue."
           } > release-body.md
 

@@ -192,19 +192,19 @@ Type the three short secrets in **Settings › Environments › play-release ›
 2. **Actions › Play release › Run workflow**: leave **Use workflow from** on `main`, choose the track (`internal` or `alpha`), then **Run workflow**. Any other branch fails in the `Require main` job without requesting approval.
 3. Open the run. `Publish to Play` waits for review; choose **Review deployments**, tick `play-release`, then **Approve and deploy**. The job receives the secrets only after this approval.
 4. The job builds and signs the AAB, rejects it if unsigned (`verifyReleaseBundleForPlayUpload`), uploads it to the chosen track with the next Play `versionCode`, and removes the credentials. Check the release under the track in Play Console.
-5. For an `alpha` run, or an `internal` run with **github_release** ticked, the same run also builds a signed universal APK from the uploaded `versionCode` and publishes it as a full GitHub release (see below).
+5. For an `alpha` run, or an `internal` run with **github_release** ticked, the same Gradle run also builds the signed release APK (`:app:assembleRelease`, ordered before the upload) and publishes it as a full GitHub release (see below). If the APK build fails, nothing is uploaded to Play.
 
 The workflow decodes the keystore and writes the signing properties file and service-account JSON under `$RUNNER_TEMP` (outside the checkout) with `umask 077`, passes only their paths to Gradle, and deletes them in an always-run step. Passwords never appear as `-P` arguments.
 
 #### GitHub APK for testers without Play
 
-Testers who don't use the Play Store get the same build as the closed test track as a single signed APK on [GitHub Releases](https://github.com/NickMonrad/kernel-ai-assistant/releases). The `publish` job builds it after the Play upload, using the `versionCode` read back from the uploaded bundle, and stages it as a short-lived artifact. The `github-release` job has `contents: write` and no secrets; it only downloads that artifact and creates the release. The signing job keeps `contents: read`.
+Testers who don't use the Play Store get the same build as the Play test track as a single signed APK on [GitHub Releases](https://github.com/NickMonrad/kernel-ai-assistant/releases). The `publish` job runs `:app:assembleRelease` and `:app:publishReleaseBundle` in one Gradle invocation, so both outputs share the `versionCode` GPP's AUTO resolution assigns. Ordering is enforced in `app/build.gradle.kts`: the APK is built before the Play upload. The APK is verified and staged as a short-lived artifact. The `github-release` job has `contents: write` and no secrets; it only downloads that artifact and creates the release. The signing job keeps `contents: read`.
 
-- **Tag and title:** `v0.1.<versionCode>` and `Jandal AI 0.1.<versionCode>`, for example `v0.1.5`. Full releases, not pre-releases.
-- **versionName:** `0.1.<versionCode>`, passed as `-PversionName` for the tester APK only. It equals the tag without the `v`, so Obtainium can compare them. The Play bundle keeps `versionName` `0.1.0`; Play delivers by `versionCode`.
-- **Asset:** exactly one, `jandal-ai-0.1.<versionCode>.apk`, signed with the upload certificate. The SHA-256 is in the release body, not a second asset.
-- **Checks before release:** `aapt2 dump badging` must show `ai.jandal.assistant`, the `versionCode`, and the `versionName`; the `apksigner` signer digest must equal the uploaded bundle's upload certificate.
-- **Not reproducible here:** this path has not been run. Confirm after the first alpha run that the GitHub `versionCode` matches the Play track's new build.
+- **Version:** release builds (Play bundle and APK) report `versionName` `0.1.<versionCode>`. The prefix comes from `defaultConfig.versionName` in `app/build.gradle.kts`, so a version bump changes both. Debug builds keep `defaultConfig.versionName`. Because Play and GitHub report the same versionName, About, diagnostics and report emails match across channels.
+- **Tag and title:** `v0.1.<versionCode>` and `Jandal AI 0.1.<versionCode>`, for example `v0.1.5`. Full releases, not pre-releases. The release body names the track (closed testing or internal testing) it was built for.
+- **Asset:** exactly one, `jandal-ai-0.1.<versionCode>.apk`, signed with the upload certificate. The APK SHA-256 and the signer certificate SHA-256 are in the release body, not as extra assets.
+- **Checks before staging:** `aapt2 dump badging` must show `ai.jandal.assistant`, and the versionName must end in the versionCode; the `apksigner` signer digest must equal the uploaded bundle's upload certificate. The signer digest is printed in the job log.
+- **Not yet run end to end:** the first alpha run must confirm that the APK versionCode matches the new Play build.
 - **Re-running** for an existing `versionCode` fails at `gh release create` because the tag exists. Each Play upload gets a new `versionCode`, so this only happens on a manual re-run.
 
 ##### Install notes for testers
@@ -220,9 +220,10 @@ Testers who don't use the Play Store get the same build as the closed test track
 Obtainium (ImranR98/Obtainium) tracks the GitHub releases directly:
 
 1. Add app, source **GitHub**, URL `https://github.com/NickMonrad/kernel-ai-assistant`.
-2. Leave **Include prereleases** off. Tester builds are full releases, so Obtainium's default "latest release" finds them. Debug and PR builds are pre-releases and are ignored.
+2. Leave **Include prereleases** off. Tester builds are full releases, so they are candidates. Debug and PR builds are pre-releases and are ignored.
 3. Optional: set the APK filter regex to `^jandal-ai-.*\.apk$` so only the tester APK is considered.
-4. Obtainium compares the release tag (`v0.1.<versionCode>`, with the `v` stripped) with the installed app's versionName. Both are `0.1.<n>` in standard `x.y.z` form, so version detection stays enabled and each build is distinct. Leave **Verify latest tag** at its default.
+4. Leave **Verify latest tag** off. By default Obtainium takes the newest full release by date. Turning on **Verify latest tag** would make it use the release marked Latest, which the workflow also sets (`--latest`), so either setting works.
+5. Obtainium compares the release tag (`v0.1.<versionCode>`, with the `v` stripped) with the installed app's versionName. Both are `0.1.<n>` in standard `x.y.z` form, so version detection stays enabled and each build is distinct.
 
 Obtainium cannot install over a Play-installed copy (different signature), so use one channel per device.
 
@@ -236,7 +237,7 @@ Obtainium cannot install over a Play-installed copy (different signature), so us
 
 ## Versioning Convention
 
-`versionCode` is a monotonically increasing integer. Local non-publish builds default to `1` unless `-PversionCode` is supplied. GPP `ResolutionStrategy.AUTO` resolves a publishing bundle to the next available Play versionCode; it does not change CI's explicit run-number versionCode because CI does not execute publish tasks. `versionName` remains `"0.1.0"` for Play and local builds; only the tester GitHub APK uses `0.1.<versionCode>` (see [GitHub APK for testers](#github-apk-for-testers-without-play)).
+`versionCode` is a monotonically increasing integer. Local non-publish builds default to `1` unless `-PversionCode` is supplied. GPP `ResolutionStrategy.AUTO` resolves a publishing bundle to the next available Play versionCode; it does not change CI's explicit run-number versionCode because CI does not execute publish tasks. `versionName` is `<major.minor>.<versionCode>` for release builds (Play and tester APK) and `defaultConfig.versionName` for debug builds; see [GitHub APK for testers](#github-apk-for-testers-without-play).
 
 
 

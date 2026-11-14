@@ -97,6 +97,8 @@ tasks.configureEach {
     }
     if (name == "publishReleaseBundle") {
         dependsOn(verifyReleaseBundleForPlayUpload)
+        // A tester APK requested in the same run is built first: if it fails, nothing reaches Play.
+        mustRunAfter(tasks.matching { it.name == "assembleRelease" })
     }
 }
 
@@ -154,6 +156,8 @@ val releaseSigningProperties = releaseSigningPropertiesFile
         properties
     }
 
+val baseVersionName = "0.1.0"
+
 android {
     namespace = "com.kernel.ai"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -163,7 +167,7 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
+        versionName = baseVersionName
         buildConfigField("String", "DEBUG_APPLICATION_ID", "\"$baseApplicationId.debug\"")
         buildConfigField("String", "PROBE_APPLICATION_ID", "\"$baseApplicationId.debug.inflectprobe\"")
 
@@ -259,6 +263,17 @@ android {
                 "lib/x86/libsherpa-onnx-cxx-api.so",
                 "lib/x86_64/libsherpa-onnx-cxx-api.so",
             )
+        }
+    }
+}
+
+// Release builds (Play bundle and tester APK) report "<major.minor>.<versionCode>", with the
+// prefix taken from defaultConfig.versionName. The mapping is lazy, so it picks up the code
+// GPP's AUTO resolution assigns during a publish run.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionName.set(output.versionCode.map { "${baseVersionName.substringBeforeLast('.')}.$it" })
         }
     }
 }
