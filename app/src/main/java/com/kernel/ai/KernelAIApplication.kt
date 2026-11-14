@@ -24,6 +24,7 @@ import com.kernel.ai.feature.settings.installUncaughtExceptionCaptureIfDebuggabl
 import com.kernel.ai.feature.settings.lastUncaughtExceptionRecordFile
 import dagger.hilt.android.HiltAndroidApp
 import com.kernel.ai.assistant.WakeWordService
+import com.kernel.ai.core.inference.diagnostics.JANDAL_EVENTS_FILE_NAME
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -62,6 +63,13 @@ class KernelAIApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // In-app event log (#1870): MagicOS hides app logcat, so the support export reads this instead.
+        com.kernel.ai.core.inference.diagnostics.JandalEvents.install(
+            java.io.File(filesDir, JANDAL_EVENTS_FILE_NAME),
+        )
+        com.kernel.ai.core.inference.diagnostics.JandalEvents.record(
+            "lifecycle", "app_start", "release" to (BuildConfig.BUILD_TYPE == "release"),
+        )
         // Debug builds only (#1736): let the showcase capture runner log what the voice engines
         // start speaking. It also needs `setprop log.tag.KernelAI_TTS DEBUG`, which only the
         // runner sets, so spoken text stays out of logcat and diagnostic exports otherwise.
