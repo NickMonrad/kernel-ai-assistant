@@ -56,6 +56,9 @@ Goal: make first run easy enough that testers can onboard unaided before public 
 | [#1850](https://github.com/NickMonrad/kernel-ai-assistant/issues/1850) | Mic-ready cue: an audible and visual "speak now" signal so first words are not lost. |
 | [#1852](https://github.com/NickMonrad/kernel-ai-assistant/issues/1852) | NZ place names: pronunciation lexicon for speech output and better recognition (e.g. "Petone"). |
 | [#1854](https://github.com/NickMonrad/kernel-ai-assistant/issues/1854) / [#1856](https://github.com/NickMonrad/kernel-ai-assistant/pull/1856) | GitHub tester APKs: closed-test builds also published as signed APKs on GitHub Releases for Obtainium. |
+| [#1026](https://github.com/NickMonrad/kernel-ai-assistant/issues/1026) | Speaker icon on Quick Action cards to play or stop TTS, reusing the sentence playback from #1842. |
+
+Later / design: [#1862](https://github.com/NickMonrad/kernel-ai-assistant/issues/1862) — personal speech corrections (teach Jandal what you said vs what it heard). Not for build 6; needs design first.
 
 ---
 
