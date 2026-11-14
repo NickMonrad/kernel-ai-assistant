@@ -96,6 +96,7 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
+import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
 import com.kernel.ai.core.permissions.recordPermissionResult
@@ -140,6 +141,7 @@ fun ActionsScreen(
     onNewConversation: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToAppPermissions: () -> Unit = {},
+    onOpenSettingsDeepLink: (SettingsDeepLink) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
@@ -155,6 +157,7 @@ fun ActionsScreen(
     val handsFreeCallingState by viewModel.handsFreeCallingState.collectAsStateWithLifecycle()
     val dndState by viewModel.dndState.collectAsStateWithLifecycle()
     val writeSettingsState by viewModel.writeSettingsState.collectAsStateWithLifecycle()
+    val settingsActionState by viewModel.settingsActionState.collectAsStateWithLifecycle()
     val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
     val contactPermissionState by viewModel.contactPermissionState.collectAsStateWithLifecycle()
     val calendarPermissionState by viewModel.calendarPermissionState.collectAsStateWithLifecycle()
@@ -424,6 +427,7 @@ fun ActionsScreen(
                         context.startActivity(dndSettingsIntent)
                     }
                 }
+                is ActionsViewModel.UiEvent.OpenSettingsDeepLink -> onOpenSettingsDeepLink(event.link)
                 ActionsViewModel.UiEvent.OpenWriteSettings -> {
                     val writeSettingsIntent = Intent(
                         android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
@@ -943,6 +947,15 @@ fun ActionsScreen(
             ),
             dialogTestTag = "permission_dialog_write_settings",
             onDismissRequest = { viewModel.dismissWriteSettingsDialog() },
+        )
+    }
+
+    // In-app recovery actions for a failed lookup (#1859). Nothing is called or sent from here.
+    settingsActionState?.let { state ->
+        SettingsActionChooserDialog(
+            state = state,
+            onSelect = viewModel::onSettingsActionSelected,
+            onDismiss = viewModel::dismissSettingsActionDialog,
         )
     }
 

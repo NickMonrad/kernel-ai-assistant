@@ -903,3 +903,7 @@ internal fun toolSpokenOverrideFor(
 }
 
 private fun collapseSpeechSpaces(text: String): String = text.trim().replace(Regex("\\s+"), " ")
+
+/** Chooser state for a failed lookup's in-app recovery actions (#1859); null when there are none. */
+internal fun settingsActionStateFor(result: SkillResult.Failure): SettingsActionState? =
+    if (result.actions.isEmpty()) null else SettingsActionState(result.error, result.actions)

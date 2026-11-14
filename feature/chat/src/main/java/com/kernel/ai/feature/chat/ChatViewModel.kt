@@ -296,6 +296,19 @@ class ChatViewModel @Inject constructor(
         ),
     )
     private val _error = MutableStateFlow<String?>(null)
+    private val _settingsActionState = MutableStateFlow<SettingsActionState?>(null)
+    val settingsActionState: StateFlow<SettingsActionState?> = _settingsActionState.asStateFlow()
+
+    /** Dismiss the settings-action chooser without opening anything. */
+    fun dismissSettingsActionDialog() {
+        _settingsActionState.value = null
+    }
+
+    /** Sets the recovery chooser from a failed typed lookup (#1859); null clears it. */
+    private fun showSettingsActionsFor(result: SkillResult.Failure?) {
+        _settingsActionState.value = result?.let(::settingsActionStateFor)
+    }
+
     private val _modelInitializationError = MutableStateFlow<String?>(null)
     private var modelInitializationWatchdogSequence = 0L
     private var modelInitializationWatchdogJob: Job? = null
@@ -2276,7 +2289,10 @@ class ChatViewModel @Inject constructor(
                                     shouldIndex = false,
                                     spokenSummary = spokenSummaryFrom(skillResult),
                                 )
-                                is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                is SkillResult.Failure -> {
+                                    showSettingsActionsFor(skillResult)
+                                    appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                }
                                 else -> appendAssistantMessage(convId, "Something went wrong.", shouldIndex = false)
                             }
                         }
@@ -2352,6 +2368,7 @@ class ChatViewModel @Inject constructor(
                                 return@launch
                             }
                             is SkillResult.Failure -> {
+                                showSettingsActionsFor(skillResult)
                                 appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
                                 return@launch
                             }
@@ -2407,6 +2424,7 @@ class ChatViewModel @Inject constructor(
                             }
                             is SkillResult.Failure -> {
                                 if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
+                                    showSettingsActionsFor(skillResult)
                                     appendAssistantMessage(
                                         convId,
                                         skillResult.error,
@@ -2667,6 +2685,7 @@ class ChatViewModel @Inject constructor(
                                         return@launch
                                     }
                                     is SkillResult.Failure -> {
+                                        showSettingsActionsFor(skillResult)
                                         appendAssistantMessage(
                                             convId,
                                             skillResult.error,
@@ -2870,6 +2889,7 @@ class ChatViewModel @Inject constructor(
                                 // can invoke an unrelated tool instead of showing the email limitation.
                                 if (routeResult is QuickIntentRouter.RouteResult.RegexMatch ||
                                     skillResult.skillName == "send_email") {
+                                    showSettingsActionsFor(skillResult)
                                     appendAssistantMessage(
                                         convId,
                                         skillResult.error,
@@ -2880,6 +2900,7 @@ class ChatViewModel @Inject constructor(
                                     return@launch
                                 }
                                 if (!inferenceEngine.isReady.value) {
+                                    showSettingsActionsFor(skillResult)
                                     appendAssistantMessage(
                                         convId,
                                         skillResult.error,
@@ -2996,6 +3017,7 @@ class ChatViewModel @Inject constructor(
                         }
                         is SkillResult.Failure -> {
                             if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
+                                showSettingsActionsFor(skillResult)
                                 appendAssistantMessage(convId, skillResult.error, shouldIndex = false, spokenSummary = skillResult.error)
                                 return@launch
                             }
@@ -3617,6 +3639,10 @@ class ChatViewModel @Inject constructor(
                                 Log.d("KernelAI", "llm_tools_assistant_reply: ${fullContent.take(1000).replace('\n', ' ')}")
                                 tryExecuteToolCall(fullContent)
                             } else null
+                            // #1859: a native lookup failure with recovery actions opens the same chooser as Quick Actions.
+                            if (nativeToolCall != null) {
+                                showSettingsActionsFor(kernelAIToolSet.terminalToolSettingsFailure())
+                            }
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val rawToolCall = nativeToolCall ?: toolCallResult!!.first
                                 val nativeToolWasDirectReply =
@@ -4270,6 +4296,7 @@ class ChatViewModel @Inject constructor(
                     resultText = failureChipText(result),
                     isSuccess = false,
                 )
+                showSettingsActionsFor(result)
                 Pair(toolCall, failureChatReply(result))
             }
             is SkillResult.CapabilityRequired -> null

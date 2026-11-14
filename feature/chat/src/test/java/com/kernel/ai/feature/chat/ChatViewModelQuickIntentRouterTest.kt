@@ -35,6 +35,9 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ContactLookupRecovery
+import com.kernel.ai.core.skills.SettingsAction
+import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
@@ -79,6 +82,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -694,6 +698,39 @@ class ChatViewModelQuickIntentRouterTest {
         coVerify(exactly = 0) { mealPlanSessionRepository.hasAnySessionForConversation(any()) }
         coVerify(exactly = 0) { episodicDistillationUseCase.distil(any(), any()) }
 
+    }
+
+    @Test
+    fun `typed call lookup failure with recovery actions opens the settings chooser`() = runTest(dispatcher) {
+        val input = "call Laurel"
+        val intentName = (realRouter.route(input) as QuickIntentRouter.RouteResult.RegexMatch).intent.intentName
+        val failure = SkillResult.Failure(
+            skillName = intentName,
+            error = "I couldn't find Laurel in your contacts. Add them in People & Contacts.",
+            actions = listOf(
+                SettingsAction(
+                    label = "Add Laurel in People & Contacts",
+                    deepLink = SettingsDeepLink(destination = ContactLookupRecovery.PEOPLE_DESTINATION),
+                ),
+            ),
+        )
+        val failingSkill = mockk<Skill>(relaxed = true)
+        every { failingSkill.name } returns intentName
+        coEvery { failingSkill.execute(any()) } returns failure
+        every { skillRegistry.get(intentName) } returns failingSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged(input)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+        val state = viewModel.settingsActionState.value
+        assertNotNull(state)
+        assertEquals(failure.error, state!!.message)
+        assertEquals(failure.actions, state.actions)
+        assertTrue(viewModel.getConversationAsText().contains(failure.error))
     }
 
     private suspend fun TestScope.submitWeatherCapabilityRequest(): ChatViewModel {
