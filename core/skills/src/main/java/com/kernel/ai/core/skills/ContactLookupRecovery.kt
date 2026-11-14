@@ -7,14 +7,16 @@ import java.text.Normalizer
  *
  * `error` always carries the text-only guidance ("…in Settings → People & Contacts"), because chat
  * and model replies print only `error`. `actions` are extra buttons for surfaces that render them.
+ * Every result sets `technicalDetail`, so chat and Quick Actions show `error` as written instead of
+ * adding their "I tried…" / "Action failed:" prefixes.
  *
  * Three cases:
  * - Relationship words ("wife", "mum", "boss") get one action that opens the alias add flow with the
  *   word prefilled.
  * - Other names get add and picker actions.
  * - Near misses ("Laurel" for "Laurelle") get one suggestion per candidate. Choosing a suggestion
- *   only opens People & Contacts with that contact's name prefilled. The user confirms by picking
- *   the contact and saving, so nothing is dialled without confirmation.
+ *   opens People & Contacts with the user's query prefilled as the alias and the contact's name as a
+ *   hint. The user still picks the contact and saves, so nothing is dialled without confirmation.
  *
  * This object is pure Kotlin with no Android dependencies, so it is unit-testable.
  */
@@ -94,10 +96,15 @@ object ContactLookupRecovery {
      * Contact display names that plausibly match [query], best first, at most [limit].
      *
      * Every query token must match some token of the candidate name, in any order, so "Smith"
-     * finds "Laurelle Smith" and "Laurel" finds "Laurelle Smith". A token matches when it is equal,
-     * within edit distance 2 (6+ letters; exact for shorter words), or shares a [phoneticKey] with
-     * at least 3 consonants on both sides, with both words 4+ letters. Two-consonant keys such as
-     * "jn" (John/Joan/Jane) never match, which keeps short names from colliding.
+     * finds "Laurelle Smith" and "Laurel" finds "Laurelle Smith". A token matches when:
+     * - it is equal, or
+     * - it starts with the same letter as the candidate token and is within an edit distance that
+     *   scales with length: exact up to 6 letters, 1 edit for 7–8 letters, 2 edits for 9+, or
+     * - one token is a prefix of the other, both are 4+ letters, and they share a [phoneticKey] of
+     *   at least 3 consonants (Laurel / Laurelle).
+     *
+     * Sound-alikes without a shared prefix never match (Brian/Bruno, Robin/Ruben, Gordon/Garden,
+     * John/Joan), and nor do different first letters (Rachel/Michel, Hannah/Anna).
      * Relationship words are not matched here; callers handle them first.
      */
     fun nearMatches(query: String, candidateNames: Collection<String>, limit: Int = MAX_SUGGESTIONS): List<String> {
@@ -138,6 +145,7 @@ object ContactLookupRecovery {
         val displayQuery = query.trim()
         val alias = normaliseQuery(query)
         val callArg = if (callRequested) mapOf(ARG_CALL to "true") else emptyMap()
+        val technical = "Unresolved contact: $skillName"
         val addLink = SettingsDeepLink(
             destination = PEOPLE_DESTINATION,
             args = mapOf(ARG_ALIAS to alias, ARG_ADD to "true") + callArg,
@@ -151,6 +159,7 @@ object ContactLookupRecovery {
             return SkillResult.Failure(
                 skillName = skillName,
                 error = "I don't know who your $word is yet. $GUIDANCE",
+                technicalDetail = technical,
                 actions = listOf(SettingsAction("Add $word in People & Contacts", addLink)),
             )
         }
@@ -174,6 +183,7 @@ object ContactLookupRecovery {
             return SkillResult.Failure(
                 skillName = skillName,
                 error = message,
+                technicalDetail = technical,
                 actions = suggestions + SettingsAction("Pick from contacts", pickLink),
             )
         }
@@ -181,6 +191,7 @@ object ContactLookupRecovery {
         return SkillResult.Failure(
             skillName = skillName,
             error = "Couldn't find $displayQuery. $GUIDANCE",
+            technicalDetail = technical,
             actions = listOf(
                 SettingsAction("Add in People & Contacts", addLink),
                 SettingsAction("Pick from contacts", pickLink),
@@ -207,9 +218,16 @@ object ContactLookupRecovery {
 
     private fun tokensMatch(query: String, candidate: String): Boolean {
         if (query == candidate) return true
-        val maxDistance = if (query.length >= 6) 2 else 0
-        if (editDistance(query, candidate) <= maxDistance) return true
+        if (query.first() != candidate.first()) return false
+        val maxDistance = when {
+            query.length >= 9 -> 2
+            query.length >= 7 -> 1
+            else -> 0
+        }
+        if (maxDistance > 0 && editDistance(query, candidate) <= maxDistance) return true
         if (query.length < 4 || candidate.length < 4) return false
+        val prefixRelated = candidate.startsWith(query) || query.startsWith(candidate)
+        if (!prefixRelated) return false
         val key = phoneticKey(query)
         return key.length >= 3 && key == phoneticKey(candidate)
     }

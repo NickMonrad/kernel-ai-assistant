@@ -47,19 +47,33 @@ sealed class SkillResult {
     ) : SkillResult()
     /** Skill not found in registry. */
     data class UnknownSkill(val skillName: String) : SkillResult()
-    /** Skill found but execution failed.
+    /**
+     * Skill found but execution failed. Fields:
      *
-     *  [actions] are optional in-app recovery buttons for failures the user can fix inside the app
-     *  (e.g. "Add in People & Contacts" for an unknown contact). Every action only opens an in-app
-     *  screen; none performs a side effect. [error] always names the in-app next step, because
-     *  surfaces that don't render buttons (chat text, model tool replies, voice) print only [error].
+     * - [error] is the user-facing reply text. Quick-route branches, the model-path bubble and voice
+     *   show it as-is. Only the text tool-call path (ChatViewModel.tryExecuteToolCall via
+     *   failureChatReply, skipping send_email) prepends "I tried to do that but something went wrong:",
+     *   and only when [technicalDetail] is null. Quick Actions (ActionsViewModel) prepends
+     *   "Action failed:" under the same condition. Voice (VoiceCommandHandler) speaks [error] as-is.
+     * - [fallThroughToModel] = true marks an internal miss. Chat (quick-route path), Quick Actions
+     *   and voice hand the original request to the model and do NOT display [error]. Use it only
+     *   when the model should answer instead. Several ChatViewModel failure branches do not read
+     *   this flag yet; that gap is tracked in #1876.
+     * - [technicalDetail] is the diagnostic (e.g. "Unknown intent: x"). It is shown on tool chips
+     *   and sent to the model under the `detail` key. It is never shown in bubbles, cards or speech.
+     *   Setting it also stops the prefixes above, so [error] is shown as written.
+     * - [actions] are optional in-app recovery buttons for failures the user can fix inside the app
+     *   (e.g. "Add in People & Contacts" for an unknown contact). Every action only opens an in-app
+     *   screen; none performs a side effect. [error] always names the in-app next step, because
+     *   surfaces that don't render buttons (chat text, model tool replies, voice) print only [error].
      *
-     *  [fallThroughToModel] asks conversational callers to continue with the user's original
-     *  request instead of displaying this internal miss. */
+     * A Failure with both [fallThroughToModel] and [technicalDetail] is handled as a fallthrough.
+     */
     data class Failure(
         val skillName: String,
         val error: String,
         val fallThroughToModel: Boolean = false,
+        val technicalDetail: String? = null,
         val actions: List<SettingsAction> = emptyList(),
     ) : SkillResult()
     /** Skill output was malformed JSON or failed schema validation. */

@@ -45,9 +45,9 @@ class ContactLookupRecoveryTest {
     }
 
     @Test
-    fun `near match finds Kathryn for Katherine`() {
+    fun `near match does not suggest Kathryn for Katherine (no shared prefix, documented miss)`() {
         val matches = ContactLookupRecovery.nearMatches("Katherine", listOf("Kathryn Lee"))
-        assertEquals(listOf("Kathryn Lee"), matches)
+        assertTrue(matches.isEmpty())
     }
 
     @Test
@@ -70,6 +70,27 @@ class ContactLookupRecoveryTest {
         "Sam, Sal Jones",
     )
     fun `near match rejects false positives`(query: String, candidate: String) {
+        assertTrue(ContactLookupRecovery.nearMatches(query, listOf(candidate)).isEmpty())
+    }
+
+    @ParameterizedTest(name = "\"{0}\" does not suggest \"{1}\" (real-world pair)")
+    @CsvSource(
+        "Rachel, Michel",
+        "Martin, Martha",
+        "Martin, Marvin",
+        "Andrew, Andrea",
+        "Olivia, Oliver",
+        "Jackson, Jason",
+        "Brian, Bruno",
+        "Brian, Byron",
+        "Peter, Petra",
+        "Robin, Ruben",
+        "Karen, Corinne",
+        "Gordon, Garden",
+        "Hannah, Anna",
+        "Laurel, Laura",
+    )
+    fun `near match rejects real-world false positives`(query: String, candidate: String) {
         assertTrue(ContactLookupRecovery.nearMatches(query, listOf(candidate)).isEmpty())
     }
 
