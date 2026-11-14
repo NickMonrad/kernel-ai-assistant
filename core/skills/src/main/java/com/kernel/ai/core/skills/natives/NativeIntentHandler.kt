@@ -236,7 +236,15 @@ class NativeIntentHandler @Inject constructor(
                 "create_note" -> createNote(params)
                 "list_notes" -> listNotes()
                 "set_brightness" -> setBrightness(params)
-                else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
+                else -> {
+                    // Never echo user text: log only the sanitized, LLM-chosen name.
+                    Log.w(TAG, "NativeIntentHandler: unregistered intent '${UnknownIntentReplies.loggableName(intentName)}'")
+                    SkillResult.Failure(
+                        skillName = "run_intent",
+                        error = UnknownIntentReplies.replyFor(intentName),
+                        technicalDetail = "Unknown intent: $intentName",
+                    )
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -2151,8 +2159,9 @@ class NativeIntentHandler @Inject constructor(
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
-            "Added \"$item\" to your $listName.",
+            ListConfirmationText.added(listOf(item), listName),
             presentation = buildListPreview(listName, items),
+            spokenSummary = ListConfirmationText.spokenAdded(listOf(item), listName),
         )
     }
 
@@ -2194,9 +2203,9 @@ class NativeIntentHandler @Inject constructor(
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
-            "Added ${items.size} item${if (items.size == 1) "" else "s"} to your $listName:\n" +
-                items.joinToString(", "),
+            ListConfirmationText.added(items, listName),
             presentation = buildListPreview(listName, currentItems),
+            spokenSummary = ListConfirmationText.spokenAdded(items, listName),
         )
     }
 
@@ -2269,10 +2278,11 @@ class NativeIntentHandler @Inject constructor(
                 presentation = buildListPreview(listName, emptyList(), "No items yet."),
             )
         } else {
-            val bullets = items.joinToString("\n") { "• ${it.text}" }
+            val bullets = items.mapNotNull { ListConfirmationText.speakableName(it.text)?.let { name -> "• $name" } }.joinToString("\n")
             SkillResult.DirectReply(
                 "$listName (${items.size} item${if (items.size == 1) "" else "s"}):\n$bullets",
                 presentation = buildListPreview(listName, items),
+                spokenSummary = ListConfirmationText.spokenListed(listName, items.map { it.text }),
             )
         }
     }
@@ -2289,7 +2299,7 @@ class NativeIntentHandler @Inject constructor(
         val all = list?.let { runBlocking { listItemDao.getByList(it.id) } } ?: emptyList()
         val match = all.firstOrNull { it.text.equals(item, ignoreCase = true) }
             ?: all.firstOrNull { it.text.contains(item, ignoreCase = true) }
-            ?: return SkillResult.DirectReply("\"$item\" not found in $listName.")
+            ?: return SkillResult.DirectReply(ListConfirmationText.notFound(item, listName))
         val remaining = runBlocking {
             if (listId == null) return@runBlocking emptyList()
             listMutations?.deleteItem(match.id) ?: listItemDao.deleteItem(match.id)
@@ -2297,7 +2307,7 @@ class NativeIntentHandler @Inject constructor(
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
-            "Removed \"${match.text}\" from $listName.",
+            ListConfirmationText.removed(match.text, listName),
             presentation = buildListPreview(listName, remaining, "No items left."),
         )
     }

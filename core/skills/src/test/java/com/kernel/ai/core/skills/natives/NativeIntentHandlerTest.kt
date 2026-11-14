@@ -950,7 +950,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added \"golden journey item\" to your widget test.",
+            "Added golden journey item to your widget test.",
             (result as SkillResult.DirectReply).content,
         )
         assertEquals(7L, insertedItem.captured.listId)
@@ -1490,7 +1490,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added \"Dessert\" to your Meal Plan.",
+            "Added Dessert to your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItem(42L, "Dessert", any(), any()) }
@@ -1511,7 +1511,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added 1 item to your Meal Plan:\nkiwi",
+            "Added kiwi to your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(42L, listOf("kiwi")) }
@@ -1621,7 +1621,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added 2 items to your Meal Plan:\nDessert, Coffee",
+            "Added Dessert and Coffee to your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(42L, listOf("Dessert", "Coffee")) }
@@ -1643,7 +1643,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Removed \"Dessert\" from Meal Plan.",
+            "Removed Dessert from your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.deleteItem(8L) }
@@ -1763,8 +1763,9 @@ class NativeIntentHandlerTest {
 
         assertEquals(
             SkillResult.DirectReply(
-                "Added \"milk\" to your shopping list.",
+                "Added milk to your shopping list.",
                 presentation = addResult.let { (it as SkillResult.DirectReply).presentation },
+                spokenSummary = "Added milk to your shopping list.",
             ),
             addResult,
         )
@@ -1772,6 +1773,7 @@ class NativeIntentHandlerTest {
             SkillResult.DirectReply(
                 "shopping list (1 item):\n• milk",
                 presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+                spokenSummary = "Your shopping list has 1 item: milk.",
             ),
             readResult,
         )
@@ -1793,7 +1795,7 @@ class NativeIntentHandlerTest {
         )
         val groceryAlias = handleIntent("get_list_items", mapOf("list_name" to "grocery list"))
 
-        assertEquals("Added \"lactose-free yoghurt\" to your Shopping.", (result as SkillResult.DirectReply).content)
+        assertEquals("Added lactose-free yoghurt to your Shopping.", (result as SkillResult.DirectReply).content)
         assertEquals("Your Shopping is empty.", (groceryAlias as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { mutations.addItem(7L, "lactose-free yoghurt", any(), any()) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
@@ -1826,9 +1828,9 @@ class NativeIntentHandlerTest {
             mapOf("item" to "dessert", "list_name" to "Meal Plan list"),
         )
 
-        assertEquals("Added \"Dessert\" to your Meal Plan.", (add as SkillResult.DirectReply).content)
+        assertEquals("Added Dessert to your Meal Plan.", (add as SkillResult.DirectReply).content)
         assertEquals("Meal Plan (1 item):\n• Dessert", (read as SkillResult.DirectReply).content)
-        assertEquals("Removed \"Dessert\" from Meal Plan.", (remove as SkillResult.DirectReply).content)
+        assertEquals("Removed Dessert from your Meal Plan.", (remove as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { mutations.addItem(42L, "Dessert", any(), any()) }
         coVerify(exactly = 1) { mutations.deleteItem(8L) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
@@ -1854,11 +1856,104 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added 2 items to your Test hierarchy:\nPens, Paper",
+            "Added Pens and Paper to your Test hierarchy.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(73L, listOf("Pens", "Paper")) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
+    }
+
+    @Test
+    fun `bulk add of six items keeps the full sentence on screen and when spoken`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val items = listOf("Pens", "Paper", "Glue", "Tape", "Scissors", "Stapler")
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItems(73L, items) } returns items.indices.map { it.toLong() + 18L }
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "bulk_add_to_list",
+            mapOf("items" to """["Pens","Paper","Glue","Tape","Scissors","Stapler"]""", "list_name" to "Test hierarchy list"),
+        ) as SkillResult.DirectReply
+
+        assertEquals("Added Pens, Paper, Glue, Tape, Scissors and Stapler to your Test hierarchy.", result.content)
+        assertEquals("Added Pens, Paper, Glue, Tape, Scissors and Stapler to your Test hierarchy.", result.spokenSummary)
+    }
+
+    @Test
+    fun `remove of an item not on the list replies with a natural not-found sentence`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "remove_from_list",
+            mapOf("item" to "eggs", "list_name" to "Test hierarchy list"),
+        )
+
+        assertEquals(
+            "I couldn't find eggs in your Test hierarchy.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 0) { mutations.deleteItem(any()) }
+    }
+
+    @Test
+    fun `reading a long list speaks a summary instead of every bullet`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        val rows = listOf("Pens", "Paper", "Glue", "Tape", "Scissors", "Stapler", "Ruler", "Chalk", "Paint", "Brush")
+            .mapIndexed { index, text ->
+                ListItemEntity(id = index.toLong(), listId = 73L, text = text, createdAt = 0L, updatedAt = 0L)
+            }
+        coEvery { listItemDao.getByList(73L) } returns rows
+
+        val result = handleIntent("get_list_items", mapOf("list_name" to "Test hierarchy list")) as SkillResult.DirectReply
+
+        assertEquals(
+            "Your Test hierarchy has 10 items: Pens, Paper, Glue, Tape, Scissors, Stapler, Ruler, Chalk, Paint and Brush.",
+            result.spokenSummary,
+        )
+        assertTrue(result.content.contains("• Brush"), "on-screen reply must keep every item")
+    }
+
+    @Test
+    fun `add_to_list with a very long item speaks a short count that keeps the list name`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val longItem = "very long item ".repeat(20).trim()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItem(73L, longItem) } returns 18L
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "add_to_list",
+            mapOf("item" to longItem, "list_name" to "Test hierarchy list"),
+        ) as SkillResult.DirectReply
+
+        assertEquals("Added $longItem to your Test hierarchy.", result.content)
+        assertEquals("Added 1 item to your Test hierarchy.", result.spokenSummary)
     }
 
     @Test
@@ -1956,7 +2051,7 @@ class NativeIntentHandlerTest {
 
         assertEquals("Test hierarchy list", match.intent.params["list_name"])
         assertEquals("Test hierarchy", match.intent.params["list_name_for_creation"])
-        assertEquals("Added \"lactose-free yoghurt\" to your test hierarchy.", (result as SkillResult.DirectReply).content)
+        assertEquals("Added lactose-free yoghurt to your test hierarchy.", (result as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { mutations.createCollection("test hierarchy") }
         coVerify(exactly = 1) { mutations.addItem(91L, "lactose-free yoghurt", any(), any()) }
     }
@@ -2015,6 +2110,7 @@ class NativeIntentHandlerTest {
             SkillResult.DirectReply(
                 "shopping list (1 item):\n• milk",
                 presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+                spokenSummary = "Your shopping list has 1 item: milk.",
             ),
             readResult,
         )
@@ -4326,6 +4422,53 @@ class NativeIntentHandlerTest {
 
             // Must NOT be Success
             assertInstanceOf(SkillResult.CapabilityRequired::class.java, result)
+        }
+    }
+
+    @Nested
+    inner class UnknownIntentFallback {
+        private val calendarReply = UnknownIntentReplies.CALENDAR_READ_REPLY
+
+        @Test
+        fun `get_calendar gives calendar capability reply and keeps detail for the chip`() {
+            val result = handleIntent("get_calendar", mapOf("date" to "next week"))
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(calendarReply, failure.error)
+            assertFalse(failure.fallThroughToModel)
+            assertEquals("Unknown intent: get_calendar", failure.technicalDetail)
+            verify(exactly = 0) { context.startActivity(any()) }
+            coVerify(exactly = 0) { clockRepository.createAlarm(any()) }
+        }
+
+        @Test
+        fun `read_calendar gives calendar capability reply`() {
+            val result = handleIntent("read_calendar", emptyMap())
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(calendarReply, failure.error)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `write-style calendar name gets generic reply, not the read offer`() {
+            val failure = assertInstanceOf(
+                SkillResult.Failure::class.java,
+                handleIntent("add_calendar_event", emptyMap()),
+            )
+
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, failure.error)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `nonsense intent gives generic reply and does not echo the name to the user`() {
+            val result = handleIntent("frobnicate_widgets", emptyMap())
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, failure.error)
+            assertEquals("Unknown intent: frobnicate_widgets", failure.technicalDetail)
+            verify(exactly = 0) { context.startActivity(any()) }
         }
     }
 }
