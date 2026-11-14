@@ -1,5 +1,6 @@
 package com.kernel.ai.assistant
 
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.voice.AcousticEventType
 import com.kernel.ai.core.voice.AcousticJournalBridge
 
@@ -13,7 +14,9 @@ internal class WakeSessionJournal(
         sessionId: Long,
         metadata: () -> Map<String, String>,
     ) -> Unit = { type, generationId, sessionId, metadata ->
-        AcousticJournalBridge.record(type, generationId, sessionId, metadata = metadata)
+        val values = metadata()
+        AcousticJournalBridge.record(type, generationId, sessionId, metadata = { values })
+        JandalEvents.record("wake", type, mapOf("generation" to generationId, "session" to sessionId) + values)
     },
 ) {
     private var started = false

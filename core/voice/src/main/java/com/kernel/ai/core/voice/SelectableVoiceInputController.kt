@@ -3,6 +3,7 @@ package com.kernel.ai.core.voice
 import android.util.Log
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -89,6 +90,7 @@ class SelectableVoiceInputController @Inject constructor(
         if (zipformerReady && !allowOnlineFallback) {
             // Zipformer wins regardless of native support; skip the native availability check.
             Log.i(TAG, "Auto STT route=${AutoSttRoute.Zipformer} mode=$mode allowOnlineFallback=false")
+            JandalEvents.record("voice", "stt_route", "route" to AutoSttRoute.Zipformer.name, "online_fallback" to false)
             return startSherpa(mode)
         }
         // Use the cached locale check when there is one; only run the slower live check for
@@ -117,6 +119,11 @@ class SelectableVoiceInputController @Inject constructor(
             TAG,
             "Auto STT route=$route mode=$mode nativeOnDeviceReady=$nativeOnDeviceReady " +
                 "zipformerReady=$zipformerReady allowOnlineFallback=$allowOnlineFallback",
+        )
+        JandalEvents.record(
+            "voice", "stt_route", "route" to route.name,
+            "native_ready" to nativeOnDeviceReady, "zipformer_ready" to zipformerReady,
+            "online_fallback" to allowOnlineFallback,
         )
         return when (route) {
             AutoSttRoute.Native -> {

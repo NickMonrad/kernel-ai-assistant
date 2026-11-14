@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import javax.inject.Inject
@@ -151,6 +152,7 @@ class AndroidTextToSpeechController @Inject constructor(
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult {
         val text = request.text.trim()
         if (text.isBlank()) return VoiceOutputResult.Spoken
+        JandalEvents.record("tts", "speak_start", "chars" to text.length)
         val playbackToken = nextPlaybackToken()
         synchronized(playbackLock) {
             activePlayback = ActivePlayback(token = playbackToken)
@@ -256,6 +258,7 @@ class AndroidTextToSpeechController @Inject constructor(
                 }
                 completePlaybackIfDrained(playbackToken)
             }
+            JandalEvents.record("tts", "speak_failed", "category" to "unavailable")
             return VoiceOutputResult.Unavailable(message)
         }
 
@@ -334,6 +337,7 @@ class AndroidTextToSpeechController @Inject constructor(
             }
         }
         completePlaybackIfDrained(playbackToken)
+        JandalEvents.record("tts", "speak_failed", "category" to "engine_start")
         return VoiceOutputResult.Unavailable("Text-to-speech could not start speech. Check the TTS engine and try again.")
     }
 
@@ -584,6 +588,7 @@ class AndroidTextToSpeechController @Inject constructor(
             cancelPlaybackTimeout()
             releaseAudioFocus()
             _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
+            JandalEvents.record("tts", "speak_end")
         }
     }
 

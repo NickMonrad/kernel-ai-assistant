@@ -15,6 +15,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -336,6 +337,15 @@ class AboutViewModel @Inject constructor(
                 appendLine("No retained uncaught managed exception record found.")
             } else {
                 append(scrub(recordText))
+            }
+            appendLine()
+            appendLine("Recent Jandal events (in-app log, last 24 hours)")
+            appendLine("------------------------------------------------")
+            val eventLines = JandalEvents.exportLines()
+            if (eventLines.isEmpty()) {
+                appendLine("No Jandal events recorded.")
+            } else {
+                eventLines.forEach { appendLine(scrub(it)) }
             }
             appendLine()
             appendLine("Current process logcat")

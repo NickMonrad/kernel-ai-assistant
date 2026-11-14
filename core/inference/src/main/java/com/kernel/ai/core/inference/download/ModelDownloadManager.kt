@@ -12,6 +12,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.annotation.VisibleForTesting
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
@@ -312,7 +313,12 @@ class ModelDownloadManager @Inject constructor(
     // -------------------------------------------------------------------------
 
     private fun updateState(model: KernelModel, state: DownloadState) {
+        val previous = _downloadStates.value[model]
         _downloadStates.update { it.toMutableMap().apply { put(model, state) } }
+        // Transitions only: progress ticks within one state are not recorded.
+        if (previous?.javaClass != state.javaClass) {
+            JandalEvents.record("download", "state", "model" to model.name, "state" to state.javaClass.simpleName)
+        }
     }
 
     // Issue 3 fix: guard against launching duplicate observeWorkInfo coroutines
