@@ -5,6 +5,9 @@ import android.content.Context
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
+import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
+import com.kernel.ai.core.voice.VoiceCapabilities
+import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.InflectMicroModelSpec
@@ -82,6 +85,8 @@ data class VoiceUiState(
     val allowOnlineSpeechFallback: Boolean = false,
     val androidNativeAvailabilityMessage: String? = null,
     val androidNativeLanguageSummary: String? = null,
+    val androidNativeCapabilities: VoiceCapabilities? = null,
+    val androidNativeLocaleReady: Boolean = true,
     val hasDownloadedSherpaVoice: Boolean = false,
     val isSelectedSherpaVoiceDownloaded: Boolean = false,
     /** Active speaker ID for multi-speaker voices (VCTK). Stored as sid 0–108. */
@@ -264,6 +269,8 @@ class VoiceViewModel @Inject constructor(
                 it.copy(
                     androidNativeAvailabilityMessage = nativeWarning,
                     androidNativeLanguageSummary = availability.languageSummary,
+                    androidNativeLocaleReady = availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready,
+                    androidNativeCapabilities = runCatching { readVoiceCapabilities(context) }.getOrNull(),
                 )
             }
         }
