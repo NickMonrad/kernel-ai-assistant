@@ -27,6 +27,8 @@ from adb_harness.config import (
     LLM_TOOLS_SKILL_RESULT_PATTERN,
     LLM_TOOLS_MESSAGE_SAVED_PATTERN,
     LLM_TOOLS_RETRY_PATTERN,
+    LLM_TOOLS_TOOL_SEQUENCE_PATTERN,
+    LLM_TOOLS_TOOL_CHIP_PATTERN,
     LLM_TOOLS_SLOT_FILL_PATTERN,
     INTENT_MATCH_PATTERN,
     MARKER_TIMEOUT_PATTERN,
@@ -43,8 +45,10 @@ from adb_harness.model_readiness import (
     EXIT_CLEANUP_FAILED,
 )
 from adb_harness.device import (
-    _keep_foreground_until_inference_starts,
     capture_fresh_logcat,
+    _keep_foreground_until_inference_starts,
+    harness_token_extras,
+    _filter_lines_after_boundary,
     check_oracle,
     check_logcat_stream,
     check_email_fixture,
@@ -53,6 +57,9 @@ from adb_harness.device import (
     clear_logcat,
     dismiss_notifications,
     extract_intent,
+    extract_llm_tool_events,
+    extract_llm_tool_sequence,
+    validate_llm_tool_sequence,
     extract_profile_result,
     extract_reply,
     logcat_restart,
@@ -60,6 +67,7 @@ from adb_harness.device import (
     logcat_start,
     read_logcat,
     read_logcat_all,
+    logcat_wait,
     run_adb,
     send_quick_action,
     send_slot_reply,
@@ -85,6 +93,11 @@ from adb_harness.reporting import (
     post_pr_comment,
     save_report,
     save_llm_tools_report,
+)
+
+from adb_harness.local_transcripts import (
+    begin_local_llm_tools_capture,
+    save_local_llm_tools_transcript,
 )
 
 # Module-level fixture state — set during isolated warmup, read during test execution
@@ -114,6 +127,21 @@ def _mark_missing_fixture_xfail(
         result.xfail_reason = (
             f"fixture_missing: required fixture '{result.fixture}' is unavailable"
         )
+
+
+def _message_persistence_failure(
+    tc: LLMToolsTestCase,
+    message_saved: str | None,
+) -> str | None:
+    """Enforce persisted chat for normal cases and ephemeral turns for safe probes."""
+    if tc.safe_run_intent_test:
+        if message_saved:
+            return "Safe run-intent test unexpectedly persisted a chat message"
+        return None
+    if not message_saved:
+        return "No ChatMessage.toolCall persistence marker found"
+    return None
+
 
 def _parse_tool_marker(marker: str | None) -> dict[str, str]:
     """Parse a key=value-style marker string into a dict.
@@ -155,32 +183,122 @@ def _parse_tool_marker(marker: str | None) -> dict[str, str]:
             result[fv.group(1)] = fv.group(2)
     return result
 
+
+def _extract_tool_chip_name(log: str) -> str | None:
+    """Extract the tool value from ChatViewModel's tool-chip marker."""
+    match = LLM_TOOLS_TOOL_CHIP_PATTERN.search(log)
+    return match.group(1) if match else None
+
+
+def _extract_nested_intent(
+    native_data: dict[str, str],
+    legacy_data: dict[str, str],
+) -> str | None:
+    """Return the intent_name carried by run_intent's native/legacy request."""
+    for data in (native_data, legacy_data):
+        intent = data.get("intent_name") or data.get("nested_intent")
+        if intent:
+            return intent
+    return None
+
+
+def _route_marker_is_fallthrough(route_marker: str | None) -> bool:
+    """Require explicit router fallthrough; native tool execution also logs its handler."""
+    return bool(route_marker and re.search(r"\bresult=fallthrough\b", route_marker))
+
+
+_ADB_INTENT_INPUT_PATTERN = re.compile(
+    r"ADB_INTENT_TRACE commandId=\S+ input=(?P<input>.*?) submitMode=\S+"
+)
+
+
+def _case_input_failures(log: str, expected_message: str) -> list[str]:
+    """Reject missing, duplicated, or foreign chat prompts inside a case boundary."""
+    observed = [match.group("input") for match in _ADB_INTENT_INPUT_PATTERN.finditer(log)]
+    if not observed:
+        return ["No ADB_INTENT_TRACE prompt marker found after case boundary"]
+    if len(observed) != 1:
+        return [
+            "Multiple ADB_INTENT_TRACE prompt markers found after case boundary; "
+            "another device input may have contaminated this case"
+        ]
+    if observed[0] != expected_message[:120]:
+        return ["ADB_INTENT_TRACE prompt does not match the selected case"]
+    return []
+
+
+
+def _missing_reply_terms(reply: str, expected_terms: list[str]) -> list[str]:
+    """Return all required case-insensitive terms absent from a reply."""
+    lowered = reply.lower()
+    return [term for term in expected_terms if term.lower() not in lowered]
+
+
+def _contains_raw_tool_content(reply: str) -> bool:
+    """Detect tool protocol or loaded run_intent instructions in a visible reply."""
+    lowered = reply.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "<|tool_call",
+            "<|tool_result",
+            "llm_tools_",
+            "event_seq:",
+            "run_intent: perform a native android device action",
+            "available model-callable intents:",
+            "parameters (pass as json",
+        )
+    ) or bool(
+        re.search(
+            r"(?:load_skill\s*\(|runintent\s*\(\s*intentname\s*=|"
+            r'\{\s*"name"\s*:\s*"(?:load_skill|run_intent)")',
+            reply,
+            re.IGNORECASE,
+        )
+    )
+
 def _poll_for_all_markers(
     patterns: dict[str, re.Pattern[str]],
     timeout: float = 120,
     poll_interval: float = 2.0,
+    boundary: str | None = None,
+    initial_logcat: str = "",
+    expected_message: str | None = None,
 ) -> tuple[dict[str, str | None], str]:
-    """Poll logcat for multiple marker patterns simultaneously.
-    Accumulates a single log buffer across all poll iterations and searches
-    all patterns against it. Also taps the screen periodically to keep the
-    app foregrounded (required by Android 15+ foreground service constraint).
-    Returns (results, accumulated_log) where results maps each pattern key
-    to the first match content (or None), and accumulated_log is the full
-    accumulated snapshot for additional searches (retry, slot-fill, etc.).
+    """Poll multiple markers from one log buffer, optionally after a fresh boundary.
+
+    ``initial_logcat`` may contain the synchronized boundary snapshot collected
+    before sending the prompt. Keeping it in the accumulated buffer makes the
+    filter fail closed without racing queued preflight lines against the case.
+    Accumulates a single log buffer across poll iterations so markers arriving
+    together cannot be consumed by sequential readers. With ``boundary``, stale
+    pre-case log lines are excluded before matching or returning evidence. A
+    foreign or duplicate prompt marker ends polling immediately; the caller
+    records the same contamination failure from the returned log.
     """
     deadline = time.time() + timeout
-    accumulated = ""
+    accumulated = initial_logcat
+    search_log = "__BOUNDARY_NOT_FOUND__" if boundary is not None else accumulated
     results: dict[str, str | None] = {k: None for k in patterns}
     while time.time() < deadline:
         time.sleep(poll_interval)
         accumulated += "\n" + read_logcat_all()
-        # Search all unfound patterns against the full accumulated log
-        for key, pat in patterns.items():
-            if results[key] is not None:
-                continue
-            m = pat.search(accumulated)
-            if m:
-                results[key] = m.group(1).strip() if m.lastindex else m.group(0).strip()
+        search_log = (
+            _filter_lines_after_boundary(accumulated, boundary)
+            if boundary is not None
+            else accumulated
+        )
+        # Do not accept or return any pre-case marker if the boundary is absent.
+        if search_log != "__BOUNDARY_NOT_FOUND__":
+            if expected_message is not None and _ADB_INTENT_INPUT_PATTERN.findall(search_log):
+                if _case_input_failures(search_log, expected_message):
+                    break
+            for key, pat in patterns.items():
+                if results[key] is not None:
+                    continue
+                m = pat.search(search_log)
+                if m:
+                    results[key] = m.group(1).strip() if m.lastindex else m.group(0).strip()
         # Keep screen on and app foregrounded (Android 15+ foreground service)
         run_adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
         time.sleep(0.1)
@@ -188,7 +306,9 @@ def _poll_for_all_markers(
         # Early exit if all markers found
         if all(v is not None for v in results.values()):
             break
-    return results, accumulated
+    return results, search_log
+
+
 def _clear_conversation() -> None:
     """Force-stop the app to clear conversation state and model caches."""
     run_adb("shell", "am", "force-stop", PACKAGE)
@@ -273,6 +393,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     if not os.path.isfile(ADB):
         print(f"ERROR: ADB not found at {ADB}", file=sys.stderr)
         return 1
+    suite_started_at = time.monotonic()
 
     print("=" * 70)
     print("  LLM TOOLS E2E TEST")
@@ -297,7 +418,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     # Keep app in foreground until routing completes (Android 15+ constraint).
     # _keep_foreground_until_inference_starts() already proves the model stack is ready
     # by detecting OrchTest: or InferenceGenerationService markers.
-    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
     _keep_foreground_until_inference_starts()
 
     # MiniLM readiness check: send a prompt that exercises MiniLM, wait for classifier result.
@@ -306,7 +427,7 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
     clear_logcat()
     run_adb("shell", "am", "force-stop", PACKAGE)
     time.sleep(1)
-    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
     _keep_foreground_until_inference_starts()
     print("ready")
     # Pre-run cleanup: cancel Jandal clock alerts and silence any fired timers
@@ -341,10 +462,27 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
         time.sleep(0.3)
         clear_logcat()
         time.sleep(0.5)
+        case_boundary = f"__LLM_TOOLS_CASE_BOUNDARY_{tc.name}_{time.time_ns()}__"
+        run_adb("shell", "log", "-t", LOGCAT_TAG, "-p", "i", case_boundary)
+        # Synchronize the persistent stream before launching the case. Draining the
+        # host buffer alone can let queued warmup lines arrive after this boundary.
+        boundary_logcat = logcat_wait(case_boundary, timeout=10.0)
 
         # Send the prompt, then keep foreground until inference starts (Android 15+
         # requires the app to be foreground-eligible to start InferenceGenerationService).
-        send_text(tc.message, wait_for_inference=False)
+        capture_started = begin_local_llm_tools_capture()
+        if not capture_started:
+            print(
+                f"  [local transcript] capture unavailable for {tc.name}",
+                file=sys.stderr,
+            )
+        test_message = (
+            f"__orchtest:safe_run_intent:{tc.message}"
+            if tc.safe_run_intent_test
+            else tc.message
+        )
+        case_started_at = time.monotonic()
+        send_text(test_message, wait_for_inference=False)
         _keep_foreground_until_inference_starts(timeout=120.0)
         # Poll for all markers simultaneously from a single accumulated buffer,
         # avoiding the log-draining bug where sequential _poll_for_marker calls
@@ -356,7 +494,18 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             "skill_result": LLM_TOOLS_SKILL_RESULT_PATTERN,
             "message_saved": LLM_TOOLS_MESSAGE_SAVED_PATTERN,
         }
-        markers, final_log = _poll_for_all_markers(patterns, timeout=120)
+        if tc.expected_tool_sequence is not None:
+            patterns["tool_chip"] = LLM_TOOLS_TOOL_CHIP_PATTERN
+            patterns["tool_sequence"] = LLM_TOOLS_TOOL_SEQUENCE_PATTERN
+        markers, final_log = _poll_for_all_markers(
+            patterns,
+            timeout=tc.post_start_marker_timeout_seconds,
+            boundary=case_boundary,
+            initial_logcat=boundary_logcat,
+            expected_message=tc.message,
+        )
+        tool_events = extract_llm_tool_events(final_log)
+        actual_tool_sequence, tool_sequence_marker = extract_llm_tool_sequence(final_log)
         route_marker = markers["route"]
         native_tool = markers["native_tool"]
         legacy_tool = markers["legacy_tool"]
@@ -369,11 +518,10 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
         native_data = _parse_tool_marker(native_tool)
         legacy_data = _parse_tool_marker(legacy_tool)
         actual_top_level = native_data.get("tool") or legacy_data.get("tool")
-        actual_nested = native_data.get("nested_intent") or legacy_data.get("nested_intent")
+        actual_nested = _extract_nested_intent(native_data, legacy_data)
 
-        # Extract chip text from logcat (stable diagnostic logging from ChatViewModel)
-        chip_match = re.search(r"tool_chip_visible:\s*(\S+)", final_log)
-        chip_text = chip_match.group(1) if chip_match else None
+        # Parse ChatViewModel's `tool=<name>` chip marker to the bare tool name.
+        chip_text = _extract_tool_chip_name(final_log)
 
         # Extract reply
         reply_text = extract_reply(final_log)
@@ -405,8 +553,9 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             if not (native_tool or legacy_tool):
                 failures_list.append("No native-tool or legacy-tool marker found")
 
-            if not message_saved:
-                failures_list.append("No ChatMessage.toolCall persistence marker found")
+            persistence_failure = _message_persistence_failure(tc, message_saved)
+            if persistence_failure:
+                failures_list.append(persistence_failure)
 
             if actual_top_level and not skill_result:
                 failures_list.append("No skill_result marker found")
@@ -439,6 +588,23 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
                     f"reply_content: expected one of {tc.expected_reply_contains!r} "
                     f"but no reply text was extracted"
                 )
+        reply_terms_all_match = False
+        if tc.expected_reply_contains_all:
+            if reply_text:
+                missing_reply_terms = _missing_reply_terms(
+                    reply_text,
+                    tc.expected_reply_contains_all,
+                )
+                reply_terms_all_match = not missing_reply_terms
+                if missing_reply_terms:
+                    failures_list.append(
+                        f"reply_content: missing required terms {missing_reply_terms!r}"
+                    )
+            else:
+                failures_list.append(
+                    "reply_content: required terms could not be checked without reply text"
+                )
+
 
         # Field checks (only when tools are called and fields are expected)
         if tc.expected_fields and actual_top_level:
@@ -450,17 +616,13 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
                 elif v.lower() not in actual_v.lower() and actual_v.lower() not in v.lower():
                     failures_list.append(f"field {k!r}: expected {v!r}, got {actual_v!r}")
 
-        # Negative checks
-        if tc.expect_no_regex_match and "NativeIntentHandler.handle" in final_log:
-            # Check if it appeared before the tool-call marker
-            regex_pos = final_log.find("NativeIntentHandler.handle")
-            tool_positions = [p for p in (
-                final_log.find("llm_tools_native_tool"),
-                final_log.find("llm_tools_legacy_tool"),
-            ) if p != -1]
-            tool_pos = min(tool_positions) if tool_positions else -1
-            if tool_pos == -1 or regex_pos < tool_pos:
-                failures_list.append("QIR regex matched before Gemma tool-call")
+        failures_list.extend(_case_input_failures(final_log, tc.message))
+
+        if tc.expect_no_regex_match and not _route_marker_is_fallthrough(route_marker):
+            failures_list.append(
+                "Expected deterministic router fallthrough before Gemma; "
+                f"got route marker {route_marker!r}"
+            )
 
         if tc.expect_no_classifier_match and "ClassifierMatch" in final_log:
             failures_list.append("ClassifierMatch before Gemma generation")
@@ -481,6 +643,28 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             mode = skill_data.get("mode", "unknown")
             if mode != tc.expected_result_mode:
                 failures_list.append(f"result mode: expected {tc.expected_result_mode!r}, got {mode!r}")
+        if tc.expected_tool_sequence is not None:
+            failures_list.extend(
+                validate_llm_tool_sequence(
+                    tc.expected_tool_sequence,
+                    actual_tool_sequence,
+                    tool_events,
+                    expected_load_skill_name=tc.expected_load_skill_name,
+                    expected_nested_intent=tc.expected_nested_intent,
+                )
+            )
+            skill_data = _parse_tool_marker(skill_result)
+            if skill_data.get("success", "").lower() != "true":
+                failures_list.append("Terminal skill_result marker did not report success")
+            if chip_text != tc.expected_top_level_tool:
+                failures_list.append(
+                    f"terminal tool chip: expected {tc.expected_top_level_tool!r}, got {chip_text!r}"
+                )
+            if not reply_text:
+                failures_list.append("No final user-visible reply found")
+            elif _contains_raw_tool_content(reply_text):
+                failures_list.append("Final reply exposed raw tool protocol or internal instructions")
+
 
         passed = len(failures_list) == 0
         result = LLMToolsResult(
@@ -506,6 +690,15 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
             log_contains_match=log_contains_match,
             expected_reply_terms=tc.expected_reply_contains,
             reply_terms_match=reply_terms_match,
+            expected_reply_terms_all=tc.expected_reply_contains_all,
+            reply_terms_all_match=reply_terms_all_match,
+            expected_tool_sequence=(
+                list(tc.expected_tool_sequence) if tc.expected_tool_sequence is not None else None
+            ),
+            actual_tool_sequence=actual_tool_sequence,
+            tool_sequence_marker=tool_sequence_marker,
+            tool_event_evidence=tool_events,
+            elapsed_seconds=time.monotonic() - case_started_at,
         )
         results.append(result)
 
@@ -514,6 +707,36 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
         else:
             failures += 1
             print(f"✗ ({'; '.join(failures_list)})")
+        if capture_started:
+            transcript_path = save_local_llm_tools_transcript(
+                case_index=idx,
+                case_name=tc.name,
+                harness_prompt=tc.message,
+                outcome={
+                    "passed": result.passed,
+                    "failures": result.failures,
+                    "expected_top_level_tool": result.expected_top_level_tool,
+                    "actual_top_level_tool": result.actual_top_level_tool,
+                    "actual_nested_intent": result.actual_nested_intent,
+                    "route_marker": result.route_marker,
+                    "native_tool_marker": result.native_tool_marker,
+                    "legacy_tool_marker": result.legacy_tool_marker,
+                    "skill_result_marker": result.skill_result_marker,
+                    "message_saved_marker": result.message_saved_marker,
+                    "retry_seen": result.retry_seen,
+                    "slot_fill_seen": result.slot_fill_seen,
+                    "chip_text": result.chip_text,
+                    "harness_reply_text": result.reply_text,
+                },
+            )
+            if transcript_path is None:
+                print(
+                    f"  [local transcript] unavailable for {tc.name}",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"  [local transcript] saved → {transcript_path}", file=sys.stderr)
+
 
         # Brief pause between cases
         time.sleep(2)
@@ -534,7 +757,12 @@ def run_llm_tools(dry_run: bool = False, case_ids: list[str] | None = None) -> i
 
     # Save report
     run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
-    report_path = save_llm_tools_report(results, elapsed=0, partial=False, run_ts=run_ts)
+    report_path = save_llm_tools_report(
+        results,
+        elapsed=time.monotonic() - suite_started_at,
+        partial=False,
+        run_ts=run_ts,
+    )
     print(f"  Report saved → {report_path}")
     return 1 if failures > 0 else 0
 
@@ -777,7 +1005,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
     run_adb("shell", "am", "start", "-n", ACTIVITY)
     time.sleep(3)
     clear_logcat()
-    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
     # Poll logcat until NativeIntentHandler fires (model loaded + QIR dispatched) or 120s timeout
     deadline = time.time() + 120
     warmed = False
@@ -792,7 +1020,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         # wait an additional 30s before giving up entirely.
         print("no response yet — sending second warmup probe ...", end=" ", flush=True)
         clear_logcat()
-        run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+        run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
         deadline2 = time.time() + 30
         while time.time() < deadline2:
             time.sleep(2)
@@ -1339,7 +1567,7 @@ def run_tests(dry_run: bool = False, post_pr: bool = False, start_phase: str | N
         print()
         print("  [cleanup] ❌ CLEANUP FAILED — device may still have active alerts!")
         print("  [cleanup]    Run manually if buzzing persists:")
-        print("  [cleanup]      adb shell am force-stop com.kernel.ai.debug")
+        print(f"  [cleanup]      adb shell am force-stop {PACKAGE}")
         return EXIT_CLEANUP_FAILED
     if case_cleanup_failed:
         print()
@@ -1545,7 +1773,7 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     run_adb("shell", "am", "start", "-n", ACTIVITY)
     time.sleep(3)
     clear_logcat()
-    run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+    run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
     deadline = time.time() + 120
     warmed = False
     while time.time() < deadline:
@@ -1557,7 +1785,7 @@ def _isolated_warmup(serial: str | None = None, model_readiness: bool = False,
     if not warmed:
         print("no response yet — sending second warmup probe ...", end=" ", flush=True)
         clear_logcat()
-        run_adb("shell", "am", "start", "-n", ACTIVITY, "--es", "chat_input", shlex.quote("what time is it"))
+        run_adb("shell", "am", "start", "-n", ACTIVITY, *harness_token_extras(), "--es", "chat_input", shlex.quote("what time is it"))
         deadline2 = time.time() + 30
         while time.time() < deadline2:
             time.sleep(2)

@@ -7,6 +7,9 @@ plugins {
 android {
     namespace = "com.kernel.ai.core.inference"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()
@@ -33,12 +36,10 @@ dependencies {
 
     // LiteRT-LM on-device inference
     implementation(libs.litertlm.android)
+    implementation(libs.gson)
 
-    // MediaPipe TextEmbedder (USE fallback)
-    implementation(libs.mediapipe.tasks.text)
-
-    // TFLite Interpreter (EmbeddingGemma raw .tflite models, CPU-only)
-    implementation(libs.tflite)
+    // LiteRT Interpreter (Arctic Embed and MiniLM raw .tflite models, CPU-only)
+    implementation(libs.litert)
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

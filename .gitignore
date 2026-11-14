@@ -62,8 +62,13 @@ core/voice/src/main/assets/sherpa-tts/
 __pycache__/
 *.py[cod]
 scripts/test-reports/
+tools/arctic_phase_a/.cache/
+tools/arctic_phase_a/out/
 # Runner run from scripts/ dir may create nested reports path
 scripts/scripts/test-reports/
+/.cache/arctic/
+/out/arctic_m_v1_5_dynamic_int8.tflite
+tools/arctic_phase_a/.venv/
 _site/
 testdata/
 

@@ -14,8 +14,8 @@ The app stores models in **app-private external storage**. This survives normal 
 
 | Build variant | Package | Full path |
 |---------------|---------|-----------|
-| Debug | `com.kernel.ai.debug` | `/sdcard/Android/data/com.kernel.ai.debug/files/models/` |
-| Release | `com.kernel.ai` | `/sdcard/Android/data/com.kernel.ai/files/models/` |
+| Debug | `ai.jandal.assistant.debug` | `/sdcard/Android/data/ai.jandal.assistant.debug/files/models/` |
+| Release | `ai.jandal.assistant` | `/sdcard/Android/data/ai.jandal.assistant/files/models/` |
 
 Fallback internal-storage path:
 
@@ -29,13 +29,13 @@ The internal path requires `run-as` for ADB access.
 
 ```bash
 # 1. Create the models directory on device.
-adb shell mkdir -p /sdcard/Android/data/com.kernel.ai.debug/files/models
+adb shell mkdir -p /sdcard/Android/data/ai.jandal.assistant.debug/files/models
 
 # 2. Push a model file.
-adb push models/<filename> /sdcard/Android/data/com.kernel.ai.debug/files/models/<filename>
+adb push models/<filename> /sdcard/Android/data/ai.jandal.assistant.debug/files/models/<filename>
 
 # 3. Verify.
-adb shell ls -lh /sdcard/Android/data/com.kernel.ai.debug/files/models/
+adb shell ls -lh /sdcard/Android/data/ai.jandal.assistant.debug/files/models/
 ```
 
 Android 11+ note: ADB can usually push to `/sdcard/Android/data/<package>/` when USB debugging is enabled. If a development device denies access, a temporary development-only workaround is:
@@ -48,10 +48,10 @@ adb shell appops set --uid shell MANAGE_EXTERNAL_STORAGE allow
 
 ```bash
 adb push models/<filename> /data/local/tmp/<filename>
-adb shell run-as com.kernel.ai.debug sh -c \
+adb shell run-as ai.jandal.assistant.debug sh -c \
   'mkdir -p files/models && cp /data/local/tmp/<filename> files/models/'
 adb shell rm /data/local/tmp/<filename>
-adb shell run-as com.kernel.ai.debug ls -lh files/models/
+adb shell run-as ai.jandal.assistant.debug ls -lh files/models/
 ```
 
 ## Manually downloading on device
@@ -59,7 +59,7 @@ adb shell run-as com.kernel.ai.debug ls -lh files/models/
 For manual setup without a host machine:
 
 1. Download the model file to the device using a browser or download manager.
-2. Move the file to `Internal storage -> Android -> data -> com.kernel.ai.debug -> files -> models`.
+2. Move the file to `Internal storage -> Android -> data -> ai.jandal.assistant.debug -> files -> models`.
 3. Launch the app. It detects files in this folder on startup.
 
 ## Model files reference
@@ -72,15 +72,14 @@ For manual setup without a host machine:
 | `gemma-4-E4B-it.litertlm` | ~3.4 GB | Optional flagship tier | [litert-community/gemma-4-E4B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm) |
 | `mobile_actions_q8_ekv1024.litertlm` | ~289 MB | Optional / experimental | [litert-community/functiongemma-270m-ft-mobile-actions](https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions) |
 
-### EmbeddingGemma models (`.tflite`)
+### Arctic Embed M v1.5 (`.tflite` + `vocab.txt`)
 
-| File | Devices | Source |
-|------|---------|--------|
-| `embeddinggemma-300M_seq512_mixed-precision.tflite` | Generic GPU fallback / most devices | [litert-community/embeddinggemma-300m](https://huggingface.co/litert-community/embeddinggemma-300m) |
-| `embeddinggemma-300M_seq512_mixed-precision.qualcomm.sm8550.tflite` | Samsung S23 Ultra / Snapdragon 8 Gen 2 NPU path | Same repo |
-| `sentencepiece.model` | Tokeniser required with any EmbeddingGemma file | Same repo |
+| File | Size | Device/source |
+|------|------|---------------|
+| `arctic-embed-m-v1.5-int8.tflite` | 113,850,784 bytes | CPU inference; converted from `Snowflake/snowflake-arctic-embed-m-v1.5` at pinned revision `e58a8f756156a1293d763f17e3aae643474e9b8a` |
+| `vocab.txt` | 231,508 bytes | Uncased WordPiece vocabulary from the same pinned upstream revision |
 
-The app tries the Qualcomm-optimised EmbeddingGemma variant first when the device is detected as SM8550, then falls back to the generic file when needed.
+The validated model and vocabulary SHA-256 digests are recorded in the Phase B evidence report and release provenance; they are not compiled into the app, so Model Management's forced Update can fetch a later compatible asset from the same rolling URL. Both assets are ungated and require no Hugging Face account. The temporary public HTTPS host is the rolling GitHub release [`model-arctic-embed-m-v1.5-current`](https://github.com/NickMonrad/kernel-ai-assistant/releases/tag/model-arctic-embed-m-v1.5-current). Long-term publication to `litert-community` is tracked separately in #1563 and is not a #1559 blocker.
 
 ## Speech, wake-word, and voice asset sources
 
@@ -93,9 +92,9 @@ These assets are downloaded or bundled by the app rather than manually placed in
 | Sherpa SenseVoice STT | ~100 MB | Hugging Face `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | Offline/final-only ONNX recogniser: model + tokens. |
 | Sherpa Whisper tiny.en STT | ~117 MB | Hugging Face `csukuangfj/sherpa-onnx-whisper-tiny.en` | Offline/final-only ONNX recogniser: encoder, decoder, tokens. |
 | Sherpa Paraformer STT | ~220 MB | Hugging Face `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | Streaming/online ONNX recogniser: encoder, decoder, tokens. |
-| Sherpa Piper/VITS voice packs | ~64-116 MB each | Sherpa-ONNX GitHub `tts-models` release assets | Downloaded per selected voice; exact per-voice/dataset licence must be reviewed before release. |
-| Semaine Piper/VITS voice pack | ~70 MB | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | Launch-blocking decision tracked in #1258. |
-| Kokoro experimental voice pack | ~130 MB | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | Experimental 53-speaker Kokoro pack; verify Kokoro model/voice licence before exposing in release. |
+| Sherpa Piper/VITS voice packs | ~64-116 MB each | Sherpa-ONNX GitHub `tts-models` release assets | Only CoriHigh is release-visible in v0.1; remaining catalogue entries are debug/internal pending per-voice source, dataset, and terms review. |
+| Semaine Piper/VITS voice pack | ~70 MB | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | Excluded from release builds; see completed gating in #1258. |
+| Kokoro experimental voice pack | ~130 MB | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | Debug-only/post-launch for v0.1 under #1014; not release-visible. |
 
 ## Device-specific setup notes
 
@@ -103,13 +102,13 @@ These assets are downloaded or bundled by the app rather than manually placed in
 
 - Launch-compatible tier: Gemma-4 E-2B.
 - Primary test role: S21-first ADB, permission, QIR, and harness validation.
-- ADB path: `/sdcard/Android/data/com.kernel.ai.debug/files/models/`.
+- ADB path: `/sdcard/Android/data/ai.jandal.assistant.debug/files/models/`.
 
 ### Samsung Galaxy S23 Ultra (SM8550 / Snapdragon 8 Gen 2)
 
 - Larger comparison tier: Gemma-4 E-4B where available.
-- Recommended EmbeddingGemma: `qualcomm.sm8550.tflite` variant for the NPU path, generic as fallback.
-- ADB path: `/sdcard/Android/data/com.kernel.ai.debug/files/models/`.
+- Arctic Embed M v1.5 uses the same CPU inference path on S21 and S23 Ultra; the old EmbeddingGemma Qualcomm NPU variant is no longer active.
+- ADB path: `/sdcard/Android/data/ai.jandal.assistant.debug/files/models/`.
 
 ## Launch/legal notes
 
@@ -117,6 +116,6 @@ These assets are downloaded or bundled by the app rather than manually placed in
 - Do not imply Jandal owns or sublicenses upstream model files.
 - Keep model source links and approximate sizes current when model choices change.
 - Keep gated-model behaviour aligned with the app UI: `Ready`, `Preparing`, `Action Required`, or `Unavailable`.
-- Resolve #1258 before shipping Semaine in any Play Store release.
-- Verify the Kokoro model/voice licence before exposing Kokoro in release.
+- Semaine remains excluded from Play builds under #1258 unless separately reviewed for release.
+- Kokoro remains debug-only/post-launch for v0.1 under #1014.
 - See [`../docs/LEGAL_AND_ATTRIBUTION.md`](../docs/LEGAL_AND_ATTRIBUTION.md) before release packaging or Play Store publication.

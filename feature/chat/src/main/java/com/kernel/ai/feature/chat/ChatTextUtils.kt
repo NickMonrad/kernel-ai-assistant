@@ -2,7 +2,9 @@ package com.kernel.ai.feature.chat
 
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.skills.isFactualWikipediaQuestion
 import com.kernel.ai.feature.chat.model.ToolCallInfo
+import java.util.regex.Pattern
 
 /**
  * Converts LaTeX expressions to Unicode and strips Markdown syntax,
@@ -236,7 +238,9 @@ private fun findSpeechChunkBoundary(
     for (index in text.indices) {
         val char = text[index]
 
-        if (char.isWhitespace()) {
+        // Boundaries that would cut a time, price or number in two are skipped, so the chunk falls
+        // back to an earlier boundary (usually the whitespace before the value) or waits for more text.
+        if (char.isWhitespace() && !splitsStructuredValue(text, index + 1)) {
             whitespaceBoundary = index + 1
         }
         when (char) {
@@ -244,7 +248,7 @@ private fun findSpeechChunkBoundary(
                 val next = text.getOrNull(index + 1)
                 if (next == null || next.isWhitespace() || next == '"' || next == '\'' || next == ')') {
                     val boundary = index + 1
-                    if (boundary >= minChunkLength) {
+                    if (boundary >= minChunkLength && !splitsStructuredValue(text, boundary)) {
                         return SpeechChunkBoundary(index = boundary, type = SpeechChunkBoundaryType.STRONG)
                     }
                 }
@@ -256,7 +260,9 @@ private fun findSpeechChunkBoundary(
                 }
             }
             ',', ';', ':' -> {
-                softBoundary = index + 1
+                if (!splitsStructuredValue(text, index + 1)) {
+                    softBoundary = index + 1
+                }
             }
         }
 
@@ -277,6 +283,48 @@ private fun findSpeechChunkBoundary(
     }
 
     return null
+}
+
+// A digit followed by a separator that may continue the number: "8:" | "00", "$1," | "200", "$49." | "95".
+private val NUMBER_SEPARATOR_TAIL: Pattern = Pattern.compile("""\d[.,:]$""")
+// A clock time that an am/pm suffix may still follow: "7:30" | "a.m.".
+private val CLOCK_TIME_TAIL: Pattern = Pattern.compile("""\d:\d{2}\s*$""")
+// A clock time with a partial meridiem: "7:30 a." | "m.".
+private val CLOCK_TIME_PARTIAL_MERIDIEM_TAIL: Pattern =
+    Pattern.compile("""\d:\d{2}\s*[ap]\.?\s?$""", Pattern.CASE_INSENSITIVE)
+// A meridiem after a clock time (am, pm, a.m., p.m.), or its start at the end of the buffer ("a.").
+private val MERIDIEM_HEAD: Pattern =
+    Pattern.compile("""(?:[ap]\.?\s?m(?![a-z])|[ap]\.?$)""", Pattern.CASE_INSENSITIVE)
+// The rest of a meridiem after "a." / "p.".
+private val MERIDIEM_REST_HEAD: Pattern = Pattern.compile("""m(?![a-z])""", Pattern.CASE_INSENSITIVE)
+private const val STRUCTURED_VALUE_LOOKBEHIND = 16
+
+/**
+ * True when splitting [text] at [boundary] would cut a clock time (`H:MM` with optional am/pm),
+ * a currency amount (`$`, `NZ$`, `US$`, `A$`) or a decimal/comma-grouped number in two.
+ *
+ * Speech normalisation downstream only reads these values correctly when they arrive whole. A
+ * boundary at the very end of a streaming buffer that may still be mid-value is unsafe too: the
+ * chunker then falls back to an earlier boundary or waits for more text.
+ */
+private fun splitsStructuredValue(text: String, boundary: Int): Boolean {
+    if (boundary <= 0) return false
+    val beforeStart = maxOf(0, boundary - STRUCTURED_VALUE_LOOKBEHIND)
+    fun beforeEndsWith(pattern: Pattern): Boolean =
+        pattern.matcher(text).region(beforeStart, boundary).find()
+
+    if (beforeEndsWith(NUMBER_SEPARATOR_TAIL) && (boundary >= text.length || text[boundary].isDigit())) {
+        return true
+    }
+
+    var next = boundary
+    while (next < text.length && text[next].isWhitespace()) next++
+    val restPending = next >= text.length
+    fun restStartsWith(pattern: Pattern): Boolean =
+        pattern.matcher(text).region(next, text.length).lookingAt()
+
+    if (beforeEndsWith(CLOCK_TIME_TAIL) && (restPending || restStartsWith(MERIDIEM_HEAD))) return true
+    return beforeEndsWith(CLOCK_TIME_PARTIAL_MERIDIEM_TAIL) && (restPending || restStartsWith(MERIDIEM_REST_HEAD))
 }
 
 /**
@@ -407,14 +455,45 @@ internal fun stripMarkdown(text: String): String {
         .trim()
 }
 
+private val RECALL_QUESTION_REGEX = Regex(
+    """\bwhat\s+did\s+i\s+(?:say|ask|tell|mention)\b|\bwhat\s+(?:do\s+you\s+remember|did\s+we\s+(?:say|discuss|talk\s+about))\b|\b(?:do|did)\s+you\s+(?:still\s+)?remember\b|\bcan\s+you\s+recall\b""",
+)
+private val REMEMBER_ACTION_REGEX = Regex("""\bremember\b""")
+private val NEGATED_CALL_REGEX =
+    Regex("""\b(?:do\s+not|don't|never|cannot|can't|should\s+not|shouldn't|not\s+to)\s+call\b""")
+private val CALL_ACTION_REGEX = Regex("""\bcall\s+""")
+// Only verbs that start a command count: at the start, after "and/then/also/please", or after
+// "can/could/would you". "What did I order last time?" and "my favourite game to play" are
+// questions, not actions.
+private const val TOOL_ACTION_VERBS =
+    """(?:add|put|save|store|create|make|remove|delete|set|send|turn|toggle|open|play|navigate|remind|plan|order|book|buy|cancel|check)"""
+private val EXPLICIT_TOOL_ACTION_VERB_REGEX = Regex(
+    """(?:^|\b(?:and|then|also|please|kindly|ok|okay|now|(?:can|could|would|will)\s+you|let\s+me|""" +
+        """i\s+(?:need|want)\s+you\s+to|hey\s+jandal)\s+)(?:please\s+)?$TOOL_ACTION_VERBS\b""",
+    RegexOption.IGNORE_CASE,
+)
+private val CLAUSE_SPLIT_REGEX = Regex("""[.,;:!?\u2014\u2013]|\s-\s""")
+
+internal fun containsExplicitToolActionVerb(query: String): Boolean {
+    val clauses = query.split(CLAUSE_SPLIT_REGEX).map { it.trim() }.filter { it.isNotEmpty() }
+    if (clauses.isEmpty()) return false
+    // In every clause the verb must start a command: "…? Ok add them to my list" and
+    // "— add it to my list" are requests; "the one I order at the cafe" is not.
+    return clauses.any { EXPLICIT_TOOL_ACTION_VERB_REGEX.containsMatchIn(it) }
+}
+
 /**
  * Returns true if [query] looks like it involves a device-native tool action
  * (alarm, list, toggle, memory, etc.) rather than a pure LLM question.
  */
 internal fun looksLikeToolQuery(query: String): Boolean {
     val lower = query.lowercase().trim()
+    val isRecallQuestion = RECALL_QUESTION_REGEX.containsMatchIn(lower)
+    val hasRememberAction = !isRecallQuestion && REMEMBER_ACTION_REGEX.containsMatchIn(lower)
+    val hasCallAction =
+        !NEGATED_CALL_REGEX.containsMatchIn(lower) && CALL_ACTION_REGEX.containsMatchIn(lower)
     val toolKeywords = listOf(
-        "save", "remember", "note that", "don't forget", "store",
+        "save", "note that", "don't forget", "store",
         "add to", "put on", "put in", "add .+ to .+ list",
         "create .+ list", "make .+ list", "remove from", "delete from",
         "what's on my", "show my", "read my .+ list",
@@ -422,7 +501,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "plan a meal", "plan dinner", "plan dinners", "sort dinners", "sort meals",
         "shopping list", "ingredients list",
         "set alarm", "set a timer", "set timer", "remind me",
-        "send email", "send sms", "send a text", "call ",
+        "send email", "send sms", "send a text",
         "search wikipedia", "look up", "wikipedia",
         "turn on", "turn off", "toggle", "open app",
         "play ", "navigate to", "directions to",
@@ -441,7 +520,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "\\bwant\\s+to\\s+hear\\b",
         "\\bwant\\s+some\\s+music\\b",
     )
-    return toolKeywords.any { keyword ->
+    return hasRememberAction || hasCallAction || toolKeywords.any { keyword ->
         if (keyword.contains(Regex("[.+*?]"))) {
             Regex(keyword, RegexOption.IGNORE_CASE).containsMatchIn(lower)
         } else {
@@ -499,6 +578,11 @@ private val BARE_WIKIPEDIA_ANAPHORA_REGEX = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+/**
+ * Query for the explicit "look up X on Wikipedia" fast path, which renders the article summary
+ * without the model. Question-shaped requests ("Search Wikipedia for is X Jewish") return null so
+ * the model answers the question from Wikipedia evidence instead (#1689).
+ */
 internal fun extractExplicitWikipediaQuery(text: String): String? {
     val patterns = listOf(
         Regex("""^\s*(?:look\s+up|search)\s+wikipedia\s+(?:for\s+)?(.+?)\s*[?!.]*$""", RegexOption.IGNORE_CASE),
@@ -507,7 +591,9 @@ internal fun extractExplicitWikipediaQuery(text: String): String? {
     )
     return patterns.firstNotNullOfOrNull { regex ->
         regex.matchEntire(text)?.groupValues?.getOrNull(1)?.trim()
-            ?.takeIf { it.isNotBlank() && !BARE_WIKIPEDIA_ANAPHORA_REGEX.matches(it) }
+            ?.takeIf {
+                it.isNotBlank() && !BARE_WIKIPEDIA_ANAPHORA_REGEX.matches(it) && !isFactualWikipediaQuestion(it)
+            }
     }
 }
 
@@ -705,25 +791,56 @@ internal fun looksLikePersonalFact(text: String): Boolean {
 }
 
 /**
- * Deterministically checks if [text] mentions a known NZ truth memory term.
- * Returns the first matching [JandalPersona.NzTruthEntry] from [nzTruths], or null if no match.
+ * Returns the NZ truth entry explicitly requested by a direct definition query or a direct
+ * "what does/did <name> say" question. Incidental mentions are left for semantic retrieval.
  *
- * This is used as a deterministic pre-model check so that known NZ/Māori cultural terms get
- * their seeded NZ context before the model can choose query_wikipedia (#1074).
- *
- * Matching is case-insensitive and uses word-boundary checks on the canonical term name.
- * After STT normalisation ([com.kernel.ai.core.voice.TranscriptNormaliser]), voice-input
- * aliases have already been replaced with canonical terms, so only canonical forms are matched.
+ * Explicit Wikipedia routing remains the caller's responsibility; ChatViewModel checks that
+ * intent before using this deterministic lookup.
  */
+private val LEADING_NZ_DEFINITION_ARTICLE = Regex(
+    """^(?:a|an|the)\s+""",
+    RegexOption.IGNORE_CASE,
+)
+
+private val DIRECT_NZ_DEFINITION_QUERY = Regex(
+    """^\s*(?:what\s+is|what's|tell\s+me\s+about|define|explain)\s+(.+?)(?:\s+in\s+(?:nz|new\s+zealand))?\s*[?.!]*\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+
+private val DIRECT_NZ_SAY_QUERY = Regex(
+    """^\s*what\s+(?:does|did)\s+([\p{L}][\p{L}'-]*)\s+say(?:\s+.+)?\s*[?.!]*\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+
 internal fun detectKnownNzTerm(
     text: String,
     nzTruths: List<JandalPersona.NzTruthEntry>,
 ): JandalPersona.NzTruthEntry? {
     if (text.isBlank()) return null
-    val lower = text.lowercase()
-    return nzTruths.firstOrNull { entry ->
-        val term = entry.term.lowercase()
-        term.length >= 3 && Regex("""\b${Regex.escape(term)}\b""").containsMatchIn(lower)
+
+    val query = text.trim()
+    val saySubject = DIRECT_NZ_SAY_QUERY.matchEntire(query)?.groupValues?.get(1)
+    if (saySubject != null) {
+        val requestedPrefix = "$saySubject says "
+        return nzTruths.singleOrNull { entry ->
+            entry.term.trim().length >= 3 && entry.term.startsWith(requestedPrefix, ignoreCase = true)
+        }
+    }
+
+    // Keep short labels out of ambiguous matches, but allow the intentional two-letter entry "Eh".
+    val requestedTerm = DIRECT_NZ_DEFINITION_QUERY.matchEntire(query)?.groupValues?.get(1)?.trim()
+        ?: return null
+    val exactMatch = nzTruths.singleOrNull { entry ->
+        (entry.term.trim().length >= 3 || entry.term.equals("Eh", ignoreCase = true)) &&
+            entry.term.equals(requestedTerm, ignoreCase = true)
+    }
+    if (exactMatch != null) return exactMatch
+
+    val fallbackTerm = LEADING_NZ_DEFINITION_ARTICLE.replaceFirst(requestedTerm, "").trim()
+    if (fallbackTerm == requestedTerm) return null
+    return nzTruths.singleOrNull { entry ->
+        (entry.term.trim().length >= 3 || entry.term.equals("Eh", ignoreCase = true)) &&
+            entry.term.equals(fallbackTerm, ignoreCase = true)
     }
 }
 
@@ -733,9 +850,17 @@ internal fun detectKnownNzTerm(
  * cultural terms locally without calling query_wikipedia or the inference engine.
  *
  * @param entry the matched NZ truth entry with term and definition.
+ * @param question the user's original text, used to format direct speech queries.
  * @return a complete assistant reply string.
  */
-internal fun buildKnownNzContextReply(entry: JandalPersona.NzTruthEntry): String {
+internal fun buildKnownNzContextReply(
+    entry: JandalPersona.NzTruthEntry,
+    question: String = "",
+): String {
     val definition = entry.definition.trim().trimEnd('.')
-    return "${entry.term}: $definition."
+    return if (DIRECT_NZ_SAY_QUERY.matches(question.trim())) {
+        "\"${entry.term.trim()}.\" $definition."
+    } else {
+        "${entry.term}: $definition."
+    }
 }

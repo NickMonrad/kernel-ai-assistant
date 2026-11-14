@@ -109,6 +109,9 @@ import java.util.Locale
 
 private const val ACTIONS_SCREEN_TAG = "KernelAI"
 
+/** #1604: shown next to text supplied by another app until the user sends or discards it. */
+internal const val EXTERNAL_DRAFT_HINT = "Text from another app — review or edit it. Nothing runs until you send it."
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActionsScreen(
@@ -118,6 +121,11 @@ fun ActionsScreen(
     initialQueryIsVoice: Boolean = false,
     adbSlotReply: String? = null,
     draftQuery: String? = null,
+    /** #1604: [draftQuery] came from another app; label it and never run it automatically. */
+    draftFromExternalApp: Boolean = false,
+    /** #1604: slot reply text from another app, pre-filled into the pending slot's field. */
+    externalSlotReplyDraft: String? = null,
+    externalSlotReplyDraftSerial: Int = 0,
     onDraftQueryConsumed: () -> Unit = {},
     onAutoOpenSheetConsumed: () -> Unit = {},
     onAutoStartVoiceConsumed: () -> Unit = {},
@@ -164,7 +172,12 @@ fun ActionsScreen(
             context.startActivity(RuntimePermissionRepair.intentFor(context, permission))
         }
     }
-    var initialSheetText by remember { mutableStateOf("") }
+    var initialSheetText by rememberSaveable { mutableStateOf("") }
+    var initialSheetFromExternalApp by rememberSaveable { mutableStateOf(false) }
+    // #1604: an external slot reply only applies to the slot pending when it arrives.
+    var slotReplyDraft by remember(externalSlotReplyDraftSerial) {
+        mutableStateOf(externalSlotReplyDraft?.takeIf { it.isNotBlank() && pendingSlot != null })
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     var showBottomSheet by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -276,10 +289,12 @@ fun ActionsScreen(
 
     // Tools example prompt: prefill the Quick Action sheet with draft text.
     // The sheet is already opened by autoOpenSheet (same route includes openSheet=true).
-    // This only sets the draft text; no action is executed automatically.
+    // This only sets the draft text; no action is executed automatically. #1604 external text
+    // from another app uses the same path, so it too runs only on the sheet's send button.
     LaunchedEffect(draftQuery) {
         if (!draftQuery.isNullOrBlank()) {
             initialSheetText = draftQuery
+            initialSheetFromExternalApp = draftFromExternalApp
             if (!showBottomSheet) showBottomSheet = true
             onDraftQueryConsumed()
         }
@@ -440,6 +455,7 @@ fun ActionsScreen(
             // and interfering with the new destination.
             showBottomSheet = false
             initialSheetText = ""
+            initialSheetFromExternalApp = false
         }
     }
 
@@ -689,12 +705,15 @@ fun ActionsScreen(
             onDismiss = {
                 showBottomSheet = false
                 initialSheetText = ""
+                initialSheetFromExternalApp = false
             },
             initialText = initialSheetText,
+            initialTextFromExternalApp = initialSheetFromExternalApp,
             onSubmit = { query ->
                 viewModel.executeAction(query)
                 showBottomSheet = false
                 initialSheetText = ""
+                initialSheetFromExternalApp = false
             },
             onVoiceAction = {
                 showBottomSheet = false
@@ -717,6 +736,8 @@ fun ActionsScreen(
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
             onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
             onStopVoiceReply = viewModel::stopVoiceCapture,
+            externalDraft = slotReplyDraft,
+            onExternalDraftConsumed = { slotReplyDraft = null },
         )
     }
     // Hands-free calling contextual permission surface
@@ -1148,6 +1169,8 @@ internal fun PendingSlotBottomSheet(
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
+    externalDraft: String? = null,
+    onExternalDraftConsumed: () -> Unit = {},
 ) {
     key(
         slot.request.intentName,
@@ -1167,6 +1190,8 @@ internal fun PendingSlotBottomSheet(
             onSubmit = onSubmit,
             onVoiceReply = onVoiceReply,
             onStopVoiceReply = onStopVoiceReply,
+            externalDraft = externalDraft,
+            onExternalDraftConsumed = onExternalDraftConsumed,
         )
     }
 }
@@ -1184,10 +1209,21 @@ private fun SlotFillBottomSheet(
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
+    externalDraft: String? = null,
+    onExternalDraftConsumed: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var inputText by rememberSaveable { mutableStateOf("") }
+    // #1604: true once text from another app has been placed in the field for review.
+    var showExternalDraftHint by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(externalDraft) {
+        if (!externalDraft.isNullOrBlank()) {
+            inputText = externalDraft
+            showExternalDraftHint = true
+            onExternalDraftConsumed()
+        }
+    }
     // Guards against submit() and onDismissRequest firing simultaneously (e.g. tap Send + swipe).
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
     val slotReplyCaptureState = when (voiceCaptureState) {
@@ -1274,6 +1310,15 @@ private fun SlotFillBottomSheet(
                     text = "You can type a reply or tap the mic to answer by voice.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (showExternalDraftHint) {
+                Text(
+                    text = EXTERNAL_DRAFT_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("slot_reply_external_hint"),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -1366,6 +1411,7 @@ private fun QuickActionBottomSheet(
     onVoiceAction: () -> Unit,
     onStopVoiceAction: () -> Unit,
     initialText: String = "",
+    initialTextFromExternalApp: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -1408,12 +1454,21 @@ private fun QuickActionBottomSheet(
             )
             if (initialText.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Example loaded — review or edit before running.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.testTag("quick_action_example_hint"),
-                )
+                if (initialTextFromExternalApp) {
+                    Text(
+                        text = EXTERNAL_DRAFT_HINT,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("quick_action_external_hint"),
+                    )
+                } else {
+                    Text(
+                        text = "Example loaded — review or edit before running.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("quick_action_example_hint"),
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(16.dp))
 

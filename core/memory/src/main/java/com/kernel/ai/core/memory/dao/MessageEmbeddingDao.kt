@@ -34,6 +34,8 @@ interface MessageEmbeddingDao {
     /** All rowIds for embeddings belonging to a specific conversation (used before cascade delete). */
     @Query("SELECT rowId FROM message_embeddings WHERE conversationId = :conversationId")
     suspend fun getRowIdsForConversation(conversationId: String): List<Long>
+    @Query("DELETE FROM message_embeddings")
+    suspend fun deleteAll()
 
     /** Live count of indexed messages — Room re-emits on every write to message_embeddings. */
     @Query("SELECT COUNT(*) FROM message_embeddings")

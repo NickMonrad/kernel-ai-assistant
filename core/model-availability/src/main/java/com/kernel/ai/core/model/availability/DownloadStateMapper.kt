@@ -29,36 +29,49 @@ fun DownloadState.toAvailability(
     gated: GatedModelStatus = GatedModelStatus.NONE,
 ): ModelAvailabilityState {
     return when (this) {
-    is DownloadState.Downloaded -> ModelAvailabilityState.Ready
-    is DownloadState.Downloading -> ModelAvailabilityState.Preparing(
-        progress = progress,
-        isAutoQueued = source == DownloadSource.AUTO_QUEUED,
-    )
-    is DownloadState.NotDownloaded -> {
-        if (model.isBundled) return ModelAvailabilityState.Ready
-        if (model.isGated) {
-            if (!hfAuth) return ModelAvailabilityState.ActionRequired(ActionReason.SignInRequired)
-            return when (gated) {
-                GatedModelStatus.APPROVAL_PENDING -> ModelAvailabilityState.ActionRequired(ActionReason.ApprovalPending)
-                GatedModelStatus.ACCESS_DENIED -> ModelAvailabilityState.Unavailable(UnavailableReason.AccessDenied)
-                else -> ModelAvailabilityState.NotDisplayed
+        is DownloadState.Downloaded -> ModelAvailabilityState.Ready
+        is DownloadState.Downloading -> ModelAvailabilityState.Preparing(
+            progress = progress,
+            isAutoQueued = source == DownloadSource.AUTO_QUEUED,
+        )
+        is DownloadState.NotDownloaded -> notDownloadedAvailability(
+            isBundled = model.isBundled,
+            isGated = model.isGated,
+            hfAuth = hfAuth,
+            source = source,
+            gated = gated,
+        )
+        is DownloadState.Error -> {
+            if (licenceRequired) {
+                ModelAvailabilityState.ActionRequired(ActionReason.LicenseRequired)
+            } else {
+                ModelAvailabilityState.ActionRequired(ActionReason.DownloadFailed(message))
             }
-        }
-        // Ungated model — source determines display
-        when (source) {
-            DownloadSource.AUTO_QUEUED -> ModelAvailabilityState.Preparing(
-                progress = 0f,
-                isAutoQueued = true,
-            )
-            DownloadSource.USER_INITIATED -> ModelAvailabilityState.NotDisplayed
-        }
-    }
-    is DownloadState.Error -> {
-        if (licenceRequired) {
-            ModelAvailabilityState.ActionRequired(ActionReason.LicenseRequired)
-        } else {
-            ModelAvailabilityState.ActionRequired(ActionReason.DownloadFailed(message))
         }
     }
 }
+
+internal fun notDownloadedAvailability(
+    isBundled: Boolean,
+    isGated: Boolean,
+    hfAuth: Boolean,
+    source: DownloadSource,
+    gated: GatedModelStatus,
+): ModelAvailabilityState {
+    if (isBundled) return ModelAvailabilityState.Ready
+    if (isGated) {
+        if (!hfAuth) return ModelAvailabilityState.ActionRequired(ActionReason.SignInRequired)
+        return when (gated) {
+            GatedModelStatus.APPROVAL_PENDING -> ModelAvailabilityState.ActionRequired(ActionReason.ApprovalPending)
+            GatedModelStatus.ACCESS_DENIED -> ModelAvailabilityState.Unavailable(UnavailableReason.AccessDenied)
+            else -> ModelAvailabilityState.NotDisplayed
+        }
+    }
+    return when (source) {
+        DownloadSource.AUTO_QUEUED -> ModelAvailabilityState.Preparing(
+            progress = 0f,
+            isAutoQueued = true,
+        )
+        DownloadSource.USER_INITIATED -> ModelAvailabilityState.NotDisplayed
+    }
 }

@@ -1,4 +1,4 @@
-Kernel AI Assistant
+Jandal AI (Kernel AI Assistant)
 Copyright 2026 Nicholas Monrad
 
 This product includes software adapted from or based on the following projects:
@@ -14,6 +14,35 @@ Google LiteRT-LM
   Licensed under the Apache License, Version 2.0
   https://github.com/google-ai-edge/LiteRT-LM
   Used: LiteRT-LM Android library (com.google.ai.edge.litertlm:litertlm-android)
+
+Google LiteRT Interpreter 2.1.0
+  Licensed under the Apache License, Version 2.0
+  https://github.com/google-ai-edge/LiteRT/blob/v2.1.0/LICENSE
+  Used: Android LiteRT Interpreter library (com.google.ai.edge.litert:litert).
+
+ONNX Runtime 1.24.3
+  Copyright Microsoft Corporation
+  Licensed under the MIT License
+  https://github.com/microsoft/onnxruntime/blob/v1.24.3/LICENSE
+  Used: Android ONNX Runtime library and native runtime.
+
+Sherpa-ONNX v1.13.0
+  Licensed under the Apache License, Version 2.0
+  https://github.com/k2-fsa/sherpa-onnx/blob/b0592803468fa98777e328aa38136cf6ec015a05/LICENSE
+  This entry identifies the Sherpa-ONNX project licence only. It does not
+  describe the complete custom AAR or its separately sourced components.
+
+sqlite-vec 0.1.9
+  Copyright 2024 Alex Garcia
+  Licensed under the MIT License
+  https://github.com/asg017/sqlite-vec/blob/v0.1.9/LICENSE-MIT
+  Used: bundled SQLite vector-search extension.
+
+SQLite 3.49.2
+  Public-domain dedication and blessing text are included in the amalgamated
+  source.
+  https://www.sqlite.org/2025/sqlite-amalgamation-3490200.zip
+  Used: bundled SQLite amalgamation.
 
 openWakeWord
   Copyright openWakeWord contributors

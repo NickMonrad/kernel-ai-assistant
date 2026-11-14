@@ -6,10 +6,16 @@ interface EmbeddingEngine {
     val dimensions: Int
 
     /**
-     * Encodes [text] into a normalised embedding vector.
+     * Encodes a retrieval query into a normalised embedding vector.
      * Must be called from a coroutine — runs on IO dispatcher internally.
      */
-    suspend fun embed(text: String): FloatArray
+    suspend fun embedQuery(text: String): FloatArray
+
+    /**
+     * Encodes stored content without a query instruction prefix.
+     * Must be called from a coroutine — runs on IO dispatcher internally.
+     */
+    suspend fun embedDocument(text: String): FloatArray
 
     /** Release native resources held by the engine. */
     fun close()

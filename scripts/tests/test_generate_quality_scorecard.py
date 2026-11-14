@@ -79,6 +79,15 @@ class GenerateQualityScorecardTest(unittest.TestCase):
         self.assertIn("| High-risk PRs with appropriate evidence | 3 |", markdown)
         self.assertIn("| High-risk PRs missing appropriate evidence | 1 |", markdown)
 
+    def test_device_usage_rows_use_template_keys(self) -> None:
+        markdown = scorecard.build_scorecard(
+            {"s23u_expected_coverage": "3 of 4", "s21_extra_capacity_runs": 2, "device_divergence_cases": 1}
+        )
+
+        self.assertIn("| Medium/high-risk PRs with S23U evidence where expected | 3 of 4 |", markdown)
+        self.assertIn("| S21 extra-capacity runs (parallel / second-SoC comparison) | 2 |", markdown)
+        self.assertIn("| S21 vs S23U divergence cases | 1 |", markdown)
+
     def test_cli_writes_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

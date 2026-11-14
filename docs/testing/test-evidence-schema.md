@@ -154,7 +154,7 @@ Device producers MAY emit a public alias such as `s21` or `s23u`. Consumers MUST
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Model name, e.g. `"Gemma E4B"`, `"EmbeddingGemma-300M"`. |
+| `name` | string | yes | Model name, e.g. `"Gemma E4B"`, `"Arctic Embed M v1.5"`. |
 | `runtime` | string | yes | Inference runtime, e.g. `"LiteRT"`, `"ONNX"`. |
 | `backend` | string | yes | Hardware backend: `"GPU"`, `"NPU"`, `"CPU"`. |
 

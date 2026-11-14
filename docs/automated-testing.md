@@ -11,7 +11,7 @@ and the device setup guide in [`docs/adb-testing.md`](./adb-testing.md).
 | Unit tests | Gradle + JUnit 5 + MockK | Core Kotlin logic, routing, parsing, repositories, presenters | `./gradlew testDebugUnitTest` |
 | Instrumented UI tests | Gradle + Compose/AndroidX test | Compose UI and connected-device Android tests, including S21 `permission_flows` | `./gradlew connectedDebugAndroidTest` |
 | Device regression harness | `adb` + Python | End-to-end intent routing, profile extraction, and on-device chat/action flows | `python3 scripts/adb_skill_test.py` |
-| Permission scenario runner | `adb` + Python | Physical-device permission journeys with step traces, screenshots, focused logcat, and UX-friction counters | `python3 scripts/run_permission_scenarios.py --device-id s21-exynos --scenarios …` |
+| Permission scenario runner | `adb` + Python | Physical-device permission journeys, functional Chat submission/response checks, paired acoustic voice stimulus, step traces, screenshots, focused logcat, and UX-friction counters | `python3 scripts/run_permission_scenarios.py --device-id s21-exynos --scenarios …` |
 | Permission report publisher | Python + `gh` | Explicitly publish an existing permission report bundle to `test-results` and one sticky PR comment | `python3 scripts/publish_permission_scenario_report.py --report-dir … --pr … --commit … --device-id s21-exynos` |
 | Evidence generators | Python | Convert CI/connected outputs into #1113 normalised evidence | `python3 scripts/generate_permission_flow_evidence.py` |
 | Acoustic wake reliability runner | `adb` + Python `unittest` | Paired source-to-target journal waits, strict source/snapshot contracts, independent matrix positions, environment invalidation, normalised evidence, and sanitised artifact export | `python3 scripts/acoustic_wake_reliability_runner.py fixture` / `python3 -m unittest scripts.tests.test_acoustic_wake_reliability_runner` |
@@ -34,12 +34,44 @@ Use it when you need:
 
 Policy:
 
-- **S21 first** (`s21-exynos`)
-- **Do not use the S23U by default**
-- if no S21 / ADB device is available, stop on on-device validation rather than faking success
+- **This runner's first-slice permission scenarios target S21** (`s21-exynos`); this runner-specific scope does not set Jandal's global test-device default.
+- For an unspecified *ad hoc* physical-device task, use S23 Ultra. For PR acceptance evidence, follow `.docs/agents/risk-based-evidence-policy.md` (S23U primary; S21 only for extra capacity). Explicit issue/acceptance device or tier requirements take precedence.
+- If the required S21 / ADB device is unavailable for this S21-specific run, stop on on-device validation rather than faking success.
 
 See [`docs/testing/permission-scenario-runner.md`](./testing/permission-scenario-runner.md) for
 the local run command, explicit publish flow, stale-report protections, and artifact layout.
+### Functional Chat and voice coverage
+
+The permission runner now distinguishes the existing Quick Actions weather
+scenarios from functional Chat scenarios. `launch_chat` opens the real Chat
+route, `submit_chat_query` injects text through the visible composer and waits
+for both the visible user message and assistant response, and `assert_chat_state`
+checks route reachability, duplicate user-message count, and response markers.
+
+Voice scenarios use `run_functional_voice_stimulus` with the existing paired
+acoustic source contract. The runner arms the target event journal, invokes the
+debug `AcousticStimulusReceiver` on the source device, waits for target
+`STT_FINAL`, and records the target's observed `KernelAI` voice submission
+transcript plus STT/wake evidence and visible Chat permission UX. It does not
+echo a generic media file through an unrelated pathway. Missing source serial,
+fixture, or paired ADB connectivity blocks the scenario; there is no fake
+fallback.
+
+The `voice_timeout_ms` setting bounds only acoustic target `STT_FINAL`
+completion; `transcript_timeout_seconds` separately bounds polling for the
+subsequent Chat voice-submission trace.
+
+Functional paired-device speech validates STT, routing, Chat UI, and
+voice-session lifecycle only. It must not be treated as wake-word acoustic
+reliability evidence or qualification. Wake-word reliability remains governed
+by the dedicated controlled acoustic reliability harness and its stricter
+methodology.
+
+The documented first-slice permission scenarios target S21. The paired acoustic
+scenario group above uses its explicitly documented S23U path when the local
+report records source/target topology; this does not establish a general S23U
+automation mode. Existing Quick Actions scenario IDs and behavior remain unchanged.
+
 ## ADB regression harness
 
 The main device automation entry point is [`scripts/adb_skill_test.py`](../scripts/adb_skill_test.py).
@@ -351,10 +383,12 @@ ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=ll
 
 | Device | SoC | RAM | Inference backend | Role |
 |--------|-----|-----|-------------------|------|
-| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Adreno GPU fallback) | Reference device — primary target |
-| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | Tracked reliability signal — see #1089 / #684 |
-| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | Experimental reference candidate (Android API 36) |
+| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Adreno GPU fallback) | Standard/default physical Android test device |
+| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | Constrained/low-end test device; tracked reliability signal — see #1089 / #684 |
+| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | Owner's personal phone — not for agent testing |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | Reference device — GPU-only |
+
+**Test-device roles:** Samsung Galaxy S23 Ultra is the primary/default physical test device, both for an unnamed *ad hoc* "test on device" task and for PR acceptance evidence under the risk-based evidence policy. Use S21 only when more test capacity is needed — parallel runs, a second-SoC comparison for device-sensitive changes, or lower-memory/degraded-device checks — or where suite-specific tooling or explicit issue requirements apply; it belongs to another household member, so keep runs targeted. The canonical list is in `.docs/agents/risk-based-evidence-policy.md`. The owner's personal Honor Magic8 Pro is not for agent testing. Explicit issue/acceptance device or tier requirements take precedence. These roles do not change runtime `HardwareTier` or model-selection policy.
 
 See [`docs/adb-testing.md`](./adb-testing.md) for device setup, USB/wireless debugging, and
 gotcha troubleshooting.
@@ -377,7 +411,7 @@ clock alert cleanup using **checked ADB commands** (verified via exit code):
 
 If cleanup fails and the device is still buzzing after a run:
 ```bash
-adb shell am force-stop com.kernel.ai.debug
+adb shell am force-stop ai.jandal.assistant.debug
 ```
 
 This is tracked in [#1275](https://github.com/NickMonrad/kernel-ai-assistant/issues/1275)

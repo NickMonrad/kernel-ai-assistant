@@ -52,10 +52,14 @@ sealed class SkillResult {
      *  [actions] are optional in-app recovery buttons for failures the user can fix inside the app
      *  (e.g. "Add in People & Contacts" for an unknown contact). Every action only opens an in-app
      *  screen; none performs a side effect. Surfaces that don't render buttons show [error] as
-     *  before, so existing consumers are unaffected. */
+     *  before, so existing consumers are unaffected.
+     *
+     *  [fallThroughToModel] asks conversational callers to continue with the user's original
+     *  request instead of displaying this internal miss. */
     data class Failure(
         val skillName: String,
         val error: String,
+        val fallThroughToModel: Boolean = false,
         val actions: List<SettingsAction> = emptyList(),
     ) : SkillResult()
     /** Skill output was malformed JSON or failed schema validation. */

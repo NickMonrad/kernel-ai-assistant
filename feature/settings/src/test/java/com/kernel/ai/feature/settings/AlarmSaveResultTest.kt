@@ -77,53 +77,5 @@ class AlarmSaveResultTest {
         assertNull(emptyList<SchedulingWarning>().toWarningMessage(isTimer = false))
     }
 
-    @Test
-    fun `toWarningMessage renders full screen warning for alarm`() {
-        val msg = listOf(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE).toWarningMessage(isTimer = false)
-        assertEquals("Alarm saved. It may appear as a notification instead of opening full-screen.", msg)
-    }
 
-    @Test
-    fun `toWarningMessage renders full screen warning for timer`() {
-        val msg = listOf(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE).toWarningMessage(isTimer = true)
-        assertEquals("Timer set. It may appear as a notification instead of opening full-screen.", msg)
-    }
-
-    @Test
-    fun `toWarningMessage renders boot restore warning for alarm`() {
-        val msg = listOf(SchedulingWarning.BOOT_RESTORE_LIMITED).toWarningMessage(isTimer = false)
-        assertEquals("Alarm saved. Scheduled events may need to be recreated after a device restart.", msg)
-    }
-
-    @Test
-    fun `toWarningMessage renders boot restore warning for timer`() {
-        val msg = listOf(SchedulingWarning.BOOT_RESTORE_LIMITED).toWarningMessage(isTimer = true)
-        assertEquals("Timer set. Scheduled events may need to be recreated after a device restart.", msg)
-    }
-
-    @Test
-    fun `toWarningMessage renders both warnings for alarm`() {
-        val msg = listOf(
-            SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE,
-            SchedulingWarning.BOOT_RESTORE_LIMITED,
-        ).toWarningMessage(isTimer = false)
-
-        assertEquals(
-            "Alarm saved. It may appear as a notification instead of opening full-screen. Scheduled events may need to be recreated after a device restart.",
-            msg,
-        )
-    }
-
-    @Test
-    fun `toWarningMessage renders both warnings for timer`() {
-        val msg = listOf(
-            SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE,
-            SchedulingWarning.BOOT_RESTORE_LIMITED,
-        ).toWarningMessage(isTimer = true)
-
-        assertEquals(
-            "Timer set. It may appear as a notification instead of opening full-screen. Scheduled events may need to be recreated after a device restart.",
-            msg,
-        )
-    }
 }

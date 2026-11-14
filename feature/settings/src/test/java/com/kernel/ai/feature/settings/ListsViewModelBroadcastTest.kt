@@ -3,15 +3,19 @@ package com.kernel.ai.feature.settings
 import android.content.Context
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -26,6 +30,7 @@ class ListsViewModelBroadcastTest {
     private val dao = mockk<ListItemDao>(relaxed = true)
     private val listNameDao = mockk<ListNameDao>(relaxed = true)
     private val scheduler = mockk<ListNotificationScheduler>(relaxed = true)
+    private val listMutations = mockk<ListMutationRepository>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val itemFlow = MutableSharedFlow<List<ListItemEntity>>(extraBufferCapacity = 1)
     private val nameFlow = MutableSharedFlow<List<ListNameEntity>>(extraBufferCapacity = 1)
@@ -42,9 +47,16 @@ class ListsViewModelBroadcastTest {
     @AfterEach
     fun tearDown() { Dispatchers.resetMain() }
 
+    /** Nextcloud binding state the Lists surfaces read; inert unless a test overrides it. */
+    private val nextcloudAdapter = mockk<NextcloudSyncAdapter>(relaxed = true).apply {
+        every { observeListBindings() } returns flowOf(emptyList())
+        every { observeAccountConfigured() } returns MutableStateFlow(false)
+    }
+
     @Test
     fun `broadcasts on item and name mutations, never on initial replay`() {
-        ListsViewModel(dao, listNameDao, scheduler, context)
+        ListsViewModel(dao, listNameDao, scheduler, context, listMutations, testListsUiPreferences(UnconfinedTestDispatcher()), nextcloudAdapter)
+            .apply { ioDispatcher = UnconfinedTestDispatcher() }
 
         itemFlow.tryEmit(emptyList())
         nameFlow.tryEmit(emptyList())

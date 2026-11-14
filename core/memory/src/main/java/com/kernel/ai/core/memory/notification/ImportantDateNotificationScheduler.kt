@@ -59,7 +59,19 @@ class ImportantDateNotificationScheduler @Inject constructor(
             notificationMinute = notificationMinute,
             flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        alarmManager.setExactAndAllowWhileIdle(
+        if (alarmManager.canScheduleExactAlarms()) {
+            try {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMs,
+                    pendingIntent!!,
+                )
+                return
+            } catch (_: SecurityException) {
+                // Permission may be revoked between the capability check and scheduling.
+            }
+        }
+        alarmManager.setAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
             triggerAtMs,
             pendingIntent!!,

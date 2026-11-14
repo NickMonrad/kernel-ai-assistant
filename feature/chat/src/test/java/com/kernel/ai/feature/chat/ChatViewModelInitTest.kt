@@ -1,12 +1,17 @@
 package com.kernel.ai.feature.chat
 
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
+import com.kernel.ai.core.inference.Gemma4InitLock
 import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
@@ -51,16 +56,20 @@ import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.ModelConfig
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.runs
+import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.clearMocks
+import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -70,6 +79,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
@@ -126,6 +136,20 @@ class ChatViewModelInitTest {
         every { Log.i(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any()) } returns 0
+        every { inferenceEngine.generateWithDebugTrace(any(), any()) } answers {
+            inferenceEngine.generate(firstArg())
+        }
+
+        // Chat is open, so the process reports a foregrounded lifecycle (#1524 gate). The real
+        // ProcessLifecycleOwner stays INITIALIZED in JVM tests, and LifecycleRegistry also throws
+        // from addObserver there because Looper.getMainLooper() is unmocked — either would abort
+        // the eager cold path instead of letting it load.
+        val foregroundLifecycle = mockk<Lifecycle>()
+        every { foregroundLifecycle.currentState } returns Lifecycle.State.STARTED
+        mockkObject(ProcessLifecycleOwner.Companion)
+        every { ProcessLifecycleOwner.Companion.get() } returns object : LifecycleOwner {
+            override val lifecycle: Lifecycle get() = foregroundLifecycle
+        }
 
         every { inferenceEngine.isReady } returns MutableStateFlow(false)
         every { inferenceEngine.isGenerating } returns MutableStateFlow(false)
@@ -176,6 +200,7 @@ class ChatViewModelInitTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkStatic(Log::class)
+        unmockkObject(ProcessLifecycleOwner.Companion)
     }
 
     @Test
@@ -184,6 +209,59 @@ class ChatViewModelInitTest {
         assertFalse(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.RESUMED))
     }
 
+
+    @Test
+    fun `eager initialization waits until app lifecycle reaches started`() = runTest(dispatcher) {
+        val owner = mockk<LifecycleOwner>()
+        val lifecycle = mockk<Lifecycle>()
+        var state = Lifecycle.State.INITIALIZED
+        val observers = mutableListOf<LifecycleEventObserver>()
+        every { owner.lifecycle } returns lifecycle
+        every { lifecycle.currentState } answers { state }
+        every { lifecycle.addObserver(any()) } answers {
+            observers += firstArg<LifecycleEventObserver>()
+        }
+        every { lifecycle.removeObserver(any()) } just runs
+
+        val awaiting = launch { awaitAppForeground(lifecycle) }
+        runCurrent()
+        assertFalse(awaiting.isCompleted)
+
+        state = Lifecycle.State.STARTED
+        observers.toList().forEach { it.onStateChanged(owner, Lifecycle.Event.ON_START) }
+        runCurrent()
+
+        assertTrue(awaiting.isCompleted)
+    }
+
+    @Test
+    fun `foreground gate can be retried after background transition`() = runTest(dispatcher) {
+        val owner = mockk<LifecycleOwner>()
+        val lifecycle = mockk<Lifecycle>()
+        var state = Lifecycle.State.STARTED
+        val observers = mutableListOf<LifecycleEventObserver>()
+        every { owner.lifecycle } returns lifecycle
+        every { lifecycle.currentState } answers { state }
+        every { lifecycle.addObserver(any()) } answers {
+            observers += firstArg<LifecycleEventObserver>()
+        }
+        every { lifecycle.removeObserver(any()) } just runs
+
+        val firstAttempt = launch { awaitAppForeground(lifecycle) }
+        runCurrent()
+        assertTrue(firstAttempt.isCompleted)
+
+        state = Lifecycle.State.CREATED
+        val retryAttempt = launch { awaitAppForeground(lifecycle) }
+        runCurrent()
+        assertFalse(retryAttempt.isCompleted)
+
+        state = Lifecycle.State.STARTED
+        observers.toList().forEach { it.onStateChanged(owner, Lifecycle.Event.ON_START) }
+        runCurrent()
+
+        assertTrue(retryAttempt.isCompleted)
+    }
     @Test
     fun `eviction reinit waits for foreground when app is backgrounded`() {
         assertTrue(shouldWaitForAppForegroundAfterEviction(androidx.lifecycle.Lifecycle.State.CREATED))
@@ -1009,6 +1087,56 @@ class ChatViewModelInitTest {
     }
 
     @Test
+    fun `negated tool mention preserves RAG and selected history for recall`() = runTest(dispatcher) {
+        val query = "Do not call any tools. What did I say earlier?"
+        val historyMarker = "Prior-history-marker: KORU-42"
+        val prompts = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Token("You mentioned KORU-42."), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers {
+            prompts += firstArg<String>()
+        }
+        coEvery { ragRepository.getRelevantContext(any(), any(), any()) } returns "retrieved memory"
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg", "assistant-msg")
+        coEvery { conversationRepository.getMessagesOnce("conv-existing") } returns listOf(
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "prior-user",
+                conversationId = "conv-existing",
+                role = "user",
+                content = historyMarker,
+                thinkingText = null,
+                timestamp = 1L,
+            ),
+            com.kernel.ai.core.memory.entity.MessageEntity(
+                id = "prior-assistant",
+                conversationId = "conv-existing",
+                role = "assistant",
+                content = "I will remember that.",
+                thinkingText = null,
+                timestamp = 2L,
+            ),
+        )
+        every { quickIntentRouter.route(query) } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = query)
+
+        val viewModel = createViewModel(SavedStateHandle(mapOf("conversationId" to "conv-existing")))
+        viewModel.setDebugForceGpuConversationResetEachTurn(true)
+        advanceUntilIdle()
+        viewModel.onInputChanged(query)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(
+            prompts.any { it.contains(historyMarker) },
+            "Recall turn should keep selected conversation history in the prompt",
+        )
+        coVerify(atLeast = 1) { ragRepository.getRelevantContext(query, any(), any()) }
+    }
+
+    @Test
     fun `blank response retries without RAG context on first zero-token generation`() = runTest(dispatcher) {
         val prompts = mutableListOf<String>()
         every { inferenceEngine.isReady } returns MutableStateFlow(true)
@@ -1133,10 +1261,9 @@ class ChatViewModelInitTest {
     }
 
     private fun clearViewModel(viewModel: ChatViewModel) {
-        val method = androidx.lifecycle.ViewModel::class.java
-            .getDeclaredMethod("clear\$lifecycle_viewmodel_release")
-        method.isAccessible = true
-        method.invoke(viewModel)
+        androidx.lifecycle.ViewModelStore()
+            .apply { put("chat-view-model", viewModel) }
+            .clear()
     }
 
     // Replaced by ChatViewModelRetryStateMachineTest Scenario B — with a real
@@ -1155,8 +1282,7 @@ class ChatViewModelInitTest {
         every { slotValidationRegistry.validateParams(any(), any()) } returns null
         every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
-        // Force GPU backend so needsHistoryReplay is forced true every turn,
-        // testing that wasConversationReset correctly suppresses history replay.
+        // GPU reset behavior is controlled by the debug switch in unit tests.
         every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
         coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
             listOf("user-msg-1", "assistant-msg-1", "user-msg-2", "assistant-msg-2")
@@ -1183,6 +1309,264 @@ class ChatViewModelInitTest {
             lastSystemPrompt!!.contains("set a timer for 2 hours"),
             "Independent command history replay must not leak previous commands into system prompt",
         )
+    }
+
+    @Test
+    fun `failed model initialization exposes retry and reuses installed model`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val initializedPaths = mutableListOf<String>()
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers {
+            initializedPaths += firstArg<ModelConfig>().modelPath
+            if (initializedPaths.size == 1) {
+                throw IllegalStateException("GPU context lost")
+            }
+            isReady.value = true
+        }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        advanceUntilIdle()
+
+        val failure = observedStates.last { it is ChatUiState.ModelInitializationFailed }
+            as ChatUiState.ModelInitializationFailed
+        assertEquals("Failed to load AI model: GPU context lost", failure.message)
+
+        viewModel.retryModelInitialization()
+        advanceUntilIdle()
+
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+        assertEquals(listOf(modelPath, modelPath), initializedPaths)
+        verify(exactly = 0) { downloadManager.startDownload(any(), any(), any()) }
+        collector.cancel()
+    }
+
+    @Test
+    fun `stalled initialization shows retryable error and retry reaches ready`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val firstInitStarted = CompletableDeferred<Unit>()
+        val releaseFirstInit = CompletableDeferred<Unit>()
+        var initializeCalls = 0
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers {
+            initializeCalls++
+            if (initializeCalls == 1) {
+                firstInitStarted.complete(Unit)
+                releaseFirstInit.await()
+                throw IllegalStateException("first native initialization returned after watchdog")
+            }
+            isReady.value = true
+        }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        runCurrent()
+        assertTrue(firstInitStarted.isCompleted)
+
+        advanceTimeBy(MODEL_INITIALIZATION_WATCHDOG_MS + 1)
+        runCurrent()
+        val failure = observedStates.last { it is ChatUiState.ModelInitializationFailed }
+            as ChatUiState.ModelInitializationFailed
+        assertTrue(failure.message.contains("taking too long"))
+
+        viewModel.retryModelInitialization()
+        runCurrent()
+        assertEquals(1, initializeCalls, "Retry must wait for the in-flight native initialization")
+        assertFalse(isReady.value, "Retry must not overlap the still-running native initialization")
+
+        releaseFirstInit.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+        assertEquals(2, initializeCalls)
+        collector.cancel()
+    }
+
+    @Test
+    fun `late successful initialization clears watchdog error before later loading`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val initStarted = CompletableDeferred<Unit>()
+        val releaseInit = CompletableDeferred<Unit>()
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers {
+            initStarted.complete(Unit)
+            releaseInit.await()
+            isReady.value = true
+        }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        runCurrent()
+        assertTrue(initStarted.isCompleted)
+
+        advanceTimeBy(MODEL_INITIALIZATION_WATCHDOG_MS + 1)
+        runCurrent()
+        assertTrue(observedStates.last() is ChatUiState.ModelInitializationFailed)
+
+        releaseInit.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+
+        isReady.value = false
+        runCurrent()
+        assertTrue(
+            observedStates.last() is ChatUiState.Loading,
+            "A later not-ready transition must show Loading, not the stale watchdog error",
+        )
+        collector.cancel()
+    }
+
+    @Test
+    fun `watchdog does not run while eager initialization waits for the shared lock`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val lockAcquired = CompletableDeferred<Unit>()
+        val releaseLock = CompletableDeferred<Unit>()
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        val lockHolder = launch {
+            Gemma4InitLock.mutex.lock()
+            try {
+                lockAcquired.complete(Unit)
+                releaseLock.await()
+            } finally {
+                Gemma4InitLock.mutex.unlock()
+            }
+        }
+        runCurrent()
+        assertTrue(lockAcquired.isCompleted)
+
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers { isReady.value = true }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        runCurrent()
+        advanceTimeBy(MODEL_INITIALIZATION_WATCHDOG_MS + 1)
+        runCurrent()
+        assertFalse(
+            observedStates.any { it is ChatUiState.ModelInitializationFailed },
+            "Waiting for the shared initialization lock is not an initialization failure",
+        )
+
+        releaseLock.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+        collector.cancel()
+        lockHolder.join()
+    }
+
+    @Test
+    fun `watchdog starts only after eager initialization reaches foreground`() = runTest(dispatcher) {
+        val modelPath = "/models/gemma-4-E4B-it.litertlm"
+        val isReady = MutableStateFlow(false)
+        val owner = mockk<LifecycleOwner>()
+        val lifecycle = mockk<Lifecycle>()
+        var lifecycleState = Lifecycle.State.CREATED
+        val observers = mutableListOf<LifecycleEventObserver>()
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { owner.lifecycle } returns lifecycle
+        every { lifecycle.currentState } answers { lifecycleState }
+        every { lifecycle.addObserver(any()) } answers {
+            observers += firstArg<LifecycleEventObserver>()
+        }
+        every { lifecycle.removeObserver(any()) } just runs
+        every { ProcessLifecycleOwner.Companion.get() } returns owner
+        every { inferenceEngine.isReady } returns isReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns modelPath
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+        coEvery { inferenceEngine.initialize(any()) } coAnswers { isReady.value = true }
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        runCurrent()
+        assertTrue(observers.isNotEmpty())
+
+        advanceTimeBy(MODEL_INITIALIZATION_WATCHDOG_MS + 1)
+        runCurrent()
+        assertFalse(
+            observedStates.any { it is ChatUiState.ModelInitializationFailed },
+            "Waiting for the app to reach foreground is not model initialization time",
+        )
+
+        lifecycleState = Lifecycle.State.STARTED
+        observers.toList().forEach { it.onStateChanged(owner, Lifecycle.Event.ON_START) }
+        advanceUntilIdle()
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+        collector.cancel()
     }
 
     @Test
@@ -1320,7 +1704,10 @@ class ChatViewModelInitTest {
         val currentModels = mutableListOf<KernelModel?>()
         val collector = launch { viewModel.currentModel.collect { currentModels += it } }
         runCurrent()
-        // initEngineWhenReady is now parked inside getSettings, holding the init mutex.
+        // initEngineWhenReady is now parked inside getSettings, holding the init mutex. Assert
+        // that explicitly: if the foreground gate aborted the eager cold path, initGemma4's own
+        // cold path would hydrate later and this test would silently stop covering the race.
+        coVerify(exactly = 1) { modelSettingsRepository.getSettings(any()) }
 
         viewModel.onInputChanged("hello")
         viewModel.sendMessage()
@@ -1413,6 +1800,44 @@ class ChatViewModelInitTest {
             afterApply.error!!.contains("no active model", ignoreCase = true),
             "apply after failed settings hydration must fail with no active model, got: ${afterApply.error}",
         )
+        collector.cancel()
+    }
+
+    @Test
+    fun `fresh conversation reset failure exposes retryable model error`() = runTest(dispatcher) {
+        val isReady = MutableStateFlow(true)
+        val settings = ModelSettingsEntity(
+            modelId = "gemma_4_e4b",
+            contextWindowSize = 8192,
+            temperature = 0.7f,
+            topP = 0.9f,
+            topK = 64,
+            showThinkingProcess = true,
+            speculativeDecodingEnabled = false,
+            updatedAt = 1L,
+        )
+        every { inferenceEngine.isReady } returns isReady
+        every { inferenceEngine.loadedModelPath } returns "/models/gemma-4-E4B-it.litertlm"
+        every { downloadManager.areRequiredModelsDownloaded() } returns true
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/models/gemma-4-E4B-it.litertlm")),
+        )
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns settings
+
+        val viewModel = createViewModel()
+        val observedStates = mutableListOf<ChatUiState>()
+        val collector = launch { viewModel.uiState.collect { observedStates += it } }
+        advanceUntilIdle()
+        assertTrue(observedStates.last() is ChatUiState.Ready)
+
+        isReady.value = false
+        coEvery { inferenceEngine.resetConversation() } throws IllegalStateException("GPU context lost")
+        viewModel.startNewConversation()
+        advanceUntilIdle()
+
+        val failure = observedStates.last { it is ChatUiState.ModelInitializationFailed }
+            as ChatUiState.ModelInitializationFailed
+        assertEquals("Failed to load AI model: GPU context lost", failure.message)
         collector.cancel()
     }
 

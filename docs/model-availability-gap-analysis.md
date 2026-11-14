@@ -3,6 +3,7 @@
 > **Generated:** 2026-05-30
 > **Scope:** All model-facing screens in `kernel-ai-assistant` reviewed against `docs/model-availability-ux-patterns.md`
 > **Status:** Complete — audit, writeup, and issue creation done
+> **Historical snapshot:** The EmbeddingGemma findings below describe the 2026-05-30 catalogue and UI. Issue #1559 Phase B supersedes that embedding inventory with Arctic Embed M v1.5, temporarily served by a public rolling GitHub release; GitHub release immutability is not a launch gate, and #1563 tracks non-blocking community publication.
 
 ---
 

@@ -36,6 +36,8 @@ import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.lists.ListsDataChanged
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.repository.ListMutationRepository
+import com.kernel.ai.core.memory.repository.ListMutationBlockedException
 import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.entity.NoteEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
@@ -43,6 +45,7 @@ import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.StoreListCatalog
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.ToolPresentation
@@ -154,6 +157,7 @@ class NativeIntentHandler @Inject constructor(
     private val listNotificationScheduler: ListNotificationScheduler,
     /** Injectable clock for stable unit test results. Defaults to [LocalDate.now]. */
     private val nowProvider: () -> java.time.LocalDate = { java.time.LocalDate.now() },
+    private val listMutations: ListMutationRepository? = null,
 ) {
 
     suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
@@ -170,7 +174,7 @@ class NativeIntentHandler @Inject constructor(
                 "send_sms" -> sendSms(params)
                 "set_alarm" -> setAlarm(params)
                 "set_timer" -> setTimer(params)
-                "cancel_timer" -> cancelTimer()
+                "cancel_timer" -> cancelTimer(params)
                 "list_timers" -> listTimers()
                 "cancel_timer_named" -> cancelTimerNamed(params)
                 "get_timer_remaining" -> getTimerRemaining(params)
@@ -236,6 +240,8 @@ class NativeIntentHandler @Inject constructor(
             }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ListMutationBlockedException) {
+            SkillResult.Failure(normalizedName, e.message ?: "This Nextcloud list is read-only.")
         } catch (e: Exception) {
             Log.e(TAG, "NativeIntentHandler.handle($normalizedName) failed", e)
             SkillResult.Failure("run_intent", e.message ?: "Unknown error")
@@ -265,6 +271,10 @@ class NativeIntentHandler @Inject constructor(
         private val INTENT_ALIASES = mapOf(
             "get_list" to "get_list_items",
         )
+        private val INVALID_LIST_NAME_RE = Regex(
+            """^\s*(?:it|that|this|them|these|those)\b|^\s*to\s+(?:my|the)\b|\s+to\s+my\b""",
+            RegexOption.IGNORE_CASE,
+        )
 
         /** Translates NZ/informal search terms to standard English for Maps queries. */
         private val NZ_SEARCH_TERMS = mapOf(
@@ -276,7 +286,7 @@ class NativeIntentHandler @Inject constructor(
             "freeways" to "motorways",
         )
 
-        private val KNOWN_INTENTS = setOf(
+        internal val KNOWN_INTENTS = setOf(
             "toggle_flashlight_on", "toggle_flashlight_off",
             "send_email", "send_sms", "make_call",
             "set_alarm", "cancel_alarm",
@@ -451,8 +461,10 @@ class NativeIntentHandler @Inject constructor(
                 val formattedTime = formatter.format(Instant.ofEpochMilli(scheduled.triggerAtMillis))
                 val warningText = result.warnings.joinToString(" ") { warning ->
                     when (warning) {
+                        SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
+                            "Exact-alarm access is off. This event is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
                         SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are unavailable for this alarm."
+                            "Full-screen alerts are unavailable for this alarm; the alert will appear as a high-priority notification."
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The alarm may not persist across device restarts."
                     }
@@ -495,8 +507,10 @@ class NativeIntentHandler @Inject constructor(
                 }
                 val warningText = result.warnings.joinToString(" ") { warning ->
                     when (warning) {
+                        SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
+                            "Exact-alarm access is off. This timer is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
                         SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are unavailable for this timer."
+                            "Full-screen alerts are unavailable for this timer; the alert will appear as a high-priority notification."
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The timer may not persist across device restarts."
                     }
@@ -517,8 +531,29 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
-    private fun cancelTimer(): SkillResult {
-        val cancelled = runBlocking { clockRepository.cancelAllTimers() }
+    private fun cancelTimer(params: Map<String, String>): SkillResult {
+        val timers = runBlocking { clockRepository.getAllTimers() }
+        val explicitlyCancellingAll = params["all"]?.equals("true", ignoreCase = true) == true
+        val requestedCount = params["count"]?.toIntOrNull()
+        if ("count" in params && requestedCount != 2) {
+            return timerCountClarification(timers, requestedCount)
+        }
+        if (requestedCount == 2 && timers.size != 2) {
+            return timerCountClarification(timers, requestedCount)
+        }
+        if (!explicitlyCancellingAll && requestedCount == null && timers.size > 1) {
+            return timerClarification(timers)
+        }
+
+        val cancelled = when {
+            explicitlyCancellingAll || requestedCount == 2 ->
+                runBlocking { clockRepository.cancelAllTimers() }
+            timers.size == 1 -> {
+                runBlocking { clockRepository.cancelTimer(timers.single().id) }
+                1
+            }
+            else -> 0
+        }
         val dismissedActiveAlert = clockAlertController.dismissActiveTimerAlerts()
         return when {
             cancelled > 0 && dismissedActiveAlert ->
@@ -548,14 +583,92 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun cancelTimerNamed(params: Map<String, String>): SkillResult {
-        val name = params["name"] ?: return cancelTimer()
+        val name = params["name"]?.takeIf { it.isNotBlank() } ?: return cancelTimer(emptyMap())
+        val timers = runBlocking { clockRepository.getAllTimers() }
         val durationMs = parseDurationToMs(name)
-        val cancelled = runBlocking { clockRepository.cancelTimersMatching(name, durationMs) }
-        if (cancelled == 0) return SkillResult.Failure("cancel_timer_named", "No timer matching '$name' found")
-        return SkillResult.Success(
-            if (cancelled == 1) "Cancelled the $name timer"
-            else "Cancelled $cancelled timers matching $name"
+        val matches = timers.filter { timer ->
+            timer.label?.equals(name, ignoreCase = true) == true ||
+                (durationMs != null && timer.durationMs == durationMs)
+        }
+        val normalizedName = name.lowercase(Locale.ROOT)
+        val ordinalIndex = when (normalizedName) {
+            "first" -> 0
+            "second" -> 1
+            "third" -> 2
+            "fourth" -> 3
+            "last" -> timers.lastIndex
+            else -> normalizedName
+                .removeSuffix("st")
+                .removeSuffix("nd")
+                .removeSuffix("rd")
+                .removeSuffix("th")
+                .toIntOrNull()
+                ?.minus(1)
+        }
+        val candidates = when {
+            matches.isNotEmpty() -> matches
+            ordinalIndex != null && ordinalIndex in timers.indices -> listOf(timers[ordinalIndex])
+            else -> emptyList()
+        }
+        return when (candidates.size) {
+            0 -> SkillResult.Failure("cancel_timer_named", "No timer matching '$name' found")
+            1 -> {
+                runBlocking { clockRepository.cancelTimer(candidates.single().id) }
+                SkillResult.Success("Cancelled the $name timer")
+            }
+            else -> timerClarification(timers, candidates)
+        }
+    }
+
+    private fun timerClarification(
+        timers: List<ClockTimer>,
+        choices: List<ClockTimer> = timers,
+    ): SkillResult.DirectReply {
+        val now = System.currentTimeMillis()
+        val choiceDescriptions = choices.map { timer ->
+            val position = timerOrdinalPosition(timers.indexOfFirst { it.id == timer.id })
+            val label = timer.label?.takeIf { it.isNotBlank() } ?: "Timer"
+            val remainingSeconds = ((timer.triggerAtMillis - now).coerceAtLeast(0L)) / 1_000L
+            "$position $label — ${formatSpokenDuration(remainingSeconds)} remaining"
+        }
+        return SkillResult.DirectReply(
+            "Which timer should I cancel? Say a complete command, such as \"cancel the second timer\" or \"cancel the Tea timer\". Active timers: ${choiceDescriptions.joinToString("; ")}.",
         )
+    }
+
+    private fun timerCountClarification(
+        timers: List<ClockTimer>,
+        requestedCount: Int?,
+    ): SkillResult.DirectReply {
+        if (timers.isEmpty()) return SkillResult.DirectReply("No timers running.")
+
+        val countIssue = when (requestedCount) {
+            2 -> "I found ${timers.size} active timers, so I didn't cancel any: \"both\" requires exactly two."
+            null -> "I couldn't confirm how many timers you meant, so I didn't cancel any."
+            else -> "I found ${timers.size} active timers, so I couldn't cancel exactly $requestedCount; I didn't cancel any."
+        }
+        val nextStep = if (requestedCount == 2) {
+            "To cancel two, issue two complete commands, one at a time."
+        } else {
+            "To choose a timer, use a complete command."
+        }
+        val chooseOne = timerClarification(timers).content
+        return SkillResult.DirectReply("$countIssue $nextStep $chooseOne")
+    }
+
+    private fun timerOrdinalPosition(index: Int): String {
+        val number = index + 1
+        val suffix = if (number % 100 in 11..13) {
+            "th"
+        } else {
+            when (number % 10) {
+                1 -> "st"
+                2 -> "nd"
+                3 -> "rd"
+                else -> "th"
+            }
+        }
+        return "$number$suffix."
     }
 
     private fun getTimerRemaining(params: Map<String, String>): SkillResult {
@@ -1896,7 +2009,7 @@ class NativeIntentHandler @Inject constructor(
 
     /** Bare placeholder phrases that should trigger slot-fill rather than being added verbatim. */
     private val ITEM_FILLER_RE = Regex(
-        """^(an?\s+item|something|a\s+thing|it|one|some)$""",
+        """^(an?\s+item|something|a\s+thing|it|that|this|them|these|those|one|some)$""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -1911,44 +2024,161 @@ class NativeIntentHandler @Inject constructor(
         return ITEM_FILLER_RE.matches(normalized)
     }
 
+    private data class ListResolution(
+        val match: ListNameEntity? = null,
+        val ambiguous: List<ListNameEntity> = emptyList(),
+    ) {
+        val isAmbiguous: Boolean get() = ambiguous.isNotEmpty()
+    }
+
+    // Derive fallback names/candidates only; resolveActiveList checks the raw title first.
     private fun normalizeListName(raw: String): String {
         val trimmed = raw.lowercase().trim()
-        val alias = trimmed.removePrefix("my ").removePrefix("the ")
+        val withoutPrompt = if (LIST_NAME_GENERIC_ALIAS.matches(trimmed)) {
+            trimmed
+        } else {
+            LIST_NAME_PROMPT_PREFIX.replace(trimmed, "").trim()
+        }
+        val withoutPossessive = LIST_NAME_POSSESSIVE_PREFIX.replace(withoutPrompt, "").trim()
+        val normalized = if (withoutPrompt != trimmed || LIST_NAME_GENERIC_ALIAS.matches(withoutPossessive)) {
+            withoutPossessive
+        } else {
+            trimmed
+        }
+        val alias = normalized.removePrefix("my ").removePrefix("the ")
         return when (alias) {
             "shopping", "shopping list", "grocery list", "groceries", "grocery" -> "shopping list"
-            "todo", "to do", "todos", "to-do", "to-do list" -> "to-do list"
-            else -> trimmed
+            "todo", "todo list", "to do", "todos", "to-do", "to-do list", "to do list" -> "to-do list"
+            else -> normalized
         }
     }
 
+    private val LIST_NAME_PROMPT_PREFIX =
+        Regex("^(?:to|on|onto|in|into)\\s+(?=(?:my|the)\\b)", RegexOption.IGNORE_CASE)
+    private val LIST_NAME_POSSESSIVE_PREFIX = Regex("^(?:my|the)\\s+", RegexOption.IGNORE_CASE)
+    private val LIST_NAME_GENERIC_ALIAS = Regex(
+        "^(shopping|grocery|groceries|todo|todos|to do|to-do)(?:\\s+list)?$",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun listLookupCandidates(raw: String): Set<String> = buildSet {
+        val rawName = raw.trim()
+        // Called only after raw exact and case-insensitive title checks. Strip bounded prompt
+        // prefixes before deriving the optional "list" descriptor candidates.
+        val withoutPrompt = LIST_NAME_PROMPT_PREFIX.replace(rawName, "").trim()
+        val name = LIST_NAME_POSSESSIVE_PREFIX.replace(withoutPrompt, "").trim()
+        val lastSpace = name.lastIndexOf(' ')
+        if (lastSpace >= 0 && name.substring(lastSpace + 1).equals("list", ignoreCase = true)) {
+            name.substring(0, lastSpace).trim().takeIf { it.isNotBlank() }?.let(::add)
+        } else if (name.isNotBlank()) {
+            add("$name List")
+        }
+
+        when (normalizeListName(name)) {
+            "shopping list" -> addAll(listOf("shopping", "shopping list", "grocery", "grocery list", "groceries"))
+            "to-do list" -> addAll(listOf("todo", "todos", "to do", "to-do", "to-do list", "to do list"))
+        }
+    }
+
+    private fun resolveMatches(matches: List<ListNameEntity>): ListResolution {
+        val unique = matches.distinctBy { it.id }
+        return when (unique.size) {
+            0 -> ListResolution()
+            1 -> ListResolution(match = unique.single())
+            else -> ListResolution(ambiguous = unique)
+        }
+    }
+
+    private suspend fun resolveActiveList(rawName: String): ListResolution {
+        val requestedName = rawName.trim()
+        listNameDao.getByName(requestedName)?.let { return ListResolution(match = it) }
+
+        val activeLists = listNameDao.getAll()
+        val caseInsensitive = activeLists.filter { it.name.equals(requestedName, ignoreCase = true) }
+        if (caseInsensitive.isNotEmpty()) return resolveMatches(caseInsensitive)
+
+        val candidates = listLookupCandidates(requestedName)
+        return resolveMatches(activeLists.filter { list ->
+            candidates.any { candidate -> list.name.equals(candidate, ignoreCase = true) }
+        })
+    }
+
+    private suspend fun resolveStoreList(rawName: String, mapping: StoreListCatalog.Mapping): ListResolution {
+        val rawResolution = resolveActiveList(rawName)
+        if (rawResolution.match != null || rawResolution.isAmbiguous) return rawResolution
+
+        for (storeListName in mapping.storeListNames) {
+            if (storeListName.equals(rawName.trim(), ignoreCase = true)) continue
+            val resolution = resolveActiveList(storeListName)
+            if (resolution.match != null || resolution.isAmbiguous) return resolution
+        }
+        for (categoryListName in mapping.category.listCandidates) {
+            val resolution = resolveActiveList(categoryListName)
+            if (resolution.match != null || resolution.isAmbiguous) return resolution
+        }
+        return ListResolution()
+    }
+
+    private suspend fun resolveAnyLifecycleList(rawName: String): ListResolution {
+        val requestedName = rawName.trim()
+        listNameDao.getByNameAnyLifecycle(requestedName)?.let { return ListResolution(match = it) }
+
+        val lists = listNameDao.getAllAnyLifecycle()
+        val caseInsensitive = lists.filter { it.name.equals(requestedName, ignoreCase = true) }
+        if (caseInsensitive.isNotEmpty()) return resolveMatches(caseInsensitive)
+
+        val candidates = listLookupCandidates(requestedName)
+        return resolveMatches(lists.filter { list ->
+            candidates.any { candidate -> list.name.equals(candidate, ignoreCase = true) }
+        })
+    }
+
+    private fun ambiguousListReply(): SkillResult =
+        SkillResult.DirectReply("I found more than one matching list. Which list did you mean?")
+
     private fun addToList(params: Map<String, String>): SkillResult {
         val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("add_to_list", "No item specified")
+        if (item == null) {
+            if (params["items"]?.isNotBlank() != true) {
+                return SkillResult.DirectReply("What would you like to add?")
+            }
+            if (params["list_name"]?.isNotBlank() != true) {
+                return SkillResult.Failure("add_to_list", "No list name specified")
+            }
+            return bulkAddToList(params)
+        }
 
         // Guard against filler phrases like "an item", "something", "it", etc.
         if (isFillerItem(item)) {
-            val targetList = params["list_name"]?.trim()?.lowercase()
-                ?.let { normalizeListName(it) } ?: "the list"
-            return SkillResult.Failure(
-                "add_to_list",
-                "What would you like to add to $targetList?",
-            )
+            val targetList = params["list_name_for_creation"]?.trim()
+                ?.let { normalizeListName(it) }
+                ?: params["list_name"]?.trim()?.let { normalizeListName(it) }
+                ?: "the list"
+            return SkillResult.DirectReply("What would you like to add to $targetList?")
         }
 
         val raw = params["list_name"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_to_list", "No list name specified")
-        val listName = normalizeListName(raw.lowercase())
+        if (INVALID_LIST_NAME_RE.containsMatchIn(raw) ||
+            params["list_name_for_creation"]?.let(INVALID_LIST_NAME_RE::containsMatchIn) == true
+        ) {
+            return SkillResult.DirectReply("Which list should I add that item to?")
+        }
+        val resolution = runBlocking { resolveActiveList(raw) }
+        if (resolution.isAmbiguous) return ambiguousListReply()
+        val existing = resolution.match
+        val requestedName = existing?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
         val now = System.currentTimeMillis()
-        val items = runBlocking {
-            // Insert list (IGNORE if already exists), then resolve its id
-            listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
-            val list = listNameDao.getByName(listName)
-                ?: return@runBlocking emptyList<ListItemEntity>()
-            val listId = list.id
-            listItemDao.insert(
-                ListItemEntity(listId = listId, text = item, createdAt = now, updatedAt = now),
-            )
-            listItemDao.getByList(listId)
+        val (listName, items) = runBlocking {
+            val resolvedName = existing?.name ?: requestedName
+            val listId = existing?.id ?: listMutations?.createCollection(resolvedName) ?: run {
+                listNameDao.insert(ListNameEntity(name = resolvedName, createdAt = now, updatedAt = now))
+                listNameDao.getByName(resolvedName)?.id ?: return@runBlocking resolvedName to emptyList()
+            }
+            listMutations?.addItem(listId, item) ?: run {
+                listItemDao.insert(ListItemEntity(listId = listId, text = item, createdAt = now, updatedAt = now))
+            }
+            resolvedName to listItemDao.getByList(listId)
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
@@ -1958,8 +2188,7 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun bulkAddToList(params: Map<String, String>): SkillResult {
-        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
-        val listName = normalizeListName(raw)
+        val raw = params["list_name"] ?: "shopping list"
         val itemsParam = params["items"]
             ?: return SkillResult.Failure("bulk_add_to_list", "No items specified")
         val items: List<String> = try {
@@ -1969,16 +2198,30 @@ class NativeIntentHandler @Inject constructor(
             itemsParam.split(",").map { it.trim() }.filter { it.isNotBlank() }
         }
         if (items.isEmpty()) return SkillResult.Failure("bulk_add_to_list", "No valid items to add")
+        val unresolvedItem = items.firstOrNull(::isFillerItem)
+        if (unresolvedItem != null) {
+            return SkillResult.DirectReply("What would you like me to add instead of \"$unresolvedItem\"?")
+        }
+        if (INVALID_LIST_NAME_RE.containsMatchIn(raw) ||
+            params["list_name_for_creation"]?.let(INVALID_LIST_NAME_RE::containsMatchIn) == true
+        ) {
+            return SkillResult.DirectReply("Which list should I add those items to?")
+        }
+        val resolution = runBlocking { resolveActiveList(raw) }
+        if (resolution.isAmbiguous) return ambiguousListReply()
+        val existing = resolution.match
+        val requestedName = existing?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
         val now = System.currentTimeMillis()
-        val currentItems = runBlocking {
-            listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
-            val list = listNameDao.getByName(listName)
-                ?: return@runBlocking emptyList<ListItemEntity>()
-            val listId = list.id
-            items.forEach {
+        val (listName, currentItems) = runBlocking {
+            val resolvedName = existing?.name ?: requestedName
+            val listId = existing?.id ?: listMutations?.createCollection(resolvedName) ?: run {
+                listNameDao.insert(ListNameEntity(name = resolvedName, createdAt = now, updatedAt = now))
+                listNameDao.getByName(resolvedName)?.id ?: return@runBlocking resolvedName to emptyList()
+            }
+            listMutations?.addItems(listId, items) ?: items.forEach {
                 listItemDao.insert(ListItemEntity(listId = listId, text = it, createdAt = now, updatedAt = now))
             }
-            listItemDao.getByList(listId)
+            resolvedName to listItemDao.getByList(listId)
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
@@ -1990,10 +2233,37 @@ class NativeIntentHandler @Inject constructor(
 
     private fun createList(params: Map<String, String>): SkillResult {
         val raw = params["list_name"] ?: return SkillResult.Failure("create_list", "No list name specified")
-        val name = normalizeListName(raw)
-        val now = System.currentTimeMillis()
-        runBlocking { listNameDao.insert(ListNameEntity(name = name, createdAt = now, updatedAt = now)) }
-        ListsDataChanged.broadcast(context)
+        if (INVALID_LIST_NAME_RE.containsMatchIn(raw)) {
+            return SkillResult.Failure("create_list", "That doesn't look like a list name.")
+        }
+        val activeResolution = runBlocking { resolveActiveList(raw) }
+        if (activeResolution.isAmbiguous) return ambiguousListReply()
+        val anyLifecycleResolution = if (activeResolution.match == null) {
+            runBlocking { resolveAnyLifecycleList(raw) }
+        } else {
+            activeResolution
+        }
+        if (anyLifecycleResolution.isAmbiguous) return ambiguousListReply()
+        val existing = anyLifecycleResolution.match
+        val requestedName = existing?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
+        val (name, changed) = runBlocking {
+            val resolvedName = existing?.name ?: requestedName
+            val isActive = existing?.lifecycle == "ACTIVE"
+            if (!isActive) {
+                listMutations?.createCollection(resolvedName)
+                if (listMutations == null) {
+                    listNameDao.insert(
+                        ListNameEntity(
+                            name = resolvedName,
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis(),
+                        ),
+                    )
+                }
+            }
+            resolvedName to !isActive
+        }
+        if (changed) ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
             "Created list \"$name\".",
             presentation = buildListPreview(name, emptyList(), "No items yet."),
@@ -2001,12 +2271,29 @@ class NativeIntentHandler @Inject constructor(
     }
 
     private fun getListItems(params: Map<String, String>): SkillResult {
-        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
-        val listName = normalizeListName(raw)
-        val items = runBlocking {
-            val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
-            listItemDao.getByList(list.id)
+        val raw = params["list_name"] ?: "shopping list"
+        val storeMapping = StoreListCatalog.find(raw)
+        val resolution = runBlocking {
+            if (storeMapping == null) resolveActiveList(raw) else resolveStoreList(raw, storeMapping)
         }
+        if (resolution.isAmbiguous) return ambiguousListReply()
+        val activeList = resolution.match
+        val requestedName = activeList?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
+        val items = activeList?.let { runBlocking { listItemDao.getByList(it.id) } } ?: emptyList()
+        val list = activeList ?: when {
+            storeMapping != null -> return SkillResult.DirectReply(StoreListCatalog.missingListReply(storeMapping))
+            params["fallthrough_on_missing"].equals("true", ignoreCase = true) ->
+                return SkillResult.Failure(
+                    "get_list_items",
+                    "I couldn't find a list called \"$requestedName\".",
+                    fallThroughToModel = true,
+                )
+            else -> return SkillResult.Failure(
+                "get_list_items",
+                "I couldn't find a list called \"$requestedName\".",
+            )
+        }
+        val listName = list.name
         return if (items.isEmpty()) {
             SkillResult.DirectReply(
                 "Your $listName is empty.",
@@ -2023,19 +2310,21 @@ class NativeIntentHandler @Inject constructor(
 
     private fun removeFromList(params: Map<String, String>): SkillResult {
         val item = params["item"] ?: return SkillResult.Failure("remove_from_list", "No item specified")
-        val raw = (params["list_name"] ?: "shopping list").lowercase().trim()
-        val listName = normalizeListName(raw)
-        val all = runBlocking {
-            val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
-            listItemDao.getByList(list.id)
-        }
+        val raw = params["list_name"] ?: "shopping list"
+        val resolution = runBlocking { resolveActiveList(raw) }
+        if (resolution.isAmbiguous) return ambiguousListReply()
+        val list = resolution.match
+        val requestedName = list?.name ?: normalizeListName(params["list_name_for_creation"] ?: raw)
+        val listName = list?.name ?: requestedName
+        val listId = list?.id
+        val all = list?.let { runBlocking { listItemDao.getByList(it.id) } } ?: emptyList()
         val match = all.firstOrNull { it.text.equals(item, ignoreCase = true) }
             ?: all.firstOrNull { it.text.contains(item, ignoreCase = true) }
             ?: return SkillResult.DirectReply("\"$item\" not found in $listName.")
         val remaining = runBlocking {
-            listItemDao.deleteItem(match.id)
-            val list = listNameDao.getByName(listName) ?: return@runBlocking emptyList<ListItemEntity>()
-            listItemDao.getByList(list.id)
+            if (listId == null) return@runBlocking emptyList()
+            listMutations?.deleteItem(match.id) ?: listItemDao.deleteItem(match.id)
+            listItemDao.getByList(listId)
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
@@ -2043,6 +2332,7 @@ class NativeIntentHandler @Inject constructor(
             presentation = buildListPreview(listName, remaining, "No items left."),
         )
     }
+
 
     // ── Smart Home (stub — pending #311 / #312) ───────────────────────────────
 
@@ -2075,8 +2365,7 @@ class NativeIntentHandler @Inject constructor(
     private fun addReminder(params: Map<String, String>): SkillResult {
         val item = params["item"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_reminder", "No task specified for reminder")
-        val rawListName = (params["list_name"] ?: "to-do list").lowercase().trim()
-        val listName = normalizeListName(rawListName)
+        val rawListName = (params["list_name"] ?: "to-do list").trim()
         val dayRaw = params["day"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_reminder", "No day specified for reminder")
         val timeRaw = params["time"]?.trim()?.takeIf { it.isNotBlank() }
@@ -2095,36 +2384,41 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val result = runBlocking {
-            val existingList = listNameDao.getByName(listName)
-            val createdList = existingList == null
-            if (createdList) {
-                listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
+            val rawExistingList = listNameDao.getByName(rawListName)
+                ?: listNameDao.getByNameIgnoreCase(rawListName)
+            val requestedName = rawExistingList?.name ?: normalizeListName(rawListName)
+            val existingList = rawExistingList ?: if (requestedName.equals(rawListName, ignoreCase = true)) {
+                null
+            } else {
+                listNameDao.getByName(requestedName)
+                    ?: listNameDao.getByNameIgnoreCase(requestedName)
             }
-            val list = listNameDao.getByName(listName) ?: return@runBlocking null
-            val listId = list.id
-            val existingItemIds = listItemDao.getByList(listId).mapTo(mutableSetOf()) { it.id }
-            listItemDao.insert(
-                ListItemEntity(
-                    listId = listId,
-                    text = item,
-                    createdAt = now,
-                    updatedAt = now,
-                    dueAt = triggerAt,
-                    notificationTime = triggerAt,
-                ),
-            )
-            val allItems = listItemDao.getByList(listId)
-            val insertedItem = allItems.lastOrNull {
-                it.id !in existingItemIds &&
-                    it.text == item &&
-                    it.dueAt == triggerAt &&
-                    it.notificationTime == triggerAt
+            val listName = existingList?.name ?: requestedName
+            val createdList = existingList == null
+            val listId = if (listMutations != null && createdList) {
+                listMutations.createCollection(listName)
+            } else {
+                existingList?.id ?: run {
+                    listNameDao.insert(ListNameEntity(name = listName, createdAt = now, updatedAt = now))
+                    listNameDao.getByName(listName)?.id
+                }
+            } ?: return@runBlocking null
+            val insertedItemId = if (listMutations != null) {
+                listMutations.addItem(listId, item, triggerAt, triggerAt)
+            } else {
+                listItemDao.insert(ListItemEntity(listId = listId, text = item, createdAt = now, updatedAt = now, dueAt = triggerAt, notificationTime = triggerAt))
+                listItemDao.getByList(listId).lastOrNull { it.text == item && it.dueAt == triggerAt }?.id
+            } ?: return@runBlocking null
+            val persistedItem = if (listMutations == null) {
+                listItemDao.getByList(listId).lastOrNull { it.id == insertedItemId || (it.text == item && it.dueAt == triggerAt) }
+            } else {
+                listItemDao.getById(insertedItemId)
             }
             ReminderInsertResult(
-                insertedItem = insertedItem,
+                insertedItem = persistedItem,
                 listId = listId,
                 listName = listName,
-                allItems = allItems,
+                allItems = listItemDao.getByList(listId),
                 createdList = createdList,
             )
         } ?: return SkillResult.Failure("add_reminder", "Could not create reminder list")
@@ -2144,8 +2438,10 @@ class NativeIntentHandler @Inject constructor(
             }
         } catch (_: Exception) {
             runBlocking {
-                insertedItem?.let { listItemDao.deleteItem(it.id) }
-                if (createdList) listNameDao.deleteById(listId)
+                insertedItem?.let { if (listMutations != null) listMutations.deleteItem(it.id) else listItemDao.deleteItem(it.id) }
+                if (createdList) {
+                    if (listMutations != null) listMutations.deleteCollection(listId) else listNameDao.deleteById(listId)
+                }
             }
         }
         if (!scheduleOk) {
@@ -2226,28 +2522,43 @@ class NativeIntentHandler @Inject constructor(
         )
     }
 
+    private fun canonicalSelfImportantDateLabel(label: String): String? =
+        when (label.trim().lowercase(Locale.ENGLISH)) {
+            "birthday", "my birthday" -> "birthday"
+            "anniversary", "my anniversary" -> "anniversary"
+            "wedding anniversary", "my wedding anniversary" -> "wedding anniversary"
+            else -> null
+        }
+
     private fun resolveStoredImportantDateLabel(label: String, userName: String?): String {
         val trimmed = label.trim()
-        if (userName.isNullOrBlank()) return trimmed
-        return when (trimmed.lowercase(Locale.ENGLISH)) {
-            "birthday" -> "$userName's birthday"
-            "anniversary" -> "$userName's anniversary"
-            "wedding anniversary" -> "$userName's wedding anniversary"
-            else -> trimmed
+        val canonicalLabel = canonicalSelfImportantDateLabel(trimmed) ?: return trimmed
+        if (userName.isNullOrBlank()) {
+            return if (trimmed.equals(canonicalLabel, ignoreCase = true)) trimmed else canonicalLabel
         }
+        return "$userName's $canonicalLabel"
+    }
+
+    private fun importantDateLabelCandidates(label: String, userName: String?): List<String> {
+        val trimmed = label.trim()
+        val canonicalLabel = canonicalSelfImportantDateLabel(trimmed) ?: trimmed
+        return linkedSetOf(
+            resolveStoredImportantDateLabel(trimmed, userName),
+            canonicalLabel,
+            trimmed,
+        ).toList()
     }
 
     private fun buildImportantDateConfirmation(
         originalLabel: String,
         storedLabel: String,
         displayDate: String,
-    ): String = when (originalLabel.trim().lowercase(Locale.ENGLISH)) {
+    ): String = when (canonicalSelfImportantDateLabel(originalLabel)) {
         "birthday" -> "I'll remember your birthday is $displayDate."
         "anniversary" -> "I'll remember your anniversary is $displayDate."
         "wedding anniversary" -> "I'll remember your wedding anniversary is $displayDate."
         else -> "I'll remember $storedLabel as $displayDate."
     }
-
 
     private fun listImportantDates(): SkillResult {
         val today = LocalDate.now()
@@ -2269,7 +2580,7 @@ class NativeIntentHandler @Inject constructor(
         val label = params["label"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("remove_important_date", "No label specified")
         val userName = runBlocking { userProfileRepository.getName() }?.trim()?.takeIf { it.isNotBlank() }
-        val candidateLabels = linkedSetOf(resolveStoredImportantDateLabel(label, userName), label)
+        val candidateLabels = importantDateLabelCandidates(label, userName)
         val removedLabel = runBlocking {
             candidateLabels.firstNotNullOfOrNull { candidate ->
                 val existing = importantDateRepository.findByLabel(candidate) ?: return@firstNotNullOfOrNull null
@@ -2295,6 +2606,12 @@ class NativeIntentHandler @Inject constructor(
             ?.let { parseDateString(it) } ?: today
         val targetDate = parseDateString(targetStr, preferPast = preferPast)
         ?: run {
+            val selfDateLabel = canonicalSelfImportantDateLabel(targetStr)
+            if (selfDateLabel != null) {
+                val message = "I don't know your $selfDateLabel yet. " +
+                    "Say \"my $selfDateLabel is 3 June\" and I'll remember it."
+                return SkillResult.DirectReply(message, spokenSummary = message)
+            }
             val lower = targetStr.lowercase(Locale.ENGLISH)
             if (isLikelyCalendarDateLabel(lower)) {
                 if (!calendarBirthdayLookup.hasPermission()) {
@@ -2304,15 +2621,9 @@ class NativeIntentHandler @Inject constructor(
                         contextParams = mapOf("target_date" to targetStr),
                     )
                 }
-                val labelField = when {
-                    "birthday" in lower -> "birthday"
-                    "anniversary" in lower -> "anniversary"
-                    else -> "date"
-                }
-                return SkillResult.Failure(
-                    "get_date_diff",
-                    "Could not parse date: \"$targetStr\". Enable Calendar $labelField in Important dates if this should be a calendar lookup.",
-                )
+                val message = "I couldn't find $targetStr in your important dates or calendar. " +
+                    "Say \"$targetStr is 3 June\" to teach me."
+                return SkillResult.DirectReply(message, spokenSummary = message)
             }
             return SkillResult.Failure(
                 "get_date_diff",
@@ -2755,6 +3066,14 @@ class NativeIntentHandler @Inject constructor(
             }
         }
 
+        if (canonicalSelfImportantDateLabel(s) != null) {
+            val userName = runBlocking { userProfileRepository.getName() }?.trim()?.takeIf { it.isNotBlank() }
+            val stored = runBlocking {
+                importantDateLabelCandidates(s, userName)
+                    .firstNotNullOfOrNull { candidate -> importantDateRepository.findByLabel(candidate) }
+            } ?: return null
+            return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
+        }
         runBlocking { importantDateRepository.findByLabel(s) }?.let { stored ->
             return resolveRecurringDate(stored.month, stored.day, today, preferPast = preferPast)
         }
@@ -2916,7 +3235,7 @@ class NativeIntentHandler @Inject constructor(
                     return@runBlocking SkillResult.DirectReply(prompt)
                 }
                 val content = normaliseSaveContent(raw, userName)
-                val vector = embeddingEngine.embed(content).takeIf { it.isNotEmpty() }
+                val vector = embeddingEngine.embedDocument(content).takeIf { it.isNotEmpty() }
                 memoryRepository.addCoreMemory(
                     content = content,
                     source = "agent",

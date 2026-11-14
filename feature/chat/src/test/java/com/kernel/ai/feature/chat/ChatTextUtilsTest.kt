@@ -25,10 +25,10 @@ class ChatTextUtilsTest {
             id = "nz_141",
             term = "Wharepaku",
             category = "culture",
-            definition = "Wharepaku is the te reo Māori term for a toilet, restroom, or bathroom. It's a compound word literally meaning 'small house' (whare = building/house, paku = small). Standard term found on public signage, schools, and government buildings across New Zealand.",
+            definition = "The te reo Māori term for toilet, restroom, bathroom, or lavatory.",
             triggerContext = "When the user asks about wharepaku, bathroom, toilet, or restroom",
             vibeLevel = 3,
-            vectorText = "Wharepaku. Toilet. Restroom. Bathroom. Māori language. New Zealand. Small house. Public signage. Māori culture. Te reo Māori.",
+            vectorText = "Wharepaku. Toilet. Restroom. Bathroom. Lavatory. Loo.",
             metadataJson = """{}""",
         ),
         JandalPersona.NzTruthEntry(
@@ -45,10 +45,10 @@ class ChatTextUtilsTest {
             id = "nz_143",
             term = "Taniwha",
             category = "culture",
-            definition = "Taniwha are powerful supernatural beings in Māori mythology that dwell in deep rivers, dark caves, lakes, or the ocean. They can be protective guardians (kaitiaki) for an iwi or dangerous predatory monsters that kidnap women or eat people. They are complex figures that enforce respect for natural boundaries and waterways.",
-            triggerContext = "When the user asks about taniwha, Māori mythology, or supernatural beings in New Zealand",
+            definition = "Taniwha are beings in Māori oral traditions associated with particular places and genealogies. Accounts and roles vary by iwi, hapū, and rohe; some are kaitiaki, while others are dangerous or adversarial.",
+            triggerContext = "When the user asks about taniwha or a specific Māori oral tradition, place, or kaitiaki",
             vibeLevel = 4,
-            vectorText = "Taniwha. Māori mythology. Supernatural beings. Kaitiaki. Guardians. Water spirits. New Zealand. Māori culture. Iwi. Natural boundaries. Waterways.",
+            vectorText = "Taniwha. Māori oral traditions. Place and whakapapa. Iwi, hapū, rohe. Kaitiaki. Guardian. Dangerous or adversarial being.",
             metadataJson = """{}""",
         ),
         JandalPersona.NzTruthEntry(
@@ -59,6 +59,76 @@ class ChatTextUtilsTest {
             triggerContext = "When the user asks about kumara, sweet potato, hāngī, or traditional Māori food",
             vibeLevel = 3,
             vectorText = "Kumara. Sweet potato. Māori food. Hāngī. Sunday roast. New Zealand. Aotearoa. Owairaka. Toka Toka. Beauregard. Root vegetable.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_009",
+            term = "Nek Minnit",
+            category = "meme",
+            definition = "A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video. Kiwis use it to set up a sudden comic twist, e.g. 'Left my scooter outside the dairy. Nek minnit, gone.'",
+            triggerContext = "When the user says 'nek minnit' or describes leaving something unattended and something goes wrong.",
+            vibeLevel = 4,
+            vectorText = "Nek minnit. Levi Hawken. Scooter meme. Sudden change.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_010",
+            term = "Monique says you're dumb for even asking",
+            category = "meme",
+            definition = "A line from the 2011 NZTA Ghost Chips drink-driving ad, used as a cheeky comeback to a silly question.",
+            triggerContext = "When the user mentions Monique or makes a harmless mistake, respond with the quoted catchphrase and Kiwi flair.",
+            vibeLevel = 2,
+            vectorText = "Monique says you're dumb for even asking. Ghost Chips NZTA ad 2011.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_098",
+            term = "Dairy",
+            category = "daily_life",
+            definition = "A small neighbourhood shop, also called a corner store or convenience store.",
+            triggerContext = "When the user asks about a New Zealand dairy shop.",
+            vibeLevel = 2,
+            vectorText = "Dairy. Corner store. Convenience store. New Zealand shop.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_033",
+            term = "The Haka",
+            category = "te_ao_maori",
+            definition = "Haka is a Māori performance tradition with many forms for different occasions; it is not only a war dance. Ka Mate, performed by the All Blacks, is one internationally recognised haka, not the sole form.",
+            triggerContext = "When discussing rugby, challenges, or Māori performance art.",
+            vibeLevel = 2,
+            vectorText = "Haka. Māori performance. Many forms and occasions. Ka Mate. All Blacks pre-match. Rugby.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_126",
+            term = "Eh",
+            category = "slang",
+            definition = "A sentence-final New Zealand English tag inviting agreement or confirmation.",
+            triggerContext = "When the user asks about sentence-final eh.",
+            vibeLevel = 1,
+            vectorText = "Eh. Aye. Sentence-final tag. Agreement. Confirmation.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_145",
+            term = "Yeah nah",
+            category = "nz_slang",
+            definition = "An informal expression for polite disagreement or hesitation.",
+            triggerContext = "When the user asks about yeah nah.",
+            vibeLevel = 2,
+            vectorText = "Yeah nah. Yeah-nah. Polite disagreement. Soft refusal.",
+            metadataJson = """{}""",
+        ),
+        JandalPersona.NzTruthEntry(
+            id = "nz_139",
+            term = "Bugger",
+            category = "slang",
+            definition = "A common mild exclamation expressing frustration, sympathy, or disappointment.",
+            triggerContext = "When the user asks what bugger means.",
+            vibeLevel = 3,
+            vectorText = "Bugger. Bugger! Oh bugger. Bugger that. Kiwi exclamation.",
             metadataJson = """{}""",
         ),
     )
@@ -392,6 +462,138 @@ class ChatTextUtilsTest {
         }
     }
 
+    @Nested
+    @DisplayName("streaming speech chunking keeps structured values whole")
+    inner class StreamingSpeechStructuredValueTests {
+
+        /** Feeds [text] one character at a time, popping after each append like the token stream does. */
+        private fun streamChunks(text: String, minChunkLength: Int, preferredChunkLength: Int): List<String> {
+            val buffer = StringBuilder()
+            val chunks = mutableListOf<String>()
+            fun drain(force: Boolean) {
+                while (true) {
+                    chunks += popNextStreamingSpeechChunk(
+                        buffer = buffer,
+                        minChunkLength = minChunkLength,
+                        preferredChunkLength = preferredChunkLength,
+                        force = force,
+                    ) ?: break
+                }
+            }
+            text.forEach { char ->
+                buffer.append(char)
+                drain(force = false)
+            }
+            drain(force = true)
+            return chunks
+        }
+
+        /** Pops chunks from a fully buffered [text], like per-message playback does. */
+        private fun bufferedChunks(text: String, minChunkLength: Int, preferredChunkLength: Int): List<String> {
+            val buffer = StringBuilder(text)
+            val chunks = mutableListOf<String>()
+            while (buffer.isNotBlank()) {
+                chunks += popNextStreamingSpeechChunk(
+                    buffer = buffer,
+                    minChunkLength = minChunkLength,
+                    preferredChunkLength = preferredChunkLength,
+                    force = buffer.length < minChunkLength,
+                ) ?: break
+            }
+            if (buffer.isNotBlank()) chunks += finalizeChatTextForSpeech(buffer.toString())
+            return chunks
+        }
+
+        private fun assertValueSpokenWhole(chunks: List<String>, value: String) {
+            assertTrue(chunks.any { it.contains(value) }, "Expected \"$value\" whole in one chunk, got: $chunks")
+        }
+
+        @ParameterizedTest(name = "streamed \"{0}\" stays whole")
+        @ValueSource(strings = ["8:00", "\$1,200", "7:30 a.m.", "7:30 pm", "\$49.95", "NZ\$20.50", "US\$1,250.75", "3.14159", "12,500"])
+        fun `streamed value is never split across chunks at any position`(value: String) {
+            // Slide the value across the chunk limit so every split point inside it is exercised.
+            for (padding in 0..20) {
+                val text = "Okay ${"x".repeat(padding)} the answer is $value and that is the end of it"
+                for ((min, preferred) in listOf(8 to 16, 10 to 24, 16 to 32, 24 to 48)) {
+                    assertValueSpokenWhole(streamChunks(text, min, preferred), value)
+                    assertValueSpokenWhole(bufferedChunks(text, min, preferred), value)
+                }
+            }
+        }
+
+        @Test
+        fun `clock time at the length limit splits at the whitespace before it`() {
+            val buffer = StringBuilder("Your alarm is set for 8:00 tomorrow morning")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 26)
+
+            assertEquals("Your alarm is set for,", chunk)
+            assertEquals("8:00 tomorrow morning", buffer.toString())
+        }
+
+        @Test
+        fun `comma-grouped price is not split on its comma`() {
+            val buffer = StringBuilder("The laptop costs \$1,200 before the discount")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 22)
+
+            assertEquals("The laptop costs,", chunk)
+            assertTrue(buffer.startsWith("\$1,200"), "buffer was: $buffer")
+        }
+
+        @Test
+        fun `meridiem is not separated from its time`() {
+            val buffer = StringBuilder("The meeting starts at 7:30 a.m. in the hall")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 28)
+
+            assertEquals("The meeting starts at,", chunk)
+            assertTrue(buffer.startsWith("7:30 a.m."), "buffer was: $buffer")
+        }
+
+        @Test
+        fun `decimal price at the end of the stream buffer waits for more text`() {
+            val buffer = StringBuilder("Today the special offer price is \$49.")
+
+            assertNull(popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200))
+
+            buffer.append("95 for members.")
+            assertEquals(
+                "Today the special offer price is \$49.95 for members.",
+                popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200),
+            )
+        }
+
+        @Test
+        fun `ordinary long sentence still chunks on whitespace and sentence ends`() {
+            val text = "This is a perfectly normal long sentence with no numbers in it at all, " +
+                "and it keeps going for a while so the chunker has to split it somewhere sensible. " +
+                "Then a second sentence follows."
+
+            val chunks = bufferedChunks(text, minChunkLength = 24, preferredChunkLength = 48)
+
+            assertEquals(
+                listOf(
+                    "This is a perfectly normal long sentence with,",
+                    "no numbers in it at all, and it keeps going for,",
+                    "a while so the chunker has to split it,",
+                    "somewhere sensible. Then a second sentence,",
+                    "follows.",
+                ),
+                chunks,
+            )
+        }
+
+        @Test
+        fun `plain number followed by a comma and space still splits there`() {
+            val buffer = StringBuilder("In 2020, we moved to a new house near the beach")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 5, preferredChunkLength = 8)
+
+            assertEquals("In 2020,", chunk)
+        }
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // ANAPHORA DETECTION
     // ═════════════════════════════════════════════════════════════════════════
@@ -481,6 +683,13 @@ class ChatTextUtilsTest {
             assertEquals(null, extractExplicitWikipediaQuery("Search Wikipedia for it"))
             assertEquals(null, extractExplicitWikipediaQuery("Look up this on Wikipedia"))
         }
+
+        @Test
+        fun `returns null for question shaped wikipedia requests so the model answers them`() {
+            assertEquals(null, extractExplicitWikipediaQuery("Search Wikipedia for is Andy Samberg Jewish?"))
+            assertEquals(null, extractExplicitWikipediaQuery("Look up when was Constantinople founded on Wikipedia"))
+            assertEquals("Andy Samberg", extractExplicitWikipediaQuery("Look up Andy Samberg on Wikipedia"))
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -564,6 +773,10 @@ class ChatTextUtilsTest {
             strings = [
                 "save my notes",
                 "remember my birthday",
+                "Remember that my booking reference is ABC123",
+                "Can you remember that I have a dog named Xena",
+                "Could you remember that I prefer dark mode",
+                "What's my favourite coffee and add it to my shopping list",
                 "add milk to my shopping list",
                 "set alarm for 7am",
                 "set a timer for 5 minutes",
@@ -580,6 +793,7 @@ class ChatTextUtilsTest {
                 "send email to John",
                 "send sms to mum",
                 "call dad",
+                "Call Mum",
                 "look up quantum physics",
                 "plan my meals for the week",
                 "make me a meal plan",
@@ -619,6 +833,16 @@ class ChatTextUtilsTest {
         @ParameterizedTest(name = "Not a tool query: \"{0}\"")
         @ValueSource(
             strings = [
+                "Do not call any tools. What did I say earlier?",
+                "What did I ask you to remember earlier?",
+                "Do you remember what I said earlier?",
+                "Do you remember my dog's name?",
+                "Do you remember the restaurant I mentioned?",
+                "Did you remember what I told you?",
+                "Recall what I said earlier?",
+                "What do you remember about me?",
+                "What do you remember about Waitangi Day?",
+                "Can you recall the capital of France for me?",
                 "tell me a joke",
                 "explain quantum physics",
                 "write me a poem",
@@ -1269,95 +1493,75 @@ class ChatTextUtilsTest {
     inner class KnownNzTermDetectionTests {
 
 
+
         @Test
-        fun `detects wharepaku in question`() {
-            val result = detectKnownNzTerm("what is a wharepaku", sampleEntries)
-            assertEquals("Wharepaku", result?.term)
+        fun `detects direct definition questions for #1074 terms`() {
+            assertEquals("Wharepaku", detectKnownNzTerm("what is a wharepaku", sampleEntries)?.term)
+            assertEquals("Chocka", detectKnownNzTerm("what is chocka", sampleEntries)?.term)
+            assertEquals("Taniwha", detectKnownNzTerm("tell me about taniwha", sampleEntries)?.term)
+            assertEquals("Kumara", detectKnownNzTerm("what is kumara", sampleEntries)?.term)
         }
 
         @Test
-        fun `detects chocka in sentence`() {
-            val result = detectKnownNzTerm("the pub is chocka tonight", sampleEntries)
-            assertEquals("Chocka", result?.term)
+        fun `detects direct Dairy definition with a New Zealand qualifier`() {
+            assertEquals("Dairy", detectKnownNzTerm("What is a dairy in New Zealand?", sampleEntries)?.term)
         }
 
         @Test
-        fun `detects taniwha in query`() {
-            val result = detectKnownNzTerm("tell me about taniwha", sampleEntries)
-            assertEquals("Taniwha", result?.term)
+        fun `matches article-prefixed NZ terms before stripping the article`() {
+            assertEquals("The Haka", detectKnownNzTerm("what is the haka?", sampleEntries)?.term)
+        }
+        @Test
+        fun `detects direct questions for rekeyed and merged Kiwi terms`() {
+            assertEquals("Eh", detectKnownNzTerm("what is eh", sampleEntries)?.term)
+            assertEquals("Yeah nah", detectKnownNzTerm("what is yeah nah", sampleEntries)?.term)
+            assertEquals("Bugger", detectKnownNzTerm("what is bugger", sampleEntries)?.term)
         }
 
         @Test
-        fun `detects kumara in cooking question`() {
-            val result = detectKnownNzTerm("how do you cook kumara", sampleEntries)
-            assertEquals("Kumara", result?.term)
+        fun `maps direct Monique speech questions to the catchphrase`() {
+            assertEquals(
+                "Monique says you're dumb for even asking",
+                detectKnownNzTerm("what does monique say", sampleEntries)?.term,
+            )
+            assertEquals(
+                "Monique says you're dumb for even asking",
+                detectKnownNzTerm("what did Monique say when I left my scooter outside the dairy", sampleEntries)?.term,
+            )
         }
 
         @Test
-        fun `detects term with capital letters`() {
-            val result = detectKnownNzTerm("Tell me about Taniwha", sampleEntries)
-            assertEquals("Taniwha", result?.term)
+        fun `does not select Dairy from an incidental mention`() {
+            assertNull(detectKnownNzTerm("I left my scooter outside the dairy", sampleEntries))
+            assertNull(detectKnownNzTerm("the dairy is next to the pub", sampleEntries))
         }
 
         @Test
-        fun `returns first match when multiple terms present`() {
-            val result = detectKnownNzTerm("kumara and taniwha", sampleEntries)
-            // Should find Kumara first (it's earlier in the list)
-            assertNotNull(result)
-            assertTrue(result?.term == "Kumara" || result?.term == "Taniwha")
+        fun `does not choose a corpus-order result for a multi-term question`() {
+            assertNull(detectKnownNzTerm("what is kumara and taniwha", sampleEntries))
         }
 
         @Test
-        fun `returns null for non-NZ text`() {
-            val result = detectKnownNzTerm("What is the capital of France?", sampleEntries)
-            assertNull(result)
+        fun `does not intercept an explicit Wikipedia lookup`() {
+            val query = "look up wharepaku on Wikipedia"
+            assertNull(detectKnownNzTerm(query, sampleEntries))
+            assertEquals("wharepaku", extractExplicitWikipediaQuery(query))
         }
 
         @Test
-        fun `returns null for non-NZ query that mentions Wikipedia`() {
-            // This proves detectKnownNzTerm does not itself short-circuit on
-            // the word "Wikipedia" — Battle of Hastings is simply not an NZ term.
-            val result = detectKnownNzTerm("look up the Battle of Hastings on Wikipedia", sampleEntries)
-            assertNull(result)
+        fun `returns null for unrelated or non-definition text`() {
+            assertNull(detectKnownNzTerm("What is the capital of France?", sampleEntries))
+            assertNull(detectKnownNzTerm("how do you cook kumara", sampleEntries))
         }
 
         @Test
-        fun `detects wharepaku even when Wikipedia is explicitly requested`() {
-            // detectKnownNzTerm does not understand Wikipedia intent — it only
-            // checks term presence. The Wikipedia bypass is handled by the caller
-            // (ChatViewModel) which checks extractExplicitWikipediaQuery first.
-            val result = detectKnownNzTerm("look up wharepaku on Wikipedia", sampleEntries)
-            assertEquals("Wharepaku", result?.term)
+        fun `returns null for blank or whitespace text`() {
+            assertNull(detectKnownNzTerm("", sampleEntries))
+            assertNull(detectKnownNzTerm("   ", sampleEntries))
         }
 
         @Test
-        fun `detects taniwha even when Wikipedia is explicitly requested`() {
-            val result = detectKnownNzTerm("look up taniwha on Wikipedia", sampleEntries)
-            assertEquals("Taniwha", result?.term)
-        }
-
-        @Test
-        fun `returns null for blank text`() {
-            val result = detectKnownNzTerm("", sampleEntries)
-            assertNull(result)
-        }
-
-        @Test
-        fun `returns null for whitespace text`() {
-            val result = detectKnownNzTerm("   ", sampleEntries)
-            assertNull(result)
-        }
-
-        @Test
-        fun `detects wharepaku in STT normalised follow-up`() {
-            // After TranscriptNormaliser, "fattybaku" becomes "wharepaku",
-            // so the downstream detection should find "wharepaku".
-            val result = detectKnownNzTerm("where is the wharepaku", sampleEntries)
-            assertEquals("Wharepaku", result?.term)
-        }
-
-        @Test
-        fun `does not match short terms under 3 chars`() {
+        fun `does not match generic two-letter terms`() {
             val shortEntry = JandalPersona.NzTruthEntry(
                 id = "nz_short",
                 term = "NZ",
@@ -1368,13 +1572,38 @@ class ChatTextUtilsTest {
                 vectorText = "NZ. New Zealand.",
                 metadataJson = "{}",
             )
-            val result = detectKnownNzTerm("I live in NZ", listOf(shortEntry))
-            assertNull(result)
+            assertNull(detectKnownNzTerm("what is NZ", listOf(shortEntry)))
         }
     }
 
+
     @Nested
     inner class BuildKnownNzContextReplyTests {
+
+        @Test
+        fun `quotes Monique first with ad context for direct say questions`() {
+            val question = "What does Monique say?"
+            val entry = detectKnownNzTerm(question, sampleEntries)!!
+
+            assertEquals(
+                "\"Monique says you're dumb for even asking.\" A line from the 2011 NZTA Ghost Chips drink-driving ad, used as a cheeky comeback to a silly question.",
+                buildKnownNzContextReply(entry, question),
+            )
+        }
+
+        @Test
+        fun `keeps what is nek minnit definition reply clear of model instructions`() {
+            val question = "What is nek minnit"
+            val entry = detectKnownNzTerm(question, sampleEntries)!!
+            val reply = buildKnownNzContextReply(entry, question)
+
+            assertEquals(
+                "Nek Minnit: A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video. Kiwis use it to set up a sudden comic twist, e.g. 'Left my scooter outside the dairy. Nek minnit, gone.'.",
+                reply,
+            )
+            assertFalse(reply.contains("trigger"))
+            assertFalse(reply.contains("DO NOT"))
+        }
 
         @Test
         fun `builds reply for wharepaku entry`() {
@@ -1407,6 +1636,40 @@ class ChatTextUtilsTest {
             val result = buildKnownNzContextReply(entry)
             assertTrue(result.contains("Kumara"))
             assertTrue(result.contains("sweet potato"))
+        }
+    }
+
+    @Test
+    fun `action verbs count only when they start a command`() {
+        for (q in listOf(
+            "Add eggs to my shopping list",
+            "what's my favourite coffee and add it to my shopping list",
+            "Set a timer for 10 minutes",
+            "Can you remind me to call Mum",
+            "please book a table",
+            "What's my favourite coffee? Then add it to my list",
+            // A request in a later clause, however it is introduced, must keep tools on.
+            "What did I ask you earlier \u2014 add it to my shopping list",
+            "What did I say just now about eggs? Ok add them to my list",
+            "What did I ask you earlier about the timer? Let me set it",
+            "What did I ask you earlier about the timer? Now set it again",
+            "What did I ask you earlier about milk? I need you to add it to my list",
+        )) {
+            assertTrue(containsExplicitToolActionVerb(q), q)
+        }
+        for (q in listOf(
+            "What's my favourite game to play?",
+            "What did I order last time?",
+            "What did I check in last week?",
+            "What's my plan for Saturday?",
+            // A verb later in the sentence that is not a command keeps the recall grounded.
+            "What's my favourite drink, the one I order at the cafe?",
+            "What's my favourite meal, the one I make on Sundays?",
+            "What did I tell you about my sister? I want to check something.",
+            "What's my favourite colour? I need to plan a party.",
+            "What did I tell you about my job?",
+        )) {
+            assertFalse(containsExplicitToolActionVerb(q), q)
         }
     }
 }

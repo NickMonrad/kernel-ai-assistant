@@ -27,7 +27,7 @@ fun normalizeSlotReply(text: String, slotName: String): String {
         "date" -> normalizeDateSlotReply(trimmed)
         "time" -> normalizeTimeSlotReply(trimmed)
         "duration_seconds" -> normalizeDurationSlotReply(trimmed)
-        "list_name" -> normalizeListSlotReply(trimmed)
+        "list_name" -> trimmed
         else -> trimmed
     }
 }
@@ -162,20 +162,6 @@ private fun normalizeDurationSlotReply(trimmed: String): String {
 private fun normalizeDateSlotReply(trimmed: String): String {
     DATE_SLOT_TRAILING_VALUE.matchEntire(trimmed)?.groupValues?.get(1)?.trim()?.let { return it }
     return trimmed.replace(Regex("^(?:on|for)\\s+", RegexOption.IGNORE_CASE), "").trim()
-}
-
-private fun normalizeListSlotReply(trimmed: String): String {
-    val genericAlias = Regex(
-        "^(?:(?:to|on|onto|in|into)\\s+)?(?:(?:my|the)\\s+)?(shopping|grocery|groceries|todo|to do|to-do)(?:\\s+list)?$",
-        RegexOption.IGNORE_CASE,
-    ).matchEntire(trimmed)
-    return genericAlias?.groupValues?.get(1)?.lowercase()?.let(::canonicalGenericListAlias) ?: trimmed
-}
-
-private fun canonicalGenericListAlias(alias: String): String = when (alias) {
-    "shopping", "grocery", "groceries" -> "shopping list"
-    "todo", "to do", "to-do" -> "to-do list"
-    else -> alias
 }
 
 private val DATE_SLOT_TRAILING_VALUE = Regex(

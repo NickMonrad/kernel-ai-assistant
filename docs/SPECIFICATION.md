@@ -1,6 +1,6 @@
 # Technical Specification: Jandal AI — Local-First Android AI Assistant
 
-> **Last updated:** 2026-06-08 (PR #1111 merged: hardened llm_tools assertions; PR #1108: llm_tools E2E harness; PR #1106: orchestration eval framework; PR #1095: Intent Recovery Orchestrator; PR #1089: Exynos S21 GPU fixes; PR #1082: AGP 9/Gradle 9/Kotlin 2.3.21 toolchain upgrade; PR #1070: STT transcript normaliser; PR #1067: Model Availability UX overhaul)
+> **Last updated:** 2026-09-24 (#1559 Arctic Embed M v1.5 / cosine documentation reconciliation)
 >
 > This is the authoritative technical specification for Jandal AI. For feature status and
 > delivery timeline, see [`ROADMAP.md`](./ROADMAP.md).
@@ -9,13 +9,14 @@
 
 ## 1. Executive Summary
 
-Jandal AI is a privacy-centric, on-device mobile assistant for Android. All inference runs
-entirely on-device via Google AI Edge (LiteRT) — no cloud APIs, no telemetry, no data
-leaving the device. The system uses a **Resident Agent Architecture** with three tiers of
+Jandal AI is a privacy-centric, local-first mobile assistant for Android. Inference runs
+entirely on-device via Google AI Edge (LiteRT), and normal app data is local by default.
+Explicit user-enabled integrations may exchange only the narrowly scoped data required for
+that integration. The system uses a **Resident Agent Architecture** with three tiers of
 intent routing, a local RAG memory pipeline, and a modular skill framework for extensibility.
 
 **Design principles:**
-- Local-first: all inference, memory, and skill execution on-device
+- Local-first: inference and core processing stay on-device; app data is local by default, with explicit integrations opt-in
 - Resident model: Gemma-4 stays loaded on GPU — no cold-start per query
 - Deterministic fast path: simple device actions handled by regex (<5ms), not ML
 - Context-window managed: recursive summarisation, never truncate history
@@ -55,7 +56,7 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 ```
 :app                  Entry point, Hilt DI, navigation, splash screen
 :core:inference       LiteRtInferenceEngine, ModelConfig, LlmDispatcher, hardware tier detection
-:core:memory          sqlite-vec JNI bridge, EmbeddingGemma, RAG pipeline, Room entities
+:core:memory          Room-canonical memory, sqlite-vec cosine indexes, Arctic Embed M v1.5 RAG
 :core:skills          SkillRegistry, SkillExecutor, QuickIntentRouter, native Kotlin skills
 :core:wasm            Chicory Wasm host runtime, bridge functions, resource limiting
 :core:ui              Shared Compose components, Material 3 theme
@@ -65,13 +66,23 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 :feature:onboarding   First-launch model download flow
 ```
 
+### Lists synchronisation seam
+
+Lists synchronisation follows the existing local-first path:
+
+`Room-backed Lists → authoritative atomic mutation/change-recording seam → optional transport adapter → provider`
+
+Room remains the authoritative state consumed by Lists UI, skills and widgets. Local mutations commit through the atomic Room/change-recording seam before any transport attempt, so Lists remain usable offline. Only explicitly bound Lists are passed to a transport, and provider bindings remain metadata separate from Jandal stable list/item identities.
+
+The shipped optional provider is a user-configured Nextcloud Tasks server using CalDAV/VTODO. Conditional writes use provider ETags (including `If-Match`) to avoid blind overwrites. Sharing uses Nextcloud's user/group ACLs; read-only or removed access blocks writes, and stranded changes require explicit Keep-local-copy or Discard resolution. Copies are unbound and never auto-publish or silently re-associate. See the transport-independent [Shared Lists sync contract](./specs/shared-lists-sync.md) and the provider-specific [Nextcloud Tasks sync contract](./specs/nextcloud-tasks-sync.md) for detailed behaviour.
+
 ### 2.2 Model Inventory
 
 | Model | Role | Size | Backend | Loading |
 |-------|------|------|---------|---------|
 | Gemma-4 E-4B | Reasoning, tool calling | ~3.4GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls (#20, PR #57) |
 | Gemma-4 E-2B | Reasoning (8GB devices) | ~1.5GB | GPU (OpenCL) | Eager at startup; stored in external shared storage to survive reinstalls |
-| EmbeddingGemma-300M | Semantic embeddings (768-dim) | <200MB | CPU | Lazy on first RAG query |
+| Arctic Embed M v1.5 | Semantic embeddings (768-dim) | 113,850,784-byte INT8 model + 231,508-byte vocabulary | CPU | Lazy on first RAG query; anonymous HTTPS assets from public rolling release `model-arctic-embed-m-v1.5-current`; validated SHA-256 provenance in #1559 evidence |
 
 > **FunctionGemma-270M deprecated (Apr 2026):** Its 289MB footprint causes lmkd to
 > terminate the process during Gemma-4's GPU kernel compilation peak (~4–5GB transient).
@@ -83,10 +94,10 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 | Component | Performance Tier (12GB+ RAM) | Compatibility Tier (8GB RAM) |
 |-----------|------------------------------|------------------------------|
 | Reasoning | Gemma-4 E-4B | Gemma-4 E-2B |
-| Embeddings | EmbeddingGemma-300M (768-dim) | EmbeddingGemma-300M (256-dim Matryoshka) |
+| Embeddings | Arctic Embed M v1.5 (768-dim) | Arctic Embed M v1.5 (768-dim; 256-dim Matryoshka deferred to #429) |
 | GPU backend | OpenCL (Adreno 740) | OpenCL |
 | Context window | 4,000 tokens | 2,000 tokens |
-| RAM (resident) | ~3.4GB (E4B) + ~200MB (EG) | ~1.5GB (E2B) + ~200MB (EG) |
+| RAM (resident) | ~3.4GB (E4B) plus Arctic process increase measured separately | ~1.5GB (E2B) plus Arctic process increase measured separately |
 
 > **Token alignment guard:** Exact powers of 2 (4096, 8192) are avoided for `maxNumTokens`.
 > `safeTokenCount()` nudges values down by ~2.4% (e.g. 4096→4000) to prevent a LiteRT GPU
@@ -105,6 +116,14 @@ starts during Gemma-4 GPU initialisation (~20s). It keeps `oom_score_adj` at 0, 
 Samsung lmkd from demoting the process to cached (adj ~700) during the GPU kernel compilation
 peak. The service stops automatically once `InferenceEngine.isReady` becomes true.
 
+### 2.6 Active Generation Foreground Protection
+
+`InferenceGenerationService` starts only after the inference engine and conversation are ready,
+the generation mutex is acquired, and a native request is about to be sent. A stop requested
+before Android promotes the service with `startForeground()` is deferred until promotion, so
+rapid completion or cancellation cannot race the required foreground-service startup. The
+generation/cancellation path stops the service on completion, failure, or cancellation.
+
 ---
 
 ## 3. Memory Architecture
@@ -115,7 +134,11 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 - **Window:** 4,000 tokens (Performance) / 2,000 tokens (Compatibility)
 - **Proactive reset:** At ~75% capacity, `ChatViewModel` injects history-aware system prompt
   and resets the conversation, preserving selected turns
-- **Token estimation:** `ContextWindowManager.estimateTokens()` (~4 chars/token heuristic)
+- **Token estimation:** `ContextWindowManager.estimateTokens()` (~3 chars/token heuristic).
+  History selection subtracts the estimated system prompt and tool-declaration cost plus the
+  response reserve. Only complete non-tool prefills that cover the estimated system and request
+  prompt calibrate tool cost; the total fixed-prompt estimate never falls below its 2,400-token
+  floor or the fallback declaration estimate. Context-use estimates include the fixed prompt.
 - **Cancel generation:** Tapping cancel clears the stuck spinner and resets the LiteRT
   conversation state (`#28`). Without this fix, a cancelled generation would leave the UI
   in a perpetual loading state with stale LiteRT conversation context.
@@ -128,9 +151,11 @@ peak. The service stops automatically once `InferenceEngine.isReady` becomes tru
 [User Profile]           ← structured YAML injection (name, role, environment, context, rules)
 [Core Memories]          ← permanent facts split by category:
                             user (coreTopK=10), agent_identity (identityTopK=5)
-                           CORE_MAX_DISTANCE=1.25; NZ truths further filtered by vibe level
-[Episodic Memories]      ← distilled conversation summaries (EPISODIC_MAX_DISTANCE=1.10, episodicTopK=3)
-[Message History]        ← semantically relevant messages from current conversation (MAX_DISTANCE=0.90, topK=5)
+                            USER CORE cutoff: cosine distance ≤ 0.789
+                            IDENTITY cutoffs: vibes 1–5 ≤ 0.759 / 0.764 / 0.737 / 0.720 / 0.691
+                            KIWI cutoffs: vibes 1–5 ≤ 0.564 / 0.731 / 0.667 / 0.620 / 0.500
+                            EPISODIC cutoff: cosine distance ≤ 0.666 (episodicTopK=3)
+                            MESSAGE cutoff: cosine distance ≤ 0.650 (topK=3)
 [Conversation Window]    ← selected recent turns (75% token budget)
 [Current User Message]   ← with RAG context prepended; tool instructions prepended only for tool-like turns
 ```
@@ -165,13 +190,15 @@ All sections are conditionally included — omitted entirely if no results meet 
 ### 3.3 Long-Term (Semantic) Memory
 
 - **Vector store:** sqlite-vec (compiled via NDK for arm64-v8a), bundled as `libkernelvec.so`
-- **Embedding model:** EmbeddingGemma-300M — 768-dim vectors (256-dim on 8GB via Matryoshka)
-- **Three vec0 tables:**
+- **Embedding model:** Arctic Embed M v1.5 — normalized 768-dim vectors; query-only retrieval prefix; document vectors are unprefixed.
+- **Four cosine vec0 tables:**
   - `core_memories_vec` — permanent facts about the user and NZ cultural truths (Settings → Core Memories)
   - `episodic_memories_vec` — distilled conversation summaries from `EpisodicDistillationUseCase` (Settings → Episodic Memories)
+  - `kiwi_memories_vec` — Jandal/NZ cultural corpus
   - `message_embeddings` — per-message vectors for intra-conversation fuzzy recall (Settings → Message History (RAG))
-- **Retrieval:** L2 (Euclidean) distance search per query via sqlite-vec; results filtered by distance threshold; top results injected into prompt. Vectors are L2-normalised at embedding time (`LiteRtEmbeddingEngine`) so L2 distance ≈ `sqrt(2 * (1 - cos_sim))` — core threshold 1.25 ≈ cos_sim ≥ 0.22; episodic threshold 1.10 ≈ cos_sim ≥ 0.40.
-- **Separate databases:** Room (`kernel_db.db`) for relational data; native SQLite (`kernel_vectors.db`) for vectors (Room doesn't support vec0 virtual tables)
+- **Retrieval:** cosine distance `1 - cosine_similarity`; lower values are more similar and score is `1 - distance`. Phase B uses separately calibrated message (`0.650`), user-core (`0.789`), episodic (`0.666`), identity-by-vibe (`0.759` / `0.764` / `0.737` / `0.720` / `0.691`) and Kiwi-by-vibe (`0.564` / `0.731` / `0.667` / `0.620` / `0.500`) limits. Calibration and held-out evidence, fixture hashes and limitations: [`1559-arctic-phase-b-calibration.md`](research/1559-arctic-phase-b-calibration.md).
+- **Index identity and migration:** a persisted Arctic model SHA, vocabulary SHA, 768-dimension and cosine-version identity prevents querying stale vectors. On mismatch, the app recreates all four derived indexes and re-embeds canonical Room content; failed rebuilds remain retryable and do not delete Room data.
+- **Separate databases:** Room (`kernel_db.db`) remains canonical relational storage; native SQLite (`kernel_vectors.db`) stores derived vectors (Room doesn't support vec0 virtual tables).
 - **TTL & pruning:** `prune()` runs on every write with two independent passes:
   1. **TTL pass** — deletes episodic memories where both `createdAt` and `lastAccessedAt` are older than 30 days. Accessing a memory resets `lastAccessedAt`, keeping it alive past the 30-day TTL.
   2. **LRU overflow pass** — if count still exceeds 500 after TTL pass, evicts the least-recently-accessed entries (ordered by `lastAccessedAt ASC`). `lastAccessedAt` is updated on every RAG retrieval, so frequently recalled memories survive overflow eviction.
@@ -233,15 +260,9 @@ User prefers dark mode
 [End of core memories]
 ```
 
-#### 3.3.3 NZ Truth Vibe-Level Filtering
+#### 3.3.3 NZ Truth Vibe Metadata
 
-NZ truth memories have a `vibe_level` (1–5) that controls how closely a query must match before the truth surfaces. This prevents high-energy or niche content (e.g. rugby trash-talk, crude slang) from appearing in unrelated serious conversations.
-
-| Vibe Level | Character | L2 Distance Threshold | Cos-sim Equivalent |
-|------------|-----------|----------------------|--------------------|
-| 1–2 | Subtle, informational, serious | ≤ 1.25 (`CORE_MAX_DISTANCE`) | ≥ 0.22 |
-| 3 | Moderate, general interest | ≤ 1.20 | ≥ 0.28 |
-| 4–5 | High-energy, niche, chaotic | ≤ 1.20 | ≥ 0.28 |
+NZ truth entries retain `vibe_level` (1–5) as canonical metadata. Kiwi retrieval uses independent Arctic cosine-distance cutoffs by vibe: `0.564`, `0.731`, `0.667`, `0.620`, and `0.500` for levels 1–5. Agent identity entries use their own independently calibrated limits (`0.759`, `0.764`, `0.737`, `0.720`, `0.691`); they are not filtered through the user-core cutoff. See [`1559-arctic-phase-b-calibration.md`](research/1559-arctic-phase-b-calibration.md) for per-consumer held-out results and sample limits.
 
 **Examples by vibe level:**
 - **Vibe 1** — `"Kate Sheppard"` (women's suffrage leader, face of the $10 note) — surfaces for any NZ history or feminism query
@@ -250,7 +271,7 @@ NZ truth memories have a `vibe_level` (1–5) that controls how closely a query 
 - **Vibe 4** — `"Karl Urban"` (Billy Butcher in The Boys) — only surfaces when the query closely matches The Boys, sci-fi franchises, or Kiwi actors
 - **Vibe 5** — `"Antony Starr"` (Homelander) — tight match required; won't intrude into unrelated conversations
 
-The filter runs in `MemoryRepositoryImpl.searchMemories()` after the initial L2 vec search, as a post-filter on `identity` (agent_identity) results.
+The shared cosine cutoff runs in `MemoryRepositoryImpl.searchMemories()` after the vec search; per-vibe thresholds are not currently applied.
 
 #### 3.3.4 Memory Management UI
 
@@ -359,6 +380,12 @@ best-matching intent wins if it clears both a confidence floor and an ambiguity 
 
 If the classifier is absent or returns `null`, the input falls through to Stage 3 (Gemma-4 E4B).
 
+**Deterministic calculator commands:** In addition to symbolic/infix arithmetic, the regex path
+accepts complete `multiply A by B`, `divide A by B`, `add A and/to B`, and `subtract A from B`
+commands when both operands are numeric or simple written-out integers. Subtraction preserves
+English operand order (`subtract A from B` evaluates as `B - A`). This normalization is limited
+to those complete command forms; unrelated text remains on the normal routing path.
+
 **Actions-tab deterministic slot-fill loop:**
 
 For quick actions, pending slot state lives inside `ActionsViewModel`, not a shared
@@ -393,6 +420,13 @@ Current deterministic slot-fill coverage in this sprint is:
 | `create_list` | `list_name` |
 
 `add_to_list` has no implicit default shopping-list fallback in this slot contract.
+List-name slot replies preserve the raw standalone title, including leading `In`, `To`,
+or `On`, so exact existing-name resolution runs before fallback normalization. On an exact
+miss, native fallback removes a leading preposition only when followed by `my` or `the`,
+then removes that word for alias lookup or create-on-miss naming (for example,
+`on my shopping list`). `display list called <title>` is matched before generic list reads
+so titles ending in `List` retain their full name.
+
 This sprint explicitly excludes weather/forecast, `create_calendar_event`,
 `remove_from_list`, and zero-slot toggles/media controls from multi-turn slot
 continuation. Weather/forecast stays single-turn because the existing weather path already
@@ -402,6 +436,7 @@ has safe defaults, including current-location behavior and optional forecast fie
 |---------|--------|--------|
 | "turn on/off torch/flashlight" | Torch toggle | `CameraManager.setTorchMode()` |
 | "set a timer for X minutes" | Timer | App-owned clock scheduler + notification pipeline |
+| "cancel timer" / "cancel all timers" | Cancel a uniquely targeted timer; clarify ambiguous multi-timer requests; bulk-cancel only on explicit intent | App-owned clock scheduler |
 | "set an alarm for X:XX" | Alarm | App-owned clock scheduler + notification pipeline |
 | "turn on/off do not disturb/dnd" | DND | `NotificationManager.setInterruptionFilter()` |
 | "turn on/off bluetooth" | Bluetooth | `BluetoothAdapter.enable()/disable()` |
@@ -478,7 +513,7 @@ ExperimentalFlags.enableConversationConstrainedDecoding = false
 
 | Category | Tool method | Dispatcher | Use for |
 |---------|------------|-----------|---------|
-| Meta | `loadSkill(skillName)` | `LoadSkillSkill` | Load extended instructions for complex/gateway tasks |
+| Meta | `loadSkill(skillName)` | `LoadSkillSkill` | Load full or compact instructions within remaining context; fail if neither fits |
 | Native | `runIntent(intentName, parameters)` | `NativeIntentHandler.kt` | Android OS intents and deterministic local actions (alarm, timer, DND, media, navigation, date diff, lists, etc.) |
 | Direct native | `queryWikipedia(query)` | `QueryWikipediaSkill` → `JsSkillRunner.kt` | Public Wikipedia lookup surface; internally bridges to the JS runtime |
 | Direct native | `getSystemInfo()` | `GetSystemInfoSkill` | Current device/runtime/date-time snapshot |
@@ -498,10 +533,18 @@ interface Skill {
     val description: String
     val schema: SkillSchema           // parameter definitions + required list
     val examples: List<String>        // native tool call examples for system prompt
-    val fullInstructions: String      // complete docs returned by loadSkill()
+    val fullInstructions: String      // complete instructions, returned when the budget permits
+    val compactInstructions: String?  // optional shorter form for constrained contexts
     suspend fun execute(call: SkillCall): SkillResult
 }
 ```
+
+`ChatViewModel` passes the estimated remaining instruction-token budget through `SkillCall`.
+`LoadSkillSkill` returns full instructions when they fit, otherwise a compact form, or a short
+`Failure` before an oversized tool-result continuation is prefetched.
+If even the bounded failure envelope cannot fit, the active stream is cancelled; `ChatViewModel`
+resets the partial LiteRT conversation and replays persisted history before the next generation
+while retaining the honest failure response.
 
 **Response handling:** The SDK handles tool calls transparently during `generate()`.
 `KernelAIToolSet` tracks turn state (`wasToolCalled()`, `lastToolName()`, `lastToolResult()`,
@@ -538,6 +581,12 @@ content through `message.toString()` in the SDK's internal form:
 - follow-up tool turns suppress repeated greetings
 - `query_wikipedia`, `get_system_info`, weather, and memory-search style direct replies are shown
   from the tool result itself when they return `SkillResult.DirectReply`
+- question-shaped turns ("Is X Jewish?", "When was X founded?") make `query_wikipedia` return
+  bounded evidence (summary plus up to 3 question-matching article passages, each ≤700 chars, from
+  the MediaWiki plain-text extract) as `SkillResult.Success`, so the model answers the question in
+  the same native-tool continuation or says Wikipedia does not establish it (#1689). The question
+  is the turn's user message supplied by `KernelAIToolSet`, not a model argument. Question-shaped
+  explicit "look up … on Wikipedia" requests skip the summary fast path for the same reason.
 - leaked raw tool syntax / instruction dumps are filtered by `looksLikeRawToolCall(...)`
 
 **Known open gaps / follow-up issues:**
@@ -579,8 +628,21 @@ content through `message.toString()` in the SDK's internal form:
 | `convert_currency` | Deterministic currency conversion using latest ECB-backed rates | `CurrencyConversionService` via `NativeIntentHandler` | ✅ |
 | `add_to_list` / `bulk_add_to_list` / `create_list` / `get_list_items` / `remove_from_list` | Room-backed list management | `NativeIntentHandler` + Room DAOs | ✅ |
 | `important_dates` | Taught dates + calendar birthday integration via Calendar Provider | `NativeIntentHandler` + `ContentResolver` query on `CalendarContract.Events` | ✅ — PR #797 |
-| `create_note` | Create a note / voice memo backed by Room DB | Tier 2 QIR instant routing ("add a note", "voice memo", "note to self", "make a note", etc.) + Tier 3 fallback via `NativeIntentHandler`. Notes accessible in nav drawer Notes browser. | ✅ — PR #989 |
+| `create_note` | Create a note / voice memo backed by Room DB | Tier 2 QIR instant routing ("add a note", "voice memo", "note to self", "make a note", etc.) + Tier 3 fallback via `NativeIntentHandler`. Notes accessible in nav drawer Notes browser; an untitled note starts the preferred local conversation model on demand under the shared initialization lock, then waits up to 30 seconds for readiness before generating a title. If inference remains unavailable, the saved note content is retained. | ✅ — PR #989 |
 | `world_clock` | Timezone lookup and world clock display | `ZoneId` / `ZonedDateTime` with timezone database | ✅ — PR #743 |
+
+Native list actions resolve an existing exact title before case-insensitive, bounded optional
+`list`-suffix, and shopping/grocery or todo/to-do aliases, including `todo list`. Ambiguous derived matches ask
+which list was intended; canonical names are used only for the established create-on-miss behavior.
+Matching never renames or rebinds a collection.
+
+Store questions of the form "what do I need [to get/buy] from/at [my/our/the/a] <place> [today/tonight/tomorrow/this week/this weekend/later/on the way home]" use
+`get_list_items` in both chat and Actions. `StoreListCatalog` is the single data table for
+generic shops, grocery chains, hardware stores, and pharmacies. Exact store-named lists win,
+then category list candidates are checked in order. A missing category list gets a friendly
+create-list prompt; another place reads its exact named list when present and otherwise
+continues to the model. Unrelated bring/know questions are not store-list requests. `Pak 'n Save` and `Pak n' Save` are accepted STT spellings of Pak'nSave.
+
 
 
 > **`convert_units` deterministic routing and reply contract:** `QuickIntentRouter` matches direct phrasing (`convert 5 miles to km`, `60 mph in m/s`), reversed phrasing (`how many cups in 2 L`), mixed-target phrasing (`convert 189 cm to feet and inches`), and spoken-STT variants (`convert 100 km an hour to metres a second`). The router normalises aliases before execution, including uppercase short forms like `L`/`mL`, natural spoken speed phrases (`km an hour`, `metres a second`), and mixed feet/inches input (`6 feet 2 inches` → total inches). `UnitConversionEvaluator` enforces same-category conversion only, rejects unsupported units and invalid physical values (for example below absolute zero), and marks non-terminating or mixed-unit results as approximate. Display text keeps full precision; spoken/TTS output uses `spokenSummary` rounded to 2 decimal places for verbose scalar results and 1 decimal place for the inches component of mixed feet/inches replies so speech stays concise without hiding exact on-screen values.
@@ -769,7 +831,7 @@ and awaits the result with a 15s timeout.
 | Skill name | Description | Status |
 |------------|-------------|--------|
 | `get_system_info` | Device/model/backend/battery stats; returns `DirectReply` so grounded output wins over post-tool narration | ✅ |
-| `query_wikipedia` | Public Wikipedia lookup skill; exposed as direct `queryWikipedia(query)` wrapper and internally bridged to JS; returns `DirectReply` | ✅ |
+| `query_wikipedia` | Public Wikipedia lookup skill; exposed as direct `queryWikipedia(query)` wrapper and internally bridged to JS; returns `DirectReply` summaries, or `Success` question evidence for question-shaped turns (#1689) | ✅ |
 | `save_memory` | Persist a note/fact to `core_memories_vec` | ✅ (explicit trigger only — see memory rule below) |
 | `search_memory` | Semantic search across core memories, episodic memories, and `message_embeddings` | ✅ |
 | `get_weather_gps` / `get_weather` | Weather retrieval with GPS, explicit locations, and indirect-location resolution | ✅ |
@@ -815,11 +877,13 @@ The following skills are all shipped and registered in `SkillRegistry` / `Native
 
 > **search_memory:** Exposed to the model via `KernelAIToolSet.searchMemory()` and backed by
 > `SearchMemorySkill`. It merges explicit memories (`MemoryRepository.searchMemories()`) with
-> raw message-history retrieval (`RagRepository.searchMessages()`). Message-history lookups use
-> sqlite-vec L2 distance on `message_embeddings` at `MAX_DISTANCE=0.90`, while core/episodic
-> memory retrieval uses the wider calibrated thresholds in `MemoryRepositoryImpl`
-> (`CORE_MAX_DISTANCE=1.25`, `EPISODIC_MAX_DISTANCE=1.10`). Results are returned as a numbered
-> direct reply with dates and conversation prefixes, bypassing LLM rephrasing to preserve detail.
+> raw message-history retrieval (`RagRepository.searchMessages()`).
+> Arctic retrieval uses cosine distance with separately calibrated limits:
+> message `0.650`, user core `0.789`, episodic `0.666`, identity and Kiwi by
+> vibe. See [`1559-arctic-phase-b-calibration.md`](research/1559-arctic-phase-b-calibration.md)
+> for exact vibe cutoffs and the separate calibration/held-out evidence.
+> Results are returned as a numbered direct reply with dates and conversation
+> prefixes, bypassing LLM rephrasing to preserve detail.
 
 **Per-turn `[Tool Use]` rules (injected only for tool-like turns by `ChatViewModel`):**
 - Injection gate: `QuickIntentRouter` fall-through with non-null `bestGuess`, or `looksLikeToolQuery(...)`
@@ -895,7 +959,7 @@ The LLM is used only for bounded structured output. Kotlin owns enforcement:
 - parse-time New Zealand wording normalization for generated titles, ingredients, and method text
 - recent-plan history retrieval from completed plans only, plus bounded self-repair loops to reduce exact repeats and obvious same-protein/same-shape duplication without making soft variety preferences block generation entirely
 
-Recipe projections now write lightweight cooking checklists: each recipe list contains an `Ingredients` section followed by a `Method` section with numbered steps. Shopping and recipe lists are derived artifacts only; the planner can rebuild or delete them from canonical planner rows.
+Recipe projections now write lightweight cooking checklists: each recipe list contains an `Ingredients` section followed by a `Method` section with numbered steps and defaults to `Manual` order; an explicitly selected per-list item sort remains in effect when the canonical projection is replaced. Shopping and recipe lists are derived artifacts only; the planner can rebuild or delete them from canonical planner rows.
 
 #### 4.3.5 Chat UX and status surface
 
@@ -955,6 +1019,11 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 | **Prompt injection** | All tool call output validated against `SkillRegistry` schema before execution; `run_intent` params validated before OS dispatch |
 | **Sideloaded skills** | Wasm import section audited; user must acknowledge "Accept Risk" |
 | **LeakCanary** | Integrated from day one — model weight leaks caught early |
+| **Nextcloud credentials** | Credentials use the existing Android-backed encrypted credential store and are never emitted to logs or public evidence. |
+| **Nextcloud transport** | HTTPS only (#1678): `http://` addresses, Login Flow endpoints and redirects are refused, and a previously saved `http://` account must be reconfigured (local lists kept). Redirects that leave the credential origin (host/port) are refused before credentials can be sent. |
+| **Network transport** | The app's network security config denies cleartext for every host; model and voice-pack downloads require HTTPS for the URL and every redirect hop (#1678). |
+| **Private integration identifiers** | Private server identifiers and credentials are excluded from logs and public validation evidence. |
+| **Externally supplied prompts** (#1604) | `MainActivity` is exported (launcher). Its `chat_input`, `quick_action_input[_encoded]` and `slot_reply_input` extras run directly only when the platform-reported caller uid (`launchedFromUid` / `ComponentCaller.uid`) is Jandal's own, or — in debug builds only — the launch comes from adb: shell (2000) / root (0) uid, or a token that only `adb shell run-as` can write into the app's private files dir (`am start` cannot share the shell uid). Any other caller's text is pre-filled into the existing Chat composer, Quick Action sheet or pending slot field, labelled as coming from another app, and runs only when the user sends it; Discard / dismissing discards it, and recreation never resubmits it. `quick_action_is_voice` is ignored for untrusted callers. `profile_text` is a debug-build, trusted-caller-only hook. Release builds have no external auto-run path. |
 
 ---
 
@@ -964,6 +1033,11 @@ Community-extensible skills run sandboxed via **Chicory** (pure JVM Wasm runtime
 - **Theme:** Dark default (AMOLED-friendly), supports light/dark toggle
 - **Navigation:** Bottom nav bar — Chats tab (conversations list) + Actions tab (quick commands)
 - **Chat:** Streaming token display, thinking mode indicator, markdown rendering, multi-conversation
+- **Model initialization recovery:** after the app is foregrounded and the shared init lock is
+  acquired, a 150s watchdog covers GPU initialization, CPU fallback, and cleanup (not foreground
+  or lock waits). It shows a retryable error; late success clears it. If it persists, restart the app,
+  because retry cannot interrupt a blocked native initialization. Lifecycle cancellation remains
+  distinct from failure.
 - **Actions tab:** History list, FAB (⚡) for new commands, bottom sheet input, Room-persisted history
 - **Voice:** Quick Actions push-to-talk with offline STT, spoken QIR responses, and streaming spoken chat replies; wake word remains future work
 - **Conversation search (#151, PR #156):** A search bar on the conversations list screen filters by conversation title. The query applies a `LIKE` wildcard match against the title column; a `NULL` guard prevents crashes for conversations that have not yet been auto-titled. Wildcard characters in the search input are escaped to avoid accidental SQL injection via the LIKE pattern.
@@ -1516,7 +1590,7 @@ When adding dependencies or features that span multiple modules (especially feat
 ./gradlew testDebugUnitTest          # Unit tests, debug variant only
 ./gradlew connectedDebugAndroidTest  # Compose UI tests (requires connected device)
 ./gradlew lint                       # Android lint
-./gradlew installDebug               # Build + install on connected device
+./gradlew assembleDebug                # Build debug APK; install: adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :core:inference:test       # Single-module test
 python3 scripts/adb_skill_test.py    # Device routing/profile regression harness
 python3 scripts/adb_skill_test.py --phases llm_tools  # E2E model tool-call generation harness
@@ -1537,7 +1611,7 @@ for the larger planned coverage matrix.
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM chat + GPU/NPU + GPU alignment fixes + OOM protection | ✅ Complete |
-| 2 | sqlite-vec RAG + EmbeddingGemma + episodic distillation + memory UI | ✅ Complete |
+| 2 | sqlite-vec cosine RAG + Arctic Embed M v1.5 + episodic distillation + memory UI | ✅ Complete |
 | 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice (Sherpa STT family: Zipformer / SenseVoice / Whisper tiny.en / Paraformer, offline VAD, transcription normalisation, wake-word isolation), weather/list/date/media skills, important dates, world clock, multi-day forecast, colloquial weather routing, multi-turn slot-fill, memory search quality, and broader multi-turn support | 🔄 In Progress |
 | 4 | Dreaming Engine (overnight distillation) + Semantic Cache + Self-Healing Identity | ⬜ Planned |
 | 5 | Chicory Wasm Runtime + GitHub Skill Store | ⬜ Planned |

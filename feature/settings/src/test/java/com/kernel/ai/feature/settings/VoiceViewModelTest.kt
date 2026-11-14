@@ -8,6 +8,7 @@ import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WakeWordPreferences
+import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
@@ -23,14 +24,18 @@ import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.permissions.MicrophoneReadiness
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.UnavailableReason
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -58,9 +63,10 @@ class VoiceViewModelTest {
     private val hardwareProfileDetector: HardwareProfileDetector = mockk(relaxed = true)
     private val context: Context = mockk(relaxed = true)
     private val heyJandalEnabled = MutableStateFlow(false)
-    private val wakeWordThreshold = MutableStateFlow(0.80f)
-    private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Vosk)
+    private val wakeWordThreshold = MutableStateFlow(WAKE_WORD_DEFAULT_THRESHOLD)
+    private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Auto)
     private val autoStartAlertVoiceCommandsEnabled = MutableStateFlow(true)
+    private val allowOnlineSpeechFallback = MutableStateFlow(false)
     private val spokenResponsesEnabled = MutableStateFlow(true)
     private val selectedOutputEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
     private val selectedSherpaVoice = MutableStateFlow(SherpaPiperVoice.JennyDioco)
@@ -90,6 +96,18 @@ class VoiceViewModelTest {
         )
     private lateinit var viewModel: VoiceViewModel
 
+    private fun newViewModel() = VoiceViewModel(
+        androidNativeRecognitionSupport,
+        voiceInputPreferences,
+        voiceOutputPreferences,
+        sherpaVoicePackDownloadManager,
+        wakeWordPreferences,
+        wakeWordDetector,
+        modelDownloadManager,
+        hardwareProfileDetector,
+        context,
+    )
+
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
@@ -103,6 +121,7 @@ class VoiceViewModelTest {
             )
         every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
         every { voiceInputPreferences.autoStartAlertVoiceCommandsEnabled } returns autoStartAlertVoiceCommandsEnabled
+        every { voiceInputPreferences.allowOnlineSpeechFallback } returns allowOnlineSpeechFallback
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
@@ -128,6 +147,11 @@ class VoiceViewModelTest {
         coEvery { voiceOutputPreferences.setSelectedKokoroVoice(any()) } just Runs
         coEvery { voiceOutputPreferences.setKokoroActiveSpeakerId(any()) } just Runs
         every { wakeWordPreferences.heyJandalEnabled } returns heyJandalEnabled
+        every { wakeWordPreferences.confidenceThreshold } returns wakeWordThreshold
+        coEvery { wakeWordPreferences.setConfidenceThreshold(any()) } coAnswers {
+            delay(1)
+            wakeWordThreshold.value = firstArg()
+        }
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { wakeWordDetector.isAvailable } returns false
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
@@ -144,17 +168,7 @@ class VoiceViewModelTest {
         every { context.applicationInfo } returns ApplicationInfo().apply {
             flags = ApplicationInfo.FLAG_DEBUGGABLE
         }
-        viewModel = VoiceViewModel(
-            androidNativeRecognitionSupport,
-            voiceInputPreferences,
-            voiceOutputPreferences,
-            sherpaVoicePackDownloadManager,
-            wakeWordPreferences,
-            wakeWordDetector,
-            modelDownloadManager,
-            hardwareProfileDetector,
-            context,
-        )
+        viewModel = newViewModel()
     }
 
     @AfterEach
@@ -176,9 +190,19 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `voice input engine defaults to vosk when preference flow emits vosk`() = runTest {
+    fun `voice input engine defaults to auto when preference flow emits auto`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(VoiceInputEngine.Vosk, viewModel.uiState.value.selectedInputEngine)
+        assertEquals(VoiceInputEngine.Auto, viewModel.uiState.value.selectedInputEngine)
+    }
+
+    @Test
+    fun `online speech fallback is off by default and follows the preference`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, viewModel.uiState.value.allowOnlineSpeechFallback)
+
+        allowOnlineSpeechFallback.value = true
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, viewModel.uiState.value.allowOnlineSpeechFallback)
     }
 
     @Test
@@ -216,7 +240,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack or keep using Vosk for guaranteed local voice input.",
+            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack, or use Automatic or Sherpa-ONNX Zipformer for guaranteed local voice input.",
             viewModel.uiState.value.androidNativeAvailabilityMessage,
         )
     }
@@ -292,7 +316,7 @@ class VoiceViewModelTest {
         )
 
         assertEquals(
-            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack or keep using Vosk for guaranteed local voice input.",
+            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack, or use Automatic or Sherpa-ONNX Zipformer for guaranteed local voice input.",
             resolveAndroidNativeAvailabilityMessage(availability),
         )
     }
@@ -383,10 +407,9 @@ class VoiceViewModelTest {
 
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertTrue(
-            releaseViewModel.uiState.value.sherpaVoices.none { row ->
-                row.voice == SherpaPiperVoice.SemaineMedium
-            }
+        assertEquals(
+            listOf(SherpaPiperVoice.CoriHigh),
+            releaseViewModel.uiState.value.sherpaVoices.map { it.voice },
         )
     }
     @Test
@@ -427,7 +450,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            ModelAvailabilityState.NotDisplayed,
+            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
             viewModel.uiState.value.inflectMicroAvailability,
         )
     }
@@ -463,7 +486,7 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `both Inflect graphs downloaded map to available but readiness still requires Sherpa`() =
+    fun `both Inflect graphs downloaded still require shared frontend for readiness`() =
         runTest {
             modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
                 put(
@@ -478,11 +501,62 @@ class VoiceViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(
-                ModelAvailabilityState.Ready,
+                ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
                 viewModel.uiState.value.inflectMicroAvailability,
             )
             assertFalse(viewModel.uiState.value.isInflectMicroReady)
         }
+    @Test
+    fun `downloaded graphs and downloading frontend map to Preparing`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(
+                SherpaPiperVoice.JennyDioco,
+                VoicePackDownloadState.Downloading(progress = 0.5f),
+            )
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(
+            viewModel.uiState.value.inflectMicroAvailability
+                is ModelAvailabilityState.Preparing,
+        )
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+    }
+
+    @Test
+    fun `frontend failure maps to retryable logical model`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(
+                SherpaPiperVoice.JennyDioco,
+                VoicePackDownloadState.Error("frontend extraction failed"),
+            )
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            ModelAvailabilityState.ActionRequired(
+                ActionReason.DownloadFailed("frontend extraction failed"),
+            ),
+            viewModel.uiState.value.inflectMicroAvailability,
+        )
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+    }
 
     @Test
     fun `partial Inflect graph availability never maps to ready`() = runTest {
@@ -496,7 +570,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            ModelAvailabilityState.NotDisplayed,
+            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
             viewModel.uiState.value.inflectMicroAvailability,
         )
         assertFalse(viewModel.uiState.value.isInflectMicroReady)
@@ -517,18 +591,99 @@ class VoiceViewModelTest {
 
 
     @Test
-    fun `setVoiceOutputEngine ignores Inflect until graphs and selected voice are downloaded`() = runTest {
+    fun `setVoiceOutputEngine accepts Inflect before prerequisites and starts no downloads`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            VoiceOutputEngine.AndroidTts,
+            VoiceOutputEngine.InflectMicroExperimental,
             viewModel.uiState.value.selectedOutputEngine,
         )
-        coVerify(exactly = 0) {
-            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.InflectMicroExperimental)
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+        coVerify { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.InflectMicroExperimental) }
+        io.mockk.verify(exactly = 0) {
+            modelDownloadManager.startDownload(any())
+            sherpaVoicePackDownloadManager.startDownload(any())
+        }
+    }
+
+    @Test
+    fun `selecting Inflect while its bundle downloads keeps Inflect selected`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloading(progress = 0.4f))
+            put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Error("stale partial file"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.InflectMicroExperimental,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        assertTrue(viewModel.uiState.value.inflectMicroAvailability is ModelAvailabilityState.Preparing)
+    }
+
+    @Test
+    fun `selecting Inflect after a failed bundle keeps retryable state reachable`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Error("network timeout"))
+            put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Downloaded("/models/decode.onnx"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.InflectMicroExperimental,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        assertEquals(
+            ModelAvailabilityState.ActionRequired(ActionReason.DownloadFailed("network timeout")),
+            viewModel.uiState.value.inflectMicroAvailability,
+        )
+    }
+
+    @Test
+    fun `Inflect logical download retries missing frontend when graphs are ready`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            InflectMicroModelSpec.requiredModels.forEach { required ->
+                put(
+                    KernelModel.entries.first { it.fileName == required.fileName },
+                    DownloadState.Downloaded("/models/${required.fileName}"),
+                )
+            }
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+            viewModel.uiState.value.inflectMicroAvailability,
+        )
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            VoiceOutputEngine.InflectMicroExperimental,
+            viewModel.uiState.value.selectedOutputEngine,
+        )
+        io.mockk.verify(exactly = 0) {
+            modelDownloadManager.startDownload(any())
+            sherpaVoicePackDownloadManager.startDownload(any())
+        }
+
+        viewModel.downloadInflectMicro()
+
+        io.mockk.verify(exactly = 0) {
+            modelDownloadManager.startDownload(any())
+        }
+        io.mockk.verify(exactly = 1) {
+            sherpaVoicePackDownloadManager.startDownload(SherpaPiperVoice.JennyDioco)
         }
     }
 
@@ -548,6 +703,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.isInflectMicroReady)
+        assertEquals(ModelAvailabilityState.Ready, viewModel.uiState.value.inflectMicroAvailability)
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.InflectMicroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -586,7 +742,7 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `persistently demotes Inflect when a required graph becomes unavailable`() = runTest {
+    fun `keeps Inflect selected when a required graph becomes unavailable`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
             InflectMicroModelSpec.requiredModels.forEach { required ->
                 put(
@@ -611,14 +767,15 @@ class VoiceViewModelTest {
         }
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(VoiceOutputEngine.AndroidTts, viewModel.uiState.value.selectedOutputEngine)
-        coVerify(exactly = 1) {
+        assertEquals(VoiceOutputEngine.InflectMicroExperimental, viewModel.uiState.value.selectedOutputEngine)
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+        coVerify(exactly = 0) {
             voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
         }
     }
 
     @Test
-    fun `persistently demotes Inflect when the selected Sherpa voice becomes unavailable`() = runTest {
+    fun `keeps Inflect selected when the selected Sherpa voice becomes unavailable`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
             InflectMicroModelSpec.requiredModels.forEach { required ->
                 put(
@@ -640,8 +797,9 @@ class VoiceViewModelTest {
         }
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(VoiceOutputEngine.AndroidTts, viewModel.uiState.value.selectedOutputEngine)
-        coVerify(exactly = 1) {
+        assertEquals(VoiceOutputEngine.InflectMicroExperimental, viewModel.uiState.value.selectedOutputEngine)
+        assertFalse(viewModel.uiState.value.isInflectMicroReady)
+        coVerify(exactly = 0) {
             voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
         }
     }
@@ -765,34 +923,105 @@ class VoiceViewModelTest {
     }
 
 
+
     @Test
-    fun `downloadInflectMicro delegates both graph downloads`() = runTest {
+    fun `downloadInflectMicro starts each missing graph and frontend exactly once`() = runTest {
         viewModel.downloadInflectMicro()
 
         io.mockk.verify(exactly = 1) {
             modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DURATION)
-        }
-        io.mockk.verify(exactly = 1) {
             modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DECODE)
+            sherpaVoicePackDownloadManager.startDownload(SherpaPiperVoice.JennyDioco)
         }
     }
 
     @Test
-    fun `cancelInflectMicroDownload cancels only active graph downloads`() = runTest {
+    fun `downloadInflectMicro skips downloaded frontend and starts missing graphs`() = runTest {
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloaded("/voices/jenny"))
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.downloadInflectMicro()
+
+        io.mockk.verify(exactly = 1) {
+            modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DURATION)
+            modelDownloadManager.startDownload(KernelModel.INFLECT_MICRO_DECODE)
+        }
+        io.mockk.verify(exactly = 0) {
+            sherpaVoicePackDownloadManager.startDownload(any())
+        }
+    }
+
+    @Test
+    fun `cancelInflectMicroDownload cancels active graphs and selected frontend`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
             put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloading(progress = 0.4f))
             put(KernelModel.INFLECT_MICRO_DECODE, DownloadState.Downloaded("/models/decode.onnx"))
+        }
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(
+                SherpaPiperVoice.JennyDioco,
+                VoicePackDownloadState.Downloading(progress = 0.2f),
+            )
         }
 
         viewModel.cancelInflectMicroDownload()
 
         io.mockk.verify(exactly = 1) {
             modelDownloadManager.cancelDownload(KernelModel.INFLECT_MICRO_DURATION)
+            sherpaVoicePackDownloadManager.cancelDownload(SherpaPiperVoice.JennyDioco)
         }
         io.mockk.verify(exactly = 0) {
             modelDownloadManager.cancelDownload(KernelModel.INFLECT_MICRO_DECODE)
         }
     }
+
+    @Test
+    fun `setWakeWordThreshold persists selected value`() = runTest {
+        viewModel.setWakeWordThreshold(0.75f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(0.75f, viewModel.uiState.value.wakeWordThreshold, 0.0001f)
+        coVerify(exactly = 1) { wakeWordPreferences.setConfidenceThreshold(0.75f) }
+    }
+
+    @Test
+    fun `threshold persistence completes after view model cancellation`() = runTest {
+
+        viewModel.setWakeWordThreshold(0.75f)
+        viewModel.viewModelScope.cancel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(0.75f, wakeWordThreshold.value, 0.0001f)
+    }
+
+    @Test
+    fun `persisted threshold is observed by a fresh voice consumer`() = runTest {
+        viewModel.setWakeWordThreshold(0.75f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(0.75f, wakeWordThreshold.value, 0.0001f)
+        val recreatedViewModel = newViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(0.75f, recreatedViewModel.uiState.value.wakeWordThreshold, 0.0001f)
+    }
+
+    @Test
+    fun `missing persisted threshold keeps 65 percent default`() = runTest {
+        wakeWordThreshold.value = WAKE_WORD_DEFAULT_THRESHOLD
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(WAKE_WORD_DEFAULT_THRESHOLD, viewModel.uiState.value.wakeWordThreshold, 0.0001f)
+    }
+
+    @Test
+    fun `initially unfocused slider field does not commit its default`() {
+        assertFalse(shouldCommitTextOnFocusLost(wasFocused = false, isFocused = false))
+        assertTrue(shouldCommitTextOnFocusLost(wasFocused = true, isFocused = false))
+    }
+
     @Test
     fun `setHeyJandalEnabled true updates state and persists`() = runTest {
         viewModel.setHeyJandalEnabled(true)

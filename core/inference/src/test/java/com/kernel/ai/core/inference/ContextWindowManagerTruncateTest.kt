@@ -86,4 +86,37 @@ class ContextWindowManagerTruncateTest {
         val expected = input.drop(20 - maxTurns4096)
         assertEquals(expected, result)
     }
+    @Test
+    fun historyBudget_s21MeasuredFixedPrompt_leavesNoHistory() {
+        val fixedPromptTokens = 2_300
+        val contextWindowSize = 3_072
+        val expectedHistoryBudget =
+            (contextWindowSize - ContextWindowManager.RESPONSE_RESERVE - fixedPromptTokens).coerceAtLeast(0)
+
+        val actualHistoryBudget = ContextWindowManager.historyBudget(contextWindowSize, fixedPromptTokens)
+
+        assertEquals(expectedHistoryBudget, actualHistoryBudget)
+        val selected = manager.selectHistory(turns(12), actualHistoryBudget)
+        val selectedTokens = selected.sumOf {
+            manager.estimateTokens(it.first) + manager.estimateTokens(it.second)
+        }
+        assertTrue(selectedTokens <= expectedHistoryBudget)
+        assertTrue(selectedTokens <= contextWindowSize - ContextWindowManager.RESPONSE_RESERVE)
+    }
+
+    @Test
+    fun historyBudget_flagship_keepsShortHistoryUnchanged() {
+        val input = turns(20)
+
+        val previousSelection = manager.selectHistory(input, ContextWindowManager.historyBudget(8_000))
+        val selected = manager.selectHistory(
+            input,
+            ContextWindowManager.historyBudget(8_000, fixedPromptTokens = 2_300),
+        )
+
+        assertEquals(previousSelection, selected)
+
+        assertEquals(input, selected)
+    }
+
 }

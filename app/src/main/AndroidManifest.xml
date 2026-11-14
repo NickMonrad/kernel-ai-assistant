@@ -15,9 +15,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Required on some OEM clock apps that still check this deprecated permission -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
-    <!-- Exact alarm scheduling for date-specific alarms (#327) -->
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- User-controlled exact alarm access is optional; schedule inexactly when denied. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- Re-schedule alarms after device reboot (#327) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -34,6 +33,16 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <!-- Wake word foreground service requires microphone access type (API 35+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!--
+        #1502: special (AppOps) access, not a runtime permission. Requested only to let Hey Jandal
+        detect the Honor stock Camera entering the foreground on the affected device (HONOR
+        BKQ-N49) so wake capture can release the microphone before the camera records. The user
+        grants it from system settings and can revoke it at any time. Only the Camera's own
+        foreground state is evaluated; no usage history is stored or transmitted.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <!--
         Android 11+ package visibility: declare which implicit intents we resolve
@@ -41,10 +50,18 @@
     -->
     <queries>
         <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
             <action android:name="android.intent.action.SET_ALARM" />
         </intent>
         <intent>
             <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <!-- Email support (#1840): list email apps for the support-email chooser. -->
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="mailto" />
         </intent>
         <package android:name="com.google.android.apps.youtube.music" />
         <package android:name="tv.plex.labs.plexamp" />
@@ -62,6 +79,7 @@
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.KernelAI">
@@ -124,13 +142,21 @@
         <service
             android:name="com.kernel.ai.core.inference.InferenceLoadingService"
             android:foregroundServiceType="specialUse"
-            android:exported="false" />
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Initialize the user's selected on-device AI model for local inference" />
+        </service>
 
         <!-- Foreground service to keep process alive during response generation -->
         <service
             android:name="com.kernel.ai.core.inference.InferenceGenerationService"
             android:foregroundServiceType="specialUse"
-            android:exported="false" />
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Generate the user's requested AI response locally on-device" />
+        </service>
 
         <service
             android:name=".alarm.ClockAlertService"
@@ -174,16 +200,14 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
-        <property
-            android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-            android:value="On-device AI model inference loading via LiteRT GPU" />
+
 
         <!--
-            AppAuth redirect receiver — handles com.kernel.ai://oauth/callback (release).
-            The debug scheme (com.kernel.ai.debug://...) is added via app/src/debug/AndroidManifest.xml
-            so it does not pollute the release manifest.
+            AppAuth redirect receiver — scheme follows the final applicationId in every build
+            variant, including the isolated Inflect test package.
         -->
         <activity
             android:name="net.openid.appauth.RedirectUriReceiverActivity"
@@ -195,7 +219,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="com.kernel.ai"
+                    android:scheme="${applicationId}"
                     android:host="oauth"
                     android:pathPrefix="/callback" />
             </intent-filter>
