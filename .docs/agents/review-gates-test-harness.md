@@ -42,8 +42,8 @@ This gate applies when the PR touches:
 
 | Device | When |
 |--------|------|
-| S21 (Exynos) | Default — harness should work on both devices; S21 is sufficient |
-| S23U (SD 8 Gen 2) | Only if harness change is device-specific |
+| S23U (SD 8 Gen 2) | Primary — harness should work on both devices; S23U is sufficient |
+| S21 (Exynos) | Extra capacity only — parallel runs or device-specific harness changes; see `.docs/agents/risk-based-evidence-policy.md` |
 
 ## Common Regressions to Check
 

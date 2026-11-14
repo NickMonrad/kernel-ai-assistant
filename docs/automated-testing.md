@@ -35,7 +35,7 @@ Use it when you need:
 Policy:
 
 - **This runner's first-slice permission scenarios target S21** (`s21-exynos`); this runner-specific scope does not set Jandal's global test-device default.
-- For an unspecified *ad hoc* physical-device task, use S23 Ultra. For PR acceptance evidence, follow `.docs/agents/risk-based-evidence-policy.md` instead (S21 baseline when required). Explicit issue/acceptance device or tier requirements take precedence.
+- For an unspecified *ad hoc* physical-device task, use S23 Ultra. For PR acceptance evidence, follow `.docs/agents/risk-based-evidence-policy.md` (S23U primary; S21 only for extra capacity). Explicit issue/acceptance device or tier requirements take precedence.
 - If the required S21 / ADB device is unavailable for this S21-specific run, stop on on-device validation rather than faking success.
 
 See [`docs/testing/permission-scenario-runner.md`](./testing/permission-scenario-runner.md) for
@@ -385,10 +385,10 @@ ANDROID_SERIAL=100.76.134.49:44599 python3 scripts/adb_skill_test.py --phases=ll
 |--------|-----|-----|-------------------|------|
 | Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU (Adreno GPU fallback) | Standard/default physical Android test device |
 | Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | Constrained/low-end test device; tracked reliability signal — see #1089 / #684 |
-| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | Supplemental high-memory/modern-flagship device; experimental reference candidate (Android API 36) |
+| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | Owner's personal phone — not for agent testing |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | Reference device — GPU-only |
 
-**Test-device roles:** Samsung Galaxy S23 Ultra is the standard/default for an unnamed *ad hoc* "test on device" task. For PR acceptance evidence, the risk-based evidence policy supplies the S21 baseline and any required S23U comparison; it overrides this ad hoc default. Use S21 for lower-memory/performance compatibility and degraded-device checks. Honor Magic8 Pro is supplemental coverage. Explicit issue/acceptance device or tier requirements take precedence. These roles do not change runtime `HardwareTier` or model-selection policy.
+**Test-device roles:** Samsung Galaxy S23 Ultra is the primary/default physical test device, both for an unnamed *ad hoc* "test on device" task and for PR acceptance evidence under the risk-based evidence policy. Use S21 only when more test capacity is needed — parallel runs, a second-SoC comparison for device-sensitive changes, or lower-memory/degraded-device checks — or where suite-specific tooling or explicit issue requirements apply; it belongs to another household member, so keep runs targeted. The canonical list is in `.docs/agents/risk-based-evidence-policy.md`. The owner's personal Honor Magic8 Pro is not for agent testing. Explicit issue/acceptance device or tier requirements take precedence. These roles do not change runtime `HardwareTier` or model-selection policy.
 
 See [`docs/adb-testing.md`](./adb-testing.md) for device setup, USB/wireless debugging, and
 gotcha troubleshooting.
