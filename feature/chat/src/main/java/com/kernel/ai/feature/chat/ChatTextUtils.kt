@@ -3,6 +3,7 @@ package com.kernel.ai.feature.chat
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.core.skills.isFactualWikipediaQuestion
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 import java.util.regex.Pattern
@@ -107,6 +108,7 @@ internal fun normalizeChatTextForSpeech(text: String): String =
         .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start
         .replace(Regex("""(?m)^\s*[-*•]\s*"""), "")       // strip bullet markers at line start (lone * has no trailing ws)
         .replace(Regex("""[•‣◦∙⋅·]\s*"""), "")           // strip any remaining inline bullet chars
+        .let(SpeechCardText::speakable)                   // card separators and line breaks; list rules above need the newlines
         .let(::normalizeFractionsForSpeech)               // expand fractions/units before pronunciation overrides
         .replace(Regex("""(?<!\d):(?!\d)(?!//)\s*"""), ". ")   // non-numeric colons → sentence break (preserves ://)
         .replace(Regex("""[—–]\s*"""), ", ")              // em/en dashes → natural comma pause
@@ -881,3 +883,23 @@ internal fun failureChatReply(result: SkillResult.Failure): String = when {
     result.skillName == "send_email" || result.technicalDetail != null -> result.error
     else -> "I tried to do that but something went wrong: ${result.error}"
 }
+
+/**
+ * Speech for a finished turn whose reply is a tool's result. When [replyText] is that result,
+ * verbatim or echoed by the model, returns the tool's [toolSpokenSummary]; the bubble keeps the
+ * card. Null means speak the reply as written.
+ */
+internal fun toolSpokenOverrideFor(
+    replyText: String,
+    toolResultText: String?,
+    toolSpokenSummary: String?,
+): String? {
+    val summary = toolSpokenSummary?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val result = toolResultText?.let(::collapseSpeechSpaces)?.takeIf { it.isNotEmpty() } ?: return null
+    val reply = collapseSpeechSpaces(replyText)
+    if (reply.isEmpty()) return null
+    val isToolResult = reply.contains(result) || (reply.length >= 20 && result.contains(reply))
+    return summary.takeIf { isToolResult }
+}
+
+private fun collapseSpeechSpaces(text: String): String = text.trim().replace(Regex("\\s+"), " ")

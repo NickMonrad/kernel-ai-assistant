@@ -149,7 +149,7 @@ class AndroidTextToSpeechController @Inject constructor(
     }
 
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult {
-        val text = request.text.trim()
+        val text = SpeechCardText.speakable(request.text).trim()
         if (text.isBlank()) return VoiceOutputResult.Spoken
         val playbackToken = nextPlaybackToken()
         synchronized(playbackLock) {
