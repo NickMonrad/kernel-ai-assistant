@@ -163,7 +163,7 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = "0.1.0"
+        versionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
         buildConfigField("String", "DEBUG_APPLICATION_ID", "\"$baseApplicationId.debug\"")
         buildConfigField("String", "PROBE_APPLICATION_ID", "\"$baseApplicationId.debug.inflectprobe\"")
 
