@@ -7,16 +7,16 @@ three-tier risk classification and the minimum evidence expected for each tier.
 
 1. **Low-risk changes stay lightweight.** Docs, copy changes, and refactors with no
    behaviour change do not require device testing, screenshots, or broad regression runs.
-2. **PR evidence defaults to the S23U.** The S23U (`RFCW11265XH`, Snapdragon 8 Gen 2) is the primary on-device test device for everything except the named S21-bound gates below; if it is unavailable, report the blocker. The S21 (`R5CR605B71K`, Exynos) is used only for:
+2. **PR evidence defaults to the S23U.** The S23U (`RFCW11265XH`, Snapdragon 8 Gen 2) is the primary on-device test device for everything except the named S21-bound gates below; if it is unavailable, report the blocker. The S21 (`R5CR605B71K`, Exynos) is the second dedicated test device, used for:
    - the named S21-bound gates listed below, which keep their existing S21 scope;
-   - targeted extra-capacity runs (parallel runs, or a second-SoC comparison when a change is device-sensitive).
-   Both S21 uses run at low media/alarm volume and never between 21:00 and 06:00 `Australia/Brisbane`. Explicit issue/device requirements win. (Owner decision, 2026-11-14: "S23 should be primary test device, but we can use S21 if we need more test capacity.")
+   - parallel runs, overflow when the S23U is busy, and second-SoC comparison when a change is device-sensitive.
+   Both phones follow the same house rules in Device Handling Rules below. Explicit issue/device requirements win. (Owner decisions: 2026-11-14, "S23 should be primary test device, but we can use S21 if we need more test capacity."; 2026-11-15, the S21 is a dedicated test device, not a household device.)
    Named S21-bound gates (existing scope, unchanged):
    - only a complete S21 `regression` run sets `release_gate_success` (`docs/automated-testing.md`);
    - the S21 model-readiness preflight (`docs/testing/s21-model-readiness.md`) is S21-bound;
    - the S21 `permission_flows` connected suite (`docs/adb-testing.md`) and the permission scenario runner (`scripts/run_permission_scenarios.py --device-id s21-exynos`, `docs/testing/permission-scenario-runner.md`) are S21-bound;
    - the wake-word acoustic harness names S21 as its launch-blocking target (`docs/testing/wake-word-acoustic-reliability-harness.md`).
-   Those runs follow the Device Handling Rules below: explicit `adb -s <serial>` installs, no `./gradlew installDebug`, and the household-device limits for the S21.
+   Those runs follow the Device Handling Rules below: explicit `adb -s <serial>` installs, no `./gradlew installDebug`, and the same house rules for both phones.
 3. **Manual on-device testing is reserved for high-risk or hard-to-automate changes.**
    Do not require manual testing for every low-risk or CI-safe change.
 4. **Targeted validation is better than broad.** A focused unit test for the changed
@@ -31,12 +31,27 @@ three-tier risk classification and the minimum evidence expected for each tier.
 
 - **Target devices explicitly.** Always use `adb -s <serial>`
   (S23U = `RFCW11265XH`, S21 = `R5CR605B71K`). Install the debug APK with `adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk`; never use `./gradlew installDebug`, which installs on every connected phone. Gradle connected-test tasks take `ANDROID_SERIAL=<serial>` as a prefix.
-- **S23 Ultra is a dedicated test device** (owner decision, 2026-11-14). Full suites are allowed on it (`RFCW11265XH`) under these house rules:
+- **Dedicated test devices.** Both phones are owned by the project, connected to the dev machine 24/7, and eligible for testing at any time: S23 Ultra (`RFCW11265XH`, owner decision 2026-11-14) and S21 (`R5CR605B71K`, owner decision 2026-11-15). The same house rules apply to both:
   - keep media and alarm volume low;
   - timers/alarms of 10 seconds or less only, and cancel everything started;
-  - never uninstall or clear `ai.jandal.assistant` (Play build), `com.kernel.ai`, or `com.kernel.ai.debug`;
-  - no full-suite or alarm-producing runs between 21:00 and 06:00 `Australia/Brisbane`.
-- **Household devices.** The S21 (`R5CR605B71K`) belongs to another member of the household: use only for the named gates and targeted extra-capacity runs, at low volume, and never 21:00–06:00 `Australia/Brisbane`. Agents must not change its device-wide settings, other apps' permissions, or personal data. Jandal's own app permissions may be changed during S21-only permission suites (`permission_flows`, `scripts/run_permission_scenarios.py --device-id s21-exynos`) and must be restored to their pre-run state afterwards. Never touch the owner's personal Honor phone.
+  - never uninstall or clear `ai.jandal.assistant` (Play build), `ai.jandal.assistant.debug` (debug build), or legacy `com.kernel.ai` / `com.kernel.ai.debug`;
+  - no full-suite or alarm-producing runs between 21:00 and 06:00 `Australia/Brisbane`;
+  - do not change device-wide settings, other apps' permissions, or personal data. Jandal's own app permissions may be changed only during permission suites that need it, and must be restored to their pre-run state afterwards.
+- **Never touch the owner's personal Honor phone.**
+- **Device lock protocol.** One lock per phone: `/tmp/jandal-s23u.lock` (RFCW11265XH) and `/tmp/jandal-s21.lock` (R5CR605B71K). Hold a phone's lock for the whole device run.
+  1. Take it atomically with `mkdir /tmp/jandal-s21.lock`. A non-zero exit means the phone is held; do not use it.
+  2. On success, write the owner file: `printf '%s\n%s\n' '<agent-id>' "$(date +%s)" > /tmp/jandal-s21.lock/owner`.
+  3. Release only your own lock, after confirming the owner file names your agent id: `rm -rf /tmp/jandal-s21.lock`.
+  4. A lock whose owner timestamp is more than 25 minutes old is stale. Report it to the operator; agents must not remove it. Use the other phone if it is free, otherwise report the blocker.
+  5. Never remove another agent's lock. Never `pkill` by broad pattern; stop only processes you started, by PID.
+- **Wake and unlock over adb** (same for both phones; shown for S21):
+  ```
+  adb -s R5CR605B71K shell input keyevent KEYCODE_WAKEUP
+  adb -s R5CR605B71K shell wm dismiss-keyguard
+  ```
+- **Instrumented runs** keep the screen on: `adb -s <serial> shell svc power stayon usb`. First record `adb -s <serial> shell settings get global stay_on_while_plugged_in`; restore it afterwards (`svc power stayon false` if the recorded value was `0`).
+- **Debug install check:** after `adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk`, confirm with `adb -s <serial> shell dumpsys package ai.jandal.assistant.debug | grep lastUpdateTime`, then launch with `adb -s <serial> shell am start -n ai.jandal.assistant.debug/com.kernel.ai.MainActivity`.
+- **Committed screenshots must never show real names, contacts, calendar entries, birthdays, or messages.** The repo is public; use test data or redact before committing.
 
 Other documents should reference this section rather than duplicating these rules.
 
@@ -91,9 +106,7 @@ the primary concern and interaction logic is unchanged.
 **When S23U evidence is expected:** Default — medium-risk changes that touch
 device-specific behaviour or where automated tests don't cover the full path.
 
-**When additional S21 use is justified:** Only when more test capacity is needed —
-parallel runs, a second-SoC comparison when the change is device-sensitive
-(for example inference or GPU code), or lower-memory/degraded-device checks. Suite-specific S21 gates (see Guiding Principle 2) still apply where tooling requires them.
+**When S21 use is justified:** the S21 is a second dedicated test device. Use it freely for parallel runs, overflow when the S23U is busy, and a second-SoC (Exynos) comparison when the change is device-sensitive (for example inference or GPU code). Suite-specific S21 gates (see Guiding Principle 2) still apply where tooling requires them.
 
 **Manual on-device testing:** Not required unless the change touches audio focus,
 STT/TTS, wake-word, or permission flows (see subsystem review gates).
@@ -110,7 +123,7 @@ change touching shared subsystem lifecycle.
 
 **Minimum evidence:**
 - Applicable Medium Risk evidence for the changed area
-- Device test evidence — S23U required; S21 only as extra capacity or for a second-SoC comparison
+- Device test evidence — S23U required; the S21 may be used as a second test device or for a second-SoC comparison
 - Pre-flight oracle result in evidence _(for harness changes)_
 - Session-isolation smoke test evidence _(for LiteRT changes)_
 - Permission path checklist completed _(for permission changes)_
@@ -121,7 +134,7 @@ change touching shared subsystem lifecycle.
 **When S23U evidence is required:** Always — S23U is the primary device for high-risk
 evidence.
 
-**When additional S21 capacity is justified:**
+**When S21 use is justified** (second test device):
 - More test capacity is needed (parallel runs)
 - Lower-memory or degraded-device checks
 - Change is model/device-sensitive and a second-SoC (Exynos/Mali) comparison adds signal
@@ -150,7 +163,7 @@ evidence.
 | Device | Role | Evidence Scope |
 |--------|------|----------------|
 | S23U (SD 8 Gen 2) | Primary test device | Broad suites, baseline evidence, default for all tiers |
-| S21 (Exynos) | Secondary — extra capacity only | Parallel runs; second-SoC comparison for device-sensitive changes; lower-memory/degraded-device checks |
+| S21 (Exynos) | Second test device (dedicated) | Parallel runs, overflow when the S23U is busy, second-SoC comparison for device-sensitive changes; named S21-bound gates |
 
 ---
 
@@ -161,7 +174,7 @@ evidence.
 | CI-only | Low-risk changes; medium-risk with full automated coverage |
 | Screenshots | UI changes where visual result is the primary concern |
 | S23U device evidence | Default for medium and high risk |
-| S21 device evidence | Extra capacity: parallel runs or second-SoC comparison |
+| S21 device evidence | Second test device: parallel runs, overflow, or second-SoC comparison |
 | Both devices | Cross-device compatibility or where behaviour differs by SoC |
 | Manual on-device testing | Voice, audio, permissions, UI alignment, ambiguous evidence |
 | Review-only | Documentation, config, build, and test-only changes |
