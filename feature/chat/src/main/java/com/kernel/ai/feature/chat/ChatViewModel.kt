@@ -3741,7 +3741,12 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(resultContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
-                                finalizeVoicePlaybackForResponse(resultContent)
+                                val toolSpokenOverride = toolSpokenOverrideFor(
+                                    resultContent,
+                                    toolCall.resultText,
+                                    toolCall.spokenSummary,
+                                )
+                                finalizeVoicePlaybackForResponse(resultContent, toolSpokenOverride)
                                 // Do NOT set needsHistoryReplay here — KV cache remains valid after
                                 // native tool calls and forcing a replay drops prior turns from the
                                 // tight history budget, causing context amnesia (#446).
@@ -4321,7 +4326,11 @@ class ChatViewModel @Inject constructor(
             return
         }
         activeVoiceStreamingBuffer.append(token)
-        drainVoiceStreamingBuffer(force = false)
+        // After a tool with a spoken summary ran this turn, hold the text: the final reply is either
+        // that summary or the model's own words, decided in finalizeVoicePlaybackForResponse.
+        val summaryToolRan = kernelAIToolSet.terminalToolSpokenSummary() != null ||
+            kernelAIToolSet.terminalToolPresentation()?.toSpokenSummary() != null
+        if (!summaryToolRan) drainVoiceStreamingBuffer(force = false)
     }
 
     private suspend fun drainVoiceStreamingBuffer(force: Boolean) {
@@ -4341,13 +4350,16 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun finalizeVoicePlaybackForResponse(finalContent: String) {
+    private suspend fun finalizeVoicePlaybackForResponse(finalContent: String, spokenOverride: String? = null) {
         if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) {
             stopVoicePlayback()
             return
         }
         val session = activeVoiceStreamingSession ?: return
-        val finalChunk = if (isVoiceStreamingEnabledForTurn) {
+        val finalChunk = if (spokenOverride != null) {
+            // A tool's spoken summary replaces the streamed text; the unspoken buffer is dropped.
+            finalizeChatTextForSpeech(spokenOverride)
+        } else if (isVoiceStreamingEnabledForTurn) {
             val bufferedChunks = mutableListOf<String>()
             while (true) {
                 val chunk = popNextStreamingSpeechChunk(

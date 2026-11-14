@@ -73,7 +73,7 @@ internal object SherpaSpeechText {
     }
 
     internal fun prepareUnchecked(text: String, chunkEnd: Boolean): String {
-        var value = PronunciationLexicon.apply(text.trim())
+        var value = PronunciationLexicon.apply(SpeechCardText.speakable(text))
         if (value.isEmpty()) return value
         value = dayRange.replace(value) { m ->
             "${ordinalDay(m.groupValues[1])} to ${ordinalDay(m.groupValues[2])} of ${m.groupValues[3]}"
