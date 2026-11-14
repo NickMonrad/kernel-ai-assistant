@@ -4,6 +4,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.download.ConversationModelRules
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -13,6 +15,7 @@ import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.model.availability.computeAvailabilitySummary
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.prefs.ModelPreferences
+import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +24,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -34,7 +38,21 @@ class SettingsViewModel @Inject constructor(
     private val modelPreferences: ModelPreferences,
     private val authRepository: HuggingFaceAuthRepository,
     private val gatedModelStatusRepository: GatedModelStatusRepository,
+    private val downloadNetworkPreferences: DownloadNetworkPreferences,
 ) : ViewModel() {
+
+    /** "Download on mobile data" switch (#1855). Off when no choice is saved or Wi-Fi only is chosen. */
+    val mobileDataAllowed: StateFlow<Boolean> = downloadNetworkPreferences.choice
+        .map { it == DownloadNetworkChoice.MOBILE_DATA_ALLOWED }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setMobileDataAllowed(allowed: Boolean) {
+        viewModelScope.launch {
+            modelDownloadManager.setDownloadNetworkChoice(
+                if (allowed) DownloadNetworkChoice.MOBILE_DATA_ALLOWED else DownloadNetworkChoice.WIFI_ONLY,
+            )
+        }
+    }
 
     data class SettingsUiState(
         val activeModelLabel: String = "",
@@ -99,14 +117,16 @@ class SettingsViewModel @Inject constructor(
 
         fun isDownloadedInStates(model: KernelModel) = downloadStates[model] is DownloadState.Downloaded
 
-        val activeModel: KernelModel = when {
-            preferredModel != null && isDownloadedInStates(preferredModel) -> preferredModel
-            else -> {
-                val tierModel = KernelModel.entries
-                    .firstOrNull { it.preferredForTier == profile.tier && isDownloadedInStates(it) }
-                tierModel ?: KernelModel.GEMMA_4_E2B
-            }
+        // Same rule the engine uses. A saved pick this tier cannot select is ignored, so the hub
+        // reports Auto and the model that actually answers.
+        val selectablePreference = preferredModel?.takeIf {
+            it in ConversationModelRules.selectableConversationModels(profile.tier)
         }
+        val activeModel: KernelModel = ConversationModelRules.effectiveConversationModel(
+            userPreference = preferredModel,
+            tier = profile.tier,
+            isDownloaded = { isDownloadedInStates(it) },
+        )
 
         val summary = computeAvailabilitySummary(
             models = KernelModel.entries.filter { it.showInModelManagement && !it.isDeprecated },
@@ -120,7 +140,7 @@ class SettingsViewModel @Inject constructor(
             activeModelLabel = activeModel.displayName,
             activeBackend = profile.recommendedBackend.name,
             activeTier = profile.tier.name,
-            preferredModel = preferredModel,
+            preferredModel = selectablePreference,
             e2bDownloaded = e2bDownloaded,
             e4bDownloaded = e4bDownloaded,
             hfAuthenticated = hfAuthenticated,
