@@ -12,6 +12,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -745,7 +746,12 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             }
 
             try {
-                initRecognizer(spec)
+                // The model load blocks for about a second. Off the caller's thread, so a Main
+                // caller stays responsive and a stop tapped during the load is handled (#1853).
+                // A cancelled caller still caches the finished recognizer for the next start.
+                withContext(Dispatchers.IO) { initRecognizer(spec) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Recognizer init failed for ${spec.engine}", e)
                 null
