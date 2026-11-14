@@ -317,7 +317,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
-        // Preserve terminalToolName, terminalToolRequest, terminalToolResult,
+        // Preserve terminalToolName, terminalToolRequest, terminalToolResult, terminalToolDetail,
         // terminalToolPresentation, terminalToolSpokenSummary, terminalToolWasDirectReply,
         // terminalToolOutcome — these represent the turn's latest executable tool.
         // Cleared only in resetTurnState().
@@ -914,7 +914,8 @@ class KernelAIToolSet @Inject constructor(
             val toolResult = when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
                 is SkillResult.DirectReply -> mapOf("result" to result.content)
-                is SkillResult.Failure -> mapOf("error" to result.error)
+                is SkillResult.Failure -> mapOf("error" to result.error) +
+                    (result.technicalDetail?.let { mapOf("detail" to it) } ?: emptyMap())
                 is SkillResult.ParseError -> mapOf("error" to "Parse error: ${result.reason}")
                 is SkillResult.UnknownSkill -> mapOf("error" to "Unknown skill: ${result.skillName}")
                 is SkillResult.CapabilityRequired -> mapOf(

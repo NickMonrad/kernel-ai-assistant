@@ -1,7 +1,6 @@
 package com.kernel.ai.core.skills.natives
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 
 class UnknownIntentRepliesTest {
@@ -10,38 +9,41 @@ class UnknownIntentRepliesTest {
     fun `read-style calendar names get the calendar read reply`() {
         listOf(
             "get_calendar", "read_calendar", "list_events", "check_schedule", "show_agenda",
-            "what's_on_calendar", "fetch_appointments", "view-events",
+            "what's_on_calendar", "fetch_appointments", "view-events", "get_meetings", "read_diary",
         ).forEach { name ->
             assertEquals(UnknownIntentReplies.CALENDAR_READ_REPLY, UnknownIntentReplies.replyFor(name), name)
         }
     }
 
     @Test
-    fun `read-style email names get the email read reply`() {
-        listOf("get_email", "read_mail", "list_emails", "search_inbox", "find_mails").forEach { name ->
-            assertEquals(UnknownIntentReplies.EMAIL_READ_REPLY, UnknownIntentReplies.replyFor(name), name)
+    fun `noun-only calendar names are treated as reads`() {
+        listOf("calendar_events", "todays_schedule", "upcoming_events", "meetings").forEach { name ->
+            assertEquals(UnknownIntentReplies.CALENDAR_READ_REPLY, UnknownIntentReplies.replyFor(name), name)
         }
     }
 
     @Test
-    fun `write-style calendar and email names get the generic reply`() {
-        listOf("add_calendar_event", "delete_calendar_event", "send_mail", "compose_email", "create_event")
+    fun `read-style email names get the email read reply`() {
+        listOf("get_email", "read_mail", "list_emails", "search_inbox", "find_mails", "unread_emails")
             .forEach { name ->
-                assertEquals(UnknownIntentReplies.GENERIC_REPLY, UnknownIntentReplies.replyFor(name), name)
+                assertEquals(UnknownIntentReplies.EMAIL_READ_REPLY, UnknownIntentReplies.replyFor(name), name)
             }
     }
 
     @Test
-    fun `nonsense and empty names get the generic reply`() {
-        listOf("frobnicate_widgets", "", "   ").forEach { name ->
+    fun `write-style calendar and email names get the neutral generic reply`() {
+        listOf(
+            "add_calendar_event", "create_event", "delete_calendar_event", "send_mail",
+            "compose_email", "schedule_meeting", "book_appointment", "update_calendar_event",
+        ).forEach { name ->
             assertEquals(UnknownIntentReplies.GENERIC_REPLY, UnknownIntentReplies.replyFor(name), name)
         }
     }
 
     @Test
-    fun `replies never contain the raw intent name`() {
-        listOf("get_calendar", "frobnicate_widgets", "send_mail").forEach { name ->
-            assertFalse(UnknownIntentReplies.replyFor(name).contains(name, ignoreCase = true), name)
+    fun `names without a calendar or email noun get the generic reply`() {
+        listOf("frobnicate_widgets", "", "   ", "get_weather").forEach { name ->
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, UnknownIntentReplies.replyFor(name), name)
         }
     }
 

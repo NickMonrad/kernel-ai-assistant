@@ -48,17 +48,20 @@ sealed class SkillResult {
     /** Skill not found in registry. */
     data class UnknownSkill(val skillName: String) : SkillResult()
     /**
-     * Skill found but execution failed. Two independent fields, both optional:
+     * Skill found but execution failed. Fields:
      *
-     * - [error] is the reply text. Surfaces show it to the user and speak it, unless
-     *   [fallThroughToModel] is set. Surfaces that prefix failures (e.g. "Action failed:") skip the
-     *   prefix when [technicalDetail] is set, because [error] is then already a complete reply.
-     * - [fallThroughToModel] = true marks an internal miss. Conversational callers hand the user's
-     *   original request to the model and do NOT display [error]. Set it only when the model should
-     *   answer instead; it is not the convention for user-visible failures.
-     * - [technicalDetail] is the diagnostic (e.g. "Unknown intent: x") for tool chips and logs. It
-     *   never replaces [error] in user-facing text. A Failure with both fields set is handled as a
-     *   fallthrough; its detail is still available to the tool chip.
+     * - [error] is the user-facing reply text. Chat bubbles and Quick Actions cards show it as-is
+     *   when [technicalDetail] is set. Without [technicalDetail], Quick Actions prefixes it with
+     *   "Action failed:" and chat prefixes it with "I tried to do that but something went wrong:".
+     *   Voice (VoiceCommandHandler) speaks [error] as-is.
+     * - [fallThroughToModel] = true marks an internal miss. Chat (quick-route path), Quick Actions
+     *   and voice hand the original request to the model and do NOT display [error]. Use it only
+     *   when the model should answer instead. Several ChatViewModel failure branches do not read
+     *   this flag yet; that gap is tracked in #1876.
+     * - [technicalDetail] is the diagnostic (e.g. "Unknown intent: x"). It is shown on tool chips
+     *   and sent to the model under the `detail` key. It is never shown in bubbles, cards or speech.
+     *
+     * A Failure with both [fallThroughToModel] and [technicalDetail] is handled as a fallthrough.
      */
     data class Failure(
         val skillName: String,

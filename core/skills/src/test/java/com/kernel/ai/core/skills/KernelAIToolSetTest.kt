@@ -541,15 +541,24 @@ class KernelAIToolSetTest {
         every { skill.name } returns "run_intent"
         coEvery { skill.execute(any()) } returns SkillResult.Failure(
             "run_intent",
-            "I can't do that one yet.",
-            technicalDetail = "Unknown intent: get_calendar",
+            "I couldn't do that one. Try asking another way.",
+            technicalDetail = "Unknown intent: create_calendar_event",
         )
         every { registry.get("run_intent") } returns skill
 
-        toolSet.runIntent("get_calendar", "{}")
+        val modelResult = toolSet.runIntent("create_calendar_event", "{}")
 
-        assertEquals("I can't do that one yet.", toolSet.terminalToolResult())
-        assertEquals("Unknown intent: get_calendar", toolSet.terminalToolDetail())
+        assertEquals("I couldn't do that one. Try asking another way.", toolSet.terminalToolResult())
+        assertEquals("Unknown intent: create_calendar_event", toolSet.terminalToolDetail())
+        // The model keeps the wrong name so it can self-correct; the bubble text never carries it.
+        assertEquals(
+            mapOf(
+                "error" to "I couldn't do that one. Try asking another way.",
+                "detail" to "Unknown intent: create_calendar_event",
+            ),
+            modelResult,
+        )
+        assertEquals("I couldn't do that one. Try asking another way.", toolSet.lastToolResult())
     }
 
     @Test
@@ -569,7 +578,7 @@ class KernelAIToolSetTest {
         val failing = mockk<Skill>(relaxed = true)
         every { failing.name } returns "run_intent"
         coEvery { failing.execute(any()) } returns SkillResult.Failure(
-            "run_intent", "I can't do that one yet.", technicalDetail = "Unknown intent: x",
+            "run_intent", "I couldn't do that one. Try asking another way.", technicalDetail = "Unknown intent: x",
         )
         val succeeding = mockk<Skill>(relaxed = true)
         every { succeeding.name } returns "run_intent"
