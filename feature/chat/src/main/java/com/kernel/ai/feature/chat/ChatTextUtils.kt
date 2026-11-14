@@ -76,6 +76,13 @@ private fun isAbbreviationFragment(fragment: String): Boolean {
            INITIALS_REGEX.matches(withoutTrailingPunct + ".")
 }
 
+/** True when the `.` at [periodIndex] closes a known abbreviation (`a.m.`, `Dr.`, `e.g.`), not a sentence. */
+private fun endsWithAbbreviation(text: String, periodIndex: Int): Boolean {
+    var start = periodIndex
+    while (start > 0 && !text[start - 1].isWhitespace()) start--
+    return isAbbreviationFragment(text.substring(start, periodIndex + 1))
+}
+
 internal fun truncateForSpeech(text: String, maxSentences: Int): String {
     if (maxSentences <= 0) return text
     val sentenceRegex = Regex("""[^.!?]*[.!?]["')]*""")
@@ -249,7 +256,9 @@ private fun findSpeechChunkBoundary(
                 val next = text.getOrNull(index + 1)
                 if (next == null || next.isWhitespace() || next == '"' || next == '\'' || next == ')') {
                     val boundary = index + 1
-                    if (boundary >= minChunkLength && !splitsStructuredValue(text, boundary)) {
+                    if (boundary >= minChunkLength && !splitsStructuredValue(text, boundary) &&
+                        !(char == '.' && endsWithAbbreviation(text, index))
+                    ) {
                         return SpeechChunkBoundary(index = boundary, type = SpeechChunkBoundaryType.STRONG)
                     }
                 }
