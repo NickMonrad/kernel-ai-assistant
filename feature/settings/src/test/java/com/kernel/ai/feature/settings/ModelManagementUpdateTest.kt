@@ -20,7 +20,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import java.io.File
+import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -35,6 +35,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ModelManagementUpdateTest {
@@ -47,11 +48,14 @@ class ModelManagementUpdateTest {
     private val voiceOutputPreferences = mockk<VoiceOutputPreferences>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val viewModelStore = ViewModelStore()
+    @TempDir
+    lateinit var tempDir: Path
 
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
-        every { context.getExternalFilesDir("models") } returns File("models")
+        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
+        every { context.filesDir } returns tempDir.toFile()
         every { downloadManager.downloadStates } returns MutableStateFlow(emptyMap())
         every { downloadManager.downloadSources } returns MutableStateFlow(emptyMap())
         every { downloadManager.deviceTier } returns HardwareTier.MID_RANGE
@@ -95,6 +99,7 @@ class ModelManagementUpdateTest {
         }
     }
 
+    /** Builds the ViewModel and registers it so teardown cancels its viewModelScope. */
     private fun newViewModel(): ModelManagementViewModel = ModelManagementViewModel(
         modelDownloadManager = downloadManager,
         modelPreferences = modelPreferences,
@@ -104,7 +109,10 @@ class ModelManagementUpdateTest {
         context = context,
         sherpaVoicePackDownloadManager = voicePacks,
         voiceOutputPreferences = voiceOutputPreferences,
-    )
+    ).also {
+        it.ioDispatcher = Dispatchers.Main
+        viewModelStore.put("model-management", it)
+    }
 
     @Test
     fun `deleting a saved E-4B choice that mid-range cannot select resets it to automatic`() {
@@ -119,9 +127,6 @@ class ModelManagementUpdateTest {
         try {
             viewModel.deleteModel(e4b)
             coVerify(exactly = 1) { modelPreferences.setPreferredModel(null) }
-            // deleteModel finishes its file work on Dispatchers.IO and resumes on Main; wait for that
-            // so the coroutine does not outlive the test and reset Main.
-            verify(timeout = 2_000) { downloadManager.refreshState(e4b) }
         } finally {
             collector.cancel()
         }

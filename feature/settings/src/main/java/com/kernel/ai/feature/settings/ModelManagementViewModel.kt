@@ -28,8 +28,10 @@ import com.kernel.ai.core.model.availability.AvailabilitySummary
 import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.model.availability.computeAvailabilitySummary
+import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -116,6 +118,10 @@ class ModelManagementViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
+    /** Dispatcher for model file IO; replaced by the test scheduler in unit tests. */
+    @VisibleForTesting
+    internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+
     private val _storageMetrics = MutableStateFlow(StorageMetrics())
 
     /** Per-model gated status map, collected from DataStore. */
@@ -134,15 +140,15 @@ class ModelManagementViewModel @Inject constructor(
                 }
             }
         }
-        // Compute storage metrics on IO dispatcher, driven by download-state changes
-        viewModelScope.launch(Dispatchers.IO) {
+        // Recompute storage metrics on each download-state change; file IO runs on ioDispatcher.
+        viewModelScope.launch {
             modelDownloadManager.downloadStates
                 .debounce(500)
                 .collect {
-                val used = calculateStorageUsed()
-                val free = calculateFreeSpace()
-                _storageMetrics.value = StorageMetrics(used = used, free = free)
-            }
+                    val used = withContext(ioDispatcher) { calculateStorageUsed() }
+                    val free = withContext(ioDispatcher) { calculateFreeSpace() }
+                    _storageMetrics.value = StorageMetrics(used = used, free = free)
+                }
         }
     }
 
@@ -239,7 +245,7 @@ class ModelManagementViewModel @Inject constructor(
         if (currentState is DownloadState.Downloading) {
             modelDownloadManager.cancelDownload(model)
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             model.localFile(context).delete()
             val tmpFile = java.io.File(model.localFile(context).absolutePath + ".tmp")
             if (tmpFile.exists()) tmpFile.delete()
