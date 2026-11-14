@@ -110,7 +110,8 @@ An already-isolated agent checkout/worktree does not need another worktree. Veri
 ## Build commands
 
 ```bash
-./gradlew assembleDebug / installDebug / test / testDebugUnitTest / :core:inference:test / lint
+./gradlew assembleDebug / test / testDebugUnitTest / :core:inference:test / lint
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk   # never ./gradlew installDebug
 adb logcat -s KernelAI
 connectedDebugAndroidTest   # requires device
 ```
@@ -163,7 +164,7 @@ See `.docs/agents/test-evidence-workflow.md` for the full flow and manual fallba
 > Publishing under the wrong number misroutes dashboard evidence to the wrong PR.
 
 **For on-device evidence:** Requires a physical device run. Do not imply on-device evidence is covered by CI.
-For on-device testing, use the device and publication instructions already agreed in the issue or conversation. Otherwise follow `.docs/agents/risk-based-evidence-policy.md`: S21 is the default evidence device; use S23U when the policy or issue calls for it. Do not pause merely to reconfirm a known device. You may create and clean up disposable local test data needed for the approved test, but do not alter unrelated personal data or remote accounts without authorisation. Publish to `test-results` only when explicitly requested, and distinguish tests actually executed on-device from APK packaging or CI checks.
+For on-device testing, use the device and publication instructions already agreed in the issue or conversation. Otherwise follow `.docs/agents/risk-based-evidence-policy.md`: the S23U is the primary evidence device; use the S21 only when more test capacity is needed (see the policy's Device Handling Rules for explicit `adb -s` serials and household-device constraints). Do not pause merely to reconfirm a known device. You may create and clean up disposable local test data needed for the approved test, but do not alter unrelated personal data or remote accounts without authorisation. Publish to `test-results` only when explicitly requested, and distinguish tests actually executed on-device from APK packaging or CI checks.
 
 Details: `.docs/agents/test-evidence-workflow.md`.
 

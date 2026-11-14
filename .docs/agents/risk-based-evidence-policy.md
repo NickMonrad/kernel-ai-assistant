@@ -7,11 +7,16 @@ three-tier risk classification and the minimum evidence expected for each tier.
 
 1. **Low-risk changes stay lightweight.** Docs, copy changes, and refactors with no
    behaviour change do not require device testing, screenshots, or broad regression runs.
-2. **PR evidence defaults to S21.** The S21 (Exynos) is the baseline for broad/regular
-   acceptance evidence when it is connected and available; if a required device is
-   unavailable, report the blocker. This is distinct from the S23U default for an
-   unspecified ad hoc physical-device test in `docs/automated-testing.md`. Explicit
-   issue/device requirements win. Avoid broad S23U suites unless needed.
+2. **PR evidence defaults to the S23U.** The S23U (`RFCW11265XH`, Snapdragon 8 Gen 2) is the primary on-device test device for everything except the named S21-bound gates below; if it is unavailable, report the blocker. The S21 (`R5CR605B71K`, Exynos) is used only for:
+   - the named S21-bound gates listed below, which keep their existing S21 scope;
+   - targeted extra-capacity runs (parallel runs, or a second-SoC comparison when a change is device-sensitive).
+   Both S21 uses run at low media/alarm volume and never between 21:00 and 06:00 `Australia/Brisbane`. Explicit issue/device requirements win. (Owner decision, 2026-11-14: "S23 should be primary test device, but we can use S21 if we need more test capacity.")
+   Named S21-bound gates (existing scope, unchanged):
+   - only a complete S21 `regression` run sets `release_gate_success` (`docs/automated-testing.md`);
+   - the S21 model-readiness preflight (`docs/testing/s21-model-readiness.md`) is S21-bound;
+   - the S21 `permission_flows` connected suite (`docs/adb-testing.md`) and the permission scenario runner (`scripts/run_permission_scenarios.py --device-id s21-exynos`, `docs/testing/permission-scenario-runner.md`) are S21-bound;
+   - the wake-word acoustic harness names S21 as its launch-blocking target (`docs/testing/wake-word-acoustic-reliability-harness.md`).
+   Those runs follow the Device Handling Rules below: explicit `adb -s <serial>` installs, no `./gradlew installDebug`, and the household-device limits for the S21.
 3. **Manual on-device testing is reserved for high-risk or hard-to-automate changes.**
    Do not require manual testing for every low-risk or CI-safe change.
 4. **Targeted validation is better than broad.** A focused unit test for the changed
@@ -20,6 +25,20 @@ three-tier risk classification and the minimum evidence expected for each tier.
    unit-test steps currently use `continue-on-error: true`; inspect their individual
    outcomes before claiming validation passed. Durable publishing to `test-results`
    is reviewer/user-controlled unless explicitly requested.
+
+
+## Device Handling Rules
+
+- **Target devices explicitly.** Always use `adb -s <serial>`
+  (S23U = `RFCW11265XH`, S21 = `R5CR605B71K`). Install the debug APK with `adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk`; never use `./gradlew installDebug`, which installs on every connected phone. Gradle connected-test tasks take `ANDROID_SERIAL=<serial>` as a prefix.
+- **S23 Ultra is a dedicated test device** (owner decision, 2026-11-14). Full suites are allowed on it (`RFCW11265XH`) under these house rules:
+  - keep media and alarm volume low;
+  - timers/alarms of 10 seconds or less only, and cancel everything started;
+  - never uninstall or clear `ai.jandal.assistant` (Play build), `com.kernel.ai`, or `com.kernel.ai.debug`;
+  - no full-suite or alarm-producing runs between 21:00 and 06:00 `Australia/Brisbane`.
+- **Household devices.** The S21 (`R5CR605B71K`) belongs to another member of the household: use only for the named gates and targeted extra-capacity runs, at low volume, and never 21:00–06:00 `Australia/Brisbane`. Agents must not change its device-wide settings, other apps' permissions, or personal data. Jandal's own app permissions may be changed during S21-only permission suites (`permission_flows`, `scripts/run_permission_scenarios.py --device-id s21-exynos`) and must be restored to their pre-run state afterwards. Never touch the owner's personal Honor phone.
+
+Other documents should reference this section rather than duplicating these rules.
 
 ---
 
@@ -59,7 +78,7 @@ selection, test additions or harness improvements, model availability UX changes
 - Applicable Low Risk evidence for the changed area (see table above)
 - `./gradlew testDebugUnitTest` passes
 - Targeted regression tests run
-- Device test evidence — S21 is default (single device minimum)
+- Device test evidence — S23U is default (single device minimum)
 - Screenshots for UI changes _(if applicable)_
 - ROADMAP / SPEC updated _(if user-visible behaviour changes)_
 
@@ -69,11 +88,12 @@ and automated unit/instrumentation tests cover the changed paths.
 **When screenshots are enough:** For moderate UI changes where the visual result is
 the primary concern and interaction logic is unchanged.
 
-**When S21 evidence is expected:** Default — medium-risk changes that touch
+**When S23U evidence is expected:** Default — medium-risk changes that touch
 device-specific behaviour or where automated tests don't cover the full path.
 
-**When focused S23U comparison is justified:** When S21 results are ambiguous,
-the change involves inference or GPU code, or the issue specifically reproduced on S23U.
+**When additional S21 use is justified:** Only when more test capacity is needed —
+parallel runs, a second-SoC comparison when the change is device-sensitive
+(for example inference or GPU code), or lower-memory/degraded-device checks. Suite-specific S21 gates (see Guiding Principle 2) still apply where tooling requires them.
 
 **Manual on-device testing:** Not required unless the change touches audio focus,
 STT/TTS, wake-word, or permission flows (see subsystem review gates).
@@ -90,7 +110,7 @@ change touching shared subsystem lifecycle.
 
 **Minimum evidence:**
 - Applicable Medium Risk evidence for the changed area
-- Device test evidence — S21 required; S23U only if device-sensitive or ambiguous
+- Device test evidence — S23U required; S21 only as extra capacity or for a second-SoC comparison
 - Pre-flight oracle result in evidence _(for harness changes)_
 - Session-isolation smoke test evidence _(for LiteRT changes)_
 - Permission path checklist completed _(for permission changes)_
@@ -98,13 +118,13 @@ change touching shared subsystem lifecycle.
 - `connectedDebugAndroidTest` passes _(where applicable)_
 - Known limitations and deferred work documented
 
-**When S21 evidence is required:** Always — S21 is the baseline device for high-risk
+**When S23U evidence is required:** Always — S23U is the primary device for high-risk
 evidence.
 
-**When focused S23U comparison is justified:**
-- Change is model/device-sensitive (LiteRT, GPU, inference)
-- S21 results are ambiguous or inconclusive
-- Issue specifically reproduced on S23U
+**When additional S21 capacity is justified:**
+- More test capacity is needed (parallel runs)
+- Lower-memory or degraded-device checks
+- Change is model/device-sensitive and a second-SoC (Exynos/Mali) comparison adds signal
 - Release confidence requires comparison evidence
 
 **Manual on-device testing — required for:**
@@ -129,8 +149,8 @@ evidence.
 
 | Device | Role | Evidence Scope |
 |--------|------|----------------|
-| S21 (Exynos) | Default evidence device | Broad suites, baseline evidence, medium-risk default |
-| S23U (SD 8 Gen 2) | Focused comparison device | Device-sensitive changes, ambiguous S21 results, release confidence |
+| S23U (SD 8 Gen 2) | Primary test device | Broad suites, baseline evidence, default for all tiers |
+| S21 (Exynos) | Secondary — extra capacity only | Parallel runs; second-SoC comparison for device-sensitive changes; lower-memory/degraded-device checks |
 
 ---
 
@@ -140,8 +160,8 @@ evidence.
 |---------------|-------------|
 | CI-only | Low-risk changes; medium-risk with full automated coverage |
 | Screenshots | UI changes where visual result is the primary concern |
-| S21 device evidence | Default for medium and high risk |
-| S23U device evidence | Device-sensitive, ambiguous, or release-confidence cases |
+| S23U device evidence | Default for medium and high risk |
+| S21 device evidence | Extra capacity: parallel runs or second-SoC comparison |
 | Both devices | Cross-device compatibility or where behaviour differs by SoC |
 | Manual on-device testing | Voice, audio, permissions, UI alignment, ambiguous evidence |
 | Review-only | Documentation, config, build, and test-only changes |

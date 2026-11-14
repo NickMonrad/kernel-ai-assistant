@@ -7,7 +7,7 @@ Load this when debugging issues on device or emulator.
 ```bash
 # Build and deploy
 ./gradlew assembleDebug
-./gradlew installDebug
+adb -s "$ANDROID_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk   # never ./gradlew installDebug
 
 # Tail app logs
 adb logcat -s KernelAI

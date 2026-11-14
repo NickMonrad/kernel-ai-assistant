@@ -192,8 +192,8 @@ Minimum evidence for microphone or wake-word permission changes:
 - repair path result after returning from Settings;
 - confirmation that text input still works without microphone access;
 - confirmation that Hey Jandal does not crash when permission is revoked;
-- S21 on-device evidence by default;
-- S23U evidence only when the issue is device-sensitive or S21 evidence is ambiguous.
+- S23U on-device evidence by default;
+- S21 evidence only when more test capacity is needed (parallel runs or a second-SoC comparison for device-sensitive issues).
 
 Manual on-device testing is required for runtime permission flows because Android system permission dialogs are not fully covered by unit tests or CI.
 

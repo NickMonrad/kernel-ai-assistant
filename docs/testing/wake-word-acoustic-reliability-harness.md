@@ -1000,7 +1000,7 @@ Foreign-session events from overlapping voice interactions are silently filtered
 
 ### 24.11 Evidence collection steps
 
-1. Build and install `./gradlew :app:installDebug`.
+1. Build and install: `./gradlew :app:assembleDebug`, then `adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk`.
 2. Enable acoustic journal via the debug menu or broadcast:
    ```
    adb shell am broadcast -a com.kernel.ai.debug.action.CLEAR_JOURNAL
