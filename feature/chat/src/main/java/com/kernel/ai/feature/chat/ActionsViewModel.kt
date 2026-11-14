@@ -10,6 +10,8 @@ import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
+import com.kernel.ai.core.skills.SkillOutcomeEvents
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.DenialOutcome
@@ -1459,14 +1461,14 @@ class ActionsViewModel @Inject constructor(
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
                         } else {
-                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode)
+                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode, IntentRoute.QUICK_REGEX)
                         }
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
                         } else {
-                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode)
+                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode, IntentRoute.QUICK_CLASSIFIER)
                         }
                     }
                 }
@@ -1565,6 +1567,7 @@ class ActionsViewModel @Inject constructor(
                     intentName = pending.request.intentName,
                     params = mergedParams,
                     inputMode = pending.inputMode,
+                    route = IntentRoute.SLOT_FILL,
                 )
                 quickActionDao.insert(result.entity)
                 speakForVoice(
@@ -1697,6 +1700,7 @@ class ActionsViewModel @Inject constructor(
         intentName: String,
         params: Map<String, String>,
         inputMode: InputMode,
+        route: IntentRoute = IntentRoute.ACTION_UI,
     ): ExecutedAction {
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
@@ -1704,7 +1708,7 @@ class ActionsViewModel @Inject constructor(
             else -> skillRegistry.get("run_intent") to (mapOf("intent_name" to intentName) + params)
         }
         return if (skill != null) {
-            val skillResult = skill.execute(SkillCall(skill.name, callParams))
+            val skillResult = SkillOutcomeEvents.execute(skill, callParams, route)
             if (shouldRequestPhonePermission(skillResult)) {
                 // Clear stale weather/contact/calendar states
                 pendingWeatherLocationAction = null
@@ -1867,8 +1871,9 @@ class ActionsViewModel @Inject constructor(
         query: String,
         intent: QuickIntentRouter.MatchedIntent,
         inputMode: InputMode,
+        route: IntentRoute,
     ) {
-        val result = executeIntent(query, intent.intentName, intent.params, inputMode)
+        val result = executeIntent(query, intent.intentName, intent.params, inputMode, route)
         if (result.fallThroughToModel) {
             handoffToChatForModel(query, inputMode)
             return
