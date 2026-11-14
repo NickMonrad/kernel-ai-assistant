@@ -1964,7 +1964,8 @@ class ActionsViewModel @Inject constructor(
             }
 
             ExecutedAction(
-                entity = buildEntityFromSkillResult(query, intentName, skillResult).copy(spokenSummary = spokenSummary),
+                entity = buildEntityFromSkillResult(query, intentName, skillResult)
+                    .copy(spokenSummary = spokenSummary.takeUnless { skillResult is SkillResult.Failure }),
                 spokenSummary = spokenSummary,
                 fallThroughToModel = (skillResult as? SkillResult.Failure)?.fallThroughToModel == true,
             )

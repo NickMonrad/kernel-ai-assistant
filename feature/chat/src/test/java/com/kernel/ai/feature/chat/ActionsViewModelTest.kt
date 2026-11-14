@@ -198,6 +198,42 @@ class ActionsViewModelTest {
     }
 
     @Test
+    fun `contact recovery failure keeps the named prompt out of persisted quick action spoken summary`() = runTest(dispatcher) {
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run a native intent"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = SkillResult.Failure(
+                skillName = "run_intent",
+                error = "I don't know who Nick is yet. Add them in Settings → People & Contacts.",
+                technicalDetail = "Unresolved contact: send_sms",
+                actions = listOf(
+                    com.kernel.ai.core.skills.SettingsAction(
+                        label = "Add Nick",
+                        deepLink = com.kernel.ai.core.skills.SettingsDeepLink(
+                            destination = com.kernel.ai.core.skills.ContactLookupRecovery.PEOPLE_DESTINATION,
+                        ),
+                    ),
+                ),
+            )
+        }
+        every { skillRegistry.get(any()) } answers {
+            if (firstArg<String>() == "run_intent") runIntentSkill else null
+        }
+
+        viewModel.executeAction("send a message")
+        advanceUntilIdle()
+        viewModel.onSlotReply("Nick")
+        advanceUntilIdle()
+        viewModel.onSlotReply("Meet me at 5")
+        advanceUntilIdle()
+
+        assertEquals(1, insertedActions.size)
+        assertEquals("send a message", insertedActions.single().userQuery)
+        assertEquals(null, insertedActions.single().spokenSummary)
+     }
+
+    @Test
     fun `send email bare flow waits for contact subject and body before executing`() = runTest(dispatcher) {
         val runIntentSkill = CapturingRunIntentSkill()
         every { skillRegistry.get(any()) } answers {
