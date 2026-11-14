@@ -250,6 +250,7 @@ fun VoiceScreen(
 
     // Opens the voice-input settings page (its "Digital assistant app" row sets the role),
     // falling back to default apps. Shows a message if neither page resolves.
+    val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_no_settings_page)
     fun openAssistantSettings() {
         awaitingAssistantReturn = true
         try {
@@ -261,7 +262,7 @@ fun VoiceScreen(
                 awaitingAssistantReturn = false
                 Toast.makeText(
                     context,
-                    context.getString(com.kernel.ai.core.permissions.R.string.default_assistant_no_settings_page),
+                    noSettingsPageMessage,
                     Toast.LENGTH_LONG,
                 ).show()
             }
