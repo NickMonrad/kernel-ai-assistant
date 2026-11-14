@@ -44,7 +44,7 @@ import com.kernel.ai.feature.chat.formatBytesShort
 private const val FINISH_ID = "finish"
 private const val SKIP_ID = "skip"
 
-/** Test tag on the scrolling step content (#1903 large-font test). */
+/** Test tag on the scrolling container of the step content (#1903 large-font test). In compact mode it wraps the whole page. */
 internal const val SETUP_WIZARD_CONTENT_TAG = "setup_wizard_content"
 
 /** Below this window height the wizard scrolls as one page instead of pinning its buttons (#1903). */
@@ -100,6 +100,7 @@ internal fun SetupWizardContent(
     onSkip: () -> Unit,
 ) {
     val isLast = state.step == SetupStep.entries.last()
+    val scrollState = rememberScrollState()
     BoxWithConstraints(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
         if (maxHeight < COMPACT_HEIGHT) {
             // Short windows (landscape phones at large font): a pinned button row cannot keep its 48 dp minimum,
@@ -107,11 +108,12 @@ internal fun SetupWizardContent(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                    .testTag(SETUP_WIZARD_CONTENT_TAG),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                StepContent(Modifier.testTag(SETUP_WIZARD_CONTENT_TAG), state, onChoiceSelected)
+                StepContent(Modifier, state, onChoiceSelected)
                 WizardButtons(isLast, onPrimary, onBack, onSkip)
             }
         } else {
@@ -125,7 +127,7 @@ internal fun SetupWizardContent(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(scrollState)
                         .testTag(SETUP_WIZARD_CONTENT_TAG),
                 ) {
                     StepContent(Modifier, state, onChoiceSelected)

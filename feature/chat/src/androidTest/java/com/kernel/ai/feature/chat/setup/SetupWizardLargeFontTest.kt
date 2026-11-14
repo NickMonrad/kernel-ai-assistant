@@ -2,41 +2,38 @@ package com.kernel.ai.feature.chat.setup
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.ForcedSize
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.then
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.test.filterToOne
-import androidx.compose.ui.test.onAncestors
-import androidx.compose.ui.test.hasClickAction
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.setup.SetupStep
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
-import androidx.test.platform.app.InstrumentationRegistry
 
 /**
  * Large-font layout for the setup wizard (#1903), at font scale 2.0 in forced portrait (360x640 dp) and
  * landscape (915x412 dp) windows.
  *
  * Checks use unclipped geometry (positionInRoot and size), not boundsInRoot, which is clipped to parents and
- * so cannot show content pushed outside the window. The step content must scroll: its container ends above the
- * primary button. Each button must be at least 48 dp tall and lie inside the window.
+ * so cannot show content pushed outside the window. Each button must be at least 48 dp tall and lie inside the
+ * forced window (a box of the forced size at the root origin). In pinned portrait the content container must end
+ * above the primary button; in compact landscape the whole page scrolls, so each button is scrolled into view first.
  */
 @OptIn(ExperimentalTestApi::class)
 class SetupWizardLargeFontTest {
@@ -62,7 +59,7 @@ class SetupWizardLargeFontTest {
     fun step1ButtonsReachableAtLargeFontPortrait() {
         setWizard(step = SetupStep.HOW_IT_WORKS, size = PORTRAIT)
 
-        assertButtonsReachable(primary = "Continue")
+        assertButtonsReachable(primary = "Continue", size = PORTRAIT, compact = false)
     }
 
     @Test
@@ -74,14 +71,14 @@ class SetupWizardLargeFontTest {
         val option = composeRule.onNodeWithText("Allow mobile data")
         option.assertIsDisplayed()
         assertInside(option.unclippedBounds(), contentBounds())
-        assertButtonsReachable(primary = "Finish")
+        assertButtonsReachable(primary = "Finish", size = PORTRAIT, compact = false)
     }
 
     @Test
     fun step2ButtonsReachableAtLargeFontLandscape() {
         setWizard(step = SetupStep.DOWNLOAD, size = LANDSCAPE)
 
-        assertButtonsReachable(primary = "Finish", scrollButtonsIntoView = true)
+        assertButtonsReachable(primary = "Finish", size = LANDSCAPE, compact = true)
     }
 
     @Test
@@ -113,20 +110,23 @@ class SetupWizardLargeFontTest {
             .unclippedBounds()
 
     /**
-     * The content container must end at or above the primary button's top, so the buttons sit below the
-     * scrolling area rather than over it. Each button must be at least 48 dp tall and lie inside the window.
+     * Each button must be at least 48 dp tall and lie inside the forced window. Pinned layout (compact false):
+     * the scrolling content must end at or above the primary button's top. Compact layout: scroll each button
+     * into view first, since the whole page scrolls and the content container includes the buttons.
      */
-    private fun assertButtonsReachable(primary: String, scrollButtonsIntoView: Boolean = false) {
-        val window = composeRule.onRoot().unclippedBounds()
-        val content = contentBounds()
-        val primaryBounds = buttonBounds(primary)
-        assertTrue(
-            "content bottom ${content.bottom} must be at or above $primary top ${primaryBounds.top}",
-            content.bottom <= primaryBounds.top + TOLERANCE_PX,
-        )
+    private fun assertButtonsReachable(primary: String, size: DpSize, compact: Boolean) {
+        val window = Rect(0f, 0f, size.width.value * layoutDensity, size.height.value * layoutDensity)
+        if (!compact) {
+            val content = contentBounds()
+            val primaryBounds = buttonBounds(primary)
+            assertTrue(
+                "content bottom ${content.bottom} must be at or above $primary top ${primaryBounds.top}",
+                content.bottom <= primaryBounds.top + TOLERANCE_PX,
+            )
+        }
         val minHeightPx = MIN_TOUCH_DP * layoutDensity
         listOf(primary, "Back", "Skip for now").forEach { label ->
-            if (scrollButtonsIntoView) {
+            if (compact) {
                 composeRule.onNode(hasClickAction() and hasText(label)).performScrollTo()
             }
             val bounds = buttonBounds(label)
