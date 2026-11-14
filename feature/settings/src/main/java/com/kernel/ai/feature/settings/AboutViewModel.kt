@@ -15,6 +15,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -281,6 +282,7 @@ class AboutViewModel @Inject constructor(
         val scrubTrace: (String) -> String =
             if (includeUserContent) { text -> text } else DiagnosticLogRedactor::redactTraceText
 
+        val eventLines = JandalEvents.exportLines()
         if (exitRecords.isEmpty() && logcat.output == null) {
             val detail = logcat.failureDetail ?: "no recent process exits were recorded"
             throw Exception(
@@ -337,6 +339,8 @@ class AboutViewModel @Inject constructor(
             } else {
                 append(scrub(recordText))
             }
+            appendLine()
+            append(renderJandalEventSection(eventLines, scrub))
             appendLine()
             appendLine("Current process logcat")
             appendLine("----------------------")
