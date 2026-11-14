@@ -64,6 +64,7 @@ fun SettingsScreen(
     onNavigateToChatPreferences: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     onNavigateToAppPermissions: () -> Unit = {},
+    onNavigateToNextcloud: () -> Unit = {},
     onNavigateToClockSettings: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -192,6 +193,15 @@ fun SettingsScreen(
                 headlineContent = { Text("Memory") },
                 supportingContent = { Text("Manage stored memories") },
                 leadingContent = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToNextcloud() },
+                headlineContent = { Text("Nextcloud Tasks") },
+                supportingContent = { Text("Import or publish selected Lists with CalDAV") },
+                leadingContent = { Icon(Icons.Default.AccountCircle, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
             HorizontalDivider()

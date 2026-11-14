@@ -15,8 +15,15 @@ import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.NextcloudCollectionBindingDao
+import com.kernel.ai.core.memory.dao.NextcloudItemBindingDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
+import com.kernel.ai.core.memory.dao.ListActorStateDao
+import com.kernel.ai.core.memory.dao.ListAppliedChangeDao
+import com.kernel.ai.core.memory.dao.ListCheckpointDao
+import com.kernel.ai.core.memory.dao.ListChangeDao
+import com.kernel.ai.core.memory.dao.ListSourceSequenceDao
 import com.kernel.ai.core.memory.dao.MealPlanFavouriteRecipeDao
 import com.kernel.ai.core.memory.dao.MealPlanGroceryItemDao
 import com.kernel.ai.core.memory.dao.MealPlanProjectionWriteDao
@@ -30,6 +37,12 @@ import com.kernel.ai.core.memory.dao.ScheduledAlarmDao
 import com.kernel.ai.core.memory.dao.StopwatchDao
 import com.kernel.ai.core.memory.dao.UserProfileDao
 import com.kernel.ai.core.memory.dao.NoteDao
+import com.kernel.ai.core.memory.nextcloud.CalDavTransport
+import com.kernel.ai.core.memory.nextcloud.NextcloudCredentialStore
+import com.kernel.ai.core.memory.nextcloud.NextcloudAccountStore
+import com.kernel.ai.core.memory.nextcloud.NextcloudSharingOperations
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
+import com.kernel.ai.core.memory.nextcloud.OkHttpCalDavTransport
 import com.kernel.ai.core.memory.dao.WorldClockDao
 import com.kernel.ai.core.memory.clock.ClockRepository
 import com.kernel.ai.core.memory.clock.ClockRepositoryImpl
@@ -63,6 +76,16 @@ abstract class MemoryModule {
     @Singleton
     abstract fun bindClockRepository(impl: ClockRepositoryImpl): ClockRepository
 
+    @Binds
+    @Singleton
+    abstract fun bindNextcloudTransport(impl: OkHttpCalDavTransport): CalDavTransport
+
+    @Binds
+    @Singleton
+    abstract fun bindNextcloudCredentialStore(impl: NextcloudAccountStore): NextcloudCredentialStore
+    @Binds
+    @Singleton
+    abstract fun bindNextcloudSharingOperations(impl: NextcloudSyncAdapter): NextcloudSharingOperations
     @Binds
     @Singleton
     abstract fun bindModelSettingsRepository(impl: ModelSettingsRepositoryImpl): ModelSettingsRepository
@@ -121,10 +144,17 @@ abstract class MemoryModule {
                     KernelDatabase.MIGRATION_48_49,
                     KernelDatabase.MIGRATION_49_50,
                     KernelDatabase.MIGRATION_50_51,
+                    KernelDatabase.MIGRATION_51_52,
+                    KernelDatabase.MIGRATION_52_53,
+                    KernelDatabase.MIGRATION_53_54,
+                    KernelDatabase.MIGRATION_54_55,
+                    KernelDatabase.MIGRATION_55_56,
+                    KernelDatabase.MIGRATION_56_57,
+                    KernelDatabase.MIGRATION_57_58,
                 )
                 .addCallback(object : RoomDatabase.Callback() {
-                    // SQLite disables FK enforcement by default — enable it per-connection
-                    // so ON DELETE CASCADE on list_items.listId fires correctly.
+                    // SQLite disables FK enforcement by default; enable it per connection.
+                    // Tombstoned list rows use NO ACTION so history remains available.
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)
                         db.execSQL("PRAGMA foreign_keys = ON")
@@ -176,6 +206,27 @@ abstract class MemoryModule {
 
         @Provides
         fun provideListNameDao(db: KernelDatabase): ListNameDao = db.listNameDao()
+        @Provides
+        fun provideNextcloudCollectionBindingDao(db: KernelDatabase): NextcloudCollectionBindingDao =
+            db.nextcloudCollectionBindingDao()
+
+        @Provides
+        fun provideNextcloudItemBindingDao(db: KernelDatabase): NextcloudItemBindingDao =
+            db.nextcloudItemBindingDao()
+        @Provides
+        fun provideListActorStateDao(db: KernelDatabase): ListActorStateDao = db.listActorStateDao()
+
+        @Provides
+        fun provideListAppliedChangeDao(db: KernelDatabase): ListAppliedChangeDao = db.listAppliedChangeDao()
+
+        @Provides
+        fun provideListCheckpointDao(db: KernelDatabase): ListCheckpointDao = db.listCheckpointDao()
+
+        @Provides
+        fun provideListChangeDao(db: KernelDatabase): ListChangeDao = db.listChangeDao()
+
+        @Provides
+        fun provideListSourceSequenceDao(db: KernelDatabase): ListSourceSequenceDao = db.listSourceSequenceDao()
 
         @Provides
         @Singleton

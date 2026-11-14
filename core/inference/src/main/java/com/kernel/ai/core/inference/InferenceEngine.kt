@@ -3,6 +3,15 @@ package com.kernel.ai.core.inference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.sync.Mutex
+
+/**
+ * Process-wide serialization for initialization of the singleton conversation engine.
+ * Chat startup and note-title generation can both be the first caller on a cold launch.
+ */
+object Gemma4InitLock {
+    val mutex = Mutex()
+}
 
 /**
  * Core interface for on-device LLM inference backed by LiteRT-LM.
@@ -50,6 +59,9 @@ interface InferenceEngine {
      * Load model weights and initialize the LiteRT-LM engine.
      * Blocks the [LlmDispatcher] thread; observe [isReady] for completion.
      *
+     * If the engine is already ready, this is a no-op and the supplied [ModelConfig] is ignored.
+     * Call [shutdown] before initializing with a different configuration.
+     *
      * @throws [InferenceException] if all backends fail.
      */
     suspend fun initialize(config: ModelConfig)
@@ -62,8 +74,41 @@ interface InferenceEngine {
      */
     fun generate(userMessage: String): Flow<GenerationResult>
 
+    /**
+     * DEBUG diagnostic variant of [generate] that correlates app budget estimates with native sends.
+     * [debugTraceId] is emitted only in DEBUG builds and must not contain user or model content.
+     */
+    fun generateWithDebugTrace(
+        userMessage: String,
+        debugTraceId: String,
+    ): Flow<GenerationResult> = generate(userMessage)
+
+    /**
+     * DEBUG harness entrypoint that invokes the configured `load_skill("run_intent")`
+     * provider through the normal app callback without asking the model to select a tool.
+     *
+     * @param debugTraceId Optional safe identifier for correlating the probe with app budget logs.
+     */
+    fun generateDebugLoadSkillAbortProbe(debugTraceId: String? = null): Flow<GenerationResult>
+    /**
+     * DEBUG harness entrypoint that invokes `load_skill("run_intent")` through the configured
+     * ToolManager and sends its response through the native LiteRT conversation continuation.
+     * The initial tool call is synthetic; this does not claim model-driven tool selection.
+     */
+    fun generateDebugLoadSkillNativeContinuationProbe(
+        debugTraceId: String? = null,
+    ): Flow<GenerationResult>
+
     /** Cancel any in-flight generation immediately. */
     fun cancelGeneration()
+    /**
+     * Stop an active generation before a tool result is sent back to LiteRT.
+     *
+     * Unlike [cancelGeneration], this must not call native `cancelProcess()` from inside
+     * LiteRT's synchronous tool-provider callback. Implementations discard and settle the
+     * current conversation before allowing the next generation to use the engine.
+     */
+    fun abortGenerationBeforeToolContinuation()
 
     /**
      * Generate a response for [prompt] using an **isolated conversation** that does

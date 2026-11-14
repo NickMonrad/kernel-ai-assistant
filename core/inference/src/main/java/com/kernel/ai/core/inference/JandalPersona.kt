@@ -14,7 +14,7 @@ import javax.inject.Singleton
 
 private const val TAG = "JandalPersona"
 private const val PREFS_NAME = "jandal_persona"
-private const val KEY_TRUTHS_SEEDED = "truths_seeded_v32"  // bumped: force reseed to reindex nz_140–nz_145 embeddings (sweet potato/kumara recall fix)
+private const val KEY_TRUTHS_SEEDED = "truths_seeded_v35"  // #1596/#1764: corrected NZ definitions and instructions
 private const val KEY_LAST_VOCAB_INDICES = "last_vocab_indices"
 private const val KEY_PERSONA_MODE = "persona_mode"
 private const val SESSION_VOCAB_COUNT_FULL = 2
@@ -83,22 +83,7 @@ class JandalPersona @Inject constructor(
     fun buildGreetingInstruction(
         isFirstReply: Boolean,
         mode: PersonaMode = currentPersonaMode,
-    ): String {
-        if (!isFirstReply) {
-            return "Do NOT start this reply with a greeting — you already greeted the user earlier in the conversation. " +
-                "Use the user's name occasionally for warmth, not as a prefix on every response."
-        }
-        val hour = LocalTime.now().hour
-        val greetWord = when (mode) {
-            PersonaMode.BORING -> "Open your reply with 'Hello' or 'Hi'."
-            PersonaMode.FULL, PersonaMode.HALF -> if (hour in 5..11) {
-                "Open your reply with 'Morena' (good morning in Māori)."
-            } else {
-                "Do not say 'Morena' — it is not morning. Open your reply with 'Kia ora'."
-            }
-        }
-        return "$greetWord Use the user's name occasionally for warmth, not as a prefix on every response."
-    }
+    ): String = greetingInstruction(isFirstReply, mode, LocalTime.now().hour)
 
     /**
      * Picks [SESSION_VOCAB_COUNT] entries from the vocab pool with LRU cooldown
@@ -195,5 +180,23 @@ class JandalPersona @Inject constructor(
     companion object {
         /** Source identifier used when writing NZ corpus entries to kiwi_memories. */
         const val SOURCE = "jandal_persona"
+
+        /** Pure form of [buildGreetingInstruction]; [hour] is the local hour of day (0–23). */
+        internal fun greetingInstruction(isFirstReply: Boolean, mode: PersonaMode, hour: Int): String {
+            if (!isFirstReply) {
+                return "Do NOT start this reply with a greeting — you already greeted the user earlier in the conversation. " +
+                    "Use the user's name occasionally for warmth, not as a prefix on every response."
+            }
+            val greetWord = when (mode) {
+                PersonaMode.BORING -> "Open your reply with 'Hello' or 'Hi'."
+                PersonaMode.FULL, PersonaMode.HALF -> if (hour in 5..11) {
+                    "Open your reply with 'Morena' (good morning in Māori)."
+                } else {
+                    "Do not say 'Morena' — it is not morning. Open your reply with 'Kia ora'."
+                }
+            }
+            return "$greetWord Use the user's name occasionally for warmth, not as a prefix on every response. " +
+                EXACT_FORMAT_GREETING_EXCEPTION
+        }
     }
 }

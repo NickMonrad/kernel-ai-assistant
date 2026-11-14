@@ -1,5 +1,6 @@
 package com.kernel.ai.core.memory.repository
 
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.memory.dao.ModelSettingsDao
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
@@ -29,7 +30,7 @@ class ModelSettingsRepositoryImpl @Inject constructor(
     override fun getMaxUserProfileChars(contextWindowSize: Int): Int =
         (contextWindowSize * 0.1).toInt().coerceIn(500, 3000)
 
-    private fun defaultSettings(modelId: String): ModelSettingsEntity {
+    override fun defaultSettings(modelId: String): ModelSettingsEntity {
         val defaultContextWindow = hardwareProfileDetector.profile.recommendedMaxTokens
         return ModelSettingsEntity(
             modelId = modelId,
@@ -37,8 +38,8 @@ class ModelSettingsRepositoryImpl @Inject constructor(
             temperature = 1.0f,
             topP = 0.95f,
             topK = 64,
-            showThinkingProcess = true,
-            speculativeDecodingEnabled = false,
+            showThinkingProcess = hardwareProfileDetector.profile.tier != HardwareTier.MID_RANGE,
+            speculativeDecodingEnabled = true,
             updatedAt = System.currentTimeMillis(),
         )
     }

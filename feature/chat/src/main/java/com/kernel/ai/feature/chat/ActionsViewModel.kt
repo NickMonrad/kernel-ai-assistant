@@ -32,7 +32,9 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -187,6 +189,7 @@ class ActionsViewModel @Inject constructor(
     private data class ExecutedAction(
         val entity: QuickActionEntity,
         val spokenSummary: String?,
+        val fallThroughToModel: Boolean = false,
     )
 
     /**
@@ -313,6 +316,9 @@ class ActionsViewModel @Inject constructor(
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
+    private var chunkedVoiceSpeechJob: Job? = null
+    /** Set by [cancelPendingVoiceSpeech]; cleared when the next reply starts speaking. */
+    private var voiceSpeechCancelled = false
     private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
@@ -502,6 +508,12 @@ class ActionsViewModel @Inject constructor(
             voiceOutputController.events.collect { event ->
                 when (event) {
                     is VoiceOutputEvent.SpeakingStarted -> {
+                        if (voiceSpeechCancelled) {
+                            // Speech the user abandoned can still report a start; no SpeakingStopped
+                            // follows it on Inflect, so accepting it would leave the card on Speaking.
+                            Log.d(TAG, "ActionsViewModel: ignoring SpeakingStarted after cancelled speech")
+                            return@collect
+                        }
                         cancelPendingVoiceSlotReplyRestart()
                         _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
                         if (event.text == expectedSlotPromptSpeech) {
@@ -1395,15 +1407,7 @@ class ActionsViewModel @Inject constructor(
                 when (routeResult) {
                     is QuickIntentRouter.RouteResult.FallThrough -> {
                         Log.d(TAG, "ActionsViewModel: FallThrough for \"$normalizedQuery\" → navigating to chat")
-                        val entity = QuickActionEntity(
-                            userQuery = normalizedQuery,
-                            skillName = "llm_fallthrough",
-                            resultText = "Sending to Jandal for processing…",
-                            isSuccess = true,
-                        )
-                        quickActionDao.insert(entity)
-                        speakForVoice(inputMode, entity.resultText)
-                        _events.emit(UiEvent.NavigateToChat(normalizedQuery, speakResponse = inputMode == InputMode.Voice))
+                        handoffToChatForModel(normalizedQuery, inputMode)
                     }
                     is QuickIntentRouter.RouteResult.NeedsSlot -> {
                         // Pause execution — show slot prompt in a ModalBottomSheet.
@@ -1421,28 +1425,14 @@ class ActionsViewModel @Inject constructor(
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
                         } else {
-                            val result = executeIntent(
-                                query = normalizedQuery,
-                                intentName = routeResult.intent.intentName,
-                                params = routeResult.intent.params,
-                                inputMode = inputMode,
-                            )
-                            quickActionDao.insert(result.entity)
-                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary, userValues = routeResult.intent.params.values)
+                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode)
                         }
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
                         } else {
-                            val result = executeIntent(
-                                query = normalizedQuery,
-                                intentName = routeResult.intent.intentName,
-                                params = routeResult.intent.params,
-                                inputMode = inputMode,
-                            )
-                            quickActionDao.insert(result.entity)
-                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary, userValues = routeResult.intent.params.values)
+                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode)
                         }
                     }
                 }
@@ -1823,6 +1813,7 @@ class ActionsViewModel @Inject constructor(
             ExecutedAction(
                 entity = buildEntityFromSkillResult(query, intentName, skillResult),
                 spokenSummary = spokenSummaryFrom(skillResult),
+                fallThroughToModel = (skillResult as? SkillResult.Failure)?.fallThroughToModel == true,
             )
         } else {
             Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
@@ -1836,6 +1827,37 @@ class ActionsViewModel @Inject constructor(
                 spokenSummary = null,
             )
         }
+    }
+
+    private suspend fun executeRoutedIntent(
+        query: String,
+        intent: QuickIntentRouter.MatchedIntent,
+        inputMode: InputMode,
+    ) {
+        val result = executeIntent(query, intent.intentName, intent.params, inputMode)
+        if (result.fallThroughToModel) {
+            handoffToChatForModel(query, inputMode)
+            return
+        }
+        quickActionDao.insert(result.entity)
+        speakForVoice(
+            inputMode,
+            result.entity.resultText,
+            spokenOverride = result.spokenSummary,
+            userValues = intent.params.values,
+        )
+    }
+
+    private suspend fun handoffToChatForModel(query: String, inputMode: InputMode) {
+        val entity = QuickActionEntity(
+            userQuery = query,
+            skillName = "llm_fallthrough",
+            resultText = "Sending to Jandal for processing…",
+            isSuccess = true,
+        )
+        quickActionDao.insert(entity)
+        speakForVoice(inputMode, entity.resultText)
+        _events.emit(UiEvent.NavigateToChat(query, speakResponse = inputMode == InputMode.Voice))
     }
 
     private suspend fun handoffMealPlannerToChat(query: String, inputMode: InputMode) {
@@ -2014,10 +2036,36 @@ class ActionsViewModel @Inject constructor(
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
+        // A new reply supersedes the cancellation, so its SpeakingStarted events count again.
+        voiceSpeechCancelled = false
+        // A slot prompt must be spoken as one utterance: the slot-reply mic re-arm only trusts a
+        // SpeakingStarted whose text equals expectedSlotPromptSpeech, and Android TTS streaming
+        // reports the first (re-normalised) chunk instead. Slot prompts are one short question,
+        // so chunking would gain nothing.
+        val isSlotPrompt = summary == expectedSlotPromptSpeech
         pendingVoiceSpeechJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
             if (!spokenResponsesEnabled) return@launch
-            when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = summary))) {
+            // Other replies go sentence by sentence, so long ones (e.g. weather) start sooner.
+            val speechJob = currentCoroutineContext()[Job]
+            val result = try {
+                if (!isSlotPrompt) chunkedVoiceSpeechJob = speechJob
+                if (isSlotPrompt) {
+                    voiceOutputController.speak(VoiceSpeakRequest(text = summary))
+                } else {
+                    speakInSentenceChunks(voiceOutputController, summary)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: chunked speech failed to start", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            } finally {
+                // Identity check: a cancelled reply's finally must not clear the flag that
+                // now belongs to the reply that replaced it.
+                if (chunkedVoiceSpeechJob === speechJob) chunkedVoiceSpeechJob = null
+            }
+            when (result) {
                 is VoiceOutputResult.Spoken -> Unit
                 is VoiceOutputResult.Unavailable -> _error.value = result.message
             }
@@ -2043,6 +2091,15 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSpeech() {
         pendingVoiceSpeechJob?.cancel()
         pendingVoiceSpeechJob = null
+        voiceSpeechCancelled = true
+        if (chunkedVoiceSpeechJob != null) {
+            chunkedVoiceSpeechJob = null
+            // The user moved on mid-reply, so sentence chunks would keep speaking over the new
+            // interaction while still queuing (Inflect: while playing). stop() halts them; Inflect
+            // emits no SpeakingStopped after stop(), so the playback state is reset here as well.
+            voiceOutputController.stop()
+            _voicePlaybackState.value = VoicePlaybackState.Idle
+        }
     }
 
     private fun shouldSuppressDuplicateVoiceCommand(query: String, nowMs: Long = System.nanoTime() / 1_000_000L): Boolean {

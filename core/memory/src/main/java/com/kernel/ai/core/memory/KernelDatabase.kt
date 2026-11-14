@@ -15,8 +15,15 @@ import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.ImportantDateDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.dao.NextcloudCollectionBindingDao
+import com.kernel.ai.core.memory.dao.NextcloudItemBindingDao
 import com.kernel.ai.core.memory.dao.RecentShortcutDao
 import com.kernel.ai.core.memory.dao.ListNameDao
+import com.kernel.ai.core.memory.dao.ListCheckpointDao
+import com.kernel.ai.core.memory.dao.ListActorStateDao
+import com.kernel.ai.core.memory.dao.ListAppliedChangeDao
+import com.kernel.ai.core.memory.dao.ListChangeDao
+import com.kernel.ai.core.memory.dao.ListSourceSequenceDao
 import com.kernel.ai.core.memory.dao.NoteDao
 import com.kernel.ai.core.memory.dao.MealPlanDayDao
 import com.kernel.ai.core.memory.dao.MealPlanFavouriteRecipeDao
@@ -37,12 +44,19 @@ import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.entity.ConversionHistoryEntity
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.CurrencyFavouriteEntity
-import com.kernel.ai.core.memory.entity.FavouriteShortcutEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.entity.ImportantDateEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
 import com.kernel.ai.core.memory.entity.ListItemEntity
+import com.kernel.ai.core.memory.entity.NextcloudCollectionBindingEntity
+import com.kernel.ai.core.memory.entity.NextcloudItemBindingEntity
+import com.kernel.ai.core.memory.entity.ListCheckpointEntity
+import com.kernel.ai.core.memory.entity.FavouriteShortcutEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.entity.ListActorStateEntity
+import com.kernel.ai.core.memory.entity.ListAppliedChangeEntity
+import com.kernel.ai.core.memory.entity.ListChangeEntity
+import com.kernel.ai.core.memory.entity.ListSourceSequenceEntity
 import com.kernel.ai.core.memory.entity.NoteEntity
 import com.kernel.ai.core.memory.entity.RecentShortcutEntity
 import com.kernel.ai.core.memory.entity.MealPlanDayEntity
@@ -78,9 +92,16 @@ import java.time.ZoneId
         StopwatchStateEntity::class,
         StopwatchLapEntity::class,
         ContactAliasEntity::class,
-        ImportantDateEntity::class,
+        NextcloudCollectionBindingEntity::class,
+        NextcloudItemBindingEntity::class,
         ListItemEntity::class,
         ListNameEntity::class,
+        ListCheckpointEntity::class,
+        ListActorStateEntity::class,
+        ListAppliedChangeEntity::class,
+        ListChangeEntity::class,
+        ListSourceSequenceEntity::class,
+        ImportantDateEntity::class,
         ConversionHistoryEntity::class,
         CurrencyFavouriteEntity::class,
         MealPlanSessionEntity::class,
@@ -93,7 +114,7 @@ import java.time.ZoneId
         FavouriteShortcutEntity::class,
         RecentShortcutEntity::class,
     ],
-    version = 51,
+    version = 58,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -115,6 +136,13 @@ abstract class KernelDatabase : RoomDatabase() {
     abstract fun importantDateDao(): ImportantDateDao
     abstract fun listItemDao(): ListItemDao
     abstract fun listNameDao(): ListNameDao
+    abstract fun nextcloudCollectionBindingDao(): NextcloudCollectionBindingDao
+    abstract fun nextcloudItemBindingDao(): NextcloudItemBindingDao
+    abstract fun listCheckpointDao(): ListCheckpointDao
+    abstract fun listActorStateDao(): ListActorStateDao
+    abstract fun listAppliedChangeDao(): ListAppliedChangeDao
+    abstract fun listChangeDao(): ListChangeDao
+    abstract fun listSourceSequenceDao(): ListSourceSequenceDao
     abstract fun kiwiMemoryDao(): KiwiMemoryDao
     abstract fun conversionHistoryDao(): ConversionHistoryDao
     abstract fun currencyFavouriteDao(): CurrencyFavouriteDao
@@ -874,5 +902,155 @@ abstract class KernelDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds stable Lists identities, Lamport metadata, source sequences, and tombstone-safe FKs. */
+        val MIGRATION_51_52 = object : Migration(51, 52) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `collectionId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `canonicalTitle` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `localDisplayAlias` TEXT")
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `lifecycle` TEXT NOT NULL DEFAULT 'ACTIVE'")
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `titleLogicalClock` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `titleStampActorId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `lifecycleLogicalClock` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `lifecycleStampActorId` TEXT NOT NULL DEFAULT ''")
+                db.query("SELECT id, name FROM `lists`").use { cursor ->
+                    val id = cursor.getColumnIndexOrThrow("id")
+                    val name = cursor.getColumnIndexOrThrow("name")
+                    while (cursor.moveToNext()) {
+                        val listId = cursor.getLong(id)
+                        val title = cursor.getString(name)
+                        db.execSQL(
+                            "UPDATE `lists` SET collectionId = ?, canonicalTitle = ? WHERE id = ?",
+                            arrayOf(java.util.UUID.randomUUID().toString(), title, listId),
+                        )
+                    }
+                }
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_lists_collectionId` ON `lists` (`collectionId`)")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `itemId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `collectionId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `parentItemId` TEXT")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `orderKey` TEXT NOT NULL DEFAULT '0'")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `textLogicalClock` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `textStampActorId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `checkedLogicalClock` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `checkedStampActorId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `dueAtLogicalClock` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `dueAtStampActorId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `placementLogicalClock` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `placementStampActorId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `lifecycle` TEXT NOT NULL DEFAULT 'ACTIVE'")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `lifecycleLogicalClock` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `lifecycleStampActorId` TEXT NOT NULL DEFAULT ''")
+                db.query("SELECT li.id, li.displayOrder, l.collectionId FROM `list_items` li INNER JOIN `lists` l ON li.listId = l.id").use { cursor ->
+                    val id = cursor.getColumnIndexOrThrow("id")
+                    val displayOrder = cursor.getColumnIndexOrThrow("displayOrder")
+                    val collectionId = cursor.getColumnIndexOrThrow("collectionId")
+                    while (cursor.moveToNext()) {
+                        val itemRowId = cursor.getLong(id)
+                        db.execSQL(
+                            "UPDATE `list_items` SET itemId = ?, collectionId = ?, orderKey = ? WHERE id = ?",
+                            arrayOf(java.util.UUID.randomUUID().toString(), cursor.getString(collectionId), cursor.getLong(displayOrder).toString(), itemRowId),
+                        )
+                    }
+                }
+                db.execSQL(
+                    "CREATE TABLE `list_items_new` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `listId` INTEGER NOT NULL, `text` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `checked` INTEGER NOT NULL, `dueAt` INTEGER, `isFavourite` INTEGER NOT NULL, `notificationTime` INTEGER, `displayOrder` INTEGER NOT NULL, `itemId` TEXT NOT NULL, `collectionId` TEXT NOT NULL, `parentItemId` TEXT, `orderKey` TEXT NOT NULL, `textLogicalClock` INTEGER NOT NULL, `textStampActorId` TEXT NOT NULL, `checkedLogicalClock` INTEGER NOT NULL, `checkedStampActorId` TEXT NOT NULL, `dueAtLogicalClock` INTEGER NOT NULL, `dueAtStampActorId` TEXT NOT NULL, `placementLogicalClock` INTEGER NOT NULL, `placementStampActorId` TEXT NOT NULL, `lifecycle` TEXT NOT NULL, `lifecycleLogicalClock` INTEGER NOT NULL, `lifecycleStampActorId` TEXT NOT NULL, FOREIGN KEY(`listId`) REFERENCES `lists`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION)"
+                )
+                db.execSQL("INSERT INTO `list_items_new` SELECT `id`, `listId`, `text`, `createdAt`, `updatedAt`, `checked`, `dueAt`, `isFavourite`, `notificationTime`, `displayOrder`, `itemId`, `collectionId`, `parentItemId`, `orderKey`, `textLogicalClock`, `textStampActorId`, `checkedLogicalClock`, `checkedStampActorId`, `dueAtLogicalClock`, `dueAtStampActorId`, `placementLogicalClock`, `placementStampActorId`, `lifecycle`, `lifecycleLogicalClock`, `lifecycleStampActorId` FROM `list_items`")
+                db.execSQL("DROP TABLE `list_items`")
+                db.execSQL("ALTER TABLE `list_items_new` RENAME TO `list_items`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_items_listId` ON `list_items` (`listId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_list_items_itemId` ON `list_items` (`itemId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_items_collectionId` ON `list_items` (`collectionId`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `list_actor_state` (`actorId` TEXT NOT NULL, `logicalClock` INTEGER NOT NULL, PRIMARY KEY(`actorId`))")
+                db.execSQL("INSERT INTO `list_actor_state` (`actorId`, `logicalClock`) VALUES (?, 0)", arrayOf(java.util.UUID.randomUUID().toString()))
+                db.execSQL("CREATE TABLE IF NOT EXISTS `list_checkpoints` (`collectionId` TEXT NOT NULL, `actorId` TEXT NOT NULL, `highestContiguousSourceSequence` INTEGER NOT NULL, PRIMARY KEY(`collectionId`, `actorId`))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `list_changes` (`changeId` TEXT NOT NULL, `formatVersion` INTEGER NOT NULL, `collectionId` TEXT NOT NULL, `targetId` TEXT NOT NULL, `actorId` TEXT NOT NULL, `sourceSequence` INTEGER NOT NULL, `logicalClock` INTEGER NOT NULL, `stampActorId` TEXT NOT NULL, `operation` TEXT NOT NULL, `payload` TEXT NOT NULL, `isPending` INTEGER NOT NULL, PRIMARY KEY(`changeId`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_changes_collectionId` ON `list_changes` (`collectionId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_changes_isPending` ON `list_changes` (`isPending`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `list_applied_changes` (`changeId` TEXT NOT NULL, `collectionId` TEXT NOT NULL, `actorId` TEXT NOT NULL, `sourceSequence` INTEGER NOT NULL, PRIMARY KEY(`changeId`))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `list_source_sequences` (`actorId` TEXT NOT NULL, `collectionId` TEXT NOT NULL, `sourceSequence` INTEGER NOT NULL, PRIMARY KEY(`actorId`, `collectionId`))")
+            }
+        }
+        /** Adds provider metadata for explicit Nextcloud collection/item bindings (#1539). */
+        val MIGRATION_52_53 = object : Migration(52, 53) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `nextcloud_collection_bindings` (
+                        `collectionId` TEXT NOT NULL PRIMARY KEY,
+                        `remoteHref` TEXT NOT NULL,
+                        `remoteTitle` TEXT NOT NULL,
+                        `remoteEtag` TEXT,
+                        `remoteLogicalClock` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_nextcloud_collection_bindings_remoteHref` ON `nextcloud_collection_bindings` (`remoteHref`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `nextcloud_item_bindings` (
+                        `itemId` TEXT NOT NULL PRIMARY KEY,
+                        `collectionId` TEXT NOT NULL,
+                        `remoteUid` TEXT NOT NULL,
+                        `remoteHref` TEXT NOT NULL,
+                        `etag` TEXT,
+                        `rawVtodo` TEXT NOT NULL,
+                        `remoteLogicalClock` INTEGER NOT NULL,
+                        `deletedRemotely` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_nextcloud_item_bindings_collectionId` ON `nextcloud_item_bindings` (`collectionId`)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_nextcloud_item_bindings_collectionId_remoteUid` ON `nextcloud_item_bindings` (`collectionId`, `remoteUid`)",
+                )
+            }
+        }
+        /** Adds per-list sync lifecycle state to Nextcloud bindings (#1551). */
+        val MIGRATION_53_54 = object : Migration(53, 54) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `syncEnabled` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `lastFailureCode` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `lastFailureAt` INTEGER DEFAULT NULL")
+            }
+        }
+        /** Adds independent item descriptions and their sync stamps (#1579). */
+        val MIGRATION_54_55 = object : Migration(54, 55) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `description` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `descriptionLogicalClock` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_items` ADD COLUMN `descriptionStampActorId` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+        /** Persists server-enforced read-only state for bound Nextcloud collections (#1548). */
+        val MIGRATION_55_56 = object : Migration(55, 56) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `remoteWritable` INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        /**
+         * Persists discovered loss of provider access and stranded local work for shared Nextcloud
+         * lists (#1548): an unavailable collection (share removed) and quarantined unsynced changes.
+         */
+        val MIGRATION_56_57 = object : Migration(56, 57) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `remoteAvailable` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `nextcloud_collection_bindings` ADD COLUMN `blockedUnsyncedAt` INTEGER")
+            }
+        }
+        /** Records a recipe projection's initial Manual item-sort default so generated recipe lists open in canonical order (#1549). */
+        val MIGRATION_57_58 = object : Migration(57, 58) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `lists` ADD COLUMN `defaultItemSort` TEXT DEFAULT NULL")
+            }
+        }
     }
 }

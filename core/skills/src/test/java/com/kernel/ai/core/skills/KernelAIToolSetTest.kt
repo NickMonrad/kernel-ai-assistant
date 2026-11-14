@@ -1,9 +1,13 @@
 package com.kernel.ai.core.skills
 
+import com.google.ai.edge.litertlm.Tool
+import com.google.ai.edge.litertlm.ToolParam
 import dagger.Lazy
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -42,6 +46,98 @@ class KernelAIToolSetTest {
         assertEquals("query_wikipedia", toolSet.lastToolName())
         assertEquals("{\"query\":\"New Zealand\"}", toolSet.lastToolRequest())
     }
+
+    @Test
+    fun `queryWikipedia returns question evidence to the model and does not leak the question into later turns`() = runTest {
+        val runner = mockk<com.kernel.ai.core.skills.js.JsSkillRunner>()
+        coEvery {
+            runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg", "mode" to "evidence"))
+        } returns org.json.JSONObject(
+            mapOf(
+                "title" to "Andy Samberg",
+                "url" to "https://en.wikipedia.org/wiki/Andy_Samberg",
+                "summary" to "Andy Samberg is an American comedian.",
+                "extract" to "== Early life ==\nSamberg was raised in a Jewish family.",
+            ),
+        ).toString()
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg")) } returns
+            "Andy Samberg\n\nAndy Samberg is an American comedian."
+        every { registry.get("query_wikipedia") } returns QueryWikipediaSkill(runner)
+
+        toolSet.resetTurnState(userMessage = "Is Andy Samberg Jewish?")
+        val questionResult = toolSet.queryWikipedia("Andy Samberg")
+
+        assertFalse(toolSet.lastToolWasDirectReply())
+        assertTrue(questionResult["result"]!!.contains("[Early life] Samberg was raised in a Jewish family."))
+        assertTrue(questionResult["result"]!!.contains("Answer the user's question directly, using only this evidence."))
+        assertFalse(toolSet.lastToolResult()!!.contains("Answer the user's question directly"))
+        assertFalse(toolSet.terminalToolResult()!!.contains("Answer the user's question directly"))
+
+        toolSet.resetTurnState()
+        val summaryResult = toolSet.queryWikipedia("Andy Samberg")
+
+        assertTrue(toolSet.lastToolWasDirectReply())
+        assertEquals("Andy Samberg\n\nAndy Samberg is an American comedian.", summaryResult["result"])
+    }
+
+    @Test
+    fun `queryWikipedia returns evidence for a search-prefixed question instead of the summary`() = runTest {
+        val runner = mockk<com.kernel.ai.core.skills.js.JsSkillRunner>()
+        coEvery {
+            runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg", "mode" to "evidence"))
+        } returns wikipediaEvidence(
+            title = "Andy Samberg",
+            url = "https://en.wikipedia.org/wiki/Andy_Samberg",
+            extract = "== Early life ==\nSamberg was raised in a Jewish family.",
+        )
+        every { registry.get("query_wikipedia") } returns QueryWikipediaSkill(runner)
+
+        toolSet.resetTurnState(userMessage = "Search Wikipedia for is Andy Samberg Jewish?")
+        val result = toolSet.queryWikipedia("Andy Samberg")
+
+        assertFalse(toolSet.lastToolWasDirectReply())
+        assertTrue(result["result"]!!.contains("Source: https://en.wikipedia.org/wiki/Andy_Samberg"))
+    }
+
+    @Test
+    fun `queryWikipedia returns evidence for a look-up-prefixed question with a trailing on Wikipedia`() = runTest {
+        val runner = mockk<com.kernel.ai.core.skills.js.JsSkillRunner>()
+        coEvery {
+            runner.execute("query-wikipedia", mapOf("query" to "Constantinople", "mode" to "evidence"))
+        } returns wikipediaEvidence(
+            title = "Constantinople",
+            url = "https://en.wikipedia.org/wiki/Constantinople",
+            extract = "== History ==\nConstantinople was founded in 330 AD by Constantine the Great.",
+        )
+        every { registry.get("query_wikipedia") } returns QueryWikipediaSkill(runner)
+
+        toolSet.resetTurnState(userMessage = "Look up when was Constantinople founded on Wikipedia")
+        val result = toolSet.queryWikipedia("Constantinople")
+
+        assertFalse(toolSet.lastToolWasDirectReply())
+        assertTrue(result["result"]!!.contains("Source: https://en.wikipedia.org/wiki/Constantinople"))
+    }
+
+    @Test
+    fun `queryWikipedia keeps the article summary for non-question explicit Wikipedia requests`() = runTest {
+        val runner = mockk<com.kernel.ai.core.skills.js.JsSkillRunner>()
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg")) } returns
+            "Andy Samberg\n\nAndy Samberg is an American comedian."
+        every { registry.get("query_wikipedia") } returns QueryWikipediaSkill(runner)
+
+        for (userMessage in listOf("Look up Andy Samberg on Wikipedia", "Tell me about Andy Samberg on Wikipedia")) {
+            toolSet.resetTurnState(userMessage = userMessage)
+            val result = toolSet.queryWikipedia("Andy Samberg")
+
+            assertTrue(toolSet.lastToolWasDirectReply(), userMessage)
+            assertEquals("Andy Samberg\n\nAndy Samberg is an American comedian.", result["result"], userMessage)
+        }
+    }
+
+    private fun wikipediaEvidence(title: String, url: String, extract: String): String =
+        org.json.JSONObject(
+            mapOf("title" to title, "url" to url, "summary" to "$title is a subject.", "extract" to extract),
+        ).toString()
 
     @Test
     fun `getSystemInfo delegates to get_system_info skill`() = runTest {
@@ -87,6 +183,32 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `loadSkill metadata directs RunIntent continuation`() {
+        val description = KernelAIToolSet::class.java
+            .getMethod("loadSkill", String::class.java)
+            .getAnnotation(Tool::class.java)
+            .description
+
+        val normalizedDescription = description.lowercase()
+        assertTrue("first tool call" in normalizedDescription)
+        assertTrue("wait for success" in normalizedDescription)
+        assertTrue("must be followed by run_intent" in normalizedDescription)
+        assertTrue("before any final reply" in normalizedDescription)
+    }
+
+    @Test
+    fun `runIntent parameter metadata documents get_date_diff keys and format`() {
+        val description = KernelAIToolSet::class.java
+            .getMethod("runIntent", String::class.java, String::class.java)
+            .parameterAnnotations[1]
+            .filterIsInstance<ToolParam>()
+            .single()
+            .description
+
+        assertTrue(RunIntentSkill.GET_DATE_DIFF_PARAMETER_HELP in description)
+    }
+
+    @Test
     fun `runIntent escapes blank parameters`() = runTest {
         val skill = mockk<Skill>()
         every { skill.name } returns "run_intent"
@@ -118,6 +240,87 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `runIntent resolves unique separator variants before execution`() = runTest {
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Stopwatch status")
+        every { registry.get("run_intent") } returns runIntent
+
+        val result = toolSet.runIntent("GET STOP-WATCH STATUS", "{}")
+        assertEquals("Stopwatch status", result["result"])
+
+        coVerify {
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status")))
+        }
+    }
+
+    @Test
+    fun `intent name resolution leaves ambiguous and unknown names unchanged`() {
+        val ambiguousNames = listOf("get_stopwatch_status", "get-stopwatch-status")
+        val ambiguousInput = "get_stop_watch_status"
+
+        assertEquals(
+            ambiguousInput,
+            KernelAIToolSet.resolveRunIntentName(ambiguousInput, ambiguousNames),
+        )
+        assertEquals(
+            "unknown_action",
+            KernelAIToolSet.resolveRunIntentName("unknown_action"),
+        )
+    }
+
+    @Test
+    fun `watch-status alias requires the canonical callable intent`() {
+        val alias = "get_watch_status"
+
+        assertEquals("get_stopwatch_status", KernelAIToolSet.resolveRunIntentName(alias))
+        assertEquals(
+            "get_stopwatch_status",
+            KernelAIToolSet.resolveRunIntentName("GET-WATCH STATUS"),
+        )
+        assertEquals(alias, KernelAIToolSet.resolveRunIntentName(alias, listOf("get_date")))
+    }
+
+    @Test
+    fun `watch-status alias does not override ambiguity or near misses`() {
+        val ambiguousInput = "GET WATCH STATUS"
+        assertEquals(
+            ambiguousInput,
+            KernelAIToolSet.resolveRunIntentName(
+                ambiguousInput,
+                listOf("get_watch_status", "get-watch-status", "get_stopwatch_status"),
+            ),
+        )
+
+        listOf("watch_status", "get_watch", "get_watches_status", "get_watch_statuses")
+            .forEach { nearMiss ->
+                assertEquals(nearMiss, KernelAIToolSet.resolveRunIntentName(nearMiss))
+            }
+    }
+
+    @Test
+    fun `unknown names remain unchanged with watch-status alias`() {
+        val unknown = "unknown_action"
+
+        assertEquals(unknown, KernelAIToolSet.resolveRunIntentName(unknown))
+    }
+
+    @Test
+    fun `unknown runIntent name still fails through skill validation`() = runTest {
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.Failure("run_intent", "Unknown intent")
+        every { registry.get("run_intent") } returns runIntent
+
+        val result = toolSet.runIntent("unknown_action", "{}")
+
+        assertEquals("Unknown intent", result["error"])
+        coVerify {
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "unknown_action")))
+        }
+    }
+
+    @Test
     fun `runJs fails closed on invalid JSON parameters`() = runTest {
         val skill = mockk<Skill>()
         every { skill.name } returns "run_js"
@@ -129,6 +332,137 @@ class KernelAIToolSetTest {
         assertEquals("ok", result["result"])
         // Should still call the skill but with empty args
         assertTrue(toolSet.wasToolCalled())
+    }
+
+    @Test
+    fun `safe model test sandbox allows run_intent instructions and stopwatch status`() = runTest {
+        val loadSkill = mockk<Skill>()
+        every { loadSkill.name } returns "load_skill"
+        every { loadSkill.description } returns "run_intent instructions"
+        coEvery { loadSkill.execute(any()) } returns SkillResult.Success("run_intent instructions")
+        every { registry.get("load_skill") } returns loadSkill
+
+        val runIntent = mockk<Skill>()
+        every { runIntent.name } returns "run_intent"
+        coEvery { runIntent.execute(any()) } returns SkillResult.DirectReply("Stopwatch is not running")
+        every { registry.get("run_intent") } returns runIntent
+
+        val scope = toolSet.beginSafeModelTestSandbox()
+        try {
+            assertEquals("run_intent instructions", toolSet.loadSkill("run_intent")["result"])
+            assertEquals(
+                "Stopwatch is not running",
+                toolSet.runIntent("get_watch_status", "{}")["result"],
+            )
+            assertEquals("load_skill>run_intent", toolSet.attemptToolSequence())
+            assertTrue(toolSet.terminalToolSucceeded())
+            assertTrue(toolSet.terminalToolWasDirectReply())
+        } finally {
+            scope.close()
+        }
+
+        verify(exactly = 1) { registry.get("load_skill") }
+        coVerify(exactly = 1) { loadSkill.execute(any()) }
+        coVerify(exactly = 1) {
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status")))
+        }
+        verify(exactly = 1) { registry.get("run_intent") }
+    }
+
+    @Test
+    fun `safe model test sandbox denies other tools and every other action before dispatch`() = runTest {
+        toolSet.beginLocalDiagnosticCapture()
+        val scope = toolSet.beginSafeModelTestSandbox()
+        try {
+            assertEquals(
+                "Blocked by safe model-test allowlist",
+                toolSet.loadSkill("meal_planner")["error"],
+            )
+            assertEquals("""{"skill_name":"meal_planner"}""", toolSet.lastToolRequest())
+            val blockedCalls = listOf(
+                """{"intent_name":"add_to_list","parameters":{"item":"private test data"}}""" to
+                    { toolSet.runIntent("add_to_list", """{"item":"private test data"}""") },
+                """{"intent_name":"get_date_diff","parameters":{}}""" to
+                    { toolSet.runIntent("get_date_diff", "{}") },
+                """{"intent_name":"get_date","parameters":{}}""" to
+                    { toolSet.runIntent("get_date", "{}") },
+                """{"intent_name":"get_stopwatch_status","parameters":{"format":"private"}}""" to
+                    { toolSet.runIntent("get_stopwatch_status", """{"format":"private"}""") },
+                """{"intent_name":"get_list_items","parameters":{}}""" to
+                    { toolSet.runIntent("get_list_items", "{}") },
+                """{"intent_name":"start_stopwatch","parameters":{}}""" to
+                    { toolSet.runIntent("start_stopwatch", "{}") },
+                """{"intent_name":"bulk_add_to_list","parameters":{"item":"private test data"}}""" to
+                    { toolSet.runIntent("bulk_add_to_list", """{"item":"private test data"}""") },
+                """{"skill_name":"private","data":{"value":"private test data"}}""" to
+                    { toolSet.runJs("""{"skill_name":"private","data":{"value":"private test data"}}""") },
+                """{"amount":"10","from_currency":"USD","to_currency":"NZD"}""" to
+                    { toolSet.convertCurrency("10", "USD", "NZD") },
+                """{"location":"private test location","forecast_days":"3"}""" to
+                    { toolSet.getWeather("private test location", "3") },
+                """{"query":"private test query"}""" to
+                    { toolSet.queryWikipedia("private test query") },
+                "{}" to { toolSet.getSystemInfo() },
+                """{"content":"private test fact"}""" to
+                    { toolSet.saveMemory("private test fact") },
+                """{"query":"private test query"}""" to
+                    { toolSet.searchMemory("private test query") },
+            )
+
+            blockedCalls.forEach { (expectedRequest, call) ->
+                toolSet.resetTurnState()
+                assertEquals("Blocked by safe model-test allowlist", call()["error"])
+                assertEquals(expectedRequest, toolSet.lastToolRequest())
+                assertFalse(toolSet.lastToolWasDirectReply())
+                assertTrue(toolSet.terminalToolFailed())
+            }
+
+            val snapshot = toolSet.finishLocalDiagnosticCapture()
+            assertEquals(
+                listOf(
+                    "load_skill",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_intent",
+                    "run_js",
+                    "convert_currency",
+                    "get_weather",
+                    "query_wikipedia",
+                    "get_system_info",
+                    "save_memory",
+                    "search_memory",
+                ),
+                snapshot.calls.map { it.name },
+            )
+            assertEquals((0..14).toList(), snapshot.calls.map { it.order })
+            assertTrue(
+                snapshot.calls.all {
+                    it.resultType == "Blocked" &&
+                        it.succeeded == false &&
+                        it.directReply == false &&
+                        it.returnedToGemma == true
+                },
+            )
+            assertEquals("private test query", snapshot.calls[11].arguments.get("query"))
+            assertEquals("private test query", snapshot.calls[14].arguments.get("query"))
+        } finally {
+            scope.close()
+            toolSet.finishLocalDiagnosticCapture()
+        }
+
+        verify(exactly = 0) { registry.get(any()) }
+
+        val systemInfo = mockk<Skill>()
+        every { systemInfo.name } returns "get_system_info"
+        coEvery { systemInfo.execute(any()) } returns SkillResult.DirectReply("System status")
+        every { registry.get("get_system_info") } returns systemInfo
+
+        assertEquals("System status", toolSet.getSystemInfo()["result"])
+        verify(exactly = 1) { registry.get("get_system_info") }
     }
 
     // -------------------------------------------------------------------------
@@ -302,6 +636,69 @@ class KernelAIToolSetTest {
         assertFalse(toolSet.terminalToolFailed())
         assertFalse(toolSet.terminalToolSucceeded())
         assertNull(toolSet.terminalToolName())
+    }
+
+
+    @Test
+    fun `local diagnostic capture preserves ordered calls and generation attempts`() = runTest {
+        val instructions = "full skill instructions " + "i".repeat(500)
+        val loadSkill = mockk<Skill>()
+        every { loadSkill.name } returns "load_skill"
+        every { loadSkill.description } returns instructions
+        coEvery { loadSkill.execute(any()) } returns SkillResult.Success(instructions)
+        every { registry.get("load_skill") } returns loadSkill
+
+        val query = "long query " + "q".repeat(500)
+        val response = "full wikipedia response " + "r".repeat(700)
+        val wikipedia = mockk<Skill>()
+        every { wikipedia.name } returns "query_wikipedia"
+        coEvery { wikipedia.execute(any()) } returns SkillResult.DirectReply(response)
+        every { registry.get("query_wikipedia") } returns wikipedia
+
+        toolSet.queryWikipedia(query)
+        toolSet.recordLocalGenerationAttempt(StringBuilder("unarmed output"), StringBuilder("unarmed thinking"))
+        val unarmedSnapshot = toolSet.finishLocalDiagnosticCapture()
+        assertTrue(unarmedSnapshot.calls.isEmpty())
+        assertTrue(unarmedSnapshot.generationAttempts.isEmpty())
+
+        toolSet.beginLocalDiagnosticCapture()
+        toolSet.recordLocalGenerationAttempt(StringBuilder("first output"), StringBuilder("first thinking"))
+        toolSet.recordLocalGenerationAttempt(StringBuilder("second output"), StringBuilder("second thinking"))
+        toolSet.loadSkill("query_wikipedia")
+        toolSet.queryWikipedia(query)
+
+        val snapshot = toolSet.finishLocalDiagnosticCapture()
+        assertEquals(listOf("load_skill", "query_wikipedia"), snapshot.calls.map { it.name })
+        assertEquals(listOf(0, 1), snapshot.generationAttempts.map { it.order })
+        assertEquals(
+            listOf("first output", "second output"),
+            snapshot.generationAttempts.map { it.fullContent },
+        )
+        assertEquals(
+            listOf("first thinking", "second thinking"),
+            snapshot.generationAttempts.map { it.rawThinking },
+        )
+        assertEquals(0, snapshot.calls[0].order)
+        assertFalse(snapshot.calls[0].terminal)
+        assertEquals("query_wikipedia", snapshot.calls[0].arguments["skill_name"])
+        assertEquals(instructions, snapshot.calls[0].resultContent)
+        assertEquals(mapOf("result" to instructions), snapshot.calls[0].toolResult)
+        assertTrue(snapshot.calls[0].returnedToGemma == true)
+
+        val terminalCall = snapshot.terminalCall
+        assertEquals(1, terminalCall?.order)
+        assertEquals(query, terminalCall?.arguments?.get("query"))
+        assertEquals(response, terminalCall?.resultContent)
+        assertEquals(mapOf("result" to response), terminalCall?.toolResult)
+        assertTrue(terminalCall?.directReply == true)
+        assertFalse(terminalCall?.returnedToGemma == true)
+        assertTrue(terminalCall?.succeeded == true)
+
+        toolSet.recordLocalGenerationAttempt(StringBuilder("after finish"), StringBuilder("after finish"))
+        val secondSnapshot = toolSet.finishLocalDiagnosticCapture()
+        assertTrue(secondSnapshot.calls.isEmpty())
+        assertNull(secondSnapshot.terminalCall)
+        assertTrue(secondSnapshot.generationAttempts.isEmpty())
     }
 
 }

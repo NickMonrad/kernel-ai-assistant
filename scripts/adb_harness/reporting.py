@@ -74,6 +74,13 @@ def save_llm_tools_report(
                 "log_contains_match": r.log_contains_match,
                 "expected_reply_terms": r.expected_reply_terms,
                 "reply_terms_match": r.reply_terms_match,
+                "expected_reply_terms_all": r.expected_reply_terms_all,
+                "reply_terms_all_match": r.reply_terms_all_match,
+                "expected_tool_sequence": r.expected_tool_sequence,
+                "actual_tool_sequence": r.actual_tool_sequence,
+                "tool_sequence_marker": r.tool_sequence_marker,
+                "tool_event_evidence": r.tool_event_evidence,
+                "elapsed_seconds": round(r.elapsed_seconds, 1),
             }
             for r in results
         ],

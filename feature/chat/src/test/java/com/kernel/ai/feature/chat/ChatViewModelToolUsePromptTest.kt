@@ -103,6 +103,9 @@ class ChatViewModelToolUsePromptTest {
         every { inferenceEngine.activeBackend } returns MutableStateFlow<BackendType?>(null)
         every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(0)
         every { inferenceEngine.evictionEvents } returns emptyFlow()
+        every { inferenceEngine.generateWithDebugTrace(any(), any()) } answers {
+            inferenceEngine.generate(firstArg())
+        }
         every { inferenceEngine.generate(any()) } returns flowOf(GenerationResult.Complete(durationMs = 1L))
         coEvery { inferenceEngine.updateSystemPrompt(any()) } just runs
         coEvery { inferenceEngine.resetConversation() } just runs
@@ -192,7 +195,7 @@ class ChatViewModelToolUsePromptTest {
     @Test
     fun `buildToolUsePrompt contains action priority rule`() {
         val p = createViewModel().buildToolUsePrompt()
-        assertTrue(p.contains("Action requests MUST use run_intent"), "Missing action rule\n$p")
+        assertTrue(p.contains("Device actions and list/note requests MUST use run_intent"), "Missing action rule\n$p")
     }
 
     @Test
@@ -222,15 +225,41 @@ class ChatViewModelToolUsePromptTest {
     }
 
     @Test
+    fun `buildToolUsePrompt requires filtered memory recall evidence`() {
+        val p = createViewModel().buildToolUsePrompt().lowercase()
+        assertTrue(
+            p.contains("what do you remember about me") &&
+                p.contains("must call search_memory before answering") &&
+                p.contains("only that tool's filtered results") &&
+                p.contains("concise list"),
+            "Missing grounded personal memory recall routing\n$p",
+        )
+    }
+
+    @Test
     fun `buildToolUsePrompt says do not use info tools for actions`() {
         val p = createViewModel().buildToolUsePrompt()
         assertTrue(p.contains("get_system_info") && p.contains("query_wikipedia"), "Missing info tool exclusion\n$p")
     }
 
     @Test
-    fun `buildToolUsePrompt addresses load_skill to executable tool path`() {
+    fun `buildToolUsePrompt honors explicit skill discovery requests`() {
         val p = createViewModel().buildToolUsePrompt()
-        assertTrue(p.contains("load_skill first") || p.contains("load_skill results"), "Missing load_skill guidance\n$p")
+        val normalizedPrompt = p.lowercase()
+        assertTrue(
+            normalizedPrompt.contains("explicitly asks for skill instructions") &&
+                normalizedPrompt.contains("load_skill as the first tool call") &&
+                normalizedPrompt.contains("wait for success before any action tool") &&
+                normalizedPrompt.contains("do not reload the same skill during this request"),
+            "Missing one-time explicit load_skill discovery path\n$p"
+        )
+    }
+
+    @Test
+    fun `buildToolUsePrompt routes list and note contents away from memory search`() {
+        val p = createViewModel().buildToolUsePrompt()
+        assertTrue(p.contains("read/change a user list or note") && p.contains("do NOT use search_memory"),
+            "Missing list/note action routing\n$p")
     }
 
     @Test

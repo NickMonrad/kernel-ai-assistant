@@ -8,6 +8,7 @@ from ``ANDROID_SERIAL`` / ``ADB_SERIAL`` at call time, not at import time.
 from __future__ import annotations
 
 import atexit
+import json
 import os
 import re
 import shlex
@@ -382,6 +383,7 @@ def check_oracle(
             ACTIVITY,
             "--activity-clear-top",
             "--activity-single-top",
+            *harness_token_extras(),
             "--es",
             "chat_input",
             shlex.quote(prompt),
@@ -473,6 +475,22 @@ def _keep_foreground_until_inference_starts(
         _tap_keepalive()
 
 
+# #1604: debug builds auto-run prompt extras only for Jandal itself or a launch that presents the
+# token stored in the app's private files dir. Only `adb shell run-as` (debuggable builds) can
+# write it, so other apps cannot forge a harness launch. One random token per harness process.
+_HARNESS_TOKEN = uuid.uuid4().hex
+
+
+def harness_token_extras() -> list[str]:
+    """Write the harness token via ``run-as`` and return the matching ``am start`` extras.
+
+    Written on every call because ``pm clear``/reinstalls wipe the app's files dir.
+    """
+    script = f"mkdir -p files && printf %s {_HARNESS_TOKEN} > files/adb_harness_token"
+    run_adb("shell", "run-as", PACKAGE, "sh", "-c", shlex.quote(script))
+    return ["--es", "adb_harness_token", _HARNESS_TOKEN]
+
+
 def send_text(text: str, wait_for_inference: bool = True) -> None:
     """Deliver *text* via ``chat_input`` extra to ChatViewModel."""
     run_adb(
@@ -483,6 +501,7 @@ def send_text(text: str, wait_for_inference: bool = True) -> None:
         ACTIVITY,
         "--activity-clear-top",
         "--activity-single-top",
+        *harness_token_extras(),
         "--es",
         "chat_input",
         shlex.quote(text),
@@ -501,6 +520,7 @@ def send_quick_action(text: str) -> None:
         ACTIVITY,
         "--activity-clear-top",
         "--activity-single-top",
+        *harness_token_extras(),
         "--es",
         "quick_action_input",
         shlex.quote(text),
@@ -517,6 +537,7 @@ def send_slot_reply(text: str) -> None:
         ACTIVITY,
         "--activity-clear-top",
         "--activity-single-top",
+        *harness_token_extras(),
         "--es",
         "slot_reply_input",
         shlex.quote(text),
@@ -832,6 +853,134 @@ def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
     return fallback[-1].group(1), {}
 
 
+_LLM_TOOL_EVENT_PATTERN = re.compile(
+    r"event_seq:\s+(?P<event>tool_call|tool_result)\s+name=(?P<name>\S+)"
+    r"(?:\s+args=(?P<args>[^\n]+))?"
+    r"(?:\s+resultType=(?P<result_type>\S+)\s+directReply=(?P<direct_reply>true|false)"
+    r"\s+returnedToGemma=(?P<returned_to_gemma>true|false))?"
+)
+_LLM_TOOL_SEQUENCE_PATTERN = re.compile(r"llm_tools_tool_sequence:\s*(.+)")
+
+
+def extract_llm_tool_events(logcat_output: str) -> list[dict[str, str | bool]]:
+    """Extract ordered, sanitized tool-call/result metadata from logcat."""
+    events: list[dict[str, str | bool]] = []
+    for match in _LLM_TOOL_EVENT_PATTERN.finditer(logcat_output):
+        event: dict[str, str | bool] = {
+            "event": match.group("event"),
+            "name": match.group("name"),
+        }
+        if event["event"] == "tool_call" and event["name"] in {"load_skill", "run_intent"}:
+            try:
+                args = json.loads(match.group("args") or "")
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            argument_name = "skill_name" if event["name"] == "load_skill" else "intent_name"
+            argument_value = args.get(argument_name) if isinstance(args, dict) else None
+            if isinstance(argument_value, str):
+                evidence_name = "skill_name" if event["name"] == "load_skill" else "intent_name"
+                event[evidence_name] = argument_value
+        if match.group("result_type") is not None:
+            event["result_type"] = match.group("result_type")
+            event["direct_reply"] = match.group("direct_reply") == "true"
+            event["returned_to_gemma"] = match.group("returned_to_gemma") == "true"
+        events.append(event)
+    return events
+
+
+def extract_llm_tool_sequence(logcat_output: str) -> tuple[list[str], str | None]:
+    """Return the last turn-level tool sequence and its safe summary marker."""
+    matches = list(_LLM_TOOL_SEQUENCE_PATTERN.finditer(logcat_output))
+    if not matches:
+        return [], None
+    summary = matches[-1].group(1).strip()
+    turn = re.search(r"(?:^|\s)turn=([^\s]+)", summary)
+    if turn is None:
+        return [], summary
+    sequence = [] if turn.group(1) == "none" else turn.group(1).split(">")
+    return sequence, summary
+
+
+def validate_llm_tool_sequence(
+    expected: tuple[str, ...],
+    actual_sequence: list[str],
+    events: list[dict[str, str | bool]],
+    expected_load_skill_name: str | None = None,
+    expected_nested_intent: str | None = None,
+) -> list[str]:
+    """Validate ordered calls, safe targets, handoff, and terminal success."""
+    failures: list[str] = []
+    if actual_sequence != list(expected):
+        failures.append(
+            f"turn tool sequence: expected {list(expected)!r}, got {actual_sequence!r}"
+        )
+
+    call_indices = [i for i, event in enumerate(events) if event["event"] == "tool_call"]
+    called_names = [str(events[i]["name"]) for i in call_indices]
+    if called_names != list(expected):
+        failures.append(f"tool_call order: expected {list(expected)!r}, got {called_names!r}")
+    result_names = [
+        str(event["name"]) for event in events if event["event"] == "tool_result"
+    ]
+    if result_names != list(expected):
+        failures.append(f"tool_result order: expected {list(expected)!r}, got {result_names!r}")
+    if expected_load_skill_name is not None:
+        load_skill_call = next(
+            (
+                event for event in events
+                if event["event"] == "tool_call" and event["name"] == "load_skill"
+            ),
+            None,
+        )
+        actual_skill_name = load_skill_call.get("skill_name") if load_skill_call else None
+        if actual_skill_name != expected_load_skill_name:
+            failures.append(
+                "load_skill target: expected "
+                f"{expected_load_skill_name!r}, got {actual_skill_name!r}"
+            )
+
+    if expected_nested_intent is not None:
+        run_intent_call = next(
+            (
+                event for event in events
+                if event["event"] == "tool_call" and event["name"] == "run_intent"
+            ),
+            None,
+        )
+        actual_nested_intent = run_intent_call.get("intent_name") if run_intent_call else None
+        if actual_nested_intent != expected_nested_intent:
+            failures.append(
+                "run_intent action: expected "
+                f"{expected_nested_intent!r}, got {actual_nested_intent!r}"
+            )
+    for position, (call_index, name) in enumerate(zip(call_indices, expected)):
+        next_call_index = call_indices[position + 1] if position + 1 < len(call_indices) else len(events)
+        result = next(
+            (
+                event for event in events[call_index + 1:next_call_index]
+                if event["event"] == "tool_result"
+            ),
+            None,
+        )
+        if result is None:
+            failures.append(f"missing tool_result for {name}")
+            continue
+        if result["name"] != name:
+            failures.append(f"tool_result mismatch: expected {name}, got {result['name']}")
+            continue
+        if name == "load_skill":
+            if result.get("result_type") != "Success":
+                failures.append("load_skill result was not successful")
+            if result.get("returned_to_gemma") is not True:
+                failures.append("load_skill result did not return to Gemma")
+        elif position == len(expected) - 1:
+            if result.get("result_type") not in {"Success", "DirectReply"}:
+                failures.append(f"terminal tool {name} did not succeed")
+            elif result.get("result_type") == "DirectReply" and result.get("direct_reply") is not True:
+                failures.append(f"terminal tool {name} did not report a direct reply")
+    return failures
+
+
 def extract_reply(logcat_output: str) -> str | None:
     """Extract the latest reply text from logcat, if any.
     Checks both DirectReply (native intent) and llm_tools_assistant_reply (LLM fallthrough) markers.
@@ -894,6 +1043,7 @@ def send_profile(profile_text: str) -> None:
         ACTIVITY,
         "--activity-clear-top",
         "--activity-single-top",
+        *harness_token_extras(),
         "--es",
         "profile_text",
         shlex.quote(single_line),

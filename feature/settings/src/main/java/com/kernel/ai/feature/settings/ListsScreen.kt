@@ -1,6 +1,8 @@
 package com.kernel.ai.feature.settings
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -23,9 +25,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -86,11 +90,18 @@ fun ListsScreen(
     onBack: () -> Unit = {},
     onOpenList: (Long) -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
+    onNavigateToNextcloud: () -> Unit = {},
+    onNavigateToNextcloudList: (Long?, String?) -> Unit = { _, _ -> onNavigateToNextcloud() },
+    onNavigateToNextcloudSharing: (String) -> Unit = {},
+    externalMessage: String? = null,
+    onExternalMessageShown: () -> Unit = {},
     viewModel: ListsViewModel = hiltViewModel(),
 ) {
     val displayedLists by viewModel.displayedLists.collectAsStateWithLifecycle()
     val listEntities by viewModel.listEntities.collectAsStateWithLifecycle()
     val archivedLists by viewModel.archivedLists.collectAsStateWithLifecycle()
+    val nextcloudBindings by viewModel.nextcloudBindings.collectAsStateWithLifecycle()
+    val nextcloudAccountConfigured by viewModel.nextcloudAccountConfigured.collectAsStateWithLifecycle()
     val showArchived = viewModel.showArchived
     val itemCounts by viewModel.itemCounts.collectAsStateWithLifecycle()
     val searchQuery by viewModel.listSearchQuery.collectAsStateWithLifecycle()
@@ -107,6 +118,9 @@ fun ListsScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
     var showBulkArchiveDialog by remember { mutableStateOf(false) }
+    val importPackageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::selectImportPackage) }
     val handleAddShortcut: () -> Unit = {
         val result = ListsShortcut.requestPin(context)
         scope.launch {
@@ -119,6 +133,50 @@ fun ListsScreen(
                         "Home-screen shortcuts aren't supported on this device"
                 }
             )
+        }
+    }
+
+    // ── Per-list Nextcloud lifecycle (#1551) ────────────────────────────────────────────────────
+    // `Sync with Nextcloud` stays available with no account configured: the action opens Nextcloud
+    // setup carrying this list, and setup continues the binding once it succeeds.
+    val handleExportJandalFile: (ListNameEntity) -> Unit = { entity ->
+        scope.launch {
+            runCatching { viewModel.exportPackageIntent(entity.id) }
+                .onSuccess { context.startActivity(Intent.createChooser(it, "Export Jandal file")) }
+                .onFailure { snackbarHostState.showSnackbar("Could not export this list") }
+        }
+    }
+    val nextcloudActionsFor: (ListNameEntity) -> NextcloudRowActions = { entity ->
+        val binding = nextcloudBindings[entity.collectionId]
+        NextcloudRowActions(
+            state = binding?.state,
+            remoteWritable = binding?.remoteWritable ?: true,
+            remoteAvailable = binding?.remoteAvailable ?: true,
+            unsyncedChanges = binding?.unsyncedChanges == true,
+            onSyncWithNextcloud = {
+                if (nextcloudAccountConfigured) {
+                    viewModel.syncListWithNextcloud(entity.id)
+                } else {
+                    onNavigateToNextcloudList(entity.id, entity.name)
+                }
+            },
+            onStopSync = { viewModel.stopListNextcloudSync(entity.collectionId) },
+            onResumeSync = { viewModel.resumeListNextcloudSync(entity.collectionId) },
+            onManageSharing = { onNavigateToNextcloudSharing(entity.collectionId) },
+            onSaveLocalCopy = { viewModel.saveListAsLocalCopy(entity.collectionId) },
+            onKeepLocalCopy = { viewModel.keepUnsyncedListAsLocalCopy(entity.collectionId) },
+            onDiscardLocalChanges = { viewModel.discardUnsyncedListChanges(entity.collectionId) },
+            // Opening the bound-list state must never look like a new contextual setup.
+            onOpenNextcloud = { onNavigateToNextcloudList(null, null) },
+        )
+    }
+
+    LaunchedEffect(viewModel.nextcloudMessage, externalMessage) {
+        val message = viewModel.nextcloudMessage ?: externalMessage
+        if (message != null) {
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearNextcloudMessage()
+            onExternalMessageShown()
         }
     }
 
@@ -227,6 +285,12 @@ fun ListsScreen(
                         }
                     },
                     actions = {
+                        IconButton(
+                            onClick = onNavigateToNextcloud,
+                            modifier = Modifier.testTag("lists_nextcloud_tasks"),
+                        ) {
+                            Icon(Icons.Default.Cloud, contentDescription = "Nextcloud Tasks")
+                        }
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "Sort and filter")
@@ -241,6 +305,8 @@ fun ListsScreen(
                                 onFilterSelected = { viewModel.listFilter = it },
                                 onDismiss = { showSortMenu = false },
                                 onAddShortcut = { handleAddShortcut() },
+                                onImportSharedList = { importPackageLauncher.launch(arrayOf("*/*")) },
+                                onOpenNextcloudLists = { onNavigateToNextcloud() },
                             )
                         }
                     },
@@ -386,6 +452,8 @@ fun ListsScreen(
                                                 snackbarHostState.showSnackbar("List copied to clipboard")
                                             }
                                         },
+                                        onExport = { handleExportJandalFile(entity) },
+                                        nextcloud = nextcloudActionsFor(entity),
                                     )
                                 }
                             }
@@ -452,6 +520,8 @@ fun ListsScreen(
                                                 snackbarHostState.showSnackbar("List copied to clipboard")
                                             }
                                         },
+                                        onExport = { handleExportJandalFile(entity) },
+                                        nextcloud = nextcloudActionsFor(entity),
                                     )
                                 }
                             }
@@ -564,6 +634,54 @@ fun ListsScreen(
             },
         )
     }
+
+    // ── Shared list package import (#1493) ────────────────────────────────────────────────────
+    val importedPackage = viewModel.importState as? ListPackageImportState.Ready
+    if (importedPackage != null) {
+        val preview = importedPackage.preview
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelImport() },
+            title = { Text("Import \"${preview.canonicalTitle}\"?") },
+            text = {
+                Text(
+                    buildString {
+                        append(preview.itemCount)
+                        append(if (preview.itemCount == 1) " item" else " items")
+                        append(
+                            if (preview.mergesExistingList) {
+                                " will merge into the shared list already on this device."
+                            } else {
+                                " will be added as a new list on this device."
+                            },
+                        )
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.confirmImport() }) {
+                    Text(if (preview.mergesExistingList) "Merge" else "Add list")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelImport() }) { Text("Cancel") }
+            },
+        )
+    }
+
+    val rejectedPackage = viewModel.importState as? ListPackageImportState.Failed
+    LaunchedEffect(rejectedPackage?.message) {
+        rejectedPackage?.let {
+            snackbarHostState.showSnackbar(it.message)
+            viewModel.cancelImport()
+        }
+    }
+
+    LaunchedEffect(viewModel.packageMessage) {
+        viewModel.packageMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearPackageMessage()
+        }
+    }
 }
 
 // ── Internal composables ──────────────────────────────────────────────────────────────────────────
@@ -585,13 +703,14 @@ private fun ListSectionHeader(label: String) {
 /** A single row in the lists overview. Supports multi-select and drag-and-drop. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ListOverviewRow(
+internal fun ListOverviewRow(
     entity: ListNameEntity,
     counts: ListItemCounts,
     isSelected: Boolean,
     isMultiSelectMode: Boolean,
     isArchivedView: Boolean,
     dragHandleModifier: Modifier,
+    nextcloud: NextcloudRowActions,
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
     onPin: () -> Unit,
@@ -601,6 +720,7 @@ private fun ListOverviewRow(
     onRestore: () -> Unit,
     onShare: () -> Unit,
     onCopy: () -> Unit,
+    onExport: () -> Unit,
 ) {
     var showOverflow by remember { mutableStateOf(false) }
 
@@ -622,7 +742,11 @@ private fun ListOverviewRow(
                 counts.completed == 0 -> "${counts.active} active"
                 else -> "${counts.active} active · ${counts.completed} done"
             }
-            Text(label)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label)
+                // Subtle, accessible Nextcloud state; a local-only list renders nothing.
+                NextcloudListIndicator(nextcloud.state)
+            }
         },
         leadingContent = {
             if (isMultiSelectMode) {
@@ -661,38 +785,19 @@ private fun ListOverviewRow(
                         IconButton(onClick = { showOverflow = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "More options")
                         }
-                        DropdownMenu(
+                        ListRowOverflowMenu(
                             expanded = showOverflow,
-                            onDismissRequest = { showOverflow = false },
-                        ) {
-                            if (!isArchivedView) {
-                                DropdownMenuItem(
-                                    text = { Text("Rename") },
-                                    onClick = { showOverflow = false; onRename() },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Archive") },
-                                    onClick = { showOverflow = false; onArchive() },
-                                )
-                            } else {
-                                DropdownMenuItem(
-                                    text = { Text("Restore") },
-                                    onClick = { showOverflow = false; onRestore() },
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Share") },
-                                onClick = { showOverflow = false; onShare() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Copy to clipboard") },
-                                onClick = { showOverflow = false; onCopy() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                onClick = { showOverflow = false; onDelete() },
-                            )
-                        }
+                            isArchivedView = isArchivedView,
+                            nextcloud = nextcloud,
+                            onRename = onRename,
+                            onArchive = onArchive,
+                            onRestore = onRestore,
+                            onShare = onShare,
+                            onCopy = onCopy,
+                            onExport = onExport,
+                            onDelete = onDelete,
+                            onDismiss = { showOverflow = false },
+                        )
                     }
                 }
                 // Drag handle — only in active view, hidden in archived/multi-select
@@ -726,6 +831,8 @@ private fun SortFilterMenu(
     onToggleArchived: () -> Unit,
     onDismiss: () -> Unit,
     onAddShortcut: () -> Unit,
+    onImportSharedList: () -> Unit,
+    onOpenNextcloudLists: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // ── Archive toggle ──────────────────────────────────────────────────
@@ -816,6 +923,18 @@ private fun SortFilterMenu(
             leadingIcon = { Icon(Icons.Filled.Home, contentDescription = null) },
             onClick = { onDismiss(); onAddShortcut() },
             modifier = Modifier.testTag("lists_add_home_shortcut"),
+        )
+        DropdownMenuItem(
+            text = { Text("Import Jandal file") },
+            leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+            onClick = { onDismiss(); onImportSharedList() },
+            modifier = Modifier.testTag("lists_import_shared_list"),
+        )
+        DropdownMenuItem(
+            text = { Text("Nextcloud lists") },
+            leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) },
+            onClick = { onDismiss(); onOpenNextcloudLists() },
+            modifier = Modifier.testTag("lists_nextcloud_lists"),
         )
     }
 }
