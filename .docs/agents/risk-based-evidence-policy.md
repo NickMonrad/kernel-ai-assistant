@@ -36,7 +36,7 @@ three-tier risk classification and the minimum evidence expected for each tier.
   - timers/alarms of 10 seconds or less only, and cancel everything started;
   - never uninstall or clear `ai.jandal.assistant` (Play build), `ai.jandal.assistant.debug` (debug build), or legacy `com.kernel.ai` / `com.kernel.ai.debug`;
   - no full-suite or alarm-producing runs between 21:00 and 06:00 `Australia/Brisbane`;
-  - do not change device-wide settings, other apps' permissions, or personal data. Jandal's own app permissions may be changed only during permission suites that need it, and must be restored to their pre-run state afterwards.
+  - do not change device-wide settings, other apps' permissions, or personal data, with one exception: test-only settings may be changed for a run (`font_scale`, `accelerometer_rotation`/`user_rotation`, stay-awake via `svc power stayon`, `animator_duration_scale`/`transition_animation_scale`/`window_animation_scale`, and media volume). Record each value before the run with `settings get`, and restore it afterwards. Jandal's own app permissions may be changed only during permission suites that need it, and must be restored to their pre-run state afterwards.
 - **Never touch the owner's personal Honor phone.**
 - **Device lock protocol.** One lock per phone: `/tmp/jandal-s23u.lock` (RFCW11265XH) and `/tmp/jandal-s21.lock` (R5CR605B71K). Hold a phone's lock for the whole device run.
   1. Take it atomically with `mkdir /tmp/jandal-s21.lock`. A non-zero exit means the phone is held; do not use it.
