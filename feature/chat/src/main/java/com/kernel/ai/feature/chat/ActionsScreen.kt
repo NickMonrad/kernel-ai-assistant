@@ -94,6 +94,7 @@ import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
@@ -190,6 +191,14 @@ fun ActionsScreen(
     val microphonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.RECORD_AUDIO,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.RECORD_AUDIO,
+            ),
+        )
         Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted")
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
@@ -204,6 +213,14 @@ fun ActionsScreen(
     val phonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.CALL_PHONE,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.CALL_PHONE,
+            ),
+        )
         if (granted) {
             viewModel.onPhonePermissionGranted()
         } else {
@@ -218,6 +235,14 @@ fun ActionsScreen(
     val weatherLocationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+        )
         if (granted) {
             viewModel.onWeatherLocationPermissionGranted()
         } else {
@@ -232,6 +257,14 @@ fun ActionsScreen(
     val contactPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.READ_CONTACTS,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.READ_CONTACTS,
+            ),
+        )
         if (granted) {
             viewModel.onContactPermissionGranted()
         } else {
@@ -246,6 +279,14 @@ fun ActionsScreen(
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.READ_CALENDAR,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.READ_CALENDAR,
+            ),
+        )
         if (granted) {
             viewModel.onCalendarPermissionGranted()
         } else {
@@ -345,8 +386,9 @@ fun ActionsScreen(
                 }
                 ActionsViewModel.UiEvent.RequestMicrophonePermission ->
                     showVoicePermissionPrompt = true
-                ActionsViewModel.UiEvent.RequestPhonePermission ->
+                ActionsViewModel.UiEvent.RequestPhonePermission -> {
                     phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+                }
                 is ActionsViewModel.UiEvent.LaunchDialer -> {
                     val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                         data = Uri.parse("tel:${Uri.encode(event.phoneNumber)}")
@@ -390,12 +432,15 @@ fun ActionsScreen(
                         context.startActivity(writeSettingsIntent)
                     }
                 }
-                ActionsViewModel.UiEvent.RequestWeatherLocationPermission ->
+                ActionsViewModel.UiEvent.RequestWeatherLocationPermission -> {
                     weatherLocationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                ActionsViewModel.UiEvent.RequestReadContactsPermission ->
+                }
+                ActionsViewModel.UiEvent.RequestReadContactsPermission -> {
                     contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                ActionsViewModel.UiEvent.RequestReadCalendarPermission ->
+                }
+                ActionsViewModel.UiEvent.RequestReadCalendarPermission -> {
                     calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+                }
             }
         }
     }

@@ -372,18 +372,16 @@ class NativeIntentHandler @Inject constructor(
         // composer with no recipient, as before #1859, so the user can pick one there. Recovery is only for no match.
         val recipient = when {
             looksLikeEmailAddress(contact) -> contact
+            // Self-references ("me") never fall through to a lookup, so an unrelated contact can't match them.
+            !isNamedContactLookup(contact) -> return SkillResult.Failure(
+                skillName = "send_email",
+                error = "I can't find an email address for \"$contact\" yet. Give me the address to send to.",
+                technicalDetail = "No email address resolved for: $contact",
+            )
             else -> resolveContactEmail(contact) ?: run {
-                if (contactMatchExists(contact)) {
-                    ""
-                } else if (isNamedContactLookup(contact)) {
-                    return contactNotFound("send_email", contact)
-                } else {
-                    return SkillResult.Failure(
-                        skillName = "send_email",
-                        error = "I can't find an email address for \"$contact\" yet. Give me the address to send to.",
-                        technicalDetail = "No email address resolved for: $contact",
-                    )
-                }
+                // A named contact that exists but has no single address opens the composer with no recipient,
+                // as before #1859. Recovery is only for no match.
+                if (contactMatchExists(contact)) "" else return contactNotFound("send_email", contact)
             }
         }
 
@@ -1575,17 +1573,37 @@ class NativeIntentHandler @Inject constructor(
         if (contactAliasRepository.getByAlias(aliasKey) != null) return true
         val tokens = tokenizeContactLookupTerms(name)
         if (tokens.isEmpty()) return false
-        return try {
-            context.contentResolver.query(
-                ContactsContract.Contacts.CONTENT_URI,
-                arrayOf(ContactsContract.Contacts._ID),
-                tokens.joinToString(" AND ") { "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?" },
-                tokens.map { "%$it%" }.toTypedArray(),
-                null,
-            )?.use { it.count > 0 } ?: false
-        } catch (e: SecurityException) {
-            Log.w(TAG, "READ_CONTACTS not granted — cannot check contact existence for '$name'", e)
-            false
+        // Same candidate queries and fuzzy scoring as resolveContactEmail, so "exists" agrees with the lookup.
+        return withContext(Dispatchers.IO) {
+            val exactContact = try {
+                context.contentResolver.query(
+                    ContactsContract.Contacts.CONTENT_URI,
+                    arrayOf(ContactsContract.Contacts._ID),
+                    tokens.joinToString(" AND ") { "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?" },
+                    tokens.map { "%$it%" }.toTypedArray(),
+                    null,
+                )?.use { it.count > 0 } ?: false
+            } catch (e: Exception) {
+                Log.w(TAG, "Cannot check contact existence for '$name'", e)
+                false
+            }
+            if (exactContact) return@withContext true
+            val lookupKey = normalizeContactLookupKey(name)
+            val andMatches = queryContactEmailCandidates(
+                selection = tokens.joinToString(" AND ") {
+                    "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?"
+                },
+                selectionArgs = tokens.map { "%$it%" }.toTypedArray(),
+            )
+            val candidates = andMatches.ifEmpty {
+                queryContactEmailCandidates(
+                    selection = tokens.joinToString(" OR ") {
+                        "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY} LIKE ?"
+                    },
+                    selectionArgs = tokens.map { "%$it%" }.toTypedArray(),
+                )
+            }
+            candidates.any { scoreContactEmailCandidate(lookupKey, tokens, it) != null }
         }
     }
 

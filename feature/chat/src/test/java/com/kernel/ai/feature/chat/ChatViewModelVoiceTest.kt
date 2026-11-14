@@ -51,6 +51,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceNotice
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -129,6 +130,7 @@ class ChatViewModelVoiceTest {
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
 
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
+    private val voiceInputNotices = MutableSharedFlow<VoiceNotice>(replay = 1)
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
     private val spokenResponsesEnabled = MutableStateFlow(true)
     private val streamedChunks = mutableListOf<Pair<String, Boolean>>()
@@ -187,6 +189,7 @@ class ChatViewModelVoiceTest {
         every { jandalPersona.personaMode } returns MutableStateFlow(PersonaMode.FULL)
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
         every { voiceInputController.events } returns voiceInputEvents
+        every { voiceInputController.notices } returns voiceInputNotices
         coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
             VoiceInputStartResult.Started(1L)
         every { voiceInputController.stopListening() } just runs
@@ -912,6 +915,37 @@ class ChatViewModelVoiceTest {
         )
         assertEquals("You: $input", viewModel.getConversationAsText())
         verify(exactly = 1) { voiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `hand-off note is shown and a handed-off chat capture is not silently retried`() = runTest(dispatcher) {
+        // Posted while the start ran (start-time fallback): only the replay can deliver it.
+        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val noteState = async {
+            viewModel.uiState.first { state ->
+                state is ChatUiState.Ready && state.error == "Using Zipformer for this request."
+            }
+        }
+        viewModel.startVoiceInput()
+        advanceUntilIdle()
+        noteState.await()
+
+        val errorState = async {
+            viewModel.uiState.first { state ->
+                state is ChatUiState.Ready && state.error?.startsWith("I didn't catch anything") == true
+            }
+        }
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "I didn't catch anything", captureSessionId = 1L),
+        )
+        advanceUntilIdle()
+        errorState.await()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 
 

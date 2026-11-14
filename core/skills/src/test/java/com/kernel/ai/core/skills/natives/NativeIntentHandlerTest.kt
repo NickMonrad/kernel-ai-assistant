@@ -835,6 +835,44 @@ class NativeIntentHandlerTest {
         verify(exactly = 1) { context.startActivity(any()) }
     }
 
+    @Test
+    fun `send_email contact with two addresses and no primary still opens the composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactExistsCursor(false)
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } answers {
+            emailCursor(
+                EmailRow("alex.one@example.com", "Alex Smith", contactId = "1"),
+                EmailRow("alex.two@example.com", "Alex Smith", contactId = "1"),
+            )
+        }
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex Smith", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_email me never matches an unrelated contact containing me`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), any(), any(), any(), any())
+        } returns emailCursor(EmailRow("james@example.com", "James Mee", contactId = "9"))
+
+        val failure = handleIntent("send_email", mapOf("contact" to "me", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(failure is SkillResult.Failure)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
     private fun contactExistsCursor(found: Boolean): Cursor =
         mockk<Cursor>(relaxed = true) { every { count } returns if (found) 1 else 0 }
 

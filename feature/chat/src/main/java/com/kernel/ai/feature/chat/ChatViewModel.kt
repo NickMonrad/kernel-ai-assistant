@@ -92,6 +92,8 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.latestNoticeFor
+import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -305,6 +307,12 @@ class ChatViewModel @Inject constructor(
         _settingsActionState.value = null
     }
 
+    /** Opens the recovery chooser for a typed or spoken command that failed with in-app actions (#1859). */
+    private fun showSettingsActionFor(result: SkillResult) {
+        if (result !is SkillResult.Failure) return
+        settingsActionStateFor(result)?.let { _settingsActionState.value = it }
+    }
+
     private val _modelInitializationError = MutableStateFlow<String?>(null)
     private var modelInitializationWatchdogSequence = 0L
     private var modelInitializationWatchdogJob: Job? = null
@@ -431,6 +439,10 @@ class ChatViewModel @Inject constructor(
     */
     private var chatCommandVoiceRetryCount = 0
     private var awaitingVoicePlaybackCompletion = false
+
+    /** Capture session of the current chat voice input; its notes are shown (#1853, #1866). */
+    private var chatVoiceSessionId: Long? = null
+    private var chatVoiceNoticeJob: Job? = null
 
     /** Active voice interaction mode, or null when no voice session is running (#741). */
     private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
@@ -766,13 +778,16 @@ class ChatViewModel @Inject constructor(
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
-                        // #790: Retry once before surfacing the error to the user.
-                        if (chatCommandVoiceRetryCount < 1) {
+                        // #790: Retry once before surfacing the error to the user. #1853: not after
+                        // a Zipformer hand-off; a retry would start the failing native recognizer again.
+                        val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
+                        if (chatCommandVoiceRetryCount < 1 && !handedOff) {
                             chatCommandVoiceRetryCount++
                             Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
                             _voiceCaptureState.value = VoiceCaptureState.Preparing
                             when (val r = voiceInputController.startListening(VoiceCaptureMode.Command)) {
                                 is VoiceInputStartResult.Started -> {
+                                    bindChatVoiceSession(r.captureSessionId)
                                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                                     }
@@ -1623,6 +1638,14 @@ class ChatViewModel @Inject constructor(
     private fun ownsCommandVoiceCapture(): Boolean =
         _voiceCaptureState.value != VoiceCaptureState.Idle
 
+    /** Shows the notes for this chat capture (#1853 Zipformer hand-off, #1866) in the error line. */
+    private fun bindChatVoiceSession(captureSessionId: Long) {
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceSessionId = captureSessionId
+        chatVoiceNoticeJob = viewModelScope.launch {
+            voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
+        }
+    }
 
     private fun startVoiceInput(mode: VoiceMode) {
         if (inferenceEngine.isGenerating.value || _isLoadingModel.value) return
@@ -1639,6 +1662,7 @@ class ChatViewModel @Inject constructor(
             _voiceCaptureState.value = VoiceCaptureState.Preparing
             when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
                 is VoiceInputStartResult.Started -> {
+                    bindChatVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }
@@ -1666,6 +1690,7 @@ class ChatViewModel @Inject constructor(
             _voiceCaptureState.value = VoiceCaptureState.Preparing
             when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
                 is VoiceInputStartResult.Started -> {
+                    bindChatVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }
@@ -1843,6 +1868,10 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
+        // A note from a hand-off that lands just before the stop must not show while idle.
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceNoticeJob = null
+        chatVoiceSessionId = null
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
@@ -2264,7 +2293,10 @@ class ChatViewModel @Inject constructor(
                                     shouldIndex = false,
                                     spokenSummary = spokenSummaryFrom(skillResult),
                                 )
-                                is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                is SkillResult.Failure -> {
+                                    showSettingsActionFor(skillResult)
+                                    appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                }
                                 else -> appendAssistantMessage(convId, "Something went wrong.", shouldIndex = false)
                             }
                         }
@@ -2340,6 +2372,7 @@ class ChatViewModel @Inject constructor(
                                 return@launch
                             }
                             is SkillResult.Failure -> {
+                                showSettingsActionFor(skillResult)
                                 appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
                                 return@launch
                             }
@@ -2394,6 +2427,7 @@ class ChatViewModel @Inject constructor(
                                 }
                             }
                             is SkillResult.Failure -> {
+                                showSettingsActionFor(skillResult)
                                 if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
                                     appendAssistantMessage(
                                         convId,
@@ -2655,6 +2689,7 @@ class ChatViewModel @Inject constructor(
                                         return@launch
                                     }
                                     is SkillResult.Failure -> {
+                                        showSettingsActionFor(skillResult)
                                         appendAssistantMessage(
                                             convId,
                                             skillResult.error,
@@ -2848,6 +2883,7 @@ class ChatViewModel @Inject constructor(
                                 // #1313: deterministic regex-matched native routes are terminal even on
                                 // failure. Email failures are also terminal because retrying through E4B
                                 // can invoke an unrelated tool instead of showing the email limitation.
+                                showSettingsActionFor(skillResult)
                                 if (routeResult is QuickIntentRouter.RouteResult.RegexMatch ||
                                     skillResult.skillName == "send_email") {
                                     appendAssistantMessage(
@@ -2975,6 +3011,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is SkillResult.Failure -> {
+                            showSettingsActionFor(skillResult)
                             if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
                                 appendAssistantMessage(convId, skillResult.error, shouldIndex = false, spokenSummary = skillResult.error)
                                 return@launch

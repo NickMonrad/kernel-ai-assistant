@@ -94,6 +94,38 @@ class ContactLookupRecoveryTest {
         assertTrue(ContactLookupRecovery.nearMatches(query, listOf(candidate)).isEmpty())
     }
 
+    @ParameterizedTest(name = "\"{0}\" and \"{1}\" match in both directions")
+    @CsvSource(
+        "Laurel, Laurelle",
+        "Daniel, Danielle",
+        "Carl, Carla",
+        "Robert, Roberta",
+        "Eric, Erica",
+        "Gabriel, Gabrielle",
+        "Antonio, Antonia",
+        "Francis, Frances",
+        "Julian, Juliana",
+    )
+    fun `near match is symmetric for accepted pairs`(a: String, b: String) {
+        assertEquals(listOf(b), ContactLookupRecovery.nearMatches(a, listOf(b)))
+        assertEquals(listOf(a), ContactLookupRecovery.nearMatches(b, listOf(a)))
+    }
+
+    @ParameterizedTest(name = "\"{0}\" and \"{1}\" do not match in either direction")
+    @CsvSource(
+        "Christian, Christina",
+        "Christina, Christian",
+        "Matthew, Mathew",
+        "Mathew, Matthew",
+        "Phillip, Philip",
+        "Philip, Phillip",
+        "Martin, Martha",
+        "Martha, Martin",
+    )
+    fun `near match rejects the documented non-matching pairs in both directions`(a: String, b: String) {
+        assertTrue(ContactLookupRecovery.nearMatches(a, listOf(b)).isEmpty())
+    }
+
     @Test
     fun `near match ranks closer edit distance first and caps the list`() {
         val matches = ContactLookupRecovery.nearMatches(

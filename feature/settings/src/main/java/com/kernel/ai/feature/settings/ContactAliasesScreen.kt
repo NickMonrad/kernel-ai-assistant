@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -61,8 +62,12 @@ fun ContactAliasesScreen(
     // cleared on dismiss, on save, or once the picker has been launched, so recomposition, rotation and
     // process death never reuse it.
     var pendingPrefill by rememberSaveable(stateSaver = ContactAliasPrefillSaver) { mutableStateOf(prefill) }
-    var callOffer by remember { mutableStateOf<Pair<String, String>?>(null) }
-
+    var callOffer by rememberSaveable(
+        stateSaver = listSaver<Pair<String, String>?, String>(
+            save = { if (it == null) emptyList() else listOf(it.first, it.second) },
+            restore = { if (it.size == 2) it[0] to it[1] else null },
+        ),
+    ) { mutableStateOf<Pair<String, String>?>(null) }
     Scaffold(
         topBar = {
             TopAppBar(
