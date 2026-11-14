@@ -211,7 +211,7 @@ The runtime log forms are:
 
 ```text
 event_seq: tool_call name=load_skill argsLen=<n> args={"skill_name":"run_intent"}
-event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true contentLen=<n>
+event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content="<first 256 chars>"
 llm_tools_tool_sequence: attempt=run_intent turn=load_skill>run_intent terminal=run_intent
 ```
 

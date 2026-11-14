@@ -863,6 +863,7 @@ def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
 
 _LLM_TOOL_EVENT_PATTERN = re.compile(
     r"event_seq:\s+(?P<event>tool_call|tool_result)\s+name=(?P<name>\S+)"
+    r"(?:\s+argsLen=\d+)?"
     r"(?:\s+args=(?P<args>[^\n]+))?"
     r"(?:\s+resultType=(?P<result_type>\S+)\s+directReply=(?P<direct_reply>true|false)"
     r"\s+returnedToGemma=(?P<returned_to_gemma>true|false))?"

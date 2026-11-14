@@ -83,6 +83,9 @@ internal object DiagnosticLogRedactor {
      */
     private val REST_OF_MESSAGE = listOf(
         Regex("""(?s)(llm_tools_assistant_reply: ).*"""),
+        Regex("""(?s)(verbose_\w+: ).*"""),
+        Regex("""(?s)(llm_tools_native_tool: .*? request=).*"""),
+        Regex("""(?s)(llm_tools_legacy_tool: .*? raw=).*"""),
         Regex("""(?s)(DirectReply: ).*"""),
         Regex("""(?s)(Skipping duplicate initial query after restore: ).*"""),
         Regex("""(?s)(Auto-titled conversation \S+: ).*"""),

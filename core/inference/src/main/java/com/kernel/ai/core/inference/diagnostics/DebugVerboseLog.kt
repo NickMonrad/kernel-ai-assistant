@@ -8,8 +8,8 @@ import com.kernel.ai.core.inference.BuildConfig
  * debug-only code, so release builds never emit content (the `DEBUG` branch is a compile-time
  * constant that R8 strips).
  *
- * Nothing in the app sets [enabled] yet; there is no user-facing toggle. Add a debug-only setter
- * before relying on it for diagnosis.
+ * Set by `MainActivity` on every launch: true only when the launch carries the adb harness token
+ * (debug builds only). Any other launch turns it off. There is no user-facing toggle.
  */
 object DebugVerboseLog {
     @Volatile

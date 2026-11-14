@@ -4239,7 +4239,7 @@ class ChatViewModel @Inject constructor(
         // E2E marker: skill execution result
         Log.d(
             "KernelAI",
-            "llm_tools_skill_result: tool=${UnknownIntentReplies.loggableName(Regex("call:(\\w+)\\{").find(extracted)?.groupValues?.get(1) ?: "unknown")} argsLen=${extracted.length} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
+            "llm_tools_skill_result: tool=${UnknownIntentReplies.loggableName(Regex("\"name\"\\s*:\\s*\"([^\"]*)\"").find(extracted)?.groupValues?.get(1) ?: "unknown")} argsLen=${extracted.length} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
         )
         if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_skill_args: $extracted")
         return when (result) {

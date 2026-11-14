@@ -536,7 +536,7 @@ class KernelAIToolSet @Inject constructor(
         val request = """{"skill_name":"$skillName"}"""
         val arguments = if (localDiagnosticCaptureEnabled) mapOf("skill_name" to skillName) else null
         val diagnosticOrder = recordToolCall(LOAD_SKILL_NAME, request, arguments)
-        Log.d(TAG, "ToolSet: loadSkill($skillName)")
+        Log.d(TAG, "ToolSet: loadSkill(${UnknownIntentReplies.loggableName(skillName)})")
         val resultBudget = loadSkillResultBudget.get()
         val result = executeSkill(
             LOAD_SKILL_NAME,
