@@ -776,6 +776,69 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `send_email ambiguous contact opens composer without a recipient instead of recovery`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactExistsCursor(true)
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns emailCursor(
+            EmailRow("alex.one@example.com", "Alex One", contactId = "1"),
+            EmailRow("alex.two@example.com", "Alex Two", contactId = "2"),
+        )
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_email contact without any email opens composer without a recipient`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactExistsCursor(true)
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns emailCursor()
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms ambiguous contact opens composer without a number instead of recovery`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactExistsCursor(true)
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns phoneCursor(
+            PhoneRow(contactId = "1", displayName = "Sam Lee", phoneNumber = "021000001"),
+            PhoneRow(contactId = "2", displayName = "Sam Park", phoneNumber = "021000002"),
+        )
+
+        val result = handleIntent("send_sms", mapOf("contact" to "Sam", "message" to "On my way"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    private fun contactExistsCursor(found: Boolean): Cursor =
+        mockk<Cursor>(relaxed = true) { every { count } returns if (found) 1 else 0 }
+
+    @Test
     fun `text me still opens the SMS composer`() {
         every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
             PackageManager.PERMISSION_GRANTED

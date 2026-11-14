@@ -219,9 +219,11 @@ object ContactLookupRecovery {
     private fun tokensMatch(query: String, candidate: String): Boolean {
         if (query == candidate) return true
         if (query.first() != candidate.first()) return false
+        // Symmetric: the allowance depends on the shorter name, so A→B and B→A agree.
+        val shorter = minOf(query.length, candidate.length)
         val maxDistance = when {
-            query.length >= 9 -> 2
-            query.length >= 7 -> 1
+            shorter >= 10 -> 2
+            shorter >= 7 -> 1
             else -> 0
         }
         if (maxDistance > 0 && editDistance(query, candidate) <= maxDistance) return true

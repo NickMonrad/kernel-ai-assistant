@@ -2556,8 +2556,8 @@ class ActionsViewModel @Inject constructor(
  * [SkillResult.Failure.error] is already a complete reply, so no "Action failed:" prefix is added.
  */
 internal fun failureCardText(result: SkillResult.Failure): String = when {
-    // Recovery failures name the contact in `error`; history stores only the name-free diagnostic.
-    result.actions.isNotEmpty() -> result.technicalDetail ?: "Settings action needed"
+    // Recovery failures name the contact in `error`; history keeps a name-free line, never the diagnostic.
+    result.actions.isNotEmpty() -> "Needs one step in Settings to finish."
     result.technicalDetail != null -> result.error
     else -> "Action failed: ${result.error}"
 }

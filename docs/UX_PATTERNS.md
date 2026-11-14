@@ -639,10 +639,10 @@ When a skill fails in a way the user can fix in Settings (for example, a contact
 People & Contacts), the result carries `SkillResult.Failure.actions` (`SettingsAction` list). The
 Quick Actions (`ActionsScreen`) shows a `PermissionOverlayDialog` titled with the failure message, body
 "Choose what to do next.", one action per settings destination, and a **Not now** action.
-Chat shows only the `error` text (no dialog, no buttons); the in-app path is in that text.
+Chat (`ChatScreen`) shows the same dialog for the same failure, and the text reply carries the `error` guidance.
 
 - The `error` text always names the in-app next step (for example "Add them in Settings → People & Contacts."), so voice and model replies keep the guidance without the dialog.
-- The dialog is dismissible from **Not now**, the scrim, and back. Test tags: `permission_dialog_settings_action`, `permission_dialog_settings_action_not_now`, `settings_action_<index>`.
+- The dialog is dismissible from **Not now**, the scrim, and back. Test tags: `settings_action_dialog`, `settings_action_not_now`, `settings_action_<index>`.
 - Choosing an action deep-links into the destination. Prefill payloads (for example a contact alias) are consumed once so rotation does not reopen them.
 - Spoken confirmation ("yes" to "Call now?") is not part of this pattern yet; the dialog's buttons are the only confirmation path.
 

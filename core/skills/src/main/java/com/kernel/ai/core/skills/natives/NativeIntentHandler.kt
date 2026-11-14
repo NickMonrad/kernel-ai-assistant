@@ -368,28 +368,37 @@ class NativeIntentHandler @Inject constructor(
             )
         }
         
-        val resolvedEmail = resolveContactEmail(contact)
-            ?: contact.takeIf(::looksLikeEmailAddress)
-            ?: return if (isNamedContactLookup(contact)) {
-                contactNotFound("send_email", contact)
-            } else {
-                SkillResult.Failure(
-                    skillName = "send_email",
-                    error = "I can't find an email address for \"$contact\" yet. Give me the address to send to.",
-                    technicalDetail = "Self-reference without own address: $contact",
-                )
+        // A named contact that exists but has no single address (ambiguous, no primary, no email) opens the
+        // composer with no recipient, as before #1859, so the user can pick one there. Recovery is only for no match.
+        val recipient = when {
+            looksLikeEmailAddress(contact) -> contact
+            else -> resolveContactEmail(contact) ?: run {
+                if (contactMatchExists(contact)) {
+                    ""
+                } else if (isNamedContactLookup(contact)) {
+                    return contactNotFound("send_email", contact)
+                } else {
+                    return SkillResult.Failure(
+                        skillName = "send_email",
+                        error = "I can't find an email address for \"$contact\" yet. Give me the address to send to.",
+                        technicalDetail = "No email address resolved for: $contact",
+                    )
+                }
             }
+        }
 
         val encodedSubject = Uri.encode(subject)
         val encodedBody = Uri.encode(body)
         // Email address must NOT be percent-encoded (RFC 6068) — only query params are encoded
-        val mailtoUri = Uri.parse("mailto:$resolvedEmail?subject=$encodedSubject&body=$encodedBody")
+        val mailtoUri = Uri.parse("mailto:$recipient?subject=$encodedSubject&body=$encodedBody")
         val intent = Intent(Intent.ACTION_SENDTO, mailtoUri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         return try {
             context.startActivity(intent)
-            SkillResult.Success("Email composer opened to $resolvedEmail.")
+            SkillResult.Success(
+                if (recipient.isEmpty()) "Email composer opened for $contact with no address chosen." else "Email composer opened to $recipient.",
+            )
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure(
                 "send_email",
@@ -415,9 +424,10 @@ class NativeIntentHandler @Inject constructor(
         }
         
         // A named contact that doesn't resolve gets an in-app recovery result, not a blank composer.
+        // A contact that exists but has no single number opens the composer blank, as before #1859.
         // Self-terms may legitimately resolve to null when the own number is unknown.
         val resolved = contact?.let { resolveContactNumber(it) }
-        if (contact != null && resolved == null && isNamedContactLookup(contact)) {
+        if (contact != null && resolved == null && isNamedContactLookup(contact) && !contactMatchExists(contact)) {
             return contactNotFound("send_sms", contact)
         }
         val number = resolved ?: contact?.takeIf { it.none { c -> c.isLetter() } }  // keep raw numeric strings
@@ -1555,6 +1565,29 @@ class NativeIntentHandler @Inject constructor(
 
     private fun isNamedContactLookup(contact: String): Boolean =
         contact.any { it.isLetter() } && contact.trim().lowercase() !in selfContactTerms
+
+    /**
+     * True when [name] matches an alias or any contact name, even one with no phone number or email.
+     * Decides between "no such contact" recovery and an empty composer when no single address is chosen.
+     */
+    private suspend fun contactMatchExists(name: String): Boolean {
+        val aliasKey = name.trim().lowercase().removePrefix("my ").removePrefix("the ").trim()
+        if (contactAliasRepository.getByAlias(aliasKey) != null) return true
+        val tokens = tokenizeContactLookupTerms(name)
+        if (tokens.isEmpty()) return false
+        return try {
+            context.contentResolver.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                arrayOf(ContactsContract.Contacts._ID),
+                tokens.joinToString(" AND ") { "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?" },
+                tokens.map { "%$it%" }.toTypedArray(),
+                null,
+            )?.use { it.count > 0 } ?: false
+        } catch (e: SecurityException) {
+            Log.w(TAG, "READ_CONTACTS not granted — cannot check contact existence for '$name'", e)
+            false
+        }
+    }
 
     /** Recovery result for a named contact that could not be resolved. */
     private suspend fun contactNotFound(skillName: String, contact: String, callRequested: Boolean = false): SkillResult.Failure =

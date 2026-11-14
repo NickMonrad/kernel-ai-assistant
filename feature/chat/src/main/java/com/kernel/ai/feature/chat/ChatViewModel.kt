@@ -292,6 +292,19 @@ class ChatViewModel @Inject constructor(
         ),
     )
     private val _error = MutableStateFlow<String?>(null)
+    /** Non-null while the chooser for a failed lookup's in-app recovery actions is shown (#1859). */
+    data class SettingsActionState(
+        val message: String,
+        val actions: List<com.kernel.ai.core.skills.SettingsAction>,
+    )
+    private val _settingsActionState = MutableStateFlow<SettingsActionState?>(null)
+    val settingsActionState: StateFlow<SettingsActionState?> = _settingsActionState.asStateFlow()
+
+    /** Dismiss the settings-action chooser without opening anything. */
+    fun dismissSettingsActionDialog() {
+        _settingsActionState.value = null
+    }
+
     private val _modelInitializationError = MutableStateFlow<String?>(null)
     private var modelInitializationWatchdogSequence = 0L
     private var modelInitializationWatchdogJob: Job? = null
@@ -3584,6 +3597,10 @@ class ChatViewModel @Inject constructor(
                                 Log.d("KernelAI", "llm_tools_assistant_reply: ${fullContent.take(1000).replace('\n', ' ')}")
                                 tryExecuteToolCall(fullContent)
                             } else null
+                            // #1859: a native lookup failure with recovery actions opens the same chooser as Quick Actions.
+                            if (nativeToolCall != null) {
+                                kernelAIToolSet.terminalToolSettingsFailure()?.let { _settingsActionState.value = settingsActionStateFor(it) }
+                            }
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val rawToolCall = nativeToolCall ?: toolCallResult!!.first
                                 val nativeToolWasDirectReply =
@@ -4232,6 +4249,7 @@ class ChatViewModel @Inject constructor(
                     resultText = failureChipText(result),
                     isSuccess = false,
                 )
+                _settingsActionState.value = settingsActionStateFor(result)
                 Pair(toolCall, failureChatReply(result))
             }
             is SkillResult.CapabilityRequired -> null

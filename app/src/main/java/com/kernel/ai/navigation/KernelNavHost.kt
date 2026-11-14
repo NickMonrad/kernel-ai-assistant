@@ -699,6 +699,11 @@ fun KernelNavHost(
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
                         },
+                        onOpenSettingsDeepLink = { link ->
+                            settingsDeepLinkRoute(link)?.let { route ->
+                                navController.navigate(route) { launchSingleTop = true }
+                            }
+                        },
                         onNavigateToModelManagement = {
                             navController.navigate(ROUTE_MODEL_MANAGEMENT)
                         },
@@ -719,6 +724,11 @@ fun KernelNavHost(
                         onNavigateToList = { navController.popBackOrNavigateHome() },
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
+                        },
+                        onOpenSettingsDeepLink = { link ->
+                            settingsDeepLinkRoute(link)?.let { route ->
+                                navController.navigate(route) { launchSingleTop = true }
+                            }
                         },
                         onNavigateToModelManagement = {
                             navController.navigate(ROUTE_MODEL_MANAGEMENT)

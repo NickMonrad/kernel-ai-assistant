@@ -213,6 +213,7 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var lastToolDetail: String? = null
     @Volatile private var lastToolPresentation: ToolPresentation? = null
     @Volatile private var lastToolSpokenSummary: String? = null
+    @Volatile private var lastToolSettingsFailure: SkillResult.Failure? = null
     @Volatile private var lastToolWasDirectReply: Boolean = false
     // The current turn's user message; lets queryWikipedia answer the original question (#1689).
     @Volatile private var turnUserMessage: String? = null
@@ -230,6 +231,7 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var terminalToolResult: String? = null
     @Volatile private var terminalToolPresentation: ToolPresentation? = null
     @Volatile private var terminalToolSpokenSummary: String? = null
+    @Volatile private var terminalToolSettingsFailure: SkillResult.Failure? = null
     @Volatile private var terminalToolWasDirectReply: Boolean = false
     @Volatile private var terminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
 
@@ -295,6 +297,7 @@ class KernelAIToolSet @Inject constructor(
         terminalToolResult = null
         terminalToolDetail = null
         terminalToolPresentation = null
+        terminalToolSettingsFailure = null
         terminalToolSpokenSummary = null
         terminalToolWasDirectReply = false
         terminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
@@ -371,6 +374,9 @@ class KernelAIToolSet @Inject constructor(
 
     /** The last terminal tool spoken summary, or null. */
     fun terminalToolSpokenSummary(): String? = terminalToolSpokenSummary
+
+    /** The last terminal tool's failure when it carries in-app recovery actions (#1859), else null. */
+    fun terminalToolSettingsFailure(): SkillResult.Failure? = terminalToolSettingsFailure
 
     /** True when the last terminal tool was a DirectReply. */
     fun terminalToolWasDirectReply(): Boolean = terminalToolWasDirectReply
@@ -478,6 +484,7 @@ class KernelAIToolSet @Inject constructor(
             terminalToolDetail = lastToolDetail
             terminalToolPresentation = lastToolPresentation
             terminalToolSpokenSummary = lastToolSpokenSummary
+            terminalToolSettingsFailure = lastToolSettingsFailure
             terminalToolWasDirectReply = lastToolWasDirectReply
             terminalToolOutcome = attemptTerminalToolOutcome
         }
@@ -884,6 +891,7 @@ class KernelAIToolSet @Inject constructor(
             recordToolOutcome(skillName, succeeded)
             lastToolWasDirectReply = result is SkillResult.DirectReply
             lastToolDetail = (result as? SkillResult.Failure)?.technicalDetail
+            lastToolSettingsFailure = (result as? SkillResult.Failure)?.takeIf { it.actions.isNotEmpty() }
             lastToolPresentation = when (result) {
                 is SkillResult.Success -> result.presentation
                 is SkillResult.DirectReply -> result.presentation
