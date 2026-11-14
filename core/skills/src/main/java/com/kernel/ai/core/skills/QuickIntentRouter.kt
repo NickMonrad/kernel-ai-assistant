@@ -1142,6 +1142,32 @@ class QuickIntentRouter(
         ),
 
 
+        // ── Calendar read ──
+        // "what's on my calendar [today/tomorrow/this week]", "what do I have next week", "when is my next dentist appointment"
+        IntentPattern(
+            intentName = "read_calendar_events",
+            regex = Regex(
+                """^(?:what(?:'s|\s+is)|whats|anything)\s+(?:on|in)\s+my\s+(?:calendar|schedule|agenda)\b.*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> calendarReadParams(raw) },
+        ),
+        IntentPattern(
+            intentName = "read_calendar_events",
+            regex = Regex(
+                """^(?!.*\blist\b)(?:what\s+do\s+i\s+have|what\s+have\s+i\s+got|do\s+i\s+have\s+(?:anything|something))\b.*\b(?:today|tomorrow|this\s+week|next\s+week|coming\s+up|upcoming)\b.*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, raw -> calendarReadParams(raw) },
+        ),
+        IntentPattern(
+            intentName = "read_calendar_events",
+            regex = Regex(
+                """^when(?:[’']s|\s+is)\s+my\s+(?:next\s+)?(?!.*\b(?:birthday|anniversary)\b)(.{2,40}?)\s+(?:appointments?|meetings?|events?|class|booking|session|call)\s*\??$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { m, raw -> calendarReadParams(raw, keyword = m.groupValues[1].trim()) },
+        ),
 
         // ── Calendar ──
         // "add/create/schedule/set up a [dentist/gym/meeting/event] [for/on] [date] [at time]"
@@ -4604,6 +4630,23 @@ class QuickIntentRouter(
             "list_name" to "$base $descriptor",
             "list_name_for_creation" to base,
         )
+    }
+
+    /** Range/keyword params for calendar read phrasings; no range means the skill's default (today). */
+    private fun calendarReadParams(raw: String, keyword: String? = null): Map<String, String> {
+        val lower = raw.lowercase()
+        val range = when {
+            Regex("""\bnext\s+week\b""").containsMatchIn(lower) -> "next_week"
+            Regex("""\bthis\s+week\b""").containsMatchIn(lower) -> "this_week"
+            Regex("""\btomorrow\b""").containsMatchIn(lower) -> "tomorrow"
+            Regex("""\btoday\b""").containsMatchIn(lower) -> "today"
+            Regex("""\b(?:coming\s+up|upcoming)\b""").containsMatchIn(lower) -> "upcoming"
+            else -> null
+        }
+        return buildMap {
+            range?.let { put("range", it) }
+            keyword?.takeIf { it.isNotBlank() }?.let { put("keyword", it) }
+        }
     }
 
     private fun tryMatchPatterns(trimmed: String, candidates: List<IntentPattern>): RouteResult? {

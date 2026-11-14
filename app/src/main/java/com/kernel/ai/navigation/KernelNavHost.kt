@@ -65,6 +65,7 @@ import androidx.navigation.navArgument
 import com.kernel.ai.feature.chat.ActionsScreen
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
+import com.kernel.ai.feature.chat.setup.SetupWizardScreen
 import com.kernel.ai.feature.convert.ConvertScreen
 import com.kernel.ai.feature.convert.mapQueryParamToConvertTab
 import com.kernel.ai.feature.settings.AppPermissionsScreen
@@ -98,6 +99,7 @@ private const val ROUTE_ACTIONS_OPEN = "actions?openSheet=true"
 private const val ROUTE_ACTIONS_VOICE = "actions?startVoice=true"
 private const val ROUTE_CHAT = "chat"
 internal const val ROUTE_SETTINGS = "settings"
+internal const val ROUTE_SETUP_WIZARD = "setup_wizard"
 internal const val ROUTE_USER_PROFILE = "settings/user_profile"
 internal const val ROUTE_MEMORY = "settings/memory"
 internal const val ROUTE_IMPORTANT_DATES = "settings/important_dates"
@@ -507,6 +509,9 @@ fun KernelNavHost(
                 composable(ROUTE_LIST) {
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ConversationListScreen(
+                            onOpenSetupWizard = {
+                                navController.navigate(ROUTE_SETUP_WIZARD) { launchSingleTop = true }
+                            },
                             onOpenConversation = { id ->
                                 navController.navigate("$ROUTE_CHAT/$id")
                             },
@@ -595,6 +600,11 @@ fun KernelNavHost(
                             autoOpenSheet = openSheet,
                             autoStartVoiceCommand = startVoice,
                             initialQuery = widgetQuery,
+                            onOpenSettingsDeepLink = { link ->
+                                settingsDeepLinkRoute(link)?.let { route ->
+                                    navController.navigate(route) { launchSingleTop = true }
+                                }
+                            },
                             initialQueryIsVoice = widgetVoice,
                             adbSlotReply = initialSlotReply,
                             draftQuery = draftQuery,
@@ -694,6 +704,11 @@ fun KernelNavHost(
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
                         },
+                        onOpenSettingsDeepLink = { link ->
+                            settingsDeepLinkRoute(link)?.let { route ->
+                                navController.navigate(route) { launchSingleTop = true }
+                            }
+                        },
                         onNavigateToModelManagement = {
                             navController.navigate(ROUTE_MODEL_MANAGEMENT)
                         },
@@ -715,9 +730,21 @@ fun KernelNavHost(
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
                         },
+                        onOpenSettingsDeepLink = { link ->
+                            settingsDeepLinkRoute(link)?.let { route ->
+                                navController.navigate(route) { launchSingleTop = true }
+                            }
+                        },
                         onNavigateToModelManagement = {
                             navController.navigate(ROUTE_MODEL_MANAGEMENT)
                         },
+                    )
+                }
+
+                composable(ROUTE_SETUP_WIZARD) {
+                    SetupWizardScreen(
+                        onExit = { navController.popBackOrNavigateHome() },
+                        onDone = { navController.popBackOrNavigateHome() },
                     )
                 }
 
@@ -742,6 +769,9 @@ fun KernelNavHost(
                         },
                         onNavigateToChatPreferences = {
                             navController.navigate(ROUTE_CHAT_PREFERENCES)
+                        },
+                        onNavigateToSetupWizard = {
+                            navController.navigate(ROUTE_SETUP_WIZARD) { launchSingleTop = true }
                         },
                         onNavigateToAbout = {
                             navController.navigate(ROUTE_ABOUT)
@@ -891,6 +921,7 @@ fun KernelNavHost(
                     val scrollTo = backStackEntry.arguments?.getBoolean(ARG_SCROLL_TO) ?: false
                     ModelManagementScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        onOpenVoiceSettings = { navController.navigate(ROUTE_VOICE) },
                         scrollToConversationModel = scrollTo,
                     )
                 }
@@ -898,6 +929,9 @@ fun KernelNavHost(
                 composable(ROUTE_ABOUT) {
                     AboutScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        onNavigateToSetupWizard = {
+                            navController.navigate(ROUTE_SETUP_WIZARD) { launchSingleTop = true }
+                        },
                         onNavigateToLegalPrivacy = {
                             navController.navigate(ROUTE_LEGAL_PRIVACY)
                         },
@@ -930,9 +964,14 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_CONTACT_ALIASES) {
+                composable(
+                    route = CONTACT_ALIAS_ROUTE_PATTERN,
+                    arguments = CONTACT_ALIAS_NAV_ARGS,
+                ) { backStackEntry ->
+                    // Copied once into the screen's saveable state (ContactAliasPrefillSaver), so it is used once.
                     ContactAliasesScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        prefill = contactAliasPrefillFrom(backStackEntry.arguments),
                     )
                 }
 

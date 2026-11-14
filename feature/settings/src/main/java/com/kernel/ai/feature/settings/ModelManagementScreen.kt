@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.settings
 
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,14 +10,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,39 +24,50 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.core.net.toUri
-import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
-import com.kernel.ai.core.model.availability.ModelCard
-import com.kernel.ai.core.model.availability.ModelAvailabilityState
-import com.kernel.ai.core.model.availability.toAvailability
-import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import com.kernel.ai.core.model.availability.ActionReason
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
+import com.kernel.ai.core.model.availability.ModelRole
+import com.kernel.ai.core.model.availability.ModelRoleCopy
+import com.kernel.ai.core.model.availability.ModelRoles
+import com.kernel.ai.core.model.availability.RoleSectionView
+import com.kernel.ai.core.model.availability.StatusSectionView
+import com.kernel.ai.core.model.availability.StillNeededCard
+import com.kernel.ai.core.model.availability.toAvailability
+import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 
+/**
+ * Index of the first role section in the list. Items before it are the storage card and the
+ * Still-needed card. "Scroll to conversation model" lands on the chat brain section.
+ */
+private const val FIRST_ROLE_ITEM_INDEX = 2
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelManagementScreen(
     onBack: () -> Unit = {},
+    onOpenVoiceSettings: () -> Unit = {},
     scrollToConversationModel: Boolean = false,
     viewModel: ModelManagementViewModel = hiltViewModel(),
 ) {
@@ -65,11 +75,30 @@ fun ModelManagementScreen(
     val context = LocalContext.current
     val listState = rememberLazyListState()
 
-    // Scroll to "Conversation model" section when requested (e.g. from Settings "Preferred model" item).
-    val visibleModelCount = uiState.models.size
-    LaunchedEffect(scrollToConversationModel, visibleModelCount) {
-        if (scrollToConversationModel && visibleModelCount > 0) {
-            listState.animateScrollToItem(index = 2 + visibleModelCount)
+    val downloadStates: Map<KernelModel, DownloadState> =
+        uiState.models.associate { it.model to it.downloadState }
+    val availabilityOf: (KernelModel) -> ModelAvailabilityState = { model ->
+        val row = uiState.models.firstOrNull { it.model == model }
+        if (row == null) {
+            ModelAvailabilityState.NotDisplayed
+        } else {
+            row.downloadState.toAvailability(
+                model = model,
+                hfAuth = uiState.hfAuthenticated,
+                source = row.downloadSource,
+                gated = row.gatedStatus,
+            )
+        }
+    }
+    val chatUsing = uiState.roleSections.firstOrNull { it.role == ModelRole.CHAT_BRAIN }?.using
+
+    // Name of a model waiting for delete confirmation. Stored as a name so it survives rotation.
+    var pendingDeleteName by rememberSaveable { mutableStateOf<String?>(null) }
+    val pendingDelete = pendingDeleteName?.let { name -> KernelModel.entries.firstOrNull { it.name == name } }
+
+    LaunchedEffect(scrollToConversationModel, uiState.roleSections.size) {
+        if (scrollToConversationModel && uiState.roleSections.isNotEmpty()) {
+            listState.animateScrollToItem(index = FIRST_ROLE_ITEM_INDEX)
         }
     }
 
@@ -85,6 +114,9 @@ fun ModelManagementScreen(
             )
         },
     ) { innerPadding ->
+        val startModelDownload = rememberDownloadNotificationGate { id ->
+            id?.let { viewModel.downloadModel(KernelModel.valueOf(it)) }
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -99,193 +131,93 @@ fun ModelManagementScreen(
                     modifier = Modifier.padding(16.dp),
                 )
             }
-            // ── Conversation-model readiness banner ───────────────────────────
-            item(key = "readiness_banner") {
-                val readiness = uiState.conversationReadiness
-                if (readiness != null) {
-                    ConversationReadinessBanner(
-                        readiness = readiness,
-                        onDownload = { model -> viewModel.downloadModel(model) },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-            }
-            // ── Model rows ────────────────────────────────────────────────────
-            item {
-                Text(
-                    text = "Models",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+
+            // ── Still needed ──────────────────────────────────────────────────
+            item(key = "still_needed") {
+                StillNeededCard(
+                    items = uiState.stillNeeded,
+                    onDownload = { model -> startModelDownload(model.name) },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
 
-
-            val visibleModels = uiState.models
-            items(visibleModels) { rowState ->
-                val availabilityState = rowState.downloadState.toAvailability(
-                    model = rowState.model,
-                    hfAuth = uiState.hfAuthenticated,
-                    source = rowState.downloadSource,
-                    gated = rowState.gatedStatus,
-                )
-                val canDelete = availabilityState is ModelAvailabilityState.Ready &&
-                    !rowState.model.isBundled &&
-                    rowState.model != uiState.preferredModel
-                val description = buildString {
-                    append("%.1f MB".format(rowState.model.approxSizeBytes / 1_000_000f))
-                    when (rowState.model) {
-                        KernelModel.GEMMA_4_E4B -> {
-                            if (uiState.deviceTier == com.kernel.ai.core.inference.hardware.HardwareTier.FLAGSHIP) {
-                                append(" · Recommended")
-                            }
-                        }
-                        KernelModel.GEMMA_4_E2B -> {
-                            if (uiState.conversationReadiness is ConversationModelReadiness.ActionRequired ||
-                                uiState.conversationReadiness is ConversationModelReadiness.FallbackActive
-                            ) {
-                                append(" · Fallback")
-                            }
-                        }
-                        else -> { /* no label for other models */ }
-                    }
-                }
-                ModelCard(
-                    title = rowState.model.displayName,
-                    description = description,
-                    state = availabilityState,
-                    showLock = rowState.model.isGated && availabilityState !is ModelAvailabilityState.ActionRequired,
-                    onPrimaryAction = {
-                        when (val avail = availabilityState) {
-                            is ModelAvailabilityState.ActionRequired -> when (avail.reason) {
-                                is ActionReason.SignInRequired -> viewModel.startAuth()
-                                is ActionReason.LicenseRequired ->
-                                    rowState.model.licenceUrl?.let { url ->
-                                        openInAppBrowser(context, url)
-                                    }
-                                is ActionReason.DownloadFailed -> viewModel.downloadModel(rowState.model)
-                                is ActionReason.ApprovalPending -> { /* no action — label is null */ }
-                                is ActionReason.AccessApprovalRequired ->
-                                    rowState.model.licenceUrl?.let { url ->
-                                        openInAppBrowser(context, url)
-                                    }
-                                is ActionReason.InsufficientStorage -> { /* no direct action */ }
-                            }
-                            is ModelAvailabilityState.Preparing -> {
-                                if (!avail.isAutoQueued) viewModel.cancelDownload(rowState.model)
-                            }
-                            is ModelAvailabilityState.Ready -> viewModel.updateModel(rowState.model)
-                            else -> viewModel.downloadModel(rowState.model)
-                        }
-                    },
-                    onSecondaryAction = if (canDelete) {
-                        { viewModel.deleteModel(rowState.model) }
+            // ── Role sections ─────────────────────────────────────────────────
+            items(uiState.roleSections, key = { it.role.name }) { section ->
+                val isChat = section.role == ModelRole.CHAT_BRAIN
+                RoleSectionView(
+                    section = section,
+                    availabilityOf = availabilityOf,
+                    onSelect = if (isChat) {
+                        { model -> viewModel.setPreferredModel(model) }
                     } else {
                         null
                     },
-                    secondaryActionLabel = if (canDelete) "Delete" else null,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-
-            // ── Preferred model section ───────────────────────────────────────
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Conversation model",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
-
-            item {
-                val e2bState = uiState.models.find { it.model == KernelModel.GEMMA_4_E2B }?.downloadState
-                val e4bState = uiState.models.find { it.model == KernelModel.GEMMA_4_E4B }?.downloadState
-                val e2bDownloaded = e2bState is DownloadState.Downloaded
-                val e4bDownloaded = e4bState is DownloadState.Downloaded
-
-                // Auto
-                ListItem(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.setPreferredModel(null) },
-                    headlineContent = { Text("Auto") },
-                    supportingContent = { Text("Select best model for your hardware") },
-                    leadingContent = {
-                        RadioButton(
-                            selected = uiState.preferredModel == null,
-                            onClick = { viewModel.setPreferredModel(null) },
-                        )
+                    onAutoSelect = if (isChat) {
+                        { viewModel.setPreferredModel(null) }
+                    } else {
+                        null
                     },
-                )
-                HorizontalDivider()
-
-                // E2B
-                ListItem(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            if (e2bDownloaded) viewModel.setPreferredModel(KernelModel.GEMMA_4_E2B)
-                        },
-                    headlineContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("E2B — Gemma 4 E-2B")
-                            if (!e2bDownloaded) {
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    "(not downloaded)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
+                    onPrimary = { model ->
+                        when (val avail = availabilityOf(model)) {
+                            ModelAvailabilityState.Ready -> viewModel.updateModel(model)
+                            is ModelAvailabilityState.ActionRequired -> when (avail.reason) {
+                                is ActionReason.SignInRequired -> viewModel.startAuth()
+                                is ActionReason.LicenseRequired ->
+                                    model.licenceUrl?.let { url -> openInAppBrowser(context, url) }
+                                is ActionReason.DownloadFailed -> viewModel.downloadModel(model)
+                                is ActionReason.ApprovalPending -> { /* no action — label is null */ }
+                                is ActionReason.AccessApprovalRequired ->
+                                    model.licenceUrl?.let { url -> openInAppBrowser(context, url) }
+                                is ActionReason.InsufficientStorage -> { /* no direct action */ }
                             }
+                            is ModelAvailabilityState.Preparing -> {
+                                if (!avail.isAutoQueued) viewModel.cancelDownload(model)
+                            }
+                            else -> viewModel.downloadModel(model)
                         }
                     },
-                    supportingContent = { Text("2.4 GB · Efficient, runs on all devices") },
-                    leadingContent = {
-                        RadioButton(
-                            selected = uiState.preferredModel == KernelModel.GEMMA_4_E2B,
-                            onClick = { if (e2bDownloaded) viewModel.setPreferredModel(KernelModel.GEMMA_4_E2B) },
-                            enabled = e2bDownloaded,
-                        )
+                    canDelete = { model ->
+                        availabilityOf(model) is ModelAvailabilityState.Ready &&
+                            !model.isBundled &&
+                            model != chatUsing
                     },
-                )
-                HorizontalDivider()
-
-                // E4B
-                ListItem(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            if (e4bDownloaded) viewModel.setPreferredModel(KernelModel.GEMMA_4_E4B)
-                        },
-                    headlineContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("E4B — Gemma 4 E-4B")
-                            if (!e4bDownloaded) {
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    "(not downloaded)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                            }
+                    onDelete = { model ->
+                        val tier = uiState.deviceTier
+                        if (tier != null && ModelRoles.deletionBreaksApp(model, tier, downloadStates)) {
+                            pendingDeleteName = model.name
+                        } else {
+                            viewModel.deleteModel(model)
                         }
                     },
-                    supportingContent = { Text("3.4 GB · Higher quality, flagship devices") },
-                    leadingContent = {
-                        RadioButton(
-                            selected = uiState.preferredModel == KernelModel.GEMMA_4_E4B,
-                            onClick = { if (e4bDownloaded) viewModel.setPreferredModel(KernelModel.GEMMA_4_E4B) },
-                            enabled = e4bDownloaded,
-                        )
-                    },
+                    modifier = Modifier.padding(bottom = 8.dp),
                 )
                 HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
             }
 
+            // ── Voice sections (read-only; managed in Voice settings) ─────────
+            item(key = "speech_recognition") {
+                StatusSectionView(
+                    title = ModelRoleCopy.STT_SECTION_TITLE,
+                    summary = "Managed in Voice settings.",
+                    statusText = "Status: ${voiceStatusText(uiState.speechRecognitionStatus)}",
+                    actionLabel = ModelRoleCopy.MANAGE_VOICE_ACTION,
+                    onAction = onOpenVoiceSettings,
+                )
+                HorizontalDivider()
+            }
+            item(key = "voice_output") {
+                StatusSectionView(
+                    title = ModelRoleCopy.TTS_SECTION_TITLE,
+                    summary = "Managed in Voice settings.",
+                    statusText = "Status: ${voiceStatusText(uiState.voiceOutputStatus)}",
+                    actionLabel = ModelRoleCopy.MANAGE_VOICE_ACTION,
+                    onAction = onOpenVoiceSettings,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                HorizontalDivider()
+            }
+
+            // ── Personality mode ──────────────────────────────────────────────
             item {
                 Text(
                     text = "Personality mode",
@@ -322,6 +254,33 @@ fun ModelManagementScreen(
             }
         }
     }
+
+    pendingDelete?.let { model ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteName = null },
+            title = { Text(ModelRoleCopy.DELETE_WARNING_TITLE) },
+            text = { Text(ModelRoleCopy.deleteWarningBody(model)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteModel(model)
+                        pendingDeleteName = null
+                    },
+                ) { Text(ModelRoleCopy.DELETE_ACTION) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteName = null }) { Text(ModelRoleCopy.CANCEL_ACTION) }
+            },
+        )
+    }
+}
+
+private fun voiceStatusText(status: VoiceSectionStatus): String = when (status) {
+    VoiceSectionStatus.READY -> ModelRoleCopy.VOICE_READY
+    VoiceSectionStatus.DOWNLOADING -> ModelRoleCopy.VOICE_DOWNLOADING
+    VoiceSectionStatus.NOT_DOWNLOADED -> ModelRoleCopy.VOICE_NOT_DOWNLOADED
+    VoiceSectionStatus.BUILT_IN -> ModelRoleCopy.VOICE_BUILT_IN
+    VoiceSectionStatus.OTHER_ENGINE -> ModelRoleCopy.VOICE_OTHER_ENGINE
 }
 
 private fun modeTitle(mode: PersonaMode): String = when (mode) {
@@ -379,157 +338,6 @@ private fun StorageSummaryCard(
         }
     }
 }
-
-@Composable
-private fun ConversationReadinessBanner(
-    readiness: ConversationModelReadiness,
-    onDownload: (KernelModel) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    when (readiness) {
-        is ConversationModelReadiness.ActionRequired -> {
-            Card(
-                modifier = modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
-                ),
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Chat needs a conversation model",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "Download ${readiness.recommendedModel.displayName} for best performance on this device, " +
-                            "or ${readiness.fallbackModel.displayName} as a smaller fallback.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = { onDownload(readiness.recommendedModel) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Download ${readiness.recommendedModel.displayName}")
-                    }
-                    if (readiness.fallbackModel != readiness.recommendedModel) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "or download the smaller fallback:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = { onDownload(readiness.fallbackModel) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Download ${readiness.fallbackModel.displayName}")
-                        }
-                    }
-                }
-            }
-        }
-        is ConversationModelReadiness.FallbackActive -> {
-            Card(
-                modifier = modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
-                ),
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Chat is ready",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "${KernelModel.GEMMA_4_E2B.displayName} is installed. " +
-                            "Chat is usable, but downloading ${readiness.recommendedModel.displayName} " +
-                            "will give you the best experience on this device.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = { onDownload(readiness.recommendedModel) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Download ${readiness.recommendedModel.displayName}")
-                    }
-                }
-            }
-        }
-        is ConversationModelReadiness.FallbackPreparing -> {
-            Card(
-                modifier = modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
-                ),
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Chat is ready",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
-                    Text(
-                        text = "${readiness.fallbackModel.displayName} is installed. " +
-                            "${readiness.downloadingModel.displayName} is downloading — " +
-                            "it will be available once finished.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    ConversationDownloadProgress(progress = readiness.progress)
-                }
-            }
-        }
-        is ConversationModelReadiness.Preparing -> {
-            Card(
-                modifier = modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
-                ),
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Preparing conversation model",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "${readiness.downloadingModel.displayName} is downloading. " +
-                            "Chat will be ready once it finishes.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    ConversationDownloadProgress(progress = readiness.progress)
-                }
-            }
-        }
-        is ConversationModelReadiness.Ready -> {
-            // No banner needed when everything is fine
-        }
-    }
-}
-
-@Composable
-private fun ConversationDownloadProgress(
-    progress: Float?,
-) {
-    Spacer(modifier = Modifier.height(8.dp))
-    if (progress != null && progress > 0f) {
-        LinearProgressIndicator(
-            progress = progress,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    } else {
-        LinearProgressIndicator(
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
 
 private fun formatBytes(bytes: Long): String {
     return when {

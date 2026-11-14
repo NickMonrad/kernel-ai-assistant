@@ -1516,6 +1516,8 @@ Session vocab hint injected into prompt:
 4. In the logging method, check the local flag: `if (verboseLoggingEnabled) { Log.v(TAG, msg) }`
 5. In `ChatViewModel` (or similar high-level VM that has datastore access), observe the `verbose_logging` preference and call `setVerboseLogging()` on init
 
+**Exception (content-bearing debug logs):** lines that carry user content are gated by `DebugVerboseLog`, which is `BuildConfig.DEBUG` and a launch with the adb harness token. They do not read the `verbose_logging` preference, so release and default debug builds never log content regardless of that setting. See `docs/testing/llm-tools-harness.md`.
+
 **Example (RagRepository):**
 ```kotlin
 private var verboseLoggingEnabled = false

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.util.stream.Stream
@@ -594,6 +595,41 @@ class QuickIntentRouterTest {
     // ═══════════════════════════════════════════════════════════════════════════
     // CALENDAR TESTS
     // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Calendar read")
+    inner class CalendarRead {
+
+        @ParameterizedTest(name = "Regex: \"{0}\" → range={1}")
+        @CsvSource(
+            "what's on my calendar today, today",
+            "what do I have tomorrow, tomorrow",
+            "what do I have this week, this_week",
+            "what's on my schedule next week, next_week",
+            "what do I have coming up, upcoming",
+        )
+        fun `should route calendar read phrases to read_calendar_events with range`(input: String, expectedRange: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "read_calendar_events", input)
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals(expectedRange, intent.params["range"], "range for '$input'")
+        }
+
+        @Test
+        fun `should route when is my next keyword appointment to read_calendar_events with keyword`() {
+            val result = regexOnlyRouter.route("when's my next dentist appointment")
+            assertRegexMatch(result, "read_calendar_events", "when's my next dentist appointment")
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("dentist", intent.params["keyword"])
+        }
+
+        @Test
+        fun `should not route birthday questions to calendar read`() {
+            val result = regexOnlyRouter.route("when is my wife's birthday")
+            assertFalse(result is QuickIntentRouter.RouteResult.RegexMatch &&
+                result.intent.intentName == "read_calendar_events")
+        }
+    }
 
     @Nested
     @DisplayName("Calendar")

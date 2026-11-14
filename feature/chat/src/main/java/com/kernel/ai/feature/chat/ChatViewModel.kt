@@ -50,6 +50,10 @@ import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.LocalToolDiagnosticCapture
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
+import com.kernel.ai.core.skills.SkillOutcomeEvents
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
+import com.kernel.ai.core.skills.natives.UnknownIntentReplies
+import com.kernel.ai.core.inference.diagnostics.DebugVerboseLog
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.toSpokenSummary
@@ -153,6 +157,10 @@ private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats 
 internal fun shouldWaitForAppForegroundAfterEviction(currentState: Lifecycle.State): Boolean =
     currentState < Lifecycle.State.STARTED
 
+/** True only when a permission request returned results and all were granted. A cancelled request returns an empty map. */
+internal fun calendarPermissionsGranted(results: Map<String, Boolean>): Boolean =
+    results.isNotEmpty() && results.values.all { it }
+
 /**
  * Suspends until the process is eligible to start foreground services.
  *
@@ -250,6 +258,7 @@ class ChatViewModel @Inject constructor(
     sealed interface UiEvent {
         data object RequestWeatherLocationPermission : UiEvent
         data object RepairWeatherLocationPermission : UiEvent
+        data class RequestCalendarPermission(val permissions: List<String>) : UiEvent
     }
 
     /** State for the contextual local-weather location permission dialog. */
@@ -258,6 +267,14 @@ class ChatViewModel @Inject constructor(
     )
 
     private data class PendingWeatherLocationAction(
+        val query: String,
+        val intentName: String,
+        val params: Map<String, String>,
+        val submitMode: SubmitMode,
+    )
+
+    private data class PendingCalendarPermissionAction(
+        val conversationId: String,
         val query: String,
         val intentName: String,
         val params: Map<String, String>,
@@ -294,6 +311,19 @@ class ChatViewModel @Inject constructor(
         ),
     )
     private val _error = MutableStateFlow<String?>(null)
+    private val _settingsActionState = MutableStateFlow<SettingsActionState?>(null)
+    val settingsActionState: StateFlow<SettingsActionState?> = _settingsActionState.asStateFlow()
+
+    /** Dismiss the settings-action chooser without opening anything. */
+    fun dismissSettingsActionDialog() {
+        _settingsActionState.value = null
+    }
+
+    /** Sets the recovery chooser from a failed typed lookup (#1859); null clears it. */
+    private fun showSettingsActionsFor(result: SkillResult.Failure?) {
+        _settingsActionState.value = result?.let(::settingsActionStateFor)
+    }
+
     private val _modelInitializationError = MutableStateFlow<String?>(null)
     private var modelInitializationWatchdogSequence = 0L
     private var modelInitializationWatchdogJob: Job? = null
@@ -301,6 +331,7 @@ class ChatViewModel @Inject constructor(
     private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
     private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
+    private var pendingCalendarPermissionAction: PendingCalendarPermissionAction? = null
     private var awaitingWeatherLocationSettingsReturn = false
     private val denialClassifier = PermissionDenialClassifier()
     val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
@@ -1073,6 +1104,7 @@ class ChatViewModel @Inject constructor(
             val isFreshConversation = navConversationId == null
             val id = navConversationId ?: conversationRepository.createConversation()
             conversationId = id
+            clearPendingCalendarPermission()
             // Persist resolved ID so process-death recreation restores the right conversation
             // instead of creating a fresh one on every cold start.
             savedStateHandle["conversationId"] = id
@@ -1478,8 +1510,8 @@ class ChatViewModel @Inject constructor(
         }
     }
     /**
-     * Re-executes a weather QIR call after permission repair. The user message was already
-     * persisted by [sendMessage], so this path appends only the resulting assistant message.
+     * Re-executes a QIR call (weather or calendar) after its permission is granted. The user message was
+     * already persisted by [sendMessage], so this path appends only the resulting assistant message.
      */
     private suspend fun retryWeatherLocationAction(
         convId: String,
@@ -1495,13 +1527,13 @@ class ChatViewModel @Inject constructor(
         if (skill == null) {
             appendAssistantMessage(
                 convId = convId,
-                content = "I couldn't complete that weather request.",
+                content = "I couldn't complete that request.",
                 shouldIndex = false,
             )
             return
         }
 
-        when (val result = skill.execute(SkillCall(skill.name, callParams))) {
+        when (val result = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.OTHER)) {
             is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
                 convId = convId,
                 content = result.content,
@@ -1538,7 +1570,7 @@ class ChatViewModel @Inject constructor(
             }
             else -> appendAssistantMessage(
                 convId = convId,
-                content = "I couldn't complete that weather request.",
+                content = "I couldn't complete that request.",
                 shouldIndex = false,
             )
         }
@@ -1790,6 +1822,29 @@ class ChatViewModel @Inject constructor(
             pendingVoiceReply = false
         }
         _error.value = null
+    }
+
+    /** Re-runs the pending calendar request after the in-chat calendar permission prompt is granted. */
+    fun onCalendarPermissionGranted() {
+        val pending = pendingCalendarPermissionAction ?: return
+        pendingCalendarPermissionAction = null
+        // Only re-run for the conversation that asked; a switched or new conversation must not get the answer.
+        if (pending.conversationId != conversationId) return
+        pendingVoiceReply = pending.submitMode == SubmitMode.Voice
+        viewModelScope.launch {
+            val convId = conversationId ?: return@launch
+            retryWeatherLocationAction(
+                convId,
+                PendingWeatherLocationAction(pending.query, pending.intentName, pending.params, pending.submitMode),
+            )
+        }
+    }
+
+    /** Drops the pending calendar request. Called on denial, App-info routing, and conversation switch. */
+    fun onCalendarPermissionDenied() = clearPendingCalendarPermission()
+
+    private fun clearPendingCalendarPermission() {
+        pendingCalendarPermissionAction = null
     }
 
     /** Retries the original local-weather request after ACCESS_COARSE_LOCATION is granted. */
@@ -2065,7 +2120,7 @@ class ChatViewModel @Inject constructor(
         }
 
         val commandId = "${UUID.randomUUID().toString().take(8)}-${commandIdSequence.incrementAndGet()}"
-        Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId input=${text.take(120)} submitMode=$submitMode")
+        Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId input=${if (DebugVerboseLog.active()) text.take(120) else "redacted"} submitMode=$submitMode")
         // #1618: per-stage turn timing; ms since the message was accepted. Logcat only.
         val turnAcceptedAtNanos = System.nanoTime()
         activeTurnAcceptedAtNanos = turnAcceptedAtNanos
@@ -2255,7 +2310,7 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         if (skill != null) {
-                            val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                            val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.SLOT_FILL)
                             when (skillResult) {
                                 is SkillResult.DirectReply -> {
                                     appendAssistantMessageWithToolCall(
@@ -2274,7 +2329,10 @@ class ChatViewModel @Inject constructor(
                                     shouldIndex = false,
                                     spokenSummary = spokenSummaryFrom(skillResult),
                                 )
-                                is SkillResult.Failure -> appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                is SkillResult.Failure -> {
+                                    showSettingsActionsFor(skillResult)
+                                    appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
+                                }
                                 else -> appendAssistantMessage(convId, "Something went wrong.", shouldIndex = false)
                             }
                         }
@@ -2323,7 +2381,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         Log.d("KernelAI", "RecoveryConfirmation: dispatching ${pendingConfirmation.intentName}")
-                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.CONFIRMATION)
                         when (skillResult) {
                             is SkillResult.DirectReply -> {
                                 appendAssistantMessageWithToolCall(
@@ -2350,6 +2408,7 @@ class ChatViewModel @Inject constructor(
                                 return@launch
                             }
                             is SkillResult.Failure -> {
+                                showSettingsActionsFor(skillResult)
                                 appendAssistantMessage(convId, skillResult.error, shouldIndex = false)
                                 return@launch
                             }
@@ -2377,7 +2436,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
-                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.CONFIRMATION)
                         when (skillResult) {
                             is SkillResult.DirectReply -> {
                                 appendAssistantMessageWithToolCall(
@@ -2405,6 +2464,7 @@ class ChatViewModel @Inject constructor(
                             }
                             is SkillResult.Failure -> {
                                 if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
+                                    showSettingsActionsFor(skillResult)
                                     appendAssistantMessage(
                                         convId,
                                         skillResult.error,
@@ -2533,7 +2593,7 @@ class ChatViewModel @Inject constructor(
                     )
                     return@launch
                 }
-                when (val result = searchMemory.execute(SkillCall(searchMemory.name, mapOf("query" to text)))) {
+                when (val result = SkillOutcomeEvents.execute(searchMemory, mapOf("query" to text), IntentRoute.OTHER)) {
                     is SkillResult.DirectReply -> {
                         appendAssistantMessageWithToolCall(
                             convId = convId,
@@ -2637,8 +2697,9 @@ class ChatViewModel @Inject constructor(
                                     Log.d("KernelAI", "RecoveryOrchestrator: slot_validation_blocked intent=${recovery.intentName}")
                                     return@launch
                                 }
-                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} params=$callParams")
-                                val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${UnknownIntentReplies.loggableName(recovery.intentName)} paramKeys=${UnknownIntentReplies.loggableKeys(callParams.keys)}")
+                                if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_recovery_params: $callParams")
+                                val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.RECOVERY)
                                 when (skillResult) {
                                     is SkillResult.DirectReply -> {
                                         appendAssistantMessageWithToolCall(
@@ -2665,6 +2726,7 @@ class ChatViewModel @Inject constructor(
                                         return@launch
                                     }
                                     is SkillResult.Failure -> {
+                                        showSettingsActionsFor(skillResult)
                                         appendAssistantMessage(
                                             convId,
                                             skillResult.error,
@@ -2691,7 +2753,8 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is RecoveryResult.AskConfirmation -> {
-                            Log.d("KernelAI", "RecoveryOrchestrator.AskConfirmation: intent=${recovery.intentName} params=${recovery.params}")
+                            Log.d("KernelAI", "RecoveryOrchestrator.AskConfirmation: intent=${UnknownIntentReplies.loggableName(recovery.intentName)} paramKeys=${UnknownIntentReplies.loggableKeys(recovery.params.keys)}")
+                            if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_confirm_params: ${recovery.params}")
                             pendingConfirmationIntent = QuickIntentRouter.MatchedIntent(
                                 intentName = recovery.intentName,
                                 params = recovery.params,
@@ -2764,13 +2827,23 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
                 if (skill != null) {
-                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} params=$callParams")
-                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${UnknownIntentReplies.loggableName(matchedIntent.intentName)} paramKeys=${UnknownIntentReplies.loggableKeys(callParams.keys)}")
+                    if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_params: intent=${matchedIntent.intentName} params=$callParams")
+                    val skillResult = SkillOutcomeEvents.execute(
+                        skill,
+                        callParams,
+                        when (routeResult) {
+                            is QuickIntentRouter.RouteResult.RegexMatch -> IntentRoute.QUICK_REGEX
+                            is QuickIntentRouter.RouteResult.ClassifierMatch -> IntentRoute.QUICK_CLASSIFIER
+                            else -> IntentRoute.OTHER
+                        },
+                    )
                     when (skillResult) {
                         is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
                             // Skill produced a complete, self-contained reply — show it verbatim
                             // and bypass the LLM entirely to avoid number/unit corruption.
-                            Log.d("KernelAI", "DirectReply: ${skillResult.content.take(200)}")
+                            Log.d("KernelAI", "DirectReply: len=${skillResult.content.length}")
+                            if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_direct_reply: ${skillResult.content}")
                             appendAssistantMessageWithToolCall(
                                 convId = convId,
                                 content = skillResult.content,
@@ -2860,6 +2933,7 @@ class ChatViewModel @Inject constructor(
                                 // can invoke an unrelated tool instead of showing the email limitation.
                                 if (routeResult is QuickIntentRouter.RouteResult.RegexMatch ||
                                     skillResult.skillName == "send_email") {
+                                    showSettingsActionsFor(skillResult)
                                     appendAssistantMessage(
                                         convId,
                                         skillResult.error,
@@ -2870,6 +2944,7 @@ class ChatViewModel @Inject constructor(
                                     return@launch
                                 }
                                 if (!inferenceEngine.isReady.value) {
+                                    showSettingsActionsFor(skillResult)
                                     appendAssistantMessage(
                                         convId,
                                         skillResult.error,
@@ -2899,6 +2974,18 @@ class ChatViewModel @Inject constructor(
                                 )
                             } else {
                                 val message = capabilityRequiredMessage(skillResult)
+                                if (skillResult.capabilityKey == CapabilityKey.CalendarLookup ||
+                                    skillResult.capabilityKey == CapabilityKey.CalendarWrite
+                                ) {
+                                    pendingCalendarPermissionAction = PendingCalendarPermissionAction(
+                                        conversationId = convId,
+                                        query = text,
+                                        intentName = matchedIntent.intentName,
+                                        params = callParams,
+                                        submitMode = submitMode,
+                                    )
+                                }
+                                requestCalendarPermissionIfNeeded(skillResult.capabilityKey)
                                 appendAssistantMessage(
                                     convId = convId,
                                     content = message,
@@ -2958,7 +3045,7 @@ class ChatViewModel @Inject constructor(
                         Log.d("KernelAI", "AnaphoricIntent: slot_validation_blocked intent=${anaphoricIntent.intentName}")
                         return@launch
                     }
-                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.OTHER)
                     when (skillResult) {
                         is SkillResult.DirectReply -> {
                             appendAssistantMessageWithToolCall(
@@ -2986,6 +3073,7 @@ class ChatViewModel @Inject constructor(
                         }
                         is SkillResult.Failure -> {
                             if (skillResult.skillName == "send_email" || !inferenceEngine.isReady.value) {
+                                showSettingsActionsFor(skillResult)
                                 appendAssistantMessage(convId, skillResult.error, shouldIndex = false, spokenSummary = skillResult.error)
                                 return@launch
                             }
@@ -3008,7 +3096,8 @@ class ChatViewModel @Inject constructor(
                 if (localNzEntry != null) {
                     val localReply = buildKnownNzContextReply(localNzEntry, text)
                     Log.d(TAG, "Deterministic NZ context answered locally for term='${localNzEntry.term}'")
-                    Log.d("KernelAI", "llm_tools_assistant_reply: ${localReply.take(1000).replace('\n', ' ')}")
+                    Log.d("KernelAI", "llm_tools_assistant_reply: len=${localReply.length}")
+                    if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_reply: ${localReply.take(1000).replace('\n', ' ')}")
                     // Index user message — normally deferred to LLM Complete handler
                     if (savedUserMsgId.isNotBlank()) {
                         ragRepository.indexMessage(savedUserMsgId, convId, text)
@@ -3584,8 +3673,9 @@ class ChatViewModel @Inject constructor(
                             if (nativeToolCall != null) {
                                 Log.d(
                                     "KernelAI",
-                                    "llm_tools_native_tool: tool=${nativeToolCall.skillName} request=${nativeToolCall.requestJson.take(500)}",
+                                    "llm_tools_native_tool: tool=${UnknownIntentReplies.loggableName(nativeToolCall.skillName)} requestLen=${nativeToolCall.requestJson.length}" + (if (DebugVerboseLog.active()) " request=${nativeToolCall.requestJson}" else ""),
                                 )
+                            requestCalendarPermissionIfNeeded(kernelAIToolSet.lastToolCapabilityRequired())
                             // E2E marker: native SDK skill result
                             val nativeResultMode = when {
                                 !nativeToolCall.isSuccess -> "failure"
@@ -3594,19 +3684,23 @@ class ChatViewModel @Inject constructor(
                             }
                             Log.d(
                                 "KernelAI",
-                                "llm_tools_skill_result: tool=${nativeToolCall.skillName} mode=$nativeResultMode success=${nativeToolCall.isSuccess}",
+                                "llm_tools_skill_result: tool=${UnknownIntentReplies.loggableName(nativeToolCall.skillName)} mode=$nativeResultMode success=${nativeToolCall.isSuccess}",
                             )
                             }
                             // E2E marker: legacy fallback tool call
                             val toolCallResult = if (nativeToolCall == null) {
                                 Log.d(
                                     "KernelAI",
-                                    "llm_tools_legacy_tool: raw=${fullContent.take(500)}",
+                                    "llm_tools_legacy_tool: tool=${UnknownIntentReplies.loggableName(Regex("call:(\\w+)\\{").find(fullContent)?.groupValues?.get(1) ?: "unknown")} len=${fullContent.length}" + (if (DebugVerboseLog.active()) " raw=${fullContent.replace('\n', ' ')}" else ""),
                                 )
-                                // E2E marker: legacy assistant reply text (collapse newlines to avoid logcat splits)
-                                Log.d("KernelAI", "llm_tools_assistant_reply: ${fullContent.take(1000).replace('\n', ' ')}")
+                                // E2E marker: legacy assistant reply size (content is not logged)
+                                Log.d("KernelAI", "llm_tools_assistant_reply: len=${fullContent.length}")
                                 tryExecuteToolCall(fullContent)
                             } else null
+                            // #1859: a native lookup failure with recovery actions opens the same chooser as Quick Actions.
+                            if (nativeToolCall != null) {
+                                showSettingsActionsFor(kernelAIToolSet.terminalToolSettingsFailure())
+                            }
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val rawToolCall = nativeToolCall ?: toolCallResult!!.first
                                 val nativeToolWasDirectReply =
@@ -3658,7 +3752,8 @@ class ChatViewModel @Inject constructor(
                                 }
 
                                 // E2E marker: assistant reply text (collapse newlines to avoid logcat splits)
-                                Log.d("KernelAI", "llm_tools_assistant_reply: ${resultContent.take(1000).replace('\n', ' ')}")
+                                Log.d("KernelAI", "llm_tools_assistant_reply: len=${resultContent.length}")
+                                if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_reply: ${resultContent.replace('\n', ' ')}")
 
                                 // Update streaming message with result text
                                 _messages.update { msgs ->
@@ -3705,7 +3800,12 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(resultContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
-                                finalizeVoicePlaybackForResponse(resultContent)
+                                val toolSpokenOverride = toolSpokenOverrideFor(
+                                    resultContent,
+                                    toolCall.resultText,
+                                    toolCall.spokenSummary,
+                                )
+                                finalizeVoicePlaybackForResponse(resultContent, toolSpokenOverride)
                                 // Do NOT set needsHistoryReplay here — KV cache remains valid after
                                 // native tool calls and forcing a replay drops prior turns from the
                                 // tight history budget, causing context amnesia (#446).
@@ -4114,6 +4214,7 @@ class ChatViewModel @Inject constructor(
             _voicePlaybackState.value = VoicePlaybackState.Idle
             val id = conversationRepository.createConversation()
             conversationId = id
+            clearPendingCalendarPermission()
             _messages.value = emptyList()
             _conversationTitle.value = null
             titleGenerationStarted = false
@@ -4214,11 +4315,13 @@ class ChatViewModel @Inject constructor(
         val extracted = ToolCallExtractor.extractNativeToolCall(raw)
             ?: ToolCallExtractor.extractToolCallJson(raw) ?: return null
         val result = skillExecutor.execute(extracted)
+        requestCalendarPermissionIfNeeded((result as? SkillResult.CapabilityRequired)?.capabilityKey)
         // E2E marker: skill execution result
         Log.d(
             "KernelAI",
-            "llm_tools_skill_result: skill=${extracted.take(200)} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
+            "llm_tools_skill_result: tool=${UnknownIntentReplies.loggableName(Regex("\"name\"\\s*:\\s*\"([^\"]*)\"").find(extracted)?.groupValues?.get(1) ?: "unknown")} argsLen=${extracted.length} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
         )
+        if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_skill_args: $extracted")
         return when (result) {
             is SkillResult.Success -> {
                 val skillName = try {
@@ -4255,6 +4358,7 @@ class ChatViewModel @Inject constructor(
                     resultText = failureChipText(result),
                     isSuccess = false,
                 )
+                showSettingsActionsFor(result)
                 Pair(toolCall, failureChatReply(result))
             }
             is SkillResult.CapabilityRequired -> null
@@ -4284,7 +4388,11 @@ class ChatViewModel @Inject constructor(
             return
         }
         activeVoiceStreamingBuffer.append(token)
-        drainVoiceStreamingBuffer(force = false)
+        // After a tool with a spoken summary ran this turn, hold the text: the final reply is either
+        // that summary or the model's own words, decided in finalizeVoicePlaybackForResponse.
+        val summaryToolRan = kernelAIToolSet.terminalToolSpokenSummary() != null ||
+            kernelAIToolSet.terminalToolPresentation()?.toSpokenSummary() != null
+        if (!summaryToolRan) drainVoiceStreamingBuffer(force = false)
     }
 
     private suspend fun drainVoiceStreamingBuffer(force: Boolean) {
@@ -4304,13 +4412,16 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun finalizeVoicePlaybackForResponse(finalContent: String) {
+    private suspend fun finalizeVoicePlaybackForResponse(finalContent: String, spokenOverride: String? = null) {
         if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) {
             stopVoicePlayback()
             return
         }
         val session = activeVoiceStreamingSession ?: return
-        val finalChunk = if (isVoiceStreamingEnabledForTurn) {
+        val finalChunk = if (spokenOverride != null) {
+            // A tool's spoken summary replaces the streamed text; the unspoken buffer is dropped.
+            finalizeChatTextForSpeech(spokenOverride)
+        } else if (isVoiceStreamingEnabledForTurn) {
             val bufferedChunks = mutableListOf<String>()
             while (true) {
                 val chunk = popNextStreamingSpeechChunk(
@@ -4447,9 +4558,29 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Asks in-app for the calendar permissions a CapabilityRequired result needs: READ for lookup,
+     * READ + WRITE for create. The screen routes each permission (request, or app info when blocked).
+     */
+    private fun requestCalendarPermissionIfNeeded(capability: CapabilityKey?) {
+        val permissions = when (capability) {
+            CapabilityKey.CalendarWrite -> listOf(
+                android.Manifest.permission.READ_CALENDAR,
+                android.Manifest.permission.WRITE_CALENDAR,
+            )
+            CapabilityKey.CalendarLookup -> listOf(android.Manifest.permission.READ_CALENDAR)
+            else -> return
+        }
+        viewModelScope.launch { _events.emit(UiEvent.RequestCalendarPermission(permissions)) }
+    }
+
     private fun capabilityRequiredMessage(result: com.kernel.ai.core.skills.SkillResult.CapabilityRequired): String =
         if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
             "Jandal needs Location access for local weather. Turn on Location in app permissions, or ask for weather in a named city."
+        } else if (result.capabilityKey == CapabilityKey.CalendarWrite) {
+            "Jandal needs Calendar read and write access to add events. Allow it when prompted and Jandal will add the event."
+        } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
+            "Jandal needs calendar access to read your events. Allow it when prompted and Jandal will answer."
         } else {
             "Permission required for ${result.skillName}."
         }
@@ -4728,7 +4859,7 @@ class ChatViewModel @Inject constructor(
                 }
 
                 Log.d("KernelAI", "AnaphoricListAdd: resolved item_count=${resolution.items.size}")
-                when (val result = runIntent.execute(SkillCall(runIntent.name, intentParams))) {
+                when (val result = SkillOutcomeEvents.execute(runIntent, intentParams, IntentRoute.OTHER)) {
                     is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
                         convId = convId,
                         content = result.content,
@@ -4754,6 +4885,7 @@ class ChatViewModel @Inject constructor(
                     )
                     is SkillResult.CapabilityRequired -> {
                         val message = capabilityRequiredMessage(result)
+                        requestCalendarPermissionIfNeeded((result as? SkillResult.CapabilityRequired)?.capabilityKey)
                         appendAssistantMessage(convId, message, shouldIndex = false)
                     }
                     else -> appendAssistantMessage(

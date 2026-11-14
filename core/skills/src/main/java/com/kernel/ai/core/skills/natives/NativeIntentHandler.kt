@@ -11,7 +11,6 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.SystemClock
-import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
@@ -21,6 +20,9 @@ import android.util.Log
 import android.view.KeyEvent
 
 import com.kernel.ai.core.inference.EmbeddingEngine
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
+import com.kernel.ai.core.inference.diagnostics.DebugVerboseLog
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.AlarmDraft
@@ -47,6 +49,7 @@ import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.StoreListCatalog
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ContactLookupRecovery
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -69,7 +72,10 @@ import javax.inject.Singleton
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import com.kernel.ai.core.inference.diagnostics.IntentOutcome
 private const val TAG = "KernelAI"
 
 interface ClockAlertController {
@@ -131,6 +137,8 @@ interface ClockAlertController {
  *   convert_cooking_measure — Deterministic ingredient-aware cooking conversion (params: amount, from_unit, ingredient, to_unit?) — returns DirectReply
  *   convert_currency        — Latest ECB-backed currency conversion (params: amount, from_currency, to_currency) — returns DirectReply
  *   save_important_date     — Stores a taught recurring personal date (params: label, date) — returns DirectReply
+ *   create_calendar_event   — Inserts into the default writable calendar when WRITE_CALENDAR is granted (params: title, date, time?, duration_minutes?, description?, location?) — returns Success, or CapabilityRequired
+ *   read_calendar_events    — Reads today/tomorrow/this_week/next_week/upcoming or the next keyword match (params: range?, keyword?) — returns DirectReply
  *   list_important_dates    — Lists taught recurring personal dates — returns DirectReply
  *   remove_important_date   — Deletes a taught recurring personal date (params: label) — returns DirectReply
  *   save_memory             — Saves content to long-term core memory (params: content)
@@ -147,6 +155,7 @@ class NativeIntentHandler @Inject constructor(
     private val contactAliasRepository: ContactAliasRepository,
     private val importantDateRepository: ImportantDateRepository,
     private val calendarBirthdayLookup: CalendarBirthdayLookup,
+    private val calendarEventStore: CalendarEventStore,
     private val memoryRepository: MemoryRepository,
     private val embeddingEngine: EmbeddingEngine,
     private val cookingConversionService: CookingConversionService,
@@ -160,13 +169,15 @@ class NativeIntentHandler @Inject constructor(
     private val listMutations: ListMutationRepository? = null,
 ) {
 
-    suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
+
+    suspend fun handle(intentName: String, params: Map<String, String>, route: IntentRoute = IntentRoute.OTHER): SkillResult {
         val normalizedName = normalizeIntentName(intentName)
         if (normalizedName != intentName) {
-            Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
+            Log.w(TAG, "NativeIntentHandler: normalized intent '${UnknownIntentReplies.loggableName(intentName)}' -> '${UnknownIntentReplies.loggableName(normalizedName)}'")
         }
-        Log.d(TAG, "NativeIntentHandler.handle: intent=$normalizedName params=$params")
-        return try {
+        Log.d(TAG, "NativeIntentHandler.handle: intent=${UnknownIntentReplies.loggableName(normalizedName)} paramKeys=${UnknownIntentReplies.loggableKeys(params.keys)}")
+        if (DebugVerboseLog.active()) Log.d(TAG, "verbose_params: intent=$normalizedName params=$params")
+        val result = try {
             when (normalizedName) {
                 "toggle_flashlight_on" -> setTorch(true)
                 "toggle_flashlight_off" -> setTorch(false)
@@ -186,6 +197,11 @@ class NativeIntentHandler @Inject constructor(
                 "get_stopwatch_status" -> getStopwatchStatus()
                 "cancel_alarm" -> cancelAlarm(params)
                 "create_calendar_event" -> createCalendarEvent(params)
+                "read_calendar_events" -> {
+                    val zone = ZoneId.systemDefault()
+                    val now = Instant.now()
+                    readCalendarEvents(calendarEventStore, params, now.atZone(zone).toLocalDate(), zone, now)
+                }
                 "get_battery" -> getBattery()
                 "get_time", "get_date" -> getTime(params)
                 "toggle_dnd_on" -> setDoNotDisturb(true)
@@ -251,10 +267,20 @@ class NativeIntentHandler @Inject constructor(
         } catch (e: ListMutationBlockedException) {
             SkillResult.Failure(normalizedName, e.message ?: "This Nextcloud list is read-only.")
         } catch (e: Exception) {
-            Log.e(TAG, "NativeIntentHandler.handle($normalizedName) failed", e)
+            Log.e(TAG, "NativeIntentHandler.handle(${UnknownIntentReplies.loggableName(normalizedName)}) failed", e)
             SkillResult.Failure("run_intent", e.message ?: "Unknown error")
         }
+        recordIntentOutcome(normalizedName, route, result)
+        return result
     }
+
+    /** Outcome only: registered intent names, never params or result text (#1870). */
+    private fun recordIntentOutcome(normalizedName: String, route: IntentRoute, result: SkillResult) {
+        val name = if (normalizedName in HANDLED_INTENT_NAMES) normalizedName else "unknown_intent"
+        val outcome = intentOutcomeOf(result)
+        JandalEvents.record("intent", name, "route" to route, "success" to (outcome == IntentOutcome.SUCCESS), "outcome" to outcome)
+    }
+
 
     /**
      * Normalizes LLM-generated intent names to their canonical form.
@@ -294,13 +320,40 @@ class NativeIntentHandler @Inject constructor(
             "freeways" to "motorways",
         )
 
+        /** Every name the dispatch `when` handles. Logging gate for #1870; keep in sync with `execute`. */
+        internal val HANDLED_INTENT_NAMES = setOf(
+            "toggle_flashlight_on", "toggle_flashlight_off", "send_email", "send_sms", "set_alarm", "set_timer",
+            "cancel_timer", "list_timers", "cancel_timer_named", "get_timer_remaining", "start_stopwatch",
+            "pause_stopwatch", "resume_stopwatch", "lap_stopwatch", "reset_stopwatch", "get_stopwatch_status",
+            "cancel_alarm", "create_calendar_event", "get_battery", "get_time", "get_date", "toggle_dnd_on",
+            "toggle_dnd_off", "set_volume", "toggle_wifi", "toggle_bluetooth", "toggle_airplane_mode",
+            "toggle_hotspot", "play_media", "play_media_album", "play_media_playlist", "play_youtube",
+            "play_spotify", "play_plexamp", "play_youtube_music", "play_netflix", "play_plex", "play_podcast",
+            "podcast_skip_forward", "podcast_skip_back", "podcast_speed", "pause_media", "stop_media",
+            "next_track", "previous_track", "open_app", "navigate_to", "find_nearby", "make_call", "add_to_list",
+            "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list", "add_reminder",
+            "smart_home_on", "smart_home_off", "get_weather", "get_date_diff", "calculate_arithmetic",
+            "convert_units", "convert_cooking_measure", "convert_currency", "get_system_info",
+            "save_important_date", "list_important_dates", "remove_important_date", "save_memory", "create_note",
+            "list_notes", "set_brightness",
+        )
+        /** Outcome category for logging. DirectReply is a successful reply (e.g. add_to_list) (#1870). */
+        internal fun intentOutcomeOf(result: SkillResult): IntentOutcome = when (result) {
+            is SkillResult.Success, is SkillResult.DirectReply -> IntentOutcome.SUCCESS
+            is SkillResult.Failure -> IntentOutcome.FAILURE
+            is SkillResult.ParseError -> IntentOutcome.PARSE_ERROR
+            is SkillResult.UnknownSkill -> IntentOutcome.UNKNOWN_SKILL
+            is SkillResult.CapabilityRequired -> IntentOutcome.CAPABILITY_REQUIRED
+            else -> IntentOutcome.OTHER
+        }
+
         internal val KNOWN_INTENTS = setOf(
             "toggle_flashlight_on", "toggle_flashlight_off",
             "send_email", "send_sms", "make_call",
             "set_alarm", "cancel_alarm",
             "set_timer", "cancel_timer", "cancel_timer_named", "list_timers", "get_timer_remaining",
             "start_stopwatch", "pause_stopwatch", "resume_stopwatch", "lap_stopwatch", "reset_stopwatch", "get_stopwatch_status",
-            "create_calendar_event",
+            "create_calendar_event", "read_calendar_events",
             "get_battery", "get_time", "get_date",
             "toggle_dnd_on", "toggle_dnd_off",
             "set_volume", "set_brightness",
@@ -344,7 +397,7 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Email ─────────────────────────────────────────────────────────────────
 
-    private fun sendEmail(params: Map<String, String>): SkillResult {
+    private suspend fun sendEmail(params: Map<String, String>): SkillResult {
         // Use ACTION_SENDTO with mailto: URI so the system routes directly to an
         // email app instead of showing the generic share sheet (ACTION_SEND behaviour).
         val contact = params["contact"]?.trim()?.takeIf { it.isNotBlank() }
@@ -365,25 +418,35 @@ class NativeIntentHandler @Inject constructor(
             )
         }
         
-        val resolvedEmail = resolveContactEmail(contact)
-            ?: contact.takeIf(::looksLikeEmailAddress)
+        // Self-references ("me", "my number") never name a contact, so they skip the contacts lookup entirely.
+        // A named contact that exists but has no single address (ambiguous, no primary, no email) opens the
+        // composer with no recipient, as before #1859, so the user can pick one there. Recovery is only for no match.
+        val recipient = when {
+            looksLikeEmailAddress(contact) -> contact
+            !isNamedContactLookup(contact) -> return SkillResult.Failure(
+                skillName = "send_email",
+                error = "I can't find an email address for \"$contact\" yet. Give me the address to send to.",
+                technicalDetail = "No email address resolved for: $contact",
+            )
+            else -> resolveContactEmail(contact) ?: if (contactMatchExists(contact)) {
+                ""
+            } else {
+                return contactNotFound("send_email", contact)
+            }
+        }
 
         val encodedSubject = Uri.encode(subject)
         val encodedBody = Uri.encode(body)
         // Email address must NOT be percent-encoded (RFC 6068) — only query params are encoded
-        val mailtoUri = resolvedEmail?.let {
-            Uri.parse("mailto:$it?subject=$encodedSubject&body=$encodedBody")
-        } ?: Uri.parse("mailto:?subject=$encodedSubject&body=$encodedBody")
+        val mailtoUri = Uri.parse("mailto:$recipient?subject=$encodedSubject&body=$encodedBody")
         val intent = Intent(Intent.ACTION_SENDTO, mailtoUri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         return try {
             context.startActivity(intent)
-            if (resolvedEmail != null) {
-                SkillResult.Success("Email composer opened to $resolvedEmail.")
-            } else {
-                SkillResult.Success("Email composer opened. Couldn't prefill recipient for $contact.")
-            }
+            SkillResult.Success(
+                if (recipient.isEmpty()) "Email composer opened for $contact with no address chosen." else "Email composer opened to $recipient.",
+            )
         } catch (e: ActivityNotFoundException) {
             SkillResult.Failure(
                 "send_email",
@@ -394,7 +457,7 @@ class NativeIntentHandler @Inject constructor(
 
     // ── SMS ───────────────────────────────────────────────────────────────────
 
-    private fun sendSms(params: Map<String, String>): SkillResult {
+    private suspend fun sendSms(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: params["phone"]
         
         // If the user provided a named contact (has letters), check READ_CONTACTS permission first.
@@ -408,10 +471,14 @@ class NativeIntentHandler @Inject constructor(
             )
         }
         
-        // resolveContactNumber returns null for self-terms when own number unavailable;
-        // fall back to blank URI rather than passing the literal word through as a number.
-        val number = contact?.let { resolveContactNumber(it) }
-            ?: contact?.takeIf { it.none { c -> c.isLetter() } }  // keep raw numeric strings
+        // A named contact that doesn't resolve gets an in-app recovery result, not a blank composer.
+        // A contact that exists but has no single number opens the composer blank, as before #1859.
+        // Self-terms may legitimately resolve to null when the own number is unknown.
+        val resolved = contact?.let { resolveContactNumber(it) }
+        if (contact != null && resolved == null && isNamedContactLookup(contact) && !contactMatchExists(contact)) {
+            return contactNotFound("send_sms", contact)
+        }
+        val number = resolved ?: contact?.takeIf { it.none { c -> c.isLetter() } }  // keep raw numeric strings
         val smsUri = if (!number.isNullOrBlank()) "smsto:${Uri.encode(number)}" else "smsto:"
         val intent = Intent(Intent.ACTION_SENDTO).apply {
             data = Uri.parse(smsUri)
@@ -907,36 +974,46 @@ class NativeIntentHandler @Inject constructor(
             begin to end
         }
 
-        val intent = Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
-            putExtra(CalendarContract.Events.TITLE, title)
-            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginMillis)
-            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
-            if (timeStr == null) putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true)
-            params["description"]?.takeIf { it.isNotBlank() }?.let {
-                putExtra(CalendarContract.Events.DESCRIPTION, it)
-            }
-            // Attendees: resolve each name to email from contacts; skip unresolvable names
-            val attendeeEmails = params["attendees"]
-                ?.split(",")
-                ?.mapNotNull { it.trim().takeIf { n -> n.isNotBlank() }?.let { n -> resolveContactEmail(n) } }
-                ?.joinToString(",")
-                ?.takeIf { it.isNotBlank() }
-            if (attendeeEmails != null) putExtra(Intent.EXTRA_EMAIL, attendeeEmails)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        // Invitees cannot be written yet. Refuse rather than insert an event that silently lacks them.
+        if (params["attendees"]?.isNotBlank() == true) {
+            return SkillResult.Failure(
+                "run_intent",
+                "I can't invite people to events yet, so I haven't added '$title'. Add it in your calendar app.",
+            )
         }
-
-        if (context.packageManager.resolveActivity(intent, 0) == null) {
-            return SkillResult.Failure("run_intent", "No calendar app found on this device.")
+        // Create needs READ too: the default calendar is chosen by querying the calendars table.
+        if (!calendarEventStore.hasReadPermission() || !calendarEventStore.hasWritePermission()) {
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarWrite,
+                skillName = "create_calendar_event",
+                contextParams = mapOf("title" to title),
+            )
         }
-        return try {
-            context.startActivity(intent)
-            val timeLabel = if (resolvedTimeLabel != null) " at $resolvedTimeLabel" else " (all day)"
-            val resolvedDateStr = date.format(DateTimeFormatter.ISO_LOCAL_DATE)
-            val attendeesLabel = params["attendees"]?.takeIf { it.isNotBlank() }?.let { " with $it" } ?: ""
-            SkillResult.Success("Calendar opened — '${title}' on $resolvedDateStr$timeLabel$attendeesLabel. Please review and save in your calendar app.")
-        } catch (e: ActivityNotFoundException) {
-            SkillResult.Failure("run_intent", "No calendar app found on this device.")
-        }
+        val calendar = calendarEventStore.findDefaultWritableCalendar()
+            ?: return SkillResult.Failure("run_intent", "There's no calendar on this phone that I can add events to.")
+        val allDay = timeStr == null
+        val eventId = calendarEventStore.insertEvent(
+            calendarId = calendar.id,
+            event = NewCalendarEvent(
+                title = title,
+                beginMillis = beginMillis,
+                endMillis = endMillis,
+                allDay = allDay,
+                timeZoneId = if (allDay) "UTC" else zone.id,
+                description = params["description"]?.takeIf { it.isNotBlank() },
+                location = params["location"]?.takeIf { it.isNotBlank() },
+            ),
+        ) ?: return SkillResult.Failure("run_intent", "I couldn't save '$title' to your calendar.")
+        Log.d(TAG, "create_calendar_event: inserted event id=$eventId")
+        val confirmation = CalendarEventReplies.formatCreated(
+            title = title,
+            beginMillis = beginMillis,
+            endMillis = endMillis,
+            allDay = allDay,
+            calendarName = calendar.displayName,
+            zone = zone,
+        )
+        return SkillResult.Success(confirmation)
     }
 
     // ── Battery ───────────────────────────────────────────────────────────────
@@ -1453,7 +1530,7 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Phone Call ────────────────────────────────────────────────────────────
 
-    private fun makeCall(params: Map<String, String>): SkillResult {
+    private suspend fun makeCall(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: return SkillResult.Failure("make_call", "No contact specified")
         if (isVoicemailTarget(contact)) {
             return openVoicemail(contact)
@@ -1475,10 +1552,15 @@ class NativeIntentHandler @Inject constructor(
         
         val phoneNumber = resolveContactNumber(contact)
             ?: if (looksLikeNumber) contact
-            else return SkillResult.Failure(
-                "make_call",
-                "Couldn't find a contact for '$contact'. You can add them in Settings → People & Contacts.",
-            )
+            else return if (isNamedContactLookup(contact)) {
+                contactNotFound("make_call", contact, callRequested = true)
+            } else {
+                SkillResult.Failure(
+                    skillName = "make_call",
+                    error = "I can't find your own number here yet. Tell me the number to call.",
+                    technicalDetail = "Self-reference without own number: $contact",
+                )
+            }
         return try {
             // Use ACTION_CALL to auto-dial (hands-free use case — e.g. driving).
             val canCall = context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) ==
@@ -1535,12 +1617,117 @@ class NativeIntentHandler @Inject constructor(
         val isSuperPrimary: Boolean,
         val phoneType: Int,
     )
+
+    /** Own-number self references. These may resolve to null without being a missing contact. */
+    private val selfContactTerms = setOf("myself", "me", "my number", "my phone", "my cell")
+
+    private fun isNamedContactLookup(contact: String): Boolean =
+        contact.any { it.isLetter() } && contact.trim().lowercase() !in selfContactTerms
+
+    /**
+     * True when [name] matches an alias or a contact display name, even one with no phone number or email.
+     * Uses the same query shape and scoring as the email lookup, so "exists" means the same thing everywhere.
+     * Decides between "no such contact" recovery and an empty composer when no single address is chosen.
+     * Runs the contacts query on [Dispatchers.IO].
+     */
+    private suspend fun contactMatchExists(name: String): Boolean {
+        val aliasKey = name.trim().lowercase().removePrefix("my ").removePrefix("the ").trim()
+        if (contactAliasRepository.getByAlias(aliasKey) != null) return true
+        val requestedKey = normalizeContactLookupKey(name)
+        val requestedTokens = tokenizeContactLookupTerms(name)
+        if (requestedTokens.isEmpty()) return false
+        return withContext(Dispatchers.IO) {
+            try {
+                val exactNames = queryContactDisplayNames(
+                    selection = requestedTokens.joinToString(" AND ") {
+                        "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?"
+                    },
+                    selectionArgs = requestedTokens.map { "%$it%" }.toTypedArray(),
+                )
+                val names = if (exactNames.isNotEmpty() || requestedTokens.size <= 1) {
+                    exactNames
+                } else {
+                    queryContactDisplayNames(
+                        selection = requestedTokens.joinToString(" OR ") {
+                            "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} LIKE ?"
+                        },
+                        selectionArgs = requestedTokens.map { "%$it%" }.toTypedArray(),
+                    )
+                }
+                names.any { scoreContactNameMatch(requestedKey, requestedTokens, it) != null }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "READ_CONTACTS not granted — cannot check contact existence for '$name'", e)
+                false
+            } catch (e: Exception) {
+                Log.w(TAG, "Contact existence lookup failed for '$name'", e)
+                false
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun queryContactDisplayNames(selection: String, selectionArgs: Array<String>): List<String> =
+        context.contentResolver.query(
+            ContactsContract.Contacts.CONTENT_URI,
+            arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY),
+            selection,
+            selectionArgs,
+            null,
+        )?.use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) cursor.getString(0)?.let(::add)
+            }
+        }.orEmpty()
+
+    /** Recovery result for a named contact that could not be resolved. */
+    private suspend fun contactNotFound(skillName: String, contact: String, callRequested: Boolean = false): SkillResult.Failure =
+        ContactLookupRecovery.notFoundResult(
+            skillName = skillName,
+            query = contact,
+            nearMatches = if (ContactLookupRecovery.relationshipWordOf(contact) == null) {
+                suggestContactNames(contact)
+            } else {
+                emptyList()
+            },
+            callRequested = callRequested,
+        )
+
+    /**
+     * Sound-alike contact names for [query]. Empty without READ_CONTACTS or when the query fails.
+     * Runs the contacts query on [Dispatchers.IO] so callers on the main thread never block on it.
+     */
+    @SuppressLint("MissingPermission")
+    private suspend fun suggestContactNames(query: String): List<String> {
+        if (context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return emptyList()
+        }
+        return withContext(Dispatchers.IO) {
+            try {
+                val names = context.contentResolver.query(
+                    ContactsContract.Contacts.CONTENT_URI,
+                    arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY),
+                    "${ContactsContract.Contacts.HAS_PHONE_NUMBER} = 1",
+                    null,
+                    null,
+                )?.use { cursor ->
+                    buildList {
+                        while (cursor.moveToNext()) cursor.getString(0)?.let(::add)
+                    }
+                }.orEmpty()
+                ContactLookupRecovery.nearMatches(query, names)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Contact name lookup denied", e)
+                emptyList()
+            }
+        }
+    }
     @SuppressLint("MissingPermission")
     private fun resolveContactNumber(name: String): String? {
         // 0. Self-referential aliases — resolve to device's own phone number
-        val selfTerms = setOf("myself", "me", "my number", "my phone", "my cell")
         val normalised0 = name.trim().lowercase()
-        if (normalised0 in selfTerms) {
+        if (normalised0 in selfContactTerms) {
             val ownNumber = try {
                 val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
                 tm?.line1Number?.takeIf { it.isNotBlank() }
@@ -1694,23 +1881,7 @@ class NativeIntentHandler @Inject constructor(
         requestedKey: String,
         requestedTokens: List<String>,
         candidate: ContactPhoneCandidate,
-    ): Int? {
-        val candidateKey = normalizeContactLookupKey(candidate.displayName)
-        if (candidateKey.isBlank()) return null
-        val candidateTokens = candidateKey.split(" ").filter { it.isNotBlank() }
-        val requestedPhrase = requestedTokens.joinToString(" ")
-        val fuzzyTokenScore = scoreFuzzyContactTokens(requestedTokens, candidateTokens)
-        return when {
-            candidateKey == requestedKey -> 500
-            candidateKey.startsWith("$requestedPhrase ") -> 420
-            candidateTokens.any { it == requestedKey } -> 380
-            requestedTokens.all { token -> candidateTokens.contains(token) } -> 320
-            candidateKey.contains(requestedPhrase) -> 260
-            candidateKey.contains(requestedKey.replace(" ", "")) -> 220
-            fuzzyTokenScore != null -> fuzzyTokenScore
-            else -> null
-        }
-    }
+    ): Int? = scoreContactNameMatch(requestedKey, requestedTokens, candidate.displayName)
 
     private fun scoreFuzzyContactTokens(
         requestedTokens: List<String>,
@@ -1905,8 +2076,15 @@ class NativeIntentHandler @Inject constructor(
         requestedKey: String,
         requestedTokens: List<String>,
         candidate: ContactEmailCandidate,
+    ): Int? = scoreContactNameMatch(requestedKey, requestedTokens, candidate.displayName)
+
+    /** Ranks one contact display name against a lookup; null when it is not a match. Shared by all lookups. */
+    private fun scoreContactNameMatch(
+        requestedKey: String,
+        requestedTokens: List<String>,
+        displayName: String,
     ): Int? {
-        val candidateKey = normalizeContactLookupKey(candidate.displayName)
+        val candidateKey = normalizeContactLookupKey(displayName)
         if (candidateKey.isBlank()) return null
         val candidateTokens = candidateKey.split(" ").filter { it.isNotBlank() }
         val requestedPhrase = requestedTokens.joinToString(" ")

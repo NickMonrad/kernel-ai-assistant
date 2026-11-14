@@ -35,6 +35,9 @@ import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ContactLookupRecovery
+import com.kernel.ai.core.skills.SettingsAction
+import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
@@ -79,6 +82,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -512,6 +516,132 @@ class ChatViewModelQuickIntentRouterTest {
     }
 
     @Test
+    fun `calendar grant re-runs the pending read request and answers it`() = runTest(dispatcher) {
+        var calendarResult: SkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.CalendarLookup,
+            skillName = "read_calendar_events",
+        )
+        val calendarSkill = object : Skill {
+            override val name = "read_calendar_events"
+            override val description = "Read calendar events"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = calendarResult
+        }
+        every { skillRegistry.get("read_calendar_events") } returns calendarSkill
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's on my calendar today")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        assertTrue(
+            viewModel.getConversationAsText().contains("Allow it when prompted"),
+            viewModel.getConversationAsText(),
+        )
+
+        calendarResult = SkillResult.Success("You have 1 event today: Dentist at 9 AM.")
+        viewModel.onCalendarPermissionGranted()
+        advanceUntilIdle()
+
+        val text = viewModel.getConversationAsText()
+        assertTrue(text.contains("You have 1 event today: Dentist at 9 AM."), text)
+        // Denial/grant clears the pending request: a second grant must not re-run it.
+        viewModel.onCalendarPermissionGranted()
+        advanceUntilIdle()
+        assertEquals(text, viewModel.getConversationAsText())
+    }
+
+    @Test
+    fun `calendar denial drops the pending read request`() = runTest(dispatcher) {
+        val calendarSkill = object : Skill {
+            override val name = "read_calendar_events"
+            override val description = "Read calendar events"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarLookup,
+                skillName = "read_calendar_events",
+            )
+        }
+        every { skillRegistry.get("read_calendar_events") } returns calendarSkill
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's on my calendar today")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        val before = viewModel.getConversationAsText()
+
+        viewModel.onCalendarPermissionDenied()
+        viewModel.onCalendarPermissionGranted()
+        advanceUntilIdle()
+
+        assertEquals(before, viewModel.getConversationAsText())
+    }
+
+    @Test
+    fun `pending calendar create re-runs exactly once across repeated grants`() = runTest(dispatcher) {
+        var executions = 0
+        var result: SkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.CalendarWrite,
+            skillName = "read_calendar_events",
+        )
+        val calendarSkill = object : Skill {
+            override val name = "read_calendar_events"
+            override val description = "Read calendar events"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult {
+                executions++
+                return result
+            }
+        }
+        every { skillRegistry.get("read_calendar_events") } returns calendarSkill
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's on my calendar today")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        assertEquals(1, executions)
+
+        result = SkillResult.Success("Added the event.")
+        viewModel.onCalendarPermissionGranted()
+        advanceUntilIdle()
+        viewModel.onCalendarPermissionGranted()
+        advanceUntilIdle()
+
+        assertEquals(2, executions)
+        assertTrue(viewModel.getConversationAsText().contains("Added the event."))
+    }
+
+    @Test
+    fun `pending calendar request does not re-run in a new conversation`() = runTest(dispatcher) {
+        var executions = 0
+        val calendarSkill = object : Skill {
+            override val name = "read_calendar_events"
+            override val description = "Read calendar events"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult {
+                executions++
+                return SkillResult.CapabilityRequired(
+                    capabilityKey = CapabilityKey.CalendarLookup,
+                    skillName = "read_calendar_events",
+                )
+            }
+        }
+        every { skillRegistry.get("read_calendar_events") } returns calendarSkill
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's on my calendar today")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        assertEquals(1, executions)
+
+        viewModel.startNewConversation()
+        advanceUntilIdle()
+        viewModel.onCalendarPermissionGranted()
+        advanceUntilIdle()
+
+        assertEquals(1, executions)
+    }
+
+    @Test
     fun `weather with location still routes through QIR and preserves location`() = runTest(dispatcher) {
         val input = "what's the weather in London"
 
@@ -694,6 +824,39 @@ class ChatViewModelQuickIntentRouterTest {
         coVerify(exactly = 0) { mealPlanSessionRepository.hasAnySessionForConversation(any()) }
         coVerify(exactly = 0) { episodicDistillationUseCase.distil(any(), any()) }
 
+    }
+
+    @Test
+    fun `typed call lookup failure with recovery actions opens the settings chooser`() = runTest(dispatcher) {
+        val input = "call Laurel"
+        val intentName = (realRouter.route(input) as QuickIntentRouter.RouteResult.RegexMatch).intent.intentName
+        val failure = SkillResult.Failure(
+            skillName = intentName,
+            error = "I couldn't find Laurel in your contacts. Add them in People & Contacts.",
+            actions = listOf(
+                SettingsAction(
+                    label = "Add Laurel in People & Contacts",
+                    deepLink = SettingsDeepLink(destination = ContactLookupRecovery.PEOPLE_DESTINATION),
+                ),
+            ),
+        )
+        val failingSkill = mockk<Skill>(relaxed = true)
+        every { failingSkill.name } returns intentName
+        coEvery { failingSkill.execute(any()) } returns failure
+        every { skillRegistry.get(intentName) } returns failingSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged(input)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+        val state = viewModel.settingsActionState.value
+        assertNotNull(state)
+        assertEquals(failure.error, state!!.message)
+        assertEquals(failure.actions, state.actions)
+        assertTrue(viewModel.getConversationAsText().contains(failure.error))
     }
 
     private suspend fun TestScope.submitWeatherCapabilityRequest(): ChatViewModel {

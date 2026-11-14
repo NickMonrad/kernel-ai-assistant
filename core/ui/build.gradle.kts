@@ -32,6 +32,8 @@ dependencies {
     api(libs.compose.material3)
     api(libs.compose.material.icons)
     api(libs.compose.ui.tooling.preview)
+    implementation(libs.activity.compose)
+    implementation(libs.core.ktx)
 
     debugImplementation(libs.compose.ui.tooling)
 

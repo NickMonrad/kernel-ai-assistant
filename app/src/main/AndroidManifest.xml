@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Notification permission (required on API 33+; minSdk=35 so always required) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets downloads detect a metered-only connection to show "Waiting for Wi-Fi" (#1855). Normal permission, no prompt. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Location permissions for GetWeatherSkill GPS fallback -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Required on some OEM clock apps that still check this deprecated permission -->
@@ -24,6 +26,8 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Calendar lookup for synced contact birthdays -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Adds events to the default calendar for "schedule ..." requests; requested in App Permissions -->
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <!-- Microphone access for offline Quick Actions voice input -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Required to read/write the Do Not Disturb (interruption filter) policy -->

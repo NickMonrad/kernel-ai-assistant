@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.download.ConversationModelRules
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
@@ -14,13 +15,23 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import com.kernel.ai.core.inference.hardware.HardwareTier
-import com.kernel.ai.core.model.availability.ConversationModelReadiness
+import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
+import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.VoiceOutputEngine
+import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.model.availability.ModelRoleSection
+import com.kernel.ai.core.model.availability.ModelRoles
+import com.kernel.ai.core.model.availability.StillNeededItem
 import com.kernel.ai.core.model.availability.AvailabilitySummary
 import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.model.availability.computeAvailabilitySummary
+import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -50,11 +61,45 @@ data class ModelManagementUiState(
     val preferredModel: KernelModel? = null,
     val personaMode: PersonaMode = PersonaMode.HALF,
     val availabilitySummary: AvailabilitySummary = AvailabilitySummary(total = 0),
-    /** Whether a conversation model is installed and which recovery path is appropriate. */
-    val conversationReadiness: ConversationModelReadiness? = null,
-    /** Current device hardware tier, used for readiness messaging. */
+    /** Role sections for the Models screen, in display order. */
+    val roleSections: List<ModelRoleSection> = emptyList(),
+    /** Required roles that are not ready. Empty means "All set". */
+    val stillNeeded: List<StillNeededItem> = emptyList(),
+    /** Current device hardware tier: drives recommendations and "Not needed on this phone". */
     val deviceTier: HardwareTier? = null,
+    /** Speech recognition (Zipformer) status, read-only on the Models screen. */
+    val speechRecognitionStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
+    /** Jandal's voice (Cori) status, read-only on the Models screen. */
+    val voiceOutputStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
 )
+
+/** Read-only status for a voice section on the Models screen. Managed in Voice settings. */
+enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED, BUILT_IN, OTHER_ENGINE }
+
+/** Files the Zipformer recognizer needs, taken from the core spec so the two lists cannot drift. */
+internal val ZIPFORMER_STT_MODELS: List<KernelModel> =
+    KernelModel.entries.filter { it.fileName in SherpaSttModelSpec.ZIPFORMER.requiredFileNames }
+
+internal fun speechStatusOf(states: Map<KernelModel, DownloadState>): VoiceSectionStatus {
+    val files = ZIPFORMER_STT_MODELS.map { states[it] ?: DownloadState.NotDownloaded }
+    return when {
+        files.all { it is DownloadState.Downloaded } -> VoiceSectionStatus.READY
+        files.any { it is DownloadState.Downloading } -> VoiceSectionStatus.DOWNLOADING
+        else -> VoiceSectionStatus.NOT_DOWNLOADED
+    }
+}
+
+/** The voice-output row follows the selected engine. Only the Sherpa engine uses the Cori pack. */
+internal fun voiceOutputStatusOf(engine: VoiceOutputEngine, state: VoicePackDownloadState?): VoiceSectionStatus =
+    when (engine) {
+        VoiceOutputEngine.AndroidTts -> VoiceSectionStatus.BUILT_IN
+        VoiceOutputEngine.SherpaExperimental -> when (state) {
+            is VoicePackDownloadState.Downloaded -> VoiceSectionStatus.READY
+            is VoicePackDownloadState.Downloading -> VoiceSectionStatus.DOWNLOADING
+            else -> VoiceSectionStatus.NOT_DOWNLOADED
+        }
+        else -> VoiceSectionStatus.OTHER_ENGINE
+    }
 
 private data class StorageMetrics(
     val used: Long = 0,
@@ -68,8 +113,14 @@ class ModelManagementViewModel @Inject constructor(
     private val authRepository: HuggingFaceAuthRepository,
     private val jandalPersona: JandalPersona,
     private val gatedModelStatusRepository: GatedModelStatusRepository,
+    private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager,
+    private val voiceOutputPreferences: VoiceOutputPreferences,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
+
+    /** Dispatcher for model file IO; replaced by the test scheduler in unit tests. */
+    @VisibleForTesting
+    internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
     private val _storageMetrics = MutableStateFlow(StorageMetrics())
 
@@ -89,15 +140,15 @@ class ModelManagementViewModel @Inject constructor(
                 }
             }
         }
-        // Compute storage metrics on IO dispatcher, driven by download-state changes
-        viewModelScope.launch(Dispatchers.IO) {
+        // Recompute storage metrics on each download-state change; file IO runs on ioDispatcher.
+        viewModelScope.launch {
             modelDownloadManager.downloadStates
                 .debounce(500)
                 .collect {
-                val used = calculateStorageUsed()
-                val free = calculateFreeSpace()
-                _storageMetrics.value = StorageMetrics(used = used, free = free)
-            }
+                    val used = withContext(ioDispatcher) { calculateStorageUsed() }
+                    val free = withContext(ioDispatcher) { calculateFreeSpace() }
+                    _storageMetrics.value = StorageMetrics(used = used, free = free)
+                }
         }
     }
 
@@ -110,6 +161,8 @@ class ModelManagementViewModel @Inject constructor(
         jandalPersona.personaMode,
         _storageMetrics,
         _gatedStatuses,
+        sherpaVoicePackDownloadManager.downloadStates,
+        voiceOutputPreferences.selectedEngine,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val downloadStates = array[0] as Map<KernelModel, DownloadState>
@@ -123,6 +176,9 @@ class ModelManagementViewModel @Inject constructor(
         val personaMode = array[5] as PersonaMode
         val storage = array[6] as StorageMetrics
         val gatedStatuses = array[7] as Map<KernelModel, GatedModelStatus>
+        @Suppress("UNCHECKED_CAST")
+        val voicePacks = array[8] as Map<SherpaPiperVoice, VoicePackDownloadState>
+        val engine = array[9] as VoiceOutputEngine
 
         val filteredModels = KernelModel.entries.filter {
             it.showInModelManagement && !it.isDeprecated
@@ -152,11 +208,11 @@ class ModelManagementViewModel @Inject constructor(
             preferredModel = preferredModel,
             personaMode = personaMode,
             availabilitySummary = summary,
-            conversationReadiness = ConversationModelReadiness.compute(
-                tier = tier,
-                downloadStates = downloadStates,
-            ),
+            roleSections = ModelRoles.sections(preferred = preferredModel, tier = tier, states = downloadStates),
+            stillNeeded = ModelRoles.stillNeeded(tier = tier, states = downloadStates),
             deviceTier = tier,
+            speechRecognitionStatus = speechStatusOf(downloadStates),
+            voiceOutputStatus = voiceOutputStatusOf(engine, voicePacks[SherpaPiperVoice.CoriHigh]),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -178,14 +234,18 @@ class ModelManagementViewModel @Inject constructor(
 
     fun deleteModel(model: KernelModel) {
         if (model.isBundled) return
-        // Never delete the currently selected conversation model
-        if (model == uiState.value.preferredModel) return
+        // The chat brain in use cannot be deleted. A saved pick this tier cannot select is ignored
+        // by the engine, so reset it to automatic first; otherwise its file could never be removed.
+        if (model == uiState.value.preferredModel) {
+            if (model in ConversationModelRules.selectableConversationModels(modelDownloadManager.deviceTier)) return
+            setPreferredModel(null)
+        }
         // Cancel any in-progress download before deleting the file
         val currentState = modelDownloadManager.downloadStates.value[model]
         if (currentState is DownloadState.Downloading) {
             modelDownloadManager.cancelDownload(model)
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             model.localFile(context).delete()
             val tmpFile = java.io.File(model.localFile(context).absolutePath + ".tmp")
             if (tmpFile.exists()) tmpFile.delete()
