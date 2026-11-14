@@ -8,7 +8,15 @@ on:
         required: true
         default: '7'
         type: string
+      dry_run:
+        description: 'Only print what would be deleted (no changes)'
+        type: boolean
+        required: false
+        default: true
 
+
+permissions:
+  contents: read
 
 jobs:
   cleanup:
@@ -16,25 +24,74 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read
 
     steps:
       - name: Delete pre-releases older than N days
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DAYS: ${{ inputs.days_older_than }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          set -euo pipefail
+          case "$DAYS" in
+            ''|*[!0-9]*) echo "::error::days_older_than must be a whole number of days (got '$DAYS')."; exit 1 ;;
+          esac
           CUTOFF=$(date -d "$DAYS days ago" --utc +%Y-%m-%dT%H:%M:%SZ)
-          echo "Deleting pre-releases published before $CUTOFF"
+          echo "Pre-releases published before $CUTOFF are candidates (dry_run=$DRY_RUN)."
 
           gh release list \
             --repo "$GITHUB_REPOSITORY" \
-            --limit 100 \
-            --json tagName,publishedAt,isPrerelease \
-            --jq --arg cutoff "$CUTOFF" \
-              '.[] | select(.isPrerelease == true and .tagName != "debug-latest" and .publishedAt < $cutoff) | .tagName' \
-          | while read -r TAG; do
-              echo "Deleting release + tag: $TAG"
-              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
-            done
+            --limit 200 \
+            --json tagName,publishedAt,isPrerelease > releases.json
+
+          if [ "$(jq length releases.json)" -ge 200 ]; then
+            echo "::warning::Listed 200 releases (the limit); older releases beyond it are not considered."
+          fi
+
+          # Allowlist: only pr-<number> pre-releases. Everything else is never a candidate,
+          # including debug-latest, build-*, v0.1.* tester releases and model-* releases
+          # that the app downloads. publishedAt is normalised to whole seconds so the
+          # string comparison against the cutoff is correct.
+          jq -r --arg cutoff "$CUTOFF" '
+            .[]
+            | select(.isPrerelease == true)
+            | select(.tagName | test("^pr-[0-9]+$"))
+            | select((.publishedAt | sub("\\.[0-9]+Z$"; "Z")) < $cutoff)
+            | .tagName
+          ' releases.json > candidates.txt
+
+          if [ ! -s candidates.txt ]; then
+            echo "No pre-releases to delete."
+            exit 0
+          fi
+
+          # Fail closed: anything other than the exact string "false" is a dry run.
+          if [ "$DRY_RUN" != "false" ]; then
+            echo "dry_run=$DRY_RUN: nothing will be changed."
+          fi
+
+          while read -r TAG; do
+            NUMBER=${TAG#pr-}
+            # Delete only for a PR that is CLOSED or MERGED. Anything else, including a failed
+            # lookup (gh's error is printed to the log), keeps the release.
+            if ! STATE=$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json state --jq .state); then
+              echo "::warning::Keeping $TAG: lookup of PR #$NUMBER failed (see the error above)."
+              continue
+            fi
+            case "$STATE" in
+              CLOSED|MERGED) ;;
+              *)
+                echo "Keeping $TAG: PR #$NUMBER state is '$STATE'."
+                continue
+                ;;
+            esac
+            if [ "$DRY_RUN" = "false" ]; then
+              echo "Deleting release + tag: $TAG (PR #$NUMBER is $STATE)"
+              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            else
+              echo "Would delete release + tag: $TAG (PR #$NUMBER is $STATE)"
+            fi
+          done < candidates.txt
 
           echo "Done."
