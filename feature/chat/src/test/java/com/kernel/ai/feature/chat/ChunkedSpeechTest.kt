@@ -26,14 +26,37 @@ class ChunkedSpeechTest {
     }
 
     @Test
-    fun `a short first sentence is spoken alone so playback starts before the rest is synthesised`() = runTest {
-        val reply = "Brisbane is 24 degrees and sunny now. " +
-            "Expect a high of 29 this afternoon with light winds from the east and no rain expected."
+    fun `a first sentence over 80 characters is not cut at a comma`() = runTest {
+        val reply = "In Palmerston North, Manawatu-Wanganui, it's 24 degrees with partly cloudy skies " +
+            "and a light breeze, feeling like 25 degrees. Today's high is 28 degrees, low is 21 degrees."
 
         assertEquals(VoiceOutputResult.Spoken, speakInSentenceChunks(controller, reply))
 
-        assertTrue(appended.size > 1, "expected a separate first chunk, got $appended")
-        assertEquals("Brisbane is 24 degrees and sunny now.", appended.first().first)
+        assertTrue(appended.first().first.endsWith("feeling like 25 degrees."), "first chunk: ${appended.first().first}")
+        assertTrue(appended.last().second, "last chunk must be final")
+    }
+
+    @Test
+    fun `a multi-day forecast never starts a chunk with degrees`() = runTest {
+        val reply = "In Palmerston North, it's 12 degrees, thunderstorm with hail, feeling like 9 degrees. " +
+            "Today's high is 18 degrees, low is 10 degrees. " +
+            "Sun 16 Nov: high 28 degrees, low 21 degrees. " +
+            "Mon 17 Nov: high 26 degrees, low 19 degrees."
+
+        speakInSentenceChunks(controller, reply)
+
+        assertTrue(appended.none { it.first.trimStart().startsWith("degrees") }, "chunks: $appended")
+    }
+
+    @Test
+    fun `abbreviations and clock times do not end a chunk`() = runTest {
+        val reply = "Your project review meeting with the design team starts at 10:30 a.m. tomorrow, " +
+            "so bring the notes. Dr. Smith will confirm the room."
+
+        speakInSentenceChunks(controller, reply)
+
+        assertTrue(appended.first().first.contains("tomorrow"), "first chunk split at a.m.: $appended")
+        assertTrue(appended.none { it.first.trimEnd().endsWith("Dr.") }, "split after Dr.: $appended")
         assertTrue(appended.last().second, "last chunk must be final")
     }
 

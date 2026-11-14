@@ -80,6 +80,7 @@ class AndroidTextToSpeechController @Inject constructor(
         val utteranceIds: MutableSet<String> = mutableSetOf(),
         var firstChunkText: String? = null,
         var finalChunkQueued: Boolean = false,
+        var startLogged: Boolean = false,
     )
 
     private data class ActiveUtterance(
@@ -500,12 +501,14 @@ class AndroidTextToSpeechController @Inject constructor(
                         val meta = activeUtterances[resolvedUtteranceId] ?: return@synchronized null
                         val playback = activePlayback?.takeIf { it.token == meta.playbackToken }
                             ?: return@synchronized null
-                        (playback.firstChunkText ?: meta.text) to meta.text
+                        val firstStart = !playback.startLogged
+                        playback.startLogged = true
+                        Triple(playback.firstChunkText ?: meta.text, meta.text, firstStart)
                     }
-                    started?.let { (eventText, chunkText) ->
+                    started?.let { (eventText, chunkText, firstStart) ->
                         // The trace wants the chunk that is starting now, not the first one.
                         VoiceOutputTrace.speakingStarted("android_tts", chunkText)
-                        VoiceOutputTrace.logSpeakingStarted("android-tts", chunkText.length)
+                        if (firstStart) VoiceOutputTrace.logSpeakingStarted("android-tts", chunkText.length)
                         _events.tryEmit(VoiceOutputEvent.SpeakingStarted(eventText))
                     }
                 }

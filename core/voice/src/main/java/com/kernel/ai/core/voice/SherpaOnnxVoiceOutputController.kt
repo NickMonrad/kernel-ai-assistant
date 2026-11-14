@@ -196,7 +196,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 if (!stopped) {
                     requestAudioFocus()
                     VoiceOutputTrace.speakingStarted("sherpa", spokenText)
-                    VoiceOutputTrace.logSpeakingStarted("sherpa", spokenText.length)
+                    VoiceOutputTrace.logSpeakingStarted(
+                        if (voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental) "kokoro" else "sherpa",
+                        spokenText.length,
+                    )
                     _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
                     speakingStarted = true
                     playOnAudioTrack(samples, sampleRate, myGeneration)
@@ -463,7 +466,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                         // empty request text.
                         VoiceOutputTrace.speakingStarted("sherpa_stream", chunk.text)
                         if (!emittedStarted) {
-                            VoiceOutputTrace.logSpeakingStarted("sherpa-stream", chunk.text.length)
+                            VoiceOutputTrace.logSpeakingStarted(
+                                if (voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental) "kokoro" else "sherpa",
+                                chunk.text.length,
+                            )
                             _events.emit(VoiceOutputEvent.SpeakingStarted(request.text.ifBlank { "" }))
                             emittedStarted = true
                         }
