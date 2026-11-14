@@ -58,7 +58,8 @@ class RunIntentSkill @Inject constructor(
                 RunIntentModelAction("get_stopwatch_status", ""),
             )),
             RunIntentModelCategory("CALENDAR", listOf(
-                RunIntentModelAction("create_calendar_event", "title, date, time, duration_minutes?, description?, attendees?"),
+                RunIntentModelAction("create_calendar_event", "title, date, time, duration_minutes?, description?, location?"),
+                RunIntentModelAction("read_calendar_events", "range? (today|tomorrow|this_week|next_week|upcoming), keyword?"),
             )),
             RunIntentModelCategory("INFO QUERIES", listOf(
                 RunIntentModelAction("get_battery", ""),

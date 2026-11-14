@@ -42,12 +42,12 @@ def _discovery_log(
 ) -> str:
     return "\n".join(
         (
-            f'event_seq: tool_call name=load_skill args={{"skill_name":"{load_skill_name}"}}',
+            f'event_seq: tool_call name=load_skill argsLen=40 args={{"skill_name":"{load_skill_name}"}}',
             "event_seq: tool_result name=load_skill "
             f"resultType={load_result_type} directReply=false "
             f"returnedToGemma={returned_to_gemma} "
             "content=Available model-callable intents: private instruction text",
-            f'event_seq: tool_call name=run_intent args={{"intent_name":"{run_intent_name}"}}',
+            f'event_seq: tool_call name=run_intent argsLen=40 args={{"intent_name":"{run_intent_name}"}}',
             "event_seq: tool_result name=run_intent "
             f"resultType={terminal_result_type} directReply=true "
             "returnedToGemma=false content=It's 12:00 on Monday, 1 June 2026.",
