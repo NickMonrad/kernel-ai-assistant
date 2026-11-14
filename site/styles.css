@@ -98,6 +98,11 @@ h1 span { color: var(--green); }
 .privacy-art { display: block; width: 100%; height: auto; }
 .privacy-inner > div:last-child > p:not(.eyebrow) { max-width: 700px; color: var(--muted); font-size: 1.05rem; }
 .text-link { display: inline-flex; min-height: 48px; align-items: center; font-weight: 750; }
+.discord-join { margin-top: 28px; }
+.discord-join p { margin-bottom: 14px; color: var(--muted); }
+.discord-note { margin: 14px 0 0; color: var(--muted); font-size: .92rem; }
+.feedback-inner { padding-bottom: 72px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .screenshots-section { padding-bottom: 94px; }
 .screenshots { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; align-items: start; }
@@ -111,7 +116,7 @@ h1 span { color: var(--green); }
 .requirements-inner p:last-child { margin-bottom: 0; color: var(--muted); }
 
 .cta-button { display: inline-flex; min-height: 48px; align-items: center; justify-content: center; gap: 8px; padding: 12px 22px; border-radius: 999px; background: var(--green); color: var(--on-green); font-size: 1rem; font-weight: 750; text-decoration: none; }
-.cta-button:hover { filter: brightness(1.08); }
+.cta-button:hover { filter: brightness(.92); }
 .cta-button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 .beta-hero { padding-block: 72px 48px; max-width: 900px; }
 .beta-hero h1 { font-size: clamp(2.3rem, 5.4vw, 4.2rem); }
