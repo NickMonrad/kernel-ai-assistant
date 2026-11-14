@@ -39,7 +39,7 @@ causal, or release conclusion. This procedure does not authorize a four-hour run
 Before requesting `START`, the operator must:
 
 1. Confirm both private wireless ADB connections are ready and the debug build remains
-   installed in place; do not uninstall or clear application data.
+   installed in place; this run keeps it installed, so do not uninstall or clear application data for it.
 2. Confirm package UID resolution and target human/check-in structure on both phones.
 3. Manually disable **Listen for Hey Jandal** on both phones and confirm both
    wake-word services are inactive. The harness never changes this setting.
