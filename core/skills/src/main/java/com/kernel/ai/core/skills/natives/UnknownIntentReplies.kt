@@ -4,31 +4,42 @@ package com.kernel.ai.core.skills.natives
  * User-facing replies for `run_intent` names that are not registered in [NativeIntentHandler].
  *
  * The model sometimes invents intent names (e.g. `get_calendar` before #942 exists). Those must
- * never surface as raw "Unknown intent: X" text in chat or TTS. This table only chooses wording;
- * it never maps an unknown name onto a real intent, so nothing with side effects runs by guess.
+ * never surface as raw "Unknown intent: X" text in chat or TTS. This object only chooses wording.
+ * It never maps an unknown name onto a real intent, so nothing with side effects runs by guess.
  */
 object UnknownIntentReplies {
 
     const val GENERIC_REPLY = "I can't do that one yet."
 
-    private data class Area(val keywords: Set<String>, val reply: String)
+    const val CALENDAR_READ_REPLY =
+        "I can't read your calendar yet. I can add events to it if you like."
 
-    /** First matching area wins. Keywords are matched against whole `_`-separated name tokens. */
-    private val AREAS = listOf(
-        Area(
-            keywords = setOf("calendar", "agenda"),
-            reply = "I can't read your calendar yet, but I can add events to it. Want to add one?",
-        ),
-        Area(
-            keywords = setOf("email", "mail", "inbox"),
-            reply = "I can't read your email yet, but I can send one.",
-        ),
+    const val EMAIL_READ_REPLY = "I can't read your email yet, but I can send one."
+
+    private val CALENDAR_NOUNS = setOf(
+        "calendar", "calendars", "agenda", "agendas", "schedule", "schedules",
+        "event", "events", "appointment", "appointments",
+    )
+    private val EMAIL_NOUNS = setOf("email", "emails", "mail", "mails", "inbox", "inboxes")
+
+    /** Only these verbs mark a read-style request. Write-style names get [GENERIC_REPLY]. */
+    private val READ_VERBS = setOf(
+        "get", "read", "list", "check", "show", "view", "fetch", "search", "find",
+        "what", "whats", "lookup", "query", "display", "tell",
     )
 
     /** Returns the friendly reply for an unregistered intent name. Never includes [intentName]. */
     fun replyFor(intentName: String): String {
-        val tokens = intentName.lowercase().split('_', ' ', '-').filter { it.isNotBlank() }.toSet()
-        return AREAS.firstOrNull { area -> area.keywords.any { it in tokens } }?.reply ?: GENERIC_REPLY
+        val tokens = intentName.lowercase()
+            .split('_', ' ', '-', '\'', '’')
+            .filter { it.isNotBlank() }
+            .toSet()
+        val isRead = tokens.any { it in READ_VERBS }
+        return when {
+            isRead && tokens.any { it in CALENDAR_NOUNS } -> CALENDAR_READ_REPLY
+            isRead && tokens.any { it in EMAIL_NOUNS } -> EMAIL_READ_REPLY
+            else -> GENERIC_REPLY
+        }
     }
 
     /**

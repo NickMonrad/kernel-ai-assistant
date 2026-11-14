@@ -19,7 +19,7 @@
     Fg Service for: 59m 59s 999ms
     Total running: 59m 59s 999ms
     Total cpu time: u=120ms s=7ms
-    Proc com.kernel.ai.debug:
+    Proc ai.jandal.assistant.debug:
       CPU: 120ms usr + 7ms krn ; 0ms fg
 
   u0a100:

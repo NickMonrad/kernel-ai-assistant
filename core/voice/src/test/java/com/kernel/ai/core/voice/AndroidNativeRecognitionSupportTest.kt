@@ -127,7 +127,7 @@ class AndroidNativeRecognitionSupportTest {
     fun `selectPlatformRecognitionService prefers configured external service`() {
         val configured = "com.google.android.tts/com.google.android.tts.GoogleTTSRecognitionService"
         val available = listOf(
-            "com.kernel.ai.debug/com.kernel.ai.assistant.JandalRecognitionService",
+            "ai.jandal.assistant.debug/com.kernel.ai.assistant.JandalRecognitionService",
             "com.google.android.as/com.google.android.as.AiAiSpeechRecognitionService",
             configured,
         )
@@ -137,7 +137,7 @@ class AndroidNativeRecognitionSupportTest {
             selectPlatformRecognitionService(
                 configuredService = configured,
                 availableServices = available,
-                selfPackageName = "com.kernel.ai.debug",
+                selfPackageName = "ai.jandal.assistant.debug",
             ),
         )
     }
@@ -145,12 +145,12 @@ class AndroidNativeRecognitionSupportTest {
     @Test
     fun `selectPlatformRecognitionService skips self package when configured service is self`() {
         val selected = selectPlatformRecognitionService(
-            configuredService = "com.kernel.ai.debug/com.kernel.ai.assistant.JandalRecognitionService",
+            configuredService = "ai.jandal.assistant.debug/com.kernel.ai.assistant.JandalRecognitionService",
             availableServices = listOf(
-                "com.kernel.ai.debug/com.kernel.ai.assistant.JandalRecognitionService",
+                "ai.jandal.assistant.debug/com.kernel.ai.assistant.JandalRecognitionService",
                 "com.google.android.as/com.google.android.as.AiAiSpeechRecognitionService",
             ),
-            selfPackageName = "com.kernel.ai.debug",
+            selfPackageName = "ai.jandal.assistant.debug",
         )
 
         assertEquals(
@@ -162,9 +162,9 @@ class AndroidNativeRecognitionSupportTest {
     @Test
     fun `selectPlatformRecognitionService returns null when only self service is available`() {
         val selected = selectPlatformRecognitionService(
-            configuredService = "com.kernel.ai.debug/com.kernel.ai.assistant.JandalRecognitionService",
-            availableServices = listOf("com.kernel.ai.debug/com.kernel.ai.assistant.JandalRecognitionService"),
-            selfPackageName = "com.kernel.ai.debug",
+            configuredService = "ai.jandal.assistant.debug/com.kernel.ai.assistant.JandalRecognitionService",
+            availableServices = listOf("ai.jandal.assistant.debug/com.kernel.ai.assistant.JandalRecognitionService"),
+            selfPackageName = "ai.jandal.assistant.debug",
         )
 
         assertEquals(null, selected)
@@ -175,10 +175,10 @@ class AndroidNativeRecognitionSupportTest {
         val selected = selectPlatformRecognitionService(
             configuredService = "com.stale.engine/com.stale.engine.OldRecognitionService",
             availableServices = listOf(
-                "com.kernel.ai.debug/com.kernel.ai.assistant.JandalRecognitionService",
+                "ai.jandal.assistant.debug/com.kernel.ai.assistant.JandalRecognitionService",
                 "com.google.android.tts/com.google.android.tts.GoogleTTSRecognitionService",
             ),
-            selfPackageName = "com.kernel.ai.debug",
+            selfPackageName = "ai.jandal.assistant.debug",
         )
 
         assertEquals(
@@ -192,7 +192,7 @@ class AndroidNativeRecognitionSupportTest {
         val selected = selectPlatformRecognitionService(
             configuredService = "com.google.android.tts/com.google.android.tts.GoogleTTSRecognitionService",
             availableServices = emptyList(),
-            selfPackageName = "com.kernel.ai.debug",
+            selfPackageName = "ai.jandal.assistant.debug",
         )
 
         assertEquals(null, selected)
@@ -206,7 +206,7 @@ class AndroidNativeRecognitionSupportTest {
                 "com.other.engine/.OtherRecognitionService",
                 "com.google.android.tts/.GoogleTTSRecognitionService",
             ),
-            selfPackageName = "com.kernel.ai.debug",
+            selfPackageName = "ai.jandal.assistant.debug",
         )
 
         assertEquals(

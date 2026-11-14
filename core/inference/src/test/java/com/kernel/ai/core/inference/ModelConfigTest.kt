@@ -10,6 +10,10 @@ import org.junit.jupiter.api.Test
  * Run with: ./gradlew :core:inference:testDebugUnitTest --tests "*.ModelConfigTest"
  */
 class ModelConfigTest {
+    @Test
+    fun `ModelConfig enables speculative decoding by default`() {
+        assertTrue(ModelConfig(modelPath = "model.litertlm").speculativeDecodingEnabled)
+    }
 
     @Test
     fun `DEFAULT_SYSTEM_PROMPT contains device action rule`() {

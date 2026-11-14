@@ -26,9 +26,8 @@ import kotlinx.coroutines.runBlocking
  *
  *     adb shell am broadcast \
  *       -a com.kernel.ai.debug.action.VERIFY_WAKE_WINDOW \
- *       -n com.kernel.ai.debug/com.kernel.ai.debug.verifier.WakeVerifierProbeReceiver \
+ *       -n ai.jandal.assistant.debug/com.kernel.ai.debug.verifier.WakeVerifierProbeReceiver \
  *       --es fixture_file probe_ring.wav [--ei runs 3]
- *
  * Fixtures live in app-private `files/acoustic-fixtures/` (16 kHz mono int16
  * WAV — the detector ring sample format). Result data carries the per-run
  * verdicts, e.g. `accept,accept,accept` or `reject,reject,reject`.

@@ -1,5 +1,7 @@
 package com.kernel.ai.core.voice
 
+import com.kernel.ai.core.inference.hardware.HardwareTier
+
 enum class VoiceOutputEngine(
     val displayName: String,
     val description: String,
@@ -10,8 +12,8 @@ enum class VoiceOutputEngine(
         description = "Uses the platform text-to-speech engine and works without local Sherpa assets.",
     ),
     SherpaExperimental(
-        displayName = "Sherpa Piper (Experimental)",
-        description = "Uses locally prepared Sherpa-ONNX Piper voices and falls back to Android TTS if setup is missing or playback fails.",
+        displayName = "Piper",
+        description = "Natural-sounding local Piper voices via Sherpa-ONNX. Falls back to Android TTS while the voice downloads or if playback fails.",
     ),
     KokoroExperimental(
         displayName = "Kokoro (Experimental)",
@@ -26,8 +28,15 @@ enum class VoiceOutputEngine(
     ;
 
     companion object {
-        fun fromStorage(value: String?): VoiceOutputEngine =
-            entries.firstOrNull { it.name == value } ?: AndroidTts
+        fun fromStorage(value: String?, default: VoiceOutputEngine = AndroidTts): VoiceOutputEngine =
+            entries.firstOrNull { it.name == value } ?: default
+
+        /**
+         * Default engine for a device that has never chosen one: Piper (Cori) on mid-range and
+         * flagship devices, Android TTS on low-power devices where Piper synthesis lags.
+         */
+        fun defaultForTier(tier: HardwareTier): VoiceOutputEngine =
+            if (tier == HardwareTier.LOW_POWER) AndroidTts else SherpaExperimental
 
         /**
          * Returns the engine catalogue allowed for this build and device.
@@ -49,8 +58,9 @@ enum class VoiceOutputEngine(
             value: String?,
             isRelease: Boolean,
             inflectEligible: Boolean,
+            default: VoiceOutputEngine = AndroidTts,
         ): VoiceOutputEngine {
-            val engine = fromStorage(value)
+            val engine = fromStorage(value, default)
             return engine.takeIf {
                 it in entriesForBuild(
                     isRelease = isRelease,

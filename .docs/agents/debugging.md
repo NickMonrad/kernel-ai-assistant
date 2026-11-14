@@ -7,7 +7,7 @@ Load this when debugging issues on device or emulator.
 ```bash
 # Build and deploy
 ./gradlew assembleDebug
-./gradlew installDebug
+adb -s "$ANDROID_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk   # never ./gradlew installDebug
 
 # Tail app logs
 adb logcat -s KernelAI
@@ -22,7 +22,7 @@ adb exec-out screencap -p > screenshot.png
 adb devices
 
 # Launch specific activity
-adb shell am start -n com.kernel.ai/.MainActivity
+adb shell am start -n ai.jandal.assistant/.MainActivity
 ```
 
 ## Log filtering
@@ -57,7 +57,7 @@ adb logcat -s KernelAI -v time
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| OOM during model load | E4B not loaded before FunctionGemma | Verify eager init order |
+| OOM during model load | Model size, active backend, or competing native allocations | Check the selected model/backend and concurrent memory use before changing load order |
 | No thinking tokens | Missing `extraContext` or Channel registration | Check both are present |
 | Tool call crashes | Malformed JSON from E4B | Verify `tryExecuteToolCall()` fallback |
 | Weight leaks | Conversation not closed properly | Check LeakCanary scope |

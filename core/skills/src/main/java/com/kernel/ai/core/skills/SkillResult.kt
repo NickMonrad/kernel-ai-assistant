@@ -47,9 +47,25 @@ sealed class SkillResult {
     ) : SkillResult()
     /** Skill not found in registry. */
     data class UnknownSkill(val skillName: String) : SkillResult()
-    /** Skill found but execution failed. [error] is user-facing text. [technicalDetail], when set,
-     *  is the diagnostic shown in the tool chip instead of [error]; user-facing surfaces use [error]. */
-    data class Failure(val skillName: String, val error: String, val technicalDetail: String? = null) : SkillResult()
+    /**
+     * Skill found but execution failed. Two independent fields, both optional:
+     *
+     * - [error] is the reply text. Surfaces show it to the user and speak it, unless
+     *   [fallThroughToModel] is set. Surfaces that prefix failures (e.g. "Action failed:") skip the
+     *   prefix when [technicalDetail] is set, because [error] is then already a complete reply.
+     * - [fallThroughToModel] = true marks an internal miss. Conversational callers hand the user's
+     *   original request to the model and do NOT display [error]. Set it only when the model should
+     *   answer instead; it is not the convention for user-visible failures.
+     * - [technicalDetail] is the diagnostic (e.g. "Unknown intent: x") for tool chips and logs. It
+     *   never replaces [error] in user-facing text. A Failure with both fields set is handled as a
+     *   fallthrough; its detail is still available to the tool chip.
+     */
+    data class Failure(
+        val skillName: String,
+        val error: String,
+        val fallThroughToModel: Boolean = false,
+        val technicalDetail: String? = null,
+    ) : SkillResult()
     /** Skill output was malformed JSON or failed schema validation. */
     data class ParseError(val rawOutput: String, val reason: String) : SkillResult()
     /** Skill requires a device capability (e.g. CALL_PHONE permission) to proceed.

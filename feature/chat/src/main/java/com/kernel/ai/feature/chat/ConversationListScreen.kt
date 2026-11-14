@@ -90,6 +90,7 @@ fun ConversationListScreen(
     onNavigateToVoiceActions: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onOpenExamplePrompt: (String) -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
@@ -100,6 +101,11 @@ fun ConversationListScreen(
     val selectedConversationIds by viewModel.selectedConversationIds.collectAsStateWithLifecycle()
     val showBulkDeleteConfirmation by viewModel.showBulkDeleteConfirmation.collectAsStateWithLifecycle()
     val showArchived by viewModel.showArchived.collectAsStateWithLifecycle()
+    val chatsWelcomeDismissed by viewModel.chatsWelcomeDismissed.collectAsStateWithLifecycle()
+    val tabHintsDismissed by viewModel.tabHintsDismissed.collectAsStateWithLifecycle()
+    val assistantReadiness by viewModel.assistantReadiness.collectAsStateWithLifecycle()
+    val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
+    val welcomeState = chatsEmptyState(chatsWelcomeDismissed, assistantReadiness, downloadStates)
 
     var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
     var pendingArchive by remember { mutableStateOf<ConversationEntity?>(null) }
@@ -224,19 +230,21 @@ fun ConversationListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    SmallFloatingActionButton(
-                        onClick = onNavigateToVoiceActions,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = "Voice action")
-                    }
-                    SmallFloatingActionButton(
-                        onClick = onNavigateToActions,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ) {
-                        Icon(Icons.Default.Bolt, contentDescription = "Quick action")
+                    if (welcomeState == ChatsEmptyState.Plain) {
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToVoiceActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice action")
+                        }
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = "Quick action")
+                        }
                     }
                     FloatingActionButton(
                         onClick = onNewConversation,
@@ -298,7 +306,17 @@ fun ConversationListScreen(
                                 modifier = Modifier.padding(top = 8.dp),
                             )
                         }
-                    } else {
+                    } else if (welcomeState is ChatsEmptyState.Welcome) {
+                        ChatsWelcome(
+                            download = welcomeState.download,
+                            showTabHints = tabHintsDismissed == false,
+                            onStartChatting = onNewConversation,
+                            onExamplePrompt = onOpenExamplePrompt,
+                            onDownloadModel = viewModel::downloadAssistantModel,
+                            onDismissTabHints = viewModel::dismissTabHints,
+                            onHideWelcome = viewModel::hideWelcome,
+                        )
+                    } else if (welcomeState == ChatsEmptyState.Plain) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("🧵", style = MaterialTheme.typography.displayMedium)
                             Text(

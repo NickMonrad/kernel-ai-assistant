@@ -25,11 +25,14 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -82,6 +85,60 @@ class ActionsViewModelTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+        )
+    }
+
+    @Test
+    fun `typed and voice verb-first arithmetic reach native intent execution`() = runTest(dispatcher) {
+        viewModel.executeAction("Add twenty-five and fifteen")
+        advanceUntilIdle()
+
+        viewModel.executeAction("Divide one hundred by ten", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals(2, insertedActions.size)
+        assertEquals("calculate_arithmetic", insertedActions[0].skillName)
+        assertEquals("calculate_arithmetic", insertedActions[1].skillName)
+        assertEquals(
+            mapOf("intent_name" to "calculate_arithmetic", "expression" to "25 + 15"),
+            CapturingRunIntentSkill.default.calls[0].arguments,
+        )
+        assertEquals(
+            mapOf("intent_name" to "calculate_arithmetic", "expression" to "100 / 10"),
+            CapturingRunIntentSkill.default.calls[1].arguments,
+        )
+    }
+
+    @Test
+    fun `missing custom place list hands Quick Actions request to chat`() = runTest(dispatcher) {
+        val input = "what do I need from the garden centre"
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run a native intent"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult =
+                SkillResult.Failure(
+                    "get_list_items",
+                    "I couldn't find a list called \"garden centre\".",
+                    fallThroughToModel = true,
+                )
+        }
+        every { skillRegistry.get(any()) } answers {
+            if (firstArg<String>() == "run_intent") runIntentSkill else null
+        }
+        val events = mutableListOf<ActionsViewModel.UiEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { events += it }
+        }
+
+        viewModel.executeAction(input)
+        advanceUntilIdle()
+
+        assertEquals("llm_fallthrough", insertedActions.single().skillName)
+        assertEquals(input, insertedActions.single().userQuery)
+        assertEquals(
+            listOf(ActionsViewModel.UiEvent.NavigateToChat(input, speakResponse = false)),
+            events,
         )
     }
 
@@ -196,7 +253,7 @@ class ActionsViewModelTest {
     }
 
     @Test
-    fun `add to list flow normalizes natural list-name replies before executing`() = runTest(dispatcher) {
+    fun `add to list flow preserves list-name reply for exact-first native resolution`() = runTest(dispatcher) {
         val runIntentSkill = CapturingRunIntentSkill()
         every { skillRegistry.get(any()) } answers {
             when (firstArg<String>()) {
@@ -224,7 +281,7 @@ class ActionsViewModelTest {
             mapOf(
                 "intent_name" to "add_to_list",
                 "item" to "milk",
-                "list_name" to "shopping list",
+                "list_name" to "on my shopping list",
             ),
             runIntentSkill.calls.single().arguments,
         )
@@ -252,6 +309,27 @@ class ActionsViewModelTest {
             runIntentSkill.calls.single().arguments,
         )
         assertEquals("add_to_list", insertedActions.single().skillName)
+        assertEquals(true, insertedActions.single().isSuccess)
+    }
+    @Test
+    fun `list clarification direct reply is retained as the user-facing action result`() = runTest(dispatcher) {
+        val clarification = "What would you like to add?"
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run a native intent"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult =
+                SkillResult.DirectReply(clarification)
+        }
+        every { skillRegistry.get(any()) } answers {
+            if (firstArg<String>() == "run_intent") runIntentSkill else null
+        }
+
+        viewModel.executeAction("Add an item to my shopping list", InputMode.Voice)
+        advanceUntilIdle()
+
+        assertEquals("add_to_list", insertedActions.single().skillName)
+        assertEquals(clarification, insertedActions.single().resultText)
         assertEquals(true, insertedActions.single().isSuccess)
     }
 
@@ -284,7 +362,7 @@ class ActionsViewModelTest {
     }
 
     @Test
-    fun `generic shopping list replies normalize without mangling named lists`() = runTest(dispatcher) {
+    fun `shopping list replies preserve original names for exact-first resolution`() = runTest(dispatcher) {
         val runIntentSkill = CapturingRunIntentSkill()
         every { skillRegistry.get(any()) } answers {
             when (firstArg<String>()) {
@@ -295,14 +373,14 @@ class ActionsViewModelTest {
 
         viewModel.executeAction("add milk to my list")
         advanceUntilIdle()
-        viewModel.onSlotReply("my shopping list")
+        viewModel.onSlotReply("on my shopping list")
         advanceUntilIdle()
 
         assertEquals(
             mapOf(
                 "intent_name" to "add_to_list",
                 "item" to "milk",
-                "list_name" to "shopping list",
+                "list_name" to "on my shopping list",
             ),
             runIntentSkill.calls.single().arguments,
         )

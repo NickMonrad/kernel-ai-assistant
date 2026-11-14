@@ -17,22 +17,6 @@
     }
   },
   {
-    "id": "nz_002",
-    "term": "Yeah-nah",
-    "category": "linguistics",
-    "definition": "A polite, non-committal way to say no. Acknowledges the speaker's point before disagreeing.",
-    "trigger_context": "When the AI needs to express doubt, disagreement, or soft refusal.",
-    "vibe_level": 1,
-    "vector_text": "Yeah-nah means no but polite. Hesitant disagreement or non-committal response in conversation.",
-    "metadata": {
-      "tags": [
-        "politeness",
-        "negation"
-      ],
-      "era": "timeless"
-    }
-  },
-  {
     "id": "nz_004",
     "term": "Clanker",
     "category": "2026_tech",
@@ -121,8 +105,8 @@
     "id": "nz_009",
     "term": "Nek Minnit",
     "category": "meme",
-    "definition": "Meme from Levi Hawken's viral NZ video. TWO triggers: (1) User describes leaving something unattended — YOU immediately say 'Nek minnit, [scooter/thing] was gone!' DO NOT ask what happened. (2) User says 'nek minnit' — YOU narrate the disaster. ALWAYS include the consequence after 'Nek minnit,'. NEVER say 'Nek minnit!' alone.",
-    "trigger_context": "When the user says 'nek minnit' or describes leaving something unattended and something going wrong. Play along with the meme — narrate the comedic consequence. e.g. 'Left my scooter outside the dairy' → 'Nek minnit' → respond with something like 'nek minnit, scooter's gone!'",
+    "definition": "A New Zealand meme about an abrupt, often comic change of events, made famous by Levi Hawken's viral scooter video. Kiwis use it to set up a sudden comic twist, e.g. 'Left my scooter outside the dairy. Nek minnit, gone.'",
+    "trigger_context": "Two triggers: when the user describes leaving something unattended, immediately say 'Nek minnit, [scooter/thing] was gone!' Do not ask what happened. When the user says 'nek minnit', narrate the disaster; always include the consequence after 'Nek minnit,' and never say 'Nek minnit!' alone. Play along with the meme. For example, 'Left my scooter outside the dairy' → 'Nek minnit' → 'Nek minnit, scooter's gone!'",
     "vibe_level": 4,
     "vector_text": "Nek minnit. Next minute. Suddenly. Unexpected change. Levi Hawken scooter meme. Left my scooter outside the dairy. Rapid transition. Surprise consequence.",
     "metadata": {
@@ -136,19 +120,14 @@
   },
   {
     "id": "nz_010",
-    "term": "Monique says you're dumb",
+    "term": "Monique says you're dumb for even asking",
     "category": "meme",
-    "definition": "NZ cultural phrase from the 2011 NZTA Ghost Chips ad. Whenever the user mentions Monique — or does something dumb — respond with: 'Monique says you're dumb.' Say it with Kiwi flair.",
-    "trigger_context": "When the user mentions Monique, or does something dumb/silly.",
+    "definition": "A line from the 2011 NZTA Ghost Chips drink-driving ad, used as a cheeky comeback to a silly question.",
+    "trigger_context": "When the user mentions Monique or makes a harmless mistake, respond with 'Monique says you're dumb for even asking' and say it with Kiwi flair.",
     "vibe_level": 2,
-    "vector_text": "Monique. Do you know Monique. Anyone called Monique. Ghost Chips NZTA ad. Monique says you are dumb. Kiwi catchphrase.",
+    "vector_text": "Monique. Monique says you're dumb for even asking. NZTA Ghost Chips drink-driving ad 2011. Kiwi catchphrase.",
     "metadata": {
-      "tags": [
-        "ghost-chips",
-        "nzta",
-        "banter",
-        "catchphrase"
-      ],
+      "tags": ["ghost-chips", "nzta", "banter", "catchphrase"],
       "era": "2011"
     }
   },
@@ -156,15 +135,15 @@
     "id": "nz_011",
     "term": "Say sorry to the kids",
     "category": "meme",
-    "definition": "A reference to a viral Police Ten 7 moment. Used to emphasize accountability when someone is acting out of line.",
-    "trigger_context": "When the user or a character is making a scene or needs to apologize for poor behavior.",
+    "definition": "A line from an LTSA drink-driving ad after a fatal crash: 'Don't say sorry to me, say sorry to his kids.' Its original context is serious.",
+    "trigger_context": "When discussing the LTSA road-safety ad or its line about taking responsibility for harm caused.",
     "vibe_level": 4,
-    "vector_text": "Don't say sorry to me, say sorry to the kids. Police Ten 7 quote. Accountability and social shame.",
+    "vector_text": "Don't say sorry to me, say sorry to his kids. It's the same day, David. LTSA drink-driving ad. Speeding. Fatal crash. Accountability.",
     "metadata": {
       "tags": [
-        "police-ten-7",
+        "road-safety-ad",
         "accountability",
-        "viral"
+        "fatal-crash"
       ],
       "era": "classic"
     }
@@ -173,10 +152,10 @@
     "id": "nz_012",
     "term": "Skux as",
     "category": "slang",
-    "definition": "Looking stylish, cool, or charming — often used for someone who's a bit of a heartbreaker. Popularised by the NZ show Fresh Off the Boat.",
+    "definition": "Already popular New Zealand slang meaning excellent, stylish, or impressive; famously quoted by Ricky Baker in Hunt for the Wilderpeople (2016): 'You don't choose the skux life, the skux life chooses you.'",
     "trigger_context": "When the user mentions a new outfit, a successful social encounter, or feeling confident.",
     "vibe_level": 5,
-    "vector_text": "Skux. Skux as. Stylish. Cool. Heartbreaker. Fresh Off the Boat NZ. Kiwi slang. Looking good.",
+    "vector_text": "Skux. Skux as. Skux life. You don't choose the skux life, the skux life chooses you. Ricky Baker. Hunt for the Wilderpeople 2016. Excellent. Stylish. Cool. Kiwi slang.",
     "metadata": {
       "tags": [
         "style",
@@ -207,7 +186,7 @@
     "id": "nz_014",
     "term": "Not even au",
     "category": "joke",
-    "definition": "A pun on the phrase 'not even' (meaning 'no way' or 'that's not true') and the fact that having only one jandal makes you 'uneven'.",
+    "definition": "“Not even au” is a Kiwi exclamation meaning “that's not true” or “no way”. Jandal's one-jandal joke plays on it: one jandal means you're “not even” wearing a pair.",
     "trigger_context": "What do you call a guy with one jandal? Not even au. Used for quintessential Kiwi dad-humor.",
     "vibe_level": 4,
     "vector_text": "Not even au. One jandal joke. Uneven pun. Classic kiwi humor and slang emphasis.",
@@ -326,10 +305,10 @@
     "id": "nz_021",
     "term": "The 1981 Springbok Tour",
     "category": "history",
-    "definition": "A massive civil unrest event where the country was split over the visit of the South African rugby team during apartheid. Known as the 'year of the helmet'.",
-    "trigger_context": "When discussing social division, protest, or the intersection of sports and politics.",
+    "definition": "During the 1981 Springbok Tour, protesters wore helmets and padding to protect themselves from police batons. On 29 July, police first used batons against protesters during the Molesworth Street march.",
+    "trigger_context": "When discussing the 1981 Springbok Tour, anti-apartheid protests, or the Molesworth Street march.",
     "vibe_level": 5,
-    "vector_text": "1981 tour. Springboks. Apartheid protests. Red Squad. Social fracture. Civil unrest.",
+    "vector_text": "1981 Springbok Tour. Protesters wore helmets and padding. Police batons. 29 July Molesworth Street march. First police baton use against protesters. Apartheid protests. Rugby and politics.",
     "metadata": {
       "tags": [
         "protest",
@@ -343,10 +322,10 @@
     "id": "nz_022",
     "term": "Sinking of the Rainbow Warrior",
     "category": "history",
-    "definition": "The 1985 bombing of the Greenpeace ship in Auckland Harbour by French secret agents. A major catalyst for NZ's anti-nuclear stance.",
+    "definition": "French agents bombed the Greenpeace ship Rainbow Warrior in Auckland Harbour in 1985. The attack shocked New Zealand and galvanised an anti-nuclear movement that was already active.",
     "trigger_context": "When the user mentions Auckland history, environmentalism, or French-NZ relations.",
     "vibe_level": 4,
-    "vector_text": "Rainbow Warrior. Greenpeace. French spies. Bombing Auckland. Auckland history. State-sponsored terrorism. Environmentalism. French-NZ relations.",
+    "vector_text": "Rainbow Warrior. Greenpeace. French agents. Auckland bombing 1985. Anti-nuclear movement already active. Public support hardened. Environmental protest. New Zealand history.",
     "metadata": {
       "tags": [
         "greenpeace",
@@ -427,10 +406,10 @@
     "id": "nz_027",
     "term": "Manaakitanga",
     "category": "te_ao_maori",
-    "definition": "The concept of hospitality, showing respect, generosity, and care for others. The foundation of NZ's tourism and social fabric.",
+    "definition": "Manaakitanga is a Māori value associated with hospitality, care, generosity, and respect. How it is practised depends on relationships and local iwi, hapū, and marae; it is not a single uniform custom or merely a tourism slogan.",
     "trigger_context": "When the AI wants to express deep hospitality or describe the 'spirit' of NZ hosting.",
     "vibe_level": 1,
-    "vector_text": "Manaakitanga. Hospitality. Care for others. Respect. Māori values. Hosting.",
+    "vector_text": "Manaakitanga. Māori value. Hospitality. Care. Generosity. Respect. Iwi and hapū contexts. Marae. Welcoming guests.",
     "metadata": {
       "tags": [
         "maori",
@@ -529,10 +508,10 @@
     "id": "nz_033",
     "term": "The Haka",
     "category": "te_ao_maori",
-    "definition": "A traditional Māori posture dance. While used in many contexts, the All Blacks' version is world-renowned.",
+    "definition": "Haka is a Māori performance tradition with many forms for different occasions; it is not only a war dance. Ka Mate, performed by the All Blacks, is one internationally recognised haka, not the sole form.",
     "trigger_context": "When discussing rugby, challenges, or Māori performance art.",
     "vibe_level": 2,
-    "vector_text": "Haka. Ka Mate. All Blacks pre-match. Rugby. Māori challenge. Respect and power. New Zealand rugby tradition. What do All Blacks do before a match.",
+    "vector_text": "Haka. Māori performance. Many forms and occasions. Ka Mate. All Blacks pre-match. Rugby. Māori composers and performers. Respect and power.",
     "metadata": {
       "tags": [
         "rugby",
@@ -597,10 +576,10 @@
     "id": "nz_037",
     "term": "Black Ferns",
     "category": "sports",
-    "definition": "The world-champion women's rugby union team. Known for their incredible Haka and for bringing a more joyous, community-focused vibe to the national game.",
-    "trigger_context": "When discussing world champions, women's sport, or 'rugby like it used to be'.",
+    "definition": "New Zealand's women's national rugby union team. The Black Ferns won the Rugby World Cup in 2017 and 2021.",
+    "trigger_context": "When discussing the Black Ferns, women's rugby, or their Rugby World Cup titles.",
     "vibe_level": 2,
-    "vector_text": "Black Ferns. Women's rugby. World Cup winners. Ruby Tui. Pōwhiri.",
+    "vector_text": "Black Ferns. New Zealand women's rugby. Rugby World Cup champions 2017 and 2021. Ruby Tui. Women's sport.",
     "metadata": {
       "tags": [
         "rugby",
@@ -714,10 +693,10 @@
     "id": "nz_044",
     "term": "The Breakers",
     "category": "sports",
-    "definition": "NZ's only professional basketball team playing in the Australian NBL. Based in Auckland.",
+    "definition": "The New Zealand Breakers are the only New Zealand team in Australia's National Basketball League (NBL).",
     "trigger_context": "When discussing local sports clubs or Auckland entertainment.",
     "vibe_level": 4,
-    "vector_text": "NZ Breakers. NBL. Basketball. Auckland. Spark Arena.",
+    "vector_text": "New Zealand Breakers. Auckland. Only New Zealand team in Australian NBL. Professional basketball. Spark Arena.",
     "metadata": {
       "tags": [
         "basketball",
@@ -748,10 +727,10 @@
     "id": "nz_046",
     "term": "Sir Edmund Hillary",
     "category": "history",
-    "definition": "The first person to reach the summit of Mt Everest. The ultimate symbol of Kiwi modesty; his first words after the descent were: 'Well, we knocked the bastard off.'",
-    "trigger_context": "When discussing achievement, exploration, or the $5 note.",
+    "definition": "Edmund Hillary and Tenzing Norgay were the first people to stand on Mt Everest's summit, on 29 May 1953. Hillary later told George Lowe, on the descent, 'we knocked the bastard off.'",
+    "trigger_context": "When discussing Everest, exploration, achievement, or the $5 note.",
     "vibe_level": 1,
-    "vector_text": "Sir Ed. Edmund Hillary. Everest. $5 note. Modesty. Exploration.",
+    "vector_text": "Sir Ed. Edmund Hillary. Tenzing Norgay. First summit of Everest together. 29 May 1953. George Lowe. Knocked the bastard off. $5 note. Exploration.",
     "metadata": {
       "tags": [
         "explorer",
@@ -850,10 +829,10 @@
     "id": "nz_052",
     "term": "ACC",
     "category": "social_structure",
-    "definition": "The Accident Compensation Corporation. A unique system where you can't sue for personal injury, but the government covers your treatment and lost wages regardless of fault.",
-    "trigger_context": "When discussing health, injuries, or 'only in NZ' laws.",
+    "definition": "The Accident Compensation Corporation (ACC) administers New Zealand's no-fault personal-injury scheme. It covers eligible treatment and, for eligible earners unable to work, weekly compensation that is commonly up to 80% of earnings. The scheme replaces most personal-injury lawsuits; it does not pay every person's lost wages in full.",
+    "trigger_context": "When discussing injury treatment, compensation, or New Zealand's no-fault accident cover.",
     "vibe_level": 2,
-    "vector_text": "ACC. No-fault insurance. Injury cover. NZ healthcare. Safety net.",
+    "vector_text": "ACC. Accident Compensation Corporation. No-fault personal injury cover. Treatment. Eligible earners. Weekly compensation up to 80 percent. Most personal injury lawsuits barred.",
     "metadata": {
       "tags": [
         "law",
@@ -1085,36 +1064,18 @@
     "id": "nz_065"
   },
   {
-    "term": "Bugger",
+    "term": "Good Aftable Constanoon",
     "category": "meme",
-    "definition": "A classic Kiwi exclamation of disappointment or misfortune, immortalised by the Toyota Hilux ad where farm animals say it after minor disasters.",
-    "trigger_context": "When something goes wrong, an error occurs, or the user has a minor setback.",
-    "vibe_level": 2,
-    "vector_text": "Bugger. Something went wrong. Error, mistake, setback, oops, disaster. Toyota ad. Farm accident. Minor catastrophe. Disappointment. Classic NZ exclamation.",
-    "metadata": {
-      "tags": [
-        "toyota",
-        "advertising",
-        "classic",
-        "disappointment"
-      ],
-      "era": "1999"
-    },
-    "id": "nz_066"
-  },
-  {
-    "term": "Good Aftabull Constanoon",
-    "category": "meme",
-    "definition": "A slurred 'Good afternoon, Constable' — iconic Police Ten 7 / drunk-tank phrase. Used for gently comedic formality or when someone is trying too hard to be polite.",
-    "trigger_context": "When the user is being overly formal, or in any Police Ten 7 / law-enforcement adjacent context.",
+    "definition": "A slurred 'Good afternoon, Constable' greeting from an LTSA drink-driving checkpoints ad, not Police Ten 7. Jandal can use the mangled pronunciation as a playful reference to old-school road-safety advertising.",
+    "trigger_context": "When discussing classic LTSA drink-driving ads or deliberately mangled formal greetings.",
     "vibe_level": 4,
-    "vector_text": "Good aftabull constanoon. Good afternoon constable. Drunk speech. Police Ten 7. Slurred formality. Kiwi cop culture. Phonetic drunk pronunciation.",
+    "vector_text": "Good Aftable Constanoon. Good Aftabull Constanoon. Good afternoon constable. Slurred greeting. LTSA drink-driving checkpoints ad. NZ road-safety advertising. Phonetic pronunciation.",
     "metadata": {
       "tags": [
-        "police-ten-7",
-        "drunk",
+        "road-safety",
+        "advertising",
         "formality",
-        "viral"
+        "phonetic"
       ],
       "era": "classic"
     },
@@ -1243,10 +1204,10 @@
     "id": "nz_075",
     "term": "Ernest Rutherford",
     "category": "science",
-    "definition": "Known globally as the 'father of nuclear physics'. Born in Nelson, he is credited with splitting the atom and discovering the concept of radioactive half-life. He is the face of the $100 note.",
+    "definition": "Born at Spring Grove near Nelson, Ernest Rutherford made the first artificial nuclear transmutation by bombarding nitrogen (1917–19), proposed the nuclear model of the atom (1911), and helped establish the concept of radioactive half-life with Frederick Soddy. He appears on New Zealand's $100 note.",
     "trigger_context": "When discussing science, physics, famous inventors, or New Zealand intellect.",
     "vibe_level": 2,
-    "vector_text": "Ernest Rutherford. Splitting the atom. Nuclear physics. $100 note. Kiwi scientist.",
+    "vector_text": "Ernest Rutherford. Nelson. Artificial nuclear transmutation 1917–19. Nitrogen experiment. Atomic nucleus model 1911. Radioactive half-life with Frederick Soddy. $100 note. Kiwi scientist.",
     "metadata": {
       "tags": [
         "science",
@@ -1396,10 +1357,10 @@
     "id": "nz_084",
     "term": "Ruru (Morepork)",
     "category": "fauna",
-    "definition": "New Zealand's native owl. Named after its distinctive two-part call that sounds exactly like it is saying 'more pork'. Traditionally seen as a guardian spirit (kaitiaki) in Te Ao Māori.",
-    "trigger_context": "When discussing night sounds, owls, or spiritual guardians.",
+    "definition": "New Zealand's native owl, named for its distinctive two-part call. In some Māori traditions ruru may be regarded as kaitiaki; associations and stories vary among iwi and hapū.",
+    "trigger_context": "When discussing native owls, night calls, or particular Māori accounts of kaitiaki.",
     "vibe_level": 2,
-    "vector_text": "Ruru. Morepork. Native owl. Night sounds. Kaitiaki. Guardian spirit.",
+    "vector_text": "Ruru. Morepork. Native owl. Two-part call. Some Māori traditions. Kaitiaki. Iwi and hapū stories.",
     "metadata": {
       "tags": [
         "bird",
@@ -1635,7 +1596,7 @@
     "id": "nz_098",
     "term": "Dairy",
     "category": "daily_life",
-    "definition": "A small corner store or convenience store. Nothing to do with dairy farming — just where you grab a pie, a drink, or a Lotto ticket. An essential NZ institution. Australians say 'servo' or '7-Eleven'. Kiwis say dairy.",
+    "definition": "A small neighbourhood shop, also called a corner store or convenience store. It is where you grab a pie, a drink, or a Lotto ticket — an everyday part of life in Aotearoa New Zealand.",
     "trigger_context": "When the user mentions popping out for snacks, buying something from a shop, or everyday errands.",
     "vibe_level": 2,
     "vector_text": "Dairy. Corner store. Convenience store. Pop to the dairy. Grab it from the dairy. Going the dairy. Going to the dairy. Quick shop. Milk bar. Dairy down the road. Corner dairy. Lotto. Grab a Lotto. Lotto ticket.",
@@ -1652,7 +1613,7 @@
     "id": "nz_099",
     "term": "Togs",
     "category": "daily_life",
-    "definition": "Swimming costume or swimwear. Very NZ-specific — Australians say 'cossie' or 'bathers', Brits say 'swimmers'. 'Don't forget your togs' is the most NZ sentence possible before a beach trip.",
+    "definition": "A word used in New Zealand for a swimming costume or swimwear. 'Don't forget your togs' is a classic line before a beach trip.",
     "trigger_context": "When the user talks about swimming, going to the beach, pools, or what to pack for water activities.",
     "vibe_level": 2,
     "vector_text": "Togs. Swimming costume. Swimwear. Swimsuit. Beach. Pool. Swimming togs. Pack your togs. Togs and jandals. Swimming gear.",
@@ -1720,10 +1681,10 @@
     "id": "nz_103",
     "term": "Beached as",
     "category": "meme",
-    "definition": "From the iconic 2007 NZ Flash cartoon: a stranded whale gasping 'I'm beached as, bro!' Means stuck, unable to move, completely stranded. One of the most quoted NZ internet memes.",
+    "definition": "An Australian-made animated series, first released online in 2008; its ABC2 series followed in 2009. It heavily sends up the Kiwi accent through a beached whale and his seagull mate.",
     "trigger_context": "When the user is stuck, stranded, can't move or make progress on something.",
     "vibe_level": 3,
-    "vector_text": "Beached as. Beached as bro. Stuck. Stranded. Can't move. Beached whale. NZ cartoon meme. I'm beached bro. Unable to move. Beached as mate.",
+    "vector_text": "Beached Az. Beached as. Australian-made animated series. First released online 2008. ABC2 series 2009. Kiwi accent parody. Jarod Green. Nick Boshier. Anthony MacFarlane. Stuck. Stranded. Beached whale.",
     "metadata": {
       "tags": [
         "meme",
@@ -1868,8 +1829,8 @@
     "id": "nz_112",
     "term": "Kia ora",
     "category": "maori",
-    "definition": "The universal NZ greeting — Māori for 'be well' or 'good health'. Used as hello, thank you, and a warm acknowledgement. Jandal opens every conversation with it. The single most fundamental expression of NZ identity.",
-    "trigger_context": "Any greeting, welcome, or start of conversation.",
+    "definition": "A Māori greeting meaning 'be well' or 'good health', used as hello, thanks, or warm acknowledgement.",
+    "trigger_context": "When discussing greetings, thanks, or warm acknowledgement.",
     "vibe_level": 1,
     "vector_text": "Kia ora. Hello. Hi. Greeting. Thank you. Welcome. Māori greeting. Good morning. Kia ora koutou. Kia ora e hoa. Good day.",
     "metadata": {
@@ -2098,12 +2059,12 @@
   },
   {
     "id": "nz_126",
-    "term": "Aye",
+    "term": "Eh",
     "category": "slang",
-    "definition": "NZ sentence-ending tag — seeking agreement or confirmation. 'That was good, aye?' = wasn't it? 'Bit cold, aye' = don't you think? Different from the Scottish affirmative 'aye'. A distinctly NZ conversational habit.",
-    "trigger_context": "Checking understanding, seeking agreement, or adding conversational warmth.",
+    "definition": "A sentence-final tag used in New Zealand English to invite agreement or confirmation, as in 'That was good, eh?' This use is shared with other English varieties; it is not the Scottish affirmative 'aye'.",
+    "trigger_context": "When the user asks about sentence-final 'eh' as a New Zealand conversational tag.",
     "vibe_level": 1,
-    "vector_text": "Aye. Isn't it. Right. Aye bro. That's right aye. Seeking agreement. Don't you think. Tag question. Aye mate. Cold aye. Good aye.",
+    "vector_text": "Eh. Sentence-final eh. New Zealand English tag. Seeking agreement. Confirmation. Isn't it. Don't you think. That was good eh. Bit cold eh. Aye. Aye mate. Aye bro.",
     "metadata": {
       "tags": [
         "tag-question",
@@ -2164,10 +2125,10 @@
     "id": "nz_130",
     "term": "Whānau",
     "category": "maori",
-    "definition": "Family — but broader than the Western nuclear unit. Whānau is extended family, community, those you're bound to by love and obligation. In modern NZ use, close friends can be whānau. Pronounced 'fah-noh'.",
-    "trigger_context": "When discussing family, close friends, or community.",
+    "definition": "Whānau can refer to immediate or wider family and whakapapa-based collectives; it is also sometimes used metaphorically for close friends or associates. Context determines the sense.",
+    "trigger_context": "When discussing family, whakapapa-based collectives, or close friends described as whānau.",
     "vibe_level": 1,
-    "vector_text": "Whānau. Whanau. Family. Extended family. Community. Loved ones. My whānau. Māori family. Close friends. Whanau gathering.",
+    "vector_text": "Whānau. Whanau. Family. Immediate family. Extended family. Whakapapa. Hapū. Iwi. Collective. Close friends or associates in some contexts.",
     "metadata": {
       "tags": [
         "maori",
@@ -2314,10 +2275,10 @@
     "id": "nz_139",
     "term": "Bugger",
     "category": "slang",
-    "definition": "A mild NZ expletive expressing frustration, sympathy, or disappointment. 'Bugger!' = oh no, that's unfortunate. 'Bugger that' = no thanks, forget it. Made iconic by the classic Toyota 'Bugger!' TV ad. Not considered rude in NZ — completely everyday speech.",
-    "trigger_context": "When the user shares bad news, an accident, something breaking, a mistake, or any moment of mild frustration or disappointment.",
+    "definition": "A common mild exclamation in New Zealand English expressing frustration, sympathy, or disappointment. 'Bugger!' can mean 'that's unfortunate'; 'bugger that' can mean 'no thanks'. Familiar from the Toyota ad, though its force depends on context.",
+    "trigger_context": "When the user shares bad news, an accident, something breaking, a mistake, or a moment of frustration or disappointment.",
     "vibe_level": 3,
-    "vector_text": "Bugger. Bugger! Oh bugger. Bugger that. Bad news. Something broke. Dropped it. Spilled it. Oh no. That sucks. Gutted. Frustration. Disappointment. Accident. Things going wrong. What a bugger.",
+    "vector_text": "Bugger. Bugger! Oh bugger. Bugger that. Kiwi exclamation. Classic New Zealand expression. Toyota ad. Something went wrong. Error, mistake, setback, oops, disaster. Frustration. Sympathy. Disappointment. Accident. Things going wrong.",
     "metadata": {
       "tags": [
         "exclamation",
@@ -2344,12 +2305,12 @@
     "id": "nz_141",
     "term": "Wharepaku",
     "category": "maori",
-    "definition": "The te reo Māori term for toilet, restroom, or bathroom. A compound word literally translating to 'small house' (whare = building/house, paku = small). Heavily integrated into modern New Zealand English and serves as the standard term found on public signage, in schools, and across government buildings nationwide.",
+    "definition": "The te reo Māori term for toilet, restroom, bathroom, or lavatory. Widely known in New Zealand and common on public signage, but not the sole standard term nationwide.",
     "trigger_context": "When the user asks where the toilet, restroom, or bathroom is, mentions wharepaku, or needs directions to the loo.",
     "vibe_level": 2,
-    "vector_text": "Wharepaku. Toilet. Restroom. Bathroom. Loo. Dunny. Where is the bathroom. Small house. Whare. Public signage. School. Government building.",
+    "vector_text": "Wharepaku. Toilet. Restroom. Bathroom. Lavatory. Loo. Widely known. Public signage.",
     "metadata": {
-      "tags": ["te-reo", "daily_life", "bathroom", "signage"]
+      "tags": ["te-reo", "daily_life", "bathroom"]
     }
   },
   {
@@ -2380,10 +2341,10 @@
     "id": "nz_144",
     "term": "Taniwha",
     "category": "maori",
-    "definition": "Supernatural creatures from Māori mythology, strongly associated with waterways. Powerful, mythological beings that dwell in deep rivers, dark caves, lakes, or the ocean. They hold a dual nature in Māori tradition: often serving as respected kaitiaki (protective guardians) for a specific iwi (tribe) and their local environment, but can also act as dangerous, predatory monsters that enforce respect for natural boundaries.",
-    "trigger_context": "When the user explicitly mentions taniwha, Māori mythology, water spirits, kaitiaki, or guardians of the land.",
+    "definition": "Taniwha are beings in Māori oral traditions associated with particular places and genealogies. Accounts and roles vary by iwi, hapū, and rohe; some taniwha are respected kaitiaki, while others are dangerous or adversarial.",
+    "trigger_context": "When the user explicitly mentions taniwha or asks about a specific Māori oral tradition, place, or kaitiaki.",
     "vibe_level": 3,
-    "vector_text": "Taniwha. Water spirit. Guardian. Kaitiaki. Monster. Maori mythology. Deep river. Ocean creature. Legend. Iwi. Supernatural. Protector. Predator. Dark cave. Lake.",
+    "vector_text": "Taniwha. Māori oral traditions. Place and whakapapa. Iwi, hapū, rohe. Kaitiaki. Guardian. Dangerous or adversarial being. Waterways. Lakes. Caves. Ocean.",
     "metadata": {
       "tags": ["mythology", "guardian", "te-reo", "kaitiaki"]
     }
@@ -2392,10 +2353,10 @@
     "id": "nz_145",
     "term": "Yeah nah",
     "category": "nz_slang",
-    "definition": "A distinctly New Zealand expression meaning polite disagreement, hesitation, or soft refusal. Despite sounding contradictory, 'yeah nah' functions as a culturally fluent way to decline or push back without being blunt. Compare with its opposite 'nah yeah' (which means yes/agreement). Together they illustrate NZ's preference for softened, indirect communication.",
+    "definition": "An informal New Zealand expression for polite disagreement, hesitation, or soft refusal. 'Yeah nah' can acknowledge a point before declining; 'nah yeah' often signals agreement. Tone and context matter.",
     "trigger_context": "When the user asks about NZ slang, expressions of disagreement, or hedging phrases.",
     "vibe_level": 2,
-    "vector_text": "Yeah nah. Polite disagreement. Soft refusal. Hesitation. NZ slang. Contradictory affirmative. Nah yeah. Indirect communication. Kiwi English. Colloquial.",
+    "vector_text": "Yeah nah. Yeah-nah. Polite disagreement. Soft refusal. Hesitation. NZ slang. Acknowledges before disagreeing. Nah yeah. Agreement. Kiwi English. Colloquial.",
     "metadata": {
       "tags": ["slang", "expression", "colloquial", "kiwi-english"]
     }

@@ -39,6 +39,9 @@ class ConversationRepository @Inject constructor(
     fun observeArchived(): Flow<List<ConversationEntity>> =
         conversationDao.observeArchived()
 
+    fun observeConversationCount(): Flow<Int> =
+        conversationDao.observeConversationCount()
+
     fun observeConversationById(id: String): Flow<ConversationEntity?> =
         conversationDao.observeById(id)
 

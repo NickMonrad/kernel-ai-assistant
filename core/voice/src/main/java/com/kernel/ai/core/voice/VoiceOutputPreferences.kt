@@ -36,6 +36,8 @@ class VoiceOutputPreferences @Inject constructor(
         (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
     private val inflectReleaseEligible: Boolean =
         InflectMicroModelSpec.isReleaseEligible(hardwareProfileDetector.profile.tier)
+    private val defaultEngine: VoiceOutputEngine =
+        VoiceOutputEngine.defaultForTier(hardwareProfileDetector.profile.tier)
 
     init {
         if (isReleaseBuild) {
@@ -82,6 +84,7 @@ class VoiceOutputPreferences @Inject constructor(
                 value = prefs[selectedEngineKey],
                 isRelease = isReleaseBuild,
                 inflectEligible = inflectReleaseEligible,
+                default = defaultEngine,
             )
         }
 
@@ -127,11 +130,16 @@ class VoiceOutputPreferences @Inject constructor(
         }
     }
 
+    /** True when the user (or a migration) has stored an output engine choice. */
+    suspend fun hasStoredEngine(): Boolean =
+        context.voiceOutputPrefsDataStore.data.first()[selectedEngineKey] != null
+
     suspend fun setSelectedEngine(engine: VoiceOutputEngine) {
         val effectiveEngine = VoiceOutputEngine.resolveForBuild(
             value = engine.name,
             isRelease = isReleaseBuild,
             inflectEligible = inflectReleaseEligible,
+            default = defaultEngine,
         )
         context.voiceOutputPrefsDataStore.edit { prefs ->
             prefs[selectedEngineKey] = effectiveEngine.name
@@ -274,6 +282,7 @@ class VoiceOutputPreferences @Inject constructor(
             value = storedEngineName,
             isRelease = isReleaseBuild,
             inflectEligible = inflectReleaseEligible,
+            default = defaultEngine,
         )
         val sherpaChanged = resolvedSherpa != storedSherpa
         val engineChanged = storedEngineName != null && resolvedEngine.name != storedEngineName

@@ -30,9 +30,8 @@ This gate applies when the PR touches:
 
 | Device | When |
 |--------|------|
-| S21 (Exynos) | Default — permission behaviour is consistent across Samsung devices |
-| S23U (SD 8 Gen 2) | Only when the permission behaviour differs by Android version
-  or manufacturer skin |
+| S23U (SD 8 Gen 2) | Primary — permission behaviour is consistent across Samsung devices |
+| S21 (Exynos) | Extra capacity only — e.g. when behaviour differs by Android version or manufacturer skin; see `.docs/agents/risk-based-evidence-policy.md` |
 
 ## Common Regressions to Check
 

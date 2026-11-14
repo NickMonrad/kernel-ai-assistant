@@ -151,7 +151,7 @@ Reject malformed IDs, unknown fixtures, traversal, arbitrary paths, missing/empt
 15. Finish the pending broadcast result.
 
 The host runner invokes the target journal through the debug `ContentProvider` at
-`content://com.kernel.ai.debug.target-event-journal`, never through a target
+`content://ai.jandal.assistant.debug.target-event-journal`, never through a target
 broadcast receiver. It uses `GET_JOURNAL_SEQUENCE` for the idle boundary,
 `WAIT_FOR_JOURNAL_EVENT` with a unique request ID for one bounded wait, and
 `GET_JOURNAL_SNAPSHOT` for the final exact envelope. Provider cancellation uses
@@ -1000,7 +1000,7 @@ Foreign-session events from overlapping voice interactions are silently filtered
 
 ### 24.11 Evidence collection steps
 
-1. Build and install `./gradlew :app:installDebug`.
+1. Build and install: `./gradlew :app:assembleDebug`, then `adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk`.
 2. Enable acoustic journal via the debug menu or broadcast:
    ```
    adb shell am broadcast -a com.kernel.ai.debug.action.CLEAR_JOURNAL

@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test
 class DownloadStateMapperTest {
 
     private val ungatedModel = KernelModel.GEMMA_4_E2B
-    private val gatedModel = KernelModel.EMBEDDING_GEMMA_300M
     private val bundledModel = KernelModel.MINI_LM
 
     @Test
@@ -49,38 +48,42 @@ class DownloadStateMapperTest {
     @Nested
     inner class GatedModels {
 
+        private fun state(hfAuth: Boolean, gated: GatedModelStatus) =
+            notDownloadedAvailability(
+                isBundled = false,
+                isGated = true,
+                hfAuth = hfAuth,
+                source = DownloadSource.USER_INITIATED,
+                gated = gated,
+            )
+
         @Test
         fun `not downloaded gated model without HF auth maps to SignInRequired`() {
-            val result = DownloadState.NotDownloaded
-                .toAvailability(gatedModel, hfAuth = false)
+            val result = state(hfAuth = false, gated = GatedModelStatus.NONE)
             assertEquals(ActionRequired(ActionReason.SignInRequired), result)
         }
 
         @Test
         fun `not downloaded gated model with HF auth and APPROVAL_PENDING maps to ApprovalPending`() {
-            val result = DownloadState.NotDownloaded
-                .toAvailability(gatedModel, hfAuth = true, gated = GatedModelStatus.APPROVAL_PENDING)
+            val result = state(hfAuth = true, gated = GatedModelStatus.APPROVAL_PENDING)
             assertEquals(ActionRequired(ActionReason.ApprovalPending), result)
         }
 
         @Test
         fun `not downloaded gated model with HF auth and ACCESS_DENIED maps to AccessDenied`() {
-            val result = DownloadState.NotDownloaded
-                .toAvailability(gatedModel, hfAuth = true, gated = GatedModelStatus.ACCESS_DENIED)
+            val result = state(hfAuth = true, gated = GatedModelStatus.ACCESS_DENIED)
             assertEquals(Unavailable(UnavailableReason.AccessDenied), result)
         }
 
         @Test
         fun `not downloaded gated model with HF auth and NONE status maps to NotDisplayed`() {
-            val result = DownloadState.NotDownloaded
-                .toAvailability(gatedModel, hfAuth = true, gated = GatedModelStatus.NONE)
+            val result = state(hfAuth = true, gated = GatedModelStatus.NONE)
             assertEquals(ModelAvailabilityState.NotDisplayed, result)
         }
 
         @Test
         fun `not downloaded gated model with HF auth and APPROVED status maps to NotDisplayed`() {
-            val result = DownloadState.NotDownloaded
-                .toAvailability(gatedModel, hfAuth = true, gated = GatedModelStatus.APPROVED)
+            val result = state(hfAuth = true, gated = GatedModelStatus.APPROVED)
             assertEquals(ModelAvailabilityState.NotDisplayed, result)
         }
     }
@@ -131,14 +134,13 @@ class DownloadStateMapperTest {
         @Test
         fun `downloaded state regardless of gated or auth returns Ready`() {
             val result = DownloadState.Downloaded("/path")
-                .toAvailability(gatedModel, hfAuth = false)
+                .toAvailability(ungatedModel, hfAuth = false)
             assertEquals(ModelAvailabilityState.Ready, result)
         }
-
         @Test
         fun `downloading regardless of gated or auth returns Preparing`() {
             val result = DownloadState.Downloading(progress = 0.1f)
-                .toAvailability(gatedModel, hfAuth = false)
+                .toAvailability(ungatedModel, hfAuth = false)
             assertEquals(Preparing(progress = 0.1f, isAutoQueued = false), result)
         }
     }

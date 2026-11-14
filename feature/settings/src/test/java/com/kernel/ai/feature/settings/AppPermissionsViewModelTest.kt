@@ -38,7 +38,7 @@ class AppPermissionsViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         every { context.packageManager } returns pm
-        every { context.packageName } returns "com.kernel.ai.test"
+        every { context.packageName } returns "ai.jandal.assistant.test"
         mockkStatic(ContextCompat::class)
         every { ContextCompat.checkSelfPermission(any(), any()) } returns PackageManager.PERMISSION_GRANTED
     }

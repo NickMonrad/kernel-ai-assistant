@@ -5,19 +5,48 @@ import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 import com.google.ai.edge.litertlm.ToolSet
 import dagger.Lazy
-import kotlinx.coroutines.runBlocking
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.runBlocking
 
 private const val TAG = "KernelAI"
+
+data class LocalToolCallDiagnostic(
+    val order: Int,
+    val name: String,
+    /** Exact values received by the typed @Tool entry point; nested JSON strings remain unmodified. */
+    val arguments: Map<String, String>,
+    val terminal: Boolean,
+    val resultType: String? = null,
+    val resultContent: String? = null,
+    /** Exact map returned by the @Tool method to LiteRT-LM. */
+    val toolResult: Map<String, String>? = null,
+    val succeeded: Boolean? = null,
+    val directReply: Boolean? = null,
+    val returnedToGemma: Boolean? = null,
+)
+
+data class LocalGenerationAttemptDiagnostic(
+    val order: Int,
+    val fullContent: String,
+    val rawThinking: String,
+)
+
+data class LocalToolDiagnosticSnapshot(
+    val calls: List<LocalToolCallDiagnostic>,
+    val terminalCall: LocalToolCallDiagnostic?,
+    val generationAttempts: List<LocalGenerationAttemptDiagnostic>,
+)
 
 /**
  * Native LiteRT-LM tool set exposing 5 gateway functions to the SDK.
  *
- * Mirrors Google AI Edge Gallery's `AgentTools` pattern: the SDK auto-discovers
- * `@Tool`-annotated methods, generates tool declarations for the model, handles
- * constrained decoding to guarantee well-formed calls, and feeds return values
- * back to the model as tool responses.
+ * Mirrors Google AI Edge Gallery's `AgentTools` pattern: the SDK discovers
+ * `@Tool`-annotated methods and generates tool declarations, while the inference engine
+ * dispatches calls through the SDK's `ToolManager` so it can withhold a result when a
+ * context-budget abort is required.
  *
  * Each method delegates to an existing [Skill.execute] implementation so all
  * business logic remains in the individual skill classes.
@@ -26,8 +55,8 @@ private const val TAG = "KernelAI"
  * 1. Model sees tool names + descriptions (SDK-generated from annotations)
  * 2. For simple tools, model calls the target tool directly
  * 3. For complex/gateway skills, model may call `loadSkill` first to get detailed instructions
- * 4. SDK feeds result back → model generates final text response
- *
+ * 4. The inference engine executes the call and returns its result unless a budget abort withholds it
+
  * ## Lazy injection
  * [SkillRegistry] is injected lazily to break the circular dependency:
  * SkillRegistry → Set<Skill> (includes LoadSkillSkill) → SkillRegistry.
@@ -41,6 +70,93 @@ private const val TAG = "KernelAI"
 class KernelAIToolSet @Inject constructor(
     private val skillRegistry: Lazy<SkillRegistry>,
 ) : ToolSet {
+    private val safeModelTestToken = AtomicReference<Any?>(null)
+
+    private data class LoadSkillResultBudget(
+        val maxTokens: Int,
+        val abortContinuation: () -> Unit,
+    )
+
+    private val loadSkillResultBudget = AtomicReference<LoadSkillResultBudget?>(null)
+    private val safeModelTestRunIntents = setOf("get_stopwatch_status")
+
+    /**
+     * Restricts one DEBUG model generation to loading run_intent instructions and invoking
+     * the allowlisted read-only stopwatch-status action. Callers must close the returned scope.
+     */
+    fun beginSafeModelTestSandbox(): AutoCloseable {
+        val token = Any()
+        check(safeModelTestToken.compareAndSet(null, token)) {
+            "A safe model-test sandbox is already active"
+        }
+        return AutoCloseable { safeModelTestToken.compareAndSet(token, null) }
+    }
+
+    /** Sets the complete tool-result budget for load_skill during the active generation. */
+    fun setLoadSkillToolResultTokenBudget(
+        maxToolResultTokens: Int?,
+        abortContinuation: (() -> Unit)?,
+    ) {
+        require((maxToolResultTokens == null) == (abortContinuation == null))
+        require(maxToolResultTokens == null || maxToolResultTokens >= 0)
+        loadSkillResultBudget.set(
+            maxToolResultTokens?.let { LoadSkillResultBudget(it, requireNotNull(abortContinuation)) },
+        )
+    }
+
+    private fun isSafeModelTestActive(): Boolean = safeModelTestToken.get() != null
+
+    private fun isAllowedSafeModelTestRunIntent(intentName: String, parameters: String): Boolean {
+        if (intentName !in safeModelTestRunIntents) return false
+        if (parameters.isBlank()) return true
+        return try {
+            org.json.JSONObject(parameters).length() == 0
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isAllowedSafeModelTestDispatch(
+        skillName: String,
+        args: Map<String, String>,
+    ): Boolean = when (skillName) {
+        LOAD_SKILL_NAME -> args == mapOf("skill_name" to "run_intent")
+        "run_intent" -> args.keys == setOf("intent_name") &&
+            args.getValue("intent_name") in safeModelTestRunIntents
+        else -> false
+    }
+
+    private fun denyInSafeModelTest(
+        toolName: String,
+        request: String,
+        arguments: Map<String, String>?,
+    ): Map<String, String> {
+        val diagnosticOrder = recordToolCall(toolName, request, arguments)
+        val error = "Blocked by safe model-test allowlist"
+        val toolResult = mapOf("error" to error)
+        lastToolResult = error
+        lastToolPresentation = null
+        lastToolSpokenSummary = null
+        lastToolWasDirectReply = false
+        recordToolOutcome(toolName, succeeded = false)
+        recordLocalToolResult(
+            diagnosticOrder,
+            "Blocked",
+            error,
+            toolResult,
+            succeeded = false,
+            directReply = false,
+            returnedToGemma = true,
+        )
+        if (toolName != LOAD_SKILL_NAME) captureTerminalResult(toolName)
+        Log.d(
+            TAG,
+            "event_seq: tool_result name=$toolName resultType=Failure " +
+                "directReply=false returnedToGemma=true content=\"$error\"",
+        )
+        return toolResult
+    }
+
     enum class ToolExecutionOutcome {
         NOT_CALLED,
         SUCCEEDED,
@@ -58,10 +174,33 @@ class KernelAIToolSet @Inject constructor(
     // -------------------------------------------------------------------------
     @Volatile private var attemptLoadSkillOutcome = ToolExecutionOutcome.NOT_CALLED
     @Volatile private var attemptTerminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
+    @Volatile private var attemptLoadSkillResultAborted = false
 
     companion object {
         /** The single non-terminal internal-only tool name. */
         private const val LOAD_SKILL_NAME = "load_skill"
+        // E4B sometimes omits "stop" when naming the stopwatch status action.
+        private val RUN_INTENT_NAME_ALIASES =
+            mapOf("getwatchstatus" to "get_stopwatch_status")
+
+        internal fun resolveRunIntentName(
+            intentName: String,
+            callableIntents: List<String> = RunIntentSkill.MODEL_CALLABLE_INTENTS,
+        ): String {
+            if (intentName in callableIntents) return intentName
+            val normalized = normalizeIntentName(intentName)
+            val matches = callableIntents.filter { normalizeIntentName(it) == normalized }
+            matches.singleOrNull()?.let { return it }
+            if (matches.isNotEmpty()) return intentName
+            return RUN_INTENT_NAME_ALIASES[normalized]
+                ?.takeIf { it in callableIntents }
+                ?: intentName
+        }
+
+        private fun normalizeIntentName(intentName: String): String =
+            intentName.lowercase(Locale.ROOT).filterNot {
+                it == '_' || it == '-' || it.isWhitespace()
+            }
     }
 
     // -------------------------------------------------------------------------
@@ -71,9 +210,12 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var lastToolName: String? = null
     @Volatile private var lastToolRequest: String? = null
     @Volatile private var lastToolResult: String? = null
+    @Volatile private var lastToolDetail: String? = null
     @Volatile private var lastToolPresentation: ToolPresentation? = null
     @Volatile private var lastToolSpokenSummary: String? = null
     @Volatile private var lastToolWasDirectReply: Boolean = false
+    // The current turn's user message; lets queryWikipedia answer the original question (#1689).
+    @Volatile private var turnUserMessage: String? = null
 
     // -------------------------------------------------------------------------
     // Per-attempt tracking (reset before each generation attempt)
@@ -83,17 +225,67 @@ class KernelAIToolSet @Inject constructor(
     private var attemptTerminalToolCalled = false
     private val turnToolNames = mutableListOf<String>()
     @Volatile private var terminalToolName: String? = null
+    @Volatile private var terminalToolDetail: String? = null
     @Volatile private var terminalToolRequest: String? = null
     @Volatile private var terminalToolResult: String? = null
     @Volatile private var terminalToolPresentation: ToolPresentation? = null
     @Volatile private var terminalToolSpokenSummary: String? = null
     @Volatile private var terminalToolWasDirectReply: Boolean = false
     @Volatile private var terminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
-    fun resetTurnState() {
+
+    // Full diagnostic data is retained only while the debug llm_tools harness explicitly arms capture.
+    private val localDiagnosticLock = Any()
+    private val localDiagnosticCalls = mutableListOf<LocalToolCallDiagnostic>()
+    private val localDiagnosticGenerationAttempts = mutableListOf<LocalGenerationAttemptDiagnostic>()
+    @Volatile private var localDiagnosticCaptureEnabled = false
+
+    fun beginLocalDiagnosticCapture() {
+        synchronized(localDiagnosticLock) {
+            localDiagnosticCalls.clear()
+            localDiagnosticGenerationAttempts.clear()
+            localDiagnosticCaptureEnabled = true
+        }
+    }
+
+    /** Retains exact per-attempt model output only while the debug harness has armed capture. */
+    fun recordLocalGenerationAttempt(fullContent: CharSequence, rawThinking: CharSequence) {
+        if (!localDiagnosticCaptureEnabled) return
+        synchronized(localDiagnosticLock) {
+            if (localDiagnosticCaptureEnabled) {
+                localDiagnosticGenerationAttempts += LocalGenerationAttemptDiagnostic(
+                    order = localDiagnosticGenerationAttempts.size,
+                    fullContent = fullContent.toString(),
+                    rawThinking = rawThinking.toString(),
+                )
+            }
+        }
+    }
+
+    /** Stops capture and clears the tool set's copy of the sensitive diagnostic data. */
+    fun finishLocalDiagnosticCapture(): LocalToolDiagnosticSnapshot {
+        val (calls, generationAttempts) = synchronized(localDiagnosticLock) {
+            localDiagnosticCaptureEnabled = false
+            val calls = localDiagnosticCalls.toList()
+            val generationAttempts = localDiagnosticGenerationAttempts.toList()
+            localDiagnosticCalls.clear()
+            localDiagnosticGenerationAttempts.clear()
+            calls to generationAttempts
+        }
+        return LocalToolDiagnosticSnapshot(
+            calls = calls,
+            terminalCall = calls.lastOrNull { it.terminal },
+            generationAttempts = generationAttempts,
+        )
+    }
+
+    fun resetTurnState(userMessage: String? = null) {
+        turnUserMessage = userMessage
         toolCalledInThisTurn = false
+        loadSkillResultBudget.set(null)
         lastToolName = null
         lastToolRequest = null
         lastToolResult = null
+        lastToolDetail = null
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
@@ -101,6 +293,7 @@ class KernelAIToolSet @Inject constructor(
         terminalToolName = null
         terminalToolRequest = null
         terminalToolResult = null
+        terminalToolDetail = null
         terminalToolPresentation = null
         terminalToolSpokenSummary = null
         terminalToolWasDirectReply = false
@@ -115,10 +308,12 @@ class KernelAIToolSet @Inject constructor(
         attemptLoadSkillCalled = false
         attemptTerminalToolCalled = false
         attemptLoadSkillOutcome = ToolExecutionOutcome.NOT_CALLED
+        attemptLoadSkillResultAborted = false
         attemptTerminalToolOutcome = ToolExecutionOutcome.NOT_CALLED
         lastToolName = null
         lastToolRequest = null
         lastToolResult = null
+        lastToolDetail = null
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
@@ -145,6 +340,9 @@ class KernelAIToolSet @Inject constructor(
     /** True when load_skill completed with a failure in the current attempt. */
     fun loadSkillFailedInCurrentAttempt(): Boolean = attemptLoadSkillOutcome.isFailure()
 
+    /** True when the load_skill result was withheld and native continuation was aborted. */
+    fun loadSkillResultAbortedInCurrentAttempt(): Boolean = attemptLoadSkillResultAborted
+
     /** True when a terminal executable tool was called in the current attempt. */
     fun terminalToolCalledInCurrentAttempt(): Boolean = attemptTerminalToolCalled
 
@@ -164,6 +362,9 @@ class KernelAIToolSet @Inject constructor(
 
     /** The last terminal tool result, or null. */
     fun terminalToolResult(): String? = terminalToolResult
+
+    /** Chip text for the terminal tool: the diagnostic when present, else the bubble text. */
+    fun terminalToolDetail(): String? = terminalToolDetail ?: terminalToolResult
 
     /** The last terminal tool presentation, or null. */
     fun terminalToolPresentation(): ToolPresentation? = terminalToolPresentation
@@ -197,8 +398,12 @@ class KernelAIToolSet @Inject constructor(
     // Internal tool-call tracking helpers
     // -------------------------------------------------------------------------
 
-    /** Records a tool call for per-attempt, per-turn, and terminal tracking. */
-    private fun recordToolCall(name: String, request: String) {
+    /** Records a tool call for per-attempt, per-turn, terminal, and opt-in local diagnostics. */
+    private fun recordToolCall(
+        name: String,
+        request: String,
+        arguments: Map<String, String>?,
+    ): Int? {
         toolCalledInThisTurn = true
         setLastToolCall(name, request)
         attemptToolNames.add(name)
@@ -207,6 +412,44 @@ class KernelAIToolSet @Inject constructor(
             attemptLoadSkillCalled = true
         } else {
             attemptTerminalToolCalled = true
+        }
+        val diagnosticArguments = arguments ?: return null
+        return synchronized(localDiagnosticLock) {
+            if (!localDiagnosticCaptureEnabled) {
+                null
+            } else {
+                val order = localDiagnosticCalls.size
+                localDiagnosticCalls += LocalToolCallDiagnostic(
+                    order = order,
+                    name = name,
+                    arguments = diagnosticArguments,
+                    terminal = name != LOAD_SKILL_NAME,
+                )
+                order
+            }
+        }
+    }
+
+    private fun recordLocalToolResult(
+        order: Int?,
+        resultType: String,
+        resultContent: String?,
+        toolResult: Map<String, String>,
+        succeeded: Boolean,
+        directReply: Boolean,
+        returnedToGemma: Boolean,
+    ) {
+        if (order == null) return
+        synchronized(localDiagnosticLock) {
+            val call = localDiagnosticCalls.getOrNull(order) ?: return@synchronized
+            localDiagnosticCalls[order] = call.copy(
+                resultType = resultType,
+                resultContent = resultContent,
+                toolResult = toolResult.toMap(),
+                succeeded = succeeded,
+                directReply = directReply,
+                returnedToGemma = returnedToGemma,
+            )
         }
     }
 
@@ -232,6 +475,7 @@ class KernelAIToolSet @Inject constructor(
             terminalToolName = lastToolName
             terminalToolRequest = lastToolRequest
             terminalToolResult = lastToolResult
+            terminalToolDetail = lastToolDetail
             terminalToolPresentation = lastToolPresentation
             terminalToolSpokenSummary = lastToolSpokenSummary
             terminalToolWasDirectReply = lastToolWasDirectReply
@@ -253,6 +497,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolName = name
         lastToolRequest = request
         lastToolResult = null
+        lastToolDetail = null
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
@@ -263,23 +508,103 @@ class KernelAIToolSet @Inject constructor(
     // Gateway tools — each delegates to the matching Skill.execute()
     // -------------------------------------------------------------------------
 
-    @Tool(description = "Loads full instructions for a complex gateway skill (meal_planner, run_js, run_intent). Call only when the required parameters or intent names for that skill are unclear.")
+    @Tool(description = "Loads full or compact instructions sized to the available context for a gateway skill (meal_planner, run_js, run_intent). Load a relevant skill when parameters or gateway-specific rules are unclear. If the user explicitly asks for skill instructions before acting, load that exact skill as the FIRST tool call even when the action is clear; wait for success, then follow the instructions. For run_intent, a successful load_skill MUST be followed by run_intent for the original request before any final reply; for other gateway skills, follow their returned instructions.")
     fun loadSkill(
-        @ToolParam(description = "The skill name to load.") skillName: String,
+        @ToolParam(description = "The gateway skill name to load, such as run_intent.") skillName: String,
     ): Map<String, String> {
-        recordToolCall(LOAD_SKILL_NAME, """{"skill_name":"$skillName"}""")
+        val request = """{"skill_name":"$skillName"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("skill_name" to skillName) else null
+        val diagnosticOrder = recordToolCall(LOAD_SKILL_NAME, request, arguments)
         Log.d(TAG, "ToolSet: loadSkill($skillName)")
-        val result = executeSkill(LOAD_SKILL_NAME, mapOf("skill_name" to skillName))
-        lastToolResult = result["result"] ?: result["error"]
-        return result
+        val resultBudget = loadSkillResultBudget.get()
+        val result = executeSkill(
+            LOAD_SKILL_NAME,
+            mapOf("skill_name" to skillName),
+            diagnosticOrder,
+            maxToolResultTokens = resultBudget?.maxTokens,
+        )
+        return finishLoadSkillToolResult(result, diagnosticOrder, resultBudget)
     }
 
-    @Tool(description = "Execute native Android device actions like alarms, calendar, media, navigation, contacts, and system toggles. NOT for weather, web search, or memory — use other tools for those. Call run_intent directly when the required intent name and parameters are clear. Call load_skill(\"run_intent\") only when the supported intent name or required parameters are unclear.")
-    fun runIntent(
-        @ToolParam(description = "The intent action name. Call run_intent directly when the intent is known (e.g. 'set_alarm', 'create_calendar_event', 'send_sms'). Only call load_skill first when unsure which intent or parameters to use.") intentName: String,
-        @ToolParam(description = "Additional parameters as key:value pairs in JSON. For create_calendar_event use: title, date (pass relative dates as-is like \"next friday\"), time (HH:MM 24h), duration_minutes (integer minutes from start to end). For other intents, provide parameters directly when known. Call load_skill only when the supported intent or required parameters are unclear.") parameters: String,
+    private fun finishLoadSkillToolResult(
+        result: Map<String, String>,
+        diagnosticOrder: Int?,
+        resultBudget: LoadSkillResultBudget?,
     ): Map<String, String> {
-        recordToolCall("run_intent", """{"intent_name":"$intentName","parameters":${if (parameters.isBlank()) "{}" else parameters}}""")
+        val resultContent = result["result"] ?: result["error"] ?: result.values.firstOrNull().orEmpty()
+        val resultType = when {
+            "result" in result -> "Success"
+            "error" in result -> "Failure"
+            else -> "Unknown"
+        }
+        if (resultBudget == null) {
+            lastToolResult = result["result"] ?: result["error"]
+            logLoadSkillToolResult(resultType, resultContent, returnedToGemma = true)
+            return result
+        }
+        val resultTokens = LoadSkillToolResultBudget.estimateTokens(result)
+        if (resultTokens <= resultBudget.maxTokens) {
+            lastToolResult = result["result"] ?: result["error"]
+            logLoadSkillToolResult(resultType, resultContent, returnedToGemma = true)
+            return result
+        }
+
+        attemptLoadSkillResultAborted = true
+        lastToolResult = null
+        recordLocalToolResult(
+            diagnosticOrder,
+            "ContextBudgetExceeded",
+            result.values.firstOrNull().orEmpty(),
+            emptyMap(),
+            succeeded = false,
+            directReply = false,
+            returnedToGemma = false,
+        )
+        logLoadSkillToolResult("ContextBudgetExceeded", resultContent, returnedToGemma = false)
+        Log.w(
+            TAG,
+            "load_skill_tool_result_context_abort resultTokens=$resultTokens budget=${resultBudget.maxTokens}",
+        )
+        resultBudget.abortContinuation()
+        return emptyMap()
+    }
+
+    private fun logLoadSkillToolResult(
+        resultType: String,
+        content: String,
+        returnedToGemma: Boolean,
+    ) {
+        Log.d(
+            TAG,
+            "event_seq: tool_result name=$LOAD_SKILL_NAME " +
+                "resultType=$resultType directReply=false " +
+                "returnedToGemma=$returnedToGemma " +
+                "content=\"${content.take(256).replace("\n", "\\n").replace("\"", "\\\"")}\"",
+        )
+    }
+
+    @Tool(description = "Execute supported native Android actions such as alarms, calendar, media, navigation, contacts, and system toggles, plus list/note operations. If the user asks to read run_intent instructions first, load_skill(skill_name='run_intent') MUST be the first tool call; wait for success, then call run_intent. Otherwise call run_intent directly when clear. Use memory tools only for personal facts, not list/note contents. NOT for weather, system info, web search, or currency; use dedicated top-level tools.")
+    fun runIntent(
+        @ToolParam(description = "The model-callable intent identifier; use its exact catalogue spelling (unique case/separator variants are normalized).") intentName: String,
+        @ToolParam(description = "A valid JSON object encoded as a string; do not send CSV or separate fields. For get_date_diff: ${RunIntentSkill.GET_DATE_DIFF_PARAMETER_HELP}. For bulk_add_to_list, use items as one JSON array of strings and pass the requested list_name. For create_calendar_event use title, date (pass relative dates as-is like \"next friday\"), time (HH:MM 24h), duration_minutes (integer minutes from start to end). For other intents, pass required fields directly.") parameters: String,
+    ): Map<String, String> {
+        val resolvedIntentName = resolveRunIntentName(intentName)
+        if (resolvedIntentName != intentName) {
+            Log.i(TAG, "ToolSet: normalized run_intent '$intentName' to '$resolvedIntentName'")
+        }
+        val request =
+            """{"intent_name":"$intentName","parameters":${if (parameters.isBlank()) "{}" else parameters}}"""
+        val arguments = if (localDiagnosticCaptureEnabled) {
+            mapOf("intent_name" to intentName, "parameters" to parameters)
+        } else {
+            null
+        }
+        if (isSafeModelTestActive() &&
+            !isAllowedSafeModelTestRunIntent(resolvedIntentName, parameters)
+        ) {
+            return denyInSafeModelTest("run_intent", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("run_intent", request, arguments)
         Log.d(TAG, "ToolSet: runIntent($intentName, $parameters)")
 
         val reservedSkillNames = setOf(
@@ -294,31 +619,51 @@ class KernelAIToolSet @Inject constructor(
             "search_memory",
             "get_system_info",
         )
-        if (intentName in reservedSkillNames) {
-            val error = "Invalid run_intent call: '$intentName' is a skill name, not an intent. Use load_skill first for skills like meal_planner or query_wikipedia."
+        if (resolvedIntentName in reservedSkillNames) {
+            val error = "Invalid run_intent call: '$resolvedIntentName' is a skill name, not an intent. Use load_skill first for skills like meal_planner or query_wikipedia."
             lastToolResult = error
             recordToolOutcome("run_intent", succeeded = false)
             captureTerminalResult("run_intent")
-            return mapOf("status" to "error", "error" to error)
+            val toolResult = mapOf("status" to "error", "error" to error)
+            recordLocalToolResult(
+                diagnosticOrder,
+                "Rejected",
+                error,
+                toolResult,
+                succeeded = false,
+                directReply = false,
+                returnedToGemma = true,
+            )
+            return toolResult
         }
 
-        val args = mutableMapOf("intent_name" to intentName)
+        val args = mutableMapOf("intent_name" to resolvedIntentName)
         try {
             val json = org.json.JSONObject(parameters.ifBlank { "{}" })
             json.keys().forEach { key -> args[key] = json.optString(key) }
         } catch (e: Exception) {
             if (parameters.isNotBlank()) {
                 val error = "Invalid parameters: expected a JSON object. Got: ${parameters.take(120)}"
-                Log.w(TAG, "ToolSet: runIntent params not valid JSON — failing closed: ${e.message}")
+                Log.w(TAG, "ToolSet: runIntent params not valid JSON — failing closed: ${e.javaClass.simpleName}")
                 lastToolResult = error
                 recordToolOutcome("run_intent", succeeded = false)
                 captureTerminalResult("run_intent")
-                return mapOf("status" to "error", "error" to error)
+                val toolResult = mapOf("status" to "error", "error" to error)
+                recordLocalToolResult(
+                    diagnosticOrder,
+                    "Rejected",
+                    error,
+                    toolResult,
+                    succeeded = false,
+                    directReply = false,
+                    returnedToGemma = true,
+                )
+                return toolResult
             }
             Log.w(TAG, "ToolSet: runIntent blank params parse, using empty: ${e.message}")
         }
 
-        val result = executeSkill("run_intent", args)
+        val result = executeSkill("run_intent", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("run_intent")
         return result
@@ -328,7 +673,12 @@ class KernelAIToolSet @Inject constructor(
     fun runJs(
         @ToolParam(description = "A JSON object with skill_name (the JS skill to run) and data (a JSON object with the skill's parameters). Call loadSkill to learn the exact format.") parameters: String,
     ): Map<String, String> {
-        recordToolCall("run_js", parameters)
+        val request = parameters
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("parameters" to parameters) else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("run_js", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("run_js", request, arguments)
         Log.d(TAG, "ToolSet: runJs(params=$parameters)")
 
         val args = mutableMapOf<String, String>()
@@ -341,10 +691,10 @@ class KernelAIToolSet @Inject constructor(
             }
             args["skill_name"] = skillName
         } catch (e: Exception) {
-            Log.w(TAG, "ToolSet: runJs params parse failed, treating as empty: ${e.message}")
+            Log.w(TAG, "ToolSet: runJs params parse failed, treating as empty: ${e.javaClass.simpleName}")
         }
 
-        val result = executeSkill("run_js", args)
+        val result = executeSkill("run_js", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("run_js")
         return result
@@ -356,7 +706,17 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "Source currency code or full name (e.g. 'AUD', 'USD', 'Australian dollars')") fromCurrency: String,
         @ToolParam(description = "Target currency code or full name (e.g. 'INR', 'NZD', 'Indian rupees')") toCurrency: String,
     ): Map<String, String> {
-        recordToolCall("convert_currency", """{"amount":"$amount","from_currency":"$fromCurrency","to_currency":"$toCurrency"}""")
+        val request =
+            """{"amount":"$amount","from_currency":"$fromCurrency","to_currency":"$toCurrency"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) {
+            mapOf("amount" to amount, "from_currency" to fromCurrency, "to_currency" to toCurrency)
+        } else {
+            null
+        }
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("convert_currency", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("convert_currency", request, arguments)
         Log.d(TAG, "ToolSet: convertCurrency(amount=$amount, from=$fromCurrency, to=$toCurrency)")
 
         val args = mapOf(
@@ -365,7 +725,7 @@ class KernelAIToolSet @Inject constructor(
             "to_currency" to toCurrency,
         )
 
-        val result = executeSkill("convert_currency", args)
+        val result = executeSkill("convert_currency", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("convert_currency")
         return result
@@ -376,7 +736,16 @@ class KernelAIToolSet @Inject constructor(
         @ToolParam(description = "Optional location/city name. Leave blank for device GPS location.") location: String,
         @ToolParam(description = "Number of forecast days (1-7). Omit or pass 0 for current conditions only.") forecastDays: String,
     ): Map<String, String> {
-        recordToolCall("get_weather", """{"location":"$location","forecast_days":"$forecastDays"}""")
+        val request = """{"location":"$location","forecast_days":"$forecastDays"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) {
+            mapOf("location" to location, "forecast_days" to forecastDays)
+        } else {
+            null
+        }
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("get_weather", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("get_weather", request, arguments)
         Log.d(TAG, "ToolSet: getWeather(location=$location, forecastDays=$forecastDays)")
 
         val args = mutableMapOf<String, String>()
@@ -387,7 +756,7 @@ class KernelAIToolSet @Inject constructor(
             args["forecast_days"] = forecastDays
         }
 
-        val result = executeSkill("get_weather_gps", args)
+        val result = executeSkill("get_weather_gps", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("get_weather")
         return result
@@ -397,19 +766,33 @@ class KernelAIToolSet @Inject constructor(
     fun queryWikipedia(
         @ToolParam(description = "The topic, entity, or article title to look up on Wikipedia.") query: String,
     ): Map<String, String> {
-        recordToolCall("query_wikipedia", """{"query":"${query.replace("\"", "\\\"").take(200)}"}""")
+        val request = """{"query":"${query.replace("\"", "\\\"").take(200)}"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("query" to query) else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("query_wikipedia", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("query_wikipedia", request, arguments)
         Log.d(TAG, "ToolSet: queryWikipedia(${query.take(60)})")
-        val result = executeSkill("query_wikipedia", mapOf("query" to query))
-        lastToolResult = result["result"] ?: result["error"]
+        val skillArgs = buildMap {
+            put("query", query)
+            turnUserMessage?.let { put(QueryWikipediaSkill.QUESTION_ARGUMENT, it) }
+        }
+        val result = executeSkill("query_wikipedia", skillArgs, diagnosticOrder)
+        lastToolResult = (result["result"] ?: result["error"])?.let(::toVisibleWikipediaEvidenceResult)
         captureTerminalResult("query_wikipedia")
         return result
     }
 
     @Tool(description = "Get current date/time and device runtime info including hardware tier, available memory, battery level, and device details. ALWAYS use this for current date, time, or day queries.")
     fun getSystemInfo(): Map<String, String> {
-        recordToolCall("get_system_info", "{}")
+        val request = "{}"
+        val arguments = if (localDiagnosticCaptureEnabled) emptyMap<String, String>() else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("get_system_info", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("get_system_info", request, arguments)
         Log.d(TAG, "ToolSet: getSystemInfo()")
-        val result = executeSkill("get_system_info", emptyMap())
+        val result = executeSkill("get_system_info", emptyMap(), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("get_system_info")
         return result
@@ -419,9 +802,14 @@ class KernelAIToolSet @Inject constructor(
     fun saveMemory(
         @ToolParam(description = "The exact fact or preference to save, verbatim as the user stated it.") content: String,
     ): Map<String, String> {
-        recordToolCall("save_memory", """{"content":"${content.replace("\"", "\\\"").take(200)}"}""")
+        val request = """{"content":"${content.replace("\"", "\\\"").take(200)}"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("content" to content) else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("save_memory", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("save_memory", request, arguments)
         Log.d(TAG, "ToolSet: saveMemory(${content.take(60)})")
-        val result = executeSkill("save_memory", mapOf("content" to content))
+        val result = executeSkill("save_memory", mapOf("content" to content), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("save_memory")
         return result
@@ -431,9 +819,14 @@ class KernelAIToolSet @Inject constructor(
     fun searchMemory(
         @ToolParam(description = "What to search for in saved memories and past messages.") query: String,
     ): Map<String, String> {
-        recordToolCall("search_memory", """{"query":"$query"}""")
+        val request = """{"query":"$query"}"""
+        val arguments = if (localDiagnosticCaptureEnabled) mapOf("query" to query) else null
+        if (isSafeModelTestActive()) {
+            return denyInSafeModelTest("search_memory", request, arguments)
+        }
+        val diagnosticOrder = recordToolCall("search_memory", request, arguments)
         Log.d(TAG, "ToolSet: searchMemory($query)")
-        val result = executeSkill("search_memory", mapOf("query" to query))
+        val result = executeSkill("search_memory", mapOf("query" to query), diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("search_memory")
         return result
@@ -441,22 +834,56 @@ class KernelAIToolSet @Inject constructor(
 
     // -------------------------------------------------------------------------
     // Internal dispatch
-    private fun executeSkill(skillName: String, args: Map<String, String>): Map<String, String> {
+    private fun executeSkill(
+        skillName: String,
+        args: Map<String, String>,
+        diagnosticOrder: Int?,
+        maxToolResultTokens: Int? = null,
+    ): Map<String, String> {
+        if (isSafeModelTestActive() && !isAllowedSafeModelTestDispatch(skillName, args)) {
+            recordToolOutcome(skillName, succeeded = false)
+            val toolResult = mapOf("error" to "Blocked by safe model-test allowlist")
+            recordLocalToolResult(
+                diagnosticOrder,
+                "Blocked",
+                toolResult["error"],
+                toolResult,
+                succeeded = false,
+                directReply = false,
+                returnedToGemma = true,
+            )
+            return toolResult
+        }
         val skill = skillRegistry.get().get(skillName)
             ?: run {
                 recordToolOutcome(skillName, succeeded = false)
-                return mapOf("error" to "Unknown skill: $skillName")
+                val toolResult = mapOf("error" to "Unknown skill: $skillName")
+                recordLocalToolResult(
+                    diagnosticOrder,
+                    "UnknownSkill",
+                    toolResult["error"],
+                    toolResult,
+                    succeeded = false,
+                    directReply = false,
+                    returnedToGemma = true,
+                )
+                return toolResult
             }
 
         return try {
             val result = runBlocking {
-                skill.execute(SkillCall(skillName = skillName, arguments = args))
+                skill.execute(
+                    SkillCall(
+                        skillName = skillName,
+                        arguments = args,
+                        maxToolResultTokens = maxToolResultTokens,
+                    ),
+                )
             }
-            recordToolOutcome(
-                skillName,
-                succeeded = result is SkillResult.Success || result is SkillResult.DirectReply,
-            )
+            val succeeded = result is SkillResult.Success || result is SkillResult.DirectReply
+            recordToolOutcome(skillName, succeeded)
             lastToolWasDirectReply = result is SkillResult.DirectReply
+            lastToolDetail = (result as? SkillResult.Failure)?.technicalDetail
             lastToolPresentation = when (result) {
                 is SkillResult.Success -> result.presentation
                 is SkillResult.DirectReply -> result.presentation
@@ -474,12 +901,17 @@ class KernelAIToolSet @Inject constructor(
                 is SkillResult.Failure -> result.error
                 else -> result::class.simpleName ?: "Unknown"
             }
-            Log.d(TAG, "event_seq: tool_result name=$skillName " +
-                "resultType=${result::class.simpleName} " +
-                "directReply=$lastToolWasDirectReply " +
-                "returnedToGemma=$returnedToGemma " +
-                "content=\"${resultContent.take(256).replace("\n","\\n").replace("\"","\\\"")}\"")
-            when (result) {
+            if (skillName != LOAD_SKILL_NAME) {
+                Log.d(
+                    TAG,
+                    "event_seq: tool_result name=$skillName " +
+                        "resultType=${result::class.simpleName} " +
+                        "directReply=$lastToolWasDirectReply " +
+                        "returnedToGemma=$returnedToGemma " +
+                        "content=\"${resultContent.take(256).replace("\n", "\\n").replace("\"", "\\\"")}\"",
+                )
+            }
+            val toolResult = when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
                 is SkillResult.DirectReply -> mapOf("result" to result.content)
                 is SkillResult.Failure -> mapOf("error" to result.error)
@@ -491,12 +923,33 @@ class KernelAIToolSet @Inject constructor(
                     "contextParams" to result.contextParams.entries.joinToString(",") { "${it.key}=${it.value}" },
                 )
             }
+            recordLocalToolResult(
+                diagnosticOrder,
+                result::class.simpleName ?: "Unknown",
+                resultContent,
+                toolResult,
+                succeeded = succeeded,
+                directReply = lastToolWasDirectReply,
+                returnedToGemma = returnedToGemma,
+            )
+            toolResult
         } catch (e: Exception) {
             recordToolOutcome(skillName, succeeded = false)
             lastToolPresentation = null
             lastToolSpokenSummary = null
             Log.e(TAG, "ToolSet: $skillName execution failed", e)
-            mapOf("error" to (e.message ?: "Unknown error executing $skillName"))
+            val error = e.message ?: "Unknown error executing $skillName"
+            val toolResult = mapOf("error" to error)
+            recordLocalToolResult(
+                diagnosticOrder,
+                "Exception",
+                error,
+                toolResult,
+                succeeded = false,
+                directReply = false,
+                returnedToGemma = true,
+            )
+            toolResult
         }
     }
 }

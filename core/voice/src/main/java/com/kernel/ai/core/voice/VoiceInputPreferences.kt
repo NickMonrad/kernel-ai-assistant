@@ -25,6 +25,8 @@ class VoiceInputPreferences @Inject constructor(
     private val selectedEngineKey = stringPreferencesKey("selected_voice_input_engine")
     private val autoStartAlertVoiceCommandsEnabledKey =
         booleanPreferencesKey("auto_start_alert_voice_commands_enabled")
+    private val allowOnlineSpeechFallbackKey =
+        booleanPreferencesKey("allow_online_speech_fallback")
 
     val selectedEngine: Flow<VoiceInputEngine> = context.voiceInputPrefsDataStore.data
         .catch { e ->
@@ -47,6 +49,27 @@ class VoiceInputPreferences @Inject constructor(
             }
         }
         .map { prefs -> prefs[autoStartAlertVoiceCommandsEnabledKey] ?: true }
+
+    /**
+     * Whether Android native recognition may fall back to the platform (Google) recognition
+     * service, which can send audio off the device. Off by default so voice input stays local.
+     */
+    val allowOnlineSpeechFallback: Flow<Boolean> = context.voiceInputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice input preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> prefs[allowOnlineSpeechFallbackKey] ?: false }
+
+    suspend fun setAllowOnlineSpeechFallback(allowed: Boolean) {
+        context.voiceInputPrefsDataStore.edit { prefs ->
+            prefs[allowOnlineSpeechFallbackKey] = allowed
+        }
+    }
 
     suspend fun setSelectedEngine(engine: VoiceInputEngine) {
         context.voiceInputPrefsDataStore.edit { prefs ->

@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -42,7 +43,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.MutableState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -58,6 +61,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Repeat
@@ -101,6 +105,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -121,8 +126,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -140,6 +147,8 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Log
@@ -202,6 +211,7 @@ internal fun shouldKeepChatScreenAwake(
     plannerActivity: MealPlannerActivity? = null,
 ): Boolean = when (uiState) {
     ChatUiState.Loading -> true
+    is ChatUiState.ModelInitializationFailed -> false
     is ChatUiState.ModelsNotReady -> false
     is ChatUiState.Ready ->
         uiState.isLoadingModel ||
@@ -213,10 +223,20 @@ internal fun shouldKeepChatScreenAwake(
 }
 
 internal fun shouldShowInlineGenerationIndicator(state: ChatUiState.Ready): Boolean =
-    state.isGenerating &&
+    (state.isPreparingResponse || state.isGenerating) &&
         !state.isLoadingModel &&
         state.messages.lastOrNull()?.role == ChatMessage.Role.USER &&
         state.messages.none { it.role == ChatMessage.Role.ASSISTANT && it.isStreaming }
+
+internal fun shouldAutoScrollToLatest(
+    messageCount: Int,
+    lastVisibleItemIndex: Int,
+    latestAssistantIsStreaming: Boolean,
+    latestAssistantWasStreaming: Boolean,
+): Boolean = messageCount > 0 &&
+    (latestAssistantIsStreaming ||
+        latestAssistantWasStreaming ||
+        lastVisibleItemIndex >= messageCount - 2)
 
 /** Attachment type for the in-chat attachment picker (#962). */
 private enum class AttachmentType { Image, Audio, File }
@@ -227,6 +247,9 @@ fun ChatScreen(
     conversationId: String? = null,
     initialQuery: String? = null,
     speakInitialResponse: Boolean = false,
+    /** #1604: text from another app, placed in the composer for review; it is never auto-sent. */
+    externalDraft: String? = null,
+    onExternalDraftConsumed: () -> Unit = {},
     onBack: () -> Unit = {},
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
@@ -239,6 +262,7 @@ fun ChatScreen(
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
     val microphoneState by viewModel.microphoneState.collectAsStateWithLifecycle()
+    val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
     val mealPlannerActivity by viewModel.mealPlannerActivity.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -274,10 +298,33 @@ fun ChatScreen(
             }
         }
     }
+    // #1604: externally supplied text only fills the composer; the user must tap Send.
+    // The notice above the composer stays until the text is sent, cleared or discarded.
+    var showExternalDraftNotice by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(externalDraft) {
+        if (!externalDraft.isNullOrBlank()) {
+            withTimeoutOrNull(30_000L) { viewModel.isConversationReady.first { it } }
+            viewModel.replaceInputText(externalDraft)
+            showExternalDraftNotice = true
+            onExternalDraftConsumed()
+        }
+    }
+    LaunchedEffect(showExternalDraftNotice) {
+        if (showExternalDraftNotice) {
+            // Skip a stale emission from before the draft reached the composer.
+            viewModel.uiState.first { it is ChatUiState.Ready && it.inputText.isNotBlank() }
+            viewModel.uiState.first { it is ChatUiState.Ready && it.inputText.isBlank() }
+            showExternalDraftNotice = false
+        }
+    }
     var showModelSettings by remember { mutableStateOf(false) }
 
     when (val state = uiState) {
         is ChatUiState.Loading -> LoadingContent()
+        is ChatUiState.ModelInitializationFailed -> ModelInitializationFailedContent(
+            message = state.message,
+            onRetry = viewModel::retryModelInitialization,
+        )
         is ChatUiState.ModelsNotReady -> OnboardingContent(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
@@ -302,10 +349,39 @@ fun ChatScreen(
             val speakingMessageId by viewModel.speakingMessageId.collectAsStateWithLifecycle()
             val isArchived by viewModel.isArchived.collectAsStateWithLifecycle()
             val copyToolCalls by viewModel.copyToolCalls.collectAsStateWithLifecycle()
+            val currentModel by viewModel.currentModel.collectAsStateWithLifecycle()
             var showVoicePermissionPrompt by remember { mutableStateOf(false) }
             val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
             // Track which voice action is pending while we await the permission result.
             var pendingVoiceAction by rememberSaveable { mutableStateOf<String?>(null) }
+            val weatherLocationPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission(),
+            ) { granted ->
+                if (granted) {
+                    viewModel.onWeatherLocationPermissionGranted()
+                } else {
+                    viewModel.onWeatherLocationPermissionDenied(
+                        shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
+                            context as android.app.Activity,
+                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                        ),
+                    )
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                viewModel.events.collect { event ->
+                    when (event) {
+                        ChatViewModel.UiEvent.RequestWeatherLocationPermission ->
+                            weatherLocationPermissionLauncher.launch(
+                                Manifest.permission.ACCESS_COARSE_LOCATION,
+                            )
+                        ChatViewModel.UiEvent.RepairWeatherLocationPermission ->
+                            openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    }
+                }
+            }
+
             val micPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission(),
             ) { granted ->
@@ -357,6 +433,11 @@ fun ChatScreen(
                             Manifest.permission.RECORD_AUDIO,
                         ) == PackageManager.PERMISSION_GRANTED
                         viewModel.onChatMicRepairResumeCheck(micGranted)
+                        val locationGranted = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        viewModel.onChatWeatherLocationRepairResumeCheck(locationGranted)
                     }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
@@ -371,12 +452,16 @@ fun ChatScreen(
             }
 
             ChatContent(
+                activeModelName = currentModel?.displayName ?: "unknown",
                 state = state,
                 isSeeding = isSeeding,
                 isArchived = isArchived,
                 onInputChanged = viewModel::onInputChanged,
                 onSend = viewModel::sendMessage,
                 onCancel = viewModel::cancelGeneration,
+                onResponseFeedbackVisible = viewModel::logFirstVisibleResponseFeedback,
+                onFirstThinkingTextVisible = viewModel::logFirstVisibleThinkingText,
+                onFirstAnswerTokenVisible = viewModel::logFirstVisibleAnswerToken,
                 onStopVoicePlayback = viewModel::stopVoicePlayback,
                 onBack = onBack,
                 onNewConversation = {
@@ -396,6 +481,11 @@ fun ChatScreen(
                 speakingMessageId = speakingMessageId,
                 onSpeakMessage = viewModel::speakMessage,
                 snackbarHostState = snackbarHostState,
+                showExternalDraftNotice = showExternalDraftNotice,
+                onDiscardExternalDraft = {
+                    viewModel.replaceInputText("")
+                    showExternalDraftNotice = false
+                },
                 onCopyMessage = { content ->
                     clipboardManager.setText(AnnotatedString(stripMarkdownForClipboard(content)))
                     scope.launch { snackbarHostState.showSnackbar("Message copied") }
@@ -487,6 +577,66 @@ fun ChatScreen(
                     )
                 }
             }
+            weatherLocationState?.let { weatherState ->
+                PermissionOverlayDialog(
+                    title = if (weatherState.isPermanentlyDenied) {
+                        "Location permission is blocked"
+                    } else {
+                        "Use your location for local weather?"
+                    },
+                    body = if (weatherState.isPermanentlyDenied) {
+                        "Android will not show the Location permission prompt. Open system settings to allow local weather, " +
+                            "or ask for weather in a named place instead."
+                    } else {
+                        "Jandal can use approximate location to answer weather questions for where you are now. " +
+                            "You can also type a place instead."
+                    },
+                    actions = if (weatherState.isPermanentlyDenied) {
+                        listOf(
+                            PermissionDialogAction(
+                                label = "Open Location permission settings",
+                                testTag = "permission_dialog_open_app_permissions",
+                                onClick = {
+                                    viewModel.onWeatherLocationOpenAppPermissions()
+                                },
+                                isPrimary = true,
+                            ),
+                            PermissionDialogAction(
+                                label = "Use a named location",
+                                testTag = "permission_dialog_location_type_place",
+                                onClick = { viewModel.onWeatherLocationTypePlace() },
+                            ),
+                            PermissionDialogAction(
+                                label = "Not now",
+                                testTag = "permission_dialog_location_not_now",
+                                onClick = { viewModel.dismissWeatherLocationDialog() },
+                            ),
+                        )
+                    } else {
+                        listOf(
+                            PermissionDialogAction(
+                                label = "Use my location",
+                                testTag = "permission_dialog_location_use_my_location",
+                                onClick = { viewModel.onWeatherLocationRequestPermission() },
+                                isPrimary = true,
+                            ),
+                            PermissionDialogAction(
+                                label = "Use a named location",
+                                testTag = "permission_dialog_location_type_place",
+                                onClick = { viewModel.onWeatherLocationTypePlace() },
+                            ),
+                            PermissionDialogAction(
+                                label = "Not now",
+                                testTag = "permission_dialog_location_not_now",
+                                onClick = { viewModel.dismissWeatherLocationDialog() },
+                            ),
+                        )
+                    },
+                    dialogTestTag = "permission_dialog_location",
+                    onDismissRequest = { viewModel.dismissWeatherLocationDialog() },
+                )
+            }
+
             // Model settings overlay — always shown on icon tap, not guarded by
             // modelCapabilities/currentModel null-check (#961).
             if (showModelSettings) {
@@ -544,6 +694,9 @@ fun ChatScreen(
                             model = currentModel!!,
                             capabilities = capabilities!!,
                             activeBackend = state.activeBackend,
+                            debugForceGpuConversationReset = state.debugForceGpuConversationReset,
+                            onDebugForceGpuConversationResetChange =
+                                viewModel::setDebugForceGpuConversationResetEachTurn,
                             temperature = temp,
                             onTemperatureChange = { temp = it },
                             topP = topP,
@@ -562,7 +715,7 @@ fun ChatScreen(
                                     topP = topP,
                                     topK = topK,
                                     showThinkingProcess = showThinking,
-                                    speculativeDecodingEnabled = active?.speculativeDecodingEnabled ?: false,
+                                    speculativeDecodingEnabled = active?.speculativeDecodingEnabled ?: true,
                                 )
                                 viewModel.applyModelSettingsAndStartNewChat(draft)
                             },
@@ -572,7 +725,7 @@ fun ChatScreen(
                                 temp = 1.0f
                                 topP = 0.95f
                                 topK = 64
-                                showThinking = true
+                                showThinking = viewModel.defaultModelSettings(currentModel!!.modelId).showThinkingProcess
                             },
                         )
                     }
@@ -607,29 +760,40 @@ private fun ChatContent(
     speakingMessageId: String?,
     onSpeakMessage: (String, String) -> Unit,
     snackbarHostState: SnackbarHostState,
+    showExternalDraftNotice: Boolean,
+    onDiscardExternalDraft: () -> Unit,
     onCopyMessage: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
     onCopyAll: () -> Unit,
     showModelSettings: Boolean,
+    activeModelName: String,
     onShowModelSettingsChange: (Boolean) -> Unit,
+    onResponseFeedbackVisible: () -> Unit,
+    onFirstThinkingTextVisible: () -> Unit,
+    onFirstAnswerTokenVisible: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
     var showAttachmentPicker by remember { mutableStateOf(false) }
+    var latestAssistantWasStreaming by remember { mutableStateOf(false) }
     // LoopListeningCueEffect removed — cue playback is handled by StartListeningCuePlayer
     // in ChatViewModel on VoiceInputEvent.ListeningStarted.
 
-    // Auto-scroll when a new message is appended, but only if the user is already
-    // near the bottom (within 2 items). If they've scrolled up to read history,
-    // the scroll-to-bottom button handles getting back. Uses instant scrollToItem
-    // (not animated) so it never holds the scroll mutex long enough to fight gestures.
-    LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) {
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            if (lastVisible >= state.messages.size - 2) {
-                listState.scrollToItem(state.messages.lastIndex, scrollOffset = Int.MAX_VALUE)
-            }
+    // Follow a new assistant response through completion, but leave idle history browsing
+    // alone. The streaming transition is keyed separately because message count stays fixed.
+    val latestAssistantIsStreaming =
+        state.messages.lastOrNull()?.let { it.role == ChatMessage.Role.ASSISTANT && it.isStreaming } == true
+    LaunchedEffect(state.messages.size, latestAssistantIsStreaming) {
+        val shouldScroll = shouldAutoScrollToLatest(
+            messageCount = state.messages.size,
+            lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0,
+            latestAssistantIsStreaming = latestAssistantIsStreaming,
+            latestAssistantWasStreaming = latestAssistantWasStreaming,
+        )
+        latestAssistantWasStreaming = latestAssistantIsStreaming
+        if (shouldScroll) {
+            listState.scrollToItem(state.messages.lastIndex, scrollOffset = Int.MAX_VALUE)
         }
     }
 
@@ -743,6 +907,19 @@ private fun ChatContent(
                             MessageBubble(
                                 message = message,
                                 onCopy = { content -> onCopyMessage(content) },
+                                onReport = { content ->
+                                    val versionName = runCatching {
+                                        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                                    }.getOrNull() ?: "unknown"
+                                    val intent = buildReportResponseIntent(content, versionName, activeModelName)
+                                    try {
+                                        context.startActivity(intent)
+                                    } catch (_: android.content.ActivityNotFoundException) {
+                                        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AI response", content))
+                                        android.widget.Toast.makeText(context, "No email app found. Response copied.", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                },
                                 showThinkingProcess = state.showThinkingProcess,
                                 isSpeaking = speakingMessageId == message.id,
                                 onSpeak = { onSpeakMessage(message.id, message.toolCall?.spokenSummary ?: message.content) },
@@ -750,6 +927,8 @@ private fun ChatContent(
                                 userFontColor = state.userFontColor,
                                 assistantFontColor = state.assistantFontColor,
                                 bubbleThemeUserColor = state.bubbleThemeUserColor,
+                                onFirstThinkingTextVisible = onFirstThinkingTextVisible,
+                                onFirstAnswerTokenVisible = onFirstAnswerTokenVisible,
                                 bubbleThemeAssistantColor = state.bubbleThemeAssistantColor,
                             )
                         }
@@ -785,7 +964,8 @@ private fun ChatContent(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(16.dp),
+                                        .padding(16.dp)
+                                        .onGloballyPositioned { onResponseFeedbackVisible() },
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     Row(
@@ -883,9 +1063,14 @@ private fun ChatContent(
                 }
             }
 
+            if (!isArchived && showExternalDraftNotice) {
+                ExternalDraftNotice(onDiscard = onDiscardExternalDraft)
+            }
             if (!isArchived) {
                 InputBar(
                     text = state.inputText,
+                    textRevision = state.inputTextReplacementRevision,
+                    replacementText = state.inputTextReplacementText,
                     isGenerating = state.isGenerating,
                     voiceCaptureState = voiceCaptureState,
                     voicePlaybackState = voicePlaybackState,
@@ -943,9 +1128,10 @@ private fun ChatContent(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(
+internal fun MessageBubble(
     message: ChatMessage,
     onCopy: (String) -> Unit,
+    onReport: (String) -> Unit,
     showThinkingProcess: Boolean = true,
     isSpeaking: Boolean = false,
     onSpeak: () -> Unit = {},
@@ -954,6 +1140,8 @@ private fun MessageBubble(
     assistantFontColor: Long? = null,
     bubbleThemeUserColor: Long? = null,
     bubbleThemeAssistantColor: Long? = null,
+    onFirstThinkingTextVisible: () -> Unit = {},
+    onFirstAnswerTokenVisible: () -> Unit = {},
 ) {
     // ---- Visual customisation (#906) ----
     val fontSizeStyle = when (fontSize) {
@@ -996,11 +1184,16 @@ private fun MessageBubble(
         }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().onGloballyPositioned {
+            if (!isUser && message.isStreaming) {
+                if (!message.thinkingText.isNullOrBlank()) onFirstThinkingTextVisible()
+                if (message.content.isNotBlank()) onFirstAnswerTokenVisible()
+            }
+        },
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
     ) {
         // Thinking bubble — auto-expands while streaming, collapses when done, user-toggleable
-        if (showThinkingProcess && !message.thinkingText.isNullOrBlank()) {
+        if (showThinkingProcess && (!message.thinkingText.isNullOrBlank() || message.isStreaming)) {
             var userExpanded by rememberSaveable(key = "thinking_userExpanded") { mutableStateOf(false) }
             val expanded = userExpanded || message.isStreaming
             Column(modifier = Modifier.padding(bottom = 4.dp).testTag("think_bubble")) {
@@ -1073,23 +1266,25 @@ private fun MessageBubble(
                         }
                     }
                 }
-                AnimatedVisibility(visible = expanded) {
-                    Surface(
-                        color = if (message.isStreaming)
-                            PauaPurple.copy(alpha = 0.08f)
-                        else
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .widthIn(max = 320.dp),
-                    ) {
-                        Text(
-                            text = message.thinkingText!!,
-                            style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(8.dp).testTag("think_bubble_content"),
-                        )
+                if (!message.thinkingText.isNullOrBlank()) {
+                    AnimatedVisibility(visible = expanded) {
+                        Surface(
+                            color = if (message.isStreaming)
+                                PauaPurple.copy(alpha = 0.08f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .widthIn(max = 320.dp),
+                        ) {
+                            Text(
+                                text = message.thinkingText!!,
+                                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(8.dp).testTag("think_bubble_content"),
+                            )
+                        }
                     }
                 }
             }
@@ -1218,17 +1413,95 @@ private fun MessageBubble(
                             Icon(Icons.Default.ContentCopy, contentDescription = null)
                         },
                     )
+                    if (!isUser && !message.isStreaming && message.content.isNotBlank()) {
+                        DropdownMenuItem(
+                            text = { Text("Report response") },
+                            onClick = {
+                                showMenu = false
+                                onReport(message.content)
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Flag, contentDescription = null)
+                            },
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+/** #1604: marks composer text that another app supplied; nothing runs until the user sends it. */
+@Composable
+private fun ExternalDraftNotice(onDiscard: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .testTag("chat_external_draft_notice"),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = EXTERNAL_DRAFT_HINT,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onDiscard) { Text("Discard") }
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The composer owns its text and selection; the ViewModel's text only replaces it when a new
+ * [replacementRevision] arrives (send-clear, smart-reply chips, voice, external drafts).
+ *
+ * The replacement's own [replacementText] is applied, not the latest [text]: a keystroke that
+ * lands between the ViewModel replacement and this effect would otherwise make the two
+ * disagree. After applying, and after a restore, the field's text is pushed back through
+ * [onTextChanged] so the ViewModel (which `sendMessage` reads) always matches what is shown.
+ */
+@Composable
+internal fun rememberChatComposerDraft(
+    text: String,
+    replacementRevision: Long,
+    replacementText: String = text,
+    onTextChanged: (String) -> Unit = {},
+): MutableState<TextFieldValue> {
+    val draftValue = rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(text, selection = TextRange(text.length)))
+    }
+    var appliedRevision by rememberSaveable { mutableLongStateOf(replacementRevision) }
+    val latestOnTextChanged by rememberUpdatedState(onTextChanged)
+    LaunchedEffect(Unit) {
+        // Restored after rotation or process death: make the ViewModel match the field.
+        if (draftValue.value.text != text) latestOnTextChanged(draftValue.value.text)
+    }
+    LaunchedEffect(replacementRevision) {
+        if (replacementRevision != appliedRevision) {
+            if (draftValue.value.text != replacementText) {
+                draftValue.value = TextFieldValue(replacementText, selection = TextRange(replacementText.length))
+            }
+            appliedRevision = replacementRevision
+            if (text != replacementText) latestOnTextChanged(replacementText)
+        }
+    }
+    return draftValue
+}
 
 @Composable
 private fun InputBar(
     text: String,
+    textRevision: Long,
+    replacementText: String,
     isGenerating: Boolean,
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
@@ -1463,10 +1736,8 @@ private fun InputBar(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    var draftText by rememberSaveable { mutableStateOf(text) }
-                    LaunchedEffect(text) {
-                        if (draftText != text) draftText = text
-                    }
+                    var draftValue by rememberChatComposerDraft(text, textRevision, replacementText, onTextChanged)
+                    val draftText = draftValue.text
                     val sendEnabled = draftText.isNotBlank()
                     val showControlRow =
                         draftText.isBlank() ||
@@ -1604,10 +1875,10 @@ private fun InputBar(
                     }
                     // Primary row: full-width text field with send/cancel trailing icon
                     TextField(
-                        value = draftText,
-                        onValueChange = { newText ->
-                            draftText = newText
-                            onTextChanged(newText)
+                        value = draftValue,
+                        onValueChange = { newValue ->
+                            draftValue = newValue
+                            onTextChanged(newValue.text)
                         },
                         placeholder = { Text("Message Jandal…") },
                         modifier = Modifier.fillMaxWidth(),
@@ -1891,6 +2162,38 @@ private fun LoadingContent() {
 }
 
 @Composable
+internal fun ModelInitializationFailedContent(
+    message: String,
+    onRetry: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+        ) {
+            Text(
+                text = "Couldn't start the on-device model",
+                style = MaterialTheme.typography.headlineSmall,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Button(
+                onClick = onRetry,
+                modifier = Modifier.padding(top = 16.dp),
+            ) {
+                Text("Retry model loading")
+            }
+        }
+    }
+}
+
+@Composable
 private fun OnboardingContent(
     isDownloading: Boolean,
     modelProgress: List<ChatUiState.ModelDownloadProgress>,
@@ -2043,7 +2346,7 @@ private fun OnboardingContent(
                 )
             }
 
-            // ── Other model rows (EmbeddingGemma, SentencePiece, etc.) ──────
+            // ── Other model rows (Arctic Embed, vocabulary, etc.) ──────────
             if (otherModels.isNotEmpty()) {
                 Column(
                     modifier = Modifier
@@ -2108,18 +2411,25 @@ private fun OnboardingContent(
 }
 
 @Composable
-private fun ConversationDownloadProgress(
+internal fun ConversationDownloadProgress(
     progress: Float?,
 ) {
     Spacer(modifier = Modifier.height(8.dp))
+    val percent = progress?.takeIf { it > 0f }?.let { (it * 100).roundToInt() }
+    val progressModifier = Modifier
+        .fillMaxWidth()
+        .semantics {
+            contentDescription = "Download progress"
+            if (percent != null) stateDescription = "$percent percent"
+        }
     if (progress != null && progress > 0f) {
         LinearProgressIndicator(
             progress = progress,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = progressModifier,
         )
     } else {
         LinearProgressIndicator(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = progressModifier,
         )
     }
 }
@@ -2214,7 +2524,7 @@ private fun ConversationModelRecommendationCard(
 }
 
 /** Compact byte formatting for inline use. */
-private fun formatBytesShort(bytes: Long): String = when {
+internal fun formatBytesShort(bytes: Long): String = when {
     bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000f)
     bytes >= 1_000_000L -> "%.0f MB".format(bytes / 1_000_000f)
     else -> "$bytes B"
@@ -2556,6 +2866,8 @@ private fun ModelSettingsSheet(
     onTopKChange: (Int) -> Unit,
     showThinking: Boolean,
     onShowThinkingChange: (Boolean) -> Unit,
+    debugForceGpuConversationReset: Boolean,
+    onDebugForceGpuConversationResetChange: (Boolean) -> Unit,
     isApplying: Boolean = false,
     onApply: () -> Unit,
     onCancel: () -> Unit,
@@ -2669,6 +2981,31 @@ private fun ModelSettingsSheet(
                 Switch(
                     checked = showThinking,
                     onCheckedChange = onShowThinkingChange,
+                )
+            }
+        }
+
+        if (BuildConfig.DEBUG && activeBackend == BackendType.GPU) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Reset GPU conversation every turn (debug)",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = "Off reuses the conversation and KV cache. Debug-only; release behavior is unchanged.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = debugForceGpuConversationReset,
+                    onCheckedChange = onDebugForceGpuConversationResetChange,
+                    modifier = Modifier.testTag("debug_gpu_per_turn_reset_switch"),
                 )
             }
         }

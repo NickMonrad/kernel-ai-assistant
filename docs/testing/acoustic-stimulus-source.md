@@ -1,6 +1,6 @@
 # Debug acoustic stimulus source
 
-The source endpoint exists only in the debug application (`com.kernel.ai.debug`). It
+The source endpoint exists only in the debug application (`ai.jandal.assistant.debug`). It
 plays an approved app-private WAV fixture through the source device's built-in
 speaker. It does not schedule trials or change wake-word behaviour.
 
@@ -11,7 +11,7 @@ receiver explicitly:
 
 ```sh
 adb -s "$JANDAL_S23U_SOURCE" shell am broadcast \
-  -n com.kernel.ai.debug/com.kernel.ai.debug.acoustic.AcousticStimulusReceiver \
+  -n ai.jandal.assistant.debug/com.kernel.ai.debug.acoustic.AcousticStimulusReceiver \
   -a com.kernel.ai.debug.action.PLAY_ACOUSTIC_STIMULUS \
   --es trial_id smoke-001 \
   --es fixture_id natural_wake \
@@ -82,12 +82,12 @@ export SOURCE_ALIAS="$JANDAL_S23U_SOURCE"
 export FIXTURE_FILE="$HOME/private-acoustic-fixtures/natural_wake.wav"
 export MANIFEST_FILE="$HOME/private-acoustic-fixtures/manifest.json"
 
-adb -s "$SOURCE_ALIAS" shell run-as com.kernel.ai.debug mkdir -p files/acoustic-fixtures
+adb -s "$SOURCE_ALIAS" shell run-as ai.jandal.assistant.debug mkdir -p files/acoustic-fixtures
 adb -s "$SOURCE_ALIAS" push "$FIXTURE_FILE" /data/local/tmp/acoustic-natural_wake.wav
 adb -s "$SOURCE_ALIAS" push "$MANIFEST_FILE" /data/local/tmp/acoustic-manifest.json
 adb -s "$SOURCE_ALIAS" shell chmod 644 /data/local/tmp/acoustic-natural_wake.wav /data/local/tmp/acoustic-manifest.json
-adb -s "$SOURCE_ALIAS" shell run-as com.kernel.ai.debug cp /data/local/tmp/acoustic-natural_wake.wav files/acoustic-fixtures/natural_wake.wav
-adb -s "$SOURCE_ALIAS" shell run-as com.kernel.ai.debug cp /data/local/tmp/acoustic-manifest.json files/acoustic-fixtures/manifest.json
+adb -s "$SOURCE_ALIAS" shell run-as ai.jandal.assistant.debug cp /data/local/tmp/acoustic-natural_wake.wav files/acoustic-fixtures/natural_wake.wav
+adb -s "$SOURCE_ALIAS" shell run-as ai.jandal.assistant.debug cp /data/local/tmp/acoustic-manifest.json files/acoustic-fixtures/manifest.json
 adb -s "$SOURCE_ALIAS" shell rm /data/local/tmp/acoustic-natural_wake.wav /data/local/tmp/acoustic-manifest.json
 ```
 
@@ -108,7 +108,7 @@ Concurrent requests are rejected without mutating audio state.
 
 ## Target structured event journal
 
-The debug application (`com.kernel.ai.debug`) includes a concurrent content-provider
+The debug application (`ai.jandal.assistant.debug`) includes a concurrent content-provider
 machine interface and a legacy read-only broadcast receiver for structured target
 diagnostics. The interface provides a bounded in-memory event journal, an event-driven
 bounded wait and a snapshot-since mechanism. It does not alter wake thresholds, models,
@@ -123,12 +123,12 @@ control request, and waits are not subject to the BroadcastReceiver ANR deadline
 ```sh
 # Get the current highest sequence number (0 = journal empty)
 adb shell content call \
-  --uri content://com.kernel.ai.debug.target-event-journal \
+  --uri content://ai.jandal.assistant.debug.target-event-journal \
   --method GET_JOURNAL_SEQUENCE
 
 # Wait up to 10 seconds for an STT_READY event after sequence 5
 adb shell content call \
-  --uri content://com.kernel.ai.debug.target-event-journal \
+  --uri content://ai.jandal.assistant.debug.target-event-journal \
   --method WAIT_FOR_JOURNAL_EVENT \
   --extra request_id:s:trial-1 \
   --extra since_sequence:l:5 \
@@ -137,13 +137,13 @@ adb shell content call \
 
 # Cancel that exact wait without blocking sequence or snapshot requests
 adb shell content call \
-  --uri content://com.kernel.ai.debug.target-event-journal \
+  --uri content://ai.jandal.assistant.debug.target-event-journal \
   --method CANCEL_JOURNAL_WAIT \
   --extra request_id:s:trial-1
 
 # Retrieve the complete snapshot since sequence 5
 adb shell content call \
-  --uri content://com.kernel.ai.debug.target-event-journal \
+  --uri content://ai.jandal.assistant.debug.target-event-journal \
   --method GET_JOURNAL_SNAPSHOT \
   --extra since_sequence:l:5
 ```

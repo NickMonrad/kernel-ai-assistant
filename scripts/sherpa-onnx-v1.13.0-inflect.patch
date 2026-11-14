@@ -153,3 +153,39 @@ index 4931fa0..3270e58 100644
    local:
      *;
  };
+diff --git a/build-android-arm64-v8a.sh b/build-android-arm64-v8a.sh
+--- a/build-android-arm64-v8a.sh
++++ b/build-android-arm64-v8a.sh
+@@ -145,2 +145,5 @@
+ cmake -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
++    -DCMAKE_C_FLAGS="-g0 -ffile-prefix-map=$SHERPA_BUILD_ROOT=/src/sherpa" \
++    -DCMAKE_CXX_FLAGS="-g0 -ffile-prefix-map=$SHERPA_BUILD_ROOT=/src/sherpa" \
++    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--build-id=none" \
+     -DSHERPA_ONNX_ENABLE_TTS=$SHERPA_ONNX_ENABLE_TTS \
+diff --git a/build-android-armv7-eabi.sh b/build-android-armv7-eabi.sh
+--- a/build-android-armv7-eabi.sh
++++ b/build-android-armv7-eabi.sh
+@@ -138,2 +138,5 @@
+ cmake -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
++    -DCMAKE_C_FLAGS="-g0 -ffile-prefix-map=$SHERPA_BUILD_ROOT=/src/sherpa" \
++    -DCMAKE_CXX_FLAGS="-g0 -ffile-prefix-map=$SHERPA_BUILD_ROOT=/src/sherpa" \
++    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--build-id=none" \
+     -DSHERPA_ONNX_ENABLE_TTS=$SHERPA_ONNX_ENABLE_TTS \
+diff --git a/build-android-x86.sh b/build-android-x86.sh
+--- a/build-android-x86.sh
++++ b/build-android-x86.sh
+@@ -89,2 +89,5 @@
+ cmake -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
++    -DCMAKE_C_FLAGS="-g0 -ffile-prefix-map=$SHERPA_BUILD_ROOT=/src/sherpa" \
++    -DCMAKE_CXX_FLAGS="-g0 -ffile-prefix-map=$SHERPA_BUILD_ROOT=/src/sherpa" \
++    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--build-id=none" \
+     -DSHERPA_ONNX_ENABLE_TTS=$SHERPA_ONNX_ENABLE_TTS \
+diff --git a/build-android-x86-64.sh b/build-android-x86-64.sh
+--- a/build-android-x86-64.sh
++++ b/build-android-x86-64.sh
+@@ -121,2 +121,5 @@
+ cmake -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
++    -DCMAKE_C_FLAGS="-g0 -ffile-prefix-map=$SHERPA_BUILD_ROOT=/src/sherpa" \
++    -DCMAKE_CXX_FLAGS="-g0 -ffile-prefix-map=$SHERPA_BUILD_ROOT=/src/sherpa" \
++    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--build-id=none" \
+     -DSHERPA_ONNX_ENABLE_TTS=$SHERPA_ONNX_ENABLE_TTS \
