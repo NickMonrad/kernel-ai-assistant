@@ -58,4 +58,8 @@ object UnknownIntentReplies {
      */
     fun loggableName(intentName: String): String =
         intentName.lowercase().filter { it in 'a'..'z' || it in '0'..'9' || it == '_' }.take(40)
+
+    /** Log-safe `[k1,k2]` list of parameter keys; values are never logged. */
+    fun loggableKeys(keys: Collection<String>): String =
+        keys.joinToString(prefix = "[", postfix = "]", separator = ",") { loggableName(it) }
 }

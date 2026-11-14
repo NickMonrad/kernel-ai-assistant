@@ -52,6 +52,7 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillOutcomeEvents
 import com.kernel.ai.core.inference.diagnostics.IntentRoute
+import com.kernel.ai.core.skills.natives.UnknownIntentReplies
 import com.kernel.ai.core.inference.diagnostics.DebugVerboseLog
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
@@ -2069,7 +2070,7 @@ class ChatViewModel @Inject constructor(
         }
 
         val commandId = "${UUID.randomUUID().toString().take(8)}-${commandIdSequence.incrementAndGet()}"
-        Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId input=${text.take(120)} submitMode=$submitMode")
+        Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId input=${if (DebugVerboseLog.active()) text.take(120) else "redacted"} submitMode=$submitMode")
         // #1618: per-stage turn timing; ms since the message was accepted. Logcat only.
         val turnAcceptedAtNanos = System.nanoTime()
         activeTurnAcceptedAtNanos = turnAcceptedAtNanos
@@ -2641,7 +2642,7 @@ class ChatViewModel @Inject constructor(
                                     Log.d("KernelAI", "RecoveryOrchestrator: slot_validation_blocked intent=${recovery.intentName}")
                                     return@launch
                                 }
-                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} paramKeys=${callParams.size}")
+                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${UnknownIntentReplies.loggableName(recovery.intentName)} paramKeys=${UnknownIntentReplies.loggableKeys(callParams.keys)}")
                                 if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_recovery_params: $callParams")
                                 val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.RECOVERY)
                                 when (skillResult) {
@@ -2696,7 +2697,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is RecoveryResult.AskConfirmation -> {
-                            Log.d("KernelAI", "RecoveryOrchestrator.AskConfirmation: intent=${recovery.intentName} paramKeys=${recovery.params.size}")
+                            Log.d("KernelAI", "RecoveryOrchestrator.AskConfirmation: intent=${UnknownIntentReplies.loggableName(recovery.intentName)} paramKeys=${UnknownIntentReplies.loggableKeys(recovery.params.keys)}")
                             if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_confirm_params: ${recovery.params}")
                             pendingConfirmationIntent = QuickIntentRouter.MatchedIntent(
                                 intentName = recovery.intentName,
@@ -2770,7 +2771,7 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
                 if (skill != null) {
-                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} paramKeys=${callParams.size}")
+                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${UnknownIntentReplies.loggableName(matchedIntent.intentName)} paramKeys=${UnknownIntentReplies.loggableKeys(callParams.keys)}")
                     if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_params: intent=${matchedIntent.intentName} params=$callParams")
                     val skillResult = SkillOutcomeEvents.execute(
                         skill,
@@ -3025,7 +3026,8 @@ class ChatViewModel @Inject constructor(
                 if (localNzEntry != null) {
                     val localReply = buildKnownNzContextReply(localNzEntry, text)
                     Log.d(TAG, "Deterministic NZ context answered locally for term='${localNzEntry.term}'")
-                    Log.d("KernelAI", "llm_tools_assistant_reply: ${localReply.take(1000).replace('\n', ' ')}")
+                    Log.d("KernelAI", "llm_tools_assistant_reply: len=${localReply.length}")
+                    if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_reply: ${localReply.take(1000).replace('\n', ' ')}")
                     // Index user message — normally deferred to LLM Complete handler
                     if (savedUserMsgId.isNotBlank()) {
                         ragRepository.indexMessage(savedUserMsgId, convId, text)
@@ -3601,9 +3603,8 @@ class ChatViewModel @Inject constructor(
                             if (nativeToolCall != null) {
                                 Log.d(
                                     "KernelAI",
-                                    "llm_tools_native_tool: tool=${nativeToolCall.skillName} requestLen=${nativeToolCall.requestJson.length}",
+                                    "llm_tools_native_tool: tool=${UnknownIntentReplies.loggableName(nativeToolCall.skillName)} requestLen=${nativeToolCall.requestJson.length}" + (if (DebugVerboseLog.active()) " request=${nativeToolCall.requestJson}" else ""),
                                 )
-                            if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_native_request: ${nativeToolCall.requestJson}")
                             requestCalendarPermissionIfNeeded(kernelAIToolSet.lastToolCapabilityRequired())
                             // E2E marker: native SDK skill result
                             val nativeResultMode = when {
@@ -3613,18 +3614,17 @@ class ChatViewModel @Inject constructor(
                             }
                             Log.d(
                                 "KernelAI",
-                                "llm_tools_skill_result: tool=${nativeToolCall.skillName} mode=$nativeResultMode success=${nativeToolCall.isSuccess}",
+                                "llm_tools_skill_result: tool=${UnknownIntentReplies.loggableName(nativeToolCall.skillName)} mode=$nativeResultMode success=${nativeToolCall.isSuccess}",
                             )
                             }
                             // E2E marker: legacy fallback tool call
                             val toolCallResult = if (nativeToolCall == null) {
                                 Log.d(
                                     "KernelAI",
-                                    "llm_tools_legacy_tool: len=${fullContent.length}",
+                                    "llm_tools_legacy_tool: tool=${UnknownIntentReplies.loggableName(Regex("call:(\\w+)\\{").find(fullContent)?.groupValues?.get(1) ?: "unknown")} len=${fullContent.length}" + (if (DebugVerboseLog.active()) " raw=${fullContent.replace('\n', ' ')}" else ""),
                                 )
                                 // E2E marker: legacy assistant reply size (content is not logged)
                                 Log.d("KernelAI", "llm_tools_assistant_reply: len=${fullContent.length}")
-                                if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_legacy_raw: $fullContent")
                                 tryExecuteToolCall(fullContent)
                             } else null
                             if (nativeToolCall != null || toolCallResult != null) {
@@ -4239,7 +4239,7 @@ class ChatViewModel @Inject constructor(
         // E2E marker: skill execution result
         Log.d(
             "KernelAI",
-            "llm_tools_skill_result: argsLen=${extracted.length} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
+            "llm_tools_skill_result: tool=${UnknownIntentReplies.loggableName(Regex("call:(\\w+)\\{").find(extracted)?.groupValues?.get(1) ?: "unknown")} argsLen=${extracted.length} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
         )
         if (DebugVerboseLog.active()) Log.d("KernelAI", "verbose_skill_args: $extracted")
         return when (result) {

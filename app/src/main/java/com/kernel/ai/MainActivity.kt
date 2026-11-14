@@ -20,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.DebugVerboseLog
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
@@ -226,11 +227,14 @@ class MainActivity : ComponentActivity() {
 
     /** Applies the #1604 trust boundary to this intent's prompt extras. */
     private fun resolvePromptExtras(intent: Intent, callerUid: Int): ExternalPromptDelivery {
+        val harnessTokenValid = BuildConfig.DEBUG && debugHarnessTokenValid(intent)
+        // Debug builds only: a harness-token launch turns verbose content logs on; any other launch turns them off.
+        DebugVerboseLog.enabled = harnessTokenValid
         val trust = classifyExternalPromptCaller(
             callerUid = callerUid,
             ownUid = Process.myUid(),
             isDebugBuild = BuildConfig.DEBUG,
-            harnessTokenValid = BuildConfig.DEBUG && debugHarnessTokenValid(intent),
+            harnessTokenValid = harnessTokenValid,
         )
         val delivery = resolveExternalPromptDelivery(
             chatInput = intent.getStringExtra("chat_input"),

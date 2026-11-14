@@ -170,9 +170,9 @@ class NativeIntentHandler @Inject constructor(
     suspend fun handle(intentName: String, params: Map<String, String>, route: IntentRoute = IntentRoute.OTHER): SkillResult {
         val normalizedName = normalizeIntentName(intentName)
         if (normalizedName != intentName) {
-            Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
+            Log.w(TAG, "NativeIntentHandler: normalized intent '${UnknownIntentReplies.loggableName(intentName)}' -> '${UnknownIntentReplies.loggableName(normalizedName)}'")
         }
-        Log.d(TAG, "NativeIntentHandler.handle: intent=$normalizedName paramKeys=${params.size}")
+        Log.d(TAG, "NativeIntentHandler.handle: intent=${UnknownIntentReplies.loggableName(normalizedName)} paramKeys=${UnknownIntentReplies.loggableKeys(params.keys)}")
         if (DebugVerboseLog.active()) Log.d(TAG, "verbose_params: intent=$normalizedName params=$params")
         val result = try {
             when (normalizedName) {
@@ -264,7 +264,7 @@ class NativeIntentHandler @Inject constructor(
         } catch (e: ListMutationBlockedException) {
             SkillResult.Failure(normalizedName, e.message ?: "This Nextcloud list is read-only.")
         } catch (e: Exception) {
-            Log.e(TAG, "NativeIntentHandler.handle($normalizedName) failed", e)
+            Log.e(TAG, "NativeIntentHandler.handle(${UnknownIntentReplies.loggableName(normalizedName)}) failed", e)
             SkillResult.Failure("run_intent", e.message ?: "Unknown error")
         }
         recordIntentOutcome(normalizedName, route, result)

@@ -25,6 +25,7 @@ from adb_harness.config import (
     LOGCAT_TAG,
     NATIVE_INTENT_NAME_PATTERN,
     NATIVE_INTENT_PATTERN,
+    VERBOSE_PARAMS_PATTERN,
     PARAM_EXTRACT_PATTERN,
     PACKAGE,
     PROFILE_FALLBACK_PATTERN,
@@ -835,17 +836,24 @@ def cleanup_side_effects(wait_for_inference: bool = False) -> None:
 
 
 def extract_intent(logcat_output: str) -> tuple[str | None, dict[str, str]]:
-    """Extract the latest native intent name + params from logcat output."""
+    """Extract the latest native intent name + params from logcat output.
+
+    Parameter values come only from the debug-only verbose_params line. The default
+    NativeIntentHandler line carries parameter keys, so the keys-only fallback leaves values empty.
+    """
+    verbose = list(VERBOSE_PARAMS_PATTERN.finditer(logcat_output))
+    if verbose:
+        match = verbose[-1]
+        params = {
+            kv.group(1): kv.group(2).strip()
+            for kv in PARAM_EXTRACT_PATTERN.finditer(match.group(2))
+        }
+        return match.group(1), params
     matches = list(NATIVE_INTENT_PATTERN.finditer(logcat_output))
     if matches:
         match = matches[-1]
-        intent_name = match.group(1)
-        raw_params = match.group(2)
-        params = {
-            kv.group(1): kv.group(2).strip()
-            for kv in PARAM_EXTRACT_PATTERN.finditer(raw_params)
-        }
-        return intent_name, params
+        keys = [key for key in match.group(2).split(",") if key]
+        return match.group(1), {key: "" for key in keys}
 
     fallback = list(NATIVE_INTENT_NAME_PATTERN.finditer(logcat_output))
     if not fallback:
@@ -983,14 +991,14 @@ def validate_llm_tool_sequence(
 
 def extract_reply(logcat_output: str) -> str | None:
     """Extract the latest reply text from logcat, if any.
-    Checks both DirectReply (native intent) and llm_tools_assistant_reply (LLM fallthrough) markers.
+    Checks verbose_direct_reply and verbose_reply lines (debug verbose logging only; the default lines carry lengths).
     """
     direct_matches = DIRECT_REPLY_PATTERN.findall(logcat_output)
     llm_matches = LLM_TOOLS_ASSISTANT_REPLY_PATTERN.findall(logcat_output)
     # Prefer the latest of whichever marker type fired, by return order
     if direct_matches and llm_matches:
         # Both present — take whichever came last by comparing last positions
-        return direct_matches[-1] if logcat_output.rfind("DirectReply:") > logcat_output.rfind("llm_tools_assistant_reply:") else llm_matches[-1]
+        return direct_matches[-1] if logcat_output.rfind("verbose_direct_reply:") > logcat_output.rfind("verbose_reply:") else llm_matches[-1]
     if direct_matches:
         return direct_matches[-1]
     if llm_matches:
