@@ -20,7 +20,7 @@ enum class ModelRole(
 
     /** Every required file is needed before memory search works. */
     MEMORY_SEARCH(
-        members = listOf(KernelModel.EMBEDDING_GEMMA_300M, KernelModel.EMBEDDING_GEMMA_SP_MODEL),
+        members = listOf(KernelModel.ARCTIC_EMBED_M_V1_5, KernelModel.ARCTIC_EMBED_V1_5_VOCAB),
         requirement = RoleRequirement.ALL,
     ),
 

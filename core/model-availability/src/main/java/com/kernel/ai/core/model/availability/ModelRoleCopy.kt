@@ -49,8 +49,8 @@ object ModelRoleCopy {
     fun purpose(model: KernelModel): String = when (model) {
         KernelModel.GEMMA_4_E4B -> "Answers your questions and chats, with more detail."
         KernelModel.GEMMA_4_E2B -> "Smaller, faster option for low-end phones"
-        KernelModel.EMBEDDING_GEMMA_300M -> "Helps Jandal remember and find things you've told it."
-        KernelModel.EMBEDDING_GEMMA_SP_MODEL -> "Splits your text into pieces for memory search."
+        KernelModel.ARCTIC_EMBED_M_V1_5 -> "Helps Jandal remember and find things you've told it."
+        KernelModel.ARCTIC_EMBED_V1_5_VOCAB -> "Vocabulary that memory search needs alongside Arctic Embed."
         KernelModel.MINI_LM -> "Recognises common requests like alarms and timers, offline."
         else -> model.displayName
     }

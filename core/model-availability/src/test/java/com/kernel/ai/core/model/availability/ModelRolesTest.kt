@@ -13,18 +13,20 @@ class ModelRolesTest {
     private val done = DownloadState.Downloaded("/x")
     private val none = DownloadState.NotDownloaded
 
+    private val arcticM = KernelModel.ARCTIC_EMBED_M_V1_5
+    private val arcticVocab = KernelModel.ARCTIC_EMBED_V1_5_VOCAB
+
     private fun states(vararg downloaded: KernelModel): Map<KernelModel, DownloadState> =
         KernelModel.entries.associateWith { if (it in downloaded) done else none }
 
     private fun chat(sections: List<ModelRoleSection>) = sections.first { it.role == ModelRole.CHAT_BRAIN }
-    private fun memory(sections: List<ModelRoleSection>) = sections.first { it.role == ModelRole.MEMORY_SEARCH }
     private fun ModelRoleSection.row(model: KernelModel) = rows.first { it.model == model }
 
     // ── E-2B is never a plain missing Download when E-4B is in use ─────────
 
     @Test
     fun `E-2B is a More models row, not a plain download, when E-4B is installed and in use`() {
-        val s = states(KernelModel.GEMMA_4_E4B, KernelModel.EMBEDDING_GEMMA_300M, KernelModel.EMBEDDING_GEMMA_SP_MODEL)
+        val s = states(KernelModel.GEMMA_4_E4B, arcticM, arcticVocab)
         val section = chat(ModelRoles.sections(preferred = null, tier = HardwareTier.FLAGSHIP, states = s))
 
         assertEquals(KernelModel.GEMMA_4_E4B, section.using)
@@ -33,7 +35,7 @@ class ModelRolesTest {
     }
 
     @Test
-    fun `E-2B is Optional with Delete when it is installed but E-4B is in use`() {
+    fun `E-2B is Optional when it is installed but E-4B is in use`() {
         val s = states(KernelModel.GEMMA_4_E4B, KernelModel.GEMMA_4_E2B)
         val section = chat(ModelRoles.sections(preferred = null, tier = HardwareTier.FLAGSHIP, states = s))
 
@@ -58,7 +60,7 @@ class ModelRolesTest {
         val section = chat(ModelRoles.sections(preferred = null, tier = HardwareTier.MID_RANGE, states = states()))
 
         assertEquals(ModelGroup.NOT_NEEDED, section.row(KernelModel.GEMMA_4_E4B).group)
-        assertEquals(ModelGroup.IN_USE, section.row(KernelModel.GEMMA_4_E2B).group)
+        assertEquals(ModelGroup.NOT_NEEDED, section.row(KernelModel.GEMMA_4_E4B).group)
         assertTrue(section.row(KernelModel.GEMMA_4_E2B).required)
     }
 
@@ -70,7 +72,7 @@ class ModelRolesTest {
 
         assertEquals(listOf(ModelRole.CHAT_BRAIN, ModelRole.MEMORY_SEARCH), items.map { it.role })
         assertEquals(KernelModel.GEMMA_4_E4B, items.first { it.role == ModelRole.CHAT_BRAIN }.downloadModel)
-        assertEquals(KernelModel.EMBEDDING_GEMMA_300M, items.first { it.role == ModelRole.MEMORY_SEARCH }.downloadModel)
+        assertEquals(arcticM, items.first { it.role == ModelRole.MEMORY_SEARCH }.downloadModel)
         assertEquals(RoleStatus.MISSING, items.first { it.role == ModelRole.CHAT_BRAIN }.status)
     }
 
@@ -83,27 +85,23 @@ class ModelRolesTest {
 
     @Test
     fun `memory search with only one of its two files is still needed, pointing at the missing file`() {
-        val s = states(KernelModel.GEMMA_4_E4B, KernelModel.EMBEDDING_GEMMA_300M)
+        val s = states(KernelModel.GEMMA_4_E4B, arcticM)
         val item = ModelRoles.stillNeeded(HardwareTier.FLAGSHIP, s).single()
 
         assertEquals(ModelRole.MEMORY_SEARCH, item.role)
         assertEquals(RoleStatus.MISSING, item.status)
-        assertEquals(KernelModel.EMBEDDING_GEMMA_SP_MODEL, item.downloadModel)
+        assertEquals(arcticVocab, item.downloadModel)
     }
 
     @Test
     fun `everything required installed leaves no still-needed lines`() {
-        val s = states(
-            KernelModel.GEMMA_4_E4B,
-            KernelModel.EMBEDDING_GEMMA_300M,
-            KernelModel.EMBEDDING_GEMMA_SP_MODEL,
-        )
+        val s = states(KernelModel.GEMMA_4_E4B, arcticM, arcticVocab)
         assertTrue(ModelRoles.stillNeeded(HardwareTier.FLAGSHIP, s).isEmpty())
     }
 
     @Test
     fun `an in-progress download reports DOWNLOADING with its progress`() {
-        val s = states(KernelModel.EMBEDDING_GEMMA_300M, KernelModel.EMBEDDING_GEMMA_SP_MODEL) +
+        val s = states(arcticM, arcticVocab) +
             (KernelModel.GEMMA_4_E4B to DownloadState.Downloading(progress = 0.42f))
         val item = ModelRoles.stillNeeded(HardwareTier.FLAGSHIP, s).single()
 
@@ -127,8 +125,8 @@ class ModelRolesTest {
 
     @Test
     fun `deleting a required memory file breaks memory search`() {
-        val s = states(KernelModel.EMBEDDING_GEMMA_300M, KernelModel.EMBEDDING_GEMMA_SP_MODEL)
-        assertTrue(ModelRoles.deletionBreaksRole(KernelModel.EMBEDDING_GEMMA_SP_MODEL, s))
+        val s = states(arcticM, arcticVocab)
+        assertTrue(ModelRoles.deletionBreaksRole(arcticVocab, s))
     }
 
     @Test
