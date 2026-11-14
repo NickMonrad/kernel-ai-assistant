@@ -143,6 +143,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult =
         withContext(Dispatchers.IO) {
+            PronunciationLexicon.ensureLoaded(context)
             val isKokoro =
                 voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental
             val initResult: VoiceOutputResult
@@ -214,6 +215,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     override suspend fun openStreamingSession(
         request: VoiceSpeakRequest,
     ): VoiceOutputStreamingSession = withContext(Dispatchers.IO) {
+        PronunciationLexicon.ensureLoaded(context)
         val isKokoro =
             voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental
         val initResult: VoiceOutputResult

@@ -49,6 +49,8 @@ object TranscriptNormaliser {
         // #939 — wharepaku <-> fatty pucker / fattypucker (observed device mishears)
         Regex("""\bfatty\s+pucker\b""", RegexOption.IGNORE_CASE) to "wharepaku",
         Regex("""\bfattypucker\b""", RegexOption.IGNORE_CASE) to "wharepaku",
+        // #1852 — Petone heard as "patroni" (Zipformer). Not an English word.
+        Regex("""\bpatroni\b""", RegexOption.IGNORE_CASE) to "Petone",
     )
 
     /** Unit/abbreviation normalisations: #1017. */
