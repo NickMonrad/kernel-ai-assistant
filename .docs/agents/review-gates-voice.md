@@ -37,9 +37,8 @@ Choose the narrowest slice that exercises the changed path:
 
 | Device | When |
 |--------|------|
-| S21 (Exynos) | Default — always required for voice changes |
-| S23U (SD 8 Gen 2) | Only when device-sensitive (different SoC audio pipeline),
-  S21 results are ambiguous, or the issue reproduced on S23U |
+| S23U (SD 8 Gen 2) | Primary — always required for voice changes |
+| S21 (Exynos) | Extra capacity only — parallel runs, or a second-SoC audio-pipeline comparison when the change is device-sensitive; see `.docs/agents/risk-based-evidence-policy.md` |
 
 ## Common Regressions to Check
 

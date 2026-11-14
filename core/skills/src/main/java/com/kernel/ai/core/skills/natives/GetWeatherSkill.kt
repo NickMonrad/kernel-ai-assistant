@@ -871,7 +871,7 @@ class GetWeatherSkill @Inject constructor(
                 "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
                 "&timezone=auto&forecast_days=7&wind_speed_unit=ms"
 
-            val body = retryWithBackoff("Weekend Forecast API ($displayName)") {
+            val body = retryWithBackoff("Weekend Forecast API") {
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
                         throw IllegalStateException("Forecast API returned ${response.code}")
@@ -902,7 +902,7 @@ class GetWeatherSkill @Inject constructor(
                 "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
                 "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
 
-            val body = retryWithBackoff("Forecast API ($displayName, $days days)") {
+            val body = retryWithBackoff("Forecast API ($days days)") {
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
                         throw IllegalStateException("Forecast API returned ${response.code}")
@@ -1074,7 +1074,7 @@ class GetWeatherSkill @Inject constructor(
             "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
             "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
 
-        val body = retryWithBackoff("Forecast API ($displayName, day $dayIndex)") {
+        val body = retryWithBackoff("Forecast API (day $dayIndex)") {
             httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw IllegalStateException("Forecast API returned ${response.code}")
@@ -1224,7 +1224,7 @@ class GetWeatherSkill @Inject constructor(
                 "&forecast_days=1&timezone=auto&wind_speed_unit=ms"
 
             // Fetch with retry
-            val weatherBody = retryWithBackoff("Weather API ($displayName)") {
+            val weatherBody = retryWithBackoff("Weather API") {
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
                         throw IllegalStateException("Weather API returned ${response.code}")

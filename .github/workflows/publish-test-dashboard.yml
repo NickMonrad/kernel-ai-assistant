@@ -123,7 +123,6 @@ jobs:
           pages = (
               ("PRIVACY.md", "Privacy Policy", "/privacy/"),
               ("TERMS.md", "Terms of Use", "/terms/"),
-              ("BETA.md", "Join the beta", "/beta/"),
           )
           staged = []
           for filename, title, permalink in pages:
@@ -134,11 +133,6 @@ jobs:
               # Only the leading banner marks a draft, so a document quoting the phrase still publishes.
               if content.lstrip().startswith("> **Draft for owner"):
                   print(f"Skipping draft document: {filename}")
-                  continue
-              # Any tester-list option works (Google Group, Play email list, form); the page waits
-              # only for the placeholder to be replaced.
-              if filename == "BETA.md" and "TESTER_GROUP_LINK" in content:
-                  print(f"Skipping {filename}: tester link placeholder still present")
                   continue
               content = content.replace(
                   "(PRIVACY.md)", f"(/{repo_name}/privacy/)"
@@ -179,9 +173,6 @@ jobs:
           fi
           if [[ -d repo/.legal-pages-build/terms ]]; then
             cp -R repo/.legal-pages-build/terms repo/_site/terms
-          fi
-          if [[ -d repo/.legal-pages-build/beta ]]; then
-            cp -R repo/.legal-pages-build/beta repo/_site/beta
           fi
       - name: Add Jandal landing page
         run: |

@@ -12,6 +12,16 @@ data class VoiceSpeakRequest(
 
 interface VoiceOutputStreamingSession {
     suspend fun append(text: String, isFinal: Boolean = false): VoiceOutputResult
+
+    /**
+     * Closes the session after the producing coroutine was cancelled. Releases streaming
+     * resources (closes chunk channels, marks the final chunk queued) without starting any
+     * new playback. Default: an empty final [append], which streaming controllers treat as
+     * "finish".
+     */
+    suspend fun cancel() {
+        append("", isFinal = true)
+    }
 }
 
 sealed interface VoiceOutputResult {
@@ -42,6 +52,11 @@ private class BufferedVoiceOutputStreamingSession(
         val finalText = buffer.toString().trim()
         if (finalText.isBlank()) return VoiceOutputResult.Spoken
         return controller.speak(request.copy(text = finalText))
+    }
+
+    override suspend fun cancel() {
+        // Cancellation must not flush the buffer into fresh playback — just discard it.
+        isClosed = true
     }
 }
 

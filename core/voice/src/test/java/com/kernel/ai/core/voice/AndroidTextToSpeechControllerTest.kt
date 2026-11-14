@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -291,6 +292,26 @@ class AndroidTextToSpeechControllerTest {
         val recovered = factory.created[1]
         verify { recovered.speak("streamed reply", TextToSpeech.QUEUE_FLUSH, any(), any()) }
         verify(exactly = 0) { factory.created[0].speak(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `stale session final append leaves the current playback timeout armed`() = runTest(dispatcher) {
+        val (controller, _) = buildController()
+        val events = mutableListOf<VoiceOutputEvent>()
+        backgroundScope.launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val stale = controller.openStreamingSession(VoiceSpeakRequest(text = "", locale = Locale.US))
+        stale.append("stale chunk", isFinal = false)
+        // A newer reply supersedes the stale session; its utterance never reports completion.
+        controller.speak(VoiceSpeakRequest(text = "current reply", locale = Locale.US))
+        // The superseded session closes with an empty final append; it must not disarm the newer timeout.
+        stale.append("", isFinal = true)
+
+        advanceTimeBy(PLAYBACK_TIMEOUT_MS + 1)
+        runCurrent()
+
+        assertEquals(listOf<VoiceOutputEvent>(VoiceOutputEvent.SpeakingStopped), events)
     }
 
     @Test
