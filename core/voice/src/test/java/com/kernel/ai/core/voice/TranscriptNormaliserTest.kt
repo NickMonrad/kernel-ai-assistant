@@ -244,6 +244,64 @@ class TranscriptNormaliserTest {
         }
     }
 
+    // ── #1894 — Auckland mishears ─────────────────────────────────────────────
+
+    @Test
+    fun `weather an aukland becomes weather in Auckland`() {
+        assertEquals(
+            "how's the weather in Auckland",
+            TranscriptNormaliser.normalise("how's the weather an aukland"),
+        )
+    }
+
+    @Test
+    fun `weather an orkland becomes weather in Auckland not Oakland`() {
+        assertEquals(
+            "how's the weather in Auckland",
+            TranscriptNormaliser.normalise("how's the weather an orkland"),
+        )
+    }
+
+    @Test
+    fun `weather an ockland becomes weather in Auckland`() {
+        assertEquals(
+            "what's the weather in Auckland",
+            TranscriptNormaliser.normalise("what's the weather an ockland"),
+        )
+    }
+
+    @Test
+    fun `standalone aukland orkland ockland are corrected whole-word and case-insensitively`() {
+        assertEquals("Auckland", TranscriptNormaliser.normalise("Aukland"))
+        assertEquals("flights to Auckland", TranscriptNormaliser.normalise("flights to orkland"))
+        assertEquals("is Auckland far", TranscriptNormaliser.normalise("is ockland far"))
+    }
+
+    @Test
+    fun `weather in Auckland is unchanged`() {
+        assertEquals(
+            "what's the weather in Auckland",
+            TranscriptNormaliser.normalise("what's the weather in Auckland"),
+        )
+    }
+
+    @Test
+    fun `Oakland and other words containing the fragments are not touched`() {
+        assertEquals("weather in Oakland", TranscriptNormaliser.normalise("weather in Oakland"))
+        assertEquals("walkland", TranscriptNormaliser.normalise("walkland"))
+    }
+
+    @Test
+    fun `bare an before Auckland outside weather phrasing is left alone`() {
+        assertEquals("I was an Auckland local", TranscriptNormaliser.normalise("I was an Auckland local"))
+    }
+
+    @Test
+    fun `Auckland corrections are idempotent`() {
+        val once = TranscriptNormaliser.normalise("how's the weather an aukland")
+        assertEquals(once, TranscriptNormaliser.normalise(once))
+    }
+
     // ── #1820 — "add" misheard as "I've" / "I'd" in list commands ───────────
 
     @Test
