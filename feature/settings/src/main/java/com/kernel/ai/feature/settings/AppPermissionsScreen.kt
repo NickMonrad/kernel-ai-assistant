@@ -44,6 +44,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.kernel.ai.core.permissions.PermissionRoute
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import com.kernel.ai.core.permissions.recordPermissionResult
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,10 +68,19 @@ fun AppPermissionsScreen(
         }
     }
 
-    // Denial changes rationale/requested state; re-read so the row routes correctly.
+    // Remembers which row launched the request so its result is recorded against that permission.
+    var pendingPermission by remember { mutableStateOf<String?>(null) }
     val requestPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) {
+    ) { granted ->
+        pendingPermission?.let { permission ->
+            context.recordPermissionResult(
+                permission,
+                granted,
+                shouldShowRationale = !granted && rationaleFor(permission),
+            )
+        }
+        pendingPermission = null
         viewModel.refresh(rationaleFor)
     }
 
@@ -127,9 +140,9 @@ fun AppPermissionsScreen(
                     item = perm,
                     onAction = {
                         when (perm.route) {
-                            PermissionRoute.Granted -> Unit
+                            null, PermissionRoute.Granted -> Unit
                             PermissionRoute.RequestInApp -> {
-                                viewModel.markRuntimePermissionRequested(perm.permission)
+                                pendingPermission = perm.permission
                                 requestPermissionLauncher.launch(perm.permission)
                             }
                             PermissionRoute.AppInfo -> viewModel.openRuntimePermissionAppInfo(perm.permission)
@@ -170,10 +183,10 @@ private fun PermissionRow(
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val actionLabel = when (item.route) {
-                    PermissionRoute.Granted -> null
-                    PermissionRoute.RequestInApp -> "Allow"
-                    PermissionRoute.AppInfo -> "Open app settings"
-                    PermissionRoute.SpecialAccess -> "Opens Android settings"
+                    null, PermissionRoute.Granted -> null
+                    PermissionRoute.RequestInApp -> stringResource(R.string.permission_action_allow)
+                    PermissionRoute.AppInfo -> stringResource(R.string.permission_action_open_app_settings)
+                    PermissionRoute.SpecialAccess -> stringResource(R.string.permission_action_open_settings)
                 }
                 if (actionLabel != null) {
                     TextButton(onClick = onAction) {

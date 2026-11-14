@@ -6,7 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
-import com.kernel.ai.core.permissions.recordRuntimePermissionRequest
+import com.kernel.ai.core.permissions.recordPermissionResult
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -102,6 +102,13 @@ fun ImportantDatesScreen(
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.READ_CALENDAR,
+            granted,
+            shouldShowRationale = !granted && context.findActivity()?.let {
+                ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.READ_CALENDAR)
+            } == true,
+        )
         viewModel.refreshCalendarBirthdays()
         coroutineScope.launch {
             snackbarHostState.showSnackbar(
@@ -188,7 +195,6 @@ fun ImportantDatesScreen(
                                 ) {
                                     showCalendarPermissionRationale = true
                                 } else {
-                                    context.recordRuntimePermissionRequest(Manifest.permission.READ_CALENDAR)
                                     calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                                 }
                             }
@@ -344,7 +350,6 @@ fun ImportantDatesScreen(
                 TextButton(
                     onClick = {
                         showCalendarPermissionRationale = false
-                        context.recordRuntimePermissionRequest(Manifest.permission.READ_CALENDAR)
                         calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                     },
                 ) {

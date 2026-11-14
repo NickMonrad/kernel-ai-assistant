@@ -1,6 +1,7 @@
 package com.kernel.ai.core.permissions
 
 import android.content.Context
+import android.content.SharedPreferences
 
 /**
  * Where a "grant access" action for one permission must go.
@@ -19,42 +20,37 @@ enum class PermissionRoute {
 }
 
 /**
- * Pure routing decision shared by the App Permissions screen and the setup wizard.
+ * Pure routing decision for the "grant access" action. This is the routing function #1855 should
+ * use for the setup wizard too. [PermissionDenialClassifier] stays separate: it only produces
+ * microphone denial/repair copy and does not decide which action a button performs.
  *
- * Permanent denial is detected as: the permission was requested by this app before
- * ([wasRequestedBefore], because `shouldShowRequestPermissionRationale` is also false
- * before the first request) AND [shouldShowRationale] is false.
- *
- * Use this for "what does the action button do". [PermissionDenialClassifier] (microphone
- * denial/repair copy) is a separate classifier of denial history; #1855 should use this
- * route function for the wizard and unify the two only when the classifier's inputs match.
+ * Permanent denial is detected as: the user denied this permission at least once in-app while
+ * Android still offered a rationale ([wasDeniedBefore], recorded by [recordPermissionResult]),
+ * AND the rationale is now false (the second denial). Before the first denial,
+ * `shouldShowRequestPermissionRationale` is also false, so the flag alone decides it.
  */
 fun decidePermissionRoute(
     isGranted: Boolean,
     isSpecialAccess: Boolean,
-    wasRequestedBefore: Boolean,
+    wasDeniedBefore: Boolean,
     shouldShowRationale: Boolean,
 ): PermissionRoute = when {
     isGranted -> PermissionRoute.Granted
     isSpecialAccess -> PermissionRoute.SpecialAccess
-    wasRequestedBefore && !shouldShowRationale -> PermissionRoute.AppInfo
+    wasDeniedBefore && !shouldShowRationale -> PermissionRoute.AppInfo
     else -> PermissionRoute.RequestInApp
 }
 
 /**
- * Persists whether this app has launched the in-app runtime request for a permission.
- * Needed because a never-requested permission and a permanently denied one both report
- * `shouldShowRequestPermissionRationale == false`. A system dialog dismissed without a choice
- * is recorded as requested; Android does not set USER_FIXED for it, so the route stays in-app
- * until a real denial occurs.
+ * Persists the "denied once in-app" flag per runtime permission, in SharedPreferences
+ * `runtime_permission_requests`. Build it only through [from] (Hilt and [recordPermissionResult]
+ * both use it).
  */
-class PermissionRequestStore(context: Context) {
+class PermissionRequestStore internal constructor(private val prefs: SharedPreferences) {
 
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    fun wasDenied(permission: String): Boolean = prefs.getBoolean(permission, false)
 
-    fun wasRequested(permission: String): Boolean = prefs.getBoolean(permission, false)
-
-    fun markRequested(permission: String) {
+    fun markDenied(permission: String) {
         prefs.edit().putBoolean(permission, true).apply()
     }
 
@@ -63,17 +59,28 @@ class PermissionRequestStore(context: Context) {
         prefs.edit().remove(permission).apply()
     }
 
-    private companion object {
-        const val PREFS_NAME = "runtime_permission_requests"
+    companion object {
+        private const val PREFS_NAME = "runtime_permission_requests"
+
+        fun from(context: Context): PermissionRequestStore =
+            PermissionRequestStore(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
     }
 }
 
 /**
- * Call immediately before launching any runtime permission request, from every call site.
- * Without it a permanent denial from that site is not recorded and the App Permissions row
- * keeps offering "Allow" instead of App info.
+ * Call from every runtime-permission result callback, at every request site.
+ *
+ * - Granted: clears the record, so a later revoke (including one-time grants) goes back to "Allow".
+ * - Denied while [shouldShowRationale] is true: records the first in-app denial. A dialog that was
+ *   only dismissed does not set rationale on Android 11+, so it is not recorded and the row keeps
+ *   offering the in-app request.
+ *
+ * [shouldShowRationale] must be read from the Activity in the callback, never during composition.
  */
-fun Context.recordRuntimePermissionRequest(vararg permissions: String) {
-    val store = PermissionRequestStore(this)
-    permissions.forEach(store::markRequested)
+fun Context.recordPermissionResult(permission: String, granted: Boolean, shouldShowRationale: Boolean) {
+    val store = PermissionRequestStore.from(this)
+    when {
+        granted -> store.clear(permission)
+        shouldShowRationale -> store.markDenied(permission)
+    }
 }

@@ -7,20 +7,39 @@ import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Test
 
-class RecordRuntimePermissionRequestTest {
+class RecordPermissionResultTest {
+
+    private val editor = mockk<SharedPreferences.Editor>(relaxed = true)
+    private val prefs = mockk<SharedPreferences>()
+    private val context = mockk<Context>()
+    private val permission = "android.permission.READ_CONTACTS"
+
+    init {
+        every { prefs.edit() } returns editor
+        every { editor.putBoolean(any(), any()) } returns editor
+        every { context.getSharedPreferences(any(), any()) } returns prefs
+    }
 
     @Test
-    fun `records every permission passed in a single call as requested`() {
-        val editor = mockk<SharedPreferences.Editor>(relaxed = true)
-        every { editor.putBoolean(any(), any()) } returns editor
-        val prefs = mockk<SharedPreferences>()
-        every { prefs.edit() } returns editor
-        val context = mockk<Context>()
-        every { context.getSharedPreferences(any(), any()) } returns prefs
+    fun `granted result clears the recorded denial`() {
+        every { editor.remove(permission) } returns editor
 
-        context.recordRuntimePermissionRequest("android.permission.RECORD_AUDIO", "android.permission.READ_CONTACTS")
+        context.recordPermissionResult(permission, granted = true, shouldShowRationale = false)
 
-        verify(exactly = 1) { editor.putBoolean("android.permission.RECORD_AUDIO", true) }
-        verify(exactly = 1) { editor.putBoolean("android.permission.READ_CONTACTS", true) }
+        verify(exactly = 1) { editor.remove(permission) }
+    }
+
+    @Test
+    fun `denial with rationale still available is recorded`() {
+        context.recordPermissionResult(permission, granted = false, shouldShowRationale = true)
+
+        verify(exactly = 1) { editor.putBoolean(permission, true) }
+    }
+
+    @Test
+    fun `dismissed dialog without rationale is not recorded as a denial`() {
+        context.recordPermissionResult(permission, granted = false, shouldShowRationale = false)
+
+        verify(exactly = 0) { editor.putBoolean(permission, true) }
     }
 }

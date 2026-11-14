@@ -231,49 +231,56 @@ class AppPermissionsViewModelTest {
     // ── Route after runtime-request results ───────────────────────────
 
     @Test
-    fun `route moves from request to app info after second deny with no grant change`() = runTest {
+    fun `route is unknown until a refresh supplies a live rationale`() = runTest {
         every {
             ContextCompat.checkSelfPermission(any(), Manifest.permission.READ_CONTACTS)
         } returns PackageManager.PERMISSION_DENIED
-        val requested = mutableSetOf<String>()
-        every { requestStore.wasRequested(any()) } answers { firstArg<String>() in requested }
-        every { requestStore.markRequested(any()) } answers { requested.add(firstArg<String>()); Unit }
+
+        val vm = createViewModel()
+
+        assertEquals(null, vm.uiState.value.permissions.first { it.label == "Contacts" }.route)
+    }
+
+    @Test
+    fun `route moves from request to app info after a denial and then no rationale`() = runTest {
+        every {
+            ContextCompat.checkSelfPermission(any(), Manifest.permission.READ_CONTACTS)
+        } returns PackageManager.PERMISSION_DENIED
+        val denied = mutableSetOf<String>()
+        every { requestStore.wasDenied(any()) } answers { firstArg<String>() in denied }
 
         val vm = createViewModel()
         fun contacts() = vm.uiState.value.permissions.first { it.label == "Contacts" }
+
+        // Never denied: the first refresh routes to an in-app request.
+        vm.refresh { false }
+        testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(PermissionRoute.RequestInApp, contacts().route)
 
-        vm.markRuntimePermissionRequested(Manifest.permission.READ_CONTACTS)
-        // First deny: rationale becomes true; the route stays "Allow".
+        // The denial callback recorded a denial while rationale was still true: stays "Allow".
+        denied.add(Manifest.permission.READ_CONTACTS)
         vm.refresh { true }
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(PermissionRoute.RequestInApp, contacts().route)
 
-        // Second deny: rationale false + requested → permanently denied → App info.
+        // Denied before and rationale now gone: permanently denied, route to app info.
         vm.refresh { false }
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(PermissionRoute.AppInfo, contacts().route)
     }
 
     @Test
-    fun `routeFor sends never-requested denied permission to in-app request`() = runTest {
+    fun `routeFor sends never-denied permission to in-app request`() = runTest {
         val vm = createViewModel()
         val item = AppPermissionItem("Contacts", "", Manifest.permission.READ_CONTACTS)
         assertEquals(PermissionRoute.RequestInApp, vm.routeFor(item, shouldShowRationale = false))
     }
 
     @Test
-    fun `routeFor sends requested-before permission with no rationale to app info`() = runTest {
-        every { requestStore.wasRequested(Manifest.permission.READ_CONTACTS) } returns true
+    fun `routeFor sends denied-before permission with no rationale to app info`() = runTest {
+        every { requestStore.wasDenied(Manifest.permission.READ_CONTACTS) } returns true
         val vm = createViewModel()
         val item = AppPermissionItem("Contacts", "", Manifest.permission.READ_CONTACTS)
         assertEquals(PermissionRoute.AppInfo, vm.routeFor(item, shouldShowRationale = false))
-    }
-
-    @Test
-    fun `markRuntimePermissionRequested records the request in the store`() = runTest {
-        val vm = createViewModel()
-        vm.markRuntimePermissionRequested(Manifest.permission.READ_CONTACTS)
-        verify { requestStore.markRequested(Manifest.permission.READ_CONTACTS) }
     }
 }

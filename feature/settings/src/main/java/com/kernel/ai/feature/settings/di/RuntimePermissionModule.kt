@@ -14,5 +14,5 @@ object RuntimePermissionModule {
 
     @Provides
     fun providePermissionRequestStore(@ApplicationContext context: Context): PermissionRequestStore =
-        PermissionRequestStore(context)
+        PermissionRequestStore.from(context)
 }

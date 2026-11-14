@@ -1,3 +1,6 @@
 <resources>
     <string name="shortcut_lists_label">Lists</string>
+    <string name="permission_action_allow">Allow</string>
+    <string name="permission_action_open_app_settings">Open app settings</string>
+    <string name="permission_action_open_settings">Open settings</string>
 </resources>

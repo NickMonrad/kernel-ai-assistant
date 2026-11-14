@@ -102,7 +102,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
-import com.kernel.ai.core.permissions.recordRuntimePermissionRequest
+import com.kernel.ai.core.permissions.recordPermissionResult
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -273,6 +273,14 @@ fun VoiceScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.RECORD_AUDIO,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.RECORD_AUDIO,
+            ),
+        )
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
@@ -309,7 +317,6 @@ fun VoiceScreen(
                     showMicDurableRequiredDialog = true
                 }
             } else {
-                context.recordRuntimePermissionRequest(Manifest.permission.RECORD_AUDIO)
                 micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
         },
@@ -362,7 +369,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_mic_not_now",
                     onClick = {
                         showMicRepairDialog = false
@@ -398,7 +405,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_mic_not_now",
                     onClick = {
                         showMicDurableRequiredDialog = false
@@ -439,7 +446,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_usage_access_not_now",
                     onClick = {
                         showUsageAccessDialog = false
@@ -484,7 +491,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "default_assistant_not_set_not_now",
                     onClick = {
                         showDefaultAssistantNotSetYet = false

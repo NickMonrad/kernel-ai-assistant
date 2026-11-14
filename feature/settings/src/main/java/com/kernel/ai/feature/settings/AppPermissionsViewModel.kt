@@ -32,7 +32,7 @@ import javax.inject.Inject
  *                            system settings page rather than a runtime request.
  * @param shouldShowRationale Snapshot of `shouldShowRequestPermissionRationale` at refresh time.
  *                            Part of the state so a denial callback changes the emitted state.
- * @param route               Where the action button goes; computed in [AppPermissionsViewModel.refresh].
+ * @param route               Null until a refresh with a live rationale; then where the action button goes.
  */
 data class AppPermissionItem(
     val label: String,
@@ -41,7 +41,7 @@ data class AppPermissionItem(
     val isGranted: Boolean = false,
     val isSpecial: Boolean = false,
     val shouldShowRationale: Boolean = false,
-    val route: PermissionRoute = PermissionRoute.RequestInApp,
+    val route: PermissionRoute? = null,
 )
 
 data class AppPermissionsUiState(
@@ -113,6 +113,8 @@ class AppPermissionsViewModel @Inject constructor(
     val uiState: StateFlow<AppPermissionsUiState> = _uiState.asStateFlow()
 
     init {
+        // Rows and grant state load now; routes stay null until the screen's first resume supplies
+        // a live rationale (see refresh).
         refresh()
     }
 
@@ -123,7 +125,7 @@ class AppPermissionsViewModel @Inject constructor(
      * composition. Call this after every runtime-request result and on ON_RESUME. StateFlow drops
      * equal values, so any field routing depends on must be in [AppPermissionItem].
      */
-    fun refresh(shouldShowRationaleFor: (String) -> Boolean = { false }) {
+    fun refresh(shouldShowRationaleFor: ((String) -> Boolean)? = null) {
         viewModelScope.launch {
             _uiState.value = AppPermissionsUiState(
                 permissions = buildPermissionList(shouldShowRationaleFor),
@@ -131,17 +133,13 @@ class AppPermissionsViewModel @Inject constructor(
         }
     }
 
-    /** Records that the in-app runtime request was launched for [permission]. */
-    fun markRuntimePermissionRequested(permission: String) {
-        requestStore.markRequested(permission)
-    }
 
     /** Decides how a "grant access" action for [item] must proceed. */
     fun routeFor(item: AppPermissionItem, shouldShowRationale: Boolean): PermissionRoute =
         decidePermissionRoute(
             isGranted = item.isGranted,
             isSpecialAccess = item.isSpecial,
-            wasRequestedBefore = requestStore.wasRequested(item.permission),
+            wasDeniedBefore = requestStore.wasDenied(item.permission),
             shouldShowRationale = shouldShowRationale,
         )
 
@@ -162,7 +160,7 @@ class AppPermissionsViewModel @Inject constructor(
         } ?: openAppInfoSettings()
     }
 
-    private fun buildPermissionList(shouldShowRationaleFor: (String) -> Boolean): List<AppPermissionItem> {
+    private fun buildPermissionList(shouldShowRationaleFor: ((String) -> Boolean)?): List<AppPermissionItem> {
 
         // Runtime permissions that the app actually uses and can be revoked.
         // Each entry maps to the skill/feature that depends on it.
@@ -224,13 +222,19 @@ class AppPermissionsViewModel @Inject constructor(
                 PackageManager.PERMISSION_GRANTED
             perm.copy(
                 isGranted = granted,
-                shouldShowRationale = !granted && shouldShowRationaleFor(perm.permission),
+                shouldShowRationale = !granted && shouldShowRationaleFor?.invoke(perm.permission) == true,
             )
         } + specialPermissions).map { item ->
-            // A granted permission no longer needs its "requested before" record. Android
-            // auto-revokes one-time grants, so the record must not survive a later revoke.
+            // A granted permission no longer needs its denial record. Android auto-revokes one-time
+            // grants, so the record must not survive a later revoke.
             if (item.isGranted) requestStore.clear(item.permission)
-            item.copy(route = routeFor(item, item.shouldShowRationale))
+            // Runtime routes need the live rationale; until a refresh supplies it they stay null.
+            val route = if (shouldShowRationaleFor == null && !item.isGranted && !item.isSpecial) {
+                null
+            } else {
+                routeFor(item, item.shouldShowRationale)
+            }
+            item.copy(route = route)
         }
     }
 
