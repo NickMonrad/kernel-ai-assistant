@@ -39,6 +39,7 @@ import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.repository.ListMutationBlockedException
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.memory.profile.UserProfileYaml
+import com.kernel.ai.core.skills.ContactLookupRecovery
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
 import io.mockk.Runs
@@ -665,6 +666,45 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `make_call unresolved contact returns recovery actions and never dials`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        val result = handleIntent("make_call", mapOf("contact" to "Zephyrine Test"))
+
+        val failure = result as SkillResult.Failure
+        assertEquals("make_call", failure.skillName)
+        assertTrue(failure.error.contains("People & Contacts"))
+        assertEquals(ContactLookupRecovery.PEOPLE_DESTINATION, failure.actions.first().deepLink.destination)
+        assertEquals("true", failure.actions.first().deepLink.args[ContactLookupRecovery.ARG_CALL])
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `unresolved contact suggestion query runs off the caller thread`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        val suggestionThreads = mutableListOf<Thread>()
+        // CONTACTS URI is null in JVM tests, so identify the suggestion query by its projection.
+        every { contentResolver.query(any(), any(), any(), any(), any()) } answers {
+            val projection = secondArg<Array<out String>?>()
+            if (projection?.contentEquals(arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)) == true) {
+                suggestionThreads += Thread.currentThread()
+            }
+            null
+        }
+        val callerThread = Thread.currentThread()
+
+        handleIntent("make_call", mapOf("contact" to "Zephyrine Test"))
+
+        assertTrue(suggestionThreads.isNotEmpty())
+        assertTrue(suggestionThreads.all { it !== callerThread }, "caller=${callerThread.name} query=${suggestionThreads.map { it.name }}")
+    }
+
+    @Test
     fun `make_call literal phone number does not require contacts permission`() {
         every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
             PackageManager.PERMISSION_DENIED
@@ -704,6 +744,199 @@ class NativeIntentHandlerTest {
 
         assertEquals(SkillResult.Success("SMS composer opened for +64123456789."), result)
         verify(exactly = 0) { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) }
+    }
+
+    @Test
+    fun `send_email unresolved contact returns recovery actions and opens no composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        val failure = handleIntent(
+            "send_email",
+            mapOf("contact" to "Zephyrine Test", "subject" to "Hello", "body" to "World"),
+        ) as SkillResult.Failure
+
+        assertEquals("send_email", failure.skillName)
+        assertTrue(failure.actions.isNotEmpty())
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms unresolved named contact returns recovery actions and opens no composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        val failure = handleIntent(
+            "send_sms",
+            mapOf("contact" to "Zephyrine Test", "message" to "On my way"),
+        ) as SkillResult.Failure
+
+        assertEquals("send_sms", failure.skillName)
+        assertTrue(failure.actions.isNotEmpty())
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_email ambiguous contact opens composer without a recipient instead of recovery`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Alex One")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns emailCursor(
+            EmailRow("alex.one@example.com", "Alex One", contactId = "1"),
+            EmailRow("alex.two@example.com", "Alex Two", contactId = "2"),
+        )
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_email contact without any email opens composer without a recipient`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Alex One")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns emailCursor()
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms ambiguous contact opens composer without a number instead of recovery`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Sam Lee")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns phoneCursor(
+            PhoneRow(contactId = "1", displayName = "Sam Lee", phoneNumber = "021000001"),
+            PhoneRow(contactId = "2", displayName = "Sam Park", phoneNumber = "021000002"),
+        )
+
+        val result = handleIntent("send_sms", mapOf("contact" to "Sam", "message" to "On my way"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_email contact with several addresses and no default opens composer without a recipient`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Alex One")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns emailCursor(
+            EmailRow("alex.one@example.com", "Alex One", contactId = "1"),
+            EmailRow("alex.home@example.com", "Alex One", contactId = "1"),
+        )
+
+        val result = handleIntent("send_email", mapOf("contact" to "Alex", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms contact with no phone number opens composer without a number`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size == 1 }, any(), any(), any())
+        } returns contactNameCursor("Sam Lee")
+        every {
+            contentResolver.query(any(), match<Array<String>> { it.size > 1 }, any(), any(), any())
+        } returns phoneCursor()
+
+        val result = handleIntent("send_sms", mapOf("contact" to "Sam", "message" to "On my way"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    /** Cursor for the contacts name query: one row per [names] entry, read through column 0. */
+    private fun contactNameCursor(vararg names: String): Cursor {
+        var index = -1
+        return mockk<Cursor>(relaxed = true) {
+            every { moveToNext() } answers { ++index < names.size }
+            every { getString(0) } answers { names[index] }
+        }
+    }
+
+    @Test
+    fun `send_email me never matches an unrelated contact containing me`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), any(), any(), any(), any())
+        } returns emailCursor(EmailRow("james@example.com", "James Mee", contactId = "9"))
+
+        val failure = handleIntent("send_email", mapOf("contact" to "me", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(failure is SkillResult.Failure)
+        verify(exactly = 0) { context.startActivity(any()) }
+        verify(exactly = 0) { contentResolver.query(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `text me still opens the SMS composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+
+        val result = handleIntent("send_sms", mapOf("contact" to "me", "message" to "On my way"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `self references without an own number never offer to add a contact`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        every { context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        for (self in listOf("me", "myself")) {
+            val call = handleIntent("make_call", mapOf("contact" to self)) as SkillResult.Failure
+            assertTrue(call.actions.isEmpty(), "make_call $self")
+            assertTrue(call.error.contains("your own number"), "make_call $self")
+
+            val email = handleIntent(
+                "send_email",
+                mapOf("contact" to self, "subject" to "Hello", "body" to "World"),
+            ) as SkillResult.Failure
+            assertTrue(email.actions.isEmpty(), "send_email $self")
+        }
+        verify(exactly = 0) { context.startActivity(any()) }
     }
 
     @Test

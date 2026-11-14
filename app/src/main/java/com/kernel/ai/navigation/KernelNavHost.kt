@@ -600,6 +600,11 @@ fun KernelNavHost(
                             autoOpenSheet = openSheet,
                             autoStartVoiceCommand = startVoice,
                             initialQuery = widgetQuery,
+                            onOpenSettingsDeepLink = { link ->
+                                settingsDeepLinkRoute(link)?.let { route ->
+                                    navController.navigate(route) { launchSingleTop = true }
+                                }
+                            },
                             initialQueryIsVoice = widgetVoice,
                             adbSlotReply = initialSlotReply,
                             draftQuery = draftQuery,
@@ -699,6 +704,11 @@ fun KernelNavHost(
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
                         },
+                        onOpenSettingsDeepLink = { link ->
+                            settingsDeepLinkRoute(link)?.let { route ->
+                                navController.navigate(route) { launchSingleTop = true }
+                            }
+                        },
                         onNavigateToModelManagement = {
                             navController.navigate(ROUTE_MODEL_MANAGEMENT)
                         },
@@ -719,6 +729,11 @@ fun KernelNavHost(
                         onNavigateToList = { navController.popBackOrNavigateHome() },
                         onNavigateToSettings = {
                             navController.navigate(ROUTE_SETTINGS)
+                        },
+                        onOpenSettingsDeepLink = { link ->
+                            settingsDeepLinkRoute(link)?.let { route ->
+                                navController.navigate(route) { launchSingleTop = true }
+                            }
                         },
                         onNavigateToModelManagement = {
                             navController.navigate(ROUTE_MODEL_MANAGEMENT)
@@ -949,9 +964,14 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_CONTACT_ALIASES) {
+                composable(
+                    route = CONTACT_ALIAS_ROUTE_PATTERN,
+                    arguments = CONTACT_ALIAS_NAV_ARGS,
+                ) { backStackEntry ->
+                    // Copied once into the screen's saveable state (ContactAliasPrefillSaver), so it is used once.
                     ContactAliasesScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        prefill = contactAliasPrefillFrom(backStackEntry.arguments),
                     )
                 }
 

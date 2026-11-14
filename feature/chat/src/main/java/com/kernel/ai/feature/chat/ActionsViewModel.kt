@@ -17,6 +17,7 @@ import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
@@ -131,6 +132,8 @@ class ActionsViewModel @Inject constructor(
         object RepairCalendarPermission : UiEvent
         /** Navigate to app settings to repair microphone permission. */
         object RepairMicrophonePermission : UiEvent
+        /** Open an in-app destination for a failed lookup's recovery action (#1859). Never dials. */
+        data class OpenSettingsDeepLink(val link: SettingsDeepLink) : UiEvent
         /** Open Android DND special-access settings for notification policy grant. */
         object OpenDndSettings : UiEvent
         /** Open Android write-settings special-access panel for the user to grant. */
@@ -290,6 +293,8 @@ class ActionsViewModel @Inject constructor(
     /** Non-null while the write-settings special-access contextual surface should be shown. */
     private val _writeSettingsState = MutableStateFlow<WriteSettingsState?>(null)
     val writeSettingsState: StateFlow<WriteSettingsState?> = _writeSettingsState.asStateFlow()
+    private val _settingsActionState = MutableStateFlow<SettingsActionState?>(null)
+    val settingsActionState: StateFlow<SettingsActionState?> = _settingsActionState.asStateFlow()
 
     /** Non-null while the contextual weather-location permission dialog should be shown. */
     private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
@@ -1442,6 +1447,17 @@ class ActionsViewModel @Inject constructor(
         _error.value = null
     }
 
+    /** Dismiss the settings-action chooser without opening anything. */
+    fun dismissSettingsActionDialog() {
+        _settingsActionState.value = null
+    }
+
+    /** The user chose a recovery action: hand its in-app destination to the screen. */
+    fun onSettingsActionSelected(link: SettingsDeepLink) {
+        _settingsActionState.value = null
+        viewModelScope.launch { _events.emit(UiEvent.OpenSettingsDeepLink(link)) }
+    }
+
     /**
      * Called when the app resumes after the user returns from write-settings panel.
      * Re-checks access and either retries the original brightness action or shows a blocked result.
@@ -1942,9 +1958,14 @@ class ActionsViewModel @Inject constructor(
                 _microphoneState.value = MicrophoneState()
             }
 
-            val spokenSummary = spokenSummaryFrom(skillResult)
+            val spokenSummary = spokenSummaryFrom(skillResult, params.values)
+            if (skillResult is SkillResult.Failure && skillResult.actions.isNotEmpty()) {
+                _settingsActionState.value = SettingsActionState(skillResult.error, skillResult.actions)
+            }
+
             ExecutedAction(
-                entity = buildEntityFromSkillResult(query, intentName, skillResult).copy(spokenSummary = spokenSummary),
+                entity = buildEntityFromSkillResult(query, intentName, skillResult)
+                    .copy(spokenSummary = spokenSummary.takeUnless { skillResult is SkillResult.Failure }),
                 spokenSummary = spokenSummary,
                 fallThroughToModel = (skillResult as? SkillResult.Failure)?.fallThroughToModel == true,
             )
@@ -2006,9 +2027,10 @@ class ActionsViewModel @Inject constructor(
         _events.emit(UiEvent.NavigateToChat(query, speakResponse = inputMode == InputMode.Voice))
     }
 
-    private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
+    private fun spokenSummaryFrom(result: SkillResult, userValues: Collection<String> = emptyList()): String? = when (result) {
         is SkillResult.DirectReply -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
         is SkillResult.Success -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        is SkillResult.Failure -> if (result.actions.isNotEmpty()) spokenRecoveryText(result.error, userValues) else null
         else -> null
     }
 
@@ -2286,6 +2308,16 @@ class ActionsViewModel @Inject constructor(
         userValues.fold(text) { acc, value ->
             if (value.isBlank()) acc else acc.replace(value, normalisePronounsForTts(value))
         }
+
+    /**
+     * Speech for a recovery failure that offers in-app actions. The in-app path is spoken as words
+     * ("Settings, People and Contacts"), not as a symbol, and user-supplied values get the same
+     * first→second person flip as slot prompts.
+     */
+    private fun spokenRecoveryText(text: String, userValues: Collection<String>): String =
+        normaliseUserValuesForTts(text, userValues)
+            .replace(" → ", ", ")
+            .replace(" & ", " and ")
 
     private fun toSpokenSummary(text: String): String {
         val normalized = text.lineSequence()
@@ -2659,5 +2691,9 @@ class ActionsViewModel @Inject constructor(
  * Quick Actions card text for a failed skill. A set [SkillResult.Failure.technicalDetail] means
  * [SkillResult.Failure.error] is already a complete reply, so no "Action failed:" prefix is added.
  */
-internal fun failureCardText(result: SkillResult.Failure): String =
-    if (result.technicalDetail != null) result.error else "Action failed: ${result.error}"
+internal fun failureCardText(result: SkillResult.Failure): String = when {
+    // Recovery failures name the contact in `error`; history keeps a name-free line, never the diagnostic.
+    result.actions.isNotEmpty() -> "Needs one step in Settings to finish."
+    result.technicalDetail != null -> result.error
+    else -> "Action failed: ${result.error}"
+}
