@@ -3,6 +3,7 @@ package com.kernel.ai.core.inference.download
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Network
 import android.util.Log
 import androidx.work.Constraints
 import androidx.work.Data
@@ -31,6 +32,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -94,6 +97,20 @@ class ModelDownloadManager @Inject constructor(
 
     val deviceTier: HardwareTier get() = hardwareProfileDetector.profile.tier
 
+    /** Job state per model, used to derive "Waiting for Wi-Fi" (#1855). */
+    private val workStates = ConcurrentHashMap<KernelModel, WorkInfo.State>()
+
+    /** Re-evaluates "Waiting for Wi-Fi" when the connection changes; WorkManager does not report it. */
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            scope.launch { refreshWaitingForWifi() }
+        }
+
+        override fun onLost(network: Network) {
+            scope.launch { refreshWaitingForWifi() }
+        }
+    }
+
     init {
         // Resume observing any in-progress workers that survived a process restart
         KernelModel.entries.forEach { model ->
@@ -105,6 +122,19 @@ class ModelDownloadManager @Inject constructor(
             migrateLegacyChoice()
             queueAutoDownloads()
         }
+
+        // Any change to the download network choice re-queues every unfinished model job with the new
+        // constraint, then auto-queues if the choice just became usable (#1855). The initial value is
+        // skipped so launches do not re-queue running work.
+        scope.launch {
+            downloadNetworkPreferences.choice.distinctUntilChanged().drop(1).collect { choice ->
+                requeueUnfinishedForNetworkChange()
+                refreshWaitingForWifi()
+                if (DownloadConsent.autoQueueAllowed(choice)) queueAutoDownloads()
+            }
+        }
+        context.getSystemService(ConnectivityManager::class.java)
+            ?.registerDefaultNetworkCallback(networkCallback)
         // Auto-trigger gated required models when user signs in
         scope.launch {
             authRepository.isAuthenticated
@@ -120,35 +150,39 @@ class ModelDownloadManager @Inject constructor(
     }
 
     /**
-     * Records the user's download network choice (#1855) and applies it. Auto-queued downloads start once
-     * a choice exists. Downloads waiting for a network are re-enqueued with the new constraint. Running
-     * downloads keep their current behaviour.
+     * Records the user's download network choice (#1855). The choice observer in init re-queues every
+     * unfinished model and voice-pack job with the new constraint, so the change applies to queued work too.
      */
     fun setDownloadNetworkChoice(choice: DownloadNetworkChoice) {
-        scope.launch {
-            val waitingBefore = _waitingForWifi.value
-            val wasAllowed = DownloadConsent.autoQueueAllowed(downloadNetworkPreferences.choice.first())
-            downloadNetworkPreferences.setChoice(choice)
-            if (!wasAllowed) queueAutoDownloads()
-            waitingBefore.forEach { model ->
-                startDownload(model, source = _downloadSources.value[model] ?: DownloadSource.USER_INITIATED)
-            }
-        }
+        scope.launch { downloadNetworkPreferences.setChoice(choice) }
     }
 
-    /** True when a model file exists or download work is unfinished. Used to detect existing installs (#1855). */
-    suspend fun hasExistingDownloads(): Boolean = withContext(Dispatchers.IO) {
-        KernelModel.entries.any { !it.isBundled && it.isDownloaded(context) } ||
-            KernelModel.entries.any { model ->
-                workManager.getWorkInfosForUniqueWork(model.workerTag).get().any { !it.state.isFinished }
-            }
-    }
+    /** True for an install updated from an earlier build. Fresh installs are false (#1855). */
+    fun isExistingInstall(): Boolean = context.isUpdatedInstall()
 
     private suspend fun migrateLegacyChoice() {
         if (downloadNetworkPreferences.choice.first() != null) return
-        val legacy = DownloadConsent.legacyChoiceFor(hasExistingDownloads()) ?: return
+        val legacy = DownloadConsent.legacyChoiceFor(context.isUpdatedInstall()) ?: return
         downloadNetworkPreferences.setChoice(legacy)
-        Log.i(TAG, "Existing downloads found: keeping the current network behaviour without a prompt")
+        Log.i(TAG, "Updated install: keeping the current network behaviour without a prompt")
+    }
+
+    /** Unfinished means queued, running or blocked. */
+    private suspend fun hasUnfinishedWork(model: KernelModel): Boolean = withContext(Dispatchers.IO) {
+        workManager.getWorkInfosForUniqueWork(model.workerTag).get().any { !it.state.isFinished }
+    }
+
+    private suspend fun requeueUnfinishedForNetworkChange() {
+        KernelModel.entries
+            .filter { !it.isBundled && hasUnfinishedWork(it) }
+            .forEach { model ->
+                Log.i(TAG, "Network choice changed: re-queuing ${model.displayName}")
+                startDownload(
+                    model,
+                    source = _downloadSources.value[model] ?: DownloadSource.USER_INITIATED,
+                    restartRunning = true,
+                )
+            }
     }
 
     /** Auto-queues required and tier models. Does nothing until the user has chosen a network. */
@@ -157,37 +191,36 @@ class ModelDownloadManager @Inject constructor(
             Log.i(TAG, "Auto-queue skipped: no download network chosen yet")
             return
         }
-        val tier = hardwareProfileDetector.profile.tier
-        KernelModel.entries
-            .filter {
-                it.isRequired && !it.isDownloaded(context) &&
-                    (!it.isGated || authRepository.getAccessToken() != null) &&
-                    !(it == KernelModel.GEMMA_4_E2B && tier == HardwareTier.FLAGSHIP)
-            }
-            .forEach { model ->
-                Log.i(TAG, "Auto-queuing required model: ${model.displayName}")
-                startDownload(model, source = DownloadSource.AUTO_QUEUED)
-            }
-        // Tier-specific optional models (e.g. E-4B on FLAGSHIP), unless the user suppressed or deleted them.
-        val suppressedIds = modelPreferences.suppressedOptionalModelIds.first()
-        KernelModel.entries
-            .filter {
-                !it.isRequired && it.preferredForTier == tier && !it.isDownloaded(context) &&
-                    it.name !in suppressedIds && (!it.isGated || authRepository.getAccessToken() != null)
-            }
-            .forEach { model ->
-                Log.i(TAG, "Auto-queuing ${model.displayName} for tier ${tier.name}")
-                startDownload(model, source = DownloadSource.AUTO_QUEUED)
-            }
+        autoQueueSet().forEach { model ->
+            Log.i(TAG, "Auto-queuing ${model.displayName}")
+            startDownload(model, source = DownloadSource.AUTO_QUEUED)
+        }
     }
 
-    /** Waiting means queued, Wi-Fi only, and the only connection is metered. Cleared when the worker moves on. */
+    private suspend fun autoQueueSet(): List<KernelModel> = DownloadConsent.autoQueueModels(
+        tier = hardwareProfileDetector.profile.tier,
+        isDownloaded = { it.isDownloaded(context) },
+        suppressedIds = modelPreferences.suppressedOptionalModelIds.first(),
+        hasToken = authRepository.getAccessToken() != null,
+    )
+
+    /** Models the first-run plan covers: the auto-queue set plus the speech input defaults (#1855). */
+    suspend fun plannedFirstRunModels(): List<KernelModel> =
+        autoQueueSet() + DownloadConsent.speechDefaultModels { it.isDownloaded(context) }
+
+    /** Waiting means queued, Wi-Fi only, and the only connection is metered. Driven by work state and network callbacks (#1855). */
     private suspend fun updateWaitingForWifi(model: KernelModel, state: WorkInfo.State) {
-        val waiting = state == WorkInfo.State.ENQUEUED &&
-            DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first()) ==
-                DownloadNetworkChoice.WIFI_ONLY &&
-            isOnlineOnMeteredNetwork()
-        _waitingForWifi.update { if (waiting) it + model else it - model }
+        workStates[model] = state
+        refreshWaitingForWifi()
+    }
+
+    private suspend fun refreshWaitingForWifi() {
+        val wifiOnly = DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first()) ==
+            DownloadNetworkChoice.WIFI_ONLY
+        val metered = isOnlineOnMeteredNetwork()
+        _waitingForWifi.value = KernelModel.entries
+            .filter { workStates[it] == WorkInfo.State.ENQUEUED && wifiOnly && metered }
+            .toSet()
     }
 
     private fun isOnlineOnMeteredNetwork(): Boolean {
@@ -211,7 +244,12 @@ class ModelDownloadManager @Inject constructor(
      * - Otherwise → [ExistingWorkPolicy.REPLACE] to unstick any stale ENQUEUED job that
      *   Samsung's battery manager prevented from dispatching, and to restart FAILED jobs.
      */
-    fun startDownload(model: KernelModel, force: Boolean = false, source: DownloadSource = DownloadSource.USER_INITIATED) {
+    fun startDownload(
+        model: KernelModel,
+        force: Boolean = false,
+        source: DownloadSource = DownloadSource.USER_INITIATED,
+        restartRunning: Boolean = false,
+    ) {
         if (model.isBundled) return  // bundled assets are always available; nothing to download
         if (!force && model.isDownloaded(context)) {
             updateState(model, DownloadState.Downloaded(model.localFile(context).absolutePath))
@@ -234,7 +272,7 @@ class ModelDownloadManager @Inject constructor(
             withContext(Dispatchers.IO) {
                 val existingInfos = workManager.getWorkInfosForUniqueWork(model.workerTag).get()
                 val policy = when {
-                    force -> ExistingWorkPolicy.REPLACE
+                    force || restartRunning -> ExistingWorkPolicy.REPLACE
                     existingInfos.any { it.state == WorkInfo.State.RUNNING } -> ExistingWorkPolicy.KEEP
                     else -> ExistingWorkPolicy.REPLACE // unstick stuck ENQUEUED or restart failed
                 }

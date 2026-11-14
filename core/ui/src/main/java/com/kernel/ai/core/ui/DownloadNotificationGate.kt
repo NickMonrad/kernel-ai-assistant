@@ -1,7 +1,9 @@
 package com.kernel.ai.core.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,21 +17,45 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import com.kernel.ai.core.permissions.PermissionRequestStore
+import com.kernel.ai.core.permissions.PermissionRoute
+import com.kernel.ai.core.permissions.decidePermissionRoute
+import com.kernel.ai.core.permissions.isSilentDenial
+import com.kernel.ai.core.permissions.recordPermissionResult
+
+private const val NOTIFICATION_PERMISSION = Manifest.permission.POST_NOTIFICATIONS
 
 /**
- * Gates a user-started download on notification permission (#1855).
+ * Gates a user-started download on notification permission (#1855), using #1880's routing so the
+ * denial history stays correct.
  *
- * Progress notifications need POST_NOTIFICATIONS on API 33+, and nothing else requests it until
- * part 3 of #1855. The returned gate shows a short reason first, then asks; [onProceed] runs once
- * the user answers either way, so the download is never blocked by the permission.
+ * - Granted: the download starts.
+ * - Can ask in-app: a short reason is shown first, then the system prompt. The result is recorded with
+ *   [recordPermissionResult].
+ * - Permanently denied (Android will not ask again): the download starts without a dialog that could
+ *   not lead anywhere.
+ *
+ * [onProceed] runs in every case except a "Not now" that is not asked again; downloads never wait on the
+ * permission.
+ *
+ * Known gap: the reason dialog is held in `remember`, so a configuration change while it is showing
+ * drops the waiting download. The user taps download again.
  */
 @Composable
 fun rememberDownloadNotificationGate(): (onProceed: () -> Unit) -> Unit {
     val context = LocalContext.current
     var rationale by remember { mutableStateOf<(() -> Unit)?>(null) }
     var awaitingResult by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var requestedAt by remember { mutableStateOf(0L) }
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val activity = context.findActivity()
+        context.recordPermissionResult(
+            permission = NOTIFICATION_PERMISSION,
+            granted = granted,
+            shouldShowRationale = activity?.shouldShowRequestPermissionRationale(NOTIFICATION_PERMISSION) == true,
+            silentlyDenied = !granted && isSilentDenial(System.currentTimeMillis() - requestedAt),
+        )
         val proceed = awaitingResult
         awaitingResult = null
         proceed?.invoke()
@@ -53,7 +79,8 @@ fun rememberDownloadNotificationGate(): (onProceed: () -> Unit) -> Unit {
                 TextButton(onClick = {
                     rationale = null
                     awaitingResult = pending
-                    launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    requestedAt = System.currentTimeMillis()
+                    launcher.launch(NOTIFICATION_PERMISSION)
                 }) { Text("Allow") }
             },
             dismissButton = {
@@ -67,11 +94,23 @@ fun rememberDownloadNotificationGate(): (onProceed: () -> Unit) -> Unit {
 
     return remember(context) {
         { onProceed: () -> Unit ->
-            if (hasNotificationPermission(context)) onProceed() else rationale = onProceed
+            val activity = context.findActivity()
+            val route = decidePermissionRoute(
+                isGranted = hasNotificationPermission(context),
+                isSpecialAccess = false,
+                wasDeniedBefore = PermissionRequestStore.from(context).wasDenied(NOTIFICATION_PERMISSION),
+                shouldShowRationale = activity?.shouldShowRequestPermissionRationale(NOTIFICATION_PERMISSION) == true,
+            )
+            if (route == PermissionRoute.RequestInApp) rationale = onProceed else onProceed()
         }
     }
 }
 
 private fun hasNotificationPermission(context: Context): Boolean =
-    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-        PackageManager.PERMISSION_GRANTED
+    ContextCompat.checkSelfPermission(context, NOTIFICATION_PERMISSION) == PackageManager.PERMISSION_GRANTED
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}

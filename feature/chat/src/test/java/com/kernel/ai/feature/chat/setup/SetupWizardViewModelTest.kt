@@ -40,7 +40,10 @@ class SetupWizardViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun viewModel() = SetupWizardViewModel(downloadManager, downloadNetworkPreferences, setupWizardPreferences)
+    private fun viewModel(): SetupWizardViewModel {
+        io.mockk.coEvery { downloadManager.plannedFirstRunModels() } returns emptyList()
+        return SetupWizardViewModel(downloadManager, downloadNetworkPreferences, setupWizardPreferences)
+    }
 
     @Test
     fun `skipping with no saved choice saves Wi-Fi only so models still download`() {

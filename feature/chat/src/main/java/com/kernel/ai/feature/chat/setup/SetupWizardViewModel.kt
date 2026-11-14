@@ -2,7 +2,6 @@ package com.kernel.ai.feature.chat.setup
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -24,6 +23,7 @@ data class SetupWizardUiState(
     val step: SetupStep = SetupStep.HOW_IT_WORKS,
     /** Radio selection on the download step. Wi-Fi is preselected; nothing is saved until Continue. */
     val choice: DownloadNetworkChoice = DownloadNetworkChoice.WIFI_ONLY,
+    /** What the first-run plan downloads, shared with the auto-queue (#1855). Loaded with the progress. */
     val plannedModels: List<KernelModel> = emptyList(),
 )
 
@@ -39,9 +39,7 @@ class SetupWizardViewModel @Inject constructor(
     private val setupWizardPreferences: SetupWizardPreferences,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(
-        SetupWizardUiState(plannedModels = DownloadConsent.plannedModels(downloadManager.deviceTier)),
-    )
+    private val _uiState = MutableStateFlow(SetupWizardUiState())
     val uiState: StateFlow<SetupWizardUiState> = _uiState.asStateFlow()
 
     init {
@@ -50,7 +48,12 @@ class SetupWizardViewModel @Inject constructor(
             // A completed wizard (re-run from Settings) always starts from the first step.
             val start = if (progress.completed) SetupStep.HOW_IT_WORKS else progress.step
             val choice = downloadNetworkPreferences.choice.first() ?: DownloadNetworkChoice.WIFI_ONLY
-            _uiState.value = _uiState.value.copy(loaded = true, step = start, choice = choice)
+            _uiState.value = _uiState.value.copy(
+                loaded = true,
+                step = start,
+                choice = choice,
+                plannedModels = downloadManager.plannedFirstRunModels(),
+            )
         }
     }
 
@@ -87,15 +90,16 @@ class SetupWizardViewModel @Inject constructor(
 
     /**
      * Ends the wizard. With no choice recorded yet, saves Wi-Fi only so models still download on Wi-Fi
-     * (never paused forever). An explicit earlier choice is kept.
+     * (never paused forever). An explicit earlier choice is kept. [onDone] receives the choice that
+     * applies now, so the caller can tell the user the truth.
      */
-    fun onSkip(onDone: () -> Unit) {
+    fun onSkip(onDone: (DownloadNetworkChoice) -> Unit) {
         viewModelScope.launch {
-            if (downloadNetworkPreferences.choice.first() == null) {
-                downloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.WIFI_ONLY)
-            }
+            val existing = downloadNetworkPreferences.choice.first()
+            val effective = existing ?: DownloadNetworkChoice.WIFI_ONLY
+            if (existing == null) downloadManager.setDownloadNetworkChoice(effective)
             setupWizardPreferences.markCompleted()
-            onDone()
+            onDone(effective)
         }
     }
 }

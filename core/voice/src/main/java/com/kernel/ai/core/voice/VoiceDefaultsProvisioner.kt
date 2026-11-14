@@ -6,6 +6,8 @@ import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.isDownloaded
+import com.kernel.ai.core.inference.download.isUpdatedInstall
+import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -42,6 +44,7 @@ class VoiceDefaultsProvisioner @Inject constructor(
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val modelDownloadManager: ModelDownloadManager,
     private val voicePackDownloadManager: SherpaVoicePackDownloadManager,
+    private val downloadNetworkPreferences: DownloadNetworkPreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
@@ -52,6 +55,8 @@ class VoiceDefaultsProvisioner @Inject constructor(
                 .onFailure { Log.w(TAG, "Failed to delete legacy Vosk model", it) }
             runCatching { keepAndroidTtsForUpdatedInstalls() }
                 .onFailure { Log.w(TAG, "Failed to preserve output engine for updated install", it) }
+            // Nothing downloads before the user has chosen a download network in the setup wizard (#1855).
+            downloadNetworkPreferences.choice.first { it != null }
             runCatching { queueSpeechInputModel() }
                 .onFailure { Log.w(TAG, "Failed to queue speech input model", it) }
             runCatching { queueSpeechOutputVoice() }
@@ -61,17 +66,13 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     private suspend fun keepAndroidTtsForUpdatedInstalls() {
         if (prefs.getBoolean(KEY_OUTPUT_DEFAULT_RESOLVED, false)) return
-        if (isUpdatedInstall() && !voiceOutputPreferences.hasStoredEngine()) {
+        if (context.isUpdatedInstall() && !voiceOutputPreferences.hasStoredEngine()) {
             Log.i(TAG, "Updated install with no stored output engine: keeping Android TTS")
             voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
         }
         prefs.edit().putBoolean(KEY_OUTPUT_DEFAULT_RESOLVED, true).apply()
     }
 
-    private fun isUpdatedInstall(): Boolean = runCatching {
-        val info = context.packageManager.getPackageInfo(context.packageName, 0)
-        info.lastUpdateTime > info.firstInstallTime
-    }.getOrDefault(false)
 
     private suspend fun queueSpeechInputModel() {
         if (prefs.getBoolean(KEY_ZIPFORMER_QUEUED, false)) return

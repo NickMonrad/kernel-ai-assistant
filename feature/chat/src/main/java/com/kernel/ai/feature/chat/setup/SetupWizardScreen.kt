@@ -33,6 +33,9 @@ import com.kernel.ai.feature.chat.formatBytesShort
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
  * First-run setup wizard (#1855, part 1). Step 1 explains how Jandal works; step 2 is download consent.
@@ -44,14 +47,18 @@ fun SetupWizardScreen(
     onDone: () -> Unit,
     viewModel: SetupWizardViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val requestDownloadStart = rememberDownloadNotificationGate()
+    BackHandler(enabled = state.loaded && state.step != SetupStep.HOW_IT_WORKS) {
+        viewModel.onBack(onExit)
+    }
     if (!state.loaded) return
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .systemBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -85,8 +92,10 @@ fun SetupWizardScreen(
             ) { Text("Back") }
             TextButton(
                 onClick = {
-                    Toast.makeText(context, SKIP_NOTE, Toast.LENGTH_LONG).show()
-                    viewModel.onSkip(onDone)
+                    viewModel.onSkip { choice ->
+                        Toast.makeText(context, skipNote(choice), Toast.LENGTH_LONG).show()
+                        onDone()
+                    }
                 },
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text("Skip for now") }
@@ -94,7 +103,10 @@ fun SetupWizardScreen(
     }
 }
 
-private const val SKIP_NOTE = "Skipped. Models will download on Wi-Fi only. Change this in Settings."
+private fun skipNote(choice: DownloadNetworkChoice): String = when (choice) {
+    DownloadNetworkChoice.WIFI_ONLY -> "Skipped. Models will download on Wi-Fi only. Change this in Settings."
+    DownloadNetworkChoice.MOBILE_DATA_ALLOWED -> "Skipped. Models will download on mobile data too. Change this in Settings."
+}
 
 @Composable
 private fun HowItWorksStep() {

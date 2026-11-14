@@ -24,6 +24,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -88,15 +90,36 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         // Resume observing any in-progress workers from a previous process lifecycle
         SherpaPiperVoice.entries.forEach { voice -> ensureObserving(voice) }
         SherpaKokoroVoice.entries.forEach { voice -> ensureObservingKokoro(voice) }
+        // Any change to the download network choice re-queues unfinished voice packs (#1855). The initial
+        // value is skipped so launches do not re-queue running work.
+        scope.launch {
+            downloadNetworkPreferences.choice.distinctUntilChanged().drop(1).collect {
+                requeueUnfinishedVoicePacks()
+            }
+        }
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
+    /** Re-enqueues every unfinished voice-pack job with the current network constraint (#1855). */
+    private suspend fun requeueUnfinishedVoicePacks() {
+        SherpaPiperVoice.entries
+            .filter { hasUnfinished(it.workerTag) }
+            .forEach { startDownload(it, restartRunning = true) }
+        SherpaKokoroVoice.entries
+            .filter { hasUnfinished(it.kokoroWorkerTag) }
+            .forEach { startKokoroDownload(it, restartRunning = true) }
+    }
+
+    private suspend fun hasUnfinished(workerTag: String): Boolean = withContext(Dispatchers.IO) {
+        workManager.getWorkInfosForUniqueWork(workerTag).get().any { !it.state.isFinished }
+    }
+
 
     /**
      * Enqueue a download for [voice]. No-op if already downloaded.
      * Pass [force] = true to re-download.
      */
-    fun startDownload(voice: SherpaPiperVoice, force: Boolean = false) {
+    fun startDownload(voice: SherpaPiperVoice, force: Boolean = false, restartRunning: Boolean = false) {
         if (!canDownloadVoice(isReleaseBuild, voice)) {
             Log.w(TAG, "Blocked download of ${voice.displayName} (not release-visible in release build)")
             return
@@ -112,7 +135,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
             withContext(Dispatchers.IO) {
                 val existingInfos = workManager.getWorkInfosForUniqueWork(voice.workerTag).get()
                 val policy = when {
-                    force -> ExistingWorkPolicy.REPLACE
+                    force || restartRunning -> ExistingWorkPolicy.REPLACE
                     existingInfos.any { it.state == WorkInfo.State.RUNNING } -> ExistingWorkPolicy.KEEP
                     else -> ExistingWorkPolicy.REPLACE
                 }
@@ -186,7 +209,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
 
     // ── Kokoro public API ─────────────────────────────────────────────────────
 
-    fun startKokoroDownload(voice: SherpaKokoroVoice, force: Boolean = false) {
+    fun startKokoroDownload(voice: SherpaKokoroVoice, force: Boolean = false, restartRunning: Boolean = false) {
         if (!force && voice.isDownloaded(context)) {
             updateKokoroState(voice, VoicePackDownloadState.Downloaded(voice.voiceDir(context).absolutePath))
             return
@@ -198,7 +221,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
             withContext(Dispatchers.IO) {
                 val existingInfos = workManager.getWorkInfosForUniqueWork(voice.kokoroWorkerTag).get()
                 val policy = when {
-                    force -> ExistingWorkPolicy.REPLACE
+                    force || restartRunning -> ExistingWorkPolicy.REPLACE
                     existingInfos.any { it.state == WorkInfo.State.RUNNING } -> ExistingWorkPolicy.KEEP
                     else -> ExistingWorkPolicy.REPLACE
                 }

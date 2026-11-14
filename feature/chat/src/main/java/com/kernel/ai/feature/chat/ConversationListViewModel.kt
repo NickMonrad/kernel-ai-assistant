@@ -7,7 +7,6 @@ import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
-import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
 import com.kernel.ai.core.memory.prefs.ChatPreferences
@@ -31,7 +30,6 @@ class ConversationListViewModel @Inject constructor(
     private val repository: ConversationRepository,
     private val chatPreferences: ChatPreferences,
     private val downloadManager: ModelDownloadManager,
-    private val downloadNetworkPreferences: DownloadNetworkPreferences,
     private val setupWizardPreferences: SetupWizardPreferences,
 ) : ViewModel() {
 
@@ -52,7 +50,7 @@ class ConversationListViewModel @Inject constructor(
 
     /** True while the first-run setup wizard is not finished or skipped. Null until loaded (#1855). */
     val setupWizardPending: StateFlow<Boolean?> = setupWizardPreferences.progress
-        .map<SetupWizardProgress, Boolean?> { !it.completed }
+        .map<SetupWizardProgress, Boolean?> { it.decided && !it.completed }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val waitingForWifi: StateFlow<Set<KernelModel>> = downloadManager.waitingForWifi
@@ -69,8 +67,7 @@ class ConversationListViewModel @Inject constructor(
         // The welcome is one-time: once any conversation exists (archived included), it never returns.
         // First-run decision for the setup wizard (#1855). Existing installs are marked complete.
         viewModelScope.launch {
-            val existingInstall = downloadNetworkPreferences.choice.first() != null ||
-                downloadManager.hasExistingDownloads()
+            val existingInstall = downloadManager.isExistingInstall()
             setupWizardPreferences.decideFirstRun(existingInstall)
         }
         viewModelScope.launch {

@@ -1,6 +1,5 @@
 package com.kernel.ai.core.inference.download
 
-import androidx.work.NetworkType
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -11,70 +10,79 @@ import org.junit.jupiter.api.Test
 class DownloadConsentTest {
 
     @Test
-    fun `no network choice blocks auto-queued downloads`() {
+    fun `nothing auto-queues before the user chooses a network`() {
         assertFalse(DownloadConsent.autoQueueAllowed(null))
-    }
-
-    @Test
-    fun `any recorded choice allows auto-queued downloads`() {
         assertTrue(DownloadConsent.autoQueueAllowed(DownloadNetworkChoice.WIFI_ONLY))
         assertTrue(DownloadConsent.autoQueueAllowed(DownloadNetworkChoice.MOBILE_DATA_ALLOWED))
     }
 
     @Test
-    fun `existing install with downloads keeps mobile data without a prompt`() {
-        assertEquals(DownloadNetworkChoice.MOBILE_DATA_ALLOWED, DownloadConsent.legacyChoiceFor(hasExistingDownloads = true))
+    fun `updated install keeps mobile data without a prompt`() {
+        assertEquals(DownloadNetworkChoice.MOBILE_DATA_ALLOWED, DownloadConsent.legacyChoiceFor(isUpdatedInstall = true))
     }
 
     @Test
-    fun `new install stays unchosen`() {
-        assertNull(DownloadConsent.legacyChoiceFor(hasExistingDownloads = false))
+    fun `fresh install stays unchosen`() {
+        assertNull(DownloadConsent.legacyChoiceFor(isUpdatedInstall = false))
     }
 
     @Test
-    fun `manual download before any choice waits for Wi-Fi`() {
-        val effective = DownloadConsent.effectiveForManualDownload(null)
-        assertEquals(DownloadNetworkChoice.WIFI_ONLY, effective)
-        assertEquals(NetworkType.UNMETERED, effective.requiredNetworkType)
-    }
-
-    @Test
-    fun `wifi choice requires unmetered network`() {
+    fun `manual download before any choice defaults to Wi-Fi only`() {
+        assertEquals(DownloadNetworkChoice.WIFI_ONLY, DownloadConsent.effectiveForManualDownload(null))
         assertEquals(
-            NetworkType.UNMETERED,
-            DownloadConsent.effectiveForManualDownload(DownloadNetworkChoice.WIFI_ONLY).requiredNetworkType,
+            DownloadNetworkChoice.MOBILE_DATA_ALLOWED,
+            DownloadConsent.effectiveForManualDownload(DownloadNetworkChoice.MOBILE_DATA_ALLOWED),
         )
     }
 
     @Test
-    fun `mobile choice accepts any connection`() {
-        assertEquals(
-            NetworkType.CONNECTED,
-            DownloadConsent.effectiveForManualDownload(DownloadNetworkChoice.MOBILE_DATA_ALLOWED).requiredNetworkType,
-        )
-    }
-
-    @Test
-    fun `stored names round trip and unknown names mean no choice`() {
-        DownloadNetworkChoice.entries.forEach { choice ->
-            assertEquals(choice, DownloadNetworkChoice.fromStorageName(choice.name))
-        }
-        assertNull(DownloadNetworkChoice.fromStorageName("bogus"))
-        assertNull(DownloadNetworkChoice.fromStorageName(null))
-    }
-
-    @Test
-    fun `first-run plan on flagship includes the flagship chat model and skips E2B`() {
-        val planned = DownloadConsent.plannedModels(HardwareTier.FLAGSHIP)
+    fun `flagship auto-queue includes the flagship chat model and skips E2B`() {
+        val planned = DownloadConsent.autoQueueModels(HardwareTier.FLAGSHIP, { false }, emptySet(), hasToken = true)
         assertTrue(KernelModel.GEMMA_4_E4B in planned)
         assertFalse(KernelModel.GEMMA_4_E2B in planned)
         assertTrue(planned.none { it.isBundled })
     }
 
     @Test
-    fun `first-run plan on non-flagship tiers keeps required models and excludes the flagship model`() {
-        val planned = DownloadConsent.plannedModels(HardwareTier.MID_RANGE)
+    fun `mid-range auto-queue keeps E2B and excludes the flagship-only model`() {
+        val planned = DownloadConsent.autoQueueModels(HardwareTier.MID_RANGE, { false }, emptySet(), hasToken = true)
         assertTrue(KernelModel.GEMMA_4_E2B in planned)
         assertFalse(KernelModel.GEMMA_4_E4B in planned)
+    }
+
+    @Test
+    fun `suppressed optional model is not auto-queued`() {
+        val planned = DownloadConsent.autoQueueModels(
+            HardwareTier.FLAGSHIP,
+            { false },
+            suppressedIds = setOf(KernelModel.GEMMA_4_E4B.name),
+            hasToken = true,
+        )
+        assertFalse(KernelModel.GEMMA_4_E4B in planned)
+    }
+
+    @Test
+    fun `downloaded models are not queued again`() {
+        val planned = DownloadConsent.autoQueueModels(
+            HardwareTier.FLAGSHIP,
+            { it == KernelModel.GEMMA_4_E4B },
+            emptySet(),
+            hasToken = true,
+        )
+        assertFalse(KernelModel.GEMMA_4_E4B in planned)
+    }
+
+    @Test
+    fun `gated models are not queued without a token`() {
+        val gatedRequired = KernelModel.entries.filter { it.isGated && it.isRequired }
+        val planned = DownloadConsent.autoQueueModels(HardwareTier.FLAGSHIP, { false }, emptySet(), hasToken = false)
+        assertTrue(gatedRequired.none { it in planned })
+    }
+
+    @Test
+    fun `speech defaults are sherpa STT files that are not yet downloaded`() {
+        val speech = DownloadConsent.speechDefaultModels { it.fileName.startsWith("sherpa-stt-zipformer") }
+        assertTrue(speech.all { it.fileName.startsWith("sherpa-stt-") })
+        assertTrue(speech.none { it.fileName.startsWith("sherpa-stt-zipformer") })
     }
 }

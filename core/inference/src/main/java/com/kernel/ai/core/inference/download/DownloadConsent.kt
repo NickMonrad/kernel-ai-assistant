@@ -27,11 +27,13 @@ object DownloadConsent {
     fun autoQueueAllowed(choice: DownloadNetworkChoice?): Boolean = choice != null
 
     /**
-     * Existing installs that already have model files or unfinished download work keep their
-     * current behaviour (any connection, no prompt). New installs stay null until the user chooses.
+     * Updated installs (last update later than first install) keep their current behaviour: any
+     * connection, no prompt. Fresh installs stay null until the user chooses in the wizard (#1855).
+     * Decided from the install record, never from queued work, so a fresh install with no choice
+     * cannot be mistaken for an existing one.
      */
-    fun legacyChoiceFor(hasExistingDownloads: Boolean): DownloadNetworkChoice? =
-        if (hasExistingDownloads) DownloadNetworkChoice.MOBILE_DATA_ALLOWED else null
+    fun legacyChoiceFor(isUpdatedInstall: Boolean): DownloadNetworkChoice? =
+        if (isUpdatedInstall) DownloadNetworkChoice.MOBILE_DATA_ALLOWED else null
 
     /**
      * Network for a download the user starts directly. Before any choice exists the safe default is
@@ -41,15 +43,26 @@ object DownloadConsent {
         choice ?: DownloadNetworkChoice.WIFI_ONLY
 
     /**
-     * Models the first-run download plan covers for [tier]. Mirrors the auto-queue filter, so the
-     * wizard's size estimate matches what actually downloads.
+     * The single definition of what auto-queue starts: required models (minus Gemma E2B on flagship)
+     * plus tier-preferred optional models that the user has not suppressed. Gated models need a token.
+     * Used by the auto-queue and by the wizard's size estimate so they cannot drift apart.
      */
-    fun plannedModels(tier: HardwareTier): List<KernelModel> = KernelModel.entries.filter { model ->
-        if (model.isBundled) return@filter false
-        if (model.isRequired) {
-            !(model == KernelModel.GEMMA_4_E2B && tier == HardwareTier.FLAGSHIP)
-        } else {
-            model.preferredForTier == tier
+    fun autoQueueModels(
+        tier: HardwareTier,
+        isDownloaded: (KernelModel) -> Boolean,
+        suppressedIds: Set<String>,
+        hasToken: Boolean,
+    ): List<KernelModel> = KernelModel.entries.filter { model ->
+        !model.isBundled && !isDownloaded(model) && (!model.isGated || hasToken) && when {
+            model.isRequired -> !(model == KernelModel.GEMMA_4_E2B && tier == HardwareTier.FLAGSHIP)
+            else -> model.preferredForTier == tier && model.name !in suppressedIds
         }
     }
+
+    /**
+     * Speech input models the voice defaults queue for the default Auto engine (Zipformer files).
+     * Matched by file name, as the voice provisioner does.
+     */
+    fun speechDefaultModels(isDownloaded: (KernelModel) -> Boolean): List<KernelModel> =
+        KernelModel.entries.filter { it.fileName.startsWith("sherpa-stt-") && !isDownloaded(it) }
 }
