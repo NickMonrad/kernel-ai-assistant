@@ -99,7 +99,7 @@ object ContactLookupRecovery {
      * finds "Laurelle Smith" and "Laurel" finds "Laurelle Smith". A token matches when:
      * - it is equal, or
      * - it starts with the same letter as the candidate token and is within an edit distance that
-     *   scales with length: exact up to 6 letters, 1 edit for 7–9 letters, 2 edits for 10+, or
+     *   scales with the shorter token: exact up to 6 letters, 1 edit for 7–9 letters, 2 edits for 10+, or
      * - one token is a prefix of the other, both are 4+ letters, and they share a [phoneticKey] of
      *   at least 3 consonants (Laurel / Laurelle).
      *

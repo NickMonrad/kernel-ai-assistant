@@ -94,7 +94,7 @@ class ContactLookupRecoveryTest {
         assertTrue(ContactLookupRecovery.nearMatches(query, listOf(candidate)).isEmpty())
     }
 
-    @ParameterizedTest(name = "\"{0}\" and \"{1}\" are near matches in both directions")
+    @ParameterizedTest(name = "\"{0}\" and \"{1}\" match in both directions")
     @CsvSource(
         "Laurel, Laurelle",
         "Daniel, Danielle",
@@ -106,22 +106,24 @@ class ContactLookupRecoveryTest {
         "Francis, Frances",
         "Julian, Juliana",
     )
-    fun `accepted near-match pairs match symmetrically`(first: String, second: String) {
-        assertEquals(listOf(second), ContactLookupRecovery.nearMatches(first, listOf(second)))
-        assertEquals(listOf(first), ContactLookupRecovery.nearMatches(second, listOf(first)))
+    fun `near match is symmetric for accepted pairs`(a: String, b: String) {
+        assertEquals(listOf(b), ContactLookupRecovery.nearMatches(a, listOf(b)))
+        assertEquals(listOf(a), ContactLookupRecovery.nearMatches(b, listOf(a)))
     }
 
-    @ParameterizedTest(name = "\"{0}\" and \"{1}\" are not near matches in either direction")
+    @ParameterizedTest(name = "\"{0}\" and \"{1}\" do not match in either direction")
     @CsvSource(
-        "Sam, Sim",
-        "Jon, Joan",
-        "Matthew, Mathew",
-        "Phillip, Philip",
         "Christian, Christina",
+        "Christina, Christian",
+        "Matthew, Mathew",
+        "Mathew, Matthew",
+        "Phillip, Philip",
+        "Philip, Phillip",
+        "Martin, Martha",
+        "Martha, Martin",
     )
-    fun `rejected near-match pairs do not match in either direction`(first: String, second: String) {
-        assertTrue(ContactLookupRecovery.nearMatches(first, listOf(second)).isEmpty())
-        assertTrue(ContactLookupRecovery.nearMatches(second, listOf(first)).isEmpty())
+    fun `near match rejects the documented non-matching pairs in both directions`(a: String, b: String) {
+        assertTrue(ContactLookupRecovery.nearMatches(a, listOf(b)).isEmpty())
     }
 
     @Test

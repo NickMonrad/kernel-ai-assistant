@@ -884,6 +884,21 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `send_email me never matches an unrelated contact containing me`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every {
+            contentResolver.query(any(), any(), any(), any(), any())
+        } returns emailCursor(EmailRow("james@example.com", "James Mee", contactId = "9"))
+
+        val failure = handleIntent("send_email", mapOf("contact" to "me", "subject" to "Hello", "body" to "World"))
+
+        assertTrue(failure is SkillResult.Failure)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
     fun `text me still opens the SMS composer`() {
         every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
             PackageManager.PERMISSION_GRANTED
