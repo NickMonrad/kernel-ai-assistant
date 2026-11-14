@@ -22,5 +22,7 @@ data class QuickActionEntity(
     val isSuccess: Boolean,
     /** Optional serialized ToolPresentation payload for rich result UI. */
     val presentationJson: String? = null,
+    /** The skill's spoken summary (TTS text), so card read-aloud speaks it (#1026). Null for older rows. */
+    val spokenSummary: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
 )
