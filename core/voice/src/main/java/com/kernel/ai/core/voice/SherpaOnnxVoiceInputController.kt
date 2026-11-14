@@ -342,6 +342,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 if (onlineMethods.isEndpoint!!.invoke(rec, stream) as Boolean) {
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
+                        JandalEvents.record("voice", "stt_result", "chars" to text.length)
                         _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                         lastPartial = ""
                     }
@@ -359,6 +360,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 if (System.currentTimeMillis() - started > LISTEN_TIMEOUT_MS) {
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
+                        JandalEvents.record("voice", "stt_result", "chars" to text.length)
                         _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                     } else {
                         JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
@@ -387,6 +389,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             if (!exitedFromLoop) {
                 val text = signalEndAndDrainOnline(rec, stream)
                 if (text.isNotEmpty()) {
+                    JandalEvents.record("voice", "stt_result", "chars" to text.length)
                     _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                 } else {
                     JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
@@ -476,6 +479,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
                 val text = resultTextOffline(rec, stream)
                 if (text.isNotEmpty()) {
+                    JandalEvents.record("voice", "stt_result", "chars" to text.length)
                     _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                 } else {
                     JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)

@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice
 
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -20,8 +21,10 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.nio.file.Files
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SelectableVoiceInputControllerTest {
@@ -295,5 +298,21 @@ class SelectableVoiceInputControllerTest {
         coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any()) }
         verify(exactly = 0) { nativeAndroidVoiceInputController.stopListening() }
         verify(exactly = 0) { sherpaOnnxVoiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `auto zipformer start exports the stt_route record`() = runTest(dispatcher) {
+        JandalEvents.install(Files.createTempFile("jandal-auto-route", ".log").toFile())
+        selectEngine(VoiceInputEngine.Auto)
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+
+        controller().startListening(VoiceCaptureMode.Command)
+        JandalEvents.awaitWritesForTest()
+
+        val lines = JandalEvents.exportLines()
+        assertTrue(
+            lines.any { " voice stt_route " in it && "route=ZIPFORMER" in it && "online_fallback=false" in it },
+            lines.toString(),
+        )
     }
 }

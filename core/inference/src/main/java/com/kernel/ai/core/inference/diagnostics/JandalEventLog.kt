@@ -28,7 +28,7 @@ enum class WorkerPhase { ENQUEUED, RUNNING, SUCCEEDED, FAILED, BLOCKED, CANCELLE
 enum class DownloadStateKind { NOT_DOWNLOADED, DOWNLOADED, ERROR, DOWNLOADING }
 
 /** Lifecycle and permission outcomes. Fixed enum values only (#1870). */
-enum class LifecycleOutcome { STARTED, STOPPED, REFUSED_NO_MIC_PERMISSION, GRANTED, DENIED }
+enum class LifecycleOutcome { STARTED, STOPPED }
 
 /** TTS failure categories. Fixed enum values only (#1870). */
 enum class TtsFailure { UNAVAILABLE, ENGINE_START }
@@ -72,6 +72,8 @@ enum class WakeOutcome { HANDED_OFF, FAILED, OTHER }
 
 /** Sherpa STT failure categories for the support export (#1870). */
 enum class SttFailure { MODEL_UNAVAILABLE, MIC_UNAVAILABLE, AUDIO_LOOP, NO_SPEECH }
+
+enum class NativeFallbackReason { NATIVE_NOT_READY, NATIVE_ERROR }
 
 /** TTS engine family for the support export: Google's package or any other engine (#1870). */
 enum class TtsEngineKind { GOOGLE, OTHER }

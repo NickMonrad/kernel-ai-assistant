@@ -2,6 +2,7 @@ package com.kernel.ai.core.voice
 
 import android.util.Log
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.NativeFallbackReason
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
@@ -229,6 +230,7 @@ class SelectableVoiceInputController @Inject constructor(
         if (zipformerReady && !allowOnlineFallback) {
             // Zipformer wins regardless of native support; skip the native availability check.
             Log.i(TAG, "Auto STT route=${AutoSttRoute.Zipformer} mode=$mode allowOnlineFallback=false")
+            JandalEvents.record("voice", "stt_route", "route" to AutoSttRoute.Zipformer, "online_fallback" to false)
             return startSherpa(mode)
         }
         // Use the cached locale check when there is one; only run the slower live check for
@@ -255,6 +257,11 @@ class SelectableVoiceInputController @Inject constructor(
             TAG,
             "Auto STT route=$route mode=$mode nativeOnDeviceReady=$nativeOnDeviceReady " +
                 "zipformerReady=$zipformerReady allowOnlineFallback=$allowOnlineFallback",
+        )
+        JandalEvents.record(
+            "voice", "stt_route", "route" to route,
+            "native_ready" to nativeOnDeviceReady, "zipformer_ready" to zipformerReady,
+            "online_fallback" to allowOnlineFallback,
         )
         return when (route) {
             AutoSttRoute.Native -> {
@@ -304,7 +311,11 @@ class SelectableVoiceInputController @Inject constructor(
             }
         }
         if (zipformer != null) {
-            recordZipformerFallback(reason = NATIVE_NOT_READY, mode = mode)
+            recordZipformerFallback(
+                reason = NATIVE_NOT_READY,
+                mode = mode,
+                jandalReason = NativeFallbackReason.NATIVE_NOT_READY,
+            )
             postNotice(VoiceNotice(zipformer.captureSessionId, ZIPFORMER_START_NOTICE))
             return zipformer
         }
@@ -480,7 +491,11 @@ class SelectableVoiceInputController @Inject constructor(
                     zipformerSessionId = started.captureSessionId,
                     readinessAnnounced = readinessAnnounced,
                 )
-                recordZipformerFallback(reason = reason, mode = error.mode)
+                recordZipformerFallback(
+                    reason = reason,
+                    mode = error.mode,
+                    jandalReason = NativeFallbackReason.NATIVE_ERROR,
+                )
                 val message = if (error.category == NATIVE_STALLED) ZIPFORMER_STALL_NOTICE else ZIPFORMER_START_NOTICE
                 postNotice(VoiceNotice(nativeId, message))
                 started
@@ -496,11 +511,12 @@ class SelectableVoiceInputController @Inject constructor(
         noticeFlow.tryEmit(notice)
     }
 
-    private fun recordZipformerFallback(reason: String, mode: VoiceCaptureMode) {
+    private fun recordZipformerFallback(reason: String, jandalReason: NativeFallbackReason, mode: VoiceCaptureMode) {
         AcousticJournalBridge.record(
             type = AcousticEventType.STT_ZIPFORMER_FALLBACK,
             metadata = { mapOf("reason" to reason, "mode" to mode.name) },
         )
+        JandalEvents.record("voice", "zipformer_fallback", "reason" to jandalReason, "mode" to mode)
     }
 
     /** Thread-safe: see the class concurrency notes. */
