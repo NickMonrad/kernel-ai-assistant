@@ -124,8 +124,12 @@ internal fun welcomeExamplePromptsFor(download: WelcomeDownload): List<WelcomeEx
     is WelcomeDownload.Waiting -> welcomeExamplePrompts.filterNot { it.needsAssistantFiles }
 }
 
-/** Bottom clearance at the end of the first-run welcome, so the last card scrolls above the main + FAB. */
-private val WelcomeFabBottomClearance = 88.dp
+/**
+ * The Chats FAB column is hidden while the first-run welcome shows: its content is centred and spans the full width,
+ * so no FAB clearance is needed at any scroll position or font scale. Selection and archive views hide it too.
+ */
+internal fun showChatsFab(welcomeState: ChatsEmptyState, isInSelectionMode: Boolean, showArchived: Boolean): Boolean =
+    !isInSelectionMode && !showArchived && welcomeState !is ChatsEmptyState.Welcome
 
 @Composable
 internal fun ChatsWelcome(
@@ -278,7 +282,7 @@ internal fun ChatsWelcome(
                 Text("Hide welcome")
             }
         }
-        Spacer(Modifier.height(if (reopened) 24.dp else WelcomeFabBottomClearance))
+        Spacer(Modifier.height(24.dp))
     }
 }
 

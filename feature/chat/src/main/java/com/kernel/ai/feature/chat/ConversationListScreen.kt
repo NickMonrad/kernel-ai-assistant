@@ -258,7 +258,7 @@ fun ConversationListScreen(
             }
         },
         floatingActionButton = {
-            if (!isInSelectionMode && !showArchived) {
+            if (showChatsFab(welcomeState, isInSelectionMode, showArchived)) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
