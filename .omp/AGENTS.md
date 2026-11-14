@@ -209,6 +209,7 @@ Load these only when relevant:
 - `.docs/agents/validation.md` — per-scope validation table, CI constraints (updated with risk tiers)
 - `.docs/agents/decision-heuristics.md` — when multiple valid approaches exist
 - `.docs/agents/failure-handling.md` — blockers, escalation, progress reporting, isolated-task recovery
+- `.docs/agents/paseo-delegation.md` — starting and messaging OMP agents with the Paseo CLI; waking "closed" sessions; brief checklist
 - `.docs/agents/repo-map.md` — key file index by area
 - `docs/UX_PATTERNS.md` — canonical UI/UX patterns (read before any new screen)
 - `.docs/agents/test-evidence-workflow.md` — test evidence lifecycle, CI vs on-device, publishing workflow, agent guidance
