@@ -96,10 +96,10 @@ internal object DiagnosticLogRedactor {
         Regex("""(?s)(GetWeatherSkill: fetched \d+-day forecast for ).*"""),
         Regex("""(?s)(GetWeatherSkill: fetched forecast for day \d+ \([^)\n]*\) for ).*"""),
         Regex("""(?s)(GetWeatherSkill: fetched weather for ).*"""),
-        // Retry labels can carry the place name (defence in depth; GetWeatherSkill no longer adds it).
-        Regex("""(?s)((?:Weekend Forecast|Forecast|Weather) API \().*"""),
-        // org.json parse errors echo the raw parameters ("... at character 31 of {…}", "Value {…} of type …").
+        // org.json parse errors echo the raw parameters ("... at character 31 of {…}").
         Regex("""(?s)( at character \d+ of ).*"""),
+        // Deliberately fail-closed across lines: a `Value … of type` error can wrap onto later lines
+        // of the same message, so everything from `Value ` to the end of the message is dropped.
         Regex("""(?s)(\bValue ).*? of type.*"""),
         // Content-carrying keys: the value and everything after it is content.
         Regex("""(?s)((?<![\w.])(?:params|reply|request|responsePreview)=).*"""),
@@ -161,6 +161,12 @@ internal object DiagnosticLogRedactor {
 
     /** Redacts free text (an exception record, a trace block): treated as one logical message. */
     fun redactText(text: String): String = redactMessage(text)
+
+    /**
+     * Scrubs an ANR trace excerpt with emails and phone numbers only. Thread and frame lines contain
+     * quotes and `=` that the full redactor treats as content, which would cut the trace short.
+     */
+    fun redactTraceText(text: String): String = redactPhones(EMAIL.replace(text) { REDACTED_MARKER })
 
     /** Redacts one logical log message, which may span several lines. */
     fun redactMessage(message: String): String {

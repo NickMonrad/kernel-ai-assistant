@@ -277,6 +277,9 @@ class AboutViewModel @Inject constructor(
             if (includeUserContent) { text -> text } else DiagnosticLogRedactor::redactText
         val scrubLogcat: (String) -> String =
             if (includeUserContent) { text -> text } else DiagnosticLogRedactor::redactLogcat
+        // The ANR excerpt is multi-line thread/frame text, so only emails and phone numbers are scrubbed.
+        val scrubTrace: (String) -> String =
+            if (includeUserContent) { text -> text } else DiagnosticLogRedactor::redactTraceText
 
         if (exitRecords.isEmpty() && logcat.output == null) {
             val detail = logcat.failureDetail ?: "no recent process exits were recorded"
@@ -312,7 +315,7 @@ class AboutViewModel @Inject constructor(
             } else {
                 exitRecords.forEachIndexed { index, record ->
                     val block = StringBuilder()
-                    runCatching { renderExitRecord(block, index + 1, record, warnings, scrub) }
+                    runCatching { renderExitRecord(block, index + 1, record, warnings, scrub, scrubTrace) }
                         .onSuccess { append(block) }
                         .onFailure { e ->
                             warnings += "Could not render exit record ${index + 1}: " +
@@ -374,6 +377,7 @@ class AboutViewModel @Inject constructor(
         info: ApplicationExitInfo,
         warnings: MutableList<String>,
         scrub: (String) -> String,
+        scrubTrace: (String) -> String,
     ) {
         sb.appendLine("Exit $index")
         sb.appendLine("Timestamp: ${EXIT_TIMESTAMP_FORMATTER.format(Instant.ofEpochMilli(info.timestamp).atOffset(ZoneOffset.UTC))}")
@@ -391,7 +395,7 @@ class AboutViewModel @Inject constructor(
         sb.appendLine("PSS: ${formatMemory(info.pss)}")
         sb.appendLine("RSS: ${formatMemory(info.rss)}")
         when (info.reason) {
-            ApplicationExitInfo.REASON_ANR -> renderAnrTrace(sb, info, warnings, scrub)
+            ApplicationExitInfo.REASON_ANR -> renderAnrTrace(sb, info, warnings, scrubTrace)
             ApplicationExitInfo.REASON_CRASH_NATIVE -> renderNativeTraceNote(sb, info, warnings)
             else -> renderTraceAvailability(sb, info, warnings)
         }
@@ -403,13 +407,13 @@ class AboutViewModel @Inject constructor(
         sb: StringBuilder,
         info: ApplicationExitInfo,
         warnings: MutableList<String>,
-        scrub: (String) -> String,
+        scrubTrace: (String) -> String,
     ) {
         val state = queryTraceState(info)
         if (state is TraceState.Available) {
             sb.appendLine("System trace available: yes")
             sb.appendLine("ANR trace excerpt:")
-            sb.append(scrub(state.text ?: ""))
+            sb.append(scrubTrace(state.text ?: ""))
             if (state.truncated) {
                 sb.appendLine("\n[ANR trace excerpt truncated at $ANR_TRACE_MAX_CHARS characters]")
             }

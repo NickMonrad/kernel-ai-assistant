@@ -177,6 +177,35 @@ class DiagnosticLogRedactorTest {
         )
     }
 
+    @Test
+    fun `keeps forecast retry messages and a 503 stack`() {
+        val logcat = """
+            11-14 09:26:00.000  4321  4400 W GetWeatherSkill: Forecast API (3 days) failed (attempt 1/3), retrying in 1000ms
+            11-14 09:26:00.000  4321  4400 W GetWeatherSkill: java.lang.IllegalStateException: Forecast API returned 503
+            11-14 09:26:00.000  4321  4400 W GetWeatherSkill: 	at com.kernel.ai.core.skills.natives.GetWeatherSkill.fetchForecast(GetWeatherSkill.kt:905)
+        """.trimIndent()
+
+        assertEquals(logcat, DiagnosticLogRedactor.redactLogcat(logcat))
+    }
+
+    @Test
+    fun `trace scrub keeps thread and frame lines that contain quotes`() {
+        val trace = """
+            Build fingerprint: 'samsung/dm1q/dm1q:15/AP3A/S918BXXU:user/release-keys'
+            ABI: 'arm64'
+            "main" prio=5 tid=1 Sleeping
+              | group="main" sCount=1 dsCount=0 flags=1 obj=0x72a0 self=0x7f
+              | sysTid=4321 nice=-10 cgrp=default sched=0/0 handle=0x7f
+              at com.kernel.ai.core.inference.LiteRtInferenceEngine.generate(LiteRtInferenceEngine.kt:1512)
+        """.trimIndent()
+
+        assertEquals(trace, DiagnosticLogRedactor.redactTraceText(trace))
+        assertEquals(
+            "  at Foo(Foo.kt:1) [redacted]",
+            DiagnosticLogRedactor.redactTraceText("  at Foo(Foo.kt:1) jane.doe@example.com"),
+        )
+    }
+
     companion object {
         private const val R = REDACTED_MARKER
         private const val r = REDACTED_MARKER
@@ -447,11 +476,6 @@ class DiagnosticLogRedactorTest {
             Arguments.of("Dialing tel:0211234567 now", "Dialing tel:$r now"),
             Arguments.of("Dialing 021 – 123 4567 now", "Dialing $r now"),
             Arguments.of("Latency 021 123 4567 ms", "Latency $r ms"),
-            // Weather retry labels: the place name is content and everything after the label prefix goes.
-            Arguments.of("Weekend Forecast API (Petone, Lower Hutt) failed after 3 retries", "Weekend Forecast API ($r"),
-            Arguments.of("Forecast API (Petone, Lower Hutt, 3 days) failed (attempt 1/3)", "Forecast API ($r"),
-            Arguments.of("Forecast API (day 2 of Petone) failed (attempt 1/3)", "Forecast API ($r"),
-            Arguments.of("Weather API (Petone, Lower Hutt) failed after 3 retries", "Weather API ($r"),
             // org.json parse errors echo the raw parameters.
             Arguments.of(
                 "ToolSet: runIntent params not valid JSON: Unterminated string at character 31 of {\"item\":\"egg",
