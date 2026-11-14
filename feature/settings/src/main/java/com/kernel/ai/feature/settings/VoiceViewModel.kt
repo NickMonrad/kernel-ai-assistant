@@ -41,7 +41,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
-import com.kernel.ai.core.model.availability.UnavailableReason
 import com.kernel.ai.core.model.availability.toAvailability
 import com.kernel.ai.core.permissions.MicrophoneReadiness
 import javax.inject.Inject
@@ -121,8 +120,6 @@ data class VoiceUiState(
     val sherpaVoiceAvailability: Map<SherpaPiperVoice, ModelAvailabilityState> = emptyMap(),
     /** Per-voice availability state for Kokoro voices. */
     val kokoroVoiceAvailability: Map<SherpaKokoroVoice, ModelAvailabilityState> = emptyMap(),
-    /** Per-engine availability state for Sherpa STT models. */
-    val sherpaSttAvailability: Map<VoiceInputEngine, ModelAvailabilityState> = emptyMap(),
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
@@ -141,9 +138,7 @@ internal fun VoicePackDownloadState.toModelAvailability(): ModelAvailabilityStat
     is VoicePackDownloadState.Error -> ModelAvailabilityState.ActionRequired(
         ActionReason.DownloadFailed(message)
     )
-    is VoicePackDownloadState.NotDownloaded -> ModelAvailabilityState.Unavailable(
-        UnavailableReason.NotBundled
-    )
+    is VoicePackDownloadState.NotDownloaded -> ModelAvailabilityState.NotDisplayed
 }
 
 /**
@@ -209,7 +204,7 @@ internal fun aggregateInflectMicroAvailability(
         )
     }
 
-    return ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled)
+    return ModelAvailabilityState.NotDisplayed
 }
 
 /**
@@ -472,9 +467,6 @@ class VoiceViewModel @Inject constructor(
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
                         sherpaSttStates = perFamilyStates,
-                        sherpaSttAvailability = perFamilyStates.mapValues { (_, state) ->
-                            state.toModelAvailability()
-                        },
                     )
                 }
             }

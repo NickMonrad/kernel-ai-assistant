@@ -729,11 +729,6 @@ private fun VoiceScreenContent(
                                     TextButton(onClick = { onVoiceInputEngineSelected(VoiceInputEngine.Auto) }) {
                                         Text("Use Automatic")
                                     }
-                                    if (!uiState.allowOnlineSpeechFallback) {
-                                        TextButton(onClick = { onAllowOnlineSpeechFallbackChanged(true) }) {
-                                            Text("Allow online")
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -794,8 +789,7 @@ private fun VoiceScreenContent(
                                 VoiceInputEngine.SherpaParaformer -> SherpaSttModelSpec.PARAFORMER.subtitle
                                 else -> ""
                             },
-                            state = uiState.sherpaSttAvailability[engine]
-                                ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+                            state = state.toModelAvailability(),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
                         val sttState = state
