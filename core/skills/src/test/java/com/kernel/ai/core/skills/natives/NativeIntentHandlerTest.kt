@@ -41,6 +41,8 @@ import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.ContactLookupRecovery
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.SettingsAction
+import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.ToolPresentation
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -3524,23 +3526,33 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `get_date_diff mum birthday requires calendar permission when lookup denied`() {
+    fun `get_date_diff mum birthday with calendar sync off returns sync hint with settings action`() {
         stubNoStoredOrCalendarDates(hasCalendarPermission = false)
 
         val result = handleIntent("get_date_diff", mapOf("target_date" to "mum's birthday"))
 
-        val required = assertCapabilityRequired(result, CapabilityKey.CalendarLookup, "get_date_diff")
-        assertEquals(mapOf("target_date" to "mum's birthday"), required.contextParams)
+        val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+        assertEquals("I can't see any birthdays yet. Turn on calendar sync and I'll know them.", failure.error)
+        assertEquals(
+            listOf(
+                SettingsAction(
+                    label = "Turn on calendar sync",
+                    deepLink = SettingsDeepLink("important_dates", mapOf("sync" to "true")),
+                ),
+            ),
+            failure.actions,
+        )
     }
 
     @Test
-    fun `get_date_diff anniversary requires calendar permission when lookup denied`() {
+    fun `get_date_diff anniversary with calendar sync off returns sync hint with settings action`() {
         stubNoStoredOrCalendarDates(hasCalendarPermission = false)
 
         val result = handleIntent("get_date_diff", mapOf("target_date" to "our anniversary"))
 
-        val required = assertCapabilityRequired(result, CapabilityKey.CalendarLookup, "get_date_diff")
-        assertEquals(mapOf("target_date" to "our anniversary"), required.contextParams)
+        val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+        assertEquals("I can't see any birthdays yet. Turn on calendar sync and I'll know them.", failure.error)
+        assertEquals("sync", failure.actions.single().deepLink.args.keys.single())
     }
 
     @Test
@@ -3564,16 +3576,26 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `get_date_diff unresolved calendar label with permission returns teachable reply`() {
+    fun `get_date_diff unresolved calendar label with sync on returns not-found with add action`() {
         stubNoStoredOrCalendarDates(hasCalendarPermission = true)
 
         val result = handleIntent("get_date_diff", mapOf("target_date" to "Sam's birthday"))
 
-        val expected = "I couldn't find Sam's birthday in your important dates or calendar. " +
-            "Say \"Sam's birthday is 3 June\" to teach me."
-        val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
-        assertEquals(expected, reply.content)
-        assertEquals(expected, reply.spokenSummary)
+        val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+        assertEquals(
+            "I couldn't find Sam's birthday in your important dates or calendar. " +
+                "Say \"Sam's birthday is 3 June\" to teach me.",
+            failure.error,
+        )
+        assertEquals(
+            listOf(
+                SettingsAction(
+                    label = "Add an important date",
+                    deepLink = SettingsDeepLink("important_dates", mapOf("add" to "true", "label" to "Sam's birthday")),
+                ),
+            ),
+            failure.actions,
+        )
     }
 
     @Test

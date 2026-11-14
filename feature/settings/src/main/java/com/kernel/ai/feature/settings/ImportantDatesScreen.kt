@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -86,6 +87,7 @@ import kotlinx.coroutines.launch
 fun ImportantDatesScreen(
     onBack: () -> Unit,
     onNavigateToVoiceActions: () -> Unit = {},
+    deepLink: ImportantDatesDeepLink = ImportantDatesDeepLink(),
     viewModel: ImportantDatesViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -96,6 +98,7 @@ fun ImportantDatesScreen(
     var editingDate by remember { mutableStateOf<ImportantDateListItem?>(null) }
     var pendingDelete by remember { mutableStateOf<ImportantDateListItem?>(null) }
     var createRequested by remember { mutableStateOf(false) }
+    var createLabel by remember { mutableStateOf("") }
     var showTimePicker by remember { mutableStateOf(false) }
     var showCalendarPermissionRationale by remember { mutableStateOf(false) }
     var showCalendarPermissionSettingsHint by remember { mutableStateOf(false) }
@@ -120,6 +123,29 @@ fun ImportantDatesScreen(
             )
         }
     }
+
+    fun onCalendarBirthdaysToggle(enabled: Boolean) {
+        if (enabled) {
+            if (uiState.calendarPermissionGranted) {
+                viewModel.refreshCalendarBirthdays()
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Calendar birthdays refreshed.")
+                }
+            } else {
+                val activity = context.findActivity()
+                if (activity != null &&
+                    ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CALENDAR)
+                ) {
+                    showCalendarPermissionRationale = true
+                } else {
+                    calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+                }
+            }
+        } else if (uiState.calendarPermissionGranted) {
+            showCalendarPermissionSettingsHint = true
+        }
+    }
+
     val visibleSyncedBirthdayCount = remember(uiState.upcomingDates, uiState.laterDates) {
         (uiState.upcomingDates + uiState.laterDates).count { it.source == ImportantDateSource.CALENDAR }
     }
@@ -127,6 +153,14 @@ fun ImportantDatesScreen(
     LaunchedEffect(Unit) {
         viewModel.messages.collect { message ->
             snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    LaunchedEffect(deepLink) {
+        if (deepLink.syncRequested) onCalendarBirthdaysToggle(true)
+        deepLink.addLabel?.let { label ->
+            createLabel = label
+            createRequested = true
         }
     }
 
@@ -163,7 +197,7 @@ fun ImportantDatesScreen(
                 ) {
                     Icon(Icons.Default.Mic, contentDescription = "Voice input")
                 }
-                FloatingActionButton(onClick = { createRequested = true }) {
+                FloatingActionButton(onClick = { createLabel = ""; createRequested = true }) {
                     Icon(Icons.Default.Add, contentDescription = "Add important date")
                 }
             }
@@ -181,27 +215,7 @@ fun ImportantDatesScreen(
                     enabled = uiState.calendarPermissionGranted,
                     syncedBirthdayCount = visibleSyncedBirthdayCount,
                     isRefreshing = uiState.isRefreshingCalendarBirthdays,
-                    onToggle = { enabled ->
-                        if (enabled) {
-                            if (uiState.calendarPermissionGranted) {
-                                viewModel.refreshCalendarBirthdays()
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Calendar birthdays refreshed.")
-                                }
-                            } else {
-                                val activity = context.findActivity()
-                                if (activity != null &&
-                                    ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CALENDAR)
-                                ) {
-                                    showCalendarPermissionRationale = true
-                                } else {
-                                    calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
-                                }
-                            }
-                        } else if (uiState.calendarPermissionGranted) {
-                            showCalendarPermissionSettingsHint = true
-                        }
-                    },
+                    onToggle = { enabled -> onCalendarBirthdaysToggle(enabled) },
                 )
                 HorizontalDivider()
             }
@@ -218,6 +232,8 @@ fun ImportantDatesScreen(
             if (!uiState.hasAnyDates) {
                 item {
                     EmptyImportantDatesState(
+                        calendarPermissionGranted = uiState.calendarPermissionGranted,
+                        onTurnOnCalendarSync = { onCalendarBirthdaysToggle(true) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
@@ -260,6 +276,7 @@ fun ImportantDatesScreen(
     if (createRequested) {
         ImportantDateEditorSheet(
             existingItem = null,
+            initialLabel = createLabel,
             onDismiss = { createRequested = false },
             onSave = { label, month, day, year, notifHour, notifMinute ->
                 coroutineScope.launch {
@@ -446,7 +463,11 @@ private fun ImportantDatesSectionHeader(title: String) {
 }
 
 @Composable
-private fun EmptyImportantDatesState(modifier: Modifier = Modifier) {
+private fun EmptyImportantDatesState(
+    calendarPermissionGranted: Boolean,
+    onTurnOnCalendarSync: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier = modifier) {
         Spacer(modifier = Modifier.height(24.dp))
         Text(
@@ -455,10 +476,19 @@ private fun EmptyImportantDatesState(modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Tap + to add one here, teach Jandal with something like 'remember mum's birthday is 15 March', or turn on Calendar birthdays above for read-only synced birthdays.",
+            text = "Dates come from three places: dates you add here, dates you teach me in chat, and birthdays in Android Calendar. Contact birthdays show up there when your accounts sync them.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (!calendarPermissionGranted) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = onTurnOnCalendarSync,
+                modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+            ) {
+                Text("Turn on calendar sync")
+            }
+        }
     }
 }
 
@@ -525,11 +555,12 @@ private fun ImportantDateRow(
 @Composable
 private fun ImportantDateEditorSheet(
     existingItem: ImportantDateListItem?,
+    initialLabel: String = "",
     onDismiss: () -> Unit,
     onSave: (label: String, month: Int, day: Int, year: Int?, notificationHour: Int?, notificationMinute: Int?) -> Unit,
 ) {
     val today = LocalDate.now()
-    var label by remember(existingItem) { mutableStateOf(existingItem?.label ?: "") }
+    var label by remember(existingItem, initialLabel) { mutableStateOf(existingItem?.label ?: initialLabel) }
     var selectedDate by remember(existingItem) {
         mutableStateOf(
             LocalDate.of(

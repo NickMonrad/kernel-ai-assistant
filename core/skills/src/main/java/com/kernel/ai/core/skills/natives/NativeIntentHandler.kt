@@ -50,6 +50,7 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.StoreListCatalog
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ContactLookupRecovery
+import com.kernel.ai.core.skills.ImportantDateRecovery
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -2772,15 +2773,9 @@ class NativeIntentHandler @Inject constructor(
             val lower = targetStr.lowercase(Locale.ENGLISH)
             if (isLikelyCalendarDateLabel(lower)) {
                 if (!calendarBirthdayLookup.hasPermission()) {
-                    return SkillResult.CapabilityRequired(
-                        capabilityKey = CapabilityKey.CalendarLookup,
-                        skillName = "get_date_diff",
-                        contextParams = mapOf("target_date" to targetStr),
-                    )
+                    return ImportantDateRecovery.syncOffFailure("get_date_diff")
                 }
-                val message = "I couldn't find $targetStr in your important dates or calendar. " +
-                    "Say \"$targetStr is 3 June\" to teach me."
-                return SkillResult.DirectReply(message, spokenSummary = message)
+                return ImportantDateRecovery.notFoundFailure("get_date_diff", targetStr)
             }
             return SkillResult.Failure(
                 "get_date_diff",
