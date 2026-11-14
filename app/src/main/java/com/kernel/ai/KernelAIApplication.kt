@@ -68,7 +68,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
             java.io.File(filesDir, JANDAL_EVENTS_FILE_NAME),
         )
         com.kernel.ai.core.inference.diagnostics.JandalEvents.record(
-            "lifecycle", "app_start", "build_type" to BuildConfig.BUILD_TYPE,
+            "lifecycle", "app_start", "release" to (BuildConfig.BUILD_TYPE == "release"),
         )
         // Debug builds only (#1736): let the showcase capture runner log what the voice engines
         // start speaking. It also needs `setprop log.tag.KernelAI_TTS DEBUG`, which only the
