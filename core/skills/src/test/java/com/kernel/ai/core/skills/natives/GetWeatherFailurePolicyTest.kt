@@ -94,21 +94,6 @@ class GetWeatherFailurePolicyTest {
         )
     }
 
-    @Test
-    fun `current-location unavailable keeps stale cache eligible`() {
-        assertTrue(shouldUseStaleCache(WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE))
-    }
-
-    @Test
-    fun `api failure keeps stale cache eligible`() {
-        assertTrue(shouldUseStaleCache(WeatherLookupFailureReason.API_UNAVAILABLE))
-    }
-
-    @Test
-    fun `location permission denied skips stale cache`() {
-        assertFalse(shouldUseStaleCache(WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED))
-    }
-
     private fun createSkill(client: OkHttpClient = httpClient): GetWeatherSkill {
         every { context.applicationContext } returns context
         return GetWeatherSkill(context, client)
@@ -126,7 +111,4 @@ class GetWeatherFailurePolicyTest {
                     .build()
             }
             .build()
-
-    private fun shouldUseStaleCache(reason: WeatherLookupFailureReason): Boolean =
-        reason != WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED
 }
