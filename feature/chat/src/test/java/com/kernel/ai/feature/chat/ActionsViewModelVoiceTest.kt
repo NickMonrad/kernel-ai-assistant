@@ -3177,11 +3177,11 @@ class ActionsViewModelVoiceTest {
     @Test
     fun `calendar permission capability required sets calendar permission state`() = runTest(dispatcher) {
         val runIntentSkill = mockk<Skill>()
-        every { quickIntentRouter.route("when is our anniversary") } returns
+        every { quickIntentRouter.route("when is mum's birthday") } returns
             QuickIntentRouter.RouteResult.RegexMatch(
                 QuickIntentRouter.MatchedIntent(
                     intentName = "get_date_diff",
-                    params = mapOf("target_date" to "our anniversary"),
+                    params = mapOf("target_date" to "mum's birthday"),
                 ),
             )
         every { skillRegistry.get("get_date_diff") } returns null
@@ -3194,7 +3194,7 @@ class ActionsViewModelVoiceTest {
             skillName = "get_date_diff",
         )
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
 
         assertNotNull(viewModel.calendarPermissionState.value)
@@ -3204,11 +3204,11 @@ class ActionsViewModelVoiceTest {
     @Test
     fun `calendar permission dismiss clears dialog state`() = runTest(dispatcher) {
         val runIntentSkill = mockk<Skill>()
-        every { quickIntentRouter.route("when is our anniversary") } returns
+        every { quickIntentRouter.route("when is mum's birthday") } returns
             QuickIntentRouter.RouteResult.RegexMatch(
                 QuickIntentRouter.MatchedIntent(
                     intentName = "get_date_diff",
-                    params = mapOf("target_date" to "our anniversary"),
+                    params = mapOf("target_date" to "mum's birthday"),
                 ),
             )
         every { skillRegistry.get("get_date_diff") } returns null
@@ -3221,7 +3221,7 @@ class ActionsViewModelVoiceTest {
             skillName = "get_date_diff",
         )
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
         assertNotNull(viewModel.calendarPermissionState.value)
 
@@ -3302,17 +3302,17 @@ class ActionsViewModelVoiceTest {
     @Test
     fun `calendar lookup capability required leaves weather location state null`() = runTest(dispatcher) {
         stubQuickActionResult(
-            input = "when is our anniversary",
+            input = "when is mum's birthday",
             intentName = "get_date_diff",
-            params = mapOf("target_date" to "our anniversary"),
+            params = mapOf("target_date" to "mum's birthday"),
             result = SkillResult.CapabilityRequired(
                 capabilityKey = CapabilityKey.CalendarLookup,
                 skillName = "get_date_diff",
-                contextParams = mapOf("target_date" to "our anniversary"),
+                contextParams = mapOf("target_date" to "mum's birthday"),
             ),
         )
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
 
         assertNull(viewModel.weatherLocationState.value)
@@ -3377,13 +3377,13 @@ class ActionsViewModelVoiceTest {
             ),
         )
         stubQuickActionResult(
-            input = "when is our anniversary",
+            input = "when is mum's birthday",
             intentName = "get_date_diff",
-            params = mapOf("target_date" to "our anniversary"),
+            params = mapOf("target_date" to "mum's birthday"),
             result = SkillResult.CapabilityRequired(
                 capabilityKey = CapabilityKey.CalendarLookup,
                 skillName = "get_date_diff",
-                contextParams = mapOf("target_date" to "our anniversary"),
+                contextParams = mapOf("target_date" to "mum's birthday"),
             ),
         )
 
@@ -3391,7 +3391,7 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
         assertNotNull(viewModel.weatherLocationState.value)
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
 
         assertNull(viewModel.weatherLocationState.value)
@@ -3540,11 +3540,11 @@ class ActionsViewModelVoiceTest {
         val runIntentSkill = mockk<Skill>()
         val events = mutableListOf<ActionsViewModel.UiEvent>()
         val collectJob = launch { viewModel.events.collect { events += it } }
-        every { quickIntentRouter.route("when is our anniversary") } returns
+        every { quickIntentRouter.route("when is mum's birthday") } returns
             QuickIntentRouter.RouteResult.RegexMatch(
                 QuickIntentRouter.MatchedIntent(
                     intentName = "get_date_diff",
-                    params = mapOf("target_date" to "our anniversary"),
+                    params = mapOf("target_date" to "mum's birthday"),
                 ),
             )
         every { skillRegistry.get("get_date_diff") } returns null
@@ -3556,12 +3556,12 @@ class ActionsViewModelVoiceTest {
             SkillResult.CapabilityRequired(
                 capabilityKey = CapabilityKey.CalendarLookup,
                 skillName = "get_date_diff",
-                contextParams = mapOf("target_date" to "our anniversary"),
+                contextParams = mapOf("target_date" to "mum's birthday"),
             ),
-            SkillResult.Success("Your anniversary is on Monday"),
+            SkillResult.Success("Mum's birthday is on Monday"),
         )
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
         assertNotNull(viewModel.calendarPermissionState.value)
 

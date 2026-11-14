@@ -887,7 +887,10 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_IMPORTANT_DATES) {
+                composable(
+                    route = IMPORTANT_DATES_ROUTE_PATTERN,
+                    arguments = IMPORTANT_DATES_NAV_ARGS,
+                ) { backStackEntry ->
                     ImportantDatesScreen(
                         onBack = { navController.popBackOrNavigateHome() },
                         onNavigateToVoiceActions = {
@@ -896,6 +899,7 @@ fun KernelNavHost(
                                 launchSingleTop = true
                             }
                         },
+                        deepLink = importantDatesDeepLinkFrom(backStackEntry.arguments),
                     )
                 }
 

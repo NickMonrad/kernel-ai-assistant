@@ -2693,7 +2693,7 @@ class ActionsViewModel @Inject constructor(
  */
 internal fun failureCardText(result: SkillResult.Failure): String = when {
     // Recovery failures name the contact in `error`; history keeps a name-free line, never the diagnostic.
-    result.actions.isNotEmpty() -> "Needs one step in Settings to finish."
+    result.actions.isNotEmpty() -> "Tap below to sort it."
     result.technicalDetail != null -> result.error
     else -> "Action failed: ${result.error}"
 }
