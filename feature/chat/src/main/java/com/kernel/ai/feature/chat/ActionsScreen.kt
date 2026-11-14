@@ -112,6 +112,9 @@ private const val ACTIONS_SCREEN_TAG = "KernelAI"
 /** #1604: shown next to text supplied by another app until the user sends or discards it. */
 internal const val EXTERNAL_DRAFT_HINT = "Text from another app — review or edit it. Nothing runs until you send it."
 
+/** Bottom clearance for the Actions list: the three-FAB stack (40+12+40+12+56dp), its 16dp margin, and a 16dp gap. */
+private val ActionsFabStackClearance = 192.dp
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActionsScreen(
@@ -671,8 +674,10 @@ fun ActionsScreen(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 16.dp,
-                            vertical = 8.dp,
+                            start = 16.dp,
+                            top = 8.dp,
+                            end = 16.dp,
+                            bottom = 8.dp + ActionsFabStackClearance,
                         ),
                     ) {
                         items(actions, key = { it.id }) { action ->

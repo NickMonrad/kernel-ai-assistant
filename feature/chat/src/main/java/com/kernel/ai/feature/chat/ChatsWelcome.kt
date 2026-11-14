@@ -1,10 +1,12 @@
 package com.kernel.ai.feature.chat
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -13,6 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -25,10 +29,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
+import kotlin.math.roundToInt
 
 /** What the Chats empty state shows. [Loading] renders nothing until preferences are known. */
 internal sealed interface ChatsEmptyState {
@@ -114,6 +120,9 @@ internal fun welcomeExamplePromptsFor(download: WelcomeDownload): List<WelcomeEx
     is WelcomeDownload.Waiting -> welcomeExamplePrompts.filterNot { it.needsAssistantFiles }
 }
 
+/** Clearance under the welcome so the main + FAB (56dp, 16dp end margin, 16dp gap) never covers its content. */
+private val FabClearance = 88.dp
+
 @Composable
 internal fun ChatsWelcome(
     download: WelcomeDownload,
@@ -123,6 +132,10 @@ internal fun ChatsWelcome(
     onDownloadModel: (KernelModel) -> Unit,
     onDismissTabHints: () -> Unit,
     onHideWelcome: () -> Unit,
+    /** Bottom inset from the Chats scaffold, so content clears the navigation bar and the FAB. */
+    bottomInset: Dp = 0.dp,
+    /** Reopened from the menu: drops the hide and "Got it" controls, which only belong to first run. */
+    reopened: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val examples = welcomeExamplePromptsFor(download)
@@ -130,7 +143,7 @@ internal fun ChatsWelcome(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = bottomInset)
             .testTag("chats_welcome"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -229,7 +242,7 @@ internal fun ChatsWelcome(
                     )
                     TabHintRow(label = "Chats", hint = "Talk to Jandal in a full conversation.")
                     TabHintRow(label = "Tools", hint = "Lists, notes, clock, conversions and settings, all in one place.")
-                    TextButton(
+                    if (!reopened) TextButton(
                         onClick = onDismissTabHints,
                         modifier = Modifier
                             .align(Alignment.Start)
@@ -243,7 +256,7 @@ internal fun ChatsWelcome(
             }
         }
 
-        TextButton(
+        if (!reopened) TextButton(
             onClick = onHideWelcome,
             modifier = Modifier
                 .padding(top = 8.dp)
@@ -252,7 +265,7 @@ internal fun ChatsWelcome(
         ) {
             Text("Hide welcome")
         }
-        Spacer(Modifier.height(88.dp))
+        Spacer(Modifier.height(FabClearance))
     }
 }
 
@@ -314,5 +327,59 @@ private fun TabHintRow(label: String, hint: String, prominent: Boolean = false) 
             color = if (prominent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
         Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Chats banner for a conversation-model download that is still running once the welcome is gone. */
+internal data class DownloadBanner(val title: String, val progress: Float?) {
+    val text: String
+        get() = progress?.let { "$title: ${(it * 100).roundToInt()}%" } ?: "$title…"
+}
+
+/** The banner for [readiness], or null when no conversation model is downloading. */
+internal fun chatsDownloadBanner(readiness: ConversationModelReadiness): DownloadBanner? = when (readiness) {
+    is ConversationModelReadiness.FallbackPreparing -> DownloadBanner("Getting a better Jandal", readiness.progress)
+    is ConversationModelReadiness.Preparing -> DownloadBanner("Getting Jandal ready", readiness.progress)
+    else -> null
+}
+
+@Composable
+internal fun ChatsDownloadBanner(banner: DownloadBanner, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier.fillMaxWidth().testTag("chats_download_banner"),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(banner.text, style = MaterialTheme.typography.bodyMedium)
+            banner.progress?.let { ConversationDownloadProgress(progress = it) }
+        }
+    }
+}
+
+/** Getting started, reopened from the Chats menu. Nothing is reset: the welcome stays hidden for first-run purposes. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun GettingStartedSheet(
+    download: WelcomeDownload,
+    onDismiss: () -> Unit,
+    onStartChatting: () -> Unit,
+    onExamplePrompt: (String) -> Unit,
+    onDownloadModel: (KernelModel) -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f)) {
+            ChatsWelcome(
+                download = download,
+                showTabHints = true,
+                onStartChatting = onStartChatting,
+                onExamplePrompt = onExamplePrompt,
+                onDownloadModel = onDownloadModel,
+                onDismissTabHints = {},
+                onHideWelcome = {},
+                reopened = true,
+            )
+        }
     }
 }

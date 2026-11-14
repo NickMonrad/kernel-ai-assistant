@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -113,6 +114,7 @@ fun ConversationListScreen(
     val pendingRename = pendingRenameId?.let { id -> conversations.find { it.id == id } }
     var contextMenuTarget by remember { mutableStateOf<ConversationEntity?>(null) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    var showGettingStarted by rememberSaveable { mutableStateOf(false) }
 
     // ── Drag-and-drop local state (optimistic UI) ──────────────────────────
     var localPinned by remember { mutableStateOf(pinnedConversations) }
@@ -198,6 +200,14 @@ fun ConversationListScreen(
                                 onDismissRequest = { showOverflowMenu = false },
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("Getting started") },
+                                    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showGettingStarted = true
+                                    },
+                                )
+                                DropdownMenuItem(
                                     text = {
                                         Text(
                                             if (showArchived) "Show active conversations"
@@ -262,6 +272,16 @@ fun ConversationListScreen(
                 .fillMaxSize()
                 .padding(top = innerPadding.calculateTopPadding()),
         ) {
+            // Download progress stays visible once the welcome is gone (the welcome shows it while it is up).
+            chatsDownloadBanner(assistantReadiness)?.let { banner ->
+                if (!isInSelectionMode && !showArchived && welcomeState == ChatsEmptyState.Plain) {
+                    ChatsDownloadBanner(
+                        banner = banner,
+                        onClick = { showGettingStarted = true },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
             // Search bar — hidden in selection mode
             if (!isInSelectionMode) {
                 OutlinedTextField(
@@ -315,6 +335,7 @@ fun ConversationListScreen(
                             onDownloadModel = viewModel::downloadAssistantModel,
                             onDismissTabHints = viewModel::dismissTabHints,
                             onHideWelcome = viewModel::hideWelcome,
+                            bottomInset = innerPadding.calculateBottomPadding(),
                         )
                     } else if (welcomeState == ChatsEmptyState.Plain) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -521,6 +542,22 @@ fun ConversationListScreen(
                 }
             }
         } // end Column
+    }
+
+    if (showGettingStarted) {
+        GettingStartedSheet(
+            download = welcomeDownloadFor(assistantReadiness, downloadStates),
+            onDismiss = { showGettingStarted = false },
+            onStartChatting = {
+                showGettingStarted = false
+                onNewConversation()
+            },
+            onExamplePrompt = {
+                showGettingStarted = false
+                onOpenExamplePrompt(it)
+            },
+            onDownloadModel = viewModel::downloadAssistantModel,
+        )
     }
 
     // Archive confirmation dialog
