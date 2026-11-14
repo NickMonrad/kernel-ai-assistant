@@ -136,6 +136,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
@@ -409,6 +410,7 @@ fun ChatScreen(
                 )
                 val action = pendingVoiceAction
                 Log.d("ChatScreen", "Microphone permission result granted=$granted action=$action")
+                JandalEvents.record("permission", "record_audio", "granted" to granted)
                 if (granted) {
                     pendingVoiceAction = null
                     when (action) {

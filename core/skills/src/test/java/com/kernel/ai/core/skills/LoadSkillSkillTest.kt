@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills
 
 import com.kernel.ai.core.inference.ContextWindowManager
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 import com.kernel.ai.core.skills.natives.NativeIntentHandler
 import dagger.Lazy
 import io.mockk.coEvery
@@ -113,7 +114,7 @@ class LoadSkillSkillTest {
 
     @Test
     fun `budgeted load skill continues into stopwatch status action`() = runTest {
-        coEvery { handler.handle("get_stopwatch_status", emptyMap()) } returns
+        coEvery { handler.handle("get_stopwatch_status", emptyMap(), IntentRoute.LLM_TOOL) } returns
             SkillResult.DirectReply("Stopwatch is not running")
         val compact = requireNotNull(runIntentSkill.compactInstructions)
         val toolSet = KernelAIToolSet(registryLazy)
@@ -131,7 +132,7 @@ class LoadSkillSkillTest {
 
     @Test
     fun `load skill result budget does not alter terminal tool responses`() = runTest {
-        coEvery { handler.handle("get_stopwatch_status", emptyMap()) } returns
+        coEvery { handler.handle("get_stopwatch_status", emptyMap(), IntentRoute.LLM_TOOL) } returns
             SkillResult.DirectReply("Stopwatch is not running")
         var cancelled = false
         val toolSet = KernelAIToolSet(registryLazy)

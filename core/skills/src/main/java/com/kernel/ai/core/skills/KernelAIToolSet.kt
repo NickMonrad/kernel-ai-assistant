@@ -1,4 +1,7 @@
 package com.kernel.ai.core.skills
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
+import com.kernel.ai.core.inference.diagnostics.IntentOutcome
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 
 import android.util.Log
 import com.google.ai.edge.litertlm.Tool
@@ -612,6 +615,7 @@ class KernelAIToolSet @Inject constructor(
         if (isSafeModelTestActive() &&
             !isAllowedSafeModelTestRunIntent(resolvedIntentName, parameters)
         ) {
+            recordRunIntentRejected(IntentOutcome.FAILURE)
             return denyInSafeModelTest("run_intent", request, arguments)
         }
         val diagnosticOrder = recordToolCall("run_intent", request, arguments)
@@ -630,6 +634,7 @@ class KernelAIToolSet @Inject constructor(
             "get_system_info",
         )
         if (resolvedIntentName in reservedSkillNames) {
+            recordRunIntentRejected(IntentOutcome.UNKNOWN_SKILL)
             val error = "Invalid run_intent call: '$resolvedIntentName' is a skill name, not an intent. Use load_skill first for skills like meal_planner or query_wikipedia."
             lastToolResult = error
             recordToolOutcome("run_intent", succeeded = false)
@@ -653,6 +658,7 @@ class KernelAIToolSet @Inject constructor(
             json.keys().forEach { key -> args[key] = json.optString(key) }
         } catch (e: Exception) {
             if (parameters.isNotBlank()) {
+                recordRunIntentRejected(IntentOutcome.PARSE_ERROR)
                 val error = "Invalid parameters: expected a JSON object. Got: ${parameters.take(120)}"
                 Log.w(TAG, "ToolSet: runIntent params not valid JSON — failing closed: ${e.javaClass.simpleName}")
                 lastToolResult = error
@@ -842,6 +848,11 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
+    /** Records a rejected Gemma run_intent call before any dispatch. Never logs the intent or skill name (#1870). */
+    private fun recordRunIntentRejected(outcome: IntentOutcome) {
+        JandalEvents.record("intent", "run_intent", "route" to IntentRoute.LLM_TOOL, "success" to false, "outcome" to outcome)
+    }
+
     // -------------------------------------------------------------------------
     // Internal dispatch
     private fun executeSkill(
@@ -851,6 +862,7 @@ class KernelAIToolSet @Inject constructor(
         maxToolResultTokens: Int? = null,
     ): Map<String, String> {
         if (isSafeModelTestActive() && !isAllowedSafeModelTestDispatch(skillName, args)) {
+            JandalEvents.record("skill", skillName, "route" to IntentRoute.LLM_TOOL, "success" to false, "outcome" to IntentOutcome.FAILURE)
             recordToolOutcome(skillName, succeeded = false)
             val toolResult = mapOf("error" to "Blocked by safe model-test allowlist")
             recordLocalToolResult(
@@ -866,6 +878,7 @@ class KernelAIToolSet @Inject constructor(
         }
         val skill = skillRegistry.get().get(skillName)
             ?: run {
+                JandalEvents.record("skill", skillName, "route" to IntentRoute.LLM_TOOL, "success" to false, "outcome" to IntentOutcome.UNKNOWN_SKILL)
                 recordToolOutcome(skillName, succeeded = false)
                 val toolResult = mapOf("error" to "Unknown skill: $skillName")
                 recordLocalToolResult(
@@ -880,16 +893,14 @@ class KernelAIToolSet @Inject constructor(
                 return toolResult
             }
 
+        val call = SkillCall(
+            skillName = skillName,
+            arguments = args,
+            maxToolResultTokens = maxToolResultTokens,
+            route = IntentRoute.LLM_TOOL,
+        )
         return try {
-            val result = runBlocking {
-                skill.execute(
-                    SkillCall(
-                        skillName = skillName,
-                        arguments = args,
-                        maxToolResultTokens = maxToolResultTokens,
-                    ),
-                )
-            }
+            val result = runBlocking { SkillOutcomeEvents.execute(skill, call) }
             val succeeded = result is SkillResult.Success || result is SkillResult.DirectReply
             recordToolOutcome(skillName, succeeded)
             lastToolWasDirectReply = result is SkillResult.DirectReply
@@ -946,6 +957,7 @@ class KernelAIToolSet @Inject constructor(
             )
             toolResult
         } catch (e: Exception) {
+            SkillOutcomeEvents.record(call, SkillResult.Failure(skillName, e.message ?: "Unknown error executing $skillName"))
             recordToolOutcome(skillName, succeeded = false)
             lastToolPresentation = null
             lastToolSpokenSummary = null

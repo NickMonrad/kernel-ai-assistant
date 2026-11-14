@@ -592,6 +592,8 @@ Every assistant message bubble shows a `VolumeUp` icon button that plays/stops T
 message independently of the global voice mode. The button is always visible on assistant bubbles,
 not just when voice mode is active.
 
+Quick Action cards show the same `VolumeUp` play/stop button at the top-right of the card header, before copy and delete. Starting a card stops any other Actions voice output. The icon is the only playback control on cards, so no "Speaking response" banner appears for card speech.
+
 ### 5.5 Streaming / loading states
 
 - Show a "Thinking…" / progress indicator while the model is initialising or generating.
@@ -779,6 +781,10 @@ Before raising a PR for any new feature that adds a list/collection screen, veri
 
 Model discovery, acquisition, selection, and lifecycle management follow a separate, dedicated
 pattern document: **[`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md)**.
+
+The Models screen groups chat brain, memory search, and quick-command models into role sections, with a
+"Still needed" card and read-only voice status rows. See the "Models Screen Role Sections (#1857)"
+section of the model availability patterns.
 
 The model availability patterns govern:
 

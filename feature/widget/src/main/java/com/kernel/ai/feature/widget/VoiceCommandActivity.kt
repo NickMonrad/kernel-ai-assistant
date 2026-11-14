@@ -49,6 +49,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.kernel.ai.core.voice.WakeWordHandoff
 import com.kernel.ai.core.permissions.recordPermissionResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -112,6 +113,7 @@ class VoiceCommandActivity : ComponentActivity() {
                 Manifest.permission.RECORD_AUDIO,
             ),
         )
+        JandalEvents.record("permission", "record_audio", "granted" to granted)
         if (granted) startVoiceSession() else finish()
     }
 

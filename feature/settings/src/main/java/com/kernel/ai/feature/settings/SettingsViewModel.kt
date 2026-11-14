@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.download.ConversationModelRules
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -99,14 +100,16 @@ class SettingsViewModel @Inject constructor(
 
         fun isDownloadedInStates(model: KernelModel) = downloadStates[model] is DownloadState.Downloaded
 
-        val activeModel: KernelModel = when {
-            preferredModel != null && isDownloadedInStates(preferredModel) -> preferredModel
-            else -> {
-                val tierModel = KernelModel.entries
-                    .firstOrNull { it.preferredForTier == profile.tier && isDownloadedInStates(it) }
-                tierModel ?: KernelModel.GEMMA_4_E2B
-            }
+        // Same rule the engine uses. A saved pick this tier cannot select is ignored, so the hub
+        // reports Auto and the model that actually answers.
+        val selectablePreference = preferredModel?.takeIf {
+            it in ConversationModelRules.selectableConversationModels(profile.tier)
         }
+        val activeModel: KernelModel = ConversationModelRules.effectiveConversationModel(
+            userPreference = preferredModel,
+            tier = profile.tier,
+            isDownloaded = { isDownloadedInStates(it) },
+        )
 
         val summary = computeAvailabilitySummary(
             models = KernelModel.entries.filter { it.showInModelManagement && !it.isDeprecated },
@@ -120,7 +123,7 @@ class SettingsViewModel @Inject constructor(
             activeModelLabel = activeModel.displayName,
             activeBackend = profile.recommendedBackend.name,
             activeTier = profile.tier.name,
-            preferredModel = preferredModel,
+            preferredModel = selectablePreference,
             e2bDownloaded = e2bDownloaded,
             e4bDownloaded = e4bDownloaded,
             hfAuthenticated = hfAuthenticated,

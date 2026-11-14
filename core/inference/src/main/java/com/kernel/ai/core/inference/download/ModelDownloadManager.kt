@@ -12,6 +12,9 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.annotation.VisibleForTesting
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.diagnostics.DownloadStateKind
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.WorkerPhase
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
@@ -255,45 +258,22 @@ class ModelDownloadManager @Inject constructor(
     }
 
     /** True when all models required for this device tier are present on disk. */
-    fun areRequiredModelsDownloaded(): Boolean {
-        val tier = hardwareProfileDetector.profile.tier
-        // On FLAGSHIP, either E4B or E2B satisfies the conversation model requirement
-        val conversationModelReady = when (tier) {
-            HardwareTier.FLAGSHIP ->
-                KernelModel.GEMMA_4_E4B.isDownloaded(context) ||
-                KernelModel.GEMMA_4_E2B.isDownloaded(context)
-            else -> KernelModel.GEMMA_4_E2B.isDownloaded(context)
-        }
-        val otherRequiredReady = KernelModel.entries
-            .filter { it.isRequired && it != KernelModel.GEMMA_4_E2B }
-            .all { it.isDownloaded(context) }
-        return conversationModelReady && otherRequiredReady
-    }
+    fun areRequiredModelsDownloaded(): Boolean =
+        ConversationModelRules.appRequiredReady(hardwareProfileDetector.profile.tier) { it.isDownloaded(context) }
 
     /**
-     * Returns the best available conversation model.
-     *
-     * Priority:
-     * 1. User-set preference (DataStore) — if the model is downloaded.
-     * 2. Tier-based auto-select (e.g. E-4B on FLAGSHIP) — if downloaded.
-     * 3. E-2B fallback (always available as required model).
-     *
-     * If the user-preferred model is not downloaded, falls back to tier/auto logic
-     * and logs a warning.
+     * Returns the conversation model that answers now. The user's pick wins when on disk;
+     * otherwise the tier default, otherwise E-2B. Logs a warning when the pick is missing.
      */
     suspend fun preferredConversationModel(): KernelModel {
         val userPref = modelPreferences.preferredConversationModel.first()
-        if (userPref != null) {
-            if (userPref.isDownloaded(context)) {
-                return userPref
-            } else {
-                Log.w(TAG, "User-preferred model ${userPref.displayName} not downloaded — falling back to auto")
-            }
+        if (userPref != null && !userPref.isDownloaded(context)) {
+            Log.w(TAG, "User-preferred model ${userPref.displayName} not downloaded — falling back to auto")
         }
-        val tier = hardwareProfileDetector.profile.tier
-        val tierModel = KernelModel.entries
-            .firstOrNull { it.preferredForTier == tier && it.isDownloaded(context) }
-        return tierModel ?: KernelModel.GEMMA_4_E2B
+        return ConversationModelRules.effectiveConversationModel(
+            userPreference = userPref,
+            tier = hardwareProfileDetector.profile.tier,
+        ) { it.isDownloaded(context) }
     }
 
     /**
@@ -312,7 +292,29 @@ class ModelDownloadManager @Inject constructor(
     // -------------------------------------------------------------------------
 
     private fun updateState(model: KernelModel, state: DownloadState) {
+        val previous = _downloadStates.value[model]
         _downloadStates.update { it.toMutableMap().apply { put(model, state) } }
+        // Transitions only: progress ticks within one state are not recorded.
+        if (previous?.javaClass != state.javaClass) {
+            JandalEvents.record("download", "state", "model" to model, "state" to state.toJandalStateKind())
+        }
+    }
+
+    /** Enum values only: `javaClass.simpleName` is obfuscated in release builds, and strings are redacted (#1870). */
+    private fun DownloadState.toJandalStateKind(): DownloadStateKind = when (this) {
+        DownloadState.NotDownloaded -> DownloadStateKind.NOT_DOWNLOADED
+        is DownloadState.Downloaded -> DownloadStateKind.DOWNLOADED
+        is DownloadState.Error -> DownloadStateKind.ERROR
+        else -> DownloadStateKind.DOWNLOADING
+    }
+
+    private fun WorkInfo.State.toWorkerPhase(): WorkerPhase = when (this) {
+        WorkInfo.State.ENQUEUED -> WorkerPhase.ENQUEUED
+        WorkInfo.State.RUNNING -> WorkerPhase.RUNNING
+        WorkInfo.State.SUCCEEDED -> WorkerPhase.SUCCEEDED
+        WorkInfo.State.FAILED -> WorkerPhase.FAILED
+        WorkInfo.State.BLOCKED -> WorkerPhase.BLOCKED
+        WorkInfo.State.CANCELLED -> WorkerPhase.CANCELLED
     }
 
     // Issue 3 fix: guard against launching duplicate observeWorkInfo coroutines
@@ -332,10 +334,20 @@ class ModelDownloadManager @Inject constructor(
         // session (the first ENQUEUED/RUNNING emission). Subsequent progress ticks skip
         // the filesystem check entirely, avoiding redundant mkdirs() syscalls.
         var filesystemChecked = false
+        var lastWorkerState: WorkInfo.State? = null
         workManager
             .getWorkInfosByTagFlow(model.workerTag)
             .collect { infoList ->
                 val info = infoList.firstOrNull() ?: return@collect
+                if (info.state != lastWorkerState) {
+                    // WorkManager replays the last finished run on the first emission of every app
+                    // start. That is not a transition this session observed, so it is not exported (#1870).
+                    val replayedFinished = lastWorkerState == null && info.state.isFinished
+                    lastWorkerState = info.state
+                    if (!replayedFinished) {
+                        JandalEvents.record("download", "worker_phase", "model" to model, "phase" to info.state.toWorkerPhase())
+                    }
+                }
 
                 val newState: DownloadState = when (info.state) {
                     WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED -> {
