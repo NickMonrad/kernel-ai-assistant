@@ -8,7 +8,15 @@ on:
         required: true
         default: '7'
         type: string
+      dry_run:
+        description: 'Only print what would be deleted (no changes)'
+        type: boolean
+        required: false
+        default: true
 
+
+permissions:
+  contents: read
 
 jobs:
   cleanup:
@@ -22,19 +30,45 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DAYS: ${{ inputs.days_older_than }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          set -euo pipefail
+          case "$DAYS" in
+            ''|*[!0-9]*) echo "::error::days_older_than must be a whole number of days (got '$DAYS')."; exit 1 ;;
+          esac
           CUTOFF=$(date -d "$DAYS days ago" --utc +%Y-%m-%dT%H:%M:%SZ)
-          echo "Deleting pre-releases published before $CUTOFF"
+          echo "Pre-releases published before $CUTOFF are candidates (dry_run=$DRY_RUN)."
 
           gh release list \
             --repo "$GITHUB_REPOSITORY" \
-            --limit 100 \
-            --json tagName,publishedAt,isPrerelease \
-            --jq --arg cutoff "$CUTOFF" \
-              '.[] | select(.isPrerelease == true and .tagName != "debug-latest" and (.tagName | test("^(build-|v0\\.1\\.)") | not) and .publishedAt < $cutoff) | .tagName' \
-          | while read -r TAG; do
+            --limit 200 \
+            --json tagName,publishedAt,isPrerelease > releases.json
+
+          # Protected tags are never candidates, even if marked pre-release:
+          # debug-latest, build-* (Play/tester builds), v0.1.* (tester GitHub releases).
+          # publishedAt is normalised to whole seconds so string comparison against the
+          # cutoff is correct when gh emits fractional seconds.
+          jq -r --arg cutoff "$CUTOFF" '
+            .[]
+            | select(.isPrerelease == true)
+            | select(.tagName != "debug-latest")
+            | select((.tagName | startswith("build-") or startswith("v0.1.")) | not)
+            | select((.publishedAt | sub("\\.[0-9]+Z$"; "Z")) < $cutoff)
+            | .tagName
+          ' releases.json > candidates.txt
+
+          if [ ! -s candidates.txt ]; then
+            echo "No pre-releases to delete."
+            exit 0
+          fi
+
+          while read -r TAG; do
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Would delete release + tag: $TAG"
+            else
               echo "Deleting release + tag: $TAG"
-              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
-            done
+              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            fi
+          done < candidates.txt
 
           echo "Done."
