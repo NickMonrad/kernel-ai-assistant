@@ -1878,7 +1878,8 @@ class ActionsViewModel @Inject constructor(
         is SkillResult.Failure -> QuickActionEntity(
             userQuery = query,
             skillName = skillName,
-            resultText = "Action failed: ${result.error}",
+            // technicalDetail (e.g. "Unknown intent: X") is not shown on the card; show the user-facing error.
+            resultText = if (result.technicalDetail != null) result.error else "Action failed: ${result.error}",
             isSuccess = false,
         )
         is SkillResult.CapabilityRequired -> {

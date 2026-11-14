@@ -3234,13 +3234,13 @@ class ChatViewModel @Inject constructor(
                 val toolCall = ToolCallInfo(
                     skillName = result.skillName,
                     requestJson = extracted,
-                    resultText = result.error,
+                    resultText = result.technicalDetail ?: result.error,
                     isSuccess = false,
                 )
-                val response = if (result.skillName == "send_email") {
-                    result.error
-                } else {
-                    "I tried to do that but something went wrong: ${result.error}"
+                // A technicalDetail means [error] is already a user-facing reply: show it as-is.
+                val response = when {
+                    result.skillName == "send_email" || result.technicalDetail != null -> result.error
+                    else -> "I tried to do that but something went wrong: ${result.error}"
                 }
                 Pair(toolCall, response)
             }

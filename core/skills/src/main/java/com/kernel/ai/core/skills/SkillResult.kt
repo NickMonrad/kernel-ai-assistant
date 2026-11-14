@@ -47,8 +47,9 @@ sealed class SkillResult {
     ) : SkillResult()
     /** Skill not found in registry. */
     data class UnknownSkill(val skillName: String) : SkillResult()
-    /** Skill found but execution failed. */
-    data class Failure(val skillName: String, val error: String) : SkillResult()
+    /** Skill found but execution failed. [error] is user-facing text. [technicalDetail], when set,
+     *  is the diagnostic shown in the tool chip instead of [error]; user-facing surfaces use [error]. */
+    data class Failure(val skillName: String, val error: String, val technicalDetail: String? = null) : SkillResult()
     /** Skill output was malformed JSON or failed schema validation. */
     data class ParseError(val rawOutput: String, val reason: String) : SkillResult()
     /** Skill requires a device capability (e.g. CALL_PHONE permission) to proceed.

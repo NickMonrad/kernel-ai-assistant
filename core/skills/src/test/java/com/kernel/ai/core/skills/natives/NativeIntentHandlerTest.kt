@@ -2894,4 +2894,53 @@ class NativeIntentHandlerTest {
             assertInstanceOf(SkillResult.CapabilityRequired::class.java, result)
         }
     }
+
+    @Nested
+    inner class UnknownIntentFallback {
+        private val calendarReply =
+            "I can't read your calendar yet, but I can add events to it. Want to add one?"
+
+        @Test
+        fun `get_calendar gives calendar capability reply not raw error`() {
+            val result = handleIntent("get_calendar", mapOf("date" to "next week"))
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(calendarReply, failure.error)
+            assertEquals("Unknown intent: get_calendar", failure.technicalDetail)
+            verify(exactly = 0) { context.startActivity(any()) }
+            coVerify(exactly = 0) { clockRepository.createAlarm(any()) }
+        }
+
+        @Test
+        fun `read_calendar gives calendar capability reply`() {
+            val result = handleIntent("read_calendar", emptyMap())
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(calendarReply, failure.error)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `nonsense intent gives generic reply and keeps name in technical detail`() {
+            val result = handleIntent("frobnicate_widgets", emptyMap())
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, failure.error)
+            assertEquals("Unknown intent: frobnicate_widgets", failure.technicalDetail)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `no unknown intent name ever reaches the user-facing error`() {
+            listOf("get_calendar", "read_calendar", "list_events", "frobnicate_widgets", "")
+                .forEach { name ->
+                    val failure = assertInstanceOf(
+                        SkillResult.Failure::class.java,
+                        handleIntent(name, emptyMap()),
+                    )
+                    assertFalse(failure.error.contains("Unknown intent", ignoreCase = true), name)
+                    assertTrue(failure.error.isNotBlank(), name)
+                }
+        }
+    }
 }
