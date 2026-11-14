@@ -230,7 +230,7 @@ fun ConversationListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    if (welcomeState !is ChatsEmptyState.Welcome) {
+                    if (welcomeState == ChatsEmptyState.Plain) {
                         SmallFloatingActionButton(
                             onClick = onNavigateToVoiceActions,
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
