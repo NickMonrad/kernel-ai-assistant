@@ -16,6 +16,28 @@ import com.kernel.ai.core.skills.intent.CalendarSlotExtractor
 import com.kernel.ai.core.skills.intent.ExtractionResult
 import com.kernel.ai.core.skills.intent.IntentContract
 import com.kernel.ai.core.skills.intent.IntentRiskLevel
+/** Written-out tens words and tens-plus-unit compounds ("sixty", "forty five", "forty-five") for set_timer. */
+private const val WRITTEN_TENS = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+private const val WRITTEN_UNITS = "one|two|three|four|five|six|seven|eight|nine"
+private const val WRITTEN_TENS_COMPOUND = """(?:$WRITTEN_TENS)(?:[\s-]+(?:$WRITTEN_UNITS))?"""
+
+/** Written-out quantity values for set_timer durations, including the tens words. */
+private val WRITTEN_QUANTITY_VALUES: Map<String, Int> = mapOf(
+    "a" to 1, "an" to 1, "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
+    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10, "fifteen" to 15,
+    "twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50, "sixty" to 60,
+    "seventy" to 70, "eighty" to 80, "ninety" to 90,
+)
+
+/** Sums written-out words: "six" → 6, "sixty" → 60, "forty five" / "forty-five" → 45. Null if any word is unknown. */
+private fun writtenQuantity(phrase: String): Int? {
+    val words = phrase.split(Regex("[\\s-]+")).filter(String::isNotEmpty)
+    if (words.isEmpty()) return null
+    var total = 0
+    for (word in words) total += WRITTEN_QUANTITY_VALUES[word] ?: return null
+    return total
+}
+
 /**
  * Tier 2: Fast Intent Layer — pure Kotlin regex + future BERT-tiny zero-shot classifier.
  *
@@ -141,6 +163,14 @@ class QuickIntentRouter(
     // the trimmed original, so chat copy ("I lost my keys") is untouched.
     private val LIST_NAME_TAIL_MISHEAR_RE = Regex(
         """\b(list|lust|lost|last)\b\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val ANAPHORIC_LIST_FOLLOW_UP_RE = Regex(
+        """\b(?:add|put)\s+(?:it|that|this|them|these|those)\s+(?:to|in|on)\b.*\blist\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val INVALID_LIST_CREATE_PREFIX_RE = Regex(
+        """\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)*(?:it|that|this|them)\b|\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)+to\s+""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -844,10 +874,19 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """turn\s+off\s+(?:my\s+|the\s+|a\s+)?(?:timer|countdown)""",
+                """turn\s+off\s+(?:(all|both|my|our|the|that|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                val quantifier = match.groupValues[1]
+                val noun = match.groupValues[2]
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
+                }
+            },
         ),
         // cancel_timer_named must come before the generic cancel_timer patterns
         IntentPattern(
@@ -864,7 +903,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer_named",
             regex = Regex(
-                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!the\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
+                """(?:cancel|stop|dismiss|delete)\s+(?:my\s+)?(?!(?:my|the|our|that)\s+timer\b)(\w[\w\s]+?)\s+timer\b""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -875,10 +914,19 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "cancel_timer",
             regex = Regex(
-                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(?:all|my|the|a)\s+)?(?:timers?|countdowns?)""",
+                """(?:cancel|stop|clear|delete|end|dismiss)\s+(?:(all|both|my|our|the|that|a)\s+)?(timers?|countdowns?)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { _, _ -> emptyMap() },
+            paramExtractor = { match, _ ->
+                val quantifier = match.groupValues[1]
+                val noun = match.groupValues[2]
+                when {
+                    quantifier.equals("both", ignoreCase = true) -> mapOf("count" to "2")
+                    quantifier.equals("all", ignoreCase = true) ||
+                        noun.endsWith("s", ignoreCase = true) -> mapOf("all" to "true")
+                    else -> emptyMap()
+                }
+            },
         ),
 
         // ── List Timers ──
@@ -994,19 +1042,14 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """(?:set|start|create)\s+(?:a\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
+                """(?:set|start|create)\s+(?:a\s+)?(?:$WRITTEN_TENS_COMPOUND|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|an?\s+|half\s+an?\s+)\s*(?:and\s+a\s+half\s+)?(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\s+(?:\w+\s+)*timer""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, input ->
-                val wordMap = mapOf(
-                    "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5,
-                    "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,
-                    "fifteen" to 15, "twenty" to 20, "thirty" to 30, "an" to 1, "a" to 1,
-                )
                 val lower = input.lowercase()
-                val numMatch = Regex("""(one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
-                if (numMatch != null) {
-                    val qty = wordMap[numMatch.groupValues[1]] ?: 1
+                val numMatch = Regex("""($WRITTEN_TENS_COMPOUND|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|an?)\s+(?:and\s+a\s+half\s+)?(hours?|hrs?|minutes?|mins?|seconds?|secs?)""").find(lower)
+                val qty = numMatch?.let { writtenQuantity(it.groupValues[1]) }
+                if (numMatch != null && qty != null) {
                     val unit = numMatch.groupValues[2]
                     val half = lower.contains("and a half") || lower.contains("and-a-half")
                     val seconds = when {
@@ -1181,6 +1224,25 @@ class QuickIntentRouter(
             requiredSlots = slotContract("create_calendar_event"),
         ),
 
+        // "set do not disturb on" / "set dnd mode on" (#1317). The unanchored verb rules below
+        // don't include "set", so it fell through to the smart_home fallback. They also match
+        // "turn do not disturb off" as ON, so the anchored OFF form must come first.
+        IntentPattern(
+            intentName = "toggle_dnd_off",
+            regex = Regex(
+                """^(?:set|turn)\s+(?:do\s+not\s+disturb|dnd)(?:\s+mode)?\s+off$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
+        IntentPattern(
+            intentName = "toggle_dnd_on",
+            regex = Regex(
+                """^(?:set|turn)\s+(?:do\s+not\s+disturb|dnd)(?:\s+mode)?\s+on$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+        ),
         // ── Do Not Disturb ──
         IntentPattern(
             intentName = "toggle_dnd_on",
@@ -2118,7 +2180,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:like\s+)?this\s+week\s+in\s+([\w\s,]+?)[.!?]*$""",
+                """(?:what|how)(?:'s| is)\s+the\s+weather\s+(?:like\s+)?this\s+week\s+in\s+([\w\s,]+?)[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3416,6 +3478,17 @@ class QuickIntentRouter(
         ),
 
         // ── Date Diff ──
+        // "how long's it until Easter" / "how long is it until Easter"
+        IntentPattern(
+            intentName = "get_date_diff",
+            regex = Regex(
+                """how\s+long(?:'s|’s|\s+is)\s+it\s+(?:until|till|to|before)\s+(.+)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf("target_date" to cleanTargetDate(match.groupValues[1]), "direction" to "until")
+            },
+        ),
         // "how many days until Christmas" / "how long until my birthday on August 22"
         IntentPattern(
             intentName = "get_date_diff",
@@ -3456,7 +3529,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_date_diff",
             regex = Regex(
-                """when\s+is\s+(?!.*\bthis\s+year\b)(.+)""",
+                """when(?:\s+is|'s|’s)\s+(?!.*\bthis\s+year\b)(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("target_date" to cleanTargetDate(match.groupValues[1])) }
@@ -3464,10 +3537,12 @@ class QuickIntentRouter(
 
         // ── Calculator / Conversion ──
         // Symbolic expressions and helper functions: "245 * 17", "what is round(sqrt(25^2), 2)"
+        // Minus-only input needs a binary minus that is spaced ("50 - 12") or the only hyphen
+        // ("50-12"), so dates ("2026-11-01"), hyphenated phone numbers and a bare "-5" do not route.
         IntentPattern(
             intentName = "calculate_arithmetic",
             regex = Regex(
-                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b))(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
+                """^(?:(?:what(?:'s|\s+is)|calculate|compute|evaluate)\s+)?((?=.*(?:[+*/^%()]|\b(?:sqrt|abs|floor|ceil|round)\b)|.*\d\s+-\s*\d|.*\d\s*-\s+\d|[^-]*\d-\d[^-]*$)(?:(?:sqrt|abs|floor|ceil|round)|[-+*/%^().,\d\s])+)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("expression" to match.groupValues[1].trim()) },
@@ -3826,13 +3901,13 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val params = mutableMapOf<String, String>()
                 normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
-                params["list_name"] = match.groupValues[2].trim()
+                params.putAll(listNameWithDescriptor(match.groupValues[2], match.groupValues[3]))
                 params
             },
             requiredSlots = slotContract("add_to_list"),
@@ -3841,13 +3916,13 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val params = mutableMapOf<String, String>()
                 normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
-                params["list_name"] = match.groupValues[2].trim()
+                params.putAll(listNameWithDescriptor(match.groupValues[2], match.groupValues[3]))
                 params
             },
             requiredSlots = slotContract("add_to_list"),
@@ -3869,14 +3944,14 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+list(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val params = mutableMapOf<String, String>()
                 normalizeOptionalItem(match.groupValues[1])?.let { params["item"] = it }
                 val listName = match.groupValues[2].trim()
-                if (listName.isNotBlank()) params["list_name"] = listName
+                if (listName.isNotBlank()) params.putAll(listNameWithDescriptor(listName, match.groupValues[3]))
                 params
             },
             requiredSlots = slotContract("add_to_list"),
@@ -3885,12 +3960,12 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^(?:add|put)\s+(?:something\s+)?to\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?list$""",
+                """^(?:add|put)\s+(?:something\s+)?to\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?(list)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
                 val listName = match.groupValues[1].trim()
-                if (listName.isNotBlank()) mapOf("list_name" to listName) else emptyMap()
+                if (listName.isNotBlank()) listNameWithDescriptor(listName, match.groupValues[2]) else emptyMap()
             },
             requiredSlots = slotContract("add_to_list"),
         ),
@@ -3929,10 +4004,10 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!list\b)(.+?)\s+list""",
+                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)(?!list\b)(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
             requiredSlots = slotContract("create_list"),
         ),
 
@@ -3941,12 +4016,10 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(.+?)\s+list""",
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf("list_name" to match.groupValues[1].trim())
-            },
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
             requiredSlots = slotContract("create_list"),
         ),
         // ── Meal Planner ──
@@ -4118,24 +4191,16 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "remove_from_list",
             regex = Regex(
-                """(?:remove|delete|take|cross off)\s+(.+?)\s+(?:from|off)\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
+                """(?:remove|delete|take|cross off)\s+(.+?)\s+(?:from|off)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                mapOf(
+                val params = mutableMapOf(
                     "item" to match.groupValues[1].trim(),
-                    "list_name" to match.groupValues[2].trim(),
                 )
+                params.putAll(listNameWithDescriptor(match.groupValues[2], match.groupValues[3]))
+                params
             },
-        ),
-        // "what's on my shopping list" / "what's in my shopping list" / "show me my grocery list"
-        IntentPattern(
-            intentName = "get_list_items",
-            regex = Regex(
-                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+out)?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+list""",
-                RegexOption.IGNORE_CASE,
-            ),
-            paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
         ),
         // "display list called shopping" / "show list called groceries"
         IntentPattern(
@@ -4146,6 +4211,32 @@ class QuickIntentRouter(
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
         ),
+        // "what's on my shopping list" / "what's in my shopping list" / "show me my grocery list"
+        IntentPattern(
+            intentName = "get_list_items",
+            regex = Regex(
+                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+(?:out|me))?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
+        ),
+        // "what do I need to get from the shops" / "what do I need from Bunnings"
+        // Captures any place; NativeIntentHandler resolves known store categories and named lists.
+        // Leading my/our/the/a and trailing time qualifiers (today, tomorrow, this week, later, ...) are stripped.
+        IntentPattern(
+            intentName = "get_list_items",
+            regex = Regex(
+                """^what\s+do\s+(?:i|we)\s+need(?:\s+to\s+(?:get|buy))?\s+(?:from|at)\s+(?:(?:the|a|my|our)\s+)?(.+?)(?:\s+(?:today|tonight|tomorrow|this\s+(?:week|weekend)|later|on\s+the\s+way\s+home))?[?.!]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                mapOf(
+                    "list_name" to match.groupValues[1].trim(),
+                    "fallthrough_on_missing" to "true",
+                )
+            },
+        ),
+
 
         // ── Save Memory ──
         // Pattern: "remember something" / "save something to memory" → ask what to remember
@@ -4507,6 +4598,14 @@ class QuickIntentRouter(
         params: Map<String, String>,
     ): com.kernel.ai.core.skills.slot.SlotSpec? = missingRequiredSlot(slotContract(intentName), params)
 
+    private fun listNameWithDescriptor(name: String, descriptor: String): Map<String, String> {
+        val base = name.trim()
+        return mapOf(
+            "list_name" to "$base $descriptor",
+            "list_name_for_creation" to base,
+        )
+    }
+
     private fun tryMatchPatterns(trimmed: String, candidates: List<IntentPattern>): RouteResult? {
         for (pattern in candidates) {
             val match = pattern.regex.find(trimmed) ?: continue
@@ -4565,13 +4664,173 @@ class QuickIntentRouter(
     }
 
 
+    private val arithmeticUnitWords = "(?:one|two|three|four|five|six|seven|eight|nine)"
+    private val arithmeticWordSeparator = Regex("""[\s-]+""")
+    private val arithmeticSmallWords = "(?:zero|$arithmeticUnitWords|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
+    private val arithmeticTensWords = "(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+    private val arithmeticSpokenOperand = "(?:$arithmeticSmallWords|$arithmeticTensWords(?:[- ]$arithmeticUnitWords)?|$arithmeticUnitWords\\s+hundred)"
+    private val imperativeArithmeticOperand = "(?:-?\\d+(?:\\.\\d+)?|$arithmeticSpokenOperand)"
+    private val imperativeMultiply = Regex(
+        """^multiply\s+($imperativeArithmeticOperand)\s+by\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val imperativeDivide = Regex(
+        """^divide\s+($imperativeArithmeticOperand)\s+by\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val imperativeAdd = Regex(
+        """^add\s+($imperativeArithmeticOperand)\s+(?:and|to)\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val imperativeSubtract = Regex(
+        """^subtract\s+($imperativeArithmeticOperand)\s+from\s+($imperativeArithmeticOperand)[.!?]*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    // #1695 — bounded percentage-change phrasing, normalised to "base * (1 ± (pct / 100))".
+    // Only non-negative percents are accepted; a signed percent stays ambiguous and falls through.
+    private val percentOperand = "($imperativeArithmeticOperand)(?:\\s*%|\\s+percent)"
+    private val baseOperand = "($imperativeArithmeticOperand)"
+    private data class PercentChangeForm(val regex: Regex, val baseGroup: Int, val percentGroup: Int, val sign: String)
+    private val percentChangeForms = listOf(
+        PercentChangeForm(Regex("""^add\s+$percentOperand\s+to\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "+"),
+        PercentChangeForm(Regex("""^take\s+$percentOperand\s+off\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "-"),
+        PercentChangeForm(Regex("""^subtract\s+$percentOperand\s+from\s+$baseOperand[.!?]*$""", RegexOption.IGNORE_CASE), 2, 1, "-"),
+        PercentChangeForm(Regex("""^increase\s+$baseOperand\s+by\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "+"),
+        PercentChangeForm(Regex("""^(?:decrease|reduce)\s+$baseOperand\s+by\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "-"),
+        PercentChangeForm(Regex("""^$baseOperand\s+plus\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "+"),
+        PercentChangeForm(Regex("""^$baseOperand\s+(?:minus|less)\s+$percentOperand[.!?]*$""", RegexOption.IGNORE_CASE), 1, 2, "-"),
+    )
+
+    private fun normalizePercentChange(input: String): String? {
+        for (form in percentChangeForms) {
+            val match = form.regex.matchEntire(input) ?: continue
+            val base = normalizeArithmeticOperand(match.groupValues[form.baseGroup]) ?: return null
+            val percent = normalizeArithmeticOperand(match.groupValues[form.percentGroup]) ?: return null
+            if (percent.startsWith("-")) return null
+            return "$base * (1 ${form.sign} ($percent / 100))"
+        }
+        return null
+    }
+
+    /**
+     * Converts only a complete, two-operand imperative calculator command to the expression
+     * accepted by the existing arithmetic route. Number-word support is deliberately limited to
+     * small integers, tens with an optional unit, and one-to-nine hundreds; this is not a general
+     * natural-language number parser.
+     */
+    private fun normalizeImperativeArithmetic(input: String): String {
+        normalizePercentChange(input)?.let { return it }
+        if (input.startsWith("multiply ", ignoreCase = true)) {
+            val match = imperativeMultiply.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "*", reverseOperands = false) ?: input
+        }
+        if (input.startsWith("divide ", ignoreCase = true)) {
+            val match = imperativeDivide.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "/", reverseOperands = false) ?: input
+        }
+        if (input.startsWith("add ", ignoreCase = true)) {
+            val match = imperativeAdd.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "+", reverseOperands = false) ?: input
+        }
+        if (input.startsWith("subtract ", ignoreCase = true)) {
+            val match = imperativeSubtract.matchEntire(input) ?: return input
+            return normalizeArithmeticExpression(match, "-", reverseOperands = true) ?: input
+        }
+        return input
+    }
+
+    private fun normalizeArithmeticExpression(
+        match: MatchResult,
+        operator: String,
+        reverseOperands: Boolean,
+    ): String? {
+        val first = normalizeArithmeticOperand(match.groupValues[1]) ?: return null
+        val second = normalizeArithmeticOperand(match.groupValues[2]) ?: return null
+        return if (reverseOperands) "$second $operator $first" else "$first $operator $second"
+    }
+
+    private fun normalizeArithmeticOperand(raw: String): String? {
+        if (raw.firstOrNull()?.let { it.isDigit() || it == '-' } == true) return raw
+        val words = raw.lowercase().split(arithmeticWordSeparator)
+        return when (words.size) {
+            1 -> {
+                val word = words.single()
+                arithmeticSmallNumber(word)?.toString() ?: arithmeticTensNumber(word)?.toString()
+            }
+            2 -> {
+                val first = words[0]
+                val second = words[1]
+                val unit = arithmeticUnitNumber(first)
+                when {
+                    second == "hundred" && unit != null -> (unit * 100).toString()
+                    else -> {
+                        val tens = arithmeticTensNumber(first)
+                        val ones = arithmeticUnitNumber(second)
+                        if (tens != null && ones != null) (tens + ones).toString() else null
+                    }
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun arithmeticUnitNumber(word: String): Int? = when (word) {
+        "one" -> 1
+        "two" -> 2
+        "three" -> 3
+        "four" -> 4
+        "five" -> 5
+        "six" -> 6
+        "seven" -> 7
+        "eight" -> 8
+        "nine" -> 9
+        else -> null
+    }
+
+    private fun arithmeticSmallNumber(word: String): Int? = when (word) {
+        "zero" -> 0
+        "ten" -> 10
+        "eleven" -> 11
+        "twelve" -> 12
+        "thirteen" -> 13
+        "fourteen" -> 14
+        "fifteen" -> 15
+        "sixteen" -> 16
+        "seventeen" -> 17
+        "eighteen" -> 18
+        "nineteen" -> 19
+        else -> arithmeticUnitNumber(word)
+    }
+
+    private fun arithmeticTensNumber(word: String): Int? = when (word) {
+        "twenty" -> 20
+        "thirty" -> 30
+        "forty" -> 40
+        "fifty" -> 50
+        "sixty" -> 60
+        "seventy" -> 70
+        "eighty" -> 80
+        "ninety" -> 90
+        else -> null
+    }
+
     fun route(input: String): RouteResult {
         val trimmed = INTENT_PREFIX_RE.replace(input.trim(), "")
+        if (ANAPHORIC_LIST_FOLLOW_UP_RE.containsMatchIn(trimmed) ||
+            INVALID_LIST_CREATE_PREFIX_RE.containsMatchIn(trimmed)
+        ) {
+            return RouteResult.FallThrough(input = trimmed)
+        }
+        // Normalize curly apostrophes for regex matching only. This covers STT and typed text,
+        // including contraction tokens and possessive apostrophes in captured slots. The
+        // classifier and fall-through continue to receive the original trimmed input.
+        val apostropheNormalized = trimmed.replace('‘', '\'').replace('’', '\'')
         // Alias + mishearing normalisation scoped to regex pattern matching only — NOT fed to the
         // classifier. Applying globally would corrupt labels and distort the classifier input
         // distribution (see IMPORTANT_DATE_ALIAS_RE comment for full rationale).
         val aliasNormalized = STT_NZ_MISHEARING_RE.replace(
-            IMPORTANT_DATE_ALIAS_RE.replace(trimmed, "important date"),
+            IMPORTANT_DATE_ALIAS_RE.replace(apostropheNormalized, "important date"),
             // Restore the elided terminal 'e' on the verb stem and inject the article:
             // "saver note" → stem "sav" → "save a note"
             // Stems ending in vowel (add, record, jot) get just " a "; stems missing 'e'
@@ -4585,7 +4844,12 @@ class QuickIntentRouter(
 
         // #982 — trailing "lost"/"lust"/"last" → "list" for list-command detection.
         // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
-        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(aliasNormalized, "list")
+        // #1688 — rewrite only complete verb-first arithmetic commands on the regex path.
+        // The classifier and fall-through continue to receive the original trimmed input.
+        val arithmeticNormalized = normalizeImperativeArithmetic(aliasNormalized)
+        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(arithmeticNormalized) { match ->
+            match.groupValues[1].takeIf { it.equals("list", ignoreCase = true) } ?: "list"
+        }
 
 
         // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
@@ -4803,6 +5067,29 @@ class QuickIntentRouter(
     // ── Parameter parsing helpers ─────────────────────────────────────────────
 
     companion object {
+        private val TRAILING_ALARM_LABEL_REGEX = Regex(
+            """\bfor\s+(.+?)(?=\s+(?:at|on|by|from|for|tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|$)""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX = Regex(
+            """^(?:(?:the|this|next|a|an|each|every(?:\s+other)?)(?:\s+|$))+""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_ARTICLE_REGEX = Regex(
+            """^(?:the|an?)\s+""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ALARM_LABEL_TEMPORAL_ONLY_REGEX = Regex(
+            """^(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun|(?:mon|tues|wednes|thurs|fri|satur|sun)days|morning|afternoon|evening|nights?|weeknight|weeknights|weekend|weekends|weekdays?|week|weeks|day|days|daily|everyday|noon|midnight|now|later|\d+\s+(?:minutes?|hours?|days?|weeks?)|\d{1,2}(?:st|nd|rd|th)|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?:morning|afternoon|evening|night))?$""",
+            RegexOption.IGNORE_CASE,
+        )
+        private fun isTemporalAlarmLabelCandidate(candidate: String): Boolean {
+            val temporalCandidate = candidate
+                .replace(ALARM_LABEL_TEMPORAL_QUALIFIER_REGEX, "")
+                .trim()
+            return temporalCandidate.isEmpty() || ALARM_LABEL_TEMPORAL_ONLY_REGEX.matches(temporalCandidate)
+        }
+
         /**
          * Intent names that carry no user-supplied parameters and are safe to execute
          * without confirmation once the classifier confidence is at or above [FAST_PATH_THRESHOLD].
@@ -4932,10 +5219,20 @@ class QuickIntentRouter(
                 """\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun)\b""",
                 RegexOption.IGNORE_CASE,
             )
-            val dayMatch = dayRegex.find(cleaned)
+            val trailingForLabelMatch = TRAILING_ALARM_LABEL_REGEX
+                .findAll(cleaned)
+                .firstOrNull { it.range.first > match.range.last }
+            val trailingForLabelCandidate = trailingForLabelMatch?.groups?.get(1)?.value?.trim()
+            val trailingForLabelRange = trailingForLabelMatch?.groups?.get(1)?.range
+            val dayMatch = dayRegex.findAll(cleaned).firstOrNull { candidateDay ->
+                val isInsidePurpose = trailingForLabelRange?.contains(candidateDay.range.first) == true
+                !isInsidePurpose ||
+                    trailingForLabelCandidate?.let { isTemporalAlarmLabelCandidate(it) } == true
+            }
             if (dayMatch != null) {
                 params["day"] = normalizeDayName(dayMatch.groupValues[1].lowercase())
             }
+
 
             // Extract label from "called X", "named X", "labeled X", "labelled X" — mirrors parseTimerDuration.
             // Non-greedy capture with lookahead to stop before time/date keywords so
@@ -4945,22 +5242,29 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             )
             val labelMatch = labelRegex.find(cleaned)
-            if (labelMatch != null) {
-                params["label"] = labelMatch.groupValues[1].trim()
-            } else {
-                val earliestStructuredIndex = listOfNotNull(
-                    dayMatch?.range?.first,
-                    match.range.first.takeIf { it > 0 },
-                ).minOrNull()
-                val implicitLabel = earliestStructuredIndex
-                    ?.let { cleaned.substring(0, it).trim() }
-                    ?.replace(Regex("""^(?:for|on|at|by)\s+"""), "")
-                    ?.replace(Regex("""\s+(?:for|on|at|by)$"""), "")
-                    ?.replace(Regex("""^(?:the|an?)\s+"""), "")
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                if (implicitLabel != null) {
-                    params["label"] = implicitLabel
+            val trailingForLabel = trailingForLabelCandidate
+                ?.takeUnless { isTemporalAlarmLabelCandidate(it) }
+                ?.replace(ALARM_LABEL_ARTICLE_REGEX, "")
+                ?.trim()
+            val namedLabel = labelMatch?.groupValues?.get(1)?.trim()
+            when {
+                !namedLabel.isNullOrBlank() -> params["label"] = namedLabel
+                !trailingForLabel.isNullOrBlank() -> params["label"] = trailingForLabel
+                match.range.first > 0 -> {
+                    val earliestStructuredIndex = listOfNotNull(
+                        dayMatch?.range?.first,
+                        match.range.first,
+                    ).minOrNull()
+                    val implicitLabel = earliestStructuredIndex
+                        ?.let { cleaned.substring(0, it).trim() }
+                        ?.replace(Regex("""^(?:for|on|at|by)(?:\s+|$)"""), "")
+                        ?.replace(Regex("""\s+(?:for|on|at|by)$"""), "")
+                        ?.replace(Regex("""^(?:the|an?)\s+"""), "")
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                    if (implicitLabel != null) {
+                        params["label"] = implicitLabel
+                    }
                 }
             }
 

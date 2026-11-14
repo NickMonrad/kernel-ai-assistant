@@ -1,0 +1,320 @@
+name: Play release
+
+# Manually triggered, approval-gated upload of a signed release AAB to a Google Play
+# test track. Ordinary CI (ci.yml) never receives signing or Play credentials; only
+# this workflow does, through secrets scoped to the `play-release` environment.
+# Setup and security model: docs/PLAY_RELEASE_BUILD.md ("Publish from GitHub").
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Play test track (internal = internal testing, alpha = closed testing)'
+        type: choice
+        required: true
+        default: internal
+        options:
+          - internal
+          - alpha
+      github_release:
+        description: 'Also publish the tester APK as a GitHub release (always on for alpha runs)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-release
+  cancel-in-progress: false
+
+jobs:
+  # Fails before the environment approval is requested, so a run from any other
+  # ref never reaches the reviewer or the secrets.
+  check-ref:
+    name: Require main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse non-main refs
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::Play releases run only from refs/heads/main (got $REF)."
+            exit 1
+          fi
+
+  publish:
+    name: Publish to Play (${{ inputs.track }})
+    needs: check-ref
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: play-release
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check required secrets
+        env:
+          PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          PLAY_UPLOAD_STORE_PASSWORD: ${{ secrets.PLAY_UPLOAD_STORE_PASSWORD }}
+          PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+          PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          missing=0
+          for name in PLAY_UPLOAD_KEYSTORE_BASE64 PLAY_UPLOAD_STORE_PASSWORD \
+            PLAY_UPLOAD_KEY_ALIAS PLAY_UPLOAD_KEY_PASSWORD PLAY_SERVICE_ACCOUNT_JSON; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing secret $name in the play-release environment."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Add the missing secrets (see docs/PLAY_RELEASE_BUILD.md, 'Publish from GitHub')."
+            exit 1
+          fi
+          echo "All five Play release secrets are present."
+
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
+        with:
+          persist-credentials: false
+
+      # ── Android build setup (mirrors ci.yml) ─────────────────────────
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+        with:
+          packages: platform-tools ndk;28.2.13676358
+
+      - name: Verify pinned NDK installation
+        env:
+          NDK_VERSION: 28.2.13676358
+        run: |
+          NDK_DIR="$ANDROID_HOME/ndk/$NDK_VERSION"
+          NDK_PROPERTIES="$NDK_DIR/source.properties"
+          if [ ! -f "$NDK_PROPERTIES" ]; then
+            echo "::error::Pinned NDK $NDK_VERSION is incomplete: $NDK_PROPERTIES is missing"
+            exit 1
+          fi
+          if ! grep -Eq "^Pkg\\.Revision[[:space:]]*=[[:space:]]*${NDK_VERSION}$" "$NDK_PROPERTIES"; then
+            echo "::error::Pinned NDK revision does not match $NDK_VERSION in $NDK_PROPERTIES"
+            exit 1
+          fi
+
+      # Restore-only: this job holds signing and Play secrets, so it must never
+      # save a cache that later PR CI runs could restore.
+      - name: Restore Gradle packages
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # ── Credentials (written outside the checkout, owner-only) ───────
+      - name: Write signing and Play credentials
+        env:
+          PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          PLAY_UPLOAD_STORE_PASSWORD: ${{ secrets.PLAY_UPLOAD_STORE_PASSWORD }}
+          PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+          PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          CRED_DIR="$RUNNER_TEMP/play-release"
+          mkdir -p "$CRED_DIR"
+          chmod 700 "$CRED_DIR"
+
+          if ! printf '%s' "$PLAY_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$CRED_DIR/upload.jks" 2>/dev/null \
+            || [ ! -s "$CRED_DIR/upload.jks" ]; then
+            echo "::error::PLAY_UPLOAD_KEYSTORE_BASE64 is not valid base64 (use: base64 -w0 jandal-upload.jks)."
+            exit 1
+          fi
+
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$CRED_DIR/play-service-account.json"
+          if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' \
+            "$CRED_DIR/play-service-account.json" >/dev/null 2>&1; then
+            echo "::error::PLAY_SERVICE_ACCOUNT_JSON is not valid JSON."
+            exit 1
+          fi
+
+          # Java properties format: escape backslashes and line breaks so any
+          # password characters survive. Values are read from the environment,
+          # never from the command line.
+          STORE_FILE="$CRED_DIR/upload.jks" python3 - "$CRED_DIR/keystore.properties" <<'PY'
+          import os, sys
+
+          def esc(value):
+              value = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r')
+              out = []
+              for ch in value:
+                  if ord(ch) <= 0x7E:
+                      out.append(ch)
+                  else:
+                      # Properties.load(InputStream) decodes ISO-8859-1, so emit UTF-16 code units.
+                      data = ch.encode('utf-16-be')
+                      for i in range(0, len(data), 2):
+                          out.append('\\u%04X' % int.from_bytes(data[i:i + 2], 'big'))
+              value = ''.join(out)
+              if value[:1] in (' ', '\t', '\f'):
+                  value = '\\' + value
+              return value
+
+          entries = {
+              'storeFile': os.environ['STORE_FILE'],
+              'storePassword': os.environ['PLAY_UPLOAD_STORE_PASSWORD'],
+              'keyAlias': os.environ['PLAY_UPLOAD_KEY_ALIAS'],
+              'keyPassword': os.environ['PLAY_UPLOAD_KEY_PASSWORD'],
+          }
+          with open(sys.argv[1], 'w', encoding='utf-8') as f:
+              for key, value in entries.items():
+                  f.write(f'{key}={esc(value)}\n')
+          PY
+
+          echo "CRED_DIR=$CRED_DIR" >> "$GITHUB_ENV"
+          echo "Credentials written to \$RUNNER_TEMP/play-release (owner-only)."
+
+      # ── Build and publish ────────────────────────────────────────────
+      # One Gradle run. :app:publishReleaseBundle depends on verifyTesterApkForPlayPublish
+      # when -PgithubTesterApk=true, which builds the release APK and checks it (package,
+      # versionName, Play-assigned versionCode, upload certificate) before GPP uploads.
+      - name: Build tester APK and publish release bundle to Play (${{ inputs.track }})
+        env:
+          PLAY_TRACK: ${{ inputs.track }}
+          BUILD_APK: ${{ inputs.track == 'alpha' || inputs.github_release }}
+        run: |
+          set -euo pipefail
+          case "$PLAY_TRACK" in
+            internal|alpha) ;;
+            *) echo "::error::Unsupported track '$PLAY_TRACK'"; exit 1 ;;
+          esac
+          EXTRA=()
+          if [ "$BUILD_APK" = "true" ]; then
+            EXTRA=(-PgithubTesterApk=true)
+          fi
+          ./gradlew --no-daemon --no-build-cache :app:publishReleaseBundle "${EXTRA[@]}" \
+            -PreleaseSigningPropertiesFile="$CRED_DIR/keystore.properties" \
+            -PplayServiceAccountFile="$CRED_DIR/play-service-account.json" \
+            -PplayTrack="$PLAY_TRACK"
+
+
+      - name: Remove credentials
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/play-release"
+          echo "Credential directory removed."
+
+      # ── Stage tester APK (checks already passed in Gradle) ───────────
+      - name: Stage tester APK
+        if: ${{ inputs.track == 'alpha' || inputs.github_release }}
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          BT_DIR=$(printf '%s\n' "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          VERSION_NAME=$("$BT_DIR/aapt2" dump badging "$APK" \
+            | sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" | head -1)
+          [ -n "$VERSION_NAME" ] || { echo "::error::No versionName in $APK"; exit 1; }
+          APK_CERT=$("$BT_DIR/apksigner" verify --print-certs "$APK" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f')
+
+          STAGE="$RUNNER_TEMP/tester-release"
+          mkdir -p "$STAGE"
+          cp "$APK" "$STAGE/jandal-ai-$VERSION_NAME.apk"
+          cp app/src/main/play/release-notes/en-AU/default.txt "$STAGE/release-notes.txt"
+          echo "$APK_CERT" > "$STAGE/signer-sha256.txt"
+          (cd "$STAGE" && sha256sum "jandal-ai-$VERSION_NAME.apk" > sha256.txt)
+
+      - name: Upload tester APK for the release job
+        if: ${{ inputs.track == 'alpha' || inputs.github_release }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tester-apk
+          path: ${{ runner.temp }}/tester-release/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Holds contents: write only. No secrets, no environment, no signing material:
+  # it downloads the APK staged by the publish job and creates the release.
+  github-release:
+    name: Publish tester APK on GitHub (${{ inputs.track }})
+    needs: publish
+    if: ${{ inputs.track == 'alpha' || inputs.github_release }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download tester APK
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: tester-apk
+          path: tester-release
+
+      - name: Create full GitHub release with the APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRACK: ${{ inputs.track }}
+        run: |
+          set -euo pipefail
+          case "$TRACK" in
+            alpha) TRACK_LABEL="closed testing (alpha)" ;;
+            internal) TRACK_LABEL="internal testing" ;;
+            *) echo "::error::Unsupported track '$TRACK'"; exit 1 ;;
+          esac
+          cd tester-release
+          APK_FILES=(jandal-ai-*.apk)
+          if [ "${#APK_FILES[@]}" -ne 1 ] || [ ! -f "${APK_FILES[0]}" ]; then
+            echo "::error::Expected exactly one tester APK, found ${#APK_FILES[@]}."
+            exit 1
+          fi
+          APK="${APK_FILES[0]}"
+          VERSION_NAME="${APK#jandal-ai-}"
+          VERSION_NAME="${VERSION_NAME%.apk}"
+          SHA256=$(cut -d ' ' -f1 sha256.txt)
+          SIGNER=$(cat signer-sha256.txt)
+          echo "Publishing $APK (SHA-256 $SHA256, signer SHA-256 $SIGNER) from the $TRACK_LABEL build."
+
+          {
+            echo "Play test build for Jandal AI $VERSION_NAME, built from the same commit and versionCode as the Play $TRACK_LABEL upload."
+            echo
+            echo "## What's new"
+            cat release-notes.txt
+            echo
+            echo
+            echo "## Checksum and signer"
+            echo
+            echo "SHA-256 of \`$APK\`:"
+            echo
+            echo "\`$SHA256\`"
+            echo
+            echo "Signer certificate SHA-256 (upload key):"
+            echo
+            echo "\`$SIGNER\`"
+            echo
+            echo "## Install"
+            echo
+            echo "- Download \`$APK\`, allow installs from your browser, and open it."
+            echo "- Updates: install the newer APK over the top; settings and downloads are kept."
+            echo "- **Can't mix with Play installs.** Play re-signs with Google's app-signing key, so this APK has a different signature. Switching between Play and this APK needs an uninstall first, which deletes the app's data and downloaded models."
+            echo "- Obtainium: see the [Obtainium section](https://github.com/NickMonrad/kernel-ai-assistant/blob/main/docs/PLAY_RELEASE_BUILD.md#obtainium) of docs/PLAY_RELEASE_BUILD.md."
+            echo "- Feedback: Settings → About → Email support, or a GitHub issue."
+          } > release-body.md
+
+          gh release create "v$VERSION_NAME" "$APK" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Jandal AI $VERSION_NAME" \
+            --notes-file release-body.md \
+            --latest

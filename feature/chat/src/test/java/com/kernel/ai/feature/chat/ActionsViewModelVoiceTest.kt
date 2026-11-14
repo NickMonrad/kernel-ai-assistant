@@ -18,12 +18,15 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceNotice
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import io.mockk.Runs
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -33,6 +36,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -66,8 +70,31 @@ class ActionsViewModelVoiceTest {
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
+    private val voiceInputNotices = MutableSharedFlow<VoiceNotice>(replay = 1)
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
     private val spokenResponsesEnabled = MutableStateFlow(true)
+
+    /** Chunks appended to each streaming session, one list per opened session. */
+    private val streamedSessions = mutableListOf<MutableList<Pair<String, Boolean>>>()
+
+    /** Full text of every streamed reply whose final chunk was appended. */
+    private val streamedReplies: List<String>
+        get() = streamedSessions
+            .filter { session -> session.lastOrNull()?.second == true }
+            .map { session -> session.joinToString(" ") { it.first }.trim() }
+
+    /**
+     * Quick-action replies are spoken sentence by sentence through a streaming session; asserts
+     * exactly one completed streamed reply matches [predicate] and none went through one-shot speak.
+     */
+    private fun assertStreamedReplyOnce(predicate: (String) -> Boolean) {
+        assertEquals(
+            1,
+            streamedReplies.count(predicate),
+            "Expected exactly one streamed reply matching; streamed=$streamedReplies",
+        )
+        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+    }
 
     private lateinit var viewModel: ActionsViewModel
 
@@ -81,9 +108,20 @@ class ActionsViewModelVoiceTest {
         every { quickActionDao.observeAll() } returns flowOf(emptyList<QuickActionEntity>())
         coEvery { quickActionDao.insert(any()) } just Runs
         every { voiceInputController.events } returns voiceInputEvents
+        every { voiceInputController.notices } returns voiceInputNotices
         every { voiceInputController.stopListening() } just Runs
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
+        coEvery { voiceOutputController.openStreamingSession(any()) } answers {
+            val appended = mutableListOf<Pair<String, Boolean>>()
+            streamedSessions += appended
+            object : VoiceOutputStreamingSession {
+                override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+                    appended += text to isFinal
+                    return VoiceOutputResult.Spoken
+                }
+            }
+        }
         every { voiceOutputController.events } returns voiceOutputEvents
         every { voiceOutputController.stop() } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
@@ -141,6 +179,16 @@ class ActionsViewModelVoiceTest {
 
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         verify(exactly = 0) { quickIntentRouter.route(any()) }
+    }
+
+    @Test
+    fun `SpeakingStarted after a voice output stop does not leave the card on Speaking`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        viewModel.stopVoiceOutput()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("abandoned chunk"))
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
     }
 
 
@@ -736,13 +784,7 @@ class ActionsViewModelVoiceTest {
         viewModel.executeAction("bad action", InputMode.Voice)
         advanceUntilIdle()
 
-        coVerify {
-            voiceOutputController.speak(
-                match<VoiceSpeakRequest> {
-                    it.text == "That didn't work. Check the action history for details."
-                }
-            )
-        }
+        assertStreamedReplyOnce { it == "That didn't work. Check the action history for details." }
     }
 
     @Test
@@ -793,17 +835,13 @@ class ActionsViewModelVoiceTest {
                 },
             )
         }
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(
-                match<VoiceSpeakRequest> {
-                    it.text != displayText &&
-                        it.text.contains("Wellington") &&
-                        it.text.contains("Partly cloudy") &&
-                        it.text.contains("25 degrees Celsius") &&
-                        !it.text.contains("25°C") &&
-                        !it.text.contains("H 27°C / L 18°C")
-                },
-            )
+        assertStreamedReplyOnce {
+            it != displayText &&
+                it.contains("Wellington") &&
+                it.contains("Partly cloudy") &&
+                it.contains("25 degrees Celsius") &&
+                !it.contains("25°C") &&
+                !it.contains("H 27°C / L 18°C")
         }
     }
 
@@ -828,11 +866,7 @@ class ActionsViewModelVoiceTest {
         viewModel.executeAction("create checklist weekend errands", InputMode.Voice)
         advanceUntilIdle()
 
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text == displayText },
-            )
-        }
+        assertStreamedReplyOnce { it == displayText }
     }
 
     @Test
@@ -874,11 +908,7 @@ class ActionsViewModelVoiceTest {
         viewModel.executeAction("what's the weather in Wellington", InputMode.Voice)
         advanceUntilIdle()
 
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text == spokenSummary },
-            )
-        }
+        assertStreamedReplyOnce { it == spokenSummary }
     }
 
     @Test
@@ -906,11 +936,7 @@ class ActionsViewModelVoiceTest {
         viewModel.executeAction("remember my birthday is 3rd april", InputMode.Voice)
         advanceUntilIdle()
 
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text == spokenSummary },
-            )
-        }
+        assertStreamedReplyOnce { it == spokenSummary }
     }
 
     @Test
@@ -962,6 +988,7 @@ class ActionsViewModelVoiceTest {
             )
         }
         coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
     }
 
     @Test
@@ -985,6 +1012,7 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
     }
 
     @Test
@@ -1009,7 +1037,8 @@ class ActionsViewModelVoiceTest {
 
         coVerify(exactly = 1) { timerSkill.execute(any()) }
         coVerify(exactly = 1) { quickActionDao.insert(any()) }
-        coVerify(exactly = 1) { voiceOutputController.speak(any()) }
+        assertEquals(1, streamedReplies.size, "streamed=$streamedReplies")
+        coVerify(exactly = 1) { voiceOutputController.openStreamingSession(any()) }
     }
 
     @Test
@@ -2746,6 +2775,35 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `hand-off note is shown for this capture and the handed-off command is not retried`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        // Posted while the start ran (start-time fallback): only the replay can deliver it.
+        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+        assertEquals("Using Zipformer for this request.", viewModel.error.value)
+
+        voiceInputNotices.emit(VoiceNotice(9L, "Another surface's note"))
+        advanceUntilIdle()
+        assertEquals("Using Zipformer for this request.", viewModel.error.value)
+
+        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
+        advanceUntilIdle()
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "I didn't catch anything", captureSessionId = 1L),
+        )
+        advanceUntilIdle()
+
+        assertEquals("I didn't catch anything", viewModel.error.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
     fun `idle command retry budget resets on fresh startVoiceCommand call`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
@@ -4135,11 +4193,7 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         // Spoken text must keep Jandal's first person — no "You couldn't find…".
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text == displayText },
-            )
-        }
+        assertStreamedReplyOnce { it == displayText }
         // Displayed result text is unaffected.
         coVerify(exactly = 1) {
             quickActionDao.insert(match { it.resultText == displayText })
@@ -4174,11 +4228,7 @@ class ActionsViewModelVoiceTest {
             viewModel.executeAction(query, InputMode.Voice)
             advanceUntilIdle()
 
-            coVerify(exactly = 1) {
-                voiceOutputController.speak(
-                    match<VoiceSpeakRequest> { it.text == text },
-                )
-            }
+            assertStreamedReplyOnce { it == text }
         }
     }
 
@@ -4202,14 +4252,189 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         // #828: user-originated values echoed in the result still flip to second person.
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(
-                match<VoiceSpeakRequest> { it.text == "SMS composer opened for your wife." },
-            )
-        }
+        assertStreamedReplyOnce { it == "SMS composer opened for your wife." }
         // Displayed result text is unaffected.
         coVerify(exactly = 1) {
             quickActionDao.insert(match { it.resultText == "SMS composer opened for my wife." })
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Sentence-by-sentence quick-action replies vs slot-prompt mic re-arm
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `slot prompt is spoken as one utterance and mic re-arms only after playback stops`() =
+        runTest(dispatcher) {
+            every { quickIntentRouter.route("send a text message to my wife") } returns
+                QuickIntentRouter.RouteResult.NeedsSlot(
+                    intent = QuickIntentRouter.MatchedIntent(
+                        intentName = "send_sms",
+                        params = mapOf("contact" to "my wife"),
+                    ),
+                    missingSlot = SlotSpec(
+                        name = "message",
+                        promptTemplate = "What would you like to say to {contact}?",
+                    ),
+                )
+            coEvery {
+                voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+            } returns VoiceInputStartResult.Started(1L)
+
+            viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+            advanceUntilIdle()
+
+            // One-shot speak, so every engine reports SpeakingStarted with the exact prompt text
+            // the re-arm matches on (Android TTS streaming would report a re-normalised chunk).
+            coVerify(exactly = 1) {
+                voiceOutputController.speak(
+                    match<VoiceSpeakRequest> { it.text == "What would you like to say to your wife?" },
+                )
+            }
+            coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
+
+            // speak() has returned but playback has not finished: the mic must stay closed.
+            advanceTimeBy(5_000)
+            runCurrent()
+            coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+
+            voiceOutputEvents.emit(
+                VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
+            )
+            runCurrent()
+            advanceTimeBy(5_000)
+            runCurrent()
+            coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+
+            voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+            advanceTimeBy(351)
+            runCurrent()
+            coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        }
+
+    @Test
+    fun `streamed multi sentence reply ends with a final chunk and never opens the mic`() =
+        runTest(dispatcher) {
+            val weatherSkill = mockk<Skill>()
+            val spokenSummary =
+                "In Wellington, it's 25 degrees and partly cloudy. Expect a high of 27 and a low " +
+                    "of 18. Northwest winds around 15 kilometres an hour, with a 20 percent chance of rain."
+            every { quickIntentRouter.route("what's the weather in Wellington") } returns
+                QuickIntentRouter.RouteResult.RegexMatch(
+                    QuickIntentRouter.MatchedIntent(
+                        intentName = "get_weather",
+                        params = mapOf("location" to "Wellington"),
+                    ),
+                )
+            every { skillRegistry.get("get_weather") } returns weatherSkill
+            every { weatherSkill.name } returns "get_weather"
+            every { weatherSkill.description } returns "Get weather"
+            every { weatherSkill.schema } returns SkillSchema()
+            coEvery { weatherSkill.execute(any()) } returns SkillResult.DirectReply(
+                content = "Wellington forecast",
+                spokenSummary = spokenSummary,
+            )
+
+            viewModel.executeAction("what's the weather in Wellington", InputMode.Voice)
+            advanceUntilIdle()
+
+            val session = streamedSessions.single()
+            assertEquals(true, session.size > 1, "expected several chunks, got $session")
+            assertEquals(listOf(true), session.map { it.second }.filter { it })
+            assertEquals(true, session.last().second)
+            assertEquals(spokenSummary, streamedReplies.single())
+            coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+
+            voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(spokenSummary))
+            runCurrent()
+            voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+            advanceTimeBy(1_000)
+            runCurrent()
+            coVerify(exactly = 0) { voiceInputController.startListening(any()) }
+        }
+
+    @Test
+    fun `new command during in-flight chunked reply stops queued playback immediately`() = runTest(dispatcher) {
+        // Chunked streaming session that never finishes its first append — the reply is "in flight".
+        coEvery { voiceOutputController.openStreamingSession(any()) } coAnswers {
+            object : VoiceOutputStreamingSession {
+                override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+                    awaitCancellation()
+                }
+            }
+        }
+        val weatherSkill = mockk<Skill>()
+        every { quickIntentRouter.route("what's the weather in Wellington") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to "Wellington"),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+        every { weatherSkill.name } returns "get_weather"
+        every { weatherSkill.description } returns "Get weather"
+        every { weatherSkill.schema } returns SkillSchema()
+        coEvery { weatherSkill.execute(any()) } returns SkillResult.DirectReply(
+            content = "Wellington forecast",
+            spokenSummary = "In Wellington, it's 25 degrees and partly cloudy with northerly winds.",
+        )
+        every { quickIntentRouter.route("what's the time") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "what's the time")
+
+        viewModel.executeAction("what's the weather in Wellington", InputMode.Voice)
+        advanceUntilIdle()
+        clearMocks(voiceOutputController, answers = false)
+
+        // cancelPendingVoiceSpeech() runs synchronously in executeAction — the stale chunked
+        // reply must stop before the launched handler (and its own stop()) even runs.
+        viewModel.executeAction("what's the time", InputMode.Voice)
+
+        verify(exactly = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `stopping an in-flight chunked reply resets speaking state to idle without SpeakingStopped`() = runTest(dispatcher) {
+        // Inflect's stop() emits no SpeakingStopped, so the VM itself must leave the Speaking state.
+        coEvery { voiceOutputController.openStreamingSession(any()) } coAnswers {
+            object : VoiceOutputStreamingSession {
+                override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+                    awaitCancellation()
+                }
+            }
+        }
+        val weatherSkill = mockk<Skill>()
+        every { quickIntentRouter.route("what's the weather in Wellington") } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = mapOf("location" to "Wellington"),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+        every { weatherSkill.name } returns "get_weather"
+        every { weatherSkill.description } returns "Get weather"
+        every { weatherSkill.schema } returns SkillSchema()
+        coEvery { weatherSkill.execute(any()) } returns SkillResult.DirectReply(
+            content = "Wellington forecast",
+            spokenSummary = "In Wellington, it's 25 degrees and partly cloudy with northerly winds.",
+        )
+        every { quickIntentRouter.route("what's the time") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "what's the time")
+
+        viewModel.executeAction("what's the weather in Wellington", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("In Wellington, it's 25 degrees."))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Speaking("In Wellington, it's 25 degrees."),
+            viewModel.voicePlaybackState.value,
+        )
+
+        viewModel.executeAction("what's the time", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
     }
 }

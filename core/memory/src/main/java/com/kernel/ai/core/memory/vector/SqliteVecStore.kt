@@ -31,7 +31,7 @@ class SqliteVecStore @Inject constructor(
 
     override fun createTable(tableName: String, dimensions: Int) {
         execOrThrow(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS $tableName USING vec0(embedding float[$dimensions])"
+            "CREATE VIRTUAL TABLE IF NOT EXISTS $tableName USING vec0(embedding float[$dimensions] distance_metric=cosine)"
         )
     }
 

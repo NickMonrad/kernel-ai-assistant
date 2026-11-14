@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-08-29 (reconciled with #1014 launch state and the current public backlog)
+> **Last updated:** 2026-11-14 (added Build 6 closed-test onboarding and guidance feedback; tracked anaphoric list-add reliability in #1787)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -19,13 +19,13 @@
 | **Persistence** | Room + sqlite-vec (NDK) |
 | **Inference** | LiteRT + LiteRT-LM |
 | **Chat model** | Gemma-4 E-4B / E-2B |
-| **Embeddings** | EmbeddingGemma-300M (SentencePiece + TFLite) |
+| **Embeddings** | Arctic Embed M v1.5 (WordPiece + TFLite INT8; shipped via #1559) |
 | **Intent router (simple)** | `QuickIntentRouter` (Kotlin regex, zero memory, <5ms) |
 | **Intent recovery** | `IntentRecoveryOrchestrator` (deterministic slot extraction, risk-gated execution) |
 | **Intent router (complex)** | Gemma-4 native SDK tool calling (`@Tool`) + constrained decoding |
 | **Vector search** | sqlite-vec 0.1.9 via bundled SQLite 3.49.2 |
 | **Wasm runtime** | Chicory (pure JVM) |
-| **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM); S21 Exynos (Mali GPU, 8GB RAM) |
+| **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM) is the primary test device; S21 Exynos (Mali GPU, 8GB RAM) is used only for named gates and extra capacity |
 
 ---
 
@@ -38,8 +38,62 @@ Current release gates are deliberately narrow:
 - [#1329](https://github.com/NickMonrad/kernel-ai-assistant/issues/1329) — release-candidate golden-journey validation;
 - [#1447](https://github.com/NickMonrad/kernel-ai-assistant/issues/1447) — ship one higher-quality local TTS option, with current candidate safety/evidence in #1449 and #1485;
 - [#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441) — Play Store, legal, and policy readiness through #1260–#1264, including #1474 under the licence/SBOM track.
+- [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) — Lists long-item and hyperlink usability: bounded URL presentation, tappable links, practical long-item editing, and unchanged local/Nextcloud text.
+- [#1787](https://github.com/NickMonrad/kernel-ai-assistant/issues/1787) — resolve list-add pronouns from explicit current/prior user-turn items; clarify when missing or ambiguous and never create lists from unresolved pronouns.
+- [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — Nextcloud Login Flow v2: browser-based account authorization as the preferred setup path, with manual app-password entry retained as fallback.
+- [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud task-list sharing management from Jandal for bound Lists, using Nextcloud's existing user/group ACL model.
+
+### Immediate implementation sequence
+
+This is the current engineering execution queue, not a redefinition of the launch gates; [#1014](https://github.com/NickMonrad/kernel-ai-assistant/issues/1014) remains authoritative for what blocks the v0.1 release.
+
+Completed from the previous sequence: #1555, #1548, #1582 and #1581.
+
+1. [#1593](https://github.com/NickMonrad/kernel-ai-assistant/issues/1593) — harden model tool discovery (`load_skill` → `run_intent`), via PR #1603 — `launch:pre`
+2. [#1617](https://github.com/NickMonrad/kernel-ai-assistant/issues/1617) — S21 history budget underestimates the fixed prompt, causing LiteRT Status 9 mid-conversation — `launch:pre`
+3. [#1605](https://github.com/NickMonrad/kernel-ai-assistant/issues/1605) — lexical tool-query detection suppresses conversation history on recall prompts — `launch:pre`
+4. [#1586](https://github.com/NickMonrad/kernel-ai-assistant/issues/1586) — Lists: use the full item details surface when creating top-level and child items, via PR #1628 — `launch:pre`
+5. [#1613](https://github.com/NickMonrad/kernel-ai-assistant/issues/1613) — enable speculative decoding (MTP) by default, via PR #1614 — `launch:pre`
+6. [#31](https://github.com/NickMonrad/kernel-ai-assistant/issues/31) — upgrade LiteRT-LM to 0.18.0 and validate, via PR #1608
+7. [#1618](https://github.com/NickMonrad/kernel-ai-assistant/issues/1618) — app-visible time to first token far exceeds engine TTFT; per-turn GPU conversation reset to be re-evaluated after #31 — `launch:pre`
+8. Return to the remaining #1014 release-evidence / Play-readiness work: [#1329](https://github.com/NickMonrad/kernel-ai-assistant/issues/1329) golden-journey validation, then legal and Play items (#1521, #1474, #1263, #1262).
+
+`launch:pre` items are attempted before v0.1 but are not release gates. Any that do not land are recorded under Known Issues for the v0.1 release notes.
+
+This sequence may be interrupted only by a newly discovered release blocker or regression.
 
 Wake-word battery and reliability qualification are complete for v0.1. Broader permission orchestration (#1140), evidence-platform work (#1113), living voice QA (#824), and wake-word optimisation (#1395) are post-launch unless a new release-candidate regression proves otherwise.
+
+### Build 6: closed-test feedback (onboarding and guidance)
+
+Goal: make first run easy enough that testers can onboard unaided before public tester recruiting. This is closed-test onboarding polish and does not change the frozen #1014 v0.1 launch scope. Tracking issue: [#1866](https://github.com/NickMonrad/kernel-ai-assistant/issues/1866).
+
+| Issue | Summary |
+|-------|---------|
+| [#1855](https://github.com/NickMonrad/kernel-ai-assistant/issues/1855) | Setup wizard: ask before any model download (Wi-Fi by default), choose speech in and out, and set up "Hey Jandal". |
+| [#1857](https://github.com/NickMonrad/kernel-ai-assistant/issues/1857) | Models screen grouped by role with a Still needed card; plain-English purpose for each model (e.g. Arctic Embed = memory and search); E-2B shown as a smaller option, not as missing, when E-4B is installed. |
+| [#1858](https://github.com/NickMonrad/kernel-ai-assistant/issues/1858) | Default-assistant loop: "set as default" opens the system page instead of re-prompting; in-app permission requests. |
+| [#1853](https://github.com/NickMonrad/kernel-ai-assistant/issues/1853) | Android native speech stalls with online recognition off, and phones without Google services. Agreed fix: automatically fall back to Zipformer when Android native fails and Zipformer is downloaded, saved setting unchanged, and the user sees a note when the fallback happens. |
+| [#1859](https://github.com/NickMonrad/kernel-ai-assistant/issues/1859) | Contact not found (e.g. "call my wife"): explain aliases and link straight to adding one. |
+| [#1860](https://github.com/NickMonrad/kernel-ai-assistant/issues/1860) | Birthday or date not found: say when calendar or contact sync is off and link to turn it on. |
+| [#1850](https://github.com/NickMonrad/kernel-ai-assistant/issues/1850) | Mic-ready cue: a clear visual "speak now" state and a haptic tick when the recognizer is ready (plus a soft audible cue), and a pre-roll buffer so words spoken up to ~500 ms early are not lost. |
+| [#1852](https://github.com/NickMonrad/kernel-ai-assistant/issues/1852) | NZ place names: pronunciation lexicon for speech output and better recognition (e.g. "Petone"). |
+| [#1854](https://github.com/NickMonrad/kernel-ai-assistant/issues/1854) / [#1856](https://github.com/NickMonrad/kernel-ai-assistant/pull/1856) | GitHub tester APKs: closed-test builds also published as signed APKs on GitHub Releases for Obtainium. |
+| [#1026](https://github.com/NickMonrad/kernel-ai-assistant/issues/1026) | Speaker icon on Quick Action cards to play or stop TTS, reusing the sentence playback from #1842. |
+| [#1864](https://github.com/NickMonrad/kernel-ai-assistant/issues/1864) | Friendly reply instead of a raw "Unknown intent" error (PR [#1865](https://github.com/NickMonrad/kernel-ai-assistant/pull/1865)). |
+| [#942](https://github.com/NickMonrad/kernel-ai-assistant/issues/942) | Calendar: read events (e.g. "what's on this week"), which testers asked for. Creating events is an owner decision, not part of this build. |
+| [#1867](https://github.com/NickMonrad/kernel-ai-assistant/issues/1867) | Welcome screen: the + button covers the download card and tips, and overlaps the Actions tab FAB; add bottom spacing. |
+| [#1868](https://github.com/NickMonrad/kernel-ai-assistant/issues/1868) | Voice output: choosing Piper gets Cori straight away; Inflect row no longer shows a fake download; updated installs move off Android TTS. |
+| [#1869](https://github.com/NickMonrad/kernel-ai-assistant/issues/1869) | Welcome card disappears after the first chat with no way back; keep download progress visible on Chats. |
+| [#1870](https://github.com/NickMonrad/kernel-ai-assistant/issues/1870) | Support log on Honor/MagicOS has nothing from Jandal; include Jandal's own recent events. |
+| [#1871](https://github.com/NickMonrad/kernel-ai-assistant/issues/1871) | Spoken list confirmation rushes the item ("…shopping list milk" with no pause). |
+| [#1872](https://github.com/NickMonrad/kernel-ai-assistant/issues/1872) | Weather reply is slow to start speaking; measure where the time goes and fix the biggest delay. |
+| [#1873](https://github.com/NickMonrad/kernel-ai-assistant/issues/1873) | Easy ways to stop Jandal talking: a volume key stops speech, Stop on the notification, shorter replies (part 1 of #1381). |
+| [#1877](https://github.com/NickMonrad/kernel-ai-assistant/issues/1877) | Beta test page: "Join our Discord" link (PR [#1878](https://github.com/NickMonrad/kernel-ai-assistant/pull/1878)). |
+
+Later / design: [#1862](https://github.com/NickMonrad/kernel-ai-assistant/issues/1862) — personal speech corrections (teach Jandal what you said vs what it heard). Not for build 6; needs design first. [#1874](https://github.com/NickMonrad/kernel-ai-assistant/issues/1874) — barge-in: "Hey Jandal" or "stop" interrupts speech via echo cancellation (part 2 of #1381), after build 6.
+
+Follow-ups outside the build 6 milestone: [#1875](https://github.com/NickMonrad/kernel-ai-assistant/issues/1875) (sanitise intent and param logging) and [#1876](https://github.com/NickMonrad/kernel-ai-assistant/issues/1876) (`ChatViewModel` failure branches ignore `fallThroughToModel`).
 
 ---
 
@@ -87,7 +141,7 @@ tri-tiered memory architecture inspired by the
 | Task | Status | PR | Notes |
 |------|--------|----|-------|
 | sqlite-vec NDK integration | ✅ Done | #11 | Bundled SQLite + sqlite-vec as `libkernelvec.so` |
-| EmbeddingGemma-300M integration | ✅ Done | #12 | LiteRT Interpreter + SentencePiece tokenizer, SM8550 NPU model |
+| EmbeddingGemma-300M integration | ✅ Done | #12 | Historical Phase 2 delivery: LiteRT Interpreter + SentencePiece tokenizer, SM8550 NPU model. Superseded by #1559 / Arctic Embed M v1.5 + cosine retrieval. |
 | RAG pipeline (basic) | ✅ Done | #13 | `RagRepository`: index + retrieve + inject context. Cross-conversation recall working! |
 | User profile (Tier 3 foundation) | ✅ Done | #23 | Singleton profile entity, injected into every prompt, manually editable |
 | Cancel generation fix | ✅ Done | #28 | Clears stuck spinner + resets LiteRT conversation state |
@@ -104,15 +158,14 @@ tri-tiered memory architecture inspired by the
 | Bulk delete core memories ([#110](https://github.com/NickMonrad/kernel-ai-assistant/issues/110)) | ✅ Done | — | Multi-select + delete in the core memories list in Memory UI |
 | Conversation search ([#151](https://github.com/NickMonrad/kernel-ai-assistant/issues/151)) | ✅ Done | #156 | Search bar on conversations list, filters by title with NULL guard and LIKE wildcard escaping. |
 | RAG context framing | ✅ Done | #159 | Added framing instruction header, updated section labels to `[Core Memories — permanent facts about the user]` and `[Episodic Memories — recalled from a past conversation]`. |
-| Core memory RAG-only ([#160](https://github.com/NickMonrad/kernel-ai-assistant/issues/160)) | ✅ Done | #162 | Removed core memories from system prompt. Core memories now retrieved only via RAG (CORE_MAX_DISTANCE=0.55, topK=10, sorted by similarity then lastAccessedAt). User Profile framing instruction added. |
+| Core memory RAG-only ([#160](https://github.com/NickMonrad/kernel-ai-assistant/issues/160)) | ✅ Done | #162 | Removed core memories from system prompt. Core memories are retrieved by semantic RAG; current Phase B Arctic limits and separate identity/Kiwi vibe thresholds are documented in [the #1559 calibration report](research/1559-arctic-phase-b-calibration.md). |
 | Fun loading screens v2 ([#96](https://github.com/NickMonrad/kernel-ai-assistant/issues/96)) | ✅ Done | — | Folded into Jandal visual identity (#226) |
-| SM8550 Qualcomm AI Engine delegate ([#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44)) | ⬜ Pending | — | Bundle QNN TFLite delegate so SM8550-optimised EmbeddingGemma model uses Hexagon NPU |
+| SM8550 Qualcomm AI Engine delegate ([#44](https://github.com/NickMonrad/kernel-ai-assistant/issues/44)) | ⏭️ Superseded | — | #1559 replaces the EmbeddingGemma runtime with Arctic Embed M v1.5; the old SM8550-specific EmbeddingGemma delegate task no longer applies. |
 
 ### Key Design Decisions
 
-- **EmbeddingGemma-300M** over Universal Sentence Encoder — much higher quality embeddings,
-  hardware-optimised variants for Qualcomm chipsets
-- **SentencePiece tokenizer** implemented in pure Kotlin (no protobuf library dependency)
+- **Embedding model:** Phase 2 originally shipped EmbeddingGemma; issue #1559 Phase B replaced the active RAG runtime with Arctic Embed M v1.5. The validated assets are anonymously downloadable from the public rolling GitHub release `model-arctic-embed-m-v1.5-current`; exact Phase B sizes and SHA-256 provenance are recorded in the calibration report. GitHub release immutability is not a launch gate. Long-term publication to `litert-community` is tracked in #1563.
+- **Tokenizer:** Arctic's uncased WordPiece vocabulary and pure-Kotlin tokenizer are active; the former SentencePiece path is historical only.
 - **Separate databases**: Room (`kernel_db`) for relational data, native SQLite (`kernel_vectors.db`)
   for vectors — because Room doesn't support sqlite-vec's vec0 virtual tables
 - **Graceful degradation**: embedding engine returns empty arrays if models aren't loaded,
@@ -432,16 +485,21 @@ Deterministic meal planning now has its v1 foundation merged. The next phases ar
 | Actions tab FallThrough → LLM bridge | ✅ Done | #373/#405 — FallThrough queries correctly navigate to Chat with query intact (PR #410) |
 | MiniLM-L6-v2 INT8 classifier ([#353](https://github.com/NickMonrad/kernel-ai-assistant/issues/353)) | ✅ Done | Phase 2 complete — 30+ intents, 10-12 phrases each, bundled TFLite model (PRs #406 #408 #409) |
 
-### Lists: current public roadmap ([#1141](https://github.com/NickMonrad/kernel-ai-assistant/issues/1141))
+### Lists and Nextcloud ([#1141](https://github.com/NickMonrad/kernel-ai-assistant/issues/1141))
 
-Existing Room-backed Lists remain the source of truth for the UI, skills, sharing, and future widget/sync consumers.
+Room-backed Lists remain the authoritative local state consumed by the UI, skills and widgets. The shared-data foundation and the first self-managed provider integration are now delivered.
 
-- [#1489](https://github.com/NickMonrad/kernel-ai-assistant/issues/1489) is a high-priority post-launch visibility feature: a local-data home-screen list widget and Lists shortcut. It is independently implementable and does not depend on cross-device sync.
-- [#1490](https://github.com/NickMonrad/kernel-ai-assistant/issues/1490) is the public local-first shared Lists umbrella.
-- The shared-data sequence is [#1491](https://github.com/NickMonrad/kernel-ai-assistant/issues/1491) → [#1492](https://github.com/NickMonrad/kernel-ai-assistant/issues/1492) → [#1493](https://github.com/NickMonrad/kernel-ai-assistant/issues/1493) → [#1494](https://github.com/NickMonrad/kernel-ai-assistant/issues/1494): contract, sync-ready persistence, encrypted package exchange, then bounded local paired-device convergence proof.
-- [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) remains non-blocking for the first shared-list sync MVP. [#928](https://github.com/NickMonrad/kernel-ai-assistant/issues/928) remains the hierarchy authority and completed [#908](https://github.com/NickMonrad/kernel-ai-assistant/issues/908) remains the plain-text Share/Copy path.
+**Delivered:**
+- [#1489](https://github.com/NickMonrad/kernel-ai-assistant/issues/1489) — local-data home-screen Lists widget and shortcut.
+- [#1491](https://github.com/NickMonrad/kernel-ai-assistant/issues/1491) → [#1492](https://github.com/NickMonrad/kernel-ai-assistant/issues/1492) → [#928](https://github.com/NickMonrad/kernel-ai-assistant/issues/928) → [#1493](https://github.com/NickMonrad/kernel-ai-assistant/issues/1493) → [#1494](https://github.com/NickMonrad/kernel-ai-assistant/issues/1494) — transport-independent shared-data contract, sync-ready atomic Room mutation/change-recording seam, two-level hierarchy, encrypted package exchange, and paired-device convergence proof.
+- [#1539](https://github.com/NickMonrad/kernel-ai-assistant/issues/1539) plus [#1551](https://github.com/NickMonrad/kernel-ai-assistant/issues/1551) — optional bidirectional sync for explicitly selected Lists with a user-configured Nextcloud Tasks server over CalDAV/VTODO. Room stays authoritative and offline-capable; provider bindings are separate from Jandal stable identities, and per-list stop/resume retains both local and remote copies.
 
-This public roadmap intentionally stops at transport-independent/local client foundations and local/nearby convergence proof; production internet transport is not part of #1490–#1494.
+**Nextcloud follow-up work:**
+- [#1555](https://github.com/NickMonrad/kernel-ai-assistant/issues/1555) — browser-based Nextcloud Login Flow v2 authentication. **v0.1 launch gate.**
+- [#1548](https://github.com/NickMonrad/kernel-ai-assistant/issues/1548) — Nextcloud task-list sharing/ACL management. **v0.1 launch gate.**
+- [#1552](https://github.com/NickMonrad/kernel-ai-assistant/issues/1552) — explicit selected-note sync with Nextcloud Notes. Post-launch.
+
+These follow-ups are not prerequisites for the already-shipped Lists sync capability. [#1495](https://github.com/NickMonrad/kernel-ai-assistant/issues/1495) is independently tracked as a v0.1 usability gate for long list items and hyperlinks; it does not change the shipped plain-text/Nextcloud sync model. [#1490](https://github.com/NickMonrad/kernel-ai-assistant/issues/1490) remains open until its remaining acceptance state is checked.
 
 ### Known Issues / Decisions
 
@@ -510,7 +568,7 @@ Dynamic weight loading/unloading so the app runs smoothly on 8GB RAM devices.
 | Task | Status | Notes |
 |------|--------|-------|
 | Memory profiling ([#428](https://github.com/NickMonrad/kernel-ai-assistant/issues/428)) | ⬜ Pending | Peak RAM states, concurrent model usage |
-| Dynamic model loading state machine ([#430](https://github.com/NickMonrad/kernel-ai-assistant/issues/430)) | ⬜ Pending | Never hold Gemma-4 + EmbeddingGemma simultaneously on low RAM |
+| Dynamic model loading state machine ([#430](https://github.com/NickMonrad/kernel-ai-assistant/issues/430)) | ⬜ Pending | Never hold Gemma-4 + Arctic Embed simultaneously on low RAM |
 | Embedding dimension reduction ([#429](https://github.com/NickMonrad/kernel-ai-assistant/issues/429)) | ⬜ Pending | Matryoshka reduction to 256-dim on 8GB devices |
 | Compatibility tier model swap ([#432](https://github.com/NickMonrad/kernel-ai-assistant/issues/432)) | ⬜ Pending | Auto-select E-2B on 8GB, smaller KV cache |
 | Battery optimization ([#431](https://github.com/NickMonrad/kernel-ai-assistant/issues/431)) | ⬜ Pending | Defer background work in low battery |
@@ -675,8 +733,8 @@ File new ideas there — they'll get reviewed and woven into the roadmap.
 |----------|-----|
 | Gemma-4 E-2B (LiteRT) | [huggingface.co/litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) |
 | Gemma-4 E-4B (LiteRT) | [huggingface.co/litert-community/gemma-4-E4B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm) |
-| EmbeddingGemma-300M | [huggingface.co/litert-community/embeddinggemma-300m](https://huggingface.co/litert-community/embeddinggemma-300m) |
+| Arctic Embed M v1.5 | [Snowflake/snowflake-arctic-embed-m-v1.5](https://huggingface.co/Snowflake/snowflake-arctic-embed-m-v1.5) (Apache-2.0; temporary runtime host is the public rolling [Jandal GitHub release](https://github.com/NickMonrad/kernel-ai-assistant/releases/tag/model-arctic-embed-m-v1.5-current); long-term community publication tracked in #1563) |
 | FunctionGemma-270M Mobile Actions | [huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions](https://huggingface.co/litert-community/functiongemma-270m-ft-mobile-actions) |
-| LiteRT-LM | [github.com/google-ai-edge/LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) |
+| LiteRT-LM | [github.com/google-ai-edge/LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) — stable target 0.18.0 tracked in #31 |
 | sqlite-vec | [github.com/asg017/sqlite-vec](https://github.com/asg017/sqlite-vec) |
 | Chicory (Wasm) | [github.com/nickkmonrad/chicory](https://github.com/nickkmonrad/chicory) |

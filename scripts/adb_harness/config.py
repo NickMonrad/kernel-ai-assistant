@@ -19,7 +19,7 @@ ADB = (
     or os.path.expanduser("~/Android/Sdk/platform-tools/adb")
     or "/usr/bin/adb"
 )
-PACKAGE = "com.kernel.ai.debug"
+PACKAGE = "ai.jandal.assistant.debug"
 ACTIVITY = f"{PACKAGE}/com.kernel.ai.MainActivity"
 
 # ── Static patterns ──
@@ -29,6 +29,8 @@ LLM_TOOLS_LEGACY_TOOL_PATTERN = re.compile(r"llm_tools_legacy_tool:\s*(.+)")
 LLM_TOOLS_SKILL_RESULT_PATTERN = re.compile(r"llm_tools_skill_result:\s*(.+)")
 LLM_TOOLS_MESSAGE_SAVED_PATTERN = re.compile(r"llm_tools_message_toolcall_saved:\s*(.+)")
 LLM_TOOLS_RETRY_PATTERN = re.compile(r"raw_tool_call_retry_succeeded|hallucination_retry_succeeded")
+LLM_TOOLS_TOOL_SEQUENCE_PATTERN = re.compile(r"llm_tools_tool_sequence:\s*(.+)")
+LLM_TOOLS_TOOL_CHIP_PATTERN = re.compile(r"tool_chip_visible:\s*tool=(\S+)")
 LLM_TOOLS_SLOT_FILL_PATTERN = re.compile(r"NeedsSlot|ConfirmationFastPath:")
 LOGCAT_TAG = "KernelAI"
 INTENT_MATCH_PATTERN = re.compile(r"llm_tools_route:\s*(\w+)")

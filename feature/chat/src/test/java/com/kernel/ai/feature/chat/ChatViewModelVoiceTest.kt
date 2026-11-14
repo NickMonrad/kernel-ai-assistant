@@ -28,6 +28,7 @@ import com.kernel.ai.core.memory.mealplan.MealPlanSnapshotDay
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.Skill
@@ -50,6 +51,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceNotice
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -71,6 +73,7 @@ import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -127,6 +130,7 @@ class ChatViewModelVoiceTest {
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
 
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
+    private val voiceInputNotices = MutableSharedFlow<VoiceNotice>(replay = 1)
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
     private val spokenResponsesEnabled = MutableStateFlow(true)
     private val streamedChunks = mutableListOf<Pair<String, Boolean>>()
@@ -145,6 +149,9 @@ class ChatViewModelVoiceTest {
         every { inferenceEngine.activeBackend } returns MutableStateFlow<BackendType?>(null)
         every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(0)
         every { inferenceEngine.evictionEvents } returns emptyFlow()
+        every { inferenceEngine.generateWithDebugTrace(any(), any()) } answers {
+            inferenceEngine.generate(firstArg())
+        }
         every { inferenceEngine.generate(any()) } returns
             flowOf(GenerationResult.Token("Hi back"), GenerationResult.Complete(durationMs = 1L))
         coEvery { inferenceEngine.updateSystemPrompt(any()) } just runs
@@ -182,6 +189,7 @@ class ChatViewModelVoiceTest {
         every { jandalPersona.personaMode } returns MutableStateFlow(PersonaMode.FULL)
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
         every { voiceInputController.events } returns voiceInputEvents
+        every { voiceInputController.notices } returns voiceInputNotices
         coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
             VoiceInputStartResult.Started(1L)
         every { voiceInputController.stopListening() } just runs
@@ -270,6 +278,9 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals("You: Hello there\nJandal: Hi back", viewModel.getConversationAsText())
+        val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+        assertEquals("", state.inputText)
+        assertEquals(1L, state.inputTextReplacementRevision)
         coVerify(exactly = 0) { voiceOutputController.speak(any()) }
     }
 
@@ -809,6 +820,136 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `voice weather not now terminates back-and-forth turn without assistant response`() = runTest(dispatcher) {
+        val input = "What's the weather"
+        val weatherSkill = object : Skill {
+            override val name = "get_weather"
+            override val description = "Get weather"
+            override val schema = SkillSchema()
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.CapabilityRequired(
+                    capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                    skillName = name,
+                )
+        }
+        every { quickIntentRouter.route(input) } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input))
+        advanceUntilIdle()
+
+        assertEquals(
+            ChatViewModel.VoiceCaptureState.Processing(input),
+            viewModel.voiceCaptureState.value,
+        )
+        assertEquals(ChatViewModel.VoiceMode.BackAndForth, viewModel.voiceMode.value)
+        assertEquals(ChatViewModel.WeatherLocationState(), viewModel.weatherLocationState.value)
+
+        viewModel.dismissWeatherLocationDialog()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertNull(viewModel.voiceMode.value)
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals("You: $input", viewModel.getConversationAsText())
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        verify(exactly = 1) { voiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `voice weather named-place fallback terminates turn and keeps typing guidance`() = runTest(dispatcher) {
+        val input = "What's the weather"
+        val weatherSkill = object : Skill {
+            override val name = "get_weather"
+            override val description = "Get weather"
+            override val schema = SkillSchema()
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.CapabilityRequired(
+                    capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                    skillName = name,
+                )
+        }
+        every { quickIntentRouter.route(input) } returns
+            QuickIntentRouter.RouteResult.RegexMatch(
+                QuickIntentRouter.MatchedIntent(
+                    intentName = "get_weather",
+                    params = emptyMap(),
+                ),
+            )
+        every { skillRegistry.get("get_weather") } returns weatherSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input))
+        advanceUntilIdle()
+
+        val errorState = async {
+            viewModel.uiState.first { state ->
+                state is ChatUiState.Ready && state.error != null
+            } as ChatUiState.Ready
+        }
+        viewModel.onWeatherLocationTypePlace()
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertNull(viewModel.voiceMode.value)
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals(
+            "Type a place name in the chat input, like \"weather in Tokyo\".",
+            errorState.await().error,
+        )
+        assertEquals("You: $input", viewModel.getConversationAsText())
+        verify(exactly = 1) { voiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `hand-off note is shown and a handed-off chat capture is not silently retried`() = runTest(dispatcher) {
+        // Posted while the start ran (start-time fallback): only the replay can deliver it.
+        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val noteState = async {
+            viewModel.uiState.first { state ->
+                state is ChatUiState.Ready && state.error == "Using Zipformer for this request."
+            }
+        }
+        viewModel.startVoiceInput()
+        advanceUntilIdle()
+        noteState.await()
+
+        val errorState = async {
+            viewModel.uiState.first { state ->
+                state is ChatUiState.Ready && state.error?.startsWith("I didn't catch anything") == true
+            }
+        }
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "I didn't catch anything", captureSessionId = 1L),
+        )
+        advanceUntilIdle()
+        errorState.await()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+
+    @Test
     fun `stop phrase in back-and-forth loop ends the session without submitting a message`() = runTest(dispatcher) {
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -988,7 +1129,68 @@ class ChatViewModelVoiceTest {
         try {
             val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
             assertEquals("generate recipes", state.inputText)
+            assertEquals(1L, state.inputTextReplacementRevision)
             coVerify(exactly = 0) { conversationRepository.addMessage(any(), any(), any(), any(), any()) }
+        } finally {
+            clearViewModel(viewModel)
+        }
+    }
+
+    @Test
+    fun `typed and replaced drafts are saved and restored after process death`() = runTest(dispatcher) {
+        val handle = SavedStateHandle(mapOf("conversationId" to "conv-existing"))
+        val viewModel = createViewModel(handle)
+        advanceUntilIdle()
+        try {
+            viewModel.onInputChanged("hello")
+            assertEquals("hello", handle.get<String>("inputText"))
+            viewModel.replaceInputText("Smart reply")
+            assertEquals("Smart reply", handle.get<String>("inputText"))
+            assertEquals("Smart reply", handle.get<String>("inputTextReplacementText"))
+            assertEquals(1L, handle.get<Long>("inputTextReplacementRevision"))
+        } finally {
+            clearViewModel(viewModel)
+        }
+
+        // A new ViewModel built from the saved state (process death) sees the same draft, so
+        // the restored composer and sendMessage agree instead of Send silently doing nothing.
+        val restored = createViewModel(
+            SavedStateHandle(
+                mapOf(
+                    "conversationId" to "conv-existing",
+                    "inputText" to "hello again",
+                    "inputTextReplacementRevision" to 3L,
+                    "inputTextReplacementText" to "",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        try {
+            val state = restored.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals("hello again", state.inputText)
+            assertEquals(3L, state.inputTextReplacementRevision)
+        } finally {
+            clearViewModel(restored)
+        }
+    }
+
+    @Test
+    fun `explicit draft replacement advances revision but typing echoes do not`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        try {
+            viewModel.replaceInputText("External draft")
+            advanceUntilIdle()
+            var state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
+            assertEquals("External draft", state.inputText)
+            assertEquals(1L, state.inputTextReplacementRevision)
+
+            viewModel.onInputChanged("Typed text")
+            state = viewModel.uiState.first {
+                it is ChatUiState.Ready && it.inputText == "Typed text"
+            } as ChatUiState.Ready
+            assertEquals(1L, state.inputTextReplacementRevision)
         } finally {
             clearViewModel(viewModel)
         }
@@ -1009,6 +1211,7 @@ class ChatViewModelVoiceTest {
         try {
             val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
             assertEquals("gluten free, nut free", state.inputText)
+            assertEquals(2L, state.inputTextReplacementRevision)
         } finally {
             clearViewModel(viewModel)
         }
@@ -1249,12 +1452,13 @@ class ChatViewModelVoiceTest {
 
 
     private fun clearViewModel(viewModel: ChatViewModel) {
-        val method = androidx.lifecycle.ViewModel::class.java
-            .getDeclaredMethod("clear\$lifecycle_viewmodel_release")
-        method.isAccessible = true
-        method.invoke(viewModel)
+        androidx.lifecycle.ViewModelStore()
+            .apply { put("chat-view-model", viewModel) }
+            .clear()
     }
-    private fun createViewModel(): ChatViewModel = ChatViewModel(savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")), chatPreferences = chatPreferences, authRepository = authRepository,
+    private fun createViewModel(
+        savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+    ): ChatViewModel = ChatViewModel(savedStateHandle = savedStateHandle, chatPreferences = chatPreferences, authRepository = authRepository,
     inferenceEngine = inferenceEngine,
     downloadManager = downloadManager,
     conversationRepository = conversationRepository,

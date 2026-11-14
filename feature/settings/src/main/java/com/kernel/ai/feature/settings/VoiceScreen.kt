@@ -69,6 +69,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.AndroidNativeWarning
+import com.kernel.ai.core.voice.HonorCameraCoexistence
+import com.kernel.ai.core.voice.androidNativeWarning
+import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
@@ -84,7 +88,8 @@ import kotlin.math.roundToInt
 import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
+import android.widget.Toast
+import android.util.Log
 import android.provider.Settings
 import android.Manifest
 import android.app.role.RoleManager
@@ -94,11 +99,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.recordPermissionResult
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,7 +122,27 @@ fun VoiceScreen(
     var showMicRepairDialog by remember { mutableStateOf(false) }
     var showMicDurableRequiredDialog by remember { mutableStateOf(false) }
     var awaitingMicSettingsReturn by remember { mutableStateOf(false) }
-    
+    var showUsageAccessDialog by remember { mutableStateOf(false) }
+    var awaitingUsageAccessReturn by remember { mutableStateOf(false) }
+
+    /**
+     * #1502: on the Honor device whose camera contends for the microphone, Hey Jandal can only
+     * listen with Usage Access. Cached per resume (the check costs an AppOps query) and refreshed
+     * on ON_RESUME and on every enable attempt.
+     */
+    var needsUsageAccess by remember { mutableStateOf(false) }
+    val requiresUsageAccess = {
+        HonorCameraCoexistence.isAffectedDevice(context) &&
+            !HonorCameraCoexistence.hasUsageAccess(context)
+    }
+    val enableHeyJandal = {
+        needsUsageAccess = requiresUsageAccess()
+        if (needsUsageAccess) showUsageAccessDialog = true else viewModel.setHeyJandalEnabled(true)
+    }
+
+    var showDefaultAssistantNotSetYet by remember { mutableStateOf(false) }
+    var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
+    var awaitingAssistantReturn by remember { mutableStateOf(false) }
     val micDenialClassifier = remember { PermissionDenialClassifier() }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -123,6 +150,29 @@ fun VoiceScreen(
                 viewModel.refreshAssistantStatus(
                     roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
                 )
+                // Back from assistant Settings: role held → success, and drop any "Not set yet" note.
+                if ((awaitingAssistantReturn || showDefaultAssistantNotSetYet) &&
+                    roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+                ) {
+                    awaitingAssistantReturn = false
+                    showDefaultAssistantNotSetYet = false
+                    showDefaultAssistantSuccess = true
+                }
+                needsUsageAccess = requiresUsageAccess()
+
+                // 0. Settings-return handling: Usage Access round-trip (#1502). Continue the
+                // enable flow only when access was actually granted.
+                if (awaitingUsageAccessReturn) {
+                    awaitingUsageAccessReturn = false
+                    if (needsUsageAccess) {
+                        Log.i(
+                            "VoiceScreen",
+                            "Usage Access still not granted — Hey Jandal left inactive",
+                        )
+                    } else {
+                        viewModel.setHeyJandalEnabled(true)
+                    }
+                }
 
                 // 1. Settings-return handling: explicit mic repair round-trip.
                 if (awaitingMicSettingsReturn) {
@@ -136,7 +186,7 @@ fun VoiceScreen(
                         if (micReadiness == MicrophoneReadiness.Granted) {
                             showMicRepairDialog = false
                             micDenialClassifier.clear(Manifest.permission.RECORD_AUDIO)
-                            viewModel.setHeyJandalEnabled(true)
+                            enableHeyJandal()
                         } else {
                             showMicDurableRequiredDialog = true
                         }
@@ -153,6 +203,14 @@ fun VoiceScreen(
                     viewModel.enforceHeyJandalMicReadiness(micReadiness)
                     showMicDurableRequiredDialog = true
                 }
+
+                // 2b. #1502 enforcement: Hey Jandal cannot listen without Usage Access on the
+                // affected device (revoked externally, or enabled before this build) — turn it off
+                // rather than let the UI claim it is listening.
+                if (wasHeyJandalEnabled && needsUsageAccess) {
+                    viewModel.setHeyJandalEnabled(false)
+                    showUsageAccessDialog = true
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -166,28 +224,51 @@ fun VoiceScreen(
     // the ON_RESUME lifecycle observer runs, so the durability check at (2)
     // saw wasHeyJandalEnabled = false and did not trigger.
     LaunchedEffect(uiState.heyJandalEnabled) {
-        if (uiState.heyJandalEnabled && !awaitingMicSettingsReturn) {
+        if (uiState.heyJandalEnabled && !awaitingMicSettingsReturn && !awaitingUsageAccessReturn) {
             val micReadiness = MicrophonePermissionReadiness.evaluate(context)
             if (micReadiness != MicrophoneReadiness.Granted) {
                 viewModel.enforceHeyJandalMicReadiness(micReadiness)
                 showMicDurableRequiredDialog = true
+            } else if (needsUsageAccess) {
+                viewModel.setHeyJandalEnabled(false)
+                showUsageAccessDialog = true
             }
         }
     }
 
     var showDefaultAssistantPrompt by remember { mutableStateOf(false) }
-    var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
 
     val assistantRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
-        // Re-check role state immediately on return — do not rely solely on ON_RESUME.
-        val roleGranted = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
-        if (roleGranted) {
+        // Settings returned. Role held → success; otherwise the short note, never the full prompt.
+        awaitingAssistantReturn = false
+        if (roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true) {
+            showDefaultAssistantNotSetYet = false
             showDefaultAssistantSuccess = true
         } else {
-            // Role not granted — let the user try again.
-            showDefaultAssistantPrompt = true
+            showDefaultAssistantNotSetYet = true
+        }
+    }
+
+    // Opens the voice-input settings page (its "Digital assistant app" row sets the role),
+    // falling back to default apps. Shows a message if neither page resolves.
+    val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_no_settings_page)
+    fun openAssistantSettings() {
+        awaitingAssistantReturn = true
+        try {
+            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+        } catch (_: Exception) {
+            try {
+                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            } catch (_: Exception) {
+                awaitingAssistantReturn = false
+                Toast.makeText(
+                    context,
+                    noSettingsPageMessage,
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -195,6 +276,14 @@ fun VoiceScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.RECORD_AUDIO,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.RECORD_AUDIO,
+            ),
+        )
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
@@ -206,7 +295,7 @@ fun VoiceScreen(
         } else {
             val micReadiness = MicrophonePermissionReadiness.evaluate(context)
             if (micReadiness == MicrophoneReadiness.Granted) {
-                viewModel.setHeyJandalEnabled(true)
+                enableHeyJandal()
             } else {
                 showMicDurableRequiredDialog = true
             }
@@ -226,7 +315,7 @@ fun VoiceScreen(
                     == PackageManager.PERMISSION_GRANTED) {
                 val micReadiness = MicrophonePermissionReadiness.evaluate(context)
                 if (micReadiness == MicrophoneReadiness.Granted) {
-                    viewModel.setHeyJandalEnabled(true)
+                    enableHeyJandal()
                 } else {
                     showMicDurableRequiredDialog = true
                 }
@@ -237,6 +326,7 @@ fun VoiceScreen(
         onWakeWordThresholdChanged = viewModel::setWakeWordThreshold,
         onVoiceInputEngineSelected = viewModel::setVoiceInputEngine,
         onAutoStartAlertVoiceCommandsEnabledChanged = viewModel::setAutoStartAlertVoiceCommandsEnabled,
+        onAllowOnlineSpeechFallbackChanged = viewModel::setAllowOnlineSpeechFallback,
         onSpokenResponsesEnabledChanged = viewModel::setSpokenResponsesEnabled,
         onVoiceOutputEngineSelected = viewModel::setVoiceOutputEngine,
         onSherpaVoiceSelected = viewModel::setSherpaVoice,
@@ -282,7 +372,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_mic_not_now",
                     onClick = {
                         showMicRepairDialog = false
@@ -318,7 +408,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_mic_not_now",
                     onClick = {
                         showMicDurableRequiredDialog = false
@@ -335,39 +425,85 @@ fun VoiceScreen(
     }
 
 
+    // #1502 Usage Access prompt: only reachable on the affected Honor device, and only when the
+    // user chose to enable Hey Jandal (or when Jandal was already enabled without the access).
+    if (showUsageAccessDialog) {
+        PermissionOverlayDialog(
+            title = "Allow Usage Access for Hey Jandal?",
+            body = "On this Honor device, Jandal needs Usage Access so it can pause wake-word " +
+                "listening while the Camera is in use. App usage information is processed only " +
+                "on this device and is not stored or sent anywhere.",
+            actions = listOf(
+                PermissionDialogAction(
+                    label = "Open Usage Access",
+                    testTag = "hey_jandal_usage_access_open_settings",
+                    onClick = {
+                        showUsageAccessDialog = false
+                        awaitingUsageAccessReturn = true
+                        runCatching {
+                            context.startActivity(HonorCameraCoexistence.usageAccessSettingsIntent(context))
+                        }.onFailure {
+                            Log.w("VoiceScreen", "Could not open Usage Access settings", it)
+                        }
+                    },
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
+                    testTag = "hey_jandal_usage_access_not_now",
+                    onClick = {
+                        showUsageAccessDialog = false
+                        awaitingUsageAccessReturn = false
+                    },
+                ),
+            ),
+            dialogTestTag = "hey_jandal_usage_access_dialog",
+            onDismissRequest = {
+                showUsageAccessDialog = false
+                awaitingUsageAccessReturn = false
+            },
+        )
+    }
+
     // Default-assistant role setup prompt (separate from microphone permission).
     if (showDefaultAssistantPrompt) {
         DefaultAssistantPrompt(
             onGrant = {
                 showDefaultAssistantPrompt = false
-                // Launch the assistant role setup intent
-                val manufacturer = Build.MANUFACTURER
-                val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
-                    manufacturer.equals("honor", ignoreCase = true)
-                when {
-                    usesSettingsFlow -> {
-                        try {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-                        } catch (_: Exception) {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                        }
-                    }
-                    else -> {
-                        val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                        if (intent != null) {
-                            assistantRoleLauncher.launch(intent)
-                        } else {
-                            try {
-                                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                            } catch (_: Exception) {
-                                // No standard default-apps page — nothing more we can do.
-                            }
-                        }
-                    }
-                }
+                openAssistantSettings()
             },
             onCancel = {
                 showDefaultAssistantPrompt = false
+            },
+        )
+    }
+
+    // Role still not held after returning from Settings: short note with Try again.
+    if (showDefaultAssistantNotSetYet) {
+        PermissionOverlayDialog(
+            title = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_title),
+            body = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_body),
+            actions = listOf(
+                PermissionDialogAction(
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_try_again),
+                    testTag = "default_assistant_not_set_try_again",
+                    onClick = {
+                        showDefaultAssistantNotSetYet = false
+                        openAssistantSettings()
+                    },
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
+                    testTag = "default_assistant_not_set_not_now",
+                    onClick = {
+                        showDefaultAssistantNotSetYet = false
+                    },
+                ),
+            ),
+            dialogTestTag = "default_assistant_not_set_yet",
+            onDismissRequest = {
+                showDefaultAssistantNotSetYet = false
             },
         )
     }
@@ -396,6 +532,7 @@ private fun VoiceScreenContent(
     onWakeWordThresholdChanged: (Float) -> Unit,
     onVoiceInputEngineSelected: (VoiceInputEngine) -> Unit,
     onAutoStartAlertVoiceCommandsEnabledChanged: (Boolean) -> Unit,
+    onAllowOnlineSpeechFallbackChanged: (Boolean) -> Unit,
     onSpokenResponsesEnabledChanged: (Boolean) -> Unit,
     onVoiceOutputEngineSelected: (VoiceOutputEngine) -> Unit,
     onSherpaVoiceSelected: (SherpaPiperVoice) -> Unit,
@@ -538,11 +675,22 @@ private fun VoiceScreenContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             VoiceInputEngine.entries.forEach { engine ->
-                val warning = when (engine) {
-                    VoiceInputEngine.AndroidNative ->
-                        uiState.androidNativeAvailabilityMessage ?: engine.warning
-                    else -> engine.warning
+                val zipformerDownloaded =
+                    uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
+                val nativeWarningText = if (
+                    engine == VoiceInputEngine.AndroidNative && uiState.selectedInputEngine == engine
+                ) {
+                    androidNativeSettingsWarning(
+                        blockingMessage = uiState.androidNativeAvailabilityMessage,
+                        capabilities = uiState.androidNativeCapabilities,
+                        localeReady = uiState.androidNativeLocaleReady,
+                        onlineAllowed = uiState.allowOnlineSpeechFallback,
+                        zipformerDownloaded = zipformerDownloaded,
+                    )
+                } else {
+                    null
                 }
+                val warning = engine.warning
                 val languageSummary = when (engine) {
                     VoiceInputEngine.AndroidNative -> uiState.androidNativeLanguageSummary
                     else -> null
@@ -572,11 +720,21 @@ private fun VoiceScreenContent(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
-                            if (engine == VoiceInputEngine.AndroidNative && warning != null) {
+                            if (nativeWarningText != null) {
                                 VoiceWarningCard(
-                                    message = warning,
+                                    message = nativeWarningText,
                                     modifier = Modifier.padding(top = 8.dp),
                                 )
+                                Row(modifier = Modifier.padding(top = 4.dp)) {
+                                    TextButton(onClick = { onVoiceInputEngineSelected(VoiceInputEngine.Auto) }) {
+                                        Text("Use Automatic")
+                                    }
+                                    if (!uiState.allowOnlineSpeechFallback) {
+                                        TextButton(onClick = { onAllowOnlineSpeechFallbackChanged(true) }) {
+                                            Text("Allow online")
+                                        }
+                                    }
+                                }
                             }
                         }
                     },
@@ -658,6 +816,28 @@ private fun VoiceScreenContent(
                     }
                 }
             }
+
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text("Allow online speech recognition") },
+                supportingContent = {
+                    Text(
+                        "Off: voice input never leaves this phone. On: Jandal uses Android " +
+                            "speech recognition, which is usually more accurate. Voice commands " +
+                            "try on-device recognition first and retry with your phone's speech " +
+                            "service (usually Google) if that fails; Hey Jandal and alarm commands " +
+                            "use that service straight away. That service may send your audio " +
+                            "off the phone.",
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.allowOnlineSpeechFallback,
+                        onCheckedChange = onAllowOnlineSpeechFallbackChanged,
+                    )
+                },
+            )
+            HorizontalDivider()
 
             Text(
                 text = "Clock alerts",
@@ -774,12 +954,15 @@ private fun VoiceScreenContent(
 
             VoiceOutputSelectionCard(
                 selectedEngine = uiState.selectedOutputEngine,
+                inflectMicroReady = uiState.isInflectMicroReady,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
             uiState.availableOutputEngines.forEach { engine ->
-                val engineSelectable = engine != VoiceOutputEngine.InflectMicroExperimental ||
-                    uiState.isInflectMicroReady
+                val engineSelected = uiState.selectedOutputEngine == engine
+                val engineActive = engineSelected &&
+                    (engine != VoiceOutputEngine.InflectMicroExperimental ||
+                        uiState.isInflectMicroReady)
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -788,27 +971,23 @@ private fun VoiceScreenContent(
                             Text(engine.description)
                             Text(
                                 text = when {
-                                    !engineSelectable ->
-                                        "Download Inflect Micro and the selected Sherpa voice pack first."
-                                    uiState.selectedOutputEngine == engine ->
-                                        "Currently active"
-                                    else ->
-                                        "Inactive"
+                                    engineActive -> "Currently active"
+                                    engineSelected -> "Selected — setup required"
+                                    else -> "Inactive"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = when {
-                                    !engineSelectable -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    uiState.selectedOutputEngine == engine ->
-                                        MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (engineActive) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             )
                         }
                     },
                     trailingContent = {
                         RadioButton(
-                            selected = uiState.selectedOutputEngine == engine,
-                            enabled = engineSelectable,
+                            selected = engineSelected,
+                            enabled = true,
                             onClick = { onVoiceOutputEngineSelected(engine) },
                         )
                     },
@@ -823,7 +1002,12 @@ private fun VoiceScreenContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
 
-            if (uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental) {
+            val inflectSelected =
+                uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
+            val sherpaSelected =
+                uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental
+            val showSherpaVoiceControls = sherpaSelected
+            if (showSherpaVoiceControls) {
                 Text(
                     text = "Sherpa Piper voice",
                     style = MaterialTheme.typography.labelMedium,
@@ -1012,8 +1196,7 @@ private fun VoiceScreenContent(
                         uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
                     )
             ) {
-                val inflectActive =
-                    uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
+                val inflectReady = inflectSelected && uiState.isInflectMicroReady
                 Text(
                     text = "Inflect Micro model",
                     style = MaterialTheme.typography.labelMedium,
@@ -1021,21 +1204,24 @@ private fun VoiceScreenContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 VoiceInfoCard(
-                    title = if (inflectActive) {
-                        "Inflect Micro is active"
-                    } else {
-                        "Inflect Micro is available"
+                    title = when {
+                        inflectReady -> "Inflect Micro is active"
+                        inflectSelected -> "Inflect Micro selected — setup required"
+                        else -> "Inflect Micro is available"
                     },
-                    message = if (inflectActive) {
-                        "This higher-quality local path uses the selected Sherpa eSpeak frontend and Inflect Micro model bundle. It remains available while the model bundle and selected Sherpa voice pack are downloaded."
-                    } else {
-                        "Download Inflect Micro and the selected Sherpa voice pack to enable this higher-quality local speech path."
+                    message = when {
+                        inflectReady ->
+                            "Inflect Micro is ready to speak. Android TTS remains the fallback if synthesis is unavailable."
+                        inflectSelected ->
+                            "Inflect Micro is selected — setup required. Download the Inflect setup below before it can speak."
+                        else ->
+                            "Download Inflect Micro to enable this higher-quality local speech path."
                     },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 ModelCardCompact(
                     title = "Inflect Micro",
-                    description = "Higher-quality local TTS model; uses the selected Sherpa voice pack for its frontend.",
+                    description = "Higher-quality local TTS with all required setup assets.",
                     state = inflectModelState,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
@@ -1454,6 +1640,40 @@ private fun KokoroSpeakerSelector(
     }
 }
 
+/**
+ * Warning for the Android native engine row, shown only while that engine is selected. A blocking
+ * availability message wins; otherwise the capability warning. Online-off is not a warning when
+ * Zipformer is downloaded, because a stall then hands off to Zipformer.
+ */
+private fun androidNativeSettingsWarning(
+    blockingMessage: String?,
+    capabilities: VoiceCapabilities?,
+    localeReady: Boolean,
+    onlineAllowed: Boolean,
+    zipformerDownloaded: Boolean,
+): String? {
+    val fallback = if (zipformerDownloaded) {
+        "Sherpa-ONNX Zipformer is downloaded and is used if Android speech fails to start or stalls."
+    } else {
+        "Download Sherpa-ONNX Zipformer below as an offline fallback."
+    }
+    val capabilityWarning = capabilities?.let {
+        androidNativeWarning(it, localeReady, onlineAllowed || zipformerDownloaded)
+    }
+    val message = blockingMessage ?: when (capabilityWarning) {
+        null -> return null
+        AndroidNativeWarning.NoRecognitionService ->
+            "Android speech recognition is not available on this device."
+        AndroidNativeWarning.NoOnDeviceRecognizer ->
+            "No on-device Android speech recognizer. Offline capture cannot work."
+        AndroidNativeWarning.LanguagePackMissing ->
+            "The on-device language pack for this device is missing."
+        AndroidNativeWarning.OnlineOff ->
+            "Online speech is off. If the on-device recognizer stays silent, voice input stalls."
+    }
+    return "$message $fallback"
+}
+
 @Composable
 private fun VoiceWarningCard(
     message: String,
@@ -1524,8 +1744,11 @@ private fun VoiceInfoCard(
 @Composable
 private fun VoiceOutputSelectionCard(
     selectedEngine: VoiceOutputEngine,
+    inflectMicroReady: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val inflectSelected = selectedEngine == VoiceOutputEngine.InflectMicroExperimental
+    val selectedEngineReady = !inflectSelected || inflectMicroReady
     val message = when (selectedEngine) {
         VoiceOutputEngine.AndroidTts ->
             "Android TTS is currently the only engine that will speak. Sherpa voices below stay inactive until you switch engines."
@@ -1534,11 +1757,19 @@ private fun VoiceOutputSelectionCard(
         VoiceOutputEngine.KokoroExperimental ->
             "Kokoro (Experimental) is currently the only engine that will speak. Android TTS is inactive until you switch back."
         VoiceOutputEngine.InflectMicroExperimental ->
-            "Inflect Micro is selected. It uses the downloaded Inflect graphs and Sherpa eSpeak data, with Android TTS fallback if setup is unavailable."
+            if (selectedEngineReady) {
+                "Inflect Micro is selected and ready to speak. Android TTS remains the fallback if synthesis is unavailable."
+            } else {
+                "Inflect Micro is selected — setup required. Download the Inflect setup below before it can speak."
+            }
     }
 
     VoiceInfoCard(
-        title = "Active engine: ${selectedEngine.displayName}",
+        title = if (selectedEngineReady) {
+            "Active engine: ${selectedEngine.displayName}"
+        } else {
+            "Selected engine: ${selectedEngine.displayName}"
+        },
         message = message,
         modifier = modifier,
     )
@@ -1548,6 +1779,9 @@ private fun VoiceOutputSelectionCard(
  * A labelled slider row with an editable text field for precise input.
  * Duplicated locally from [ModelSettingsScreen] to avoid cross-module coupling.
  */
+internal fun shouldCommitTextOnFocusLost(wasFocused: Boolean, isFocused: Boolean): Boolean =
+    wasFocused && !isFocused
+
 @Composable
 private fun SliderRow(
     label: String,
@@ -1560,7 +1794,7 @@ private fun SliderRow(
     val focusManager = LocalFocusManager.current
     var sliderValue by remember(value) { mutableFloatStateOf(value) }
     var textValue by remember(value) { mutableStateOf("%.2f".format(value)) }
-
+    var textFieldWasFocused by remember { mutableStateOf(false) }
     fun commitText(raw: String) {
         val parsed = raw.trim().toFloatOrNull()
         if (parsed != null) {
@@ -1611,7 +1845,12 @@ private fun SliderRow(
                 modifier = Modifier
                     .width(76.dp)
                     .onFocusChanged { focusState ->
-                        if (!focusState.isFocused) commitText(textValue)
+                        val lostFocus = shouldCommitTextOnFocusLost(
+                            wasFocused = textFieldWasFocused,
+                            isFocused = focusState.isFocused,
+                        )
+                        textFieldWasFocused = focusState.isFocused
+                        if (lostFocus) commitText(textValue)
                     },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall,
@@ -1651,7 +1890,7 @@ private fun VoiceScreenPreview() {
                 sherpaVoices = listOf(
                     SherpaVoiceRowUiState(
                         voice = SherpaPiperVoice.JennyDioco,
-                        downloadState = VoicePackDownloadState.Downloaded("/data/user/0/com.kernel.ai.debug/files/sherpa-tts/vits-piper-en_GB-jenny_dioco-medium"),
+                        downloadState = VoicePackDownloadState.Downloaded("/data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-jenny_dioco-medium"),
                     ),
                     SherpaVoiceRowUiState(
                         voice = SherpaPiperVoice.SouthernEnglishFemale,
@@ -1669,6 +1908,7 @@ private fun VoiceScreenPreview() {
             onWakeWordThresholdChanged = {},
             onVoiceInputEngineSelected = {},
             onAutoStartAlertVoiceCommandsEnabledChanged = {},
+            onAllowOnlineSpeechFallbackChanged = {},
             onSpokenResponsesEnabledChanged = {},
             onVoiceOutputEngineSelected = {},
             onSherpaVoiceSelected = {},

@@ -349,6 +349,40 @@ class QuickIntentRouterTest {
             assertEquals("gym", intent.params["label"])
         }
 
+        @ParameterizedTest(name = "No inferred label: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#alarmPhrasesWithoutLabels")
+        fun `should not infer alarm labels from time or date phrases`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_alarm", input)
+            assertFalse(
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params.containsKey("label"),
+                "Expected no alarm label for '$input'",
+            )
+        }
+
+        @ParameterizedTest(name = "Alarm label: \"{0}\" → {1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#alarmPhrasesWithLabels")
+        fun `should preserve named and purpose alarm labels`(input: String, expectedLabel: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_alarm", input)
+            assertEquals(
+                expectedLabel,
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["label"],
+                "label for '$input'",
+            )
+        }
+
+        @ParameterizedTest(name = "Weekday in purpose is not a date: \"{0}\"")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#alarmPhrasesWithWeekdayLabels")
+        fun `should not extract weekdays from purpose labels`(input: String, expectedLabel: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "set_alarm", input)
+
+            val params = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+            assertEquals(expectedLabel, params["label"])
+            assertFalse(params.containsKey("day"), "Expected no alarm day from purpose '$input'")
+        }
+
         @Test
         fun `should recover compact alarm times`() {
             val result = regexOnlyRouter.route("set an alarm for 730am")
@@ -467,6 +501,32 @@ class QuickIntentRouterTest {
             assertEquals("10-minute", intent.params["name"], "name param should preserve the spoken duration token")
         }
 
+        @ParameterizedTest
+        @ValueSource(strings = ["cancel my timer", "stop my timer", "cancel our timer", "cancel that timer"])
+        fun `possessive and demonstrative timer requests route generically`(input: String) {
+            assertRegexMatch(regexOnlyRouter.route(input), "cancel_timer", input)
+        }
+
+        @Test
+        fun `cancel my pasta timer should route to cancel_timer_named with pasta name`() {
+            val result = regexOnlyRouter.route("cancel my pasta timer")
+            assertRegexMatch(result, "cancel_timer_named", "cancel my pasta timer")
+            assertEquals(
+                "pasta",
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["name"],
+            )
+        }
+
+        @Test
+        fun `cancel the egg timer should route to cancel_timer_named with egg name`() {
+            val result = regexOnlyRouter.route("cancel the egg timer")
+            assertRegexMatch(result, "cancel_timer_named", "cancel the egg timer")
+            assertEquals(
+                "egg",
+                (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["name"],
+            )
+        }
+
         @Test
         fun `stop the pasta timer should route to cancel_timer_named`() {
             val result = regexOnlyRouter.route("stop the pasta timer")
@@ -483,6 +543,31 @@ class QuickIntentRouterTest {
         fun `cancel the timer should route to cancel_timer not cancel_timer_named`() {
             val result = regexOnlyRouter.route("cancel the timer")
             assertRegexMatch(result, "cancel_timer", "cancel the timer")
+        }
+
+        @Test
+        fun `only explicit all wording sets the all flag and both preserves its count`() {
+            val singular = regexOnlyRouter.route("cancel timer") as QuickIntentRouter.RouteResult.RegexMatch
+            assertNull(singular.intent.params["all"])
+
+            val cancelAll = regexOnlyRouter.route("cancel all timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("true", cancelAll.intent.params["all"])
+            assertNull(cancelAll.intent.params["count"])
+
+            val cancelBoth = regexOnlyRouter.route("cancel both timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("2", cancelBoth.intent.params["count"])
+            assertNull(cancelBoth.intent.params["all"])
+
+            val turnOffBoth = regexOnlyRouter.route("turn off both timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("2", turnOffBoth.intent.params["count"])
+            assertNull(turnOffBoth.intent.params["all"])
+
+            val turnOffAll = regexOnlyRouter.route("turn off all timers") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("true", turnOffAll.intent.params["all"])
+
+            val cancelSecond = regexOnlyRouter.route("cancel the second timer") as QuickIntentRouter.RouteResult.RegexMatch
+            assertEquals("cancel_timer_named", cancelSecond.intent.intentName)
+            assertEquals("second", cancelSecond.intent.params["name"])
         }
 
         @ParameterizedTest(name = "\"{0}\" should route to cancel_timer")
@@ -843,6 +928,16 @@ class QuickIntentRouterTest {
             assertEquals("London", intent.params["location"])
         }
 
+    @ParameterizedTest(name = "Date diff: \"{0}\" → target_date={1}")
+    @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#dateDiffTargetPhrases")
+    fun `date contractions preserve target date text`(input: String, expectedTargetDate: String) {
+        val result = regexOnlyRouter.route(input)
+        assertRegexMatch(result, "get_date_diff", input)
+
+        val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+        assertEquals(expectedTargetDate, intent.params["target_date"], "target_date for '$input'")
+    }
+
     @Test
     fun `date diff until phrases tag direction as until`() {
         val result = regexOnlyRouter.route("how long until Christmas")
@@ -1004,6 +1099,164 @@ class QuickIntentRouterTest {
 
             val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals(expectedExpression, intent.params["expression"])
+        }
+
+        @Test
+        fun `imperative arithmetic routes only complete numeric commands`() {
+            val cases = listOf(
+                "Multiply 142 by 1.1" to ("142 * 1.1" to "156.2"),
+                "Please multiply -2.5 by 4" to ("-2.5 * 4" to "-10"),
+                "Divide one hundred by ten" to ("100 / 10" to "10"),
+                "Add twenty-five and fifteen" to ("25 + 15" to "40"),
+                "Add twenty-five to fifteen" to ("25 + 15" to "40"),
+                "Subtract twelve from fifty" to ("50 - 12" to "38"),
+            )
+
+            for ((input, expected) in cases) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(expected.first, expression)
+                assertEquals(
+                    expected.second,
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                )
+            }
+        }
+
+        @Test
+        fun `percent change phrasing routes to an exact expression and value`() {
+            val cases = listOf(
+                "Add 5% to 105" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "add 5 percent to 105" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "105 plus 5%" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "Increase 105 by 5%" to ("105 * (1 + (5 / 100))" to "110.25"),
+                "105 minus 5%" to ("105 * (1 - (5 / 100))" to "99.75"),
+                "105 less 5%" to ("105 * (1 - (5 / 100))" to "99.75"),
+                "Take 10% off 80" to ("80 * (1 - (10 / 100))" to "72"),
+                "take 10 percent off 80" to ("80 * (1 - (10 / 100))" to "72"),
+                "Take ten percent off eighty" to ("80 * (1 - (10 / 100))" to "72"),
+                "Subtract 10% from 80" to ("80 * (1 - (10 / 100))" to "72"),
+                "Decrease 80 by 10%" to ("80 * (1 - (10 / 100))" to "72"),
+                "Reduce 80 by 10%" to ("80 * (1 - (10 / 100))" to "72"),
+                "Add five percent to one hundred" to ("100 * (1 + (5 / 100))" to "105"),
+            )
+            for ((input, expected) in cases) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(expected.first, expression, input)
+                assertEquals(
+                    expected.second,
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                    input,
+                )
+            }
+        }
+
+        @Test
+        fun `ambiguous or signed percent change phrasing falls through to the model`() {
+            for (input in listOf(
+                "Multiply 105 / 5%",
+                "Divide 105 by 5%",
+                "Add 5% and 105",
+                "Add 5% to 105 and 3",
+                "Add -5% to 105",
+                "105 plus 5% plus 3",
+            )) {
+                assertFallThrough(regexOnlyRouter.route(input), input)
+            }
+        }
+
+        @Test
+        fun `existing percent-of arithmetic and verb-first commands keep their expressions and values`() {
+            val cases = listOf(
+                "5% of 105" to ("5% of 105" to "5.25"),
+                "what is 5 percent of 105" to ("5 percent of 105" to "5.25"),
+                "105 * 1.05" to ("105 * 1.05" to "110.25"),
+                "Add twenty-five to fifteen" to ("25 + 15" to "40"),
+                "Subtract twelve from fifty" to ("50 - 12" to "38"),
+                "Multiply 142 by 1.1" to ("142 * 1.1" to "156.2"),
+            )
+            for ((input, expected) in cases) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(expected.first, expression, input)
+                assertEquals(
+                    expected.second,
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                    input,
+                )
+            }
+        }
+
+        @Test
+        fun `percent change forms do not steal volume commands`() {
+            for (input in listOf("increase volume by 10%", "increase the volume by 10%", "set volume to 50%")) {
+                assertRegexMatch(regexOnlyRouter.route(input), "set_volume", input)
+            }
+        }
+
+        @Test
+        fun `imperative arithmetic does not steal unrelated commands`() {
+            assertRegexMatch(
+                regexOnlyRouter.route("Add milk to shopping list"),
+                "add_to_list",
+                "Add milk to shopping list",
+            )
+            assertFallThrough(regexOnlyRouter.route("divide and conquer"), "divide and conquer")
+        }
+
+        @Test
+        fun `imperative division by zero keeps native evaluator error`() {
+            val result = regexOnlyRouter.route("Divide 10 by 0")
+            assertRegexMatch(result, "calculate_arithmetic", "Divide 10 by 0")
+            val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                .intent.params.getValue("expression")
+
+            val error = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException::class.java,
+            ) {
+                com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator.evaluate(expression)
+            }
+            assertEquals("Division by zero is undefined", error.message)
+        }
+
+        @Test
+        fun `plain binary subtraction routes to calculator`() {
+            for (input in listOf("50 - 12", "50-12")) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "calculate_arithmetic", input)
+                val expression = (result as QuickIntentRouter.RouteResult.RegexMatch)
+                    .intent.params.getValue("expression")
+                assertEquals(input, expression)
+                assertEquals(
+                    "38",
+                    com.kernel.ai.core.skills.natives.ArithmeticExpressionEvaluator
+                        .evaluate(expression).value.toPlainString(),
+                )
+            }
+        }
+
+        @Test
+        fun `hyphenated dates phone numbers and a bare negative do not route to calculator`() {
+            for (input in listOf("2026-11-01", "1-800-555-1234", "-5")) {
+                assertFallThrough(regexOnlyRouter.route(input), input)
+            }
+        }
+
+        @Test
+        fun `single unspaced hyphen between numbers stays arithmetic`() {
+            // A local phone number such as 555-1234 is indistinguishable from 50-12 and still
+            // routes; pinned so any future narrowing is a deliberate decision.
+            assertRegexMatch(regexOnlyRouter.route("555-1234"), "calculate_arithmetic", "555-1234")
         }
     }
 
@@ -1593,6 +1846,42 @@ class QuickIntentRouterTest {
             val result = regexOnlyRouter.route("heater off")
             assertRegexMatch(result, "smart_home_off", "heater off")
         }
+
+        // #1317: "set ... on/off" DND forms fell through the terse smart_home fallback
+        // (`^(?!…)(.+?)\s+on$`) and routed to smart_home_on with device "set do not disturb".
+        @ParameterizedTest(name = "DND set-verb ON: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "Set do not disturb on",
+                "set do not disturb mode on",
+                "set dnd on",
+                "turn do not disturb on",
+            ],
+        )
+        fun `set do not disturb on routes to toggle_dnd_on not smart home`(input: String) {
+            assertRegexMatch(regexOnlyRouter.route(input), "toggle_dnd_on", input)
+        }
+
+        @ParameterizedTest(name = "DND set-verb OFF: \"{0}\"")
+        @ValueSource(
+            strings = [
+                "Set do not disturb off",
+                "set do not disturb mode off",
+                "set dnd off",
+                "turn do not disturb off",
+            ],
+        )
+        fun `set do not disturb off routes to toggle_dnd_off not smart home`(input: String) {
+            assertRegexMatch(regexOnlyRouter.route(input), "toggle_dnd_off", input)
+        }
+
+        // Shared-path guard: the new DND rule must not capture ordinary device "set ... on/off".
+        @ParameterizedTest(name = "smart home set-verb: \"{0}\"")
+        @ValueSource(strings = ["set the lamp on", "set the kitchen light on", "turn on bedroom light", "switch on the fan", "turn off bedroom light"])
+        fun `smart home commands still route to smart home after DND set-verb fix`(input: String) {
+            val expected = if (input.contains("off")) "smart_home_off" else "smart_home_on"
+            assertRegexMatch(regexOnlyRouter.route(input), expected, input)
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1938,6 +2227,27 @@ class QuickIntentRouterTest {
             val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
             assertEquals(expectedList, intent.params["list_name"], "list_name for '$input'")
         }
+        @ParameterizedTest(name = "Store question: \"{0}\" → list_name={1}")
+        @MethodSource("com.kernel.ai.core.skills.QuickIntentRouterTest#storeQuestionPhrases")
+        fun `routes store questions to list lookup`(input: String, expectedList: String) {
+            val result = regexOnlyRouter.route(input)
+            assertRegexMatch(result, "get_list_items", input)
+            val params = (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params
+            assertEquals(expectedList, params["list_name"], "list_name for '$input'")
+            assertEquals("true", params["fallthrough_on_missing"])
+        }
+
+        @ParameterizedTest(name = "Unrelated need question falls through: \"{0}\"")
+        @ValueSource(strings = [
+            "what do I need to bring to the meeting",
+            "what do I need to know about the new store",
+            "what should I bring to the shops",
+            "what do I need to know about the shops today",
+        ])
+        fun `does not route unrelated need questions`(input: String) {
+            assertInstanceOf(QuickIntentRouter.RouteResult.FallThrough::class.java, regexOnlyRouter.route(input))
+        }
+
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2580,6 +2890,8 @@ class QuickIntentRouterTest {
             Arguments.of("delete all timers"),
             Arguments.of("cancel my timers"),
             Arguments.of("stop my timers"),
+            Arguments.of("cancel both timers"),
+            Arguments.of("cancel timers"),
         )
 
         // ── Flashlight ON ─────────────────────────────────────────────────────
@@ -2669,7 +2981,75 @@ class QuickIntentRouterTest {
             Arguments.of("set alarm for 9am sat", "9", "0", "saturday"),
             Arguments.of("set an alarm for 7:30am wed", "7", "30", "wednesday"),
             Arguments.of("remind me tomorrow at 9", "9", "0", "tomorrow"),
+            Arguments.of("set an alarm at 19:00 friday", "19", "0", "friday"),
+            Arguments.of("wake me up at 6:30 tomorrow", "6", "30", "tomorrow"),
         )
+
+        @JvmStatic
+        fun alarmPhrasesWithoutLabels(): Stream<Arguments> = Stream.of(
+            Arguments.of("Set an alarm for 7am tomorrow"),
+            Arguments.of("wake me up at 6:30"),
+            Arguments.of("wake me up at 6:30 tomorrow"),
+            Arguments.of("set an alarm at 7 for the morning"),
+            Arguments.of("set an alarm at 7 for tonight"),
+            Arguments.of("set an alarm at 7am for the weekend"),
+            Arguments.of("set an alarm at 7am for next week"),
+            Arguments.of("set an alarm at 7am for weekdays"),
+            Arguments.of("set an alarm at 7am for next monday"),
+            Arguments.of("set an alarm at 7am for this friday"),
+            Arguments.of("set an alarm at 7am for every day"),
+            Arguments.of("set an alarm at 7am for daily"),
+            Arguments.of("set an alarm at 7am for everyday"),
+            Arguments.of("set an alarm at 7am for weekends"),
+            Arguments.of("set an alarm at 7am for nights"),
+            Arguments.of("set an alarm at 7am for the day"),
+            Arguments.of("set an alarm at 7am for the next day"),
+            Arguments.of("set an alarm at 7am for a week"),
+            Arguments.of("set an alarm at 7am for mondays"),
+            Arguments.of("set an alarm at 7am for weeknights"),
+            Arguments.of("set an alarm at 7am for each day"),
+            Arguments.of("set an alarm at 7am for every other day"),
+            Arguments.of("set an alarm at 7am for 2 days"),
+            Arguments.of("set an alarm at 7am for 6 hours"),
+            Arguments.of("set an alarm at 7am for the 2nd"),
+            Arguments.of("set an alarm at 7am for now"),
+            Arguments.of("set an alarm at 7am for later"),
+            Arguments.of("set an alarm at 19:00 friday"),
+        )
+
+        @JvmStatic
+        fun alarmPhrasesWithLabels(): Stream<Arguments> = Stream.of(
+            Arguments.of("Set an alarm for 7am called gym", "gym"),
+            Arguments.of("set an alarm for 7am tomorrow called gym", "gym"),
+            Arguments.of("set an alarm at 7 named gym", "gym"),
+            Arguments.of("set an alarm at 7 labelled school run", "school run"),
+            Arguments.of("alarm at 7 tomorrow labelled school run", "school run"),
+            Arguments.of("set an alarm for 6:30am for work", "work"),
+            Arguments.of("set an alarm at 8 for the school run", "school run"),
+            Arguments.of("wake me at 5 for the airport", "airport"),
+            Arguments.of("set an alarm at 7am for my flight", "my flight"),
+            Arguments.of("set an alarm at 7am for work for the team", "work"),
+            Arguments.of("set an alarm at 7am for the morning run", "morning run"),
+            Arguments.of("set an alarm at 7am for morning run", "morning run"),
+            Arguments.of("set an alarm at 7am for night shift", "night shift"),
+            Arguments.of("set an alarm at 7am for weekend brunch", "weekend brunch"),
+            Arguments.of("set an alarm at 7am for the noon meeting", "noon meeting"),
+            Arguments.of("set an alarm at 7am for the evening flight", "evening flight"),
+            Arguments.of("set an alarm at 7am for midnight feed", "midnight feed"),
+            Arguments.of("set an alarm at 7am for the 8am train", "8am train"),
+            Arguments.of("set an alarm at 7am for Sunday school", "sunday school"),
+            Arguments.of("set an alarm at 7am for wednesday yoga", "wednesday yoga"),
+            Arguments.of("set an alarm at 7am for Monday's meeting", "monday's meeting"),
+            Arguments.of("set an alarm at 7am for my birthday", "my birthday"),
+        )
+
+        @JvmStatic
+        fun alarmPhrasesWithWeekdayLabels(): Stream<Arguments> = Stream.of(
+            Arguments.of("set an alarm at 7am for Sunday school", "sunday school"),
+            Arguments.of("set an alarm at 7am for wednesday yoga", "wednesday yoga"),
+            Arguments.of("set an alarm at 7am for Monday's meeting", "monday's meeting"),
+        )
+
 
         // ── Timer ─────────────────────────────────────────────────────────────
 
@@ -2688,6 +3068,13 @@ class QuickIntentRouterTest {
             Arguments.of("start a 45-second timer", "45"),
             Arguments.of("set a timer for 1 hour and 30 minutes", "5400"),
             Arguments.of("set timer for 2 hours and 15 minutes", "8100"),
+            Arguments.of("set a sixty minute timer", "3600"),
+            Arguments.of("Set a sixty minute timer", "3600"),
+            Arguments.of("set a seventy minute timer", "4200"),
+            Arguments.of("set a six minute timer", "360"),
+            Arguments.of("set a twenty minute timer", "1200"),
+            Arguments.of("set a forty five minute timer", "2700"),
+            Arguments.of("set a forty-five minute timer", "2700"),
         )
 
         @JvmStatic
@@ -2822,6 +3209,17 @@ class QuickIntentRouterTest {
             Arguments.of("how many weeks until the 31 October"),
             // STT variant: "waits" → "weeks" normalised, ordinal split fixed
             Arguments.of("how many waits until the 30 first of october"),
+        )
+
+        @JvmStatic
+        fun dateDiffTargetPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("When's my wife's birthday", "my wife's birthday"),
+            Arguments.of("When’s my wife’s birthday", "my wife's birthday"),
+            Arguments.of("When’s Easter", "Easter"),
+            Arguments.of("when's ANZAC Day", "ANZAC Day"),
+            Arguments.of("when is my wife's birthday", "my wife's birthday"),
+            Arguments.of("how long's it until Easter", "Easter"),
+            Arguments.of("how long is it until Easter", "Easter"),
         )
 
         @JvmStatic
@@ -3387,21 +3785,21 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun addToListRegexPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("add toothpaste to shopping list", "toothpaste", "shopping"),
-            Arguments.of("add milk to the shopping list", "milk", "shopping"),
-            Arguments.of("add eggs to my grocery list", "eggs", "grocery"),
-            Arguments.of("add bread to the to-do list", "bread", "to-do"),
-            Arguments.of("add bananas to shopping list", "bananas", "shopping"),
-            Arguments.of("add butter to the grocery list", "butter", "grocery"),
-            Arguments.of("add cheese to my shopping list", "cheese", "shopping"),
-            Arguments.of("add eggs to my shopping list", "eggs", "shopping"),
+            Arguments.of("add toothpaste to shopping list", "toothpaste", "shopping list"),
+            Arguments.of("add milk to the shopping list", "milk", "shopping list"),
+            Arguments.of("add eggs to my grocery list", "eggs", "grocery list"),
+            Arguments.of("add bread to the to-do list", "bread", "to-do list"),
+            Arguments.of("add bananas to shopping list", "bananas", "shopping list"),
+            Arguments.of("add butter to the grocery list", "butter", "grocery list"),
+            Arguments.of("add cheese to my shopping list", "cheese", "shopping list"),
+            Arguments.of("add eggs to my shopping list", "eggs", "shopping list"),
             Arguments.of(
                 "Please add golden journey item to the list named Widget test",
                 "golden journey item",
                 "Widget test",
             ),
             Arguments.of("add milk to the list called Shopping", "milk", "Shopping"),
-            Arguments.of("Add milk to Nonexistent List", "milk", "Nonexistent"),
+            Arguments.of("Add milk to Nonexistent List", "milk", "Nonexistent List"),
         )
 
         @JvmStatic
@@ -3460,12 +3858,12 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun createListRegexPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("create a groceries list", "groceries"),
-            Arguments.of("make a shopping list", "shopping"),
-            Arguments.of("create a todo list", "todo"),
-            Arguments.of("make my chores list", "chores"),
-            Arguments.of("create a meal plan list", "meal plan"),
-            Arguments.of("new packing list", "packing"),
+            Arguments.of("create a groceries list", "groceries list"),
+            Arguments.of("make a shopping list", "shopping list"),
+            Arguments.of("create a todo list", "todo list"),
+            Arguments.of("make my chores list", "chores list"),
+            Arguments.of("create a meal plan list", "meal plan list"),
+            Arguments.of("new packing list", "packing list"),
             Arguments.of("create a list called Camping", "Camping"),
         )
 
@@ -3479,13 +3877,72 @@ class QuickIntentRouterTest {
 
         @JvmStatic
         fun getListItemsRegexPhrases(): Stream<Arguments> = Stream.of(
-            Arguments.of("show my todo list", "todo"),
-            Arguments.of("what's on my shopping list", "shopping"),
-            Arguments.of("what's in my shopping list", "shopping"),
+            Arguments.of("show my todo list", "todo list"),
+            Arguments.of("what's on my shopping list", "shopping list"),
+            Arguments.of("what's in my shopping list", "shopping list"),
+            Arguments.of("what’s on my shopping list", "shopping list"),
             Arguments.of("display list called shopping", "shopping"),
-            Arguments.of("show me my grocery list", "grocery"),
-            Arguments.of("read my shopping list", "shopping"),
-            Arguments.of("get my to-do list", "to-do"),
+            Arguments.of("show me my grocery list", "grocery list"),
+            Arguments.of("read me my grocery list", "grocery list"),
+            Arguments.of("read my shopping list", "shopping list"),
+            Arguments.of("get my to-do list", "to-do list"),
+        )
+
+        @JvmStatic
+        fun storeQuestionPhrases(): Stream<Arguments> = Stream.of(
+            Arguments.of("What do I need to get from the shops", "shops"),
+            Arguments.of("what do we need from the shop", "shop"),
+            Arguments.of("what do we need from the supermarket", "supermarket"),
+            Arguments.of("what do I need to get at the supermarket", "supermarket"),
+            Arguments.of("what do I need from the grocery store", "grocery store"),
+            Arguments.of("what do I need from the store", "store"),
+            Arguments.of("what do I need from the grocer", "grocer"),
+            Arguments.of("what do I need to buy at Woolies", "Woolies"),
+            Arguments.of("what do I need from Woolworths", "Woolworths"),
+            Arguments.of("what do we need from Countdown", "Countdown"),
+            Arguments.of("what do I need from New World", "New World"),
+            Arguments.of("what do I need from Pak'nSave", "Pak'nSave"),
+            Arguments.of("what do I need from Pak n Save", "Pak n Save"),
+            Arguments.of("what do I need from PakNSave", "PakNSave"),
+            Arguments.of("what do I need from Pack and Save", "Pack and Save"),
+            Arguments.of("what do I need from Wollies", "Wollies"),
+            Arguments.of("what do we need from Four Square", "Four Square"),
+            Arguments.of("what do I need from FreshChoice", "FreshChoice"),
+            Arguments.of("what do I need from SuperValue", "SuperValue"),
+            Arguments.of("what do we need from Coles", "Coles"),
+            Arguments.of("what do I need from Aldi", "Aldi"),
+            Arguments.of("what do I need from IGA", "IGA"),
+            Arguments.of("what do we need from Harris Farm", "Harris Farm"),
+            Arguments.of("what do I need from Foodland", "Foodland"),
+            Arguments.of("what do I need from Drakes", "Drakes"),
+            Arguments.of("what do I need from Costco", "Costco"),
+            Arguments.of("what do I need from Bunnings", "Bunnings"),
+            Arguments.of("what do I need from Mitre 10", "Mitre 10"),
+            Arguments.of("what do I need from Placemakers", "Placemakers"),
+            Arguments.of("what do I need from Hammer Hardware", "Hammer Hardware"),
+            Arguments.of("what do I need from Total Tools", "Total Tools"),
+            Arguments.of("what do I need from the chemist", "chemist"),
+            Arguments.of("what do I need from the pharmacy", "pharmacy"),
+            Arguments.of("what do I need from Chemist Warehouse", "Chemist Warehouse"),
+            Arguments.of("what do we need from Unichem", "Unichem"),
+            Arguments.of("what do I need from Life Pharmacy", "Life Pharmacy"),
+            Arguments.of("what do I need from Priceline", "Priceline"),
+            Arguments.of("what do I need from Amcal", "Amcal"),
+            Arguments.of("what do I need from TerryWhite Chemmart", "TerryWhite Chemmart"),
+            Arguments.of("what do I need from the shops today", "shops"),
+            Arguments.of("what do I need from the shops tomorrow", "shops"),
+            Arguments.of("what do we need from the shops this week", "shops"),
+            Arguments.of("what do I need from the shops later", "shops"),
+            Arguments.of("what do I need from the shops tonight", "shops"),
+            Arguments.of("what do I need from the shops on the way home", "shops"),
+            Arguments.of("what do we need from Woolies this weekend", "Woolies"),
+            Arguments.of("what do I need from my chemist", "chemist"),
+            Arguments.of("what do we need from our chemist", "chemist"),
+            Arguments.of("what do I need from our shops tomorrow?", "shops"),
+            Arguments.of("what do I need from Pak 'n Save", "Pak 'n Save"),
+            Arguments.of("what do I need from Pak n' Save", "Pak n' Save"),
+            Arguments.of("what do I need from Pak'n Save", "Pak'n Save"),
+            Arguments.of("what do I need from the garden centre", "garden centre"),
         )
 
         // ── Weather ───────────────────────────────────────────────────────────────
@@ -3724,6 +4181,16 @@ class QuickIntentRouterTest {
             Arguments.of("What's the weather this week?", null, "7", null),
             Arguments.of("What's the weather like this week in Auckland?", "Auckland", "7", null),
             Arguments.of("What's the weather in Sydney this week?", "Sydney", "7", null),
+            // #1471 — "how's/how is the weather this week [in <city>]" must reach get_weather
+            // with the same this-week → 7-day contract as the "what's" forms.
+            Arguments.of("How's the weather this week in Sydney", "Sydney", "7", null),
+            Arguments.of("How is the weather this week in Sydney", "Sydney", "7", null),
+            Arguments.of("How's the weather this week?", null, "7", null),
+            // Regression: existing weather phrasings on the same seam must stay unchanged.
+            Arguments.of("What's the weather this week in Sydney", "Sydney", "7", null),
+            Arguments.of("How's the weather", null, null, null),
+            Arguments.of("How's the weather today", null, null, null),
+            Arguments.of("How's the weather in Sydney", "Sydney", null, null),
             // NAMED METRICS — explicit location must not silently fall back to GPS
             Arguments.of("What's the UV index in Sydney?", "Sydney", null, null),
             Arguments.of("What's the air quality in Sydney?", "Sydney", null, null),

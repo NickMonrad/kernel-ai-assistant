@@ -396,7 +396,7 @@ internal class PermissionFlowHarness(
     }
 
     companion object {
-        const val PACKAGE = "com.kernel.ai.debug"
+        const val PACKAGE = "ai.jandal.assistant.debug"
         private const val MAIN_ACTIVITY = "com.kernel.ai.MainActivity"
         private const val SETTINGS_PACKAGE = "com.android.settings"
         private const val LAUNCH_TIMEOUT_MS = 20_000L

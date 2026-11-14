@@ -537,4 +537,54 @@ class WakeCommandHandoffTest {
             assertEquals(1, rearmCount)
         }
     }
+
+    // ── #1502: a yielded microphone closes the retry loop ─────────────────────
+
+    @Test
+    fun `no retry attempt is started once the microphone was yielded`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(
+                VoiceInputStartResult.Started(1L),
+                // Present so a retry would be observable as a second capture session.
+                VoiceInputStartResult.Started(2L),
+            ),
+            sharedOrder = order,
+        )
+        val journalEvents = mutableListOf<Pair<String, Long>>()
+        var capturePermitted = true
+        var rearmCount = 0
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(journalEvents),
+                routeTranscript = { true },
+                onSessionTerminal = { rearmCount++ },
+                capturePermitted = { capturePermitted },
+            )
+        }
+        runCurrent()
+
+        // Attempt 1 reaches readiness, then fails without a transcript — normally a retry.
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        controller.emit(VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "recognition failed", captureSessionId = 1L))
+        // The Honor Camera takes the microphone while that attempt is still open.
+        capturePermitted = false
+        runCurrent()
+        job.join()
+
+        assertEquals(
+            listOf(1L),
+            controller.startCalls,
+            "the retry must not take the microphone back from the camera",
+        )
+        assertEquals(1, rearmCount, "the terminal handoff is still reported exactly once")
+    }
 }

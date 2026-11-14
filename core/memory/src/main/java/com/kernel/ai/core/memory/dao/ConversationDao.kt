@@ -21,6 +21,10 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE archivedAt IS NOT NULL ORDER BY updatedAt DESC")
     fun observeArchived(): Flow<List<ConversationEntity>>
 
+    /** Counts every conversation, archived included; the first-run welcome is dismissed once this is non-zero. */
+    @Query("SELECT COUNT(*) FROM conversations")
+    fun observeConversationCount(): Flow<Int>
+
     @Query("SELECT * FROM conversations WHERE id = :id")
     suspend fun getById(id: String): ConversationEntity?
 

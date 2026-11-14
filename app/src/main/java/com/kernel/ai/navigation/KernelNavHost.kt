@@ -1,5 +1,6 @@
 package com.kernel.ai.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import com.kernel.ai.core.memory.shortcut.FavouriteShortcutRepository
 import com.kernel.ai.core.memory.shortcut.RecentShortcutTracker
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bolt
@@ -67,11 +69,15 @@ import com.kernel.ai.feature.convert.ConvertScreen
 import com.kernel.ai.feature.convert.mapQueryParamToConvertTab
 import com.kernel.ai.feature.settings.AppPermissionsScreen
 import com.kernel.ai.feature.settings.AboutScreen
+import com.kernel.ai.feature.settings.LegalPrivacyScreen
+import com.kernel.ai.feature.settings.OpenSourceLicensesScreen
 import com.kernel.ai.feature.settings.ContactAliasesScreen
 import com.kernel.ai.feature.settings.ImportantDatesScreen
 import com.kernel.ai.feature.settings.ListItemsScreen
 import com.kernel.ai.feature.settings.ChatPreferencesScreen
 import com.kernel.ai.feature.settings.ListsScreen
+import com.kernel.ai.feature.settings.NextcloudSettingsScreen
+import com.kernel.ai.feature.settings.NextcloudSharingScreen
 import com.kernel.ai.feature.settings.MealPlansScreen
 import com.kernel.ai.feature.settings.MemoryScreen
 import com.kernel.ai.feature.settings.ModelManagementScreen
@@ -100,12 +106,26 @@ private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
 private const val ARG_SCROLL_TO = "scrollTo"
 internal const val ROUTE_ABOUT = "settings/about"
+private const val ROUTE_LEGAL_PRIVACY = "settings/legal_privacy"
+private const val ROUTE_OPEN_SOURCE_LICENSES = "settings/open_source_licenses"
 internal const val ROUTE_APP_PERMISSIONS = "settings/app_permissions"
 internal const val ROUTE_CHAT_PREFERENCES = "settings/chat_preferences"
 internal const val ROUTE_CONTACT_ALIASES = "settings/contact_aliases"
 private const val ROUTE_SCHEDULED_ALARMS = "settings/scheduled_alarms"
 internal const val ROUTE_SIDE_PANEL = "settings/side_panel"
 internal const val ROUTE_CLOCK_SETTINGS = "settings/clock_settings"
+internal const val ROUTE_NEXTCLOUD_SETTINGS = "settings/nextcloud"
+private const val ARG_PENDING_LIST_ID = "pendingListId"
+private const val ARG_PENDING_LIST_NAME = "pendingListName"
+private const val ARG_NEXTCLOUD_COLLECTION_ID = "collectionId"
+/** Nextcloud lists, optionally carrying the list whose contextual setup started this visit. */
+private const val ROUTE_NEXTCLOUD_LISTS =
+    "$ROUTE_NEXTCLOUD_SETTINGS?$ARG_PENDING_LIST_ID={$ARG_PENDING_LIST_ID}&$ARG_PENDING_LIST_NAME={$ARG_PENDING_LIST_NAME}"
+private const val ROUTE_NEXTCLOUD_SHARING =
+    "$ROUTE_NEXTCLOUD_SETTINGS/sharing/{$ARG_NEXTCLOUD_COLLECTION_ID}"
+
+/** Result key for the message a completed contextual Nextcloud setup leaves for its origin. */
+internal const val KEY_LISTS_EXTERNAL_MESSAGE = "listsExternalMessage"
 internal const val ROUTE_MEAL_PLANS = "meal_plans"
 internal const val ROUTE_LISTS = "lists"
 private const val ROUTE_LIST_ITEMS = "lists/{listId}"
@@ -125,9 +145,12 @@ private val LISTS_WIDGET_DEEP_LINK = Regex("^lists/\\d+$")
 private const val ARG_WIDGET_QUERY = "widgetQuery"
 private const val ARG_WIDGET_VOICE = "widgetVoice"
 private const val ARG_DRAFT_QUERY = "draftQuery"
+/** #1604: the draft came from another app, so the UI labels it as such. */
+private const val ARG_DRAFT_EXTERNAL = "draftExternal"
 private const val STATE_OPEN_SHEET_CONSUMED = "openSheetConsumed"
 private const val STATE_START_VOICE_CONSUMED = "startVoiceConsumed"
 private const val STATE_WIDGET_QUERY_CONSUMED = "widgetQueryConsumed"
+private const val STATE_ROUTE_DRAFT_CONSUMED = "routeDraftConsumed"
 private const val NEW_MEAL_PLAN_INITIAL_QUERY = "plan meals"
 
 private val BOTTOM_NAV_ROUTES = setOf(ROUTE_LIST, ROUTE_ACTIONS, ROUTE_TOOLS)
@@ -136,12 +159,15 @@ internal fun buildChatRoute(
     initialQuery: String? = null,
     minimalContext: Boolean = false,
     speakResponse: Boolean = false,
+    externalDraft: String? = null,
 ): String {
     val encodedQuery = initialQuery?.trim()?.takeIf { it.isNotEmpty() }?.let(::encodeRouteQueryValue)
+    val encodedDraft = externalDraft?.takeIf { it.isNotBlank() }?.let(::encodeRouteQueryValue)
     val params = buildList {
         encodedQuery?.let { add("$ARG_INITIAL_QUERY=$it") }
         if (minimalContext) add("$ARG_MINIMAL_CONTEXT=true")
         if (speakResponse) add("$ARG_SPEAK_RESPONSE=true")
+        encodedDraft?.let { add("$ARG_DRAFT_QUERY=$it") }
     }
     return if (params.isEmpty()) ROUTE_CHAT else "$ROUTE_CHAT?${params.joinToString("&")}"
 }
@@ -158,11 +184,25 @@ internal fun buildModelManagementRoute(scrollTo: Boolean = false): String =
 internal fun buildSidePanelTabRoute(tab: String): String =
     "$ROUTE_SIDE_PANEL?tab=$tab"
 
+/** Clock → Stopwatch tab; the destination of the ongoing stopwatch notification body (#1553). */
+internal val ROUTE_CLOCK_STOPWATCH: String = buildSidePanelTabRoute("stopwatch")
+
+/**
+ * Routes [com.kernel.ai.MainActivity] may navigate to from its `navigation_route` extra: the Lists
+ * shortcut/widget deep links and the stopwatch notification. Anything else is ignored.
+ */
+internal fun isAllowedExternalNavigationRoute(route: String): Boolean =
+    route == ROUTE_LISTS || route.matches(LISTS_WIDGET_DEEP_LINK) || route == ROUTE_CLOCK_STOPWATCH
+
 internal fun buildConvertTabRoute(tab: String): String =
     "$ROUTE_CONVERT?tab=$tab"
 
-internal fun buildActionsDraftRoute(draftQuery: String): String =
-    "$ROUTE_ACTIONS?openSheet=true&$ARG_DRAFT_QUERY=${encodeRouteQueryValue(draftQuery)}"
+internal fun buildActionsDraftRoute(draftQuery: String, fromExternalApp: Boolean = false): String =
+    "$ROUTE_ACTIONS?openSheet=true&$ARG_DRAFT_QUERY=${encodeRouteQueryValue(draftQuery)}" +
+        if (fromExternalApp) "&$ARG_DRAFT_EXTERNAL=true" else ""
+
+internal fun routeDraftForDelivery(draft: String?, consumed: Boolean): String? =
+    draft?.takeUnless { consumed || it.isBlank() }
 
 internal fun encodeRouteQueryValue(value: String): String =
     URLEncoder.encode(value, StandardCharsets.UTF_8)
@@ -216,23 +256,34 @@ internal fun shouldNavigateForShortcut(
     }
 }
 
-private fun NavHostController.navigateToPrimaryRoute(route: String) {
+/**
+ * Route for the Nextcloud lists screen, carrying the list whose contextual setup started the visit.
+ * Plain `settings/nextcloud` still matches, because both arguments have defaults.
+ */
+private fun nextcloudListsRoute(listId: Long?, name: String?): String =
+    "$ROUTE_NEXTCLOUD_SETTINGS?$ARG_PENDING_LIST_ID=${listId ?: -1L}" +
+        "&$ARG_PENDING_LIST_NAME=${Uri.encode(name.orEmpty())}"
+
+private fun nextcloudSharingRoute(collectionId: String): String =
+    "$ROUTE_NEXTCLOUD_SETTINGS/sharing/${Uri.encode(collectionId)}"
+
+internal fun shouldRestorePrimaryRouteState(currentRoute: String?, targetRoute: String): Boolean =
+    targetRoute != ROUTE_LIST && currentRoute?.contains('?') != true
+
+internal fun NavHostController.navigateToPrimaryRoute(route: String) {
     val currentRoute = currentBackStackEntry?.destination?.route
     val currentBaseRoute = currentRoute?.substringBefore('?')
     if (currentBaseRoute == route) return
 
-    // When the current route has transient query parameters
-    // (e.g. actions?openSheet=true&draftQuery=X), navigating to another
-    // primary route should not save or restore state. The parameterised
-    // route may be nested under the wrong tab's back stack and restoring
-    // it would bring back stale draft or sheet state.
-    val hasTransientParams = currentRoute?.contains('?') == true
+    // Chats is the graph's start destination. Restoring a saved tab stack while
+    // navigating there can leave the outgoing tab on top instead of selecting Chats.
+    val restoreTabState = shouldRestorePrimaryRouteState(currentRoute, route)
     navigate(route) {
         popUpTo(graph.findStartDestination().id) {
-            saveState = !hasTransientParams
+            saveState = restoreTabState
         }
         launchSingleTop = true
-        restoreState = !hasTransientParams
+        restoreState = restoreTabState
     }
 }
 
@@ -349,6 +400,11 @@ fun KernelNavHost(
     /** Monotonic counter incremented by MainActivity on every delivery — ensures the
      *  [LaunchedEffect] re-fires even when the route is identical to the prior one. */
     navigationRouteSerial: Int = 0,
+    /** #1604: text from an untrusted app; pre-filled for review, never submitted automatically. */
+    externalChatDraft: String? = null,
+    externalQuickActionDraft: String? = null,
+    externalSlotReplyDraft: String? = null,
+    externalDraftSerial: Int = 0,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -381,14 +437,33 @@ fun KernelNavHost(
             }
         }
     }
-    // Launcher shortcut / Lists widget: deep-link to a top-level list route
-    // ("lists" overview, or "lists/{listId}" detail). Reuses the same external-entry
-    // seam as the ADB chat/quick-action hooks — no new routing concept.
+    // #1604: untrusted external text opens the existing input pre-filled; the user must send it.
+    LaunchedEffect(externalChatDraft, externalQuickActionDraft, externalSlotReplyDraft, externalDraftSerial) {
+        when {
+            !externalChatDraft.isNullOrBlank() ->
+                navController.navigate(buildChatRoute(externalDraft = externalChatDraft)) {
+                    popUpTo(ROUTE_LIST)
+                }
+            !externalQuickActionDraft.isNullOrBlank() ->
+                navController.navigate(buildActionsDraftRoute(externalQuickActionDraft, fromExternalApp = true)) {
+                    popUpTo(ROUTE_LIST)
+                }
+            // A slot reply draft is shown by the Actions screen if a slot is pending there.
+            !externalSlotReplyDraft.isNullOrBlank() && currentBaseRoute != ROUTE_ACTIONS ->
+                navController.navigate(ROUTE_ACTIONS) {
+                    popUpTo(ROUTE_LIST)
+                    launchSingleTop = true
+                }
+        }
+    }
+    // Launcher shortcut / Lists widget / stopwatch notification: deep-link to an allowlisted
+    // route. Reuses the same external-entry seam as the ADB chat/quick-action hooks — no new
+    // routing concept.
     LaunchedEffect(initialNavigationRoute, navigationRouteSerial) {
         val route = initialNavigationRoute
-        // Only accept the Lists deep-link seam; external/garbage routes must never reach
-        // navController.navigate (which would throw on an unknown route).
-        if (route != null && (route == ROUTE_LISTS || route.matches(LISTS_WIDGET_DEEP_LINK))) {
+        // External/garbage routes must never reach navController.navigate (which would throw
+        // on an unknown route).
+        if (route != null && isAllowedExternalNavigationRoute(route)) {
             navController.navigate(route) {
                 popUpTo(ROUTE_LIST)
                 launchSingleTop = true
@@ -450,6 +525,11 @@ fun KernelNavHost(
                                     launchSingleTop = true
                                 }
                             },
+                            onOpenExamplePrompt = { prompt ->
+                                navController.navigate(buildActionsDraftRoute(prompt)) {
+                                    launchSingleTop = true
+                                }
+                            },
                             onOpenDrawer = {
                                 coroutineScope.launch { drawerState.open() }
                             },
@@ -461,7 +541,7 @@ fun KernelNavHost(
                 }
 
                 composable(
-                    route = "$ROUTE_ACTIONS?openSheet={openSheet}&$ARG_START_VOICE={$ARG_START_VOICE}&$ARG_WIDGET_QUERY={$ARG_WIDGET_QUERY}&$ARG_WIDGET_VOICE={$ARG_WIDGET_VOICE}&$ARG_DRAFT_QUERY={$ARG_DRAFT_QUERY}",
+                    route = "$ROUTE_ACTIONS?openSheet={openSheet}&$ARG_START_VOICE={$ARG_START_VOICE}&$ARG_WIDGET_QUERY={$ARG_WIDGET_QUERY}&$ARG_WIDGET_VOICE={$ARG_WIDGET_VOICE}&$ARG_DRAFT_QUERY={$ARG_DRAFT_QUERY}&$ARG_DRAFT_EXTERNAL={$ARG_DRAFT_EXTERNAL}",
                     arguments = listOf(
                         navArgument("openSheet") {
                             type = NavType.BoolType
@@ -485,6 +565,10 @@ fun KernelNavHost(
                             defaultValue = ""
                             nullable = false
                         },
+                        navArgument(ARG_DRAFT_EXTERNAL) {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        },
                     ),
                 ) { backStackEntry ->
                     val openSheet = (backStackEntry.arguments?.getBoolean("openSheet") ?: false) &&
@@ -501,8 +585,11 @@ fun KernelNavHost(
                     } else false
                     // draftQuery: baked into the route URL for Tools example prompt prefill.
                     // ActionsScreen tracks last-seen draft to prevent re-fire on recomposition.
-                    val draftQuery = backStackEntry.arguments?.getString(ARG_DRAFT_QUERY)
-                        ?.takeIf { it.isNotBlank() }
+                    val draftQuery = routeDraftForDelivery(
+                        backStackEntry.arguments?.getString(ARG_DRAFT_QUERY),
+                        backStackEntry.savedStateHandle.get<Boolean>(STATE_ROUTE_DRAFT_CONSUMED) == true,
+                    )
+                    val draftFromExternalApp = backStackEntry.arguments?.getBoolean(ARG_DRAFT_EXTERNAL) ?: false
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
                             autoOpenSheet = openSheet,
@@ -511,8 +598,11 @@ fun KernelNavHost(
                             initialQueryIsVoice = widgetVoice,
                             adbSlotReply = initialSlotReply,
                             draftQuery = draftQuery,
+                            draftFromExternalApp = draftFromExternalApp,
+                            externalSlotReplyDraft = externalSlotReplyDraft,
+                            externalSlotReplyDraftSerial = externalDraftSerial,
                             onDraftQueryConsumed = {
-                                backStackEntry.arguments?.putString(ARG_DRAFT_QUERY, "")
+                                backStackEntry.savedStateHandle[STATE_ROUTE_DRAFT_CONSUMED] = true
                             },
                             onAutoOpenSheetConsumed = {
                                 backStackEntry.savedStateHandle[STATE_OPEN_SHEET_CONSUMED] = true
@@ -552,7 +642,7 @@ fun KernelNavHost(
                 }
 
                 composable(
-                    route = "$ROUTE_CHAT?$ARG_INITIAL_QUERY={$ARG_INITIAL_QUERY}&$ARG_MINIMAL_CONTEXT={$ARG_MINIMAL_CONTEXT}&$ARG_SPEAK_RESPONSE={$ARG_SPEAK_RESPONSE}",
+                    route = "$ROUTE_CHAT?$ARG_INITIAL_QUERY={$ARG_INITIAL_QUERY}&$ARG_MINIMAL_CONTEXT={$ARG_MINIMAL_CONTEXT}&$ARG_SPEAK_RESPONSE={$ARG_SPEAK_RESPONSE}&$ARG_DRAFT_QUERY={$ARG_DRAFT_QUERY}",
                     arguments = listOf(
                         navArgument(ARG_INITIAL_QUERY) {
                             type = NavType.StringType
@@ -567,15 +657,29 @@ fun KernelNavHost(
                             type = NavType.BoolType
                             defaultValue = false
                         },
+                        navArgument(ARG_DRAFT_QUERY) {
+                            type = NavType.StringType
+                            defaultValue = ""
+                            nullable = false
+                        },
                     ),
                 ) { backStackEntry ->
                     val initialQuery = backStackEntry.arguments?.getString(ARG_INITIAL_QUERY)
                         ?.takeIf { it.isNotBlank() }
                     val speakResponse = backStackEntry.arguments?.getBoolean(ARG_SPEAK_RESPONSE) ?: false
+                    // #1604: text from another app, pre-filled into the composer; never auto-sent.
+                    val externalDraft = routeDraftForDelivery(
+                        backStackEntry.arguments?.getString(ARG_DRAFT_QUERY),
+                        backStackEntry.savedStateHandle.get<Boolean>(STATE_ROUTE_DRAFT_CONSUMED) == true,
+                    )
                     ChatScreen(
                         conversationId = null,
                         initialQuery = initialQuery,
                         speakInitialResponse = speakResponse,
+                        externalDraft = externalDraft,
+                        onExternalDraftConsumed = {
+                            backStackEntry.savedStateHandle[STATE_ROUTE_DRAFT_CONSUMED] = true
+                        },
                         onBack = { navController.popBackOrNavigateHome() },
                         onNewConversation = {
                             navController.navigate(ROUTE_CHAT) {
@@ -645,11 +749,60 @@ fun KernelNavHost(
                         onNavigateToAppPermissions = {
                             navController.navigate(ROUTE_APP_PERMISSIONS)
                         },
+                        onNavigateToNextcloud = {
+                            // Always carry the route's optional arguments explicitly.
+                            navController.navigate(nextcloudListsRoute(null, null))
+                        },
                         onNavigateToClockSettings = {
                             navController.navigate(ROUTE_CLOCK_SETTINGS) {
                                 launchSingleTop = true
                             }
                         },
+                    )
+                }
+                composable(
+                    route = ROUTE_NEXTCLOUD_LISTS,
+                    arguments = listOf(
+                        navArgument(ARG_PENDING_LIST_ID) {
+                            type = NavType.LongType
+                            defaultValue = -1L
+                        },
+                        navArgument(ARG_PENDING_LIST_NAME) {
+                            type = NavType.StringType
+                            defaultValue = ""
+                        },
+                    ),
+                ) { backStackEntry ->
+                    val pendingListId = backStackEntry.arguments?.getLong(ARG_PENDING_LIST_ID)
+                        ?.takeIf { it > 0L }
+                    val pendingListName = backStackEntry.arguments?.getString(ARG_PENDING_LIST_NAME)
+                        ?.takeIf { it.isNotBlank() }
+                    NextcloudSettingsScreen(
+                        onBack = { navController.popBackOrNavigateHome() },
+                        pendingListId = pendingListId,
+                        pendingListName = pendingListName,
+                        onSetupCompleted = {
+                            // Hand the originating list screen the concise result, then return to it.
+                            navController.previousBackStackEntry?.savedStateHandle
+                                ?.set(KEY_LISTS_EXTERNAL_MESSAGE, "List synced with Nextcloud")
+                            navController.popBackStack()
+                        },
+                    )
+                }
+
+                composable(
+                    route = ROUTE_NEXTCLOUD_SHARING,
+                    arguments = listOf(navArgument(ARG_NEXTCLOUD_COLLECTION_ID) {
+                        type = NavType.StringType
+                    }),
+                ) { backStackEntry ->
+                    val collectionId = backStackEntry.arguments
+                        ?.getString(ARG_NEXTCLOUD_COLLECTION_ID)
+                        ?.takeIf { it.isNotBlank() }
+                        ?: return@composable
+                    NextcloudSharingScreen(
+                        collectionId = collectionId,
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
@@ -745,11 +898,29 @@ fun KernelNavHost(
                 composable(ROUTE_ABOUT) {
                     AboutScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        onNavigateToLegalPrivacy = {
+                            navController.navigate(ROUTE_LEGAL_PRIVACY)
+                        },
                         versionName = com.kernel.ai.BuildConfig.VERSION_NAME,
                         versionCode = com.kernel.ai.BuildConfig.VERSION_CODE,
                         buildType = com.kernel.ai.BuildConfig.BUILD_TYPE,
                         gitSha = com.kernel.ai.BuildConfig.GIT_SHA,
                         buildTimestamp = com.kernel.ai.BuildConfig.BUILD_TIMESTAMP,
+                    )
+                }
+
+                composable(ROUTE_LEGAL_PRIVACY) {
+                    LegalPrivacyScreen(
+                        onBack = { navController.popBackOrNavigateHome() },
+                        onOpenSourceLicenses = {
+                            navController.navigate(ROUTE_OPEN_SOURCE_LICENSES)
+                        },
+                    )
+                }
+
+                composable(ROUTE_OPEN_SOURCE_LICENSES) {
+                    OpenSourceLicensesScreen(
+                        onBack = { navController.popBackOrNavigateHome() },
                     )
                 }
 
@@ -809,7 +980,10 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_LISTS) {
+                composable(ROUTE_LISTS) { backStackEntry ->
+                    val externalMessage by backStackEntry.savedStateHandle
+                        .getStateFlow<String?>(KEY_LISTS_EXTERNAL_MESSAGE, null)
+                        .collectAsState()
                     ListsScreen(
                         onBack = { navController.popBackOrNavigateHome() },
                         onOpenList = { listId ->
@@ -821,6 +995,21 @@ fun KernelNavHost(
                                 launchSingleTop = true
                             }
                         },
+                        onNavigateToNextcloud = {
+                            navController.navigate(nextcloudListsRoute(null, null)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onNavigateToNextcloudList = { listId, name ->
+                            navController.navigate(nextcloudListsRoute(listId, name))
+                        },
+                        onNavigateToNextcloudSharing = { collectionId ->
+                            navController.navigate(nextcloudSharingRoute(collectionId))
+                        },
+                        externalMessage = externalMessage,
+                        onExternalMessageShown = {
+                            backStackEntry.savedStateHandle.remove<String>(KEY_LISTS_EXTERNAL_MESSAGE)
+                        },
                     )
                 }
 
@@ -830,16 +1019,35 @@ fun KernelNavHost(
                 ) { backStackEntry ->
                     val listId = backStackEntry.arguments?.getLong(ARG_LIST_ID)
                         ?: return@composable
-                    ListItemsScreen(
-                        listId = listId,
-                        onBack = { navController.popBackOrNavigateHome() },
-                        onNavigateToVoiceActions = {
-                            navController.navigate(ROUTE_ACTIONS_VOICE) {
-                                popUpTo(ROUTE_LIST) { saveState = true }
-                                launchSingleTop = true
-                            }
-                        },
-                    )
+                    val externalMessage by backStackEntry.savedStateHandle
+                        .getStateFlow<String?>(KEY_LISTS_EXTERNAL_MESSAGE, null)
+                        .collectAsState()
+                    Box(
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .consumeWindowInsets(innerPadding),
+                    ) {
+                        ListItemsScreen(
+                            listId = listId,
+                            onBack = { navController.popBackOrNavigateHome() },
+                            onNavigateToVoiceActions = {
+                                navController.navigate(ROUTE_ACTIONS_VOICE) {
+                                    popUpTo(ROUTE_LIST) { saveState = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                            onNavigateToNextcloudList = { pendingId, name ->
+                                navController.navigate(nextcloudListsRoute(pendingId, name))
+                            },
+                            onNavigateToNextcloudSharing = { collectionId ->
+                                navController.navigate(nextcloudSharingRoute(collectionId))
+                            },
+                            externalMessage = externalMessage,
+                            onExternalMessageShown = {
+                                backStackEntry.savedStateHandle.remove<String>(KEY_LISTS_EXTERNAL_MESSAGE)
+                            },
+                        )
+                    }
                 }
 
                 composable(

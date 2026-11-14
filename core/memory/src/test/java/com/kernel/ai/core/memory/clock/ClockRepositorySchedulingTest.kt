@@ -51,6 +51,32 @@ class ClockRepositorySchedulingTest {
         every { clockAlertPreferences.alertConfig } returns flowOf(ClockAlertConfig())
     }
 
+    @Test
+    fun `alarm scheduling falls back when exact alarm access is denied`() = runTest {
+        every { scheduler.getPlatformState() } returns ClockPlatformState(
+            canScheduleExactAlarms = false,
+            notificationsEnabled = true,
+            canUseFullScreenIntent = false,
+        )
+        every { scheduler.schedule(any()) } returns SchedulingResult.Success(Unit)
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+
+        val result = repository.createAlarm(
+            AlarmDraft(
+                label = "Fallback",
+                hour = 8,
+                minute = 0,
+                repeatRule = AlarmRepeatRule.Daily,
+                timeZoneId = ZoneId.systemDefault().id,
+            ),
+        )
+
+        assertTrue(result is SchedulingResult.Success)
+        assertTrue(SchedulingWarning.EXACT_ALARM_UNAVAILABLE in (result as SchedulingResult.Success).warnings)
+        verify { scheduler.schedule(any()) }
+        coVerify { scheduledAlarmDao.insert(any()) }
+    }
+
     // ── Full event-set rollback ────────────────────────────────────────
 
     @Test

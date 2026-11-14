@@ -31,6 +31,16 @@ class SherpaVoicePackDownloadManagerTest {
     }
 
     @Test
+    fun `canDownloadVoice blocks unreviewed voice in release build`() {
+        assertFalse(
+            SherpaVoicePackDownloadManager.canDownloadVoice(
+                isReleaseBuild = true,
+                voice = SherpaPiperVoice.JennyDioco,
+            ),
+        )
+    }
+
+    @Test
     fun `canDownloadVoice allows release-visible voice in debug build`() {
         assertTrue(SherpaVoicePackDownloadManager.canDownloadVoice(
             isReleaseBuild = false,

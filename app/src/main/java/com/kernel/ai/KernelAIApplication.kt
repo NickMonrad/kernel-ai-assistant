@@ -18,6 +18,7 @@ import com.kernel.ai.core.inference.InferenceEngine
 import com.kernel.ai.core.memory.worker.ArchiveCleanupWorker
 import com.kernel.ai.core.memory.worker.MemoryEmbeddingWorker
 import com.kernel.ai.core.memory.worker.WORK_NAME_ARCHIVE_CLEANUP
+import com.kernel.ai.core.memory.worker.NextcloudSyncScheduler
 import com.kernel.ai.core.memory.worker.WORK_NAME_BACKFILL
 import com.kernel.ai.feature.settings.installUncaughtExceptionCaptureIfDebuggable
 import com.kernel.ai.feature.settings.lastUncaughtExceptionRecordFile
@@ -28,6 +29,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import javax.inject.Provider
 
 /**
  * Application entry point.
@@ -43,8 +45,16 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var inferenceEngine: InferenceEngine
     @Inject lateinit var clockTimerNotificationCoordinator: ClockTimerNotificationCoordinator
     @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
+    @Inject lateinit var nextcloudSyncScheduler: Provider<NextcloudSyncScheduler>
     @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
+    @Inject lateinit var voiceDefaultsProvisioner: Provider<com.kernel.ai.core.voice.VoiceDefaultsProvisioner>
 
+    /**
+     * Test-only application variants may retain Hilt/WorkManager setup while avoiding normal
+     * account sync, maintenance, clock, and wake-word startup. Production variants keep this true.
+     */
+    internal val shouldStartNormalBackgroundWork =
+        shouldRunNormalBackgroundWork(BuildConfig.IS_INFLECT_PROBE)
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -52,6 +62,10 @@ class KernelAIApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Debug builds only (#1736): let the showcase capture runner log what the voice engines
+        // start speaking. It also needs `setprop log.tag.KernelAI_TTS DEBUG`, which only the
+        // runner sets, so spoken text stays out of logcat and diagnostic exports otherwise.
+        com.kernel.ai.core.voice.VoiceOutputTrace.enabled = BuildConfig.DEBUG
         // Debug-build-only diagnostic capture (#1461): retain the most recent uncaught
         // managed exception across process restart for the Settings -> About export.
         // Never installed in release builds and never alters normal crash handling —
@@ -66,8 +80,13 @@ class KernelAIApplication : Application(), Configuration.Provider {
         // can resolve OrtGetApiBase at dlopen time. Must happen before any Sherpa TTS or
         // wake word ONNX session init, otherwise OfflineTts.<clinit> fails with UnsatisfiedLinkError.
         try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
+        if (!shouldStartNormalBackgroundWork) return
+
         clockTimerNotificationCoordinator.start()
         clockStopwatchNotificationCoordinator.start()
+        // #1008: queue the default voice models (Zipformer STT, Cori TTS) with the other
+        // first-run downloads, and remove the unpacked model left by the removed Vosk engine.
+        voiceDefaultsProvisioner.get().start()
         WorkManager.getInstance(this).enqueueUniqueWork(
             WORK_NAME_BACKFILL,
             ExistingWorkPolicy.KEEP,
@@ -80,10 +99,14 @@ class KernelAIApplication : Application(), Configuration.Provider {
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiresBatteryNotLow(true)
-                        .build()
+                        .build(),
                 )
                 .build(),
         )
+        nextcloudSyncScheduler.get().apply {
+            enqueuePeriodic()
+            enqueueNow()
+        }
         // Observe heyJandalEnabled and start/stop WakeWordService accordingly.
         // This runs on a background thread via GlobalScope-equivalent — using a process-lifetime
         // coroutine scope is intentional here (Application lifecycle = process lifetime).
@@ -119,3 +142,5 @@ class KernelAIApplication : Application(), Configuration.Provider {
         }
     }
 }
+internal fun shouldRunNormalBackgroundWork(isInflectProbeBuild: Boolean): Boolean =
+    !isInflectProbeBuild

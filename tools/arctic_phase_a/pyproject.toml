@@ -1,0 +1,13 @@
+[project]
+name = "jandal-arctic-phase-a"
+version = "0.1.0"
+description = "Reproducible Arctic Embed M v1.5 LiteRT conversion and fidelity spike"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "ai-edge-litert==2.2.0",
+    "ai-edge-quantizer==0.9.0",
+    "litert-torch==0.9.4",
+    "sentence-transformers==6.1.0",
+    "torch==2.13.0",
+    "transformers==5.17.0",
+]

@@ -47,8 +47,29 @@ sealed class SkillResult {
     ) : SkillResult()
     /** Skill not found in registry. */
     data class UnknownSkill(val skillName: String) : SkillResult()
-    /** Skill found but execution failed. */
-    data class Failure(val skillName: String, val error: String) : SkillResult()
+    /**
+     * Skill found but execution failed. Fields:
+     *
+     * - [error] is the user-facing reply text. Quick-route branches, the model-path bubble and voice
+     *   show it as-is. Only the text tool-call path (ChatViewModel.tryExecuteToolCall via
+     *   failureChatReply, skipping send_email) prepends "I tried to do that but something went wrong:",
+     *   and only when [technicalDetail] is null. Quick Actions (ActionsViewModel) prepends
+     *   "Action failed:" under the same condition. Voice (VoiceCommandHandler) speaks [error] as-is.
+     * - [fallThroughToModel] = true marks an internal miss. Chat (quick-route path), Quick Actions
+     *   and voice hand the original request to the model and do NOT display [error]. Use it only
+     *   when the model should answer instead. Several ChatViewModel failure branches do not read
+     *   this flag yet; that gap is tracked in #1876.
+     * - [technicalDetail] is the diagnostic (e.g. "Unknown intent: x"). It is shown on tool chips
+     *   and sent to the model under the `detail` key. It is never shown in bubbles, cards or speech.
+     *
+     * A Failure with both [fallThroughToModel] and [technicalDetail] is handled as a fallthrough.
+     */
+    data class Failure(
+        val skillName: String,
+        val error: String,
+        val fallThroughToModel: Boolean = false,
+        val technicalDetail: String? = null,
+    ) : SkillResult()
     /** Skill output was malformed JSON or failed schema validation. */
     data class ParseError(val rawOutput: String, val reason: String) : SkillResult()
     /** Skill requires a device capability (e.g. CALL_PHONE permission) to proceed.

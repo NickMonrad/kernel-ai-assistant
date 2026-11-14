@@ -9,6 +9,9 @@ interface ModelSettingsRepository {
      */
     suspend fun getSettings(modelId: String): ModelSettingsEntity
 
+    /** Returns hardware-aware defaults for [modelId] without reading or writing saved settings. */
+    fun defaultSettings(modelId: String): ModelSettingsEntity
+
     /** Persist [entity], overwriting any existing entry for the same [ModelSettingsEntity.modelId]. */
     suspend fun saveSettings(entity: ModelSettingsEntity)
 

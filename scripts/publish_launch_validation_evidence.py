@@ -19,7 +19,7 @@ Usage:
 
   # Publish S23U targeted smoke evidence (when run):
   # NOTE: S23U uses the reference model (Gemma 4 E-4B), not E-2B.
-  #       Broad/full suites are NOT permitted on the daily driver.
+  #       Full suites are allowed on the S23 Ultra under the house rules (.docs/agents/risk-based-evidence-policy.md, Device Handling Rules), outside quiet hours 21:00-06:00 Australia/Brisbane.
   python3 scripts/publish_launch_validation_evidence.py \\
     --input path/to/s23u-skills.json \\
     --device-id s23-ultra \\

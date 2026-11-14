@@ -7,13 +7,35 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
 import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.entity.ListNameEntity
+import com.kernel.ai.core.memory.lists.CheckedStateMutation
+import com.kernel.ai.core.memory.lists.ListItemLifecycleTransition
+import com.kernel.ai.core.memory.lists.ListPackageException
+import com.kernel.ai.core.memory.lists.ListPackageExchange
+import com.kernel.ai.core.memory.lists.ListPackageFailure
+import com.kernel.ai.core.memory.lists.SharedCollectionSnapshot
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
+import com.kernel.ai.core.memory.repository.ListMutationRepository
+import com.kernel.ai.core.memory.repository.ListMutationBlockedException
+import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
+import com.kernel.ai.core.memory.lists.EffectiveHierarchyProjection
+import com.kernel.ai.core.memory.lists.ListLifecycle
 import com.kernel.ai.core.memory.lists.ListsDataChanged
+import com.kernel.ai.core.memory.lists.OrderKey
+import com.kernel.ai.core.memory.lists.VersionStamp
+import com.kernel.ai.core.memory.nextcloud.NextcloudFailure
+import com.kernel.ai.core.memory.nextcloud.NextcloudListBinding
+import com.kernel.ai.core.memory.nextcloud.NextcloudLocalWorkResolution
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncAdapter
+import com.kernel.ai.core.memory.nextcloud.NextcloudSyncResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,12 +47,34 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.ByteArrayOutputStream
+import java.io.File
 import javax.inject.Inject
 
 data class ListItemCounts(val active: Int, val completed: Int) {
     val total: Int get() = active + completed
 }
+
+/** Outcome of picking a shared-list package file. */
+sealed interface ListPackageImportState {
+    /** Nothing picked, or the user dismissed the preview. */
+    data object Idle : ListPackageImportState
+
+    /** A valid package is waiting for the user to accept or cancel it. */
+    data class Ready(val preview: ListPackagePreview) : ListPackageImportState
+
+    /** The file could not be used; local Lists state is unchanged. */
+    data class Failed(val message: String) : ListPackageImportState
+}
+
+/** What accepting a package would do, shown before it is applied. */
+data class ListPackagePreview(
+    val canonicalTitle: String,
+    val itemCount: Int,
+    val mergesExistingList: Boolean,
+)
 
 enum class ListSort { MANUAL, LAST_MODIFIED, NAME_ASC, NAME_DESC, CREATED_ASC, CREATED_DESC }
 enum class ListFilter { ALL, PINNED_ONLY }
@@ -54,6 +98,9 @@ class ListsViewModel @Inject constructor(
     private val listNameDao: ListNameDao,
     private val scheduler: ListNotificationScheduler,
     @ApplicationContext private val appContext: Context,
+    private val listMutations: ListMutationRepository,
+    private val listsUiPreferences: ListsUiPreferences,
+    private val nextcloud: NextcloudSyncAdapter,
 ) : ViewModel() {
     init {
         // Keep the Lists home-screen widget in sync with in-app list mutations. A single combined
@@ -125,8 +172,144 @@ class ListsViewModel @Inject constructor(
 
     // ── Item sort / filter state ─────────────────────────────────────────────────────────────────
 
-    /** Current sort order for the drill-in item screen. */
-    var itemSort by mutableStateOf(ItemSort.CREATED_NEWEST)
+    /**
+     * Sort order for the drill-in item screen of the currently bound list.
+     *
+     * Restored per list by [bindItemList]; consumers gate display until [itemSortReadyForListId]
+     * matches the bound list.
+     */
+    var itemSort by mutableStateOf(DEFAULT_ITEM_SORT)
+        private set
+
+    /** List whose drill-in sort preference is bound, or null when no drill-in screen is open. */
+    private var boundItemListId: Long? = null
+    /** List whose item sort is ready to display; null while the bound list's preference restores. */
+    var itemSortReadyForListId by mutableStateOf<Long?>(null)
+        private set
+    /** List whose collapsed-parent preference is ready to display. */
+    var collapsedParentPreferencesReadyForListId by mutableStateOf<Long?>(null)
+        private set
+
+    /** Stable item IDs collapsed for the currently bound list; local presentation state only. */
+    var collapsedParentItemIds by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    private var itemSortLoadJob: Job? = null
+    private var collapsedParentPreferencesLoadJob: Job? = null
+
+    /**
+     * True while a hierarchy interaction is materialising the visible order and switching to
+     * Manual.
+     *
+     * The screen holds its optimistic projection for the duration, so the list cannot flash the
+     * previous persisted order between the placement write and the sort switch.
+     */
+    var isHierarchyTransitionPending by mutableStateOf(false)
+        private set
+
+    /** Dispatcher for repository work; replaced by the test scheduler in unit tests. */
+    internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+
+    /**
+     * Binds the drill-in screen to [listId] and restores that list's local sort and collapse state.
+     *
+     * Binding by identity stops one list inheriting another list's preferences, and keeps a late
+     * restore for a previously opened list from overwriting the list that is open now.
+     */
+    fun bindItemList(listId: Long) {
+        if (boundItemListId == listId) return
+        boundItemListId = listId
+        itemSortReadyForListId = null
+        collapsedParentPreferencesReadyForListId = null
+        itemSortLoadJob?.cancel()
+        collapsedParentPreferencesLoadJob?.cancel()
+        itemSortLoadJob = viewModelScope.launch {
+            val savedSort = listsUiPreferences.itemSortFor(listId)
+            if (boundItemListId == listId) {
+                itemSort = savedSort
+                itemSortReadyForListId = listId
+            }
+        }
+        collapsedParentPreferencesLoadJob = viewModelScope.launch {
+            val savedCollapsed = listsUiPreferences.collapsedParentItemIdsFor(listId)
+            if (boundItemListId == listId) {
+                collapsedParentItemIds = savedCollapsed
+                collapsedParentPreferencesReadyForListId = listId
+            }
+        }
+    }
+
+    /**
+     * Applies the user's explicit sort choice and persists it for the bound list.
+     *
+     * This preference is local presentation state: it never emits a sync change record.
+     */
+    fun selectItemSort(sort: ItemSort) {
+        val listId = boundItemListId
+        val restorePending = listId != null && itemSortReadyForListId != listId
+        if (itemSort == sort && !restorePending) return
+        // An explicit choice supersedes any restore still in flight for this list.
+        itemSortLoadJob?.cancel()
+        itemSortLoadJob = null
+        itemSort = sort
+        if (listId == null) return
+        itemSortReadyForListId = listId
+        viewModelScope.launch { listsUiPreferences.setItemSort(listId, sort) }
+    }
+
+    /** Changes one parent's device-local disclosure preference. */
+    fun setParentCollapsed(
+        listId: Long,
+        parentItemId: String,
+        collapsed: Boolean,
+        hiddenChildRowIds: Set<Long> = emptySet(),
+    ) {
+        if (boundItemListId != listId) return
+        if (collapsed) selectedItemIds = selectedItemIds - hiddenChildRowIds
+        collapsedParentItemIds = if (collapsed) {
+            collapsedParentItemIds + parentItemId
+        } else {
+            collapsedParentItemIds - parentItemId
+        }
+        viewModelScope.launch {
+            listsUiPreferences.setParentCollapsed(listId, parentItemId, collapsed)
+        }
+    }
+
+    /** Expands every parent group for the bound list, including completed groups. */
+    fun expandAllSubItems(listId: Long) {
+        if (boundItemListId != listId) return
+        collapsedParentItemIds = emptySet()
+        viewModelScope.launch {
+            listsUiPreferences.setCollapsedParentItemIds(listId, emptySet())
+        }
+    }
+
+    /** Collapses every supplied current effective parent group without changing Completed disclosure. */
+    fun collapseAllSubItems(
+        listId: Long,
+        parentItemIds: Set<String>,
+        hiddenChildRowIds: Set<Long> = emptySet(),
+    ) {
+        if (boundItemListId != listId) return
+        selectedItemIds = selectedItemIds - hiddenChildRowIds
+        collapsedParentItemIds = parentItemIds
+        viewModelScope.launch {
+            listsUiPreferences.setCollapsedParentItemIds(listId, parentItemIds)
+        }
+    }
+
+    /**
+     * Enters the explicit hierarchy editing mode exposed by the Lists overflow menu.
+     *
+     * Manual order is persisted for the bound list, and the filter and search that would hide or
+     * reorder rows are cleared so the drag handles are usable immediately.
+     */
+    fun enterManualHierarchyEditing() {
+        selectItemSort(ItemSort.MANUAL)
+        itemFilter = ItemFilter.ALL
+        clearItemSearchQuery()
+    }
 
     /** Current filter for the drill-in item screen. */
     var itemFilter by mutableStateOf(ItemFilter.ALL)
@@ -148,7 +331,7 @@ class ListsViewModel @Inject constructor(
                 dao.observeByList(listId),
                 snapshotFlow { itemSort },
                 snapshotFlow { itemFilter },
-            ) { items, sort, filter ->
+            ) { items: List<ListItemEntity>, sort: ItemSort, filter: ItemFilter ->
                 val filtered = when (filter) {
                     ItemFilter.ALL -> items
                     ItemFilter.FAVOURITES_ONLY -> items.filter { it.isFavourite }
@@ -158,7 +341,12 @@ class ListsViewModel @Inject constructor(
                 val active = filtered.filter { !it.checked }
                 val completed = filtered.filter { it.checked }
                 val comparator: Comparator<ListItemEntity> = when (sort) {
-                    ItemSort.MANUAL -> compareBy { it.displayOrder }
+                    ItemSort.MANUAL -> Comparator { left, right ->
+                        OrderKey.compare(left.orderKey, right.orderKey)
+                            .takeIf { it != 0 }
+                            ?: left.itemId.compareTo(right.itemId).takeIf { it != 0 }
+                            ?: left.id.compareTo(right.id)
+                    }
                     ItemSort.CREATED_NEWEST -> compareByDescending { it.createdAt }
                     ItemSort.CREATED_OLDEST -> compareBy { it.createdAt }
                     ItemSort.UPDATED_NEWEST -> compareByDescending { it.updatedAt }
@@ -190,6 +378,97 @@ class ListsViewModel @Inject constructor(
                 Pair(emptyList(), emptyList()),
             )
         }
+
+    data class DisplayedHierarchy(
+        val sourceItems: List<ListItemEntity>,
+        val activeGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+        val completedGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    )
+
+    private val hierarchyFlowCache =
+        mutableMapOf<Long, StateFlow<DisplayedHierarchy>>()
+
+    fun observeDisplayedHierarchy(
+        listId: Long,
+    ): StateFlow<DisplayedHierarchy> =
+        hierarchyFlowCache.getOrPut(listId) {
+            combine(
+                dao.observeByList(listId),
+                snapshotFlow { itemSort },
+                snapshotFlow { itemFilter },
+                itemSearchQuery,
+            ) { items, sort, filter, query ->
+                val comparator = itemComparator(sort)
+                val groups = EffectiveHierarchyProjection.derive(
+                    items,
+                    itemId = { it.itemId },
+                    parentItemId = { it.parentItemId },
+                    orderKey = { it.orderKey },
+                    placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
+                )
+                val matching = groups.mapNotNull { group ->
+                    val parentMatches = query.isBlank() || group.parent.text.contains(query, true)
+                    val childMatches = group.children.filter { query.isBlank() || it.text.contains(query, true) }
+                    val favouriteParent = group.parent.isFavourite
+                    val favouriteChildren = group.children.filter { it.isFavourite }
+                    val children = when {
+                        query.isNotBlank() && !parentMatches -> childMatches
+                        filter == ItemFilter.FAVOURITES_ONLY && !favouriteParent -> favouriteChildren
+                        else -> group.children
+                    }
+                    val filterMatches = when (filter) {
+                        ItemFilter.ALL -> true
+                        ItemFilter.FAVOURITES_ONLY -> favouriteParent || favouriteChildren.isNotEmpty()
+                        ItemFilter.ACTIVE_ONLY -> !group.parent.checked
+                        ItemFilter.COMPLETED_ONLY -> group.parent.checked
+                    }
+                    if (filterMatches && (parentMatches || children.isNotEmpty())) {
+                        EffectiveHierarchyGroup(group.parent, children)
+                    } else null
+                }
+                val active = groupsForStatus(matching, checked = false, comparator)
+                val completed = groupsForStatus(matching, checked = true, comparator)
+                DisplayedHierarchy(
+                    sourceItems = items,
+                    activeGroups = active,
+                    completedGroups = completed,
+                )
+            }.stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                DisplayedHierarchy(emptyList(), emptyList(), emptyList()),
+            )
+        }
+
+    private fun itemComparator(sort: ItemSort): Comparator<ListItemEntity> = when (sort) {
+        ItemSort.MANUAL -> Comparator { left, right ->
+            OrderKey.compare(left.orderKey, right.orderKey).takeIf { it != 0 }
+                ?: left.itemId.compareTo(right.itemId).takeIf { it != 0 }
+                ?: left.id.compareTo(right.id)
+        }
+        ItemSort.CREATED_NEWEST -> compareByDescending { it.createdAt }
+        ItemSort.CREATED_OLDEST -> compareBy { it.createdAt }
+        ItemSort.UPDATED_NEWEST -> compareByDescending { it.updatedAt }
+        ItemSort.NAME_ASC -> Comparator { a, b -> String.CASE_INSENSITIVE_ORDER.compare(a.text, b.text) }
+        ItemSort.NAME_DESC -> Comparator { a, b -> String.CASE_INSENSITIVE_ORDER.compare(b.text, a.text) }
+        ItemSort.DUE_SOONEST -> compareBy<ListItemEntity> { it.dueAt == null }.thenBy { it.dueAt ?: Long.MAX_VALUE }
+        ItemSort.FAVOURITES_FIRST -> compareByDescending<ListItemEntity> { it.isFavourite }.thenByDescending { it.createdAt }
+    }
+
+    private fun groupsForStatus(
+        groups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+        checked: Boolean,
+        comparator: Comparator<ListItemEntity>,
+    ): List<EffectiveHierarchyGroup<ListItemEntity>> {
+        val matching = groups.filter { it.parent.checked == checked }
+        val parentComparator = comparator
+        val childComparator = Comparator { left: ListItemEntity, right: ListItemEntity ->
+            OrderKey.compare(left.orderKey, right.orderKey).takeIf { it != 0 }
+                ?: left.itemId.compareTo(right.itemId)
+        }
+        return matching.sortedWith(Comparator { a, b -> parentComparator.compare(a.parent, b.parent) })
+            .map { it.copy(children = it.children.sortedWith(childComparator)) }
+    }
 
     // ── Derived helpers ──────────────────────────────────────────────────────────────────────────
 
@@ -237,20 +516,16 @@ class ListsViewModel @Inject constructor(
     private var reorderJob: Job? = null
 
     /**
-     * Called when the user finishes dragging a list row.  Cancels any in-flight reorder job and
-     * persists the new display order atomically for both groups, automatically switching the sort
-     * mode to [ListSort.MANUAL].
-     *
-     * @param pinnedIds  Ordered list of pinned entity IDs after the drag.
-     * @param unpinnedIds  Ordered list of unpinned entity IDs after the drag.
+     * Called when the user finishes dragging a list row. Cancels any in-flight reorder job and
+     * persists the new display order atomically for both groups.
      */
     fun onListsReordered(pinnedIds: List<Long>, unpinnedIds: List<Long>) {
         listSort = ListSort.MANUAL
         val now = System.currentTimeMillis()
         reorderJob?.cancel()
-        reorderJob = viewModelScope.launch(Dispatchers.IO) {
+        reorderJob = viewModelScope.launch(ioDispatcher) {
             val updates = pinnedIds.mapIndexed { i, id -> id to i } +
-                          unpinnedIds.mapIndexed { i, id -> id to i }
+                unpinnedIds.mapIndexed { i, id -> id to i }
             listNameDao.updateDisplayOrders(updates, now)
         }
     }
@@ -262,6 +537,9 @@ class ListsViewModel @Inject constructor(
 
     val isListMultiSelectMode: Boolean get() = selectedListIds.isNotEmpty()
 
+    /** Prevents duplicate taps from queuing the same collection delete while sync state can change. */
+    private val listDeletionsInFlight = mutableSetOf<Long>()
+
     fun enterListMultiSelect(id: Long) { selectedListIds = setOf(id) }
 
     fun toggleListSelection(id: Long) {
@@ -272,14 +550,34 @@ class ListsViewModel @Inject constructor(
 
     fun selectAllLists(ids: List<Long>) { selectedListIds = ids.toSet() }
 
-    /** Bulk-deletes the currently selected lists (cascade removes all child items via FK). */
+    /** Bulk-deletes allowed lists independently and leaves blocked selections for explicit resolution. */
     fun deleteSelectedLists() {
-        val ids = selectedListIds.toList()
-        selectedListIds = emptySet()
-        viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { listId ->
-                dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
-                listNameDao.deleteById(listId)
+        val ids = selectedListIds.filter { listDeletionsInFlight.add(it) }
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val (deletedIds, blocked) = withContext(ioDispatcher) {
+                    val deleted = mutableListOf<Long>()
+                    val blockedLists = mutableListOf<Pair<Long, String>>()
+                    ids.forEach { listId ->
+                        val reminders = dao.getAllWithNotification(listId)
+                        try {
+                            listMutations.deleteCollection(listId)
+                        } catch (exception: ListMutationBlockedException) {
+                            blockedLists += listId to (
+                                exception.message ?: ListMutationBlockedException.READ_ONLY_MESSAGE
+                                )
+                            return@forEach
+                        }
+                        reminders.forEach { scheduler.cancel(it.id) }
+                        deleted += listId
+                    }
+                    deleted to blockedLists
+                }
+                selectedListIds = selectedListIds - deletedIds.toSet()
+                nextcloudMessage = blockedListsMessage(deletedIds.size, blocked)
+            } finally {
+                listDeletionsInFlight.removeAll(ids.toSet())
             }
         }
     }
@@ -301,57 +599,85 @@ class ListsViewModel @Inject constructor(
 
     fun selectAllItems(ids: List<Long>) { selectedItemIds = ids.toSet() }
 
-    /** Bulk-deletes the currently selected list items. */
+    fun deselectItems(ids: Set<Long>) {
+        selectedItemIds = selectedItemIds - ids
+    }
+
+    /** Bulk-deletes selected items; reminder cancellation follows the successful mutation commit. */
     fun deleteSelectedItems() {
         val ids = selectedItemIds.toList()
-        selectedItemIds = emptySet()
-        ids.forEach { scheduler.cancel(it) }
-        viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { dao.deleteItem(it) }
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val mutation = contentMutationOrMessage { listMutations.deleteItems(ids) } ?: return@launch
+            selectedItemIds = selectedItemIds - ids.toSet()
+            // Parent completion changes and deleted-item reminders follow the committed mutation.
+            applyCheckedStateReminderTransitions(mutation, removedItemIds = ids.toSet())
+        }
+    }
+
+    private suspend fun applyCheckedStateReminderTransitions(
+        mutation: CheckedStateMutation,
+        lifecycleTransitions: List<ListItemLifecycleTransition> = emptyList(),
+        removedItemIds: Set<Long> = emptySet(),
+    ) {
+        withContext(ioDispatcher) {
+            val cancellationIds = (
+                mutation.checkedIds +
+                    lifecycleTransitions.filter { it.wasActive && !it.isActive }.map { it.itemId } +
+                    removedItemIds
+                ).toSet()
+            cancellationIds.forEach(scheduler::cancel)
+
+            val restoredIds = lifecycleTransitions
+                .filter { !it.wasActive && it.isActive }
+                .map { it.itemId }
+                .toSet()
+            val scheduleIds = (mutation.uncheckedIds + restoredIds).toSet()
+            val now = System.currentTimeMillis()
+            scheduleIds.forEach { id ->
+                val item = dao.getById(id) ?: return@forEach
+                if (item.checked || item.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
+                val list = listNameDao.getById(item.listId) ?: return@forEach
+                if (list.lifecycle != ListLifecycle.ACTIVE.name) return@forEach
+                val triggerAtMs = item.notificationTime?.takeIf { it > now } ?: return@forEach
+                scheduler.schedule(
+                    itemId = item.id,
+                    itemText = item.text,
+                    listId = item.listId,
+                    listName = list.name,
+                    triggerAtMs = triggerAtMs,
+                )
+            }
         }
     }
 
     /**
      * Marks all currently selected list items as complete.
-     * Uses [ListItemDao.setChecked] to atomically set checked=true without a TOCTOU risk.
+     * Routes each checked-state mutation through the sync-aware repository.
      */
     fun markSelectedItemsComplete() {
         val ids = selectedItemIds.toList()
-        selectedItemIds = emptySet()
-        val now = System.currentTimeMillis()
-        ids.forEach { scheduler.cancel(it) }
-        viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { dao.setChecked(it, true, now) }
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val mutation = contentMutationOrMessage { listMutations.setItemsChecked(ids, true) }
+                ?: return@launch
+            selectedItemIds = selectedItemIds - ids.toSet()
+            applyCheckedStateReminderTransitions(mutation)
         }
     }
 
     /**
      * Unmarks all currently selected list items (sets checked=false).
-     * Re-schedules any future notification alarms that were cancelled when the item was completed.
+     * Re-schedules future notification alarms for every item actually restored to active.
      */
     fun unmarkSelectedItemsComplete() {
         val ids = selectedItemIds.toList()
-        selectedItemIds = emptySet()
-        val now = System.currentTimeMillis()
-        val allItems = groupedItems.value.values.flatten()
-        val listNames = listEntities.value.associateBy { it.id }
-        viewModelScope.launch(Dispatchers.IO) {
-            ids.forEach { id -> dao.setChecked(id, false, now) }
-            // Re-schedule any future notifications that were cancelled on completion
-            ids.forEach { id ->
-                val item = allItems.firstOrNull { it.id == id } ?: return@forEach
-                val nt = item.notificationTime ?: return@forEach
-                if (nt > now) {
-                    val listName = listNames[item.listId]?.name ?: return@forEach
-                    scheduler.schedule(
-                        itemId = id,
-                        itemText = item.text,
-                        listId = item.listId,
-                        listName = listName,
-                        triggerAtMs = nt,
-                    )
-                }
-            }
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val mutation = contentMutationOrMessage { listMutations.setItemsChecked(ids, false) }
+                ?: return@launch
+            selectedItemIds = selectedItemIds - ids.toSet()
+            applyCheckedStateReminderTransitions(mutation)
         }
     }
 
@@ -363,8 +689,59 @@ class ListsViewModel @Inject constructor(
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ids.forEach { dao.setFavourite(it, true, now) }
+        }
+    }
+
+    /**
+     * Makes [item] a sub-item of the group that [precedingRow] belongs to. No-op when not eligible.
+     *
+     * A top-level parent moves as its whole group and is flattened beneath the destination, so the
+     * two-level invariant holds and the moved parent keeps its own checked state.
+     *
+     * Under an automatic sort the visible order becomes the Manual baseline in the same repository
+     * transaction, so the item is placed relative to the group the user could actually see above it
+     * and a failed change commits nothing.
+     */
+    fun makeSubItem(visibleRowIds: List<Long>, item: ListItemEntity, precedingRow: ListItemEntity) {
+        viewModelScope.launch {
+            isHierarchyTransitionPending = true
+            try {
+                val baseline = withContext(ioDispatcher) { visibleOrderBaseline(visibleRowIds) }
+                if (baseline == null && itemSort != ItemSort.MANUAL) return@launch
+                val mutation = contentMutationOrMessage {
+                    listMutations.makeSubItem(item.id, precedingRow.itemId, baseline)
+                } ?: return@launch
+                applyCheckedStateReminderTransitions(mutation)
+                if (baseline != null) selectItemSort(ItemSort.MANUAL)
+            } finally {
+                isHierarchyTransitionPending = false
+            }
+        }
+    }
+
+    /**
+     * Moves [item] to top level, leaving its former siblings under the old parent.
+     *
+     * Under an automatic sort the visible order becomes the Manual baseline in the same repository
+     * transaction, so the promoted item lands next to the group the user could actually see above it
+     * and a failed change commits nothing.
+     */
+    fun moveToTopLevel(visibleRowIds: List<Long>, item: ListItemEntity) {
+        viewModelScope.launch {
+            isHierarchyTransitionPending = true
+            try {
+                val baseline = withContext(ioDispatcher) { visibleOrderBaseline(visibleRowIds) }
+                if (baseline == null && itemSort != ItemSort.MANUAL) return@launch
+                val mutation = contentMutationOrMessage {
+                    listMutations.moveToTopLevel(item.id, baseline)
+                } ?: return@launch
+                applyCheckedStateReminderTransitions(mutation)
+                if (baseline != null) selectItemSort(ItemSort.MANUAL)
+            } finally {
+                isHierarchyTransitionPending = false
+            }
         }
     }
 
@@ -375,30 +752,135 @@ class ListsViewModel @Inject constructor(
         val ids = selectedItemIds.toList()
         selectedItemIds = emptySet()
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ids.forEach { dao.setFavourite(it, false, now) }
         }
     }
 
-    // ── Item drag-to-reorder (#917) ───────────────────────────────────────────────────────────────
+    // ── Item drag ordering (#928) ────────────────────────────────────────────────────────────────
+
+    /**
+     * Commits the exact placement previewed by [pendingPlacement]. Automatic sorts materialise the
+     * complete result hierarchy in one repository transaction; Manual order writes just its slot.
+     */
+    internal fun moveItemFromDrag(listId: Long, pendingPlacement: PendingHierarchyPlacement) {
+        if (!pendingPlacement.changed) return
+        viewModelScope.launch {
+            isHierarchyTransitionPending = true
+            try {
+                val dragged = withContext(ioDispatcher) {
+                    dao.getById(pendingPlacement.draggedRowId)
+                } ?: return@launch
+                if (dragged.listId != listId) return@launch
+                if (itemSort != ItemSort.MANUAL) {
+                    val baselineRows = pendingPlacement.resultGroups.flatMap { group ->
+                        listOf(
+                            ListMutationRepository.VisibleHierarchyRow(
+                                rowId = group.parent.id,
+                                parentRowId = null,
+                                reparent = group.parent.id == pendingPlacement.draggedRowId &&
+                                    pendingPlacement.reparents,
+                            ),
+                        ) +
+                            group.children.map { child ->
+                                ListMutationRepository.VisibleHierarchyRow(
+                                    rowId = child.id,
+                                    parentRowId = group.parent.id,
+                                    reparent = child.id == pendingPlacement.draggedRowId &&
+                                        pendingPlacement.reparents,
+                                )
+                            }
+                    }
+                    val mutation = contentMutationOrMessage {
+                        listMutations.applyVisibleHierarchyOrder(listId, baselineRows)
+                    } ?: return@launch
+                    applyCheckedStateReminderTransitions(mutation)
+                    selectItemSort(ItemSort.MANUAL)
+                    return@launch
+                }
+                val mutation = contentMutationOrMessage {
+                    listMutations.moveItem(
+                        dragged.id,
+                        pendingPlacement.parentItemId,
+                        OrderKey.between(
+                            pendingPlacement.lowerOrderKey,
+                            pendingPlacement.upperOrderKey,
+                        ),
+                    )
+                } ?: return@launch
+                applyCheckedStateReminderTransitions(mutation)
+            } finally {
+                isHierarchyTransitionPending = false
+            }
+        }
+    }
+
+    /**
+     * Rebuilds an automatic-sort baseline from every effective active group. Rendered top-level and
+     * expanded-child order follows the UI; hidden children of collapsed parents keep their existing
+     * sibling order rather than disappearing from hierarchy materialisation.
+     */
+    private suspend fun visibleOrderBaseline(
+        visibleRowIds: List<Long>,
+    ): ListMutationRepository.VisibleOrderBaseline? {
+        if (itemSort == ItemSort.MANUAL) return null
+        val listId = withContext(ioDispatcher) {
+            visibleRowIds.firstOrNull()?.let { dao.getById(it)?.listId }
+        } ?: return null
+        val groups = withContext(ioDispatcher) {
+            completeEffectiveGroups(dao.getAllByListUnordered(listId))
+                .filterNot { it.parent.checked }
+        }
+        if (groups.isEmpty()) return null
+        val groupsByParent = groups.associateBy { it.parent.id }
+        val visibleParentIds = visibleRowIds.filter { it in groupsByParent }.distinct()
+        if (visibleParentIds.toSet() != groupsByParent.keys) return null
+        val visibleIds = visibleRowIds.toSet()
+        val collapsed = if (boundItemListId == listId) collapsedParentItemIds else emptySet()
+        val rows = visibleParentIds.flatMap { parentId ->
+            val group = groupsByParent.getValue(parentId)
+            val children = if (group.parent.itemId in collapsed) {
+                group.children
+            } else {
+                val visibleChildren = visibleRowIds
+                    .mapNotNull { rowId -> group.children.firstOrNull { it.id == rowId } }
+                visibleChildren + group.children.filterNot { it.id in visibleIds }
+            }
+            listOf(ListMutationRepository.VisibleHierarchyRow(group.parent.id, null)) +
+                children.map { child ->
+                    ListMutationRepository.VisibleHierarchyRow(child.id, group.parent.id)
+                }
+        }
+        return ListMutationRepository.VisibleOrderBaseline(listId, rows)
+    }
+
 
     private var itemReorderJob: Job? = null
 
-    /**
-     * Persists a new manual display order for active list items after a drag-to-reorder gesture.
-     * Cancels any in-flight reorder job and switches [itemSort] to [ItemSort.MANUAL].
-     *
-     * @param orderedIds  Ordered list of active item IDs after the drag (active section only).
-     */
     fun reorderItems(orderedIds: List<Long>) {
-        itemSort = ItemSort.MANUAL
-        val now = System.currentTimeMillis()
+        selectItemSort(ItemSort.MANUAL)
         itemReorderJob?.cancel()
-        itemReorderJob = viewModelScope.launch(Dispatchers.IO) {
-            val updates = orderedIds.mapIndexed { index, id -> id to index.toLong() }
-            dao.replaceItemOrders(updates, now)
+        itemReorderJob = viewModelScope.launch {
+            val listId = withContext(ioDispatcher) {
+                orderedIds.firstOrNull()?.let { dao.getById(it)?.listId }
+            } ?: return@launch
+            val all = withContext(ioDispatcher) {
+                dao.getAllByListUnordered(listId).filter { it.lifecycle == ListLifecycle.ACTIVE.name }
+            }
+            val groups = EffectiveHierarchyProjection.derive(
+                all,
+                itemId = { it.itemId },
+                parentItemId = { it.parentItemId },
+                orderKey = { it.orderKey },
+                placementStamp = { VersionStamp(it.placementLogicalClock, it.placementStampActorId) },
+            )
+            val completedTop = groups.filter { it.parent.checked }.map { it.parent.id }
+            val desired = orderedIds + completedTop.filterNot { it in orderedIds }
+            contentMutationOrMessage { listMutations.reorderItems(listId, desired) }
         }
     }
+
+    // ── Item drag-to-reorder (#917) ───────────────────────────────────────────────────────────────
 
     // ── List mutations ───────────────────────────────────────────────────────────────────────────
 
@@ -409,10 +891,7 @@ class ListsViewModel @Inject constructor(
     fun addList(name: String) {
         val trimmed = name.trim().lowercase()
         if (trimmed.isBlank()) return
-        val now = System.currentTimeMillis()
-        viewModelScope.launch {
-            listNameDao.insert(ListNameEntity(name = trimmed, createdAt = now, updatedAt = now))
-        }
+        viewModelScope.launch { listMutations.createCollection(trimmed) }
     }
 
     /**
@@ -423,95 +902,157 @@ class ListsViewModel @Inject constructor(
     suspend fun createList(name: String): Long {
         val trimmed = name.trim().lowercase()
         if (trimmed.isBlank()) return -1L
-        val now = System.currentTimeMillis()
-        val id = listNameDao.insertAndGet(
-            ListNameEntity(name = trimmed, createdAt = now, updatedAt = now),
-        )
-        return if (id > 0L) id else listNameDao.getByName(trimmed)?.id ?: -1L
+        return listMutations.createCollection(trimmed)
     }
 
     fun toggleChecked(item: ListItemEntity) {
-        val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
-            dao.toggleChecked(item.id, now)
-            listNameDao.updateTimestamp(item.listId, now)
-            // When an item is being checked (completing), cancel any pending notification
-            if (!item.checked) scheduler.cancel(item.id)
+        viewModelScope.launch {
+            val mutation = contentMutationOrMessage {
+                listMutations.setItemChecked(item.id, !item.checked)
+            } ?: return@launch
+            applyCheckedStateReminderTransitions(mutation)
         }
     }
 
-    fun addItem(listId: Long, itemText: String) {
+    fun addItem(
+        listId: Long,
+        itemText: String,
+        description: String = "",
+        dueAt: Long? = null,
+        isFavourite: Boolean = false,
+        notificationTime: Long? = null,
+        onItemCreated: (Long) -> Unit,
+    ) {
         val trimmed = itemText.trim()
         if (trimmed.isBlank()) return
-        val now = System.currentTimeMillis()
         viewModelScope.launch {
-            dao.insert(ListItemEntity(listId = listId, text = trimmed, createdAt = now, updatedAt = now))
-            listNameDao.updateTimestamp(listId, now)
+            val createdItemId = contentMutationOrMessage {
+                listMutations.addItem(
+                    listId,
+                    trimmed,
+                    dueAt,
+                    notificationTime,
+                    description,
+                    isFavourite,
+                )
+            } ?: return@launch
+            onItemCreated(createdItemId)
+            if (notificationTime != null) {
+                val listName = listEntities.value.firstOrNull { it.id == listId }?.name ?: ""
+                scheduler.schedule(
+                    itemId = createdItemId,
+                    itemText = trimmed,
+                    listId = listId,
+                    listName = listName,
+                    triggerAtMs = notificationTime,
+                )
+            }
         }
     }
 
-    fun deleteItem(id: Long) {
-        scheduler.cancel(id)
-        viewModelScope.launch { dao.deleteItem(id) }
-    }
-
-    /** Entity overload — preferred from the item screen. */
-    fun deleteItem(item: ListItemEntity) {
-        scheduler.cancel(item.id)
-        viewModelScope.launch { dao.deleteItem(item.id) }
+    /** Creates a child directly under [parentItemId], expands that group, and keeps the sort. */
+    fun addSubItem(
+        listId: Long,
+        parentItemId: String,
+        itemText: String,
+        description: String = "",
+        dueAt: Long? = null,
+        isFavourite: Boolean = false,
+        notificationTime: Long? = null,
+        onItemCreated: (Long) -> Unit,
+    ) {
+        val trimmed = itemText.trim()
+        if (trimmed.isBlank()) return
+        itemFilter = ItemFilter.ALL
+        clearItemSearchQuery()
+        viewModelScope.launch {
+            val result = contentMutationOrMessage {
+                listMutations.addSubItem(
+                    listId = listId,
+                    parentItemId = parentItemId,
+                    text = trimmed,
+                    dueAt = dueAt,
+                    notificationTime = notificationTime,
+                    description = description,
+                    isFavourite = isFavourite,
+                )
+            } ?: return@launch
+            applyCheckedStateReminderTransitions(result.checkedStateMutation)
+            if (boundItemListId == listId) {
+                collapsedParentItemIds = collapsedParentItemIds - parentItemId
+            }
+            listsUiPreferences.setParentCollapsed(listId, parentItemId, collapsed = false)
+            if (boundItemListId == listId) onItemCreated(result.itemId)
+            if (notificationTime != null) {
+                val listName = listEntities.value.firstOrNull { it.id == listId }?.name ?: ""
+                scheduler.schedule(
+                    itemId = result.itemId,
+                    itemText = trimmed,
+                    listId = listId,
+                    listName = listName,
+                    triggerAtMs = notificationTime,
+                )
+            }
+        }
     }
 
     /** Toggles isFavourite and bumps updatedAt + parent list updatedAt. */
     fun toggleFavourite(item: ListItemEntity) {
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             dao.toggleFavourite(item.id, now)
             listNameDao.updateTimestamp(item.listId, now)
         }
     }
 
-    /** Persists edits made in the edit bottom sheet (text, dueAt, isFavourite, notificationTime). */
+    /** Persists edits made in the edit bottom sheet (text, description, dueAt, isFavourite, notificationTime). */
     fun updateItem(item: ListItemEntity) {
-        val now = System.currentTimeMillis()
         val listName = listEntities.value.firstOrNull { it.id == item.listId }?.name ?: ""
         viewModelScope.launch {
-            dao.updateItem(
-                id = item.id,
-                text = item.text,
-                dueAt = item.dueAt,
-                isFavourite = item.isFavourite,
-                notificationTime = item.notificationTime,
-                updatedAt = now,
-            )
-            listNameDao.updateTimestamp(item.listId, now)
-            // Schedule or cancel the notification alarm
-            val nt = item.notificationTime
-            if (nt != null) {
-                scheduler.schedule(
-                    itemId = item.id,
-                    itemText = item.text,
-                    listId = item.listId,
-                    listName = listName,
-                    triggerAtMs = nt,
+            contentMutationOrMessage {
+                listMutations.updateItem(
+                    item.id,
+                    item.text,
+                    item.dueAt,
+                    item.isFavourite,
+                    item.notificationTime,
+                    item.description,
                 )
-            } else {
-                scheduler.cancel(item.id)
-            }
+            } ?: return@launch
+            val nt = item.notificationTime
+            if (nt != null) scheduler.schedule(itemId = item.id, itemText = item.text, listId = item.listId, listName = listName, triggerAtMs = nt)
+            else scheduler.cancel(item.id)
         }
     }
 
     fun clearChecked(listId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
-            dao.getCheckedWithNotification(listId).forEach { scheduler.cancel(it.id) }
-            dao.deleteChecked(listId)
+        viewModelScope.launch {
+            val checkedIds = withContext(ioDispatcher) {
+                dao.getAllByList(listId).filter { it.checked }.map { it.id }
+            }
+            if (checkedIds.isEmpty()) return@launch
+            val mutation = contentMutationOrMessage { listMutations.deleteItems(checkedIds) }
+                ?: return@launch
+            applyCheckedStateReminderTransitions(mutation, removedItemIds = checkedIds.toSet())
         }
     }
 
-    /** Deletes a list by ID; cascade FK removes all child items automatically. */
     fun deleteList(listId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
-            dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
-            listNameDao.deleteById(listId)
+        if (!listDeletionsInFlight.add(listId)) return
+        viewModelScope.launch {
+            try {
+                val reminders = withContext(ioDispatcher) {
+                    dao.getAllWithNotification(listId)
+                }
+                contentMutationOrMessage {
+                    listMutations.deleteCollection(listId)
+                } ?: return@launch
+                withContext(ioDispatcher) {
+                    reminders.forEach { scheduler.cancel(it.id) }
+                }
+            } finally {
+                listDeletionsInFlight.remove(listId)
+            }
         }
     }
 
@@ -520,7 +1061,7 @@ class ListsViewModel @Inject constructor(
         val trimmed = newName.trim().lowercase()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            listNameDao.updateName(id, trimmed, System.currentTimeMillis())
+            contentMutationOrMessage { listMutations.renameCollection(id, trimmed) }
         }
     }
 
@@ -543,7 +1084,7 @@ class ListsViewModel @Inject constructor(
     fun archiveList(id: Long) {
         selectedListIds = selectedListIds - id
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             dao.getAllWithNotification(id).forEach { scheduler.cancel(it.id) }
             listNameDao.archiveList(id = id, archivedAt = now, updatedAt = now)
         }
@@ -551,7 +1092,7 @@ class ListsViewModel @Inject constructor(
 
     /** Restores an archived list back to the active view, re-scheduling any future alarms. */
     fun restoreList(id: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             listNameDao.restoreList(id = id, updatedAt = System.currentTimeMillis())
             val listName = listNameDao.getById(id)?.name ?: return@launch
             val now = System.currentTimeMillis()
@@ -573,7 +1114,7 @@ class ListsViewModel @Inject constructor(
         val ids = selectedListIds.toList()
         selectedListIds = emptySet()
         val now = System.currentTimeMillis()
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             ids.forEach { listId ->
                 dao.getAllWithNotification(listId).forEach { scheduler.cancel(it.id) }
                 listNameDao.archiveList(id = listId, archivedAt = now, updatedAt = now)
@@ -581,22 +1122,341 @@ class ListsViewModel @Inject constructor(
         }
     }
 
+    private fun Throwable.safeNextcloudMessage(): String = when (this) {
+        is NextcloudFailure -> message
+        else -> "Sync failed"
+    }
+
     /**
      * Builds a plain-text representation of the list for sharing/copying.
      * Active items (unchecked) appear first with "• " prefix; completed with "✓ ".
      * Both groups are ordered by creation date ascending.
      */
-    suspend fun buildShareText(listId: Long): String {
+    suspend fun buildShareText(listId: Long, selectedItemIds: Set<Long>? = null): String {
         val listName = listNameDao.getById(listId)?.name?.replaceFirstChar { it.uppercase() } ?: "List"
-        val items = dao.getAllByList(listId)
-        if (items.isEmpty()) return listName
-        val lines = buildList {
-            add(listName)
-            add("")
-            items.forEach { item ->
-                add("${if (item.checked) "✓" else "•"} ${item.text}")
+        val items = dao.getAllByList(listId).let { rows ->
+            if (selectedItemIds == null) rows.filterNot { it.checked }
+            else rows.filter { it.id in selectedItemIds }
+        }
+        return formatListShareText(listName, items)
+    }
+
+internal fun formatListItemForShare(item: ListItemEntity): String = buildString {
+    append(if (item.checked) "✓" else "•").append(' ').append(item.text)
+    if (item.description.isNotEmpty()) append('\n').append(item.description)
+}
+
+internal fun formatListShareText(listName: String, items: List<ListItemEntity>): String = buildString {
+    append(listName)
+    if (items.isNotEmpty()) {
+        append("\n\n")
+        append(items.joinToString("\n", transform = ::formatListItemForShare))
+    }
+}
+
+    // ── Nextcloud per-list state and lifecycle (#1551) ───────────────────────────────────────────
+
+    /** Binding metadata per local collection id; a missing entry means never connected. */
+    val nextcloudBindings: StateFlow<Map<String, NextcloudListBinding>> = nextcloud.observeListBindings()
+        .map { bindings -> bindings.associateBy { it.collectionId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    /** True when a Nextcloud account is stored, so a list can be bound without routing to setup. */
+    val nextcloudAccountConfigured: StateFlow<Boolean> = nextcloud.observeAccountConfigured()
+
+    /** One-shot result text for the Lists snackbar from a Nextcloud list action. */
+    var nextcloudMessage by mutableStateOf<String?>(null)
+        private set
+
+    fun clearNextcloudMessage() {
+        nextcloudMessage = null
+    }
+
+    /**
+     * Runs one provider-backed content mutation on IO and converts only the expected #1548 guard
+     * into the existing Lists snackbar feedback. Other failures still surface normally.
+     */
+    private suspend fun <T> contentMutationOrMessage(mutation: suspend () -> T): T? =
+        try {
+            withContext(ioDispatcher) { mutation() }
+        } catch (blocked: ListMutationBlockedException) {
+            nextcloudMessage = blocked.message ?: ListMutationBlockedException.READ_ONLY_MESSAGE
+            null
+        }
+
+    private fun blockedListsMessage(
+        deletedCount: Int,
+        blocked: List<Pair<Long, String>>,
+    ): String? {
+        if (blocked.isEmpty()) return null
+        val failedCount = blocked.size
+        val summary = when {
+            deletedCount == 0 && failedCount == 1 -> return blocked.single().second
+            deletedCount == 0 -> "$failedCount lists could not be deleted."
+            else -> "Deleted $deletedCount ${if (deletedCount == 1) "list" else "lists"}; " +
+                "$failedCount ${if (failedCount == 1) "list" else "lists"} could not be deleted."
+        }
+        return (listOf(summary) + blocked.map { it.second }.distinct()).joinToString("\n")
+    }
+
+    /**
+     * Binds one local list through the existing publish seam. The caller only reaches this when an
+     * account is configured; otherwise it routes through Nextcloud setup with this list pending.
+     */
+    fun syncListWithNextcloud(listId: Long) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = nextcloud.publishCollection(listId).fold(
+                onSuccess = { "List synced with Nextcloud" },
+                onFailure = { it.safeNextcloudMessage() },
+            )
+        }
+    }
+
+    /** Stops synchronization for one list; the local list and remote collection both remain. */
+    fun stopListNextcloudSync(collectionId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = if (nextcloud.stopSync(collectionId)) {
+                "Nextcloud sync stopped for this list"
+            } else {
+                "This list is no longer connected to Nextcloud"
             }
         }
-        return lines.joinToString("\n")
     }
+
+    /** Resumes synchronization through the retained provider association. */
+    fun resumeListNextcloudSync(collectionId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = when (val result = nextcloud.resumeSync(collectionId)) {
+                is NextcloudSyncResult.Success -> "List synced with Nextcloud"
+                is NextcloudSyncResult.Failure -> result.error.safeNextcloudMessage()
+            }
+        }
+    }
+
+    /**
+     * Preserves a read-only shared list as an independent local list (#1548).
+     *
+     * The shared list keeps following its owner; the copy is unbound, so it can never be pushed back
+     * to the former share or re-associated with it.
+     */
+    fun saveListAsLocalCopy(collectionId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            nextcloudMessage = nextcloud.createLocalCopy(collectionId).fold(
+                onSuccess = { "Saved a local copy of this list" },
+                onFailure = { it.safeNextcloudMessage() },
+            )
+        }
+    }
+
+    /** Keeps local work stranded by lost Nextcloud access as an independent local list (#1548). */
+    fun keepUnsyncedListAsLocalCopy(collectionId: String) {
+        resolveLocalWork(collectionId, NextcloudLocalWorkResolution.KEEP_LOCAL_COPY, "Kept as a local copy")
+    }
+
+    /** Discards local work stranded by lost Nextcloud access (#1548). */
+    fun discardUnsyncedListChanges(collectionId: String) {
+        resolveLocalWork(collectionId, NextcloudLocalWorkResolution.DISCARD_LOCAL_CHANGES, "Unsynced changes discarded")
+    }
+
+    private fun resolveLocalWork(
+        collectionId: String,
+        resolution: NextcloudLocalWorkResolution,
+        successMessage: String,
+    ) {
+        viewModelScope.launch(ioDispatcher) {
+            val sourceList = listNameDao.getByCollectionId(collectionId)
+            val rowsBefore = sourceList?.let { dao.getAllByListAnyLifecycle(it.id) }.orEmpty()
+            val result = nextcloud.resolveLocalWork(collectionId, resolution)
+            sourceList?.let { reconcileLocalWorkReminderTransitions(it, rowsBefore) }
+            nextcloudMessage = result.fold(
+                onSuccess = { successMessage },
+                onFailure = { it.safeNextcloudMessage() },
+            )
+        }
+    }
+
+    /**
+     * Reconciles reminders on the original bound list after resolution. Keep-as-copy creates a new
+     * list separately; its existing copy path clears reminder times and is not scheduled here.
+     */
+    internal suspend fun reconcileLocalWorkReminderTransitions(
+        sourceList: ListNameEntity,
+        rowsBefore: List<ListItemEntity>,
+    ) {
+        val listAfter = listNameDao.getById(sourceList.id)
+        val rowsAfterById = dao.getAllByListAnyLifecycle(sourceList.id).associateBy { it.id }
+        val wasCollectionActive = sourceList.lifecycle == ListLifecycle.ACTIVE.name
+        val isCollectionActive = listAfter?.lifecycle == ListLifecycle.ACTIVE.name
+
+        val checkedIds = mutableSetOf<Long>()
+        val uncheckedIds = mutableSetOf<Long>()
+        val lifecycleTransitions = rowsBefore.mapNotNull { before ->
+            val after = rowsAfterById[before.id] ?: return@mapNotNull null
+            if (before.checked != after.checked) {
+                if (after.checked) checkedIds += before.id else uncheckedIds += before.id
+            }
+            val wasActive = wasCollectionActive && before.lifecycle == ListLifecycle.ACTIVE.name
+            val isActive = isCollectionActive && after.lifecycle == ListLifecycle.ACTIVE.name
+            if (wasActive == isActive) {
+                null
+            } else {
+                ListItemLifecycleTransition(before.id, wasActive, isActive)
+            }
+        }
+        val removedItemIds = rowsBefore.mapTo(mutableSetOf()) { it.id } - rowsAfterById.keys
+
+        applyCheckedStateReminderTransitions(
+            CheckedStateMutation(checkedIds = checkedIds, uncheckedIds = uncheckedIds),
+            lifecycleTransitions,
+            removedItemIds,
+        )
+    }
+
+    // ── Encrypted shared-list package exchange (#1493) ───────────────────────────────────────────
+
+    /** A package waiting for the user to accept or cancel it, or why the last file was rejected. */
+    var importState by mutableStateOf<ListPackageImportState>(ListPackageImportState.Idle)
+        private set
+
+    /** One-shot result text for the Lists snackbar; the screen clears it after showing it. */
+    var packageMessage by mutableStateOf<String?>(null)
+        private set
+
+    private var inspectedPackage: SharedCollectionSnapshot? = null
+
+    /**
+     * Writes [listId] as an encrypted shared-list package and returns the intent that shares it.
+     *
+     * The file carries its own invite, so whoever receives it can open the list in Jandal.
+     */
+    suspend fun exportPackageIntent(listId: Long): Intent = withContext(ioDispatcher) {
+        val snapshot = listMutations.exportSnapshot(listId)
+        val file = File(appContext.cacheDir, packageFileName(listId))
+        file.writeText(ListPackageExchange.export(snapshot, listMutations.localActorId()))
+        val uri = FileProvider.getUriForFile(appContext, "${appContext.packageName}.fileprovider", file)
+        Intent(Intent.ACTION_SEND).apply {
+            type = PACKAGE_MIME_TYPE
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TITLE, snapshot.canonicalTitle)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    /**
+     * Reads and validates a picked package, without applying it.
+     *
+     * Nothing here can change local Lists state: a rejected file reports why and stops.
+     */
+    fun selectImportPackage(uri: Uri) {
+        packageMessage = null
+        viewModelScope.launch(ioDispatcher) {
+            importState = try {
+                val snapshot = ListPackageExchange.inspect(readPackageFile(uri))
+                inspectedPackage = snapshot
+                ListPackageImportState.Ready(
+                    ListPackagePreview(
+                        canonicalTitle = snapshot.canonicalTitle,
+                        itemCount = snapshot.activeItemCount,
+                        mergesExistingList = listNameDao.getByCollectionId(snapshot.collectionId) != null,
+                    ),
+                )
+            } catch (e: ListPackageException) {
+                inspectedPackage = null
+                ListPackageImportState.Failed(e.reason.explanation())
+            } catch (e: Exception) {
+                inspectedPackage = null
+                ListPackageImportState.Failed("That file could not be read as a Jandal shared list.")
+            }
+        }
+    }
+
+    /**
+     * Applies the inspected package through the authoritative mutation seam.
+     *
+     * Completion changes the merge causes take the same reminder path as any other checked-state
+     * change, and a duplicate package merges to nothing.
+     */
+    fun confirmImport() {
+        val snapshot = inspectedPackage ?: return
+        inspectedPackage = null
+        importState = ListPackageImportState.Idle
+        viewModelScope.launch(ioDispatcher) {
+            val outcome = runCatching { listMutations.importSnapshot(snapshot) }
+            outcome.getOrNull()?.let { imported ->
+                val localName = listNameDao.getById(imported.listId)?.name ?: snapshot.canonicalTitle
+                packageMessage = when {
+                    imported.collectionCreated -> "Imported \"$localName\""
+                    imported.itemsCreated == 0 && imported.itemsUpdated == 0 ->
+                        "\"$localName\" is already up to date"
+                    else -> "Updated \"$localName\""
+                }
+                applyCheckedStateReminderTransitions(
+                    imported.checkedStateMutation,
+                    imported.lifecycleTransitions,
+                )
+            }
+            outcome.exceptionOrNull()?.let { error ->
+                packageMessage = (error as? ListPackageException)?.reason?.explanation()
+                    ?: "That shared list could not be imported."
+            }
+        }
+    }
+
+    /** Dismisses a pending package without applying it. */
+    fun cancelImport() {
+        inspectedPackage = null
+        importState = ListPackageImportState.Idle
+    }
+
+    fun clearPackageMessage() { packageMessage = null }
+
+    private suspend fun packageFileName(listId: Long): String {
+        val name = listNameDao.getById(listId)?.name
+            ?.lowercase()
+            ?.map { if (it.isLetterOrDigit()) it else '-' }
+            ?.joinToString("")
+            ?.trim('-')
+            ?.take(48)
+            ?.takeIf { it.isNotBlank() }
+            ?: "list"
+        return "$name.jandal"
+    }
+
+    /** Reads a picked file, refusing anything larger than a plausible list package. */
+    private fun readPackageFile(uri: Uri): String {
+        val stream = appContext.contentResolver.openInputStream(uri)
+            ?: throw ListPackageException(
+                ListPackageFailure.MALFORMED,
+                "Shared list package could not be opened",
+            )
+        return stream.use { input ->
+            val collected = ByteArrayOutputStream()
+            val chunk = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(chunk)
+                if (read < 0) break
+                collected.write(chunk, 0, read)
+                if (collected.size() > MAX_PACKAGE_BYTES) {
+                    throw ListPackageException(
+                        ListPackageFailure.MALFORMED,
+                        "Shared list package is too large",
+                    )
+                }
+            }
+            String(collected.toByteArray(), Charsets.UTF_8)
+        }
+    }
+}
+
+private const val PACKAGE_MIME_TYPE = "application/octet-stream"
+private const val MAX_PACKAGE_BYTES = 8 * 1024 * 1024
+
+private fun ListPackageFailure.explanation(): String = when (this) {
+    ListPackageFailure.UNSUPPORTED_VERSION ->
+        "This shared list was created by a newer version of Jandal."
+    ListPackageFailure.MALFORMED ->
+        "That file is not a valid Jandal shared list package."
+    ListPackageFailure.UNAUTHENTICATED ->
+        "That shared list package failed its security check. Ask the sender to export it again."
+    ListPackageFailure.IDENTITY_MISMATCH ->
+        "That shared list conflicts with lists already on this device."
 }

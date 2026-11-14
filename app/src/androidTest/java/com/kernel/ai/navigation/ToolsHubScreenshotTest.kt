@@ -49,15 +49,15 @@ import java.io.File
  * internal filesDir/pictures/ when external storage is unavailable.
  *
  * Primary path (external):
- *   /sdcard/Android/data/com.kernel.ai.debug/files/Pictures/test-screenshots/pr-751-child-03/
+ *   /sdcard/Android/data/ai.jandal.assistant.debug/files/Pictures/test-screenshots/pr-751-child-03/
  *
  * Fallback path (internal, requires run-as):
- *   /data/data/com.kernel.ai.debug/files/pictures/test-screenshots/pr-751-child-03/
+ *   /data/data/ai.jandal.assistant.debug/files/pictures/test-screenshots/pr-751-child-03/
  *
  * After running connected tests, pull with:
- *   adb pull /sdcard/Android/data/com.kernel.ai.debug/files/Pictures/test-screenshots/pr-751-child-03/ ./debug/pr-1137-screenshots
+ *   adb pull /sdcard/Android/data/ai.jandal.assistant.debug/files/Pictures/test-screenshots/pr-751-child-03/ ./debug/pr-1137-screenshots
  *
- * (If external unavailable: adb exec-out run-as com.kernel.ai.debug tar cf - files/pictures/test-screenshots | tar xf - -C ./debug/pr-1137-screenshots)
+ * (If external unavailable: adb exec-out run-as ai.jandal.assistant.debug tar cf - files/pictures/test-screenshots | tar xf - -C ./debug/pr-1137-screenshots)
  */
 @RunWith(AndroidJUnit4::class)
 class ToolsHubScreenshotTest {

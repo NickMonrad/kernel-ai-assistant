@@ -20,8 +20,8 @@ data class ModelSettingsEntity(
     val topK: Int = 64,
     /** Whether to display the model's internal reasoning (thinking tokens) in the chat UI. */
     val showThinkingProcess: Boolean = true,
-    /** Whether to enable MTP (Multi-Token Prediction) speculative decoding. Only effective on
-     *  Gemma 4 models that support it. Disabled by default — user must opt in per model. */
-    val speculativeDecodingEnabled: Boolean = false,
+    /** Whether to enable MTP (Multi-Token Prediction) speculative decoding. Defaults to enabled.
+     *  Only effective on Gemma 4 models that support it. */
+    val speculativeDecodingEnabled: Boolean = true,
     val updatedAt: Long = System.currentTimeMillis(),
 )
