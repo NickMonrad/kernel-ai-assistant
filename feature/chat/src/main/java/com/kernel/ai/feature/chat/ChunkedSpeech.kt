@@ -7,6 +7,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
+internal const val VOICE_FIRST_CHUNK_MIN_LENGTH = 30
+internal const val VOICE_FIRST_CHUNK_PREFERRED_LENGTH = 80
 internal const val VOICE_MIN_CHUNK_LENGTH = 72
 internal const val VOICE_PREFERRED_CHUNK_LENGTH = 180
 
@@ -25,13 +27,18 @@ internal suspend fun speakInSentenceChunks(
     val session = controller.openStreamingSession(VoiceSpeakRequest(text = text))
     try {
         val buffer = StringBuilder(text)
+        var isFirst = true
         while (buffer.isNotBlank()) {
+            // A short first chunk lets playback start while the rest is synthesised (#1872).
+            val minLength = if (isFirst) VOICE_FIRST_CHUNK_MIN_LENGTH else VOICE_MIN_CHUNK_LENGTH
+            val preferredLength = if (isFirst) VOICE_FIRST_CHUNK_PREFERRED_LENGTH else VOICE_PREFERRED_CHUNK_LENGTH
             val chunk = popNextStreamingSpeechChunk(
                 buffer = buffer,
-                minChunkLength = VOICE_MIN_CHUNK_LENGTH,
-                preferredChunkLength = VOICE_PREFERRED_CHUNK_LENGTH,
-                force = buffer.length < VOICE_MIN_CHUNK_LENGTH,
+                minChunkLength = minLength,
+                preferredChunkLength = preferredLength,
+                force = buffer.length < minLength,
             ) ?: break
+            isFirst = false
             val isLast = buffer.isBlank()
             val result = session.append(chunk, isFinal = isLast)
             if (result is VoiceOutputResult.Unavailable) {

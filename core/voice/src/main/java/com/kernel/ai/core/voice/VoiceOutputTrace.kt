@@ -50,4 +50,13 @@ object VoiceOutputTrace {
             lines(engine, text).forEach { Log.d(TAG, it) }
         }
     }
+
+    /**
+     * Epoch-stamped `KernelAI` log at the moment playback starts (#1872). Carries only the engine
+     * and character count, never the text, so it is safe in ordinary logs and measurable with
+     * `adb logcat -v epoch -s KernelAI`.
+     */
+    fun logSpeakingStarted(engine: String, chars: Int) {
+        Log.i("KernelAI", "SpeakingStarted engine=$engine chars=$chars epochMs=${System.currentTimeMillis()}")
+    }
 }

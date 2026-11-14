@@ -505,6 +505,7 @@ class AndroidTextToSpeechController @Inject constructor(
                     started?.let { (eventText, chunkText) ->
                         // The trace wants the chunk that is starting now, not the first one.
                         VoiceOutputTrace.speakingStarted("android_tts", chunkText)
+                        VoiceOutputTrace.logSpeakingStarted("android-tts", chunkText.length)
                         _events.tryEmit(VoiceOutputEvent.SpeakingStarted(eventText))
                     }
                 }

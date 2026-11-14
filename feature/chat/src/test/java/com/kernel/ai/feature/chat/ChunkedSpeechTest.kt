@@ -26,6 +26,18 @@ class ChunkedSpeechTest {
     }
 
     @Test
+    fun `a short first sentence is spoken alone so playback starts before the rest is synthesised`() = runTest {
+        val reply = "Brisbane is 24 degrees and sunny now. " +
+            "Expect a high of 29 this afternoon with light winds from the east and no rain expected."
+
+        assertEquals(VoiceOutputResult.Spoken, speakInSentenceChunks(controller, reply))
+
+        assertTrue(appended.size > 1, "expected a separate first chunk, got $appended")
+        assertEquals("Brisbane is 24 degrees and sunny now.", appended.first().first)
+        assertTrue(appended.last().second, "last chunk must be final")
+    }
+
+    @Test
     fun `a long weather reply is spoken in several chunks with the last one final`() = runTest {
         val weather = "In Brisbane, it's 22 degrees, drizzle, feeling like 25 degrees. " +
             "Today's high is 28 degrees, low is 21 degrees. " +
