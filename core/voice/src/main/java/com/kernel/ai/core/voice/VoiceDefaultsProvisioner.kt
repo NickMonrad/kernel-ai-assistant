@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.isDownloaded
 import com.kernel.ai.core.inference.download.isUpdatedInstall
@@ -56,7 +57,7 @@ class VoiceDefaultsProvisioner @Inject constructor(
             runCatching { keepAndroidTtsForUpdatedInstalls() }
                 .onFailure { Log.w(TAG, "Failed to preserve output engine for updated install", it) }
             // Nothing downloads before the user has chosen a download network in the setup wizard (#1855).
-            downloadNetworkPreferences.choice.first { it != null }
+            downloadNetworkPreferences.choice.first { DownloadConsent.voiceDefaultsAllowed(it) }
             runCatching { queueSpeechInputModel() }
                 .onFailure { Log.w(TAG, "Failed to queue speech input model", it) }
             runCatching { queueSpeechOutputVoice() }

@@ -7,6 +7,7 @@ import android.content.pm.ApplicationInfo
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import com.kernel.ai.core.inference.download.DownloadConsent
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import kotlinx.coroutines.flow.first
 import androidx.work.OneTimeWorkRequestBuilder
@@ -25,7 +26,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -93,8 +93,12 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         // Any change to the download network choice re-queues unfinished voice packs (#1855). The initial
         // value is skipped so launches do not re-queue running work.
         scope.launch {
-            downloadNetworkPreferences.choice.distinctUntilChanged().drop(1).collect {
-                requeueUnfinishedVoicePacks()
+            var previous: DownloadNetworkChoice? = null
+            var first = true
+            downloadNetworkPreferences.choice.distinctUntilChanged().collect { choice ->
+                if (!first && DownloadConsent.shouldRequeueOnChoiceChange(previous, choice)) requeueUnfinishedVoicePacks()
+                first = false
+                previous = choice
             }
         }
     }
@@ -111,7 +115,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
     }
 
     private suspend fun hasUnfinished(workerTag: String): Boolean = withContext(Dispatchers.IO) {
-        workManager.getWorkInfosForUniqueWork(workerTag).get().any { !it.state.isFinished }
+        DownloadConsent.hasUnfinishedWork(workManager.getWorkInfosForUniqueWork(workerTag).get().map { it.state })
     }
 
 

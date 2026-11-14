@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -127,10 +126,17 @@ class ModelDownloadManager @Inject constructor(
         // constraint, then auto-queues if the choice just became usable (#1855). The initial value is
         // skipped so launches do not re-queue running work.
         scope.launch {
-            downloadNetworkPreferences.choice.distinctUntilChanged().drop(1).collect { choice ->
-                requeueUnfinishedForNetworkChange()
-                refreshWaitingForWifi()
-                if (DownloadConsent.autoQueueAllowed(choice)) queueAutoDownloads()
+            var previous: DownloadNetworkChoice? = null
+            var first = true
+            downloadNetworkPreferences.choice.distinctUntilChanged().collect { choice ->
+                // The first value is the launch state: nothing re-queues, as before.
+                if (!first) {
+                    if (DownloadConsent.shouldRequeueOnChoiceChange(previous, choice)) requeueUnfinishedForNetworkChange()
+                    refreshWaitingForWifi()
+                    if (DownloadConsent.autoQueueAllowed(choice)) queueAutoDownloads()
+                }
+                first = false
+                previous = choice
             }
         }
         context.getSystemService(ConnectivityManager::class.java)
@@ -169,7 +175,7 @@ class ModelDownloadManager @Inject constructor(
 
     /** Unfinished means queued, running or blocked. */
     private suspend fun hasUnfinishedWork(model: KernelModel): Boolean = withContext(Dispatchers.IO) {
-        workManager.getWorkInfosForUniqueWork(model.workerTag).get().any { !it.state.isFinished }
+        DownloadConsent.hasUnfinishedWork(workManager.getWorkInfosForUniqueWork(model.workerTag).get().map { it.state })
     }
 
     private suspend fun requeueUnfinishedForNetworkChange() {

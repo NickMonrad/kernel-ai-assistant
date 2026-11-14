@@ -1,7 +1,7 @@
 package com.kernel.ai.feature.settings
-import android.content.pm.ApplicationInfo
 
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

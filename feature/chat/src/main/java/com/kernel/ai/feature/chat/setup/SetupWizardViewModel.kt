@@ -5,10 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardFlow
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
+import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.VoiceOutputEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,8 +26,10 @@ data class SetupWizardUiState(
     val step: SetupStep = SetupStep.HOW_IT_WORKS,
     /** Radio selection on the download step. Wi-Fi is preselected; nothing is saved until Continue. */
     val choice: DownloadNetworkChoice = DownloadNetworkChoice.WIFI_ONLY,
-    /** What the first-run plan downloads, shared with the auto-queue (#1855). Loaded with the progress. */
+    /** Models the first-run plan downloads, shared with the auto-queue (#1855). Loaded with the progress. */
     val plannedModels: List<KernelModel> = emptyList(),
+    /** Voice packs the first run queues for the default output engine (Cori on Piper tiers). */
+    val plannedVoices: List<SherpaPiperVoice> = emptyList(),
 )
 
 /**
@@ -53,6 +58,7 @@ class SetupWizardViewModel @Inject constructor(
                 step = start,
                 choice = choice,
                 plannedModels = downloadManager.plannedFirstRunModels(),
+                plannedVoices = plannedVoicesFor(downloadManager.deviceTier),
             )
         }
     }
@@ -101,5 +107,18 @@ class SetupWizardViewModel @Inject constructor(
             setupWizardPreferences.markCompleted()
             onDone(effective)
         }
+    }
+
+    companion object {
+        /**
+         * The Piper voice the first run queues: Cori on tiers whose default output engine is Piper,
+         * none where the default is Android TTS (low-power devices).
+         */
+        internal fun plannedVoicesFor(tier: HardwareTier): List<SherpaPiperVoice> =
+            if (VoiceOutputEngine.defaultForTier(tier) == VoiceOutputEngine.SherpaExperimental) {
+                listOf(SherpaPiperVoice.CoriHigh)
+            } else {
+                emptyList()
+            }
     }
 }

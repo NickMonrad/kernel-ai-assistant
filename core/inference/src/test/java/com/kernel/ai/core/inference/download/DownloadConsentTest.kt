@@ -1,5 +1,6 @@
 package com.kernel.ai.core.inference.download
 
+import androidx.work.WorkInfo
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -84,5 +85,38 @@ class DownloadConsentTest {
         val speech = DownloadConsent.speechDefaultModels { it.fileName.startsWith("sherpa-stt-zipformer") }
         assertTrue(speech.all { it.fileName.startsWith("sherpa-stt-") })
         assertTrue(speech.none { it.fileName.startsWith("sherpa-stt-zipformer") })
+    }
+
+    @Test
+    fun `choice change re-queues only between two known choices`() {
+        assertTrue(DownloadConsent.shouldRequeueOnChoiceChange(DownloadNetworkChoice.WIFI_ONLY, DownloadNetworkChoice.MOBILE_DATA_ALLOWED))
+        assertTrue(DownloadConsent.shouldRequeueOnChoiceChange(DownloadNetworkChoice.MOBILE_DATA_ALLOWED, DownloadNetworkChoice.WIFI_ONLY))
+        assertFalse(DownloadConsent.shouldRequeueOnChoiceChange(null, DownloadNetworkChoice.WIFI_ONLY))
+        assertFalse(DownloadConsent.shouldRequeueOnChoiceChange(DownloadNetworkChoice.WIFI_ONLY, null))
+        assertFalse(DownloadConsent.shouldRequeueOnChoiceChange(DownloadNetworkChoice.WIFI_ONLY, DownloadNetworkChoice.WIFI_ONLY))
+    }
+
+    @Test
+    fun `voice defaults wait for the same consent as auto-queue`() {
+        assertFalse(DownloadConsent.voiceDefaultsAllowed(null))
+        assertTrue(DownloadConsent.voiceDefaultsAllowed(DownloadNetworkChoice.WIFI_ONLY))
+    }
+
+    @Test
+    fun `unfinished work means queued, running or blocked`() {
+        assertFalse(DownloadConsent.hasUnfinishedWork(emptyList()))
+        assertFalse(DownloadConsent.hasUnfinishedWork(listOf(WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED)))
+        assertTrue(DownloadConsent.hasUnfinishedWork(listOf(WorkInfo.State.ENQUEUED)))
+        assertTrue(DownloadConsent.hasUnfinishedWork(listOf(WorkInfo.State.RUNNING)))
+        assertTrue(DownloadConsent.hasUnfinishedWork(listOf(WorkInfo.State.BLOCKED, WorkInfo.State.SUCCEEDED)))
+    }
+
+    @Test
+    fun `first-run estimate counts Zipformer files and the planned voice`() {
+        val zipformer = DownloadConsent.speechDefaultModels { false }
+        assertTrue(zipformer.isNotEmpty())
+        val cori = 115_574_061L
+        assertEquals(zipformer.sumOf { it.approxSizeBytes } + cori, DownloadConsent.firstRunEstimateBytes(zipformer, cori))
+        assertEquals(cori, DownloadConsent.firstRunEstimateBytes(emptyList(), cori))
     }
 }

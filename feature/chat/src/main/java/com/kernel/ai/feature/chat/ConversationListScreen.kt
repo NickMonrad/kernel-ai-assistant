@@ -74,6 +74,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import java.text.SimpleDateFormat
@@ -110,7 +111,9 @@ fun ConversationListScreen(
     val waitingForWifi by viewModel.waitingForWifi.collectAsStateWithLifecycle()
     val welcomeState = chatsEmptyState(chatsWelcomeDismissed, assistantReadiness, downloadStates, waitingForWifi)
     val setupWizardPending by viewModel.setupWizardPending.collectAsStateWithLifecycle()
-    val requestDownloadStart = rememberDownloadNotificationGate()
+    val startAssistantDownload = rememberDownloadNotificationGate { id ->
+        id?.let { viewModel.downloadAssistantModel(KernelModel.valueOf(it)) }
+    }
     // Show the setup wizard once per app session on first run (#1855). Skipping or finishing it clears pending.
     var setupWizardOpened by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(setupWizardPending) {
@@ -325,7 +328,7 @@ fun ConversationListScreen(
                             showTabHints = tabHintsDismissed == false,
                             onStartChatting = onNewConversation,
                             onExamplePrompt = onOpenExamplePrompt,
-                            onDownloadModel = { model -> requestDownloadStart { viewModel.downloadAssistantModel(model) } },
+                            onDownloadModel = { model -> startAssistantDownload(model.name) },
                             onUseMobileData = viewModel::useMobileData,
                             onDismissTabHints = viewModel::dismissTabHints,
                             onHideWelcome = viewModel::hideWelcome,

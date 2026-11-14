@@ -1,5 +1,7 @@
 package com.kernel.ai.feature.chat.setup
 
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,35 +9,35 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.material3.Surface
-import androidx.compose.ui.semantics.Role
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.model.availability.ModelRoleCopy
-import com.kernel.ai.feature.chat.formatBytesShort
-import android.widget.Toast
-import androidx.compose.ui.platform.LocalContext
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.feature.chat.formatBytesShort
 
 /**
  * First-run setup wizard (#1855, part 1). Step 1 explains how Jandal works; step 2 is download consent.
@@ -49,7 +51,7 @@ fun SetupWizardScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val requestDownloadStart = rememberDownloadNotificationGate()
+    val requestDownloadStart = rememberDownloadNotificationGate { viewModel.onContinue(onDone) }
     BackHandler(enabled = state.loaded && state.step != SetupStep.HOW_IT_WORKS) {
         viewModel.onBack(onExit)
     }
@@ -59,7 +61,6 @@ fun SetupWizardScreen(
         modifier = Modifier
             .fillMaxSize()
             .systemBarsPadding()
-            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -67,6 +68,7 @@ fun SetupWizardScreen(
             SetupStep.HOW_IT_WORKS -> HowItWorksStep()
             SetupStep.DOWNLOAD -> DownloadStep(
                 plannedModels = state.plannedModels,
+                plannedVoices = state.plannedVoices,
                 choice = state.choice,
                 onChoiceSelected = viewModel::onChoiceSelected,
             )
@@ -75,7 +77,7 @@ fun SetupWizardScreen(
         val isLast = state.step == SetupStep.entries.last()
         Button(
             onClick = {
-                if (isLast) requestDownloadStart { viewModel.onContinue(onDone) } else viewModel.onContinue(onDone)
+                if (isLast) requestDownloadStart(null) else viewModel.onContinue(onDone)
             },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) {
@@ -129,11 +131,12 @@ private fun HowItWorksStep() {
 
 @Composable
 private fun DownloadStep(
-    plannedModels: List<com.kernel.ai.core.inference.download.KernelModel>,
+    plannedModels: List<KernelModel>,
+    plannedVoices: List<SherpaPiperVoice>,
     choice: DownloadNetworkChoice,
     onChoiceSelected: (DownloadNetworkChoice) -> Unit,
 ) {
-    val totalBytes = plannedModels.sumOf { it.approxSizeBytes }
+    val totalBytes = DownloadConsent.firstRunEstimateBytes(plannedModels, plannedVoices.sumOf { it.approxDownloadBytes })
     Text(
         text = "Download Jandal's models",
         style = MaterialTheme.typography.headlineSmall,
@@ -150,6 +153,12 @@ private fun DownloadStep(
                 text = ModelRoleCopy.technicalLine(model),
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+    }
+    plannedVoices.forEach { voice ->
+        Column {
+            Text(text = "${voice.displayName} voice (Piper)", style = MaterialTheme.typography.bodyLarge)
+            Text(text = formatBytesShort(voice.approxDownloadBytes), style = MaterialTheme.typography.bodySmall)
         }
     }
 

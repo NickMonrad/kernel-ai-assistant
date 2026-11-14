@@ -12,8 +12,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -29,24 +32,28 @@ private const val NOTIFICATION_PERMISSION = Manifest.permission.POST_NOTIFICATIO
  * Gates a user-started download on notification permission (#1855), using #1880's routing so the
  * denial history stays correct.
  *
- * - Granted: the download starts.
- * - Can ask in-app: a short reason is shown first, then the system prompt. The result is recorded with
- *   [recordPermissionResult].
- * - Permanently denied (Android will not ask again): the download starts without a dialog that could
- *   not lead anywhere.
+ * Returns a request function that takes the pending download's id (a model name, or null for the
+ * wizard's Finish). [onProceed] receives that id once the download may start:
+ * - Granted, or Android will not ask again: immediately, with no dialog.
+ * - Can ask in-app: after a short reason and the system prompt. Dismissing the reason also proceeds.
  *
- * [onProceed] runs in every case except a "Not now" that is not asked again; downloads never wait on the
- * permission.
- *
- * Known gap: the reason dialog is held in `remember`, so a configuration change while it is showing
- * drops the waiting download. The user taps download again.
+ * The id, the reason-dialog state and the request time are saved with `rememberSaveable`, so a
+ * configuration change during the reason dialog or the system prompt keeps the download.
+ * Downloads never wait on the permission result.
  */
 @Composable
-fun rememberDownloadNotificationGate(): (onProceed: () -> Unit) -> Unit {
+fun rememberDownloadNotificationGate(onProceed: (pendingId: String?) -> Unit): (pendingId: String?) -> Unit {
     val context = LocalContext.current
-    var rationale by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var awaitingResult by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var requestedAt by remember { mutableStateOf(0L) }
+    val latestOnProceed by rememberUpdatedState(onProceed)
+    var pendingId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showReason by rememberSaveable { mutableStateOf(false) }
+    var requestedAt by rememberSaveable { mutableLongStateOf(0L) }
+
+    fun proceed() {
+        val id = pendingId
+        pendingId = null
+        latestOnProceed(id)
+    }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val activity = context.findActivity()
@@ -56,17 +63,14 @@ fun rememberDownloadNotificationGate(): (onProceed: () -> Unit) -> Unit {
             shouldShowRationale = activity?.shouldShowRequestPermissionRationale(NOTIFICATION_PERMISSION) == true,
             silentlyDenied = !granted && isSilentDenial(System.currentTimeMillis() - requestedAt),
         )
-        val proceed = awaitingResult
-        awaitingResult = null
-        proceed?.invoke()
+        proceed()
     }
 
-    val pending = rationale
-    if (pending != null) {
+    if (showReason) {
         AlertDialog(
             onDismissRequest = {
-                rationale = null
-                pending()
+                showReason = false
+                proceed()
             },
             title = { Text("Show download progress?") },
             text = {
@@ -77,23 +81,22 @@ fun rememberDownloadNotificationGate(): (onProceed: () -> Unit) -> Unit {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    rationale = null
-                    awaitingResult = pending
+                    showReason = false
                     requestedAt = System.currentTimeMillis()
                     launcher.launch(NOTIFICATION_PERMISSION)
                 }) { Text("Allow") }
             },
             dismissButton = {
                 TextButton(onClick = {
-                    rationale = null
-                    pending()
+                    showReason = false
+                    proceed()
                 }) { Text("Not now") }
             },
         )
     }
 
     return remember(context) {
-        { onProceed: () -> Unit ->
+        { id: String? ->
             val activity = context.findActivity()
             val route = decidePermissionRoute(
                 isGranted = hasNotificationPermission(context),
@@ -101,7 +104,12 @@ fun rememberDownloadNotificationGate(): (onProceed: () -> Unit) -> Unit {
                 wasDeniedBefore = PermissionRequestStore.from(context).wasDenied(NOTIFICATION_PERMISSION),
                 shouldShowRationale = activity?.shouldShowRequestPermissionRationale(NOTIFICATION_PERMISSION) == true,
             )
-            if (route == PermissionRoute.RequestInApp) rationale = onProceed else onProceed()
+            if (route == PermissionRoute.RequestInApp) {
+                pendingId = id
+                showReason = true
+            } else {
+                latestOnProceed(id)
+            }
         }
     }
 }

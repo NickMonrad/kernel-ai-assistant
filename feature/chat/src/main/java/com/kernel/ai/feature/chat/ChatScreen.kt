@@ -321,7 +321,9 @@ fun ChatScreen(
         }
     }
     var showModelSettings by remember { mutableStateOf(false) }
-    val requestDownloadStart = rememberDownloadNotificationGate()
+    val startModelDownload = rememberDownloadNotificationGate { id ->
+        id?.let { viewModel.retryDownload(KernelModel.valueOf(it)) }
+    }
 
     when (val state = uiState) {
         is ChatUiState.Loading -> LoadingContent()
@@ -332,8 +334,8 @@ fun ChatScreen(
         is ChatUiState.ModelsNotReady -> OnboardingContent(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
-            onRetry = { model -> requestDownloadStart { viewModel.retryDownload(model) } },
-            onDownloadModel = { model -> requestDownloadStart { viewModel.retryDownload(model) } },
+            onRetry = { model -> startModelDownload(model.name) },
+            onDownloadModel = { model -> startModelDownload(model.name) },
             onStartAuth = viewModel::startAuth,
             onNavigateToModelManagement = onNavigateToModelManagement,
             hfAuthenticated = state.hfAuthenticated,

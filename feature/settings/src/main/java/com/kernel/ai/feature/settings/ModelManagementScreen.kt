@@ -114,7 +114,9 @@ fun ModelManagementScreen(
             )
         },
     ) { innerPadding ->
-        val requestDownloadStart = rememberDownloadNotificationGate()
+        val startModelDownload = rememberDownloadNotificationGate { id ->
+            id?.let { viewModel.downloadModel(KernelModel.valueOf(it)) }
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -134,7 +136,7 @@ fun ModelManagementScreen(
             item(key = "still_needed") {
                 StillNeededCard(
                     items = uiState.stillNeeded,
-                    onDownload = { model -> requestDownloadStart { viewModel.downloadModel(model) } },
+                    onDownload = { model -> startModelDownload(model.name) },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }

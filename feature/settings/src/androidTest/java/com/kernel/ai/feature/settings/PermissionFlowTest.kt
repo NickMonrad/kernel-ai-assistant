@@ -24,6 +24,9 @@ import org.junit.runner.RunWith
  * Each test grants or denies a system permission dialog and verifies the app
  * responds correctly.
  *
+ * POST_NOTIFICATIONS is requested when a user starts a download, not at launch (#1855). The
+ * notification tests therefore verify app survival; the dialog is reached only through a download.
+ *
  * Device: Samsung SM-S918B (Android 16 / API 36)
  * Package: ai.jandal.assistant.debug
  *
@@ -66,7 +69,6 @@ class PermissionFlowTest {
             addCategory(Intent.CATEGORY_LAUNCHER)
             component = ComponentName(PACKAGE, "com.kernel.ai.MainActivity")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            putExtra("force_permission_prompt", true)
         }
         context.startActivity(intent)
         device.wait(Until.hasObject(By.pkg(PACKAGE)), LAUNCH_TIMEOUT_MS)

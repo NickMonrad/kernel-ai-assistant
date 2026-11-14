@@ -1,5 +1,4 @@
 package com.kernel.ai.feature.settings
-import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
@@ -17,6 +16,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
