@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Notification permission (required on API 33+; minSdk=35 so always required) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets downloads detect a metered-only connection to show "Waiting for Wi-Fi" (#1855). Normal permission, no prompt. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Location permissions for GetWeatherSkill GPS fallback -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Required on some OEM clock apps that still check this deprecated permission -->
