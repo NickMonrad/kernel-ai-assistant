@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -91,6 +92,7 @@ fun ConversationListScreen(
     onOpenDrawer: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onOpenExamplePrompt: (String) -> Unit = {},
+    onNavigateToGettingStarted: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
@@ -113,6 +115,9 @@ fun ConversationListScreen(
     val pendingRename = pendingRenameId?.let { id -> conversations.find { it.id == id } }
     var contextMenuTarget by remember { mutableStateOf<ConversationEntity?>(null) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    val conversationCount by viewModel.conversationCount.collectAsStateWithLifecycle()
+    val debugShowWelcome by ChatsDebugOverrides.showWelcome.collectAsStateWithLifecycle()
+    val debugSimulateDownload by ChatsDebugOverrides.simulateDownload.collectAsStateWithLifecycle()
 
     // ── Drag-and-drop local state (optimistic UI) ──────────────────────────
     var localPinned by remember { mutableStateOf(pinnedConversations) }
@@ -198,6 +203,34 @@ fun ConversationListScreen(
                                 onDismissRequest = { showOverflowMenu = false },
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("Getting started") },
+                                    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onNavigateToGettingStarted()
+                                    },
+                                )
+                                if (BuildConfig.DEBUG) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(if (debugShowWelcome) "Debug: hide forced welcome" else "Debug: show first-run welcome")
+                                        },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            ChatsDebugOverrides.toggleWelcome()
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(if (debugSimulateDownload) "Debug: stop simulated download" else "Debug: simulate download")
+                                        },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            ChatsDebugOverrides.toggleDownload()
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
                                     text = {
                                         Text(
                                             if (showArchived) "Show active conversations"
@@ -225,7 +258,7 @@ fun ConversationListScreen(
             }
         },
         floatingActionButton = {
-            if (!isInSelectionMode && !showArchived) {
+            if (showChatsFab(welcomeState, isInSelectionMode, showArchived)) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -282,8 +315,21 @@ fun ConversationListScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
+            chatsDownloadBanner(assistantReadiness, welcomeState, isInSelectionMode, showArchived)?.let { banner ->
+                ChatsDownloadBanner(
+                    banner = banner,
+                    onClick = onNavigateToGettingStarted,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            if (showTryAskingChips(conversationCount, welcomeState, showArchived, isInSelectionMode, searchQuery)) {
+                TryAskingChips(
+                    prompts = welcomeExamplePromptsFor(welcomeDownloadFor(assistantReadiness, downloadStates)),
+                    onPrompt = onOpenExamplePrompt,
+                )
+            }
 
-            if (conversations.isEmpty()) {
+            if (conversations.isEmpty() || welcomeState is ChatsEmptyState.Welcome) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -315,6 +361,7 @@ fun ConversationListScreen(
                             onDownloadModel = viewModel::downloadAssistantModel,
                             onDismissTabHints = viewModel::dismissTabHints,
                             onHideWelcome = viewModel::hideWelcome,
+                            modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
                         )
                     } else if (welcomeState == ChatsEmptyState.Plain) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {

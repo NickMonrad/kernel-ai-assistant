@@ -65,6 +65,7 @@ import androidx.navigation.navArgument
 import com.kernel.ai.feature.chat.ActionsScreen
 import com.kernel.ai.feature.chat.ChatScreen
 import com.kernel.ai.feature.chat.ConversationListScreen
+import com.kernel.ai.feature.chat.GettingStartedScreen
 import com.kernel.ai.feature.convert.ConvertScreen
 import com.kernel.ai.feature.convert.mapQueryParamToConvertTab
 import com.kernel.ai.feature.settings.AppPermissionsScreen
@@ -106,6 +107,7 @@ private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
 private const val ARG_SCROLL_TO = "scrollTo"
 internal const val ROUTE_ABOUT = "settings/about"
+internal const val ROUTE_GETTING_STARTED = "getting_started"
 private const val ROUTE_LEGAL_PRIVACY = "settings/legal_privacy"
 private const val ROUTE_OPEN_SOURCE_LICENSES = "settings/open_source_licenses"
 internal const val ROUTE_APP_PERMISSIONS = "settings/app_permissions"
@@ -536,6 +538,9 @@ fun KernelNavHost(
                             onNavigateToSettings = {
                                 navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
                             },
+                            onNavigateToGettingStarted = {
+                                navController.navigate(ROUTE_GETTING_STARTED) { launchSingleTop = true }
+                            },
                         )
                     }
                 }
@@ -901,11 +906,26 @@ fun KernelNavHost(
                         onNavigateToLegalPrivacy = {
                             navController.navigate(ROUTE_LEGAL_PRIVACY)
                         },
+                        onNavigateToGettingStarted = {
+                            navController.navigate(ROUTE_GETTING_STARTED) { launchSingleTop = true }
+                        },
                         versionName = com.kernel.ai.BuildConfig.VERSION_NAME,
                         versionCode = com.kernel.ai.BuildConfig.VERSION_CODE,
                         buildType = com.kernel.ai.BuildConfig.BUILD_TYPE,
                         gitSha = com.kernel.ai.BuildConfig.GIT_SHA,
                         buildTimestamp = com.kernel.ai.BuildConfig.BUILD_TIMESTAMP,
+                    )
+                }
+
+                composable(ROUTE_GETTING_STARTED) {
+                    GettingStartedScreen(
+                        onBack = { navController.popBackOrNavigateHome() },
+                        onStartChatting = {
+                            navController.navigate(ROUTE_CHAT) { launchSingleTop = true }
+                        },
+                        onExamplePrompt = { prompt ->
+                            navController.navigate(buildActionsDraftRoute(prompt)) { launchSingleTop = true }
+                        },
                     )
                 }
 

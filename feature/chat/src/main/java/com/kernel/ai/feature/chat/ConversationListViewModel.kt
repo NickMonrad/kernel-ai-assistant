@@ -36,21 +36,33 @@ class ConversationListViewModel @Inject constructor(
     val chatsWelcomeDismissed: StateFlow<Boolean?> = combine(
         chatPreferences.chatsWelcomeDismissed,
         repository.observeConversationCount(),
-    ) { dismissed, count -> dismissed || count > 0 }
+        ChatsDebugOverrides.showWelcome,
+    ) { dismissed, count, forced -> !forced && (dismissed || count > 0) }
         .stateIn<Boolean?>(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Total conversations, archived included. Null until loaded, so "Try asking" never flashes for returning users. */
+    val conversationCount: StateFlow<Int?> = repository.observeConversationCount()
+        .stateIn<Int?>(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val downloadStates = downloadManager.downloadStates
 
     val tabHintsDismissed: StateFlow<Boolean?> = chatPreferences.tabHintsDismissed
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val assistantReadiness: StateFlow<ConversationModelReadiness> = downloadManager.downloadStates
-        .map { states -> ConversationModelReadiness.compute(downloadManager.deviceTier, states) }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            ConversationModelReadiness.compute(downloadManager.deviceTier, downloadManager.downloadStates.value),
-        )
+    val assistantReadiness: StateFlow<ConversationModelReadiness> = combine(
+        downloadManager.downloadStates,
+        ChatsDebugOverrides.simulateDownload,
+    ) { states, simulate ->
+        if (simulate) {
+            ChatsDebugOverrides.SimulatedDownload
+        } else {
+            ConversationModelReadiness.compute(downloadManager.deviceTier, states)
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        ConversationModelReadiness.compute(downloadManager.deviceTier, downloadManager.downloadStates.value),
+    )
 
     init {
         // The welcome is one-time: once any conversation exists (archived included), it never returns.
