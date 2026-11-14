@@ -49,6 +49,7 @@ class SetupWizardViewModelTest {
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk(relaxed = true)
     private val voiceInputPreferences: VoiceInputPreferences = mockk(relaxed = true)
     private val setupVoiceDevice: SetupVoiceDevice = mockk(relaxed = true)
+    private val voiceDefaultsProvisioner: VoiceDefaultsProvisioner = mockk(relaxed = true)
 
     @BeforeEach
     fun setUp() {
@@ -98,6 +99,7 @@ class SetupWizardViewModelTest {
             voiceInputPreferences = voiceInputPreferences,
             piperVoiceSetup = PiperVoiceSetup(voiceOutputPreferences, voicePackDownloadManager),
             setupVoiceDevice = setupVoiceDevice,
+            voiceDefaultsProvisioner = voiceDefaultsProvisioner,
             savedStateHandle = handle,
         )
 
@@ -159,7 +161,7 @@ class SetupWizardViewModelTest {
     }
 
     @Test
-    fun `skipping after choosing Cori on this run starts Cori`() {
+    fun `skipping after choosing Cori saves it and starts no download`() {
         val vm = viewModel()
         vm.atSpeechStep()
         vm.onOutputSelected(VoiceOutputEngine.SherpaExperimental)
@@ -168,7 +170,19 @@ class SetupWizardViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 1) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental) }
-        verify(exactly = 1) { voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh) }
+        verify(exactly = 0) { voicePackDownloadManager.startDownload(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `skipping queues no speech input model, even for Automatic`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onInputSelected(VoiceInputEngine.Auto)
+
+        vm.onSkip {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceDefaultsProvisioner.queueSpeechInput(any()) }
     }
 
     @Test
@@ -461,6 +475,45 @@ class SetupWizardViewModelTest {
             voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh)
         }
         coVerify(exactly = 1) { setupWizardPreferences.markCompleted() }
+    }
+
+    @Test
+    fun `Finish with Automatic queues Zipformer after the network choice is saved`() {
+        val vm = viewModel()
+        vm.atDownloadStep()
+        vm.onChoiceSelected(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
+
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerifyOrder {
+            downloadNetworkPreferences.setChoice(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
+            voiceDefaultsProvisioner.queueSpeechInput(VoiceInputEngine.Auto)
+        }
+    }
+
+    @Test
+    fun `Finish with a stored Automatic queues Zipformer again so deleted files come back`() {
+        storedInput(VoiceInputEngine.Auto)
+        val vm = viewModel()
+        vm.atDownloadStep()
+
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceDefaultsProvisioner.queueSpeechInput(VoiceInputEngine.Auto) }
+    }
+
+    @Test
+    fun `Finish with Sherpa Zipformer queues the Zipformer files`() {
+        val vm = viewModel()
+        vm.atDownloadStep()
+        vm.onInputSelected(VoiceInputEngine.SherpaZipformer)
+
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceDefaultsProvisioner.queueSpeechInput(VoiceInputEngine.SherpaZipformer) }
     }
 
     @Test

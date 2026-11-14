@@ -264,7 +264,7 @@ private fun VoiceStep(
         Text(text = reason, style = MaterialTheme.typography.bodySmall)
     }
     if (inputEngine == null) {
-        Text(text = "Your current speech input stays as it is unless you pick one above.", style = MaterialTheme.typography.bodySmall)
+        Text(text = "Your current speech input stays as it is unless you pick one below.", style = MaterialTheme.typography.bodySmall)
     }
     inputOptions.forEach { engine ->
         ChoiceOption(

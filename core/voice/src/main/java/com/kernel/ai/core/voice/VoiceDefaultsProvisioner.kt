@@ -2,9 +2,9 @@ package com.kernel.ai.core.voice
 
 import android.content.Context
 import android.util.Log
+import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
-import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.isDownloaded
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
@@ -67,14 +67,21 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     private suspend fun queueSpeechInputModel() {
         if (prefs.getBoolean(KEY_ZIPFORMER_QUEUED, false)) return
-        val engine = voiceInputPreferences.selectedEngine.first()
+        queueSpeechInput(voiceInputPreferences.selectedEngine.first())
+        prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
+    }
+
+    /**
+     * Queues the Zipformer files [engine] needs that are not on disk yet. Used at launch and by the setup
+     * wizard's Finish, so the size line and the queue agree, including a stored Automatic whose files were deleted.
+     */
+    suspend fun queueSpeechInput(engine: VoiceInputEngine) {
         if (!needsZipformer(engine)) return
         val missing = zipformerModels().filterNot { it.isDownloaded(context) }
         if (missing.isNotEmpty()) {
             Log.i(TAG, "Queuing Zipformer STT model for engine=$engine: ${missing.map { it.name }}")
             missing.forEach { modelDownloadManager.startDownload(it, source = DownloadSource.AUTO_QUEUED) }
         }
-        prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
     }
 
     private suspend fun queueSpeechOutputVoice(isExistingInstall: Boolean) {

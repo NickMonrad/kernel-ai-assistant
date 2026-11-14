@@ -60,8 +60,9 @@ data class SetupWizardUiState(
  * Progress is restored from [SetupWizardPreferences] so process death resumes the same step.
  *
  * Selections (download network, speech input, speech output) are kept in [SavedStateHandle] until Finish or
- * Skip saves them, so Back never stores anything. Finish and Skip save the speech choices first, then the
- * network choice (which releases the consent wait in VoiceDefaultsProvisioner), then start Cori if chosen.
+ * Skip saves them, so Back never stores anything. Finish saves the speech choices, then the network choice,
+ * then queues the chosen downloads (Zipformer for Automatic, Cori for Sherpa). Skip saves choices only and
+ * starts no download: the provisioner and the Voice screen handle downloads under the saved network rule.
  */
 @HiltViewModel
 class SetupWizardViewModel @Inject constructor(
@@ -73,6 +74,7 @@ class SetupWizardViewModel @Inject constructor(
     private val voiceInputPreferences: VoiceInputPreferences,
     private val piperVoiceSetup: PiperVoiceSetup,
     private val setupVoiceDevice: SetupVoiceDevice,
+    private val voiceDefaultsProvisioner: VoiceDefaultsProvisioner,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -233,6 +235,7 @@ class SetupWizardViewModel @Inject constructor(
         viewModelScope.launch {
             val output = saveSpeechChoices(state)
             saveNetworkChoice(state.choice)
+            startChosenInput(effectiveInput(state.inputEngine))
             startChosenVoice(output)
             setupWizardPreferences.markCompleted()
             onDone()
@@ -247,10 +250,9 @@ class SetupWizardViewModel @Inject constructor(
     fun onSkip(onDone: (DownloadNetworkChoice) -> Unit) {
         val state = _uiState.value
         viewModelScope.launch {
-            val output = saveSpeechChoices(state)
+            saveSpeechChoices(state)
             val effective = storedChoice ?: DownloadNetworkChoice.WIFI_ONLY
             if (storedChoice == null) downloadNetworkPreferences.setChoice(effective)
-            if (touched(KEY_SELECTED_OUTPUT)) startChosenVoice(output)
             setupWizardPreferences.markCompleted()
             onDone(effective)
         }
@@ -280,6 +282,14 @@ class SetupWizardViewModel @Inject constructor(
     /** Writes the network choice only when it differs from the stored one, so a kept choice is untouched. */
     private suspend fun saveNetworkChoice(choice: DownloadNetworkChoice) {
         if (choice != storedChoice) downloadNetworkPreferences.setChoice(choice)
+    }
+
+    /**
+     * Queues the Zipformer files the chosen input needs, after the network choice is saved. Files already on
+     * disk are skipped, and a stored Automatic with deleted files is queued again, matching the size line.
+     */
+    private suspend fun startChosenInput(input: VoiceInputEngine) {
+        voiceDefaultsProvisioner.queueSpeechInput(input)
     }
 
     /**
