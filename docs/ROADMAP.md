@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-08-29 (reconciled with #1014 launch state and the current public backlog)
+> **Last updated:** 2026-11-14 (added Build 6 closed-test onboarding and guidance feedback; previously reconciled with #1014 launch state and the current public backlog)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -25,7 +25,7 @@
 | **Intent router (complex)** | Gemma-4 native SDK tool calling (`@Tool`) + constrained decoding |
 | **Vector search** | sqlite-vec 0.1.9 via bundled SQLite 3.49.2 |
 | **Wasm runtime** | Chicory (pure JVM) |
-| **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM); S21 Exynos (Mali GPU, 8GB RAM) |
+| **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM) is the primary test device; S21 Exynos (Mali GPU, 8GB RAM) is used only for named gates and extra capacity |
 
 ---
 
@@ -40,6 +40,22 @@ Current release gates are deliberately narrow:
 - [#441](https://github.com/NickMonrad/kernel-ai-assistant/issues/441) — Play Store, legal, and policy readiness through #1260–#1264, including #1474 under the licence/SBOM track.
 
 Wake-word battery and reliability qualification are complete for v0.1. Broader permission orchestration (#1140), evidence-platform work (#1113), living voice QA (#824), and wake-word optimisation (#1395) are post-launch unless a new release-candidate regression proves otherwise.
+
+### Build 6: closed-test feedback (onboarding and guidance)
+
+Goal: make first run easy enough that testers can onboard unaided before public tester recruiting.
+
+| Issue | Summary |
+|-------|---------|
+| [#1855](https://github.com/NickMonrad/kernel-ai-assistant/issues/1855) | Setup wizard: ask before any model download (Wi-Fi by default), choose speech in and out, and set up "Hey Jandal". |
+| [#1857](https://github.com/NickMonrad/kernel-ai-assistant/issues/1857) | Clearer Models screen: plain-English purpose for each model, and no sense that a larger installed model is missing. |
+| [#1858](https://github.com/NickMonrad/kernel-ai-assistant/issues/1858) | Default-assistant loop: "set as default" opens the system page instead of re-prompting; in-app permission requests. |
+| [#1853](https://github.com/NickMonrad/kernel-ai-assistant/issues/1853) | Android native speech stalls with online recognition off, and phones without Google services. |
+| [#1859](https://github.com/NickMonrad/kernel-ai-assistant/issues/1859) | Contact not found (e.g. "call my wife"): explain aliases and link straight to adding one. |
+| [#1860](https://github.com/NickMonrad/kernel-ai-assistant/issues/1860) | Birthday or date not found: say when calendar or contact sync is off and link to turn it on. |
+| [#1850](https://github.com/NickMonrad/kernel-ai-assistant/issues/1850) | Mic-ready cue: an audible and visual "speak now" signal so first words are not lost. |
+| [#1852](https://github.com/NickMonrad/kernel-ai-assistant/issues/1852) | NZ place names: pronunciation lexicon for speech output and better recognition (e.g. "Petone"). |
+| [#1854](https://github.com/NickMonrad/kernel-ai-assistant/issues/1854) / [#1856](https://github.com/NickMonrad/kernel-ai-assistant/pull/1856) | GitHub tester APKs: closed-test builds also published as signed APKs on GitHub Releases for Obtainium. |
 
 ---
 
