@@ -41,7 +41,7 @@ Fall back to Gradle + `adb` when Android CLI is unavailable.
 
 ## Code intelligence
 
-`kotlin-lsp` is configured and running. Prefer it over grep for all symbol-level work:
+Use `kotlin-lsp` when available for symbol-level work:
 
 - Go to definition: `lsp definition`
 - Find all usages before touching an exported symbol: `lsp references`
@@ -49,4 +49,4 @@ Fall back to Gradle + `adb` when Android CLI is unavailable.
 - Type information: `lsp hover`
 - Errors and warnings: `lsp diagnostics`
 
-Never use `grep`/`search` to find symbol definitions or callers — the LSP result is authoritative.
+If LSP is unavailable or incomplete, use targeted text search and inspect the relevant source/callers directly, as allowed by `.omp/AGENTS.md`.

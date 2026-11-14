@@ -1,0 +1,1 @@
+New welcome screen with example prompts, tips for each tab and download progress. Quick actions start speaking sooner, a sentence at a time. New Email support button in Settings > About: it opens your email app with your device details and a privacy-scrubbed log. Your chats are only included if you tick the box.

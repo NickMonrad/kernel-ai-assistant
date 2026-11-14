@@ -21,8 +21,8 @@ class ModelCapabilitiesTest {
     }
 
     @Test
-    fun `non conversation models do not expose chat capabilities`() {
-        val embedding = KernelModel.EMBEDDING_GEMMA_300M.capabilities
+    fun `non conversation embedding model does not expose chat capabilities`() {
+        val embedding = KernelModel.ARCTIC_EMBED_M_V1_5.capabilities
 
         assertFalse(embedding.supportsThinking)
         assertFalse(embedding.supportsImageInput)

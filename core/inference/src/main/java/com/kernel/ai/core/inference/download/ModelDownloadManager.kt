@@ -264,18 +264,8 @@ class ModelDownloadManager @Inject constructor(
                 KernelModel.GEMMA_4_E2B.isDownloaded(context)
             else -> KernelModel.GEMMA_4_E2B.isDownloaded(context)
         }
-        // All other required models must be present (e.g. SentencePiece tokenizer).
-        // Explicit allowlist of gated required models known to be non-conversation
-        // dependencies (RAG/vector search only). Only these may be skipped when
-        // HuggingFace authentication is missing.
-        val gatedNonConversationModels = setOf(
-            KernelModel.EMBEDDING_GEMMA_300M,   // RAG embeddings
-            KernelModel.EMBEDDING_GEMMA_SP_MODEL, // SentencePiece tokenizer
-        )
-        val isHfAuthenticated = authRepository.isAuthenticated.value
         val otherRequiredReady = KernelModel.entries
             .filter { it.isRequired && it != KernelModel.GEMMA_4_E2B }
-            .filterNot { it in gatedNonConversationModels && !isHfAuthenticated }
             .all { it.isDownloaded(context) }
         return conversationModelReady && otherRequiredReady
     }

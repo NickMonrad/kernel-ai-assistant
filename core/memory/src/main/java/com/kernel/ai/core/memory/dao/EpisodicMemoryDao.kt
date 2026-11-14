@@ -81,7 +81,7 @@ interface EpisodicMemoryDao {
     @Query("SELECT rowId FROM episodic_memories WHERE id = :id LIMIT 1")
     suspend fun getRowIdById(id: String): Long?
 
-    @Query("UPDATE episodic_memories SET content = :content WHERE id = :id")
+    @Query("UPDATE episodic_memories SET content = :content, vectorized = 0 WHERE id = :id")
     suspend fun updateContent(id: String, content: String)
 
     @Transaction

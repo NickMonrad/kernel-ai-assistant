@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelStore
 import com.google.ai.edge.litertlm.ToolProvider
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -14,8 +15,11 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.memory.entity.ConversationEntity
+import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
+import com.kernel.ai.feature.chat.model.ChatMessage
+import com.kernel.ai.feature.chat.model.ChatUiState
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.ModelSettingsRepository
 import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
@@ -52,15 +56,20 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
+import io.mockk.clearMocks
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -69,6 +78,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -151,6 +162,9 @@ class ChatViewModelQuickIntentRouterTest {
         every { inferenceEngine.activeBackend } returns MutableStateFlow<BackendType?>(null)
         every { inferenceEngine.resolvedMaxTokens } returns MutableStateFlow(0)
         every { inferenceEngine.evictionEvents } returns emptyFlow()
+        every { inferenceEngine.generateWithDebugTrace(any(), any()) } answers {
+            inferenceEngine.generate(firstArg())
+        }
         coEvery { inferenceEngine.updateSystemPrompt(any()) } just runs
         coEvery { inferenceEngine.resetConversation() } just runs
 
@@ -265,7 +279,7 @@ class ChatViewModelQuickIntentRouterTest {
     }
 
     @Test
-    fun `weather capability required surfaces repair message and skips LLM`() = runTest(dispatcher) {
+    fun `weather capability required opens contextual dialog without assistant failure`() = runTest(dispatcher) {
         val input = "what's the weather"
         weatherSkillResult = SkillResult.CapabilityRequired(
             capabilityKey = CapabilityKey.WeatherCurrentLocation,
@@ -274,17 +288,227 @@ class ChatViewModelQuickIntentRouterTest {
 
         val viewModel = createViewModel()
         advanceUntilIdle()
-
         viewModel.onInputChanged(input)
         viewModel.sendMessage()
         advanceUntilIdle()
 
         verify(exactly = 0) { inferenceEngine.generate(any()) }
+        assertEquals(ChatViewModel.WeatherLocationState(), viewModel.weatherLocationState.value)
+        val conversation = viewModel.getConversationAsText()
+        assertEquals(1, conversation.lines().count { it.startsWith("You:") })
+        assertEquals(0, conversation.lines().count { it.startsWith("Jandal:") })
+        assertFalse(conversation.contains("Location access"))
+    }
 
-        val chatText = viewModel.getConversationAsText()
-        assertTrue(chatText.contains("Location access"), "Expected location-repair guidance, got: $chatText")
-        assertTrue(chatText.contains("named city"), "Expected named-city fallback guidance, got: $chatText")
-        assertTrue(!chatText.contains("get_weather"), "Did not expect raw tool JSON or tool name in: $chatText")
+    @Test
+    fun `chat displays deterministic todo and grocery list reads`() = runTest(dispatcher) {
+        val calls = mutableListOf<SkillCall>()
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Test native intent dispatcher"
+            override val schema = SkillSchema()
+
+            override suspend fun execute(call: SkillCall): SkillResult {
+                calls += call
+                return when (call.arguments["list_name_for_creation"]) {
+                    "todo" -> SkillResult.DirectReply("To-do list (1 item): • buy oat milk")
+                    "grocery" -> SkillResult.DirectReply("Grocery list (1 item): • buy apples")
+                    else -> SkillResult.Failure(
+                        "get_list_items",
+                        "I couldn't find a list called \"${call.arguments["list_name"]}\".",
+                    )
+                }
+            }
+        }
+        every { skillRegistry.get("get_list_items") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        listOf(
+            "show my todo list" to "To-do list (1 item):",
+            "read me my grocery list" to "Grocery list (1 item):",
+        ).forEach { (query, expectedReply) ->
+            viewModel.onInputChanged(query)
+            viewModel.sendMessage()
+            advanceUntilIdle()
+            assertTrue(
+                viewModel.getConversationAsText().contains(expectedReply),
+                "Expected '$query' to display '$expectedReply': ${viewModel.getConversationAsText()}",
+            )
+        }
+
+        assertEquals(listOf("todo", "grocery"), calls.map { it.arguments["list_name_for_creation"] })
+        assertEquals(listOf("todo list", "grocery list"), calls.map { it.arguments["list_name"] })
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `missing list gets a friendly chat reply`() = runTest(dispatcher) {
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Test native intent dispatcher"
+            override val schema = SkillSchema()
+
+            override suspend fun execute(call: SkillCall): SkillResult =
+                SkillResult.Failure(
+                    "get_list_items",
+                    "I couldn't find a list called \"packing list\".",
+                )
+        }
+        every { skillRegistry.get("get_list_items") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("show my packing list")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(
+            viewModel.getConversationAsText().contains("You don't have a packing list yet."),
+            viewModel.getConversationAsText(),
+        )
+        verify(exactly = 0) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `grant retries weather skill and appends only one assistant message`() = runTest(dispatcher) {
+        weatherSkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather",
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's the weather")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        weatherSkillResult = SkillResult.Success("Currently 18°C and partly cloudy in your area.")
+        viewModel.onWeatherLocationPermissionGranted()
+        advanceUntilIdle()
+
+        val conversation = viewModel.getConversationAsText()
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals(1, conversation.lines().count { it.startsWith("You:") })
+        assertEquals(1, conversation.lines().count { it.startsWith("Jandal:") })
+        assertTrue(viewModel.getConversationAsText().contains("partly cloudy"))
+    }
+
+    @Test
+    fun `first weather denial remains retryable`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        viewModel.onWeatherLocationPermissionDenied(shouldShowRationale = false)
+
+        assertEquals(ChatViewModel.WeatherLocationState(), viewModel.weatherLocationState.value)
+    }
+
+    @Test
+    fun `second weather denial becomes blocked repair state`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        viewModel.onWeatherLocationPermissionDenied(shouldShowRationale = true)
+        viewModel.onWeatherLocationPermissionDenied(shouldShowRationale = false)
+
+        assertEquals(
+            ChatViewModel.WeatherLocationState(isPermanentlyDenied = true),
+            viewModel.weatherLocationState.value,
+        )
+    }
+
+    @Test
+    fun `location settings grant retries pending weather request`() = runTest(dispatcher) {
+        weatherSkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather",
+        )
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+        viewModel.onWeatherLocationOpenAppPermissions()
+        advanceUntilIdle()
+        weatherSkillResult = SkillResult.Success("Weather restored.")
+        viewModel.onChatWeatherLocationRepairResumeCheck(hasPermission = true)
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+        assertTrue(viewModel.getConversationAsText().contains("Weather restored."))
+    }
+
+    @Test
+    fun `location settings return without grant restores blocked repair state`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        viewModel.onWeatherLocationOpenAppPermissions()
+        advanceUntilIdle()
+        viewModel.onChatWeatherLocationRepairResumeCheck(hasPermission = false)
+
+        assertEquals(
+            ChatViewModel.WeatherLocationState(isPermanentlyDenied = true),
+            viewModel.weatherLocationState.value,
+        )
+    }
+
+    @Test
+    fun `named place fallback clears pending weather permission and guides chat input`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        val errorState = async {
+            viewModel.uiState
+                .filterIsInstance<ChatUiState.Ready>()
+                .first()
+        }
+        viewModel.onWeatherLocationTypePlace()
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals(
+            "Type a place name in the chat input, like \"weather in Tokyo\".",
+            errorState.await().error,
+        )
+    }
+
+    @Test
+    fun `not now dismisses pending weather permission without assistant output`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+
+        viewModel.dismissWeatherLocationDialog()
+
+        assertNull(viewModel.weatherLocationState.value)
+        assertEquals(
+            1,
+            viewModel.getConversationAsText().lines().count { it.startsWith("You:") },
+        )
+    }
+
+    @Test
+    fun `unrelated capability required keeps generic assistant guidance`() = runTest(dispatcher) {
+        weatherSkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.ContactLookup,
+            skillName = "get_weather",
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's the weather")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertNull(viewModel.weatherLocationState.value)
+        assertTrue(viewModel.getConversationAsText().contains("Permission required for get_weather."))
+    }
+
+    @Test
+    fun `weather permission request emits runtime launcher event`() = runTest(dispatcher) {
+        val viewModel = submitWeatherCapabilityRequest()
+        advanceUntilIdle()
+        val event = async { viewModel.events.first() }
+
+        viewModel.onWeatherLocationRequestPermission()
+
+        assertEquals(ChatViewModel.UiEvent.RequestWeatherLocationPermission, event.await())
     }
 
     @Test
@@ -311,6 +535,46 @@ class ChatViewModelQuickIntentRouterTest {
     }
 
     @Test
+    fun `unlisted custom place falls through to model after list lookup`() = runTest(dispatcher) {
+        val input = "what do I need from the garden centre"
+        var listMissHandled = false
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run a native intent"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult {
+                listMissHandled = true
+                return SkillResult.Failure(
+                    "get_list_items",
+                    "I couldn't find a list called \"garden centre\".",
+                    fallThroughToModel = true,
+                )
+            }
+        }
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "get_weather" -> weatherSkill
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("I can help with that."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged(input)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(listMissHandled)
+        verify(exactly = 1) { inferenceEngine.generate(any()) }
+        assertTrue(viewModel.getConversationAsText().contains("I can help with that."))
+    }
+
+    @Test
     fun `non-weather query falls through to LLM as expected`() = runTest(dispatcher) {
         val input = "tell me a joke"
 
@@ -328,7 +592,124 @@ class ChatViewModelQuickIntentRouterTest {
         advanceUntilIdle()
     }
 
-    private fun createViewModel(): ChatViewModel = ChatViewModel(
+    @Test
+    fun `debug safe run-intent marker initializes a cold engine before generation and closes sandbox`() = runTest(dispatcher) {
+        val input = "What day and date is it today, and what is the current local time on this device?"
+        val marker = "__orchtest:safe_run_intent:"
+        val router = mockk<QuickIntentRouter>()
+        val generationPrompts = mutableListOf<String>()
+        val systemPrompts = mutableListOf<String>()
+        var sandboxOpened = false
+        var sandboxClosed = false
+        val engineReady = MutableStateFlow(false)
+        val modelEvents = mutableListOf<String>()
+        every { inferenceEngine.isReady } returns engineReady
+        every { downloadManager.areRequiredModelsDownloaded() } returns false
+        every { downloadManager.getModelPath(KernelModel.GEMMA_4_E4B) } returns
+            "/models/gemma-4-E4B-it.litertlm"
+        coEvery { downloadManager.preferredConversationModel() } returns KernelModel.GEMMA_4_E4B
+        coEvery { modelSettingsRepository.getSettings("gemma_4_e4b") } returns
+            ModelSettingsEntity(
+                modelId = "gemma_4_e4b",
+                contextWindowSize = 8192,
+                temperature = 0.7f,
+                topP = 0.9f,
+                topK = 64,
+                showThinkingProcess = true,
+                speculativeDecodingEnabled = false,
+                updatedAt = 1L,
+            )
+        coEvery { inferenceEngine.initialize(any()) } coAnswers {
+            modelEvents += "initialize"
+            engineReady.value = true
+        }
+
+        coEvery { userProfileRepository.get() } returns "PRIVATE_PROFILE_MARKER"
+        every { inferenceEngine.generate(capture(generationPrompts)) } answers {
+            modelEvents += "generate"
+            flowOf(
+                GenerationResult.Token("It's 12:00 on Monday, 1 June 2026"),
+                GenerationResult.Complete(durationMs = 1L),
+            )
+        }
+        coEvery { inferenceEngine.updateSystemPrompt(capture(systemPrompts)) } just runs
+        every { kernelAIToolSet.beginSafeModelTestSandbox() } answers {
+            sandboxOpened = true
+            AutoCloseable { sandboxClosed = true }
+        }
+
+        val viewModel = createViewModel(router)
+
+        val viewModelStore = ViewModelStore().apply { put("safe-run-intent", viewModel) }
+        advanceUntilIdle()
+        assertFalse(engineReady.value)
+        coVerify(exactly = 0) { inferenceEngine.initialize(any()) }
+        clearMocks(
+            userProfileRepository,
+            ragRepository,
+            mealPlanSessionRepository,
+            conversationRepository,
+            router,
+            recordedCalls = true,
+            answers = false,
+        )
+
+        viewModel.onInputChanged(marker + input)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(sandboxOpened)
+        assertTrue(sandboxClosed)
+        verify(exactly = 0) { router.route(any()) }
+        verify(exactly = 1) { inferenceEngine.generate(any()) }
+        assertEquals(listOf("initialize", "generate"), modelEvents)
+        coVerify(exactly = 1) { inferenceEngine.initialize(any()) }
+        assertTrue(engineReady.value)
+        coVerify(exactly = 0) { userProfileRepository.get() }
+        coVerify(exactly = 0) { conversationRepository.getMessagesOnce(any()) }
+        coVerify(exactly = 0) { ragRepository.getRelevantContext(any(), any(), any()) }
+        coVerify(exactly = 0) {
+            mealPlanSessionRepository.hasActiveSessionForConversation(any())
+        }
+        coVerify(exactly = 0) { ragRepository.indexMessage(any(), any(), any()) }
+        coVerify(exactly = 0) { conversationRepository.renameConversation(any(), any()) }
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage(any(), any(), any(), any(), any())
+        }
+
+        val safeSystemPrompt = systemPrompts.last()
+        assertFalse(safeSystemPrompt.contains("PRIVATE_PROFILE_MARKER"))
+        assertFalse(safeSystemPrompt.contains("[Current date and time]"))
+        val inferencePrompt = generationPrompts.single()
+        assertTrue(inferencePrompt.contains(input))
+        assertFalse(inferencePrompt.contains(marker))
+        val chatText = viewModel.getConversationAsText()
+        assertTrue(chatText.contains(input))
+        assertFalse(chatText.contains(marker))
+        assertTrue(chatText.contains("12:00"))
+        viewModelStore.clear()
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage(any(), any(), any(), any(), any())
+        }
+        coVerify(exactly = 0) { mealPlanSessionRepository.hasAnySessionForConversation(any()) }
+        coVerify(exactly = 0) { episodicDistillationUseCase.distil(any(), any()) }
+
+    }
+
+    private suspend fun TestScope.submitWeatherCapabilityRequest(): ChatViewModel {
+        weatherSkillResult = SkillResult.CapabilityRequired(
+            capabilityKey = CapabilityKey.WeatherCurrentLocation,
+            skillName = "get_weather",
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("what's the weather")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+        return viewModel
+    }
+
+    private fun createViewModel(router: QuickIntentRouter = realRouter): ChatViewModel = ChatViewModel(
         savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
         chatPreferences = chatPreferences,
         authRepository = authRepository,
@@ -342,7 +723,7 @@ class ChatViewModelQuickIntentRouterTest {
         modelSettingsRepository = modelSettingsRepository,
         skillRegistry = skillRegistry,
         skillExecutor = skillExecutor,
-        quickIntentRouter = realRouter,
+        quickIntentRouter = router,
         intentRecoveryOrchestrator = intentRecoveryOrchestrator,
         intentContractRegistry = IntentContractRegistry(),
         slotFillerManager = slotFillerManager,

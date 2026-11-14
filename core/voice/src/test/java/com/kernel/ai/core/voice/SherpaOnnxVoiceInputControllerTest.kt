@@ -92,7 +92,7 @@ class SherpaOnnxVoiceInputControllerTest {
         createWhisperStubModelFiles()
         // Whisper verifier wins regardless of the interactive engine selection.
         listOf(
-            VoiceInputEngine.Vosk,
+            VoiceInputEngine.Auto,
             VoiceInputEngine.SherpaZipformer,
             VoiceInputEngine.SherpaWhisper,
             VoiceInputEngine.SherpaParaformer,
@@ -116,7 +116,7 @@ class SherpaOnnxVoiceInputControllerTest {
     fun `resolveWakeVerifierSpec falls back to Zipformer default without Whisper or online engine`() = runTest {
         createAllStubModelFiles() // Zipformer only
         listOf(
-            VoiceInputEngine.Vosk,
+            VoiceInputEngine.Auto,
             VoiceInputEngine.AndroidNative,
             VoiceInputEngine.SherpaWhisper,
             VoiceInputEngine.SherpaSenseVoice,

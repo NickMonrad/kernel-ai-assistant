@@ -14,6 +14,7 @@ import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.StartListeningCueResult
 import com.kernel.ai.core.voice.VoiceCaptureMode
+import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.alarm.shouldPlayClockAlertListeningCue
@@ -123,7 +124,12 @@ class WakeCommandHandoffControllerIntegrationTest {
         val job = launch {
             runWakeCommandHandoff(
                 wakeWordDetector = detector,
-                voiceInputController = controller,
+                // #1008: this test covers the #1433 platform-refresh path, which only runs
+                // when the user allows the online fallback.
+                voiceInputController = object : VoiceInputController by controller {
+                    override suspend fun startListening(mode: VoiceCaptureMode) =
+                        controller.startListening(mode, allowPlatformFallback = true)
+                },
                 cuePlayer = cuePlayer(),
                 generationId = 7L,
                 sessionId = 9L,
@@ -183,7 +189,7 @@ class WakeCommandHandoffControllerIntegrationTest {
         }
         runCurrent()
 
-        controller.startListening(VoiceCaptureMode.AlertCommand)
+        controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
         listeners[0].onReadyForSpeech(mockk<Bundle>(relaxed = true))
         runCurrent()
         listeners[0].onError(SpeechRecognizer.ERROR_NO_MATCH)

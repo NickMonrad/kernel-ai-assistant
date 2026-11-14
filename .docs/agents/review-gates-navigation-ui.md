@@ -33,9 +33,8 @@ This gate applies when the PR touches:
 
 | Device | When |
 |--------|------|
-| S21 (Exynos) | Default — sufficient for most UI changes |
-| S23U (SD 8 Gen 2) | Only when testing on different screen size/resolution matters,
-  or the issue reproduced on S23U |
+| S23U (SD 8 Gen 2) | Primary — sufficient for most UI changes |
+| S21 (Exynos) | Extra capacity only — e.g. a second screen size/resolution when a change is device-sensitive; see `.docs/agents/risk-based-evidence-policy.md` |
 
 ## Common Regressions to Check
 

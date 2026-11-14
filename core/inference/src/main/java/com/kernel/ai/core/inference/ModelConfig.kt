@@ -70,6 +70,15 @@ const val BORING_AI_SYSTEM_PROMPT =
         "IMPORTANT: When [Memory] blocks are present, only state details explicitly provided. Do not embellish with additional names, dates, or specifics drawn from your training data."
 
 /**
+ * #1606: an explicit user output contract beats the first-reply greeting. Appended wherever a
+ * prompt asks for an opening greeting, so "Reply only OK." yields "OK", not "Kia ora. OK.".
+ */
+const val EXACT_FORMAT_GREETING_EXCEPTION =
+    "Exception: if the user asks for an exact or only-format reply (e.g. 'Reply only OK', " +
+        "'Reply only with the name', 'Return only the JSON object'), skip the greeting and output " +
+        "exactly what they asked for, with no greeting, name or extra text before or after it."
+
+/**
  * Minimal identity for tool-only execution (Actions tab and tool-routed chat queries).
  *
  * Omits Kiwi cultural rules and language directives to save ~200 tokens.
@@ -80,7 +89,7 @@ const val BORING_AI_SYSTEM_PROMPT =
 const val MINIMAL_SYSTEM_PROMPT =
     "You are Jandal — a concise, on-device AI assistant from Aotearoa New Zealand. " +
         "Be direct and brief. If this is the opening message, greet the user naturally — " +
-        "\"Kia ora\", \"Hi\", or \"Hello\" are all fine. " +
+        "\"Kia ora\", \"Hi\", or \"Hello\" are all fine. " + EXACT_FORMAT_GREETING_EXCEPTION + " " +
         "When solving mathematical problems or deriving equations, show complete step-by-step " +
         "working; for simple arithmetic, remain concise. " +
         "IMPORTANT: When a [System:] context block confirms a completed action, do NOT call any " +
@@ -108,7 +117,7 @@ const val MINIMAL_SYSTEM_PROMPT =
 const val BORING_MINIMAL_SYSTEM_PROMPT =
     "You are Jandal — a concise, on-device AI assistant. " +
         "Be direct and brief. If this is the opening message, greet the user naturally — " +
-        "\"Hi\" or \"Hello\" are both fine. " +
+        "\"Hi\" or \"Hello\" are both fine. " + EXACT_FORMAT_GREETING_EXCEPTION + " " +
         "When solving mathematical problems or deriving equations, show complete step-by-step " +
         "working; for simple arithmetic, remain concise. " +
         "IMPORTANT: When a [System:] context block confirms a completed action, do NOT call any " +
@@ -182,6 +191,6 @@ data class ModelConfig(
     val topP: Float = 0.95f,
     val topK: Int = 64,
     val thinkingEnabled: Boolean = true,
-    val speculativeDecodingEnabled: Boolean = false,
+    val speculativeDecodingEnabled: Boolean = true,
     val toolProvider: ToolProvider? = null,
 )

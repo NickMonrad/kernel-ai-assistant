@@ -39,7 +39,7 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.play.services.location)
-    implementation(libs.tflite)
+    implementation(libs.litert)
     implementation(libs.datastore.preferences)
 
     testImplementation(libs.junit.jupiter)

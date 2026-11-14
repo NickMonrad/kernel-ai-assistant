@@ -18,8 +18,7 @@ interface Skill {
 
     /**
      * Full self-contained instructions for this skill: description, parameters, examples, and
-     * any enforcement rules. Returned by [LoadSkillSkill] when the model calls
-     * `load_skill{skill_name:"<name>"}`. Defaults to building from schema + examples.
+     * any enforcement rules. Returned by [LoadSkillSkill] when the current context budget permits.
      * Override to inject skill-specific rules that previously lived in buildSystemPrompt().
      */
     val fullInstructions: String
@@ -38,6 +37,12 @@ interface Skill {
                 examples.forEach { append("  $it\n") }
             }
         }
+
+    /**
+     * Smaller self-contained instructions for constrained contexts, when a skill can provide them.
+     * Null means the full instructions are the only supported representation.
+     */
+    val compactInstructions: String? get() = null
 
     suspend fun execute(call: SkillCall): SkillResult
 }
