@@ -236,7 +236,15 @@ class NativeIntentHandler @Inject constructor(
                 "create_note" -> createNote(params)
                 "list_notes" -> listNotes()
                 "set_brightness" -> setBrightness(params)
-                else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
+                else -> {
+                    // Never echo user text: log only the sanitized, LLM-chosen name.
+                    Log.w(TAG, "NativeIntentHandler: unregistered intent '${UnknownIntentReplies.loggableName(intentName)}'")
+                    SkillResult.Failure(
+                        skillName = "run_intent",
+                        error = UnknownIntentReplies.replyFor(intentName),
+                        technicalDetail = "Unknown intent: $intentName",
+                    )
+                }
             }
         } catch (e: CancellationException) {
             throw e
