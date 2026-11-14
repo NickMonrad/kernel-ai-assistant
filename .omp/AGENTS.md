@@ -84,6 +84,25 @@ Include the exact objective and source issue/PR; only non-canonical repository c
 
 Do not repeat this repository context, prescribe every file/tool/step, require a new planning phase after an accepted design, request competing architectures without an unresolved decision, create a fixed specialist pipeline, or add speculative work outside the issue.
 
+### Model selection for delegated work (all harnesses)
+
+Applies only once delegation is justified by the rules above. Choose by type of work, not by harness:
+
+| Work | Model |
+|------|-------|
+| Searching and reading code, gathering context, summarising logs or test output, running checks, mechanical or fully specified edits, focused unit tests | Haiku 5.5 (`claude-haiku-5-5`) |
+| Reviewing or verifying any change (including the `.docs/agents/review-gates-*.md` gates), security review, design decisions, LiteRT/inference-path changes, debugging a Haiku attempt didn't solve | Opus 5.5 (`claude-opus-5-5`) |
+| Anything | Fable only when the user asks |
+
+Never use Haiku 4.5 or older. Haiku needs an explicit brief (see Task briefs).
+
+How each harness applies this:
+- **Claude Code:** the default subagent model is Haiku 5.5, set in the user's `CLAUDE_CODE_SUBAGENT_MODEL`. Pass `model: "opus"` on the Agent call for Opus work. The `code-reviewer` agent in `.claude/agents/` is pinned to Opus.
+- **OMP `task`:** follow "OMP delegation and recovery" below. Configured routing chooses the model.
+- **Paseo-launched sessions:** always set the model from the table.
+- **opencode:** the frontmatter in `.opencode/agents/*.md` sets the model.
+- **Other harnesses:** pick from the table wherever the harness lets you choose a model.
+
 ### OMP delegation and recovery
 
 When using OMP's `task` tool:
