@@ -4427,6 +4427,10 @@ class ChatViewModel @Inject constructor(
     private fun capabilityRequiredMessage(result: com.kernel.ai.core.skills.SkillResult.CapabilityRequired): String =
         if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
             "Jandal needs Location access for local weather. Turn on Location in app permissions, or ask for weather in a named city."
+        } else if (result.capabilityKey == CapabilityKey.CalendarWrite) {
+            "Jandal needs permission to add calendar events. Allow Calendar events in app permissions, then ask again."
+        } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
+            "Jandal needs calendar access to read your events. Allow Calendar in app permissions, then ask again."
         } else {
             "Permission required for ${result.skillName}."
         }

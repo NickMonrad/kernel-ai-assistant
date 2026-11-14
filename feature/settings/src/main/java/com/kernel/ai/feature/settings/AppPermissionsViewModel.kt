@@ -162,6 +162,11 @@ class AppPermissionsViewModel @Inject constructor(
                 description = "Calendar lookup for important dates",
                 permission = Manifest.permission.READ_CALENDAR,
             ),
+            AppPermissionItem(
+                label = "Calendar events",
+                description = "Adding events to your default calendar",
+                permission = Manifest.permission.WRITE_CALENDAR,
+            ),
         )
 
         // Special-access permissions — granted via system settings, not runtime request.

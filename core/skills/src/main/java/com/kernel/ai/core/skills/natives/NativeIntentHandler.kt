@@ -11,7 +11,6 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.SystemClock
-import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
@@ -131,6 +130,8 @@ interface ClockAlertController {
  *   convert_cooking_measure — Deterministic ingredient-aware cooking conversion (params: amount, from_unit, ingredient, to_unit?) — returns DirectReply
  *   convert_currency        — Latest ECB-backed currency conversion (params: amount, from_currency, to_currency) — returns DirectReply
  *   save_important_date     — Stores a taught recurring personal date (params: label, date) — returns DirectReply
+ *   create_calendar_event   — Inserts into the default writable calendar when WRITE_CALENDAR is granted (params: title, date, time?, duration_minutes?, description?, location?) — returns Success, or CapabilityRequired
+ *   read_calendar_events    — Reads today/tomorrow/this_week/next_week/upcoming or the next keyword match (params: range?, keyword?) — returns DirectReply
  *   list_important_dates    — Lists taught recurring personal dates — returns DirectReply
  *   remove_important_date   — Deletes a taught recurring personal date (params: label) — returns DirectReply
  *   save_memory             — Saves content to long-term core memory (params: content)
@@ -147,6 +148,7 @@ class NativeIntentHandler @Inject constructor(
     private val contactAliasRepository: ContactAliasRepository,
     private val importantDateRepository: ImportantDateRepository,
     private val calendarBirthdayLookup: CalendarBirthdayLookup,
+    private val calendarEventStore: CalendarEventStore,
     private val memoryRepository: MemoryRepository,
     private val embeddingEngine: EmbeddingEngine,
     private val cookingConversionService: CookingConversionService,
@@ -186,6 +188,7 @@ class NativeIntentHandler @Inject constructor(
                 "get_stopwatch_status" -> getStopwatchStatus()
                 "cancel_alarm" -> cancelAlarm(params)
                 "create_calendar_event" -> createCalendarEvent(params)
+                "read_calendar_events" -> readCalendarEvents(calendarEventStore, params, LocalDate.now(), ZoneId.systemDefault())
                 "get_battery" -> getBattery()
                 "get_time", "get_date" -> getTime(params)
                 "toggle_dnd_on" -> setDoNotDisturb(true)
@@ -300,7 +303,7 @@ class NativeIntentHandler @Inject constructor(
             "set_alarm", "cancel_alarm",
             "set_timer", "cancel_timer", "cancel_timer_named", "list_timers", "get_timer_remaining",
             "start_stopwatch", "pause_stopwatch", "resume_stopwatch", "lap_stopwatch", "reset_stopwatch", "get_stopwatch_status",
-            "create_calendar_event",
+            "create_calendar_event", "read_calendar_events",
             "get_battery", "get_time", "get_date",
             "toggle_dnd_on", "toggle_dnd_off",
             "set_volume", "set_brightness",
@@ -907,36 +910,40 @@ class NativeIntentHandler @Inject constructor(
             begin to end
         }
 
-        val intent = Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {
-            putExtra(CalendarContract.Events.TITLE, title)
-            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginMillis)
-            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
-            if (timeStr == null) putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true)
-            params["description"]?.takeIf { it.isNotBlank() }?.let {
-                putExtra(CalendarContract.Events.DESCRIPTION, it)
-            }
-            // Attendees: resolve each name to email from contacts; skip unresolvable names
-            val attendeeEmails = params["attendees"]
-                ?.split(",")
-                ?.mapNotNull { it.trim().takeIf { n -> n.isNotBlank() }?.let { n -> resolveContactEmail(n) } }
-                ?.joinToString(",")
-                ?.takeIf { it.isNotBlank() }
-            if (attendeeEmails != null) putExtra(Intent.EXTRA_EMAIL, attendeeEmails)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        if (!calendarEventStore.hasWritePermission()) {
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarWrite,
+                skillName = "create_calendar_event",
+                contextParams = mapOf("title" to title),
+            )
         }
-
-        if (context.packageManager.resolveActivity(intent, 0) == null) {
-            return SkillResult.Failure("run_intent", "No calendar app found on this device.")
-        }
-        return try {
-            context.startActivity(intent)
-            val timeLabel = if (resolvedTimeLabel != null) " at $resolvedTimeLabel" else " (all day)"
-            val resolvedDateStr = date.format(DateTimeFormatter.ISO_LOCAL_DATE)
-            val attendeesLabel = params["attendees"]?.takeIf { it.isNotBlank() }?.let { " with $it" } ?: ""
-            SkillResult.Success("Calendar opened — '${title}' on $resolvedDateStr$timeLabel$attendeesLabel. Please review and save in your calendar app.")
-        } catch (e: ActivityNotFoundException) {
-            SkillResult.Failure("run_intent", "No calendar app found on this device.")
-        }
+        val calendar = calendarEventStore.findDefaultWritableCalendar()
+            ?: return SkillResult.Failure("run_intent", "There's no calendar on this phone that I can add events to.")
+        val allDay = timeStr == null
+        val eventId = calendarEventStore.insertEvent(
+            calendarId = calendar.id,
+            event = NewCalendarEvent(
+                title = title,
+                beginMillis = beginMillis,
+                endMillis = endMillis,
+                allDay = allDay,
+                timeZoneId = if (allDay) "UTC" else zone.id,
+                description = params["description"]?.takeIf { it.isNotBlank() },
+                location = params["location"]?.takeIf { it.isNotBlank() },
+            ),
+        ) ?: return SkillResult.Failure("run_intent", "I couldn't save '$title' to your calendar.")
+        Log.d(TAG, "create_calendar_event: inserted event id=$eventId")
+        val confirmation = CalendarEventReplies.formatCreated(
+            title = title,
+            beginMillis = beginMillis,
+            endMillis = endMillis,
+            allDay = allDay,
+            calendarName = calendar.displayName,
+            zone = zone,
+        )
+        // Attendees are not written yet; say so rather than silently dropping them.
+        val attendeeNote = if (params["attendees"]?.isNotBlank() == true) " I didn't add the attendees." else ""
+        return SkillResult.Success(confirmation + attendeeNote)
     }
 
     // ── Battery ───────────────────────────────────────────────────────────────

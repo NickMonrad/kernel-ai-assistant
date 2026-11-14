@@ -34,6 +34,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +50,11 @@ fun AppPermissionsScreen(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsState()
+
+    var showCalendarWriteRationale by remember { mutableStateOf(false) }
+    val calendarWriteLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { viewModel.refresh() }
 
     // Auto-refresh when returning from system settings (e.g. after toggling permissions)
     DisposableEffect(lifecycleOwner) {
@@ -99,10 +111,11 @@ fun AppPermissionsScreen(
                 PermissionRow(
                     item = perm,
                     onFix = {
-                        if (perm.isSpecial) {
-                            viewModel.openSpecialPermissionSettings(perm.permission)
-                        } else {
-                            viewModel.openAppInfoSettings()
+                        when {
+                            perm.isSpecial -> viewModel.openSpecialPermissionSettings(perm.permission)
+                            perm.permission == Manifest.permission.WRITE_CALENDAR && !perm.isGranted ->
+                                showCalendarWriteRationale = true
+                            else -> viewModel.openAppInfoSettings()
                         }
                     },
                 )
@@ -110,6 +123,29 @@ fun AppPermissionsScreen(
             }
 
         }
+    }
+
+    if (showCalendarWriteRationale) {
+        AlertDialog(
+            onDismissRequest = { showCalendarWriteRationale = false },
+            title = { Text("Allow calendar events?") },
+            text = {
+                Text("Jandal adds events to your default calendar when you ask it to schedule something.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCalendarWriteRationale = false
+                    calendarWriteLauncher.launch(Manifest.permission.WRITE_CALENDAR)
+                }) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCalendarWriteRationale = false }) {
+                    Text("Not now")
+                }
+            },
+        )
     }
 }
 

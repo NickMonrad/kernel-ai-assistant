@@ -76,6 +76,7 @@ class NativeIntentHandlerTest {
     private val contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true)
     private val importantDateRepository = mockk<ImportantDateRepository>(relaxed = true)
     private val calendarBirthdayLookup = mockk<CalendarBirthdayLookup>(relaxed = true)
+    private val calendarEventStore = mockk<CalendarEventStore>(relaxed = true)
     private val clockRepository = mockk<ClockRepository>(relaxed = true)
     private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
@@ -94,6 +95,7 @@ class NativeIntentHandlerTest {
         contactAliasRepository = contactAliasRepository,
         importantDateRepository = importantDateRepository,
         calendarBirthdayLookup = calendarBirthdayLookup,
+        calendarEventStore = calendarEventStore,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
         cookingConversionService = cookingConversionService,
@@ -139,6 +141,7 @@ class NativeIntentHandlerTest {
         contactAliasRepository = contactAliasRepository,
         importantDateRepository = importantDateRepository,
         calendarBirthdayLookup = calendarBirthdayLookup,
+        calendarEventStore = calendarEventStore,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
         cookingConversionService = cookingConversionService,
@@ -162,6 +165,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = cookingConversionService,
@@ -2821,6 +2825,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = cookingConversionService,
@@ -2969,6 +2974,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = cookingConversionService,
@@ -4013,6 +4019,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = memoryRepository,
             embeddingEngine = embeddingEngine,
             cookingConversionService = cookingConversionService,
