@@ -88,6 +88,10 @@ class VoiceOutputPreferences @Inject constructor(
             )
         }
 
+    /** True once an output engine has been stored, by the user or an earlier build (#1868). */
+    suspend fun hasStoredEngine(): Boolean =
+        context.voiceOutputPrefsDataStore.data.first()[selectedEngineKey] != null
+
     val selectedSherpaVoice: Flow<SherpaPiperVoice> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
             if (e is IOException) {
@@ -129,10 +133,6 @@ class VoiceOutputPreferences @Inject constructor(
             prefs[spokenResponsesEnabledKey] = enabled
         }
     }
-
-    /** True when the user (or a migration) has stored an output engine choice. */
-    suspend fun hasStoredEngine(): Boolean =
-        context.voiceOutputPrefsDataStore.data.first()[selectedEngineKey] != null
 
     suspend fun setSelectedEngine(engine: VoiceOutputEngine) {
         val effectiveEngine = VoiceOutputEngine.resolveForBuild(
