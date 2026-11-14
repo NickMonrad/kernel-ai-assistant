@@ -3,6 +3,7 @@ package com.kernel.ai.core.skills.natives
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.LocationServices
@@ -257,6 +258,72 @@ internal fun wmoDescription(code: Int): String = when (code) {
     else -> "Unknown"
 }
 
+/** A geocoding match, its country code and Nominatim importance (#1894). */
+internal data class GeocodeCandidate(
+    val lat: Double,
+    val lon: Double,
+    val countryCode: String?,
+    val importance: Double?,
+)
+
+/** Geocoding outcome; separates "no such place" from "service unreachable". */
+internal sealed class GeocodeOutcome {
+    data class Found(val candidate: GeocodeCandidate) : GeocodeOutcome()
+    data object NotFound : GeocodeOutcome()
+    data object Unavailable : GeocodeOutcome()
+}
+
+/** HTTP error status from a request. 4xx responses are not retried (#1894). */
+internal class HttpStatusException(val code: Int) : java.io.IOException("HTTP $code")
+
+internal fun parseGeocodeCandidate(obj: JSONObject?): GeocodeCandidate? {
+    if (obj == null) return null
+    val lat = obj.optString("lat").toDoubleOrNull() ?: return null
+    val lon = obj.optString("lon").toDoubleOrNull() ?: return null
+    return GeocodeCandidate(
+        lat = lat,
+        lon = lon,
+        countryCode = obj.optJSONObject("address")?.optString("country_code")?.takeIf { it.isNotBlank() },
+        importance = if (obj.has("importance")) obj.optDouble("importance") else null,
+    )
+}
+
+/** Home-country match wins only when its importance is at least this share of the top match's. */
+internal const val HOME_COUNTRY_IMPORTANCE_RATIO = 0.8
+
+/**
+ * Provider order is relevance order. Prefer the best home-country match only when it is nearly as
+ * important as the overall top match, so "Paris" stays Paris, France for an AU, NZ or US user.
+ */
+internal fun rankGeocodeCandidates(
+    candidates: List<GeocodeCandidate>,
+    homeCountryCode: String?,
+): GeocodeCandidate? {
+    val top = candidates.firstOrNull() ?: return null
+    val home = homeCountryCode?.let { code -> candidates.firstOrNull { it.countryCode.equals(code, ignoreCase = true) } }
+    val topImportance = top.importance ?: return top
+    val homeImportance = home?.importance ?: return top
+    return if (home != null && homeImportance >= topImportance * HOME_COUNTRY_IMPORTANCE_RATIO) home else top
+}
+
+/** English country name for an ISO code, locale-independent (#1894). Null if unknown. */
+internal fun englishCountryName(countryCode: String): String? {
+    val upper = countryCode.uppercase()
+    return java.util.Locale("", upper).getDisplayCountry(java.util.Locale.ENGLISH)
+        .takeIf { it.isNotBlank() && it != upper }
+}
+
+/** Append the English country name when the match is outside the home country (#1894). */
+internal fun weatherLocationLabel(
+    query: String,
+    candidate: GeocodeCandidate,
+    homeCountryCode: String?,
+): String {
+    val code = candidate.countryCode ?: return query
+    if (homeCountryCode == null || code.equals(homeCountryCode, ignoreCase = true)) return query
+    val name = englishCountryName(code) ?: return query
+    return "$query, $name"
+}
 // ── Weather lookup mode and failure reason helpers ──────────────────────────
 
 /**
@@ -279,6 +346,7 @@ internal enum class WeatherLookupFailureReason {
     CURRENT_LOCATION_UNAVAILABLE,
     NAMED_LOCATION_NOT_FOUND,
     API_UNAVAILABLE,
+    GEOCODE_UNAVAILABLE,
 }
 
 /** Human-readable user-facing message for each failure reason. */
@@ -291,6 +359,8 @@ internal fun weatherFailureMessage(reason: WeatherLookupFailureReason): String =
         "I couldn't find that location for weather. Try another city, like \"weather in Brisbane\"."
     WeatherLookupFailureReason.API_UNAVAILABLE ->
         "Unable to fetch weather data right now. Please try again in a moment."
+    WeatherLookupFailureReason.GEOCODE_UNAVAILABLE ->
+        "I couldn't reach the location service just now. Please try again in a moment."
 }
 // ── Weather cache constants ──────────────────────────────────────────────────
 
@@ -562,7 +632,7 @@ class GetWeatherSkill @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Live weather fetch crashed unexpectedly for key '$cacheKey'", e)
+            Log.w(TAG, "Live weather fetch crashed unexpectedly", e)
             LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
         }
 
@@ -581,7 +651,7 @@ class GetWeatherSkill @Inject constructor(
                 }
 
                 getRawCachedWeatherJson(cacheKey)?.let { cachedJson ->
-                    Log.i(TAG, "Serving stale weather cache for key '$cacheKey' after ${failureReason.name}")
+                    Log.i(TAG, "Serving stale weather cache after ${failureReason.name}")
                     return try {
                         when {
                             weekendRequest -> parseWeekendResponse(cachedJson, displayName = null)
@@ -591,12 +661,12 @@ class GetWeatherSkill @Inject constructor(
                             else -> parseWeatherResponse(cachedJson, displayName = null, airQuality = null)
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Cache re-parse failed for key '$cacheKey'", e)
+                        Log.w(TAG, "Cached weather re-parse failed", e)
                         SkillResult.Failure(name, "Cached weather data is corrupted. Please try again.")
                     }
                 }
 
-                Log.i(TAG, "Weather cache miss for key '$cacheKey' after ${failureReason.name}")
+                Log.i(TAG, "Weather cache miss after ${failureReason.name}")
                 if (failureReason == WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE) {
                     // TODO(#1164): Replace this interim current-location guidance with the
                     // contextual capability prompt + retry flow.
@@ -616,12 +686,21 @@ class GetWeatherSkill @Inject constructor(
         targetWeekend: Boolean = false,
         cacheKey: String,
     ): LiveFetchResult {
-        val resolvedLocationName = resolveIndirectLocationReference(locationName) ?: locationName
-        val coordinates = geocodeLocation(resolvedLocationName)
-            ?: run {
-                Log.i(TAG, "Named-location weather geocode failed for '$resolvedLocationName'")
+        val query = resolveIndirectLocationReference(locationName) ?: locationName
+        val home = homeCountryCode()
+        val candidate = when (val outcome = geocodeLocation(query, home)) {
+            is GeocodeOutcome.Found -> outcome.candidate
+            GeocodeOutcome.NotFound -> {
+                Log.i(TAG, "Named-location weather geocode: no match")
                 return LiveFetchResult.Failed(WeatherLookupFailureReason.NAMED_LOCATION_NOT_FOUND)
             }
+            GeocodeOutcome.Unavailable -> {
+                Log.w(TAG, "Named-location weather geocode unavailable")
+                return LiveFetchResult.Failed(WeatherLookupFailureReason.GEOCODE_UNAVAILABLE)
+            }
+        }
+        val resolvedLocationName = weatherLocationLabel(query, candidate, home)
+        val coordinates = candidate.lat to candidate.lon
 
         val result = when {
             targetWeekend -> fetchWeekendForecast(
@@ -661,10 +740,10 @@ class GetWeatherSkill @Inject constructor(
         }
 
         return if (result != null) {
-            Log.d(TAG, "Named-location weather lookup succeeded for '$resolvedLocationName'")
+            Log.d(TAG, "Named-location weather lookup succeeded")
             LiveFetchResult.Success(result)
         } else {
-            Log.w(TAG, "Weather API unavailable after geocoding '$resolvedLocationName'")
+            Log.w(TAG, "Weather API unavailable after geocoding")
             LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
         }
     }
@@ -695,36 +774,47 @@ class GetWeatherSkill @Inject constructor(
                 capitalArray.optString(0).takeIf { it.isNotBlank() }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Country capital lookup failed for: $countryName", e)
+            Log.w(TAG, "Country capital lookup failed", e)
             null
         }
     }
 
-    private suspend fun geocodeLocation(locationName: String): Pair<Double, Double>? = withContext(Dispatchers.IO) {
-        try {
+    private suspend fun geocodeLocation(locationName: String, homeCountryCode: String?): GeocodeOutcome =
+        withContext(Dispatchers.IO) {
             val url = "https://nominatim.openstreetmap.org/search" +
                 "?q=${java.net.URLEncoder.encode(locationName, "UTF-8")}" +
-                "&format=json&limit=1"
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "KernelAI/1.0 (Android)")
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val body = response.body?.string() ?: return@withContext null
-                val jsonArray = org.json.JSONArray(body)
-                if (jsonArray.length() == 0) return@withContext null
-                val firstResult = jsonArray.getJSONObject(0)
-                val lat = firstResult.optDouble("lat", Double.NaN)
-                val lon = firstResult.optDouble("lon", Double.NaN)
-                if (lat.isNaN() || lon.isNaN()) return@withContext null
-                Pair(lat, lon)
+                "&format=json&limit=5&addressdetails=1&accept-language=en"
+            val body = retryWithBackoff("Geocode", maxRetries = 1) {
+                val request = Request.Builder().url(url).header("User-Agent", "KernelAI/1.0 (Android)").build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw HttpStatusException(response.code)
+                    response.body?.string() ?: throw IllegalStateException("Empty geocode response")
+                }
+            } ?: return@withContext GeocodeOutcome.Unavailable
+            try {
+                val array = org.json.JSONArray(body)
+                val candidates = (0 until array.length()).mapNotNull { parseGeocodeCandidate(array.optJSONObject(it)) }
+                rankGeocodeCandidates(candidates, homeCountryCode)
+                    ?.let { GeocodeOutcome.Found(it) } ?: GeocodeOutcome.NotFound
+            } catch (e: org.json.JSONException) {
+                Log.w(TAG, "Geocode response unparseable")
+                GeocodeOutcome.Unavailable
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Geocoding failed for: $locationName", e)
-            null
         }
+
+    /**
+     * Home country for geocoding bias, resolved on-device: network country, then SIM country, then
+     * the first app locale's region. No location is read and no network request is made (#1894).
+     */
+    private fun homeCountryCode(): String? {
+        val network = runCatching { telephonyManager()?.networkCountryIso }.getOrNull()
+        val sim = runCatching { telephonyManager()?.simCountryIso }.getOrNull()
+        val locale = runCatching { context.resources.configuration.locales[0].country }.getOrNull()
+        return listOf(network, sim, locale).firstOrNull { !it.isNullOrBlank() }?.lowercase()
     }
+
+    private fun telephonyManager(): TelephonyManager? =
+        runCatching { context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager }.getOrNull()
 
     // ── Location ──────────────────────────────────────────────────────────────
 
@@ -874,7 +964,7 @@ class GetWeatherSkill @Inject constructor(
             val body = retryWithBackoff("Weekend Forecast API") {
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
-                        throw IllegalStateException("Forecast API returned ${response.code}")
+                        throw HttpStatusException(response.code)
                     }
                     response.body?.string() ?: throw IllegalStateException("Empty forecast response")
                 }
@@ -905,7 +995,7 @@ class GetWeatherSkill @Inject constructor(
             val body = retryWithBackoff("Forecast API ($days days)") {
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
-                        throw IllegalStateException("Forecast API returned ${response.code}")
+                        throw HttpStatusException(response.code)
                     }
                     response.body?.string() ?: throw IllegalStateException("Empty forecast response")
                 }
@@ -998,7 +1088,7 @@ class GetWeatherSkill @Inject constructor(
             val low = minTemps.optDouble(i, Double.NaN)
             Triple(formattedDate, desc, Pair(high.takeUnless { it.isNaN() }, low.takeUnless { it.isNaN() }))
         }
-        Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast for $locationLabel")
+        Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast")
         val firstCode = codes.optInt(0, -1)
         val firstHigh = maxTemps.optDouble(0, Double.NaN)
         val firstLow = minTemps.optDouble(0, Double.NaN)
@@ -1077,7 +1167,7 @@ class GetWeatherSkill @Inject constructor(
         val body = retryWithBackoff("Forecast API (day $dayIndex)") {
             httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw IllegalStateException("Forecast API returned ${response.code}")
+                    throw HttpStatusException(response.code)
                 }
                 response.body?.string() ?: throw IllegalStateException("Empty forecast response")
             }
@@ -1128,7 +1218,7 @@ class GetWeatherSkill @Inject constructor(
         val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val text = "$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr"
 
-        Log.d(TAG, "GetWeatherSkill: fetched forecast for day $dayIndex ($formattedDate) for $locationLabel")
+        Log.d(TAG, "GetWeatherSkill: fetched forecast for day $dayIndex ($formattedDate)")
 
         val temperatureText = buildString {
             if (!high.isNaN()) append("%.0f°C".format(high))
@@ -1188,7 +1278,7 @@ class GetWeatherSkill @Inject constructor(
                 val url = "https://air-quality-api.open-meteo.com/v1/air-quality" +
                     "?${openMeteoCoordinateQuery(lat, lon)}&current=us_aqi,pm2_5&timezone=auto"
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                    if (!response.isSuccessful) throw IllegalStateException("Air quality API returned ${response.code}")
+                    if (!response.isSuccessful) throw HttpStatusException(response.code)
                     response.body?.string() ?: throw IllegalStateException("Empty air quality response")
                 }
             } ?: return@withContext null
@@ -1227,7 +1317,7 @@ class GetWeatherSkill @Inject constructor(
             val weatherBody = retryWithBackoff("Weather API") {
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
-                        throw IllegalStateException("Weather API returned ${response.code}")
+                        throw HttpStatusException(response.code)
                     }
                     response.body?.string() ?: throw IllegalStateException("Empty weather response")
                 }
@@ -1338,7 +1428,7 @@ class GetWeatherSkill @Inject constructor(
             }
         }.trimEnd()
 
-        Log.d(TAG, "GetWeatherSkill: fetched weather for $locationLabel")
+        Log.d(TAG, "GetWeatherSkill: fetched current weather")
         // DirectReply: structured data — numeric temperature/humidity/wind values
         val precipText = buildString {
             if (precipChance >= 0) append("Rain chance $precipChance%")
@@ -1418,7 +1508,7 @@ class GetWeatherSkill @Inject constructor(
             prefs[WEATHER_CACHE_TIMESTAMP_KEY] = now
             prefs[WEATHER_CACHE_LOCATION_KEY] = cacheKey
         }
-        Log.d(TAG, "Weather cache stored: $cacheKey (${jsonBody.length} bytes)")
+        Log.d(TAG, "Weather cache stored (${jsonBody.length} bytes)")
     }
 
     /** Retrieve cached weather JSON and timestamp. Returns null if cache miss or expired. */
@@ -1435,7 +1525,7 @@ class GetWeatherSkill @Inject constructor(
             if (System.currentTimeMillis() - timestamp > CACHE_MAX_AGE_MS) return@withContext null
             json
         } catch (e: Exception) {
-            Log.w(TAG, "Cache read failed for key: $cacheKey", e)
+            Log.w(TAG, "Cache read failed", e)
             null
         }
     }
@@ -1450,37 +1540,36 @@ class GetWeatherSkill @Inject constructor(
             if (storedKey != cacheKey) return@withContext null
             json
         } catch (e: Exception) {
-            Log.w(TAG, "Raw cache read failed for key: $cacheKey", e)
+            Log.w(TAG, "Raw cache read failed", e)
             null
         }
     }
 
     // ── Retry with exponential backoff ─────────────────────────────────────────
 
-    /**
-     * Execute an HTTP call with retry on transient failures (timeout, 5xx).
-     * Retries up to [RETRY_MAX_ATTEMPTS] times with exponential backoff.
-     */
     private suspend fun <T> retryWithBackoff(
         label: String,
+        maxRetries: Int = RETRY_MAX_ATTEMPTS,
         body: suspend () -> T,
     ): T? {
         var lastException: Exception? = null
-        repeat(RETRY_MAX_ATTEMPTS + 1) { attempt ->
+        for (attempt in 0..maxRetries) {
             try {
                 return body()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 lastException = e
-                if (attempt < RETRY_MAX_ATTEMPTS) {
-                    val delayMs = RETRY_BASE_DELAY_MS * (1L shl attempt) // 1s, 2s
-                    Log.w(TAG, "$label failed (attempt $attempt/${RETRY_MAX_ATTEMPTS}), retrying in ${delayMs}ms", e)
+                // Client errors (4xx) are not transient; retrying only adds latency and rate-limit hits.
+                if (e is HttpStatusException && e.code in 400..499) break
+                if (attempt < maxRetries) {
+                    val delayMs = RETRY_BASE_DELAY_MS * (1L shl attempt)
+                    Log.w(TAG, "$label failed (attempt $attempt/$maxRetries), retrying in ${delayMs}ms", e)
                     delay(delayMs)
                 }
             }
         }
-        Log.w(TAG, "$label failed after $RETRY_MAX_ATTEMPTS retries", lastException)
+        Log.w(TAG, "$label failed; giving up", lastException)
         return null
     }
 }
