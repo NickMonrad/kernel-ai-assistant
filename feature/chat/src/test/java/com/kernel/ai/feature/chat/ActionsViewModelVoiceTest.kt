@@ -18,6 +18,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceNotice
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -69,6 +70,7 @@ class ActionsViewModelVoiceTest {
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
+    private val voiceInputNotices = MutableSharedFlow<VoiceNotice>(replay = 1)
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
     private val spokenResponsesEnabled = MutableStateFlow(true)
 
@@ -106,6 +108,7 @@ class ActionsViewModelVoiceTest {
         every { quickActionDao.observeAll() } returns flowOf(emptyList<QuickActionEntity>())
         coEvery { quickActionDao.insert(any()) } just Runs
         every { voiceInputController.events } returns voiceInputEvents
+        every { voiceInputController.notices } returns voiceInputNotices
         every { voiceInputController.stopListening() } just Runs
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
@@ -2770,6 +2773,35 @@ class ActionsViewModelVoiceTest {
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         // No third startListening call.
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
+    fun `hand-off note is shown for this capture and the handed-off command is not retried`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        // Posted while the start ran (start-time fallback): only the replay can deliver it.
+        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+        assertEquals("Using Zipformer for this request.", viewModel.error.value)
+
+        voiceInputNotices.emit(VoiceNotice(9L, "Another surface's note"))
+        advanceUntilIdle()
+        assertEquals("Using Zipformer for this request.", viewModel.error.value)
+
+        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
+        advanceUntilIdle()
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "I didn't catch anything", captureSessionId = 1L),
+        )
+        advanceUntilIdle()
+
+        assertEquals("I didn't catch anything", viewModel.error.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
     }
 
     @Test
