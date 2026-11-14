@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -52,14 +53,14 @@ import com.kernel.ai.core.memory.entity.ContactAliasEntity
 fun ContactAliasesScreen(
     onBack: () -> Unit = {},
     prefill: ContactAliasPrefill? = null,
-    onPrefillConsumed: () -> Unit = {},
     viewModel: ContactAliasesViewModel = hiltViewModel(),
 ) {
     val aliases by viewModel.aliases.collectAsStateWithLifecycle()
-    var showAddDialog by remember { mutableStateOf(prefill?.openAdd == true) }
-    // Set after a successful save: offers to open the dialer for the contact (never places a call).
-    // Prefill is one-shot: mark consumed so rotation/process death does not reopen the dialog.
-    LaunchedEffect(prefill) { if (prefill != null) onPrefillConsumed() }
+    var showAddDialog by rememberSaveable { mutableStateOf(prefill?.openAdd == true) }
+    // One-shot prefill from a failed contact lookup. Copied into saveable state on first composition and
+    // cleared on dismiss, on save, or once the picker has been launched, so recomposition, rotation and
+    // process death never reuse it.
+    var pendingPrefill by rememberSaveable(stateSaver = ContactAliasPrefillSaver) { mutableStateOf(prefill) }
     var callOffer by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     Scaffold(
@@ -74,7 +75,7 @@ fun ContactAliasesScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
+            FloatingActionButton(onClick = { pendingPrefill = null; showAddDialog = true }) {
                 Icon(Icons.Default.Add, contentDescription = "Add alias")
             }
         },
@@ -130,14 +131,19 @@ fun ContactAliasesScreen(
 
     if (showAddDialog) {
         AddAliasDialog(
-            initialAlias = prefill?.alias.orEmpty(),
-            autoPick = prefill?.openPicker == true,
-            suggestedName = prefill?.suggestedName,
-            onDismiss = { showAddDialog = false },
+            initialAlias = pendingPrefill?.alias.orEmpty(),
+            autoPick = pendingPrefill?.openPicker == true,
+            suggestedName = pendingPrefill?.suggestedName,
+            onAutoPickLaunched = { pendingPrefill = pendingPrefill?.copy(openPicker = false) },
+            onDismiss = {
+                showAddDialog = false
+                pendingPrefill = null
+            },
             onSave = { alias, displayName, contactId, phoneNumber ->
                 viewModel.addAlias(alias, displayName, contactId, phoneNumber)
                 showAddDialog = false
-                if (prefill?.callRequested == true) callOffer = displayName to phoneNumber
+                if (pendingPrefill?.callRequested == true) callOffer = displayName to phoneNumber
+                pendingPrefill = null
             },
         )
     }
@@ -213,15 +219,16 @@ private fun CallOfferDialog(
 private fun AddAliasDialog(
     initialAlias: String,
     autoPick: Boolean,
+    onAutoPickLaunched: () -> Unit,
     suggestedName: String?,
     onDismiss: () -> Unit,
     onSave: (alias: String, displayName: String, contactId: String, phoneNumber: String) -> Unit,
 ) {
     val context = LocalContext.current
-    var aliasText by remember { mutableStateOf(initialAlias) }
-    var selectedDisplayName by remember { mutableStateOf<String?>(null) }
-    var selectedContactId by remember { mutableStateOf<String?>(null) }
-    var selectedPhoneNumber by remember { mutableStateOf<String?>(null) }
+    var aliasText by rememberSaveable { mutableStateOf(initialAlias) }
+    var selectedDisplayName by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedContactId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedPhoneNumber by rememberSaveable { mutableStateOf<String?>(null) }
 
     val contactPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickContact(),
@@ -267,7 +274,10 @@ private fun AddAliasDialog(
 
     // Deep link from a failed lookup: open the picker straight away so the user only confirms.
     LaunchedEffect(autoPick) {
-        if (autoPick) contactPickerLauncher.launch(null)
+        if (autoPick) {
+            contactPickerLauncher.launch(null)
+            onAutoPickLaunched()
+        }
     }
 
     val canSave = aliasText.isNotBlank() && selectedContactId != null && selectedPhoneNumber != null

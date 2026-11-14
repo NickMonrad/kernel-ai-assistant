@@ -71,8 +71,8 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
- import kotlinx.coroutines.runBlocking
 private const val TAG = "KernelAI"
 
 interface ClockAlertController {

@@ -899,10 +899,10 @@ fun ActionsScreen(
                 )
             } + PermissionDialogAction(
                 label = "Not now",
-                testTag = "permission_dialog_settings_action_not_now",
+                testTag = "settings_action_not_now",
                 onClick = { viewModel.dismissSettingsActionDialog() },
             ),
-            dialogTestTag = "permission_dialog_settings_action",
+            dialogTestTag = "settings_action_dialog",
             onDismissRequest = { viewModel.dismissSettingsActionDialog() },
         )
     }

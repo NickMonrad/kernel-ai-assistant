@@ -1839,7 +1839,7 @@ class ActionsViewModel @Inject constructor(
 
             ExecutedAction(
                 entity = buildEntityFromSkillResult(query, intentName, skillResult),
-                spokenSummary = spokenSummaryFrom(skillResult),
+                spokenSummary = spokenSummaryFrom(skillResult, params.values),
                 fallThroughToModel = (skillResult as? SkillResult.Failure)?.fallThroughToModel == true,
             )
         } else {
@@ -1899,10 +1899,10 @@ class ActionsViewModel @Inject constructor(
         _events.emit(UiEvent.NavigateToChat(query, speakResponse = inputMode == InputMode.Voice))
     }
 
-    private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
+    private fun spokenSummaryFrom(result: SkillResult, userValues: Collection<String> = emptyList()): String? = when (result) {
         is SkillResult.DirectReply -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
         is SkillResult.Success -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
-        is SkillResult.Failure -> if (result.actions.isNotEmpty()) result.error else null
+        is SkillResult.Failure -> if (result.actions.isNotEmpty()) spokenRecoveryText(result.error, userValues) else null
         else -> null
     }
 
@@ -2172,6 +2172,16 @@ class ActionsViewModel @Inject constructor(
         userValues.fold(text) { acc, value ->
             if (value.isBlank()) acc else acc.replace(value, normalisePronounsForTts(value))
         }
+
+    /**
+     * Speech for a recovery failure that offers in-app actions. The in-app path is spoken as words
+     * ("Settings, People and Contacts"), not as a symbol, and user-supplied values get the same
+     * first→second person flip as slot prompts.
+     */
+    private fun spokenRecoveryText(text: String, userValues: Collection<String>): String =
+        normaliseUserValuesForTts(text, userValues)
+            .replace(" → ", ", ")
+            .replace(" & ", " and ")
 
     private fun toSpokenSummary(text: String): String {
         val normalized = text.lineSequence()
@@ -2545,5 +2555,9 @@ class ActionsViewModel @Inject constructor(
  * Quick Actions card text for a failed skill. A set [SkillResult.Failure.technicalDetail] means
  * [SkillResult.Failure.error] is already a complete reply, so no "Action failed:" prefix is added.
  */
-internal fun failureCardText(result: SkillResult.Failure): String =
-    if (result.technicalDetail != null) result.error else "Action failed: ${result.error}"
+internal fun failureCardText(result: SkillResult.Failure): String = when {
+    // Recovery failures name the contact in `error`; history stores only the name-free diagnostic.
+    result.actions.isNotEmpty() -> result.technicalDetail ?: "Settings action needed"
+    result.technicalDetail != null -> result.error
+    else -> "Action failed: ${result.error}"
+}

@@ -742,6 +742,75 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `send_email unresolved contact returns recovery actions and opens no composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        val failure = handleIntent(
+            "send_email",
+            mapOf("contact" to "Zephyrine Test", "subject" to "Hello", "body" to "World"),
+        ) as SkillResult.Failure
+
+        assertEquals("send_email", failure.skillName)
+        assertTrue(failure.actions.isNotEmpty())
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `send_sms unresolved named contact returns recovery actions and opens no composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        val failure = handleIntent(
+            "send_sms",
+            mapOf("contact" to "Zephyrine Test", "message" to "On my way"),
+        ) as SkillResult.Failure
+
+        assertEquals("send_sms", failure.skillName)
+        assertTrue(failure.actions.isNotEmpty())
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `text me still opens the SMS composer`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+
+        val result = handleIntent("send_sms", mapOf("contact" to "me", "message" to "On my way"))
+
+        assertTrue(result is SkillResult.Success)
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `self references without an own number never offer to add a contact`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        every { context.checkSelfPermission(android.Manifest.permission.CALL_PHONE) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        for (self in listOf("me", "myself")) {
+            val call = handleIntent("make_call", mapOf("contact" to self)) as SkillResult.Failure
+            assertTrue(call.actions.isEmpty(), "make_call $self")
+            assertTrue(call.error.contains("your own number"), "make_call $self")
+
+            val email = handleIntent(
+                "send_email",
+                mapOf("contact" to self, "subject" to "Hello", "body" to "World"),
+            ) as SkillResult.Failure
+            assertTrue(email.actions.isEmpty(), "send_email $self")
+        }
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
     fun `send_email named contact requires contacts permission when denied`() {
         every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
             PackageManager.PERMISSION_DENIED
