@@ -1,4 +1,5 @@
 package com.kernel.ai.core.skills
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -11,7 +12,7 @@ class SkillExecutor @Inject constructor(
     private val registry: SkillRegistry,
 ) {
     suspend fun execute(rawOutput: String): SkillResult {
-        val call = parseSkillCall(rawOutput)
+        val call = parseSkillCall(rawOutput)?.copy(route = IntentRoute.LLM_TOOL_CALL)
             ?: return SkillResult.ParseError(rawOutput, "Invalid JSON or missing 'name' field")
 
         val skill = registry.get(call.skillName)
@@ -26,7 +27,7 @@ class SkillExecutor @Inject constructor(
         }
 
         return try {
-            skill.execute(call)
+            skill.execute(call).also { SkillOutcomeEvents.record(call, it) }
         } catch (e: Exception) {
             SkillResult.Failure(call.skillName, e.message ?: "Unknown error")
         }

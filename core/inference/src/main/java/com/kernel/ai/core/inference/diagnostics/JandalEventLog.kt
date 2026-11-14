@@ -49,8 +49,28 @@ internal const val JANDAL_EVENT_MAX_FILE_BYTES = 512L * 1024
 /** Stands in for any value or identifier that is not on the allowlist. */
 internal const val JANDAL_EVENT_REDACTED = "[redacted]"
 
+/** Which layer chose the intent. Exported as a constant; never carries user text (#1870). */
+enum class IntentRoute { QUICK_REGEX, QUICK_CLASSIFIER, SLOT_FILL, CONFIRMATION, RECOVERY, LLM_TOOL_CALL, ACTION_UI, OTHER }
+
 /** Category, name and field keys: short lowercase snake_case constants written in code. */
 private val IDENTIFIER = Regex("[a-z][a-z0-9_]{0,31}")
+
+/** Stable wake-session category names from WakeWordService and the cue path. OTHER for unlisted values (#1870). */
+enum class WakeCategory {
+    STT_NO_FINAL_RESULT, STT_UNAVAILABLE, STT_RECOGNITION_FAILED, NO_SPEECH_WINDOW_EXHAUSTED,
+    ROUTE_ACTIVITY_FAILED, SESSION_CANCELLED, SESSION_FAILED, RECORD_AUDIO_PERMISSION_MISSING,
+    MICROPHONE_FGS_START_NOT_ALLOWED, USAGE_ACCESS_MISSING, USAGE_ACCESS_REVOKED,
+    WAKE_MODEL_UNAVAILABLE, CAMERA_FOREGROUND_YIELD, OTHER,
+}
+
+/** Command handoff outcome for wake sessions (#1870). */
+enum class WakeOutcome { HANDED_OFF, FAILED, OTHER }
+
+/** Sherpa STT failure categories for the support export (#1870). */
+enum class SttFailure { MODEL_UNAVAILABLE, MIC_UNAVAILABLE, AUDIO_LOOP, NO_SPEECH }
+
+/** TTS engine family for the support export: Google's package or any other engine (#1870). */
+enum class TtsEngineKind { GOOGLE, OTHER }
 
 /** Enum constant names, e.g. `NATIVE`, `DOWNLOADING`. */
 private val ENUM_TOKEN = Regex("[A-Z][A-Z0-9_]{0,47}")
@@ -297,9 +317,14 @@ object JandalEvents {
         }
     }
 
-    /** Export lines for the support attachment. Covers this session plus any loaded history. */
-    fun exportLines(nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): List<String> =
-        renderJandalEventLines(buffer.snapshot(), nowMs, zone)
+    /**
+     * Export lines for the support attachment. Waits for queued writes and the cold-start load
+     * first, so history from before [install] completes is included (#1870).
+     */
+    fun exportLines(nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): List<String> {
+        writer.submit(Callable {}).get()
+        return renderJandalEventLines(buffer.snapshot(), nowMs, zone)
+    }
 
     /** Blocks until queued writes finish. For tests only; not for production code. */
     fun awaitWritesForTest() {

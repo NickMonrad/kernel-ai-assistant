@@ -1,4 +1,6 @@
 package com.kernel.ai.assistant
+import com.kernel.ai.core.inference.diagnostics.WakeCategory
+import com.kernel.ai.core.inference.diagnostics.WakeOutcome
 
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.voice.AcousticEventType
@@ -15,7 +17,7 @@ internal class WakeSessionJournal(
         metadata: () -> Map<String, String>,
     ) -> Unit = { type, generationId, sessionId, metadata ->
         AcousticJournalBridge.record(type, generationId, sessionId, metadata = metadata)
-        recordWakeJandalEvent(type, generationId, sessionId)
+        recordWakeJandalEvent(type, generationId, sessionId, metadata)
     },
 ) {
     private var started = false
@@ -63,12 +65,29 @@ internal class WakeSessionJournal(
  * is not forwarded, so transcript hashes and outcome strings never reach the log. Partial
  * transcripts are skipped so they cannot push older events out of the buffer.
  */
-internal fun recordWakeJandalEvent(type: String, generationId: Long, sessionId: Long) {
+internal fun recordWakeJandalEvent(
+    type: String,
+    generationId: Long,
+    sessionId: Long,
+    metadata: () -> Map<String, String>,
+) {
     if (type == AcousticEventType.STT_PARTIAL) return
+    val fields = metadata()
+    val typed = buildList<Pair<String, Any?>> {
+        fields["category"]?.let { add("category" to wakeCategoryOf(it)) }
+        fields["outcome"]?.let { add("outcome" to wakeOutcomeOf(it)) }
+    }
     JandalEvents.record(
         "wake",
         type.lowercase(),
         "generation" to generationId,
         "session" to sessionId,
+        *typed.toTypedArray(),
     )
 }
+
+private fun wakeCategoryOf(raw: String): WakeCategory =
+    WakeCategory.entries.firstOrNull { it.name == raw.uppercase() } ?: WakeCategory.OTHER
+
+private fun wakeOutcomeOf(raw: String): WakeOutcome =
+    WakeOutcome.entries.firstOrNull { it.name == raw.uppercase() } ?: WakeOutcome.OTHER

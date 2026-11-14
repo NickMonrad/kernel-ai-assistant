@@ -10,6 +10,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.TtsFailure
+import com.kernel.ai.core.inference.diagnostics.TtsEngineKind
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import javax.inject.Inject
@@ -541,7 +542,7 @@ class AndroidTextToSpeechController @Inject constructor(
         if (status == TextToSpeech.SUCCESS) {
             JandalEvents.record(
                 "tts", "engine_init", "ready" to true,
-                "google_engine" to (enginePackage == "com.google.android.tts"),
+                "engine" to (if (enginePackage == "com.google.android.tts") TtsEngineKind.GOOGLE else TtsEngineKind.OTHER),
             )
             return ReadyEngine(instance = engine, enginePackage = enginePackage)
         }

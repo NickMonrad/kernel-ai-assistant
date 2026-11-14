@@ -50,6 +50,8 @@ import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.LocalToolDiagnosticCapture
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
+import com.kernel.ai.core.skills.SkillOutcomeEvents
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.toSpokenSummary
@@ -1492,7 +1494,7 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        when (val result = skill.execute(SkillCall(skill.name, callParams))) {
+        when (val result = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.OTHER)) {
             is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
                 convId = convId,
                 content = result.content,
@@ -2232,7 +2234,7 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         if (skill != null) {
-                            val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                            val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.OTHER)
                             when (skillResult) {
                                 is SkillResult.DirectReply -> {
                                     appendAssistantMessageWithToolCall(
@@ -2300,7 +2302,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         Log.d("KernelAI", "RecoveryConfirmation: dispatching ${pendingConfirmation.intentName}")
-                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.CONFIRMATION)
                         when (skillResult) {
                             is SkillResult.DirectReply -> {
                                 appendAssistantMessageWithToolCall(
@@ -2354,7 +2356,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         Log.d("KernelAI", "ConfirmationFastPath: dispatching ${pendingConfirmation.intentName}")
-                        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                        val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.CONFIRMATION)
                         when (skillResult) {
                             is SkillResult.DirectReply -> {
                                 appendAssistantMessageWithToolCall(
@@ -2615,7 +2617,7 @@ class ChatViewModel @Inject constructor(
                                     return@launch
                                 }
                                 Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} params=$callParams")
-                                val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                                val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.RECOVERY)
                                 when (skillResult) {
                                     is SkillResult.DirectReply -> {
                                         appendAssistantMessageWithToolCall(
@@ -2742,7 +2744,15 @@ class ChatViewModel @Inject constructor(
                 }
                 if (skill != null) {
                     Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} params=$callParams")
-                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    val skillResult = SkillOutcomeEvents.execute(
+                        skill,
+                        callParams,
+                        when (routeResult) {
+                            is QuickIntentRouter.RouteResult.RegexMatch -> IntentRoute.QUICK_REGEX
+                            is QuickIntentRouter.RouteResult.ClassifierMatch -> IntentRoute.QUICK_CLASSIFIER
+                            else -> IntentRoute.OTHER
+                        },
+                    )
                     when (skillResult) {
                         is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
                             // Skill produced a complete, self-contained reply — show it verbatim
@@ -2935,7 +2945,7 @@ class ChatViewModel @Inject constructor(
                         Log.d("KernelAI", "AnaphoricIntent: slot_validation_blocked intent=${anaphoricIntent.intentName}")
                         return@launch
                     }
-                    val skillResult = skill.execute(SkillCall(skill.name, callParams))
+                    val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.OTHER)
                     when (skillResult) {
                         is SkillResult.DirectReply -> {
                             appendAssistantMessageWithToolCall(
@@ -4710,7 +4720,7 @@ class ChatViewModel @Inject constructor(
                 }
 
                 Log.d("KernelAI", "AnaphoricListAdd: resolved item_count=${resolution.items.size}")
-                when (val result = runIntent.execute(SkillCall(runIntent.name, intentParams))) {
+                when (val result = SkillOutcomeEvents.execute(runIntent, intentParams, IntentRoute.OTHER)) {
                     is SkillResult.DirectReply -> appendAssistantMessageWithToolCall(
                         convId = convId,
                         content = result.content,

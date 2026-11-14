@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
@@ -188,6 +189,7 @@ fun ActionsScreen(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted")
+        JandalEvents.record("permission", "record_audio", "granted" to granted)
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,

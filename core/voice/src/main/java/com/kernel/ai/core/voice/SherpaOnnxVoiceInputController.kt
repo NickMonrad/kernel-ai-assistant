@@ -1,4 +1,6 @@
 package com.kernel.ai.core.voice
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.SttFailure
 
 import android.content.Context
 import android.media.AudioFormat
@@ -206,13 +208,17 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             previousJob?.join()
 
             val spec = resolveSpec()
-            val rec = ensureRecognizer(spec) ?: return@withLock VoiceInputStartResult.Unavailable(
-                "Sherpa-ONNX STT model not available — download it from Settings → Voice."
-            )
+            val rec = ensureRecognizer(spec) ?: return@withLock run {
+                JandalEvents.record("voice", "stt_error", "category" to SttFailure.MODEL_UNAVAILABLE)
+                VoiceInputStartResult.Unavailable(
+                    "Sherpa-ONNX STT model not available — download it from Settings → Voice."
+                )
+            }
+            JandalEvents.record("voice", "stt_ready", "zipformer" to (spec == SherpaSttModelSpec.ZIPFORMER))
 
             requestAudioFocus()
             val ar = createAudioRecord() ?: run {
-                releaseAudioFocus()
+                JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Microphone unavailable — check RECORD_AUDIO permission."
                 )
@@ -231,7 +237,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                             offlineAudioLoop(ar, mode, captureSessionId, rec, spec)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Audio loop error", e)
+            JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
                     _events.tryEmit(
                         VoiceInputEvent.Error(
                             mode,
@@ -299,6 +305,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 if (onlineMethods.isEndpoint!!.invoke(rec, stream) as Boolean) {
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
+                        JandalEvents.record("voice", "stt_result", "chars" to text.length)
                         _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                         lastPartial = ""
                     }
@@ -316,6 +323,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 if (System.currentTimeMillis() - started > LISTEN_TIMEOUT_MS) {
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
+                        JandalEvents.record("voice", "stt_result", "chars" to text.length)
                         _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                     } else {
                         _events.tryEmit(
@@ -343,6 +351,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             if (!exitedFromLoop) {
                 val text = signalEndAndDrainOnline(rec, stream)
                 if (text.isNotEmpty()) {
+                    JandalEvents.record("voice", "stt_result", "chars" to text.length)
                     _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                 }
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
@@ -430,8 +439,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
                 val text = resultTextOffline(rec, stream)
                 if (text.isNotEmpty()) {
+                    JandalEvents.record("voice", "stt_result", "chars" to text.length)
                     _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                 } else {
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                     _events.tryEmit(
                         VoiceInputEvent.Error(
                             mode,

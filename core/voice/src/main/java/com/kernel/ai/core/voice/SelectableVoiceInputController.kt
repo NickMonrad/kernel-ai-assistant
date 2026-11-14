@@ -78,7 +78,11 @@ class SelectableVoiceInputController @Inject constructor(
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         val allowOnlineFallback = voiceInputPreferences.allowOnlineSpeechFallback.first()
-        return when (voiceInputPreferences.selectedEngine.first()) {
+        val engine = voiceInputPreferences.selectedEngine.first()
+        if (engine != VoiceInputEngine.Auto) {
+            JandalEvents.record("voice", "stt_route", "route" to engine, "online_fallback" to allowOnlineFallback)
+        }
+        return when (engine) {
             VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback)
             VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback)
             else -> startSherpa(mode) // All Sherpa families.

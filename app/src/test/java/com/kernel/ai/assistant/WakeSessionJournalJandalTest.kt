@@ -5,17 +5,64 @@ import com.kernel.ai.core.voice.AcousticEventType
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.File
 
 class WakeSessionJournalJandalTest {
 
-    @Test
-    fun `partial transcripts never reach the Jandal log`() {
-        recordWakeJandalEvent(AcousticEventType.STT_PARTIAL, generationId = 7L, sessionId = 9L)
-        recordWakeJandalEvent(AcousticEventType.STT_FINAL, generationId = 7L, sessionId = 9L)
+    private fun exportAfter(block: () -> Unit): List<String> {
+        JandalEvents.install(File.createTempFile("jandal-wake", ".log"))
+        val before = JandalEvents.exportLines().size
+        block()
         JandalEvents.awaitWritesForTest()
+        return JandalEvents.exportLines().drop(before)
+    }
 
-        val lines = JandalEvents.exportLines()
-        assertFalse(lines.any { it.contains(" wake stt_partial ") })
-        assertTrue(lines.any { it.contains(" wake stt_final ") })
+    @Test
+    fun `stt error category is exported as a typed enum`() {
+        val lines = exportAfter {
+            recordWakeJandalEvent(AcousticEventType.STT_ERROR, 1L, 2L) { mapOf("category" to "stt_unavailable") }
+        }
+
+        val line = lines.single { " wake stt_error " in it }
+        assertTrue("category=STT_UNAVAILABLE" in line, line)
+    }
+
+    @Test
+    fun `unlisted category maps to OTHER`() {
+        val lines = exportAfter {
+            recordWakeJandalEvent(AcousticEventType.CUE_PLAYBACK_ERROR, 1L, 2L) {
+                mapOf("category" to "device_specific_failure")
+            }
+        }
+
+        val line = lines.single { " wake cue_playback_error " in it }
+        assertTrue("category=OTHER" in line, line)
+        assertFalse("device_specific_failure" in line, line)
+    }
+
+    @Test
+    fun `command routing failure exports outcome and category enums`() {
+        val lines = exportAfter {
+            recordWakeJandalEvent(AcousticEventType.COMMAND_ROUTING_RESULT, 1L, 2L) {
+                mapOf("outcome" to "failed", "category" to "route_activity_failed")
+            }
+        }
+
+        val line = lines.single { " wake command_routing_result " in it }
+        assertTrue("outcome=FAILED" in line, line)
+        assertTrue("category=ROUTE_ACTIVITY_FAILED" in line, line)
+    }
+
+    @Test
+    fun `final transcript hash and length are not exported`() {
+        val lines = exportAfter {
+            recordWakeJandalEvent(AcousticEventType.STT_FINAL, 1L, 2L) {
+                mapOf("length" to "12", "normalized_transcript_sha256" to "deadbeef-transcript-hash")
+            }
+        }
+
+        val line = lines.single { " wake stt_final " in it }
+        assertFalse("deadbeef-transcript-hash" in line, line)
+        assertFalse("length=" in line, line)
     }
 }

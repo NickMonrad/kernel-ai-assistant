@@ -1,4 +1,5 @@
 package com.kernel.ai.feature.widget
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 
 import android.Manifest
 import android.content.Intent
@@ -99,6 +100,7 @@ class VoiceCommandActivity : ComponentActivity() {
     private val requestMicPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        JandalEvents.record("permission", "record_audio", "granted" to granted)
         if (granted) startVoiceSession() else finish()
     }
 

@@ -22,6 +22,7 @@ import android.view.KeyEvent
 
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.AlarmDraft
@@ -165,7 +166,7 @@ class NativeIntentHandler @Inject constructor(
 
     private val intentRegistry = IntentContractRegistry()
 
-    suspend fun handle(intentName: String, params: Map<String, String>): SkillResult {
+    suspend fun handle(intentName: String, params: Map<String, String>, route: IntentRoute = IntentRoute.OTHER): SkillResult {
         val normalizedName = normalizeIntentName(intentName)
         if (normalizedName != intentName) {
             Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
@@ -251,15 +252,15 @@ class NativeIntentHandler @Inject constructor(
             Log.e(TAG, "NativeIntentHandler.handle($normalizedName) failed", e)
             SkillResult.Failure("run_intent", e.message ?: "Unknown error")
         }
-        recordIntentOutcome(normalizedName, result)
+        recordIntentOutcome(normalizedName, route, result)
         return result
     }
 
     /** Outcome only: registered intent names, never params or result text (#1870). */
-    private fun recordIntentOutcome(normalizedName: String, result: SkillResult) {
+    private fun recordIntentOutcome(normalizedName: String, route: IntentRoute, result: SkillResult) {
         val name = if (normalizedName in HANDLED_INTENT_NAMES) normalizedName else "unknown_intent"
         val outcome = intentOutcomeOf(result)
-        JandalEvents.record("intent", name, "success" to (outcome == IntentOutcome.SUCCESS), "outcome" to outcome)
+        JandalEvents.record("intent", name, "route" to route, "success" to (outcome == IntentOutcome.SUCCESS), "outcome" to outcome)
     }
 
 

@@ -223,6 +223,6 @@ class RunIntentSkill @Inject constructor(
             val message = invalid.errorMessage ?: "Invalid value for $intentName. Please try again."
             return SkillResult.Failure("$name/$intentName", message)
         }
-        return handler.handle(intentName, extraParams)
+        return handler.handle(intentName, extraParams, call.route)
     }
 }

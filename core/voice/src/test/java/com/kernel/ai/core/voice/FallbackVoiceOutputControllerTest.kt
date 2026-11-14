@@ -204,14 +204,48 @@ class FallbackVoiceOutputControllerTest {
             val request = VoiceSpeakRequest("Kia ora")
             val session = mockk<VoiceOutputStreamingSession>()
             coEvery { sherpa.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { session.append("Kia ora", true) } returns VoiceOutputResult.Spoken
             coEvery { sherpa.openStreamingSession(request) } returns session
 
             val controller = buildController()
             val result = controller.openStreamingSession(request)
 
-            assertEquals(session, result)
+            assertEquals(VoiceOutputResult.Spoken, result.append("Kia ora", isFinal = true))
             coVerify(exactly = 1) { sherpa.openStreamingSession(request) }
             coVerify(exactly = 0) { androidTts.openStreamingSession(any()) }
+        }
+
+    @Test
+    fun `Sherpa streaming session records speak start and end with the engine`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.SherpaExperimental
+            val request = VoiceSpeakRequest("Kia ora")
+            val session = mockk<VoiceOutputStreamingSession>()
+            coEvery { sherpa.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { sherpa.openStreamingSession(request) } returns session
+            coEvery { session.append("Kia ora", true) } returns VoiceOutputResult.Unavailable("generation failed")
+            com.kernel.ai.core.inference.diagnostics.JandalEvents.install(
+                java.io.File.createTempFile("jandal-tts-stream", ".log"),
+            )
+            val before = com.kernel.ai.core.inference.diagnostics.JandalEvents.exportLines().size
+
+            val result = buildController().openStreamingSession(request).append("Kia ora", isFinal = true)
+            com.kernel.ai.core.inference.diagnostics.JandalEvents.awaitWritesForTest()
+
+            assertEquals(VoiceOutputResult.Unavailable("generation failed"), result)
+            val lines = com.kernel.ai.core.inference.diagnostics.JandalEvents.exportLines().drop(before)
+            org.junit.jupiter.api.Assertions.assertTrue(
+                lines.any { " tts speak_start " in it && "engine=SHERPA_EXPERIMENTAL" in it && "streaming=true" in it },
+                lines.toString(),
+            )
+            org.junit.jupiter.api.Assertions.assertTrue(
+                lines.any { " tts speak_failed " in it && "category=UNAVAILABLE" in it },
+                lines.toString(),
+            )
+            org.junit.jupiter.api.Assertions.assertTrue(
+                lines.any { " tts speak_end " in it && "spoken=false" in it },
+                lines.toString(),
+            )
         }
 
     @Test

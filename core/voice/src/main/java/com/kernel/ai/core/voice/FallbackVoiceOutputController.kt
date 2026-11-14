@@ -75,17 +75,20 @@ class FallbackVoiceOutputController @Inject constructor(
         return result
     }
 
-    override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
-        when (voiceOutputPreferences.selectedEngine.first()) {
+    override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession {
+        val engine = voiceOutputPreferences.selectedEngine.first()
+        JandalEvents.record("tts", "engine_select", "engine" to engine)
+        return when (engine) {
             VoiceOutputEngine.AndroidTts -> {
                 activate(androidTts)
                 androidTts.openStreamingSession(request)
             }
 
             VoiceOutputEngine.SherpaExperimental,
-            VoiceOutputEngine.KokoroExperimental -> openSherpaStreamingSessionOrFallback(request)
-            VoiceOutputEngine.InflectMicroExperimental -> openInflectStreamingSessionOrFallback(request)
+            VoiceOutputEngine.KokoroExperimental -> openSherpaStreamingSessionOrFallback(request, engine)
+            VoiceOutputEngine.InflectMicroExperimental -> openInflectStreamingSessionOrFallback(request, engine)
         }
+    }
 
     override fun stop() {
         sherpa.stop()
@@ -181,11 +184,12 @@ class FallbackVoiceOutputController @Inject constructor(
 
     private suspend fun openInflectStreamingSessionOrFallback(
         request: VoiceSpeakRequest,
+        engine: VoiceOutputEngine,
     ): VoiceOutputStreamingSession {
         val warmUpResult = inflect.warmUp()
         if (warmUpResult !is VoiceOutputResult.Unavailable) {
             activate(inflect)
-            val inflectSession = inflect.openStreamingSession(request)
+            val inflectSession = recordedStreamSession(engine, inflect.openStreamingSession(request))
             return object : VoiceOutputStreamingSession {
                 private val bufferedText = StringBuilder()
                 private var isClosed = false
@@ -251,11 +255,12 @@ class FallbackVoiceOutputController @Inject constructor(
 
     private suspend fun openSherpaStreamingSessionOrFallback(
         request: VoiceSpeakRequest,
+        engine: VoiceOutputEngine,
     ): VoiceOutputStreamingSession {
         val warmUpResult = sherpa.warmUp()
         if (warmUpResult !is VoiceOutputResult.Unavailable) {
             activate(sherpa)
-            return sherpa.openStreamingSession(request)
+            return recordedStreamSession(engine, sherpa.openStreamingSession(request))
         }
 
         Log.i(
@@ -274,9 +279,38 @@ class FallbackVoiceOutputController @Inject constructor(
         }
     }
 
+    /** Records streaming speak start, final append and cancel for a non-Android engine (#1870). */
+    private fun recordedStreamSession(
+        engine: VoiceOutputEngine,
+        delegate: VoiceOutputStreamingSession,
+    ): VoiceOutputStreamingSession {
+        JandalEvents.record("tts", "speak_start", "engine" to engine, "streaming" to true)
+        return RecordedStreamingSession(engine, delegate)
+    }
+
     private fun activate(controller: VoiceOutputController) {
         activeController.value = controller
         stopInactiveControllers(controller)
+    }
+
+    private class RecordedStreamingSession(
+        private val engine: VoiceOutputEngine,
+        private val delegate: VoiceOutputStreamingSession,
+    ) : VoiceOutputStreamingSession {
+        override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+            val result = delegate.append(text, isFinal)
+            if (isFinal) {
+                val spoken = result is VoiceOutputResult.Spoken
+                if (!spoken) JandalEvents.record("tts", "speak_failed", "engine" to engine, "category" to TtsFailure.UNAVAILABLE)
+                JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to spoken)
+            }
+            return result
+        }
+
+        override suspend fun cancel() {
+            delegate.cancel()
+            JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to false, "cancelled" to true)
+        }
     }
 
     private fun stopInactiveControllers(active: VoiceOutputController) {
