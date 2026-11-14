@@ -1,7 +1,12 @@
 package com.kernel.ai.feature.settings
 
-import androidx.compose.foundation.clickable
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,21 +33,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Row
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.permissions.PermissionRoute
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,20 +52,30 @@ fun AppPermissionsScreen(
     viewModel: AppPermissionsViewModel = hiltViewModel(),
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
 
-    val context = LocalContext.current
+    // Live Activity value; read at refresh time, never during composition.
+    val rationaleFor = remember(context) {
+        { permission: String ->
+            context.findActivity()?.let { activity ->
+                ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
+            } ?: false
+        }
+    }
+
+    // Denial changes rationale/requested state; re-read so the row routes correctly.
     val requestPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
-        viewModel.refresh()
+        viewModel.refresh(rationaleFor)
     }
 
     // Auto-refresh when returning from system settings (e.g. after toggling permissions)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.refresh()
+                viewModel.refresh(rationaleFor)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -85,7 +95,7 @@ fun AppPermissionsScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick = { viewModel.refresh() }) {
+                    TextButton(onClick = { viewModel.refresh(rationaleFor) }) {
                         Icon(
                             Icons.Default.Refresh,
                             contentDescription = "Refresh",
@@ -113,15 +123,10 @@ fun AppPermissionsScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             uiState.permissions.forEach { perm ->
-                val shouldShowRationale = context.findActivity()?.let { activity ->
-                    ActivityCompat.shouldShowRequestPermissionRationale(activity, perm.permission)
-                } ?: false
-                val route = viewModel.routeFor(perm, shouldShowRationale)
                 PermissionRow(
                     item = perm,
-                    route = route,
-                    onFix = {
-                        when (route) {
+                    onAction = {
+                        when (perm.route) {
                             PermissionRoute.Granted -> Unit
                             PermissionRoute.RequestInApp -> {
                                 viewModel.markRuntimePermissionRequested(perm.permission)
@@ -142,18 +147,13 @@ fun AppPermissionsScreen(
 @Composable
 private fun PermissionRow(
     item: AppPermissionItem,
-    route: PermissionRoute,
-    onFix: () -> Unit,
+    onAction: () -> Unit,
 ) {
     val tint = if (item.isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
 
+    // The action button is the only interactive element, so TalkBack exposes one action per row.
     ListItem(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(
-                enabled = !item.isGranted,
-                onClick = onFix,
-            ),
+        modifier = Modifier.fillMaxWidth(),
         headlineContent = {
             Text(
                 text = item.label,
@@ -169,14 +169,14 @@ private fun PermissionRow(
         },
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val actionLabel = when (route) {
+                val actionLabel = when (item.route) {
                     PermissionRoute.Granted -> null
                     PermissionRoute.RequestInApp -> "Allow"
                     PermissionRoute.AppInfo -> "Open app settings"
                     PermissionRoute.SpecialAccess -> "Opens Android settings"
                 }
                 if (actionLabel != null) {
-                    TextButton(onClick = onFix) {
+                    TextButton(onClick = onAction) {
                         Text(actionLabel)
                     }
                 }

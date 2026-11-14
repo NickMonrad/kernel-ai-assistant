@@ -7,12 +7,12 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.permissions.PermissionRequestStore
 import com.kernel.ai.core.permissions.PermissionRoute
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
 import com.kernel.ai.core.permissions.decidePermissionRoute
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,12 +24,15 @@ import javax.inject.Inject
 /**
  * Represents a single runtime permission whose grant status the user can inspect and act on.
  *
- * @param label        Human-readable name shown in the UI.
- * @param description  What the permission is used for in this app.
- * @param permission   The [Manifest.permission] constant value.
- * @param isGranted    Current grant state as of the last refresh.
- * @param isSpecial    If true, this is a special-access permission (like DND/write settings)
- *                     managed through a system settings intent rather than a runtime request.
+ * @param label               Human-readable name shown in the UI.
+ * @param description         What the permission is used for in this app.
+ * @param permission          The [Manifest.permission] constant value.
+ * @param isGranted           Current grant state as of the last refresh.
+ * @param isSpecial           If true, this is a special-access permission managed through a
+ *                            system settings page rather than a runtime request.
+ * @param shouldShowRationale Snapshot of `shouldShowRequestPermissionRationale` at refresh time.
+ *                            Part of the state so a denial callback changes the emitted state.
+ * @param route               Where the action button goes; computed in [AppPermissionsViewModel.refresh].
  */
 data class AppPermissionItem(
     val label: String,
@@ -37,6 +40,8 @@ data class AppPermissionItem(
     val permission: String,
     val isGranted: Boolean = false,
     val isSpecial: Boolean = false,
+    val shouldShowRationale: Boolean = false,
+    val route: PermissionRoute = PermissionRoute.RequestInApp,
 )
 
 data class AppPermissionsUiState(
@@ -98,44 +103,32 @@ internal fun specialPermissionRoute(permission: String, packageName: String): Se
     else -> null
 }
 
-
 @HiltViewModel
 class AppPermissionsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val requestStore: PermissionRequestStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AppPermissionsUiState())
     val uiState: StateFlow<AppPermissionsUiState> = _uiState.asStateFlow()
 
-    private val requestStore = PermissionRequestStore(context)
-
     init {
         refresh()
     }
 
-    fun refresh() {
+    /**
+     * Rebuilds the permission list and routes.
+     *
+     * [shouldShowRationaleFor] must read the live Activity value; it is called here, never during
+     * composition. Call this after every runtime-request result and on ON_RESUME. StateFlow drops
+     * equal values, so any field routing depends on must be in [AppPermissionItem].
+     */
+    fun refresh(shouldShowRationaleFor: (String) -> Boolean = { false }) {
         viewModelScope.launch {
             _uiState.value = AppPermissionsUiState(
-                permissions = buildPermissionList(),
+                permissions = buildPermissionList(shouldShowRationaleFor),
             )
         }
-    }
-
-    /** Opens the system App-info page for this app so the user can toggle runtime permissions. */
-    fun openAppInfoSettings() {
-        context.startActivity(buildAppInfoSettingsIntent(context.packageName))
-    }
-
-    /** Opens a specific system settings panel for a special-access permission. */
-    fun openSpecialPermissionSettings(permission: String) {
-        buildSpecialPermissionSettingsIntent(permission, context.packageName)?.let { intent ->
-            context.startActivity(intent)
-        } ?: openAppInfoSettings()
-    }
-
-    /** Opens App info with the permission hint for a runtime permission that is permanently denied. */
-    fun openRuntimePermissionAppInfo(permission: String) {
-        context.startActivity(RuntimePermissionRepair.intentFor(context, permission))
     }
 
     /** Records that the in-app runtime request was launched for [permission]. */
@@ -152,7 +145,24 @@ class AppPermissionsViewModel @Inject constructor(
             shouldShowRationale = shouldShowRationale,
         )
 
-    private fun buildPermissionList(): List<AppPermissionItem> {
+    /** Opens the system App-info page for this app so the user can toggle runtime permissions. */
+    fun openAppInfoSettings() {
+        context.startActivity(buildAppInfoSettingsIntent(context.packageName))
+    }
+
+    /** Opens App info for a permanently denied runtime permission. */
+    fun openRuntimePermissionAppInfo(permission: String) {
+        context.startActivity(RuntimePermissionRepair.intentFor(context, permission))
+    }
+
+    /** Opens a specific system settings panel for a special-access permission. */
+    fun openSpecialPermissionSettings(permission: String) {
+        buildSpecialPermissionSettingsIntent(permission, context.packageName)?.let { intent ->
+            context.startActivity(intent)
+        } ?: openAppInfoSettings()
+    }
+
+    private fun buildPermissionList(shouldShowRationaleFor: (String) -> Boolean): List<AppPermissionItem> {
 
         // Runtime permissions that the app actually uses and can be revoked.
         // Each entry maps to the skill/feature that depends on it.
@@ -209,12 +219,19 @@ class AppPermissionsViewModel @Inject constructor(
             ),
         )
 
-        return knownPermissions.map { perm ->
+        return (knownPermissions.map { perm ->
+            val granted = ContextCompat.checkSelfPermission(context, perm.permission) ==
+                PackageManager.PERMISSION_GRANTED
             perm.copy(
-                isGranted = ContextCompat.checkSelfPermission(context, perm.permission)
-                    == PackageManager.PERMISSION_GRANTED,
+                isGranted = granted,
+                shouldShowRationale = !granted && shouldShowRationaleFor(perm.permission),
             )
-        } + specialPermissions
+        } + specialPermissions).map { item ->
+            // A granted permission no longer needs its "requested before" record. Android
+            // auto-revokes one-time grants, so the record must not survive a later revoke.
+            if (item.isGranted) requestStore.clear(item.permission)
+            item.copy(route = routeFor(item, item.shouldShowRationale))
+        }
     }
 
     private fun checkNotificationPolicyAccess(): Boolean {

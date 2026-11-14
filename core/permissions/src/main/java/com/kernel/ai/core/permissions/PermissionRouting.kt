@@ -52,6 +52,11 @@ class PermissionRequestStore(context: Context) {
         prefs.edit().putBoolean(permission, true).apply()
     }
 
+    /** Forget the record, e.g. once the permission is granted (one-time grants auto-revoke). */
+    fun clear(permission: String) {
+        prefs.edit().remove(permission).apply()
+    }
+
     private companion object {
         const val PREFS_NAME = "runtime_permission_requests"
     }

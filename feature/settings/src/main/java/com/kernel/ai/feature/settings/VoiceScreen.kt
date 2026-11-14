@@ -85,7 +85,7 @@ import kotlin.math.roundToInt
 import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
 import android.net.Uri
-import android.content.ActivityNotFoundException
+import android.widget.Toast
 import android.util.Log
 import android.provider.Settings
 import android.Manifest
@@ -96,6 +96,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
@@ -135,6 +136,9 @@ fun VoiceScreen(
         if (needsUsageAccess) showUsageAccessDialog = true else viewModel.setHeyJandalEnabled(true)
     }
 
+    var showDefaultAssistantNotSetYet by remember { mutableStateOf(false) }
+    var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
+    var awaitingAssistantReturn by remember { mutableStateOf(false) }
     val micDenialClassifier = remember { PermissionDenialClassifier() }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -142,6 +146,14 @@ fun VoiceScreen(
                 viewModel.refreshAssistantStatus(
                     roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
                 )
+                // Back from assistant Settings: role held → success, and drop any "Not set yet" note.
+                if ((awaitingAssistantReturn || showDefaultAssistantNotSetYet) &&
+                    roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+                ) {
+                    awaitingAssistantReturn = false
+                    showDefaultAssistantNotSetYet = false
+                    showDefaultAssistantSuccess = true
+                }
                 needsUsageAccess = requiresUsageAccess()
 
                 // 0. Settings-return handling: Usage Access round-trip (#1502). Continue the
@@ -220,32 +232,38 @@ fun VoiceScreen(
         }
     }
 
+
     var showDefaultAssistantPrompt by remember { mutableStateOf(false) }
-    var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
-    var showDefaultAssistantNotSetYet by remember { mutableStateOf(false) }
 
     val assistantRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
-        // Re-check role state immediately on return — do not rely solely on ON_RESUME.
-        val roleGranted = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
-        if (roleGranted) {
+        // Settings returned. Role held → success; otherwise the short note, never the full prompt.
+        awaitingAssistantReturn = false
+        if (roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true) {
+            showDefaultAssistantNotSetYet = false
             showDefaultAssistantSuccess = true
         } else {
-            // Role still not held — show the short note, not the full prompt again.
             showDefaultAssistantNotSetYet = true
         }
     }
 
-    // Opens the voice-input settings page (holds "Digital assistant app"); falls back to default apps.
+    // Opens the voice-input settings page (its "Digital assistant app" row sets the role),
+    // falling back to default apps. Shows a message if neither page resolves.
     fun openAssistantSettings() {
+        awaitingAssistantReturn = true
         try {
             assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-        } catch (_: ActivityNotFoundException) {
+        } catch (_: Exception) {
             try {
                 assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-            } catch (_: ActivityNotFoundException) {
-                // No assistant or default-apps page on this device — nothing more we can open.
+            } catch (_: Exception) {
+                awaitingAssistantReturn = false
+                Toast.makeText(
+                    context,
+                    context.getString(com.kernel.ai.core.permissions.R.string.default_assistant_no_settings_page),
+                    Toast.LENGTH_LONG,
+                ).show()
             }
         }
     }
@@ -451,11 +469,11 @@ fun VoiceScreen(
     // Role still not held after returning from Settings: short note with Try again.
     if (showDefaultAssistantNotSetYet) {
         PermissionOverlayDialog(
-            title = "Not set yet",
-            body = "Jandal isn't your default assistant yet. Tap Try again to reopen Settings, then tap Digital assistant app and choose Jandal.",
+            title = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_title),
+            body = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_body),
             actions = listOf(
                 PermissionDialogAction(
-                    label = "Try again",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_try_again),
                     testTag = "default_assistant_not_set_try_again",
                     onClick = {
                         showDefaultAssistantNotSetYet = false
