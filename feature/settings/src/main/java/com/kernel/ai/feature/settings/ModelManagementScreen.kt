@@ -55,6 +55,7 @@ import com.kernel.ai.core.model.availability.RoleSectionView
 import com.kernel.ai.core.model.availability.StatusSectionView
 import com.kernel.ai.core.model.availability.StillNeededCard
 import com.kernel.ai.core.model.availability.toAvailability
+import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 
 /**
  * Index of the first role section in the list. Items before it are the storage card and the
@@ -113,6 +114,7 @@ fun ModelManagementScreen(
             )
         },
     ) { innerPadding ->
+        val requestDownloadStart = rememberDownloadNotificationGate()
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -132,7 +134,7 @@ fun ModelManagementScreen(
             item(key = "still_needed") {
                 StillNeededCard(
                     items = uiState.stillNeeded,
-                    onDownload = { model -> viewModel.downloadModel(model) },
+                    onDownload = { model -> requestDownloadStart { viewModel.downloadModel(model) } },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }

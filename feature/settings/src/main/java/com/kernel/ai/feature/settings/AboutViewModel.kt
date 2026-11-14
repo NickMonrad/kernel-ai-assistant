@@ -1,4 +1,5 @@
 package com.kernel.ai.feature.settings
+import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
@@ -101,6 +102,7 @@ class AboutViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     @Named("about") private val dataStore: DataStore<Preferences>,
     private val voiceOutputPreferences: VoiceOutputPreferences,
+    private val setupWizardPreferences: SetupWizardPreferences,
 ) : ViewModel() {
 
     @VisibleForTesting
@@ -125,6 +127,14 @@ class AboutViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(AboutUiState(verboseLogging = defaultVerboseLoggingEnabled))
     val uiState: StateFlow<AboutUiState> = _uiState.asStateFlow()
+
+    /** Debug builds only: restarts the setup wizard from its first step. Deletes no data (models stay). */
+    fun restartSetupWizardAsFirstRun(onReady: () -> Unit) {
+        viewModelScope.launch {
+            setupWizardPreferences.restartFromFirstStep()
+            onReady()
+        }
+    }
 
     private val verboseLoggingMutex = Mutex()
 

@@ -914,6 +914,9 @@ fun KernelNavHost(
                 composable(ROUTE_ABOUT) {
                     AboutScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        onNavigateToSetupWizard = {
+                            navController.navigate(ROUTE_SETUP_WIZARD) { launchSingleTop = true }
+                        },
                         onNavigateToLegalPrivacy = {
                             navController.navigate(ROUTE_LEGAL_PRIVACY)
                         },

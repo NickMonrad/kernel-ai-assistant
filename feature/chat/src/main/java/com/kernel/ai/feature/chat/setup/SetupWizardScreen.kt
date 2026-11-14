@@ -30,6 +30,9 @@ import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.model.availability.ModelRoleCopy
 import com.kernel.ai.feature.chat.formatBytesShort
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 
 /**
  * First-run setup wizard (#1855, part 1). Step 1 explains how Jandal works; step 2 is download consent.
@@ -42,6 +45,8 @@ fun SetupWizardScreen(
     viewModel: SetupWizardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val requestDownloadStart = rememberDownloadNotificationGate()
     if (!state.loaded) return
 
     Column(
@@ -62,7 +67,9 @@ fun SetupWizardScreen(
 
         val isLast = state.step == SetupStep.entries.last()
         Button(
-            onClick = { viewModel.onContinue(onDone) },
+            onClick = {
+                if (isLast) requestDownloadStart { viewModel.onContinue(onDone) } else viewModel.onContinue(onDone)
+            },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) {
             Text(if (isLast) "Finish" else "Continue")
@@ -77,12 +84,17 @@ fun SetupWizardScreen(
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text("Back") }
             TextButton(
-                onClick = { viewModel.onSkip(onDone) },
+                onClick = {
+                    Toast.makeText(context, SKIP_NOTE, Toast.LENGTH_LONG).show()
+                    viewModel.onSkip(onDone)
+                },
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text("Skip for now") }
         }
     }
 }
+
+private const val SKIP_NOTE = "Skipped. Models will download on Wi-Fi only. Change this in Settings."
 
 @Composable
 private fun HowItWorksStep() {

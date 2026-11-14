@@ -85,9 +85,15 @@ class SetupWizardViewModel @Inject constructor(
         viewModelScope.launch { setupWizardPreferences.saveStep(previous) }
     }
 
-    /** Ends the wizard without saving a download choice. Auto-downloads stay paused until the user picks one. */
+    /**
+     * Ends the wizard. With no choice recorded yet, saves Wi-Fi only so models still download on Wi-Fi
+     * (never paused forever). An explicit earlier choice is kept.
+     */
     fun onSkip(onDone: () -> Unit) {
         viewModelScope.launch {
+            if (downloadNetworkPreferences.choice.first() == null) {
+                downloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.WIFI_ONLY)
+            }
             setupWizardPreferences.markCompleted()
             onDone()
         }

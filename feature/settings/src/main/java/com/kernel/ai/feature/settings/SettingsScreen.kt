@@ -1,4 +1,5 @@
 package com.kernel.ai.feature.settings
+import androidx.compose.material3.Switch
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -70,6 +71,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val mobileDataAllowed by viewModel.mobileDataAllowed.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     LaunchedEffect(Unit) {
@@ -267,6 +269,20 @@ fun SettingsScreen(
                 headlineContent = { Text("Set up Jandal again") },
                 supportingContent = { Text("How Jandal works and download options") },
                 leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+            )
+            HorizontalDivider()
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text("Download on mobile data") },
+                supportingContent = {
+                    Text(if (mobileDataAllowed) "Models may use your mobile data plan" else "Models download on Wi-Fi only")
+                },
+                trailingContent = {
+                    Switch(
+                        checked = mobileDataAllowed,
+                        onCheckedChange = { viewModel.setMobileDataAllowed(it) },
+                    )
+                },
             )
             HorizontalDivider()
             ListItem(
