@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat.setup
 
+import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -239,9 +240,9 @@ private fun HowItWorksStep() {
 private fun VoiceStep(
     inputOptions: List<VoiceInputEngine>,
     inputReason: String?,
-    inputEngine: VoiceInputEngine,
+    inputEngine: VoiceInputEngine?,
     outputOptions: List<VoiceOutputEngine>,
-    outputEngine: VoiceOutputEngine,
+    outputEngine: VoiceOutputEngine?,
     onInputSelected: (VoiceInputEngine) -> Unit,
     onOutputSelected: (VoiceOutputEngine) -> Unit,
 ) {
@@ -257,10 +258,13 @@ private fun VoiceStep(
     Text(
         text = "When you talk to Jandal",
         style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(top = 8.dp),
+        modifier = Modifier.padding(top = 8.dp).semantics { heading() },
     )
     inputReason?.let { reason ->
         Text(text = reason, style = MaterialTheme.typography.bodySmall)
+    }
+    if (inputEngine == null) {
+        Text(text = "Your current speech input stays as it is unless you pick one above.", style = MaterialTheme.typography.bodySmall)
     }
     inputOptions.forEach { engine ->
         ChoiceOption(
@@ -273,7 +277,7 @@ private fun VoiceStep(
     Text(
         text = "When Jandal talks back",
         style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(top = 8.dp),
+        modifier = Modifier.padding(top = 8.dp).semantics { heading() },
     )
     outputOptions.forEach { engine ->
         ChoiceOption(
@@ -282,6 +286,9 @@ private fun VoiceStep(
             selected = outputEngine == engine,
             onSelect = { onOutputSelected(engine) },
         )
+    }
+    if (outputEngine == null) {
+        Text(text = "Your current speech output stays as it is unless you pick one above.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -324,7 +331,17 @@ private fun DownloadStep(
         text = downloadSizeLine(totalBytes, choiceRecorded),
         style = MaterialTheme.typography.bodyLarge,
     )
-    plannedModels.forEach { model ->
+    val (zipformer, others) = plannedModels.partition { it in VoiceDefaultsProvisioner.zipformerModels() }
+    if (zipformer.isNotEmpty()) {
+        Column {
+            Text(text = "Speech recognition (Zipformer)", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = "Turns your voice into text, offline. ${formatBytesShort(zipformer.sumOf { it.approxSizeBytes })}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+    others.forEach { model ->
         Column {
             Text(text = ModelRoleCopy.purpose(model), style = MaterialTheme.typography.bodyLarge)
             Text(

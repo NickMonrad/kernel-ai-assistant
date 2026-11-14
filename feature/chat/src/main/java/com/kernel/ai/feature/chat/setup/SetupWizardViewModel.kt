@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat.setup
 
+import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -38,10 +39,12 @@ data class SetupWizardUiState(
     val inputOptions: List<VoiceInputEngine> = listOf(VoiceInputEngine.Auto),
     /** Why Android native is not offered, or null when it is offered. */
     val inputReason: String? = null,
-    val inputEngine: VoiceInputEngine = VoiceInputEngine.Auto,
+    /** Null when a stored speech input is not offered here: the wizard keeps it and highlights nothing. */
+    val inputEngine: VoiceInputEngine? = null,
     /** Speech output choices this device can use. Cori is always among them. */
     val outputOptions: List<VoiceOutputEngine> = listOf(VoiceOutputEngine.SherpaExperimental),
-    val outputEngine: VoiceOutputEngine = VoiceOutputEngine.SherpaExperimental,
+    /** Null when a stored speech output is not offered here: the wizard keeps it and highlights nothing. */
+    val outputEngine: VoiceOutputEngine? = null,
     /** Radio selection on the download step. Wi-Fi is preselected; nothing is saved until Continue. */
     val choice: DownloadNetworkChoice = DownloadNetworkChoice.WIFI_ONLY,
     /** True when a network choice is already saved (a re-run from Settings, or a finished first run). */
@@ -79,40 +82,77 @@ class SetupWizardViewModel @Inject constructor(
     /** Voice pack states captured at load; Cori counts as on disk only when its pack is downloaded. */
     private var voiceStates: Map<SherpaPiperVoice, VoicePackDownloadState> = emptyMap()
 
+    /** Speech input and output stored before this wizard run, or null when nothing was stored (#1868). */
+    private var storedInput: VoiceInputEngine? = null
+    private var storedOutput: VoiceOutputEngine? = null
+
+    /** Network choice stored before this run, or null on a first run. */
+    private var storedChoice: DownloadNetworkChoice? = null
+
+    /** Every first-run model before the Zipformer filter applied by the speech input choice. */
+    private var allPlannedModels: List<KernelModel> = emptyList()
+
     init {
         viewModelScope.launch {
             val progress = setupWizardPreferences.progress.first()
             // A completed wizard (re-run from Settings) always starts from the first step.
             val start = if (progress.completed) SetupStep.HOW_IT_WORKS else progress.step
             val stored = downloadNetworkPreferences.choice.first()
+            storedChoice = stored
             val selected = savedStateHandle.get<String>(KEY_SELECTED_CHOICE)
                 ?.let { DownloadNetworkChoice.fromStorageName(it) }
 
-            val capabilities = setupVoiceDevice.speechInputCapabilities()
-            val inputOptions = SetupSpeechOptions.inputOptions(capabilities)
+            val nativeReady = setupVoiceDevice.androidNativeInputReady()
+            val inputOptions = SetupSpeechOptions.inputOptions(nativeReady)
+            val tier = setupVoiceDevice.hardwareTier()
             val outputOptions = SetupSpeechOptions.outputOptions(setupVoiceDevice.hasSystemTtsEngine())
-            val storedInput = voiceInputPreferences.selectedEngine.first()
-            val storedOutput = voiceOutputPreferences.selectedEngine.first()
+            val currentInput = if (voiceInputPreferences.hasStoredEngine()) {
+                voiceInputPreferences.selectedEngine.first()
+            } else {
+                null
+            }
+            val currentOutput = if (voiceOutputPreferences.hasStoredEngine()) {
+                voiceOutputPreferences.selectedEngine.first()
+            } else {
+                null
+            }
+            storedInput = currentInput
+            storedOutput = currentOutput
+
             val savedInput = savedStateHandle.get<String>(KEY_SELECTED_INPUT)
                 ?.let { VoiceInputEngine.fromStorage(it) }
             val savedOutput = savedStateHandle.get<String>(KEY_SELECTED_OUTPUT)
                 ?.let { name -> VoiceOutputEngine.entries.firstOrNull { it.name == name } }
 
+            // Selected choices win; then the stored choice when offered; then the tier default. A stored
+            // choice that is not offered shows nothing selected, and is never overwritten (see inputToSave).
+            val inputEngine = when {
+                savedInput != null -> SetupSpeechOptions.offered(savedInput, inputOptions)
+                currentInput == null -> VoiceInputEngine.Auto
+                else -> SetupSpeechOptions.offered(currentInput, inputOptions)
+            }
+            val outputEngine = when {
+                savedOutput != null ->
+                    SetupSpeechOptions.offered(savedOutput, outputOptions)
+                        ?: SetupSpeechOptions.defaultOutput(tier, outputOptions)
+                currentOutput == null -> SetupSpeechOptions.defaultOutput(tier, outputOptions)
+                else -> SetupSpeechOptions.offered(currentOutput, outputOptions)
+            }
+
             voiceStates = voicePackDownloadManager.downloadStates.value
-            val outputEngine = savedOutput?.let { SetupSpeechOptions.resolve(it, outputOptions) }
-                ?: SetupSpeechOptions.initialOutput(storedOutput, setupVoiceDevice.hardwareTier(), outputOptions)
+            allPlannedModels = downloadManager.plannedFirstRunModels()
             _uiState.value = _uiState.value.copy(
                 loaded = true,
                 step = start,
                 inputOptions = inputOptions,
-                inputReason = SetupSpeechOptions.inputReason(capabilities),
-                inputEngine = SetupSpeechOptions.resolve(savedInput ?: storedInput, inputOptions),
+                inputReason = SetupSpeechOptions.inputReason(nativeReady),
+                inputEngine = inputEngine,
                 outputOptions = outputOptions,
                 outputEngine = outputEngine,
                 choice = selected ?: stored ?: DownloadNetworkChoice.WIFI_ONLY,
                 choiceRecorded = stored != null,
-                plannedModels = downloadManager.plannedFirstRunModels(),
-                plannedVoices = plannedVoicesFor(outputEngine) { isDownloaded(it) },
+                plannedModels = plannedModelsFor(effectiveInput(inputEngine)),
+                plannedVoices = plannedVoicesFor(effectiveOutput(outputEngine)),
             )
         }
     }
@@ -120,9 +160,33 @@ class SetupWizardViewModel @Inject constructor(
     private fun isDownloaded(voice: SherpaPiperVoice): Boolean =
         voiceStates[voice] is VoicePackDownloadState.Downloaded
 
+    /** The input the app will use: the shown choice, else the stored one (a kept choice). */
+    private fun effectiveInput(engine: VoiceInputEngine?): VoiceInputEngine =
+        engine ?: storedInput ?: VoiceInputEngine.Auto
+
+    /** The output the app will use: the shown choice, else the stored one (a kept choice). */
+    private fun effectiveOutput(engine: VoiceOutputEngine?): VoiceOutputEngine? = engine ?: storedOutput
+
+    /** Zipformer files are needed only when the effective input uses them (Auto or Sherpa Zipformer). */
+    private fun plannedModelsFor(input: VoiceInputEngine): List<KernelModel> =
+        if (VoiceDefaultsProvisioner.needsZipformer(input)) {
+            allPlannedModels
+        } else {
+            allPlannedModels.filterNot { it in VoiceDefaultsProvisioner.zipformerModels() }
+        }
+
+    private fun plannedVoicesFor(output: VoiceOutputEngine?): List<SherpaPiperVoice> =
+        output?.let { plannedVoicesFor(it) { voice -> isDownloaded(voice) } } ?: emptyList()
+
+    /** True once the user changed this choice in this wizard run (survives process death). */
+    private fun touched(key: String): Boolean = savedStateHandle.contains(key)
+
     fun onInputSelected(engine: VoiceInputEngine) {
         savedStateHandle[KEY_SELECTED_INPUT] = engine.name
-        _uiState.value = _uiState.value.copy(inputEngine = engine)
+        _uiState.value = _uiState.value.copy(
+            inputEngine = engine,
+            plannedModels = plannedModelsFor(engine),
+        )
     }
 
     fun onOutputSelected(engine: VoiceOutputEngine) {
@@ -167,9 +231,9 @@ class SetupWizardViewModel @Inject constructor(
     private fun onFinish(onDone: () -> Unit) {
         val state = _uiState.value
         viewModelScope.launch {
-            saveSpeechChoices(state)
-            downloadManager.setDownloadNetworkChoice(state.choice)
-            startChosenVoice(state)
+            val output = saveSpeechChoices(state)
+            saveNetworkChoice(state.choice)
+            startChosenVoice(output)
             setupWizardPreferences.markCompleted()
             onDone()
         }
@@ -178,33 +242,52 @@ class SetupWizardViewModel @Inject constructor(
     /**
      * Ends the wizard. With no choice recorded yet, saves Wi-Fi only so models still download on Wi-Fi
      * (never paused forever). An explicit earlier choice is kept. [onDone] receives the choice that
-     * applies now, so the caller can tell the user the truth.
+     * applies now, so the caller can tell the user the truth. Cori starts only when the user picked it here.
      */
     fun onSkip(onDone: (DownloadNetworkChoice) -> Unit) {
         val state = _uiState.value
         viewModelScope.launch {
-            saveSpeechChoices(state)
-            val existing = downloadNetworkPreferences.choice.first()
-            val effective = existing ?: DownloadNetworkChoice.WIFI_ONLY
-            if (existing == null) downloadManager.setDownloadNetworkChoice(effective)
-            startChosenVoice(state)
+            val output = saveSpeechChoices(state)
+            val effective = storedChoice ?: DownloadNetworkChoice.WIFI_ONLY
+            if (storedChoice == null) downloadNetworkPreferences.setChoice(effective)
+            if (touched(KEY_SELECTED_OUTPUT)) startChosenVoice(output)
             setupWizardPreferences.markCompleted()
             onDone(effective)
         }
     }
 
-    /** Saves the speech choices before the network choice, so VoiceDefaultsProvisioner reads them after consent. */
-    private suspend fun saveSpeechChoices(state: SetupWizardUiState) {
-        voiceInputPreferences.setSelectedEngine(state.inputEngine)
-        voiceOutputPreferences.setSelectedEngine(state.outputEngine)
+    /**
+     * The speech input this run may write: only a change the user made here, or the first-run default
+     * when nothing is stored. A stored choice the wizard does not offer is never written back.
+     */
+    private fun inputToSave(state: SetupWizardUiState): VoiceInputEngine? =
+        if (touched(KEY_SELECTED_INPUT) || storedInput == null) state.inputEngine else null
+
+    private fun outputToSave(state: SetupWizardUiState): VoiceOutputEngine? =
+        if (touched(KEY_SELECTED_OUTPUT) || storedOutput == null) state.outputEngine else null
+
+    /**
+     * Saves the speech choices before the network choice, so VoiceDefaultsProvisioner reads them after
+     * consent. Returns the output written in this run, or null when the stored output was kept.
+     */
+    private suspend fun saveSpeechChoices(state: SetupWizardUiState): VoiceOutputEngine? {
+        inputToSave(state)?.let { voiceInputPreferences.setSelectedEngine(it) }
+        val output = outputToSave(state)
+        output?.let { voiceOutputPreferences.setSelectedEngine(it) }
+        return output
+    }
+
+    /** Writes the network choice only when it differs from the stored one, so a kept choice is untouched. */
+    private suspend fun saveNetworkChoice(choice: DownloadNetworkChoice) {
+        if (choice != storedChoice) downloadNetworkPreferences.setChoice(choice)
     }
 
     /**
      * Starts Cori only after the network choice is saved, so the download follows consent. Starts nothing
-     * for Android TTS. Cori already on disk is left alone (PiperVoiceSetup checks state).
+     * for Android TTS or a kept output. Cori already on disk is left alone (PiperVoiceSetup checks state).
      */
-    private suspend fun startChosenVoice(state: SetupWizardUiState) {
-        piperVoiceSetup.onEngineChosen(state.outputEngine)
+    private suspend fun startChosenVoice(output: VoiceOutputEngine?) {
+        if (output == VoiceOutputEngine.SherpaExperimental) piperVoiceSetup.onEngineChosen(output)
     }
 
     companion object {

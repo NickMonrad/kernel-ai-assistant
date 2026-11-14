@@ -1,7 +1,6 @@
 package com.kernel.ai.feature.chat.setup
 
 import com.kernel.ai.core.inference.hardware.HardwareTier
-import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -11,29 +10,20 @@ import org.junit.jupiter.api.Test
 
 class SetupSpeechOptionsTest {
 
-    private val withOnDevice = VoiceCapabilities(platformRecognizerPresent = true, onDeviceRecognitionAvailable = true)
-    private val withoutOnDevice = VoiceCapabilities(platformRecognizerPresent = true, onDeviceRecognitionAvailable = false)
-
     @Test
-    fun `android native is offered only when on-device recognition is available`() {
-        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative), SetupSpeechOptions.inputOptions(withOnDevice))
-        assertEquals(listOf(VoiceInputEngine.Auto), SetupSpeechOptions.inputOptions(withoutOnDevice))
+    fun `Android's listener is offered only when it is ready`() {
+        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative), SetupSpeechOptions.inputOptions(androidNativeReady = true))
+        assertEquals(listOf(VoiceInputEngine.Auto), SetupSpeechOptions.inputOptions(androidNativeReady = false))
     }
 
     @Test
-    fun `a service being registered alone does not offer android native`() {
-        val registeredOnly = VoiceCapabilities(platformRecognizerPresent = true, onDeviceRecognitionAvailable = false)
-        assertEquals(listOf(VoiceInputEngine.Auto), SetupSpeechOptions.inputOptions(registeredOnly))
+    fun `the reason is shown only when Android's listener is not offered`() {
+        assertNull(SetupSpeechOptions.inputReason(androidNativeReady = true))
+        assertTrue(SetupSpeechOptions.inputReason(androidNativeReady = false)!!.contains("Automatic"))
     }
 
     @Test
-    fun `input reason explains the missing option and is null when offered`() {
-        assertNull(SetupSpeechOptions.inputReason(withOnDevice))
-        assertTrue(SetupSpeechOptions.inputReason(withoutOnDevice) != null)
-    }
-
-    @Test
-    fun `android tts is offered only when a system TTS engine exists`() {
+    fun `Android's voice is offered only when a TTS engine is installed`() {
         assertEquals(
             listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
             SetupSpeechOptions.outputOptions(hasSystemTts = true),
@@ -42,27 +32,26 @@ class SetupSpeechOptionsTest {
     }
 
     @Test
-    fun `resolve keeps an offered candidate and falls back to the first option`() {
-        assertEquals(VoiceInputEngine.AndroidNative, SetupSpeechOptions.resolve(VoiceInputEngine.AndroidNative, listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative)))
-        assertEquals(VoiceInputEngine.Auto, SetupSpeechOptions.resolve(VoiceInputEngine.AndroidNative, listOf(VoiceInputEngine.Auto)))
+    fun `offered returns the candidate only when the options include it`() {
+        val options = listOf(VoiceInputEngine.Auto)
+        assertEquals(VoiceInputEngine.Auto, SetupSpeechOptions.offered(VoiceInputEngine.Auto, options))
+        assertNull(SetupSpeechOptions.offered(VoiceInputEngine.SherpaParaformer, options))
     }
 
     @Test
-    fun `initial output follows the stored Cori choice regardless of tier`() {
-        val both = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts)
-        assertEquals(VoiceOutputEngine.SherpaExperimental, SetupSpeechOptions.initialOutput(VoiceOutputEngine.SherpaExperimental, HardwareTier.LOW_POWER, both))
+    fun `the default output follows the tier when offered`() {
+        val options = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts)
+        assertEquals(
+            VoiceOutputEngine.defaultForTier(HardwareTier.LOW_POWER),
+            SetupSpeechOptions.defaultOutput(HardwareTier.LOW_POWER, options),
+        )
     }
 
     @Test
-    fun `initial output for a stored Android TTS uses the tier default when Cori is offered`() {
-        val both = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts)
-        assertEquals(VoiceOutputEngine.SherpaExperimental, SetupSpeechOptions.initialOutput(VoiceOutputEngine.AndroidTts, HardwareTier.MID_RANGE, both))
-        assertEquals(VoiceOutputEngine.AndroidTts, SetupSpeechOptions.initialOutput(VoiceOutputEngine.AndroidTts, HardwareTier.LOW_POWER, both))
-    }
-
-    @Test
-    fun `initial output never leaves the offered options`() {
-        val cori = listOf(VoiceOutputEngine.SherpaExperimental)
-        assertEquals(VoiceOutputEngine.SherpaExperimental, SetupSpeechOptions.initialOutput(VoiceOutputEngine.AndroidTts, HardwareTier.LOW_POWER, cori))
+    fun `the default output falls back to Cori when the tier default is not offered`() {
+        assertEquals(
+            VoiceOutputEngine.SherpaExperimental,
+            SetupSpeechOptions.defaultOutput(HardwareTier.LOW_POWER, listOf(VoiceOutputEngine.SherpaExperimental)),
+        )
     }
 }

@@ -139,10 +139,10 @@ class VoiceDefaultsProvisioner @Inject constructor(
             roots.map { File(it, LEGACY_VOSK_DIR) }
                 .filter { it.isDirectory && File(it, "vosk-model").exists() }
 
-        internal fun needsZipformer(engine: VoiceInputEngine): Boolean =
+        fun needsZipformer(engine: VoiceInputEngine): Boolean =
             engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.SherpaZipformer
 
-        internal fun zipformerModels(): List<KernelModel> =
+        fun zipformerModels(): List<KernelModel> =
             SherpaSttModelSpec.ZIPFORMER.requiredFileNames.mapNotNull { name ->
                 KernelModel.entries.firstOrNull { it.fileName == name }
             }

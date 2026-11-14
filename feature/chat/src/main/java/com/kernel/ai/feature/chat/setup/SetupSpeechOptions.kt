@@ -1,7 +1,6 @@
 package com.kernel.ai.feature.chat.setup
 
 import com.kernel.ai.core.inference.hardware.HardwareTier
-import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 
@@ -12,25 +11,21 @@ import com.kernel.ai.core.voice.VoiceOutputEngine
 internal object SetupSpeechOptions {
 
     /**
-     * Automatic always works. Android native is offered only when the on-device recognizer exists. The
-     * on-device check is the real support signal (see [VoiceCapabilities]); a registered service alone is not.
+     * Automatic always works. Android native is offered only when Android's own recognizer is ready:
+     * the availability check covers the service, the on-device recognizer, and the language pack.
      */
-    fun inputOptions(capabilities: VoiceCapabilities): List<VoiceInputEngine> =
-        if (capabilities.onDeviceRecognitionAvailable) {
-            listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative)
-        } else {
-            listOf(VoiceInputEngine.Auto)
-        }
+    fun inputOptions(androidNativeReady: Boolean): List<VoiceInputEngine> =
+        if (androidNativeReady) listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative) else listOf(VoiceInputEngine.Auto)
 
     /** One plain-English line explaining why Android native is missing, or null when it is offered. */
-    fun inputReason(capabilities: VoiceCapabilities): String? =
-        if (capabilities.onDeviceRecognitionAvailable) {
+    fun inputReason(androidNativeReady: Boolean): String? =
+        if (androidNativeReady) {
             null
         } else {
-            "This phone doesn't have Android's speech service, so Automatic is the one that works here."
+            "Android's own listener can't be used on this phone, so Automatic is the one that works here."
         }
 
-    /** Cori is always offered. Android's built-in voice is offered only when TextToSpeech reports an engine. */
+    /** Cori is always offered. Android's built-in voice is offered only when a TTS engine is installed. */
     fun outputOptions(hasSystemTts: Boolean): List<VoiceOutputEngine> =
         if (hasSystemTts) {
             listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts)
@@ -38,16 +33,10 @@ internal object SetupSpeechOptions {
             listOf(VoiceOutputEngine.SherpaExperimental)
         }
 
-    /** [candidate] when offered, otherwise the first option. Options are never empty. */
-    fun <T> resolve(candidate: T, options: List<T>): T = candidate.takeIf { it in options } ?: options.first()
+    /** [candidate] when the wizard offers it, otherwise null. */
+    fun <T> offered(candidate: T, options: List<T>): T? = candidate.takeIf { it in options }
 
-    /**
-     * Default speech output: Cori when the saved engine is Cori. Otherwise the tier default, so an updated
-     * build-5 install that stored Android TTS by default is offered Cori on a re-run (#1868).
-     */
-    fun initialOutput(stored: VoiceOutputEngine, tier: HardwareTier, options: List<VoiceOutputEngine>): VoiceOutputEngine =
-        resolve(
-            candidate = if (stored == VoiceOutputEngine.SherpaExperimental) stored else VoiceOutputEngine.defaultForTier(tier),
-            options = options,
-        )
+    /** The tier default speech output, or the first offered option when the default is not offered. */
+    fun defaultOutput(tier: HardwareTier, options: List<VoiceOutputEngine>): VoiceOutputEngine =
+        offered(VoiceOutputEngine.defaultForTier(tier), options) ?: options.first()
 }

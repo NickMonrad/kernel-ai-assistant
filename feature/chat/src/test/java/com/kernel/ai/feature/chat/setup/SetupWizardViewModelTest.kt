@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat.setup
 
 import androidx.lifecycle.SavedStateHandle
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
@@ -11,7 +12,7 @@ import com.kernel.ai.core.inference.setup.SetupWizardProgress
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
-import com.kernel.ai.core.voice.VoiceCapabilities
+import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -33,6 +34,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -50,15 +52,17 @@ class SetupWizardViewModelTest {
 
     @BeforeEach
     fun setUp() {
+        every { voiceOutputPreferences.selectedSherpaVoice } returns flowOf(SherpaPiperVoice.CoriHigh)
+        every { voicePackDownloadManager.downloadStates } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
         Dispatchers.setMain(dispatcher)
         every { setupWizardPreferences.progress } returns flowOf(SetupWizardProgress(decided = true, completed = false))
         every { voicePackDownloadManager.downloadStates } returns MutableStateFlow(emptyMap())
-        every { voiceOutputPreferences.selectedEngine } returns flowOf(VoiceOutputEngine.SherpaExperimental)
-        every { voiceOutputPreferences.selectedSherpaVoice } returns flowOf(SherpaPiperVoice.CoriHigh)
-        every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
         every { downloadNetworkPreferences.choice } returns flowOf(null)
         coEvery { downloadManager.plannedFirstRunModels() } returns emptyList()
-        device(caps = FULL_CAPS, hasTts = true, tier = HardwareTier.FLAGSHIP)
+        // Fresh install: nothing stored for speech input or output.
+        coEvery { voiceInputPreferences.hasStoredEngine() } returns false
+        coEvery { voiceOutputPreferences.hasStoredEngine() } returns false
+        device(nativeReady = true, hasTts = true, tier = HardwareTier.FLAGSHIP)
     }
 
     @AfterEach
@@ -66,10 +70,22 @@ class SetupWizardViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun device(caps: VoiceCapabilities, hasTts: Boolean, tier: HardwareTier) {
-        every { setupVoiceDevice.speechInputCapabilities() } returns caps
+    private fun device(nativeReady: Boolean, hasTts: Boolean, tier: HardwareTier) {
+        coEvery { setupVoiceDevice.androidNativeInputReady() } returns nativeReady
         every { setupVoiceDevice.hasSystemTtsEngine() } returns hasTts
         every { setupVoiceDevice.hardwareTier() } returns tier
+    }
+
+    /** Stores a speech input choice as an earlier run would have. */
+    private fun storedInput(engine: VoiceInputEngine) {
+        coEvery { voiceInputPreferences.hasStoredEngine() } returns true
+        every { voiceInputPreferences.selectedEngine } returns flowOf(engine)
+    }
+
+    /** Stores a speech output choice as an earlier run would have. */
+    private fun storedOutput(engine: VoiceOutputEngine) {
+        coEvery { voiceOutputPreferences.hasStoredEngine() } returns true
+        every { voiceOutputPreferences.selectedEngine } returns flowOf(engine)
     }
 
     private fun viewModel(handle: SavedStateHandle = SavedStateHandle()): SetupWizardViewModel =
@@ -99,6 +115,8 @@ class SetupWizardViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
     }
 
+    // ── Skip ─────────────────────────────────────────────────────────────────────
+
     @Test
     fun `skipping with no saved choice saves Wi-Fi only so models still download`() {
         var done = false
@@ -106,7 +124,7 @@ class SetupWizardViewModelTest {
         viewModel().onSkip { done = true }
         dispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 1) { downloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.WIFI_ONLY) }
+        coVerify(exactly = 1) { downloadNetworkPreferences.setChoice(DownloadNetworkChoice.WIFI_ONLY) }
         coVerify(exactly = 1) { setupWizardPreferences.markCompleted() }
         assertTrue(done)
     }
@@ -118,9 +136,56 @@ class SetupWizardViewModelTest {
         viewModel().onSkip {}
         dispatcher.scheduler.advanceUntilIdle()
 
-        verify(exactly = 0) { downloadManager.setDownloadNetworkChoice(any()) }
+        coVerify(exactly = 0) { downloadNetworkPreferences.setChoice(any()) }
         coVerify(exactly = 1) { setupWizardPreferences.markCompleted() }
     }
+
+    @Test
+    fun `skipping a re-run writes no speech or network choice and starts no voice`() {
+        every { downloadNetworkPreferences.choice } returns flowOf(DownloadNetworkChoice.WIFI_ONLY)
+        storedInput(VoiceInputEngine.SherpaParaformer)
+        storedOutput(VoiceOutputEngine.AndroidTts)
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.onSkip {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceInputPreferences.setSelectedEngine(any()) }
+        coVerify(exactly = 0) { voiceOutputPreferences.setSelectedEngine(any()) }
+        coVerify(exactly = 0) { downloadNetworkPreferences.setChoice(any()) }
+        verify(exactly = 0) { voicePackDownloadManager.startDownload(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { setupWizardPreferences.markCompleted() }
+    }
+
+    @Test
+    fun `skipping after choosing Cori on this run starts Cori`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOutputSelected(VoiceOutputEngine.SherpaExperimental)
+
+        vm.onSkip {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental) }
+        verify(exactly = 1) { voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh) }
+    }
+
+    @Test
+    fun `skipping saves the speech choices made so far`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onInputSelected(VoiceInputEngine.AndroidNative)
+        vm.onOutputSelected(VoiceOutputEngine.AndroidTts)
+
+        vm.onSkip {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.AndroidNative) }
+        coVerify(exactly = 1) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts) }
+    }
+
+    // ── Process death and re-run ─────────────────────────────────────────────────
 
     @Test
     fun `a selection not yet saved survives process death through SavedStateHandle`() {
@@ -136,6 +201,21 @@ class SetupWizardViewModelTest {
         assertEquals(DownloadNetworkChoice.MOBILE_DATA_ALLOWED, restored.uiState.value.choice)
         assertFalse(restored.uiState.value.choiceRecorded)
         assertEquals(VoiceInputEngine.AndroidNative, restored.uiState.value.inputEngine)
+    }
+
+    @Test
+    fun `an output selected but not saved is restored after process death`() {
+        storedOutput(VoiceOutputEngine.SherpaExperimental)
+        val handle = SavedStateHandle()
+        val before = viewModel(handle)
+        dispatcher.scheduler.advanceUntilIdle()
+        before.onOutputSelected(VoiceOutputEngine.AndroidTts)
+
+        val restored = viewModel(handle)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceOutputEngine.AndroidTts, restored.uiState.value.outputEngine)
+        assertEquals(emptyList<SherpaPiperVoice>(), restored.uiState.value.plannedVoices)
     }
 
     @Test
@@ -162,11 +242,96 @@ class SetupWizardViewModelTest {
         assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
     }
 
+    // ── Stored choices are kept unless the user changes them (#1868 review B1) ───
+
+    @Test
+    fun `a stored Android voice on a flagship phone stays and Finish writes nothing`() {
+        storedOutput(VoiceOutputEngine.AndroidTts)
+        val vm = viewModel()
+        vm.atDownloadStep()
+        assertEquals(VoiceOutputEngine.AndroidTts, vm.uiState.value.outputEngine)
+
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceOutputPreferences.setSelectedEngine(any()) }
+        verify(exactly = 0) { voicePackDownloadManager.startDownload(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a stored Android voice on a mid-range phone stays, not replaced by Cori`() {
+        storedOutput(VoiceOutputEngine.AndroidTts)
+        device(nativeReady = true, hasTts = true, tier = HardwareTier.MID_RANGE)
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceOutputEngine.AndroidTts, vm.uiState.value.outputEngine)
+        assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
+    }
+
+    @Test
+    fun `a low-power phone keeps Android TTS as its default output`() {
+        storedOutput(VoiceOutputEngine.AndroidTts)
+        device(nativeReady = true, hasTts = true, tier = HardwareTier.LOW_POWER)
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceOutputEngine.AndroidTts, vm.uiState.value.outputEngine)
+        assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
+    }
+
+    @Test
+    fun `a stored Sherpa input that is not offered stays, shows nothing selected, and Finish keeps it`() {
+        storedInput(VoiceInputEngine.SherpaParaformer)
+        val vm = viewModel()
+        vm.atDownloadStep()
+
+        assertNull(vm.uiState.value.inputEngine)
+
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceInputPreferences.setSelectedEngine(any()) }
+    }
+
+    @Test
+    fun `a stored output that is no longer offered stays unwritten and highlights nothing`() {
+        storedOutput(VoiceOutputEngine.AndroidTts)
+        device(nativeReady = true, hasTts = false, tier = HardwareTier.FLAGSHIP)
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(vm.uiState.value.outputEngine)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { voiceOutputPreferences.setSelectedEngine(any()) }
+    }
+
+    @Test
+    fun `choosing Cori on a re-run saves it and starts the download after consent`() {
+        storedOutput(VoiceOutputEngine.AndroidTts)
+        every { downloadNetworkPreferences.choice } returns flowOf(DownloadNetworkChoice.WIFI_ONLY)
+        val vm = viewModel()
+        vm.atDownloadStep()
+        vm.onOutputSelected(VoiceOutputEngine.SherpaExperimental)
+
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerifyOrder {
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental)
+            voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh)
+        }
+    }
+
     // ── Speech options by device capability (#1855 part 2) ──────────────────────
 
     @Test
-    fun `a phone without an on-device recognizer or TTS engine offers Automatic and Cori only`() {
-        device(caps = VoiceCapabilities(platformRecognizerPresent = false, onDeviceRecognitionAvailable = false), hasTts = false, tier = HardwareTier.FLAGSHIP)
+    fun `a phone where Android's listener is not ready offers Automatic and Cori only`() {
+        device(nativeReady = false, hasTts = false, tier = HardwareTier.FLAGSHIP)
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
@@ -177,7 +342,7 @@ class SetupWizardViewModelTest {
     }
 
     @Test
-    fun `a phone with the on-device recognizer offers both inputs and no reason`() {
+    fun `a phone where Android's listener is ready offers both inputs and no reason`() {
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
@@ -190,7 +355,7 @@ class SetupWizardViewModelTest {
 
     @Test
     fun `defaults are Automatic input and the tier output on a fresh install`() {
-        every { voiceOutputPreferences.selectedEngine } returns flowOf(VoiceOutputEngine.defaultForTier(HardwareTier.MID_RANGE))
+        device(nativeReady = true, hasTts = true, tier = HardwareTier.MID_RANGE)
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
@@ -200,38 +365,27 @@ class SetupWizardViewModelTest {
     }
 
     @Test
-    fun `an updated install that stored Android TTS is offered Cori on a re-run on a mid-range phone`() {
-        every { voiceOutputPreferences.selectedEngine } returns flowOf(VoiceOutputEngine.AndroidTts)
-        device(caps = FULL_CAPS, hasTts = true, tier = HardwareTier.MID_RANGE)
-
+    fun `a fresh install writes the defaults on Finish`() {
         val vm = viewModel()
+        vm.atDownloadStep()
+
+        vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(VoiceOutputEngine.SherpaExperimental, vm.uiState.value.outputEngine)
-        assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
-    }
-
-    @Test
-    fun `a low-power phone keeps Android TTS as its default output`() {
-        every { voiceOutputPreferences.selectedEngine } returns flowOf(VoiceOutputEngine.AndroidTts)
-        device(caps = FULL_CAPS, hasTts = true, tier = HardwareTier.LOW_POWER)
-
-        val vm = viewModel()
-        dispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals(VoiceOutputEngine.AndroidTts, vm.uiState.value.outputEngine)
-        assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
+        coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto) }
+        coVerify(exactly = 1) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental) }
     }
 
     @Test
     fun `a stored choice Automatic-only device no longer offers stays off the list`() {
-        every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.AndroidNative)
-        device(caps = VoiceCapabilities(platformRecognizerPresent = false, onDeviceRecognitionAvailable = false), hasTts = true, tier = HardwareTier.FLAGSHIP)
+        storedInput(VoiceInputEngine.AndroidNative)
+        device(nativeReady = false, hasTts = true, tier = HardwareTier.FLAGSHIP)
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(VoiceInputEngine.Auto, vm.uiState.value.inputEngine)
+        assertEquals(listOf(VoiceInputEngine.Auto), vm.uiState.value.inputOptions)
+        assertNull(vm.uiState.value.inputEngine)
     }
 
     @Test
@@ -243,6 +397,22 @@ class SetupWizardViewModelTest {
         vm.onOutputSelected(VoiceOutputEngine.AndroidTts)
 
         assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
+    }
+
+    // ── Zipformer files follow the speech input (#1855 part 2 review S1) ─────────
+
+    @Test
+    fun `Zipformer files are planned for Automatic and dropped for Android's listener`() {
+        val zipformer = VoiceDefaultsProvisioner.zipformerModels()
+        val other = KernelModel.entries.first { it !in zipformer }
+        coEvery { downloadManager.plannedFirstRunModels() } returns zipformer + other
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(zipformer + other, vm.uiState.value.plannedModels)
+
+        vm.onInputSelected(VoiceInputEngine.AndroidNative)
+
+        assertEquals(listOf(other), vm.uiState.value.plannedModels)
     }
 
     // ── Storage and consent ──────────────────────────────────────────────────────
@@ -260,7 +430,7 @@ class SetupWizardViewModelTest {
         assertEquals(SetupStep.HOW_IT_WORKS, vm.uiState.value.step)
         coVerify(exactly = 0) { voiceInputPreferences.setSelectedEngine(any()) }
         coVerify(exactly = 0) { voiceOutputPreferences.setSelectedEngine(any()) }
-        coVerify(exactly = 0) { downloadManager.setDownloadNetworkChoice(any()) }
+        coVerify(exactly = 0) { downloadNetworkPreferences.setChoice(any()) }
     }
 
     @Test
@@ -271,7 +441,7 @@ class SetupWizardViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(SetupStep.DOWNLOAD, vm.uiState.value.step)
-        coVerify(exactly = 0) { downloadManager.setDownloadNetworkChoice(any()) }
+        coVerify(exactly = 0) { downloadNetworkPreferences.setChoice(any()) }
         verify(exactly = 0) { voicePackDownloadManager.startDownload(any(), any(), any(), any()) }
     }
 
@@ -287,7 +457,7 @@ class SetupWizardViewModelTest {
         coVerifyOrder {
             voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto)
             voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental)
-            downloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
+            downloadNetworkPreferences.setChoice(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
             voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh)
         }
         coVerify(exactly = 1) { setupWizardPreferences.markCompleted() }
@@ -304,23 +474,5 @@ class SetupWizardViewModelTest {
 
         coVerify(exactly = 1) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts) }
         verify(exactly = 0) { voicePackDownloadManager.startDownload(any(), any(), any(), any()) }
-    }
-
-    @Test
-    fun `Skip saves the speech choices made so far`() {
-        val vm = viewModel()
-        vm.atSpeechStep()
-        vm.onInputSelected(VoiceInputEngine.AndroidNative)
-        vm.onOutputSelected(VoiceOutputEngine.AndroidTts)
-
-        vm.onSkip {}
-        dispatcher.scheduler.advanceUntilIdle()
-
-        coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.AndroidNative) }
-        coVerify(exactly = 1) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts) }
-    }
-
-    private companion object {
-        val FULL_CAPS = VoiceCapabilities(platformRecognizerPresent = true, onDeviceRecognitionAvailable = true)
     }
 }
