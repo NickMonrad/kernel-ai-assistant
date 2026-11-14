@@ -55,6 +55,9 @@ private val IDENTIFIER = Regex("[a-z][a-z0-9_]{0,31}")
 /** Enum constant names, e.g. `NATIVE`, `DOWNLOADING`. */
 private val ENUM_TOKEN = Regex("[A-Z][A-Z0-9_]{0,47}")
 
+/** Boundary between a lowercase letter and an uppercase letter, e.g. `SherpaExperimental`. */
+private val CAMEL_BOUNDARY = Regex("(?<=[a-z])(?=[A-Z])")
+
 /**
  * Counts, durations and ids. Limited to nine digits so a phone number or epoch timestamp
  * cannot pass as a number. Use elapsed milliseconds, not epoch time.
@@ -74,7 +77,7 @@ internal fun sanitizeJandalValue(raw: Any?): String = when (raw) {
         if (d.isFinite()) d.toString().takeIf { NUMBER.matches(it) } ?: JANDAL_EVENT_REDACTED
         else JANDAL_EVENT_REDACTED
     }
-    is Enum<*> -> raw.name.uppercase().takeIf { ENUM_TOKEN.matches(it) } ?: JANDAL_EVENT_REDACTED
+    is Enum<*> -> raw.name.replace(CAMEL_BOUNDARY, "_").uppercase().takeIf { ENUM_TOKEN.matches(it) } ?: JANDAL_EVENT_REDACTED
     else -> JANDAL_EVENT_REDACTED
 }
 

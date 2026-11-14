@@ -1,6 +1,8 @@
 package com.kernel.ai.core.voice
 
 import android.util.Log
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.TtsFailure
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,17 +42,38 @@ class FallbackVoiceOutputController @Inject constructor(
         VoiceOutputEngine.InflectMicroExperimental -> warmUpInflectOrFallback()
     }
 
-    override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult =
-        when (voiceOutputPreferences.selectedEngine.first()) {
+    override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult {
+        val engine = voiceOutputPreferences.selectedEngine.first()
+        JandalEvents.record("tts", "engine_select", "engine" to engine)
+        return when (engine) {
             VoiceOutputEngine.AndroidTts -> {
                 activate(androidTts)
                 androidTts.speak(request)
             }
 
             VoiceOutputEngine.SherpaExperimental,
-            VoiceOutputEngine.KokoroExperimental -> speakWithSherpaFallback(request)
-            VoiceOutputEngine.InflectMicroExperimental -> speakWithInflectFallback(request)
+            VoiceOutputEngine.KokoroExperimental -> recordedSpeak(engine, request) { speakWithSherpaFallback(request) }
+            VoiceOutputEngine.InflectMicroExperimental -> recordedSpeak(engine, request) { speakWithInflectFallback(request) }
         }
+    }
+
+    /**
+     * Records engine-level speak start/end for the non-Android engines (#1870). The Android path
+     * records its own events in [AndroidTextToSpeechController]. Only the engine enum, a length
+     * and Booleans are logged; the text is never recorded.
+     */
+    private suspend inline fun recordedSpeak(
+        engine: VoiceOutputEngine,
+        request: VoiceSpeakRequest,
+        speak: () -> VoiceOutputResult,
+    ): VoiceOutputResult {
+        JandalEvents.record("tts", "speak_start", "engine" to engine, "chars" to request.text.trim().length)
+        val result = speak()
+        val spoken = result is VoiceOutputResult.Spoken
+        if (!spoken) JandalEvents.record("tts", "speak_failed", "engine" to engine, "category" to TtsFailure.UNAVAILABLE)
+        JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to spoken)
+        return result
+    }
 
     override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
         when (voiceOutputPreferences.selectedEngine.first()) {
