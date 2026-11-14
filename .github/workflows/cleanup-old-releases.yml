@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read
 
     steps:
       - name: Delete pre-releases older than N days
@@ -72,16 +73,19 @@ jobs:
 
           while read -r TAG; do
             NUMBER=${TAG#pr-}
-            # A preview for a PR that is still open is kept, even if old. If the state lookup
-            # fails, keep the release (fail closed).
-            if ! STATE=$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json state --jq .state 2>/dev/null); then
-              echo "Keeping $TAG: could not read PR #$NUMBER state."
+            # Delete only for a PR that is CLOSED or MERGED. Anything else, including a failed
+            # lookup (gh's error is printed to the log), keeps the release.
+            if ! STATE=$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json state --jq .state); then
+              echo "::warning::Keeping $TAG: lookup of PR #$NUMBER failed (see the error above)."
               continue
             fi
-            if [ "$STATE" = "OPEN" ]; then
-              echo "Keeping $TAG: PR #$NUMBER is still open."
-              continue
-            fi
+            case "$STATE" in
+              CLOSED|MERGED) ;;
+              *)
+                echo "Keeping $TAG: PR #$NUMBER state is '$STATE'."
+                continue
+                ;;
+            esac
             if [ "$DRY_RUN" = "false" ]; then
               echo "Deleting release + tag: $TAG (PR #$NUMBER is $STATE)"
               gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag

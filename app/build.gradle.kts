@@ -76,16 +76,27 @@ val verifyTesterApkForPlayPublish = tasks.register("verifyTesterApkForPlayPublis
     dependsOn("assembleRelease", "bundleRelease", "processReleaseVersionCodes")
     doLast {
         val buildDirectory = layout.buildDirectory.get().asFile
-        val process = ProcessBuilder(
-            "bash",
-            rootProject.file("scripts/release/verify_tester_apk.sh").absolutePath,
-            releaseApkArtifact(buildDirectory, isSigned = true).absolutePath,
-            buildDirectory.resolve("outputs/bundle/release/app-release.aab").absolutePath,
-            buildDirectory.resolve("intermediates/gpp/release/available-version-codes.txt").absolutePath,
-            releaseVersionPrefix,
-        ).inheritIO()
-        process.environment()["BUILD_TOOLS_DIR"] = locateAapt2().parentFile.absolutePath
-        check(process.start().waitFor() == 0) { "Tester APK verification failed; see the log above." }
+        val buildToolsDirectory = locateAapt2().parentFile.absolutePath
+        // providers.exec captures the output, so it reaches Gradle's console and CI log even
+        // when the build runs in a daemon (ProcessBuilder.inheritIO writes to the daemon's stdio).
+        val result = providers.exec {
+            commandLine(
+                "bash",
+                rootProject.file("scripts/release/verify_tester_apk.sh").absolutePath,
+                releaseApkArtifact(buildDirectory, isSigned = true).absolutePath,
+                buildDirectory.resolve("outputs/bundle/release/app-release.aab").absolutePath,
+                buildDirectory.resolve("intermediates/gpp/release/available-version-codes.txt").absolutePath,
+                releaseVersionPrefix,
+            )
+            environment("BUILD_TOOLS_DIR", buildToolsDirectory)
+            isIgnoreExitValue = true
+        }
+        val output = result.standardOutput.asText.get().trim()
+        val errors = result.standardError.asText.get().trim()
+        if (output.isNotEmpty()) logger.lifecycle(output)
+        if (errors.isNotEmpty()) logger.lifecycle(errors)
+        val exitValue = result.result.get().exitValue
+        check(exitValue == 0) { "Tester APK verification failed (exit $exitValue); see the lines above." }
     }
 }
 
