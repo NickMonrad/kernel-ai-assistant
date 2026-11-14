@@ -122,8 +122,9 @@ class ModelDownloadManager @Inject constructor(
         }
 
         // Any change to the download network choice re-queues every unfinished model job with the new
-        // constraint, then auto-queues if the choice just became usable (#1855). The initial value is
-        // skipped so launches do not re-queue running work.
+        // constraint, then auto-queues if the choice just became usable (#1855). The first value the collector
+        // reads is the launch state and is skipped. Residual: a choice saved before this first read
+        // (adoptLegacyChoice) is missed until next launch.
         scope.launch {
             var previous: DownloadNetworkChoice? = null
             var first = true
@@ -162,8 +163,19 @@ class ModelDownloadManager @Inject constructor(
         scope.launch { downloadNetworkPreferences.setChoice(choice) }
     }
 
-    /** True for an install updated from an earlier build. Fresh installs are false (#1855). */
-    fun isExistingInstall(): Boolean = context.isUpdatedInstall()
+    /**
+     * True only for an install updated from an earlier build that has local model data (#1855). An update
+     * with no models and no `.tmp` file (installed but never used before auto-update) is treated as fresh, so
+     * it is never granted mobile data and still sees the wizard.
+     */
+    fun isExistingInstall(): Boolean =
+        DownloadConsent.existingInstallFromEvidence(context.isUpdatedInstall(), hasLocalModelData())
+
+    private fun hasLocalModelData(): Boolean {
+        val modelsDir = KernelModel.GEMMA_4_E2B.localFile(context).parentFile
+        return KernelModel.entries.any { !it.isBundled && it.isDownloaded(context) } ||
+            modelsDir?.listFiles()?.any { it.name.endsWith(".tmp") } == true
+    }
 
     /**
      * Settles the legacy network choice for an updated install at the first-run decision (#1855). Runs only

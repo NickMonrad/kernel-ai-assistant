@@ -6,13 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
-import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardFlow
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceOutputEngine
+import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoicePackDownloadState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,9 +33,9 @@ data class SetupWizardUiState(
     val choice: DownloadNetworkChoice = DownloadNetworkChoice.WIFI_ONLY,
     /** True when a network choice is already saved (a re-run from Settings, or a finished first run). */
     val choiceRecorded: Boolean = false,
-    /** Models the first-run plan downloads, shared with the auto-queue (#1855). Loaded with the progress. */
+    /** Models the first-run plan still has to download, shared with the auto-queue (#1855). */
     val plannedModels: List<KernelModel> = emptyList(),
-    /** Voice packs the first run queues for the default output engine (Cori on Piper tiers). */
+    /** Voice packs still to download for the selected output engine (#1855). */
     val plannedVoices: List<SherpaPiperVoice> = emptyList(),
 )
 
@@ -48,6 +50,8 @@ class SetupWizardViewModel @Inject constructor(
     private val downloadManager: ModelDownloadManager,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
     private val setupWizardPreferences: SetupWizardPreferences,
+    private val voicePackDownloadManager: SherpaVoicePackDownloadManager,
+    private val voiceOutputPreferences: VoiceOutputPreferences,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -62,13 +66,17 @@ class SetupWizardViewModel @Inject constructor(
             val stored = downloadNetworkPreferences.choice.first()
             val selected = savedStateHandle.get<String>(KEY_SELECTED_CHOICE)
                 ?.let { DownloadNetworkChoice.fromStorageName(it) }
+            val engine = voiceOutputPreferences.selectedEngine.first()
+            val voiceStates = voicePackDownloadManager.downloadStates.value
             _uiState.value = _uiState.value.copy(
                 loaded = true,
                 step = start,
                 choice = selected ?: stored ?: DownloadNetworkChoice.WIFI_ONLY,
                 choiceRecorded = stored != null,
                 plannedModels = downloadManager.plannedFirstRunModels(),
-                plannedVoices = plannedVoicesFor(downloadManager.deviceTier),
+                plannedVoices = plannedVoicesFor(engine) { voice ->
+                    voiceStates[voice] is VoicePackDownloadState.Downloaded
+                },
             )
         }
     }
@@ -122,12 +130,15 @@ class SetupWizardViewModel @Inject constructor(
 
     companion object {
         /**
-         * The Piper voice the first run queues: Cori on tiers whose default output engine is Piper,
-         * none where the default is Android TTS (low-power devices).
+         * Voice packs the first run still has to download for [engine]: Cori on the Sherpa output engine,
+         * none on Android TTS. Packs already on disk are excluded, so the estimate matches the work left.
          */
-        internal fun plannedVoicesFor(tier: HardwareTier): List<SherpaPiperVoice> =
-            if (VoiceOutputEngine.defaultForTier(tier) == VoiceOutputEngine.SherpaExperimental) {
-                listOf(SherpaPiperVoice.CoriHigh)
+        internal fun plannedVoicesFor(
+            engine: VoiceOutputEngine,
+            isDownloaded: (SherpaPiperVoice) -> Boolean,
+        ): List<SherpaPiperVoice> =
+            if (engine == VoiceOutputEngine.SherpaExperimental) {
+                listOf(SherpaPiperVoice.CoriHigh).filterNot(isDownloaded)
             } else {
                 emptyList()
             }

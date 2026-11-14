@@ -31,16 +31,20 @@ object DownloadConsent {
     fun voiceDefaultsAllowed(choice: DownloadNetworkChoice?): Boolean = autoQueueAllowed(choice)
 
     /**
-     * Unfinished work is re-enqueued when the network that applies to it changes. The network that
-     * applies is [effectiveForManualDownload]: jobs started before any choice (manual downloads) run
-     * Wi-Fi only, so moving from "not chosen" to mobile data changes their constraint and must
-     * re-queue them. Moving to "not chosen" never happens (the choice cannot be unset).
+     * Unfinished work is re-enqueued when the network that applies to it changes. The applied network is
+     * [effectiveForManualDownload]. Invariant: every job enqueued before any choice is Wi-Fi only, so moving
+     * from "not chosen" to mobile data changes its constraint and must re-queue it. Any future enqueue that
+     * allows a wider network before a choice must update this rule. Moving back to "not chosen" never happens.
      */
     fun shouldRequeueOnChoiceChange(previous: DownloadNetworkChoice?, next: DownloadNetworkChoice?): Boolean =
         next != null && effectiveForManualDownload(previous) != effectiveForManualDownload(next)
 
     /** True when any job in [states] is queued, running or blocked. */
     fun hasUnfinishedWork(states: Collection<WorkInfo.State>): Boolean = states.any { !it.isFinished }
+
+    /** An updated install counts as existing only with local model data (see ModelDownloadManager). */
+    fun existingInstallFromEvidence(isUpdatedInstall: Boolean, hasLocalModelData: Boolean): Boolean =
+        isUpdatedInstall && hasLocalModelData
 
     /**
      * Updated installs (last update later than first install) keep their current behaviour: any

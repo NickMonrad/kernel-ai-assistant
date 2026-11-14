@@ -32,8 +32,8 @@ private const val NOTIFICATION_PERMISSION = Manifest.permission.POST_NOTIFICATIO
  * Gates a user-started download on notification permission (#1855), using #1880's routing so the
  * denial history stays correct.
  *
- * Returns a request function that takes the pending download's id (a model name, or null for the
- * wizard's Finish). [onProceed] receives that id once the download may start:
+ * Returns a request function that takes the pending action's id (a model name, or the wizard's FINISH_ID or
+ * SKIP_ID). [onProceed] receives that id once the action may start:
  * - Granted, or Android will not ask again: immediately, with no dialog.
  * - Can ask in-app: after a short reason and the system prompt. Dismissing the reason also proceeds.
  *

@@ -90,8 +90,9 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         // Resume observing any in-progress workers from a previous process lifecycle
         SherpaPiperVoice.entries.forEach { voice -> ensureObserving(voice) }
         SherpaKokoroVoice.entries.forEach { voice -> ensureObservingKokoro(voice) }
-        // Any change to the download network choice re-queues unfinished voice packs (#1855). The initial
-        // value is skipped so launches do not re-queue running work.
+        // Any change to the download network choice re-queues unfinished voice packs (#1855). The first value
+        // the collector reads is treated as the launch state and skipped, so launches do not re-queue running
+        // work. Residual: a choice saved before this first read (adoptLegacyChoice) is missed until next launch.
         scope.launch {
             var previous: DownloadNetworkChoice? = null
             var first = true

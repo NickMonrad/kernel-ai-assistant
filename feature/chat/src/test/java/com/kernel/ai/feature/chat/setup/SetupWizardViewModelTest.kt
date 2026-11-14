@@ -3,16 +3,21 @@ package com.kernel.ai.feature.chat.setup
 import androidx.lifecycle.SavedStateHandle
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.ModelDownloadManager
-import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
+import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
+import com.kernel.ai.core.voice.VoiceOutputEngine
+import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoicePackDownloadState
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -31,12 +36,15 @@ class SetupWizardViewModelTest {
     private val downloadManager: ModelDownloadManager = mockk(relaxed = true)
     private val downloadNetworkPreferences: DownloadNetworkPreferences = mockk(relaxed = true)
     private val setupWizardPreferences: SetupWizardPreferences = mockk(relaxed = true)
+    private val voicePackDownloadManager: SherpaVoicePackDownloadManager = mockk(relaxed = true)
+    private val voiceOutputPreferences: VoiceOutputPreferences = mockk(relaxed = true)
 
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(dispatcher)
-        every { downloadManager.deviceTier } returns HardwareTier.FLAGSHIP
         every { setupWizardPreferences.progress } returns flowOf(SetupWizardProgress(decided = true, completed = false))
+        every { voicePackDownloadManager.downloadStates } returns MutableStateFlow(emptyMap())
+        every { voiceOutputPreferences.selectedEngine } returns flowOf(VoiceOutputEngine.SherpaExperimental)
         coEvery { downloadManager.plannedFirstRunModels() } returns emptyList()
     }
 
@@ -46,7 +54,14 @@ class SetupWizardViewModelTest {
     }
 
     private fun viewModel(handle: SavedStateHandle = SavedStateHandle()): SetupWizardViewModel =
-        SetupWizardViewModel(downloadManager, downloadNetworkPreferences, setupWizardPreferences, handle)
+        SetupWizardViewModel(
+            downloadManager,
+            downloadNetworkPreferences,
+            setupWizardPreferences,
+            voicePackDownloadManager,
+            voiceOutputPreferences,
+            handle,
+        )
 
     @Test
     fun `skipping with no saved choice saves Wi-Fi only so models still download`() {
@@ -96,5 +111,18 @@ class SetupWizardViewModelTest {
 
         assertEquals(DownloadNetworkChoice.MOBILE_DATA_ALLOWED, vm.uiState.value.choice)
         assertTrue(vm.uiState.value.choiceRecorded)
+    }
+
+    @Test
+    fun `a voice pack already on disk is not in the planned voices`() {
+        every { downloadNetworkPreferences.choice } returns flowOf(DownloadNetworkChoice.WIFI_ONLY)
+        every { voicePackDownloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(SherpaPiperVoice.CoriHigh to VoicePackDownloadState.Downloaded("/cori")),
+        )
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
     }
 }

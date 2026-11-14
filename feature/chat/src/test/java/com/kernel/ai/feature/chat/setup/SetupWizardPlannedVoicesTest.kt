@@ -1,20 +1,33 @@
 package com.kernel.ai.feature.chat.setup
 
-import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.VoiceOutputEngine
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class SetupWizardPlannedVoicesTest {
 
     @Test
-    fun `piper tiers plan the Cori voice`() {
-        assertEquals(listOf(SherpaPiperVoice.CoriHigh), SetupWizardViewModel.plannedVoicesFor(HardwareTier.FLAGSHIP))
-        assertEquals(listOf(SherpaPiperVoice.CoriHigh), SetupWizardViewModel.plannedVoicesFor(HardwareTier.MID_RANGE))
+    fun `sherpa engine plans the Cori voice when it is not on disk`() {
+        assertEquals(
+            listOf(SherpaPiperVoice.CoriHigh),
+            SetupWizardViewModel.plannedVoicesFor(VoiceOutputEngine.SherpaExperimental) { false },
+        )
     }
 
     @Test
-    fun `low power plans no voice pack because its default is Android TTS`() {
-        assertEquals(emptyList<SherpaPiperVoice>(), SetupWizardViewModel.plannedVoicesFor(HardwareTier.LOW_POWER))
+    fun `an already downloaded voice is not planned again`() {
+        assertEquals(
+            emptyList<SherpaPiperVoice>(),
+            SetupWizardViewModel.plannedVoicesFor(VoiceOutputEngine.SherpaExperimental) { true },
+        )
+    }
+
+    @Test
+    fun `android tts engine plans no voice pack`() {
+        assertEquals(
+            emptyList<SherpaPiperVoice>(),
+            SetupWizardViewModel.plannedVoicesFor(VoiceOutputEngine.AndroidTts) { false },
+        )
     }
 }
