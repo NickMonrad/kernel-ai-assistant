@@ -1,7 +1,12 @@
 package com.kernel.ai.feature.settings
 
-import androidx.compose.foundation.clickable
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,19 +33,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import android.Manifest
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.AlertDialog
+import com.kernel.ai.core.permissions.PermissionRoute
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import android.os.SystemClock
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.kernel.ai.core.permissions.isSilentDenial
+import com.kernel.ai.core.permissions.recordPermissionResult
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,18 +59,47 @@ fun AppPermissionsScreen(
     viewModel: AppPermissionsViewModel = hiltViewModel(),
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
 
-    var showCalendarWriteRationale by remember { mutableStateOf(false) }
-    val calendarWriteLauncher = rememberLauncherForActivityResult(
+    // Live Activity value; read at refresh time, never during composition.
+    val rationaleFor = remember(context) {
+        { permission: String ->
+            context.findActivity()?.let { activity ->
+                ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
+            } ?: false
+        }
+    }
+
+    // Which row launched the request, and when. Saved so a result that arrives after the activity
+    // is recreated (rotation while the system dialog is open) is still recorded. The launch time
+    // detects a silent denial, which returns with no dialog shown.
+    var pendingPermission by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingLaunchedAt by rememberSaveable { mutableStateOf(0L) }
+    val requestPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { viewModel.refresh() }
+    ) { granted ->
+        pendingPermission?.let { permission ->
+            val shouldShowRationale = !granted && rationaleFor(permission)
+            val silent = !granted && !shouldShowRationale &&
+                isSilentDenial(SystemClock.elapsedRealtime() - pendingLaunchedAt)
+            context.recordPermissionResult(
+                permission,
+                granted,
+                shouldShowRationale = shouldShowRationale,
+                silentlyDenied = silent,
+            )
+            if (silent) viewModel.openRuntimePermissionAppInfo(permission)
+        }
+        pendingPermission = null
+        viewModel.refresh(rationaleFor)
+    }
 
     // Auto-refresh when returning from system settings (e.g. after toggling permissions)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.refresh()
+                viewModel.refresh(rationaleFor)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -80,7 +119,7 @@ fun AppPermissionsScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick = { viewModel.refresh() }) {
+                    TextButton(onClick = { viewModel.refresh(rationaleFor) }) {
                         Icon(
                             Icons.Default.Refresh,
                             contentDescription = "Refresh",
@@ -99,7 +138,7 @@ fun AppPermissionsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                text = "Review the permissions and Android access Jandal uses for specific features. Tap an item to repair access in Android settings.",
+                text = stringResource(R.string.app_permissions_intro),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -110,12 +149,16 @@ fun AppPermissionsScreen(
             uiState.permissions.forEach { perm ->
                 PermissionRow(
                     item = perm,
-                    onFix = {
-                        when {
-                            perm.isSpecial -> viewModel.openSpecialPermissionSettings(perm.permission)
-                            perm.permission == Manifest.permission.WRITE_CALENDAR && !perm.isGranted ->
-                                showCalendarWriteRationale = true
-                            else -> viewModel.openAppInfoSettings()
+                    onAction = {
+                        when (perm.route) {
+                            null, PermissionRoute.Granted -> Unit
+                            PermissionRoute.RequestInApp -> {
+                                pendingPermission = perm.permission
+                                pendingLaunchedAt = SystemClock.elapsedRealtime()
+                                requestPermissionLauncher.launch(perm.permission)
+                            }
+                            PermissionRoute.AppInfo -> viewModel.openRuntimePermissionAppInfo(perm.permission)
+                            PermissionRoute.SpecialAccess -> viewModel.openSpecialPermissionSettings(perm.permission)
                         }
                     },
                 )
@@ -124,45 +167,18 @@ fun AppPermissionsScreen(
 
         }
     }
-
-    if (showCalendarWriteRationale) {
-        AlertDialog(
-            onDismissRequest = { showCalendarWriteRationale = false },
-            title = { Text("Allow calendar events?") },
-            text = {
-                Text("Jandal adds events to your default calendar when you ask it to schedule something.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showCalendarWriteRationale = false
-                    calendarWriteLauncher.launch(Manifest.permission.WRITE_CALENDAR)
-                }) {
-                    Text("Continue")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCalendarWriteRationale = false }) {
-                    Text("Not now")
-                }
-            },
-        )
-    }
 }
 
 @Composable
 private fun PermissionRow(
     item: AppPermissionItem,
-    onFix: () -> Unit,
+    onAction: () -> Unit,
 ) {
     val tint = if (item.isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
 
+    // The action button is the only interactive element, so TalkBack exposes one action per row.
     ListItem(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(
-                enabled = !item.isGranted,
-                onClick = onFix,
-            ),
+        modifier = Modifier.fillMaxWidth(),
         headlineContent = {
             Text(
                 text = item.label,
@@ -177,11 +193,24 @@ private fun PermissionRow(
             )
         },
         trailingContent = {
-            Icon(
-                imageVector = if (item.isGranted) Icons.Default.Check else Icons.Default.Close,
-                contentDescription = if (item.isGranted) "${item.label} granted" else "${item.label} not granted",
-                tint = tint,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val actionLabel = when (item.route) {
+                    null, PermissionRoute.Granted -> null
+                    PermissionRoute.RequestInApp -> stringResource(R.string.permission_action_allow)
+                    PermissionRoute.AppInfo -> stringResource(R.string.permission_action_open_app_settings)
+                    PermissionRoute.SpecialAccess -> stringResource(R.string.permission_action_open_settings)
+                }
+                if (actionLabel != null) {
+                    TextButton(onClick = onAction) {
+                        Text(actionLabel)
+                    }
+                }
+                Icon(
+                    imageVector = if (item.isGranted) Icons.Default.Check else Icons.Default.Close,
+                    contentDescription = if (item.isGranted) "${item.label} granted" else "${item.label} not granted",
+                    tint = tint,
+                )
+            }
         },
         overlineContent = {
             if (item.isSpecial) {
@@ -193,4 +222,10 @@ private fun PermissionRow(
             }
         },
     )
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
