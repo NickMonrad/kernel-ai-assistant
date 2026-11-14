@@ -78,6 +78,7 @@ class NativeIntentHandlerTest {
     private val contactAliasRepository = mockk<ContactAliasRepository>(relaxed = true)
     private val importantDateRepository = mockk<ImportantDateRepository>(relaxed = true)
     private val calendarBirthdayLookup = mockk<CalendarBirthdayLookup>(relaxed = true)
+    private val calendarEventStore = mockk<CalendarEventStore>(relaxed = true)
     private val clockRepository = mockk<ClockRepository>(relaxed = true)
     private val clockAlertController = mockk<ClockAlertController>(relaxed = true)
     private val listItemDao = mockk<ListItemDao>(relaxed = true)
@@ -96,6 +97,7 @@ class NativeIntentHandlerTest {
         contactAliasRepository = contactAliasRepository,
         importantDateRepository = importantDateRepository,
         calendarBirthdayLookup = calendarBirthdayLookup,
+        calendarEventStore = calendarEventStore,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
         cookingConversionService = cookingConversionService,
@@ -141,6 +143,7 @@ class NativeIntentHandlerTest {
         contactAliasRepository = contactAliasRepository,
         importantDateRepository = importantDateRepository,
         calendarBirthdayLookup = calendarBirthdayLookup,
+        calendarEventStore = calendarEventStore,
         memoryRepository = mockk<MemoryRepository>(relaxed = true),
         embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
         cookingConversionService = cookingConversionService,
@@ -164,6 +167,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = cookingConversionService,
@@ -3089,6 +3093,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = cookingConversionService,
@@ -3237,6 +3242,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = mockk<MemoryRepository>(relaxed = true),
             embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
             cookingConversionService = cookingConversionService,
@@ -4281,6 +4287,7 @@ class NativeIntentHandlerTest {
             contactAliasRepository = contactAliasRepository,
             importantDateRepository = importantDateRepository,
             calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
             memoryRepository = memoryRepository,
             embeddingEngine = embeddingEngine,
             cookingConversionService = cookingConversionService,
@@ -4737,6 +4744,89 @@ class NativeIntentHandlerTest {
             assertEquals(UnknownIntentReplies.GENERIC_REPLY, failure.error)
             assertEquals("Unknown intent: frobnicate_widgets", failure.technicalDetail)
             verify(exactly = 0) { context.startActivity(any()) }
+        }
+    }
+
+    @Nested
+    @DisplayName("create_calendar_event")
+    inner class CreateCalendarEvent {
+        private val params = mapOf("title" to "Dentist", "date" to "2099-01-10")
+
+        @Test
+        @DisplayName("READ missing: asks for calendar capability instead of inserting")
+        fun readMissingRequestsCapability() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns false
+            every { calendarEventStore.hasWritePermission() } returns true
+
+            val result = handler.handle("create_calendar_event", params)
+
+            assertTrue(result is SkillResult.CapabilityRequired)
+            assertEquals(
+                com.kernel.ai.core.permissions.CapabilityKey.CalendarWrite,
+                (result as SkillResult.CapabilityRequired).capabilityKey,
+            )
+            verify(exactly = 0) { calendarEventStore.insertEvent(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("WRITE missing: asks for calendar capability instead of reporting no calendar")
+        fun writeMissingRequestsCapability() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns true
+            every { calendarEventStore.hasWritePermission() } returns false
+
+            val result = handler.handle("create_calendar_event", params)
+
+            assertTrue(result is SkillResult.CapabilityRequired)
+            verify(exactly = 0) { calendarEventStore.insertEvent(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("invitees: refuses so no event is inserted without them")
+        fun inviteesAreRefused() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns true
+            every { calendarEventStore.hasWritePermission() } returns true
+            every { calendarEventStore.findDefaultWritableCalendar() } returns WritableCalendar(7L, "Home")
+
+            val result = handler.handle("create_calendar_event", params + ("attendees" to "Sarah"))
+
+            assertTrue(result is SkillResult.Failure)
+            verify(exactly = 0) { calendarEventStore.insertEvent(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("no writable calendar: fails without inserting")
+        fun noWritableCalendarFails() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns true
+            every { calendarEventStore.hasWritePermission() } returns true
+            every { calendarEventStore.findDefaultWritableCalendar() } returns null
+
+            val result = handler.handle("create_calendar_event", params)
+
+            assertTrue(result is SkillResult.Failure)
+            verify(exactly = 0) { calendarEventStore.insertEvent(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("all-day: inserts into the default calendar at UTC midnight with UTC zone")
+        fun allDayInsertsAtUtcMidnight() = runBlocking {
+            every { calendarEventStore.hasReadPermission() } returns true
+            every { calendarEventStore.hasWritePermission() } returns true
+            every { calendarEventStore.findDefaultWritableCalendar() } returns WritableCalendar(7L, "Home")
+            every { calendarEventStore.insertEvent(any(), any()) } returns 42L
+            val expectedBegin = LocalDate.of(2099, 1, 10).atStartOfDay(java.time.ZoneId.of("UTC"))
+                .toInstant().toEpochMilli()
+
+            val result = handler.handle("create_calendar_event", params)
+
+            assertTrue(result is SkillResult.Success)
+            verify(exactly = 1) {
+                calendarEventStore.insertEvent(
+                    calendarId = 7L,
+                    event = match {
+                        it.allDay && it.beginMillis == expectedBegin && it.timeZoneId == "UTC"
+                    },
+                )
+            }
         }
     }
 }

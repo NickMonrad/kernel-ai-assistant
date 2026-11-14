@@ -170,11 +170,11 @@ def _parse_tool_marker(marker: str | None) -> dict[str, str]:
             pass
     # Legacy raw-text marker: extract tool name and merge JSON from
     # the raw content (format: <|tool_call>call:<tool>{<json>})
-    if "raw" in result and "tool" not in result:
+    if "raw" in result:
         raw = result["raw"]
         # Extract tool name: call:<toolName>{
         tool_m = re.search(r"call:(\w+)\{", raw)
-        if tool_m:
+        if tool_m and "tool" not in result:
             result["tool"] = tool_m.group(1)
         # Extract key=value fields from Gemma-4 tool call format:
         #   <key>:<|"|><value><|"|>

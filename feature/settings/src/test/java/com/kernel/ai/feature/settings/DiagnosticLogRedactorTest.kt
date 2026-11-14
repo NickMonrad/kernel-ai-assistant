@@ -110,6 +110,22 @@ class DiagnosticLogRedactorTest {
     }
 
     @Test
+    fun `redacts verbose_reply and verbose_params content`() {
+        val logcat = """
+            11-14 09:20:00.000  4321  4321 D KernelAI: verbose_reply: Your balance is 42 at Ashburton Park
+            11-14 09:20:01.000  4321  4321 D KernelAI: verbose_params: intent=create_calendar_event params={title=Dentist, location=Clinic}
+        """.trimIndent()
+
+        val redacted = DiagnosticLogRedactor.redactLogcat(logcat)
+
+        assertFalse(redacted.contains("Ashburton"))
+        assertFalse(redacted.contains("Dentist"))
+        assertFalse(redacted.contains("Clinic"))
+        assertTrue(redacted.contains("verbose_reply:"))
+        assertTrue(redacted.contains("verbose_params:"))
+    }
+
+    @Test
     fun `redacts a list item value that continues onto later logcat lines`() {
         val logcat = """
             11-14 09:21:00.000  4321  4321 D ListsViewModel: created list items=eggs

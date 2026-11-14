@@ -3,7 +3,7 @@ package com.kernel.ai.core.skills.natives
 /**
  * User-facing replies for `run_intent` names that are not registered in [NativeIntentHandler].
  *
- * The model sometimes invents intent names (e.g. `get_calendar` before #942 exists). Those must
+ * The model sometimes invents intent names (e.g. `get_calendar`; the real intent is `read_calendar_events`). Those must
  * never surface as raw "Unknown intent: X" text in chat or TTS. This object only chooses wording.
  * It never maps an unknown name onto a real intent, so nothing with side effects runs by guess.
  */
@@ -13,7 +13,7 @@ object UnknownIntentReplies {
     const val GENERIC_REPLY = "I couldn't do that one. Try asking another way."
 
     const val CALENDAR_READ_REPLY =
-        "I can't read your calendar yet. I can add events to it if you like."
+        "I can read your calendar for today, tomorrow, this week, next week or the next 7 days, or find a specific event such as your next dentist appointment."
 
     const val EMAIL_READ_REPLY = "I can't read your email yet, but I can send one."
 
@@ -58,4 +58,8 @@ object UnknownIntentReplies {
      */
     fun loggableName(intentName: String): String =
         intentName.lowercase().filter { it in 'a'..'z' || it in '0'..'9' || it == '_' }.take(40)
+
+    /** Log-safe `[k1,k2]` list of parameter keys; values are never logged. */
+    fun loggableKeys(keys: Collection<String>): String =
+        keys.joinToString(prefix = "[", postfix = "]", separator = ",") { loggableName(it) }
 }

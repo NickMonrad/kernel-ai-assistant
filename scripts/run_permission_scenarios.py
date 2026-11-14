@@ -44,6 +44,11 @@ UI_DUMP_REMOTE_PATH = "/sdcard/permission-runner-ui.xml"
 # #1604: debug builds auto-run prompt extras from adb only with a token written via `run-as`.
 HARNESS_TOKEN = secrets.token_hex(16)
 
+def harness_token_write_command() -> str:
+    """Shell command that writes the debug harness token into the app's private files dir via run-as."""
+    token_script = f"mkdir -p files && printf %s {HARNESS_TOKEN} > files/adb_harness_token"
+    return f"run-as {APP_PACKAGE} sh -c {shlex.quote(token_script)}"
+
 SETTINGS_PACKAGE_PREFIXES = (
     "com.android.settings",
     "com.google.android.permissioncontroller",
@@ -533,12 +538,14 @@ class ScenarioRunner:
             return f"Permissions set to {state}: {', '.join(permissions)}", {}
         if action == "launch_main":
             self.wake_and_home()
-            self.adb.shell(f"am start -W -n {APP_PACKAGE}/{MAIN_ACTIVITY}", timeout=45)
+            self.adb.shell(harness_token_write_command(), timeout=10)
+            self.adb.shell(f"am start -W -n {APP_PACKAGE}/{MAIN_ACTIVITY} --es adb_harness_token {HARNESS_TOKEN}", timeout=45)
             self._wait_for_package(APP_PACKAGE, timeout_seconds=20)
             return "MainActivity launched", {"current_pid": self._current_pid() or ""}
         if action == "launch_chat":
             self.wake_and_home()
-            self.adb.shell(f"am start -W -n {APP_PACKAGE}/{MAIN_ACTIVITY}", timeout=45)
+            self.adb.shell(harness_token_write_command(), timeout=10)
+            self.adb.shell(f"am start -W -n {APP_PACKAGE}/{MAIN_ACTIVITY} --es adb_harness_token {HARNESS_TOKEN}", timeout=45)
             self._wait_for_package(APP_PACKAGE, timeout_seconds=20)
             node = self._find_target({"content_desc": "New conversation"}, timeout_seconds=10)
             if node.center is None:

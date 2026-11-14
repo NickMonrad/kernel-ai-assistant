@@ -540,9 +540,10 @@ determine pass/fail for `llm_tools` cases:
 | `llm_tools_route:` | `route_marker` | After QIR/classifier — confirms query fell through to Gemma | ✓ |
 | `llm_tools_native_tool:` | `native_tool_marker` | Tool call dispatched via the native SDK tool-call path | one of these ✓ |
 | `llm_tools_legacy_tool:` | `legacy_tool_marker` | Tool call dispatched via legacy Gemma text-format path | one of these ✓ |
-| `llm_tools_skill_result:` | `skill_result_marker` | Tool execution result captured (includes tool name, args, mode, success) | ✓ |
+| `llm_tools_skill_result:` | `skill_result_marker` | Tool execution result captured (tool name, mode, success; args as length only by default) | ✓ |
 | `llm_tools_message_toolcall_saved:` | `message_saved_marker` | Tool call message persisted in chat history (UUID + tool name) | ✓ |
 | `tool_chip_visible` (in chip_text) | `chip_text` | UI chip for the tool call is visible on screen | ✓ |
+| `verbose_reply:` / `verbose_direct_reply:` / `verbose_params:` | `extract_reply`, `extract_intent` | Reply text and parameter values; debug builds with the adb harness token only | for reply and parameter checks |
 | `raw_tool_call_retry_succeeded` / `hallucination_retry_succeeded` | `retry_seen` | Unexpected retry path activated | must be `false` |
 | `NeedsSlot` / `ConfirmationFastPath:` | `slot_fill_seen` | QIR slot-fill or confirmation path used | must be `false` |
 
