@@ -18,6 +18,9 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.then
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.filterToOne
+import androidx.compose.ui.test.onAncestors
+import androidx.compose.ui.test.hasClickAction
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.setup.SetupStep
 import org.junit.Assert.assertTrue
@@ -99,6 +102,11 @@ class SetupWizardLargeFontTest {
         }
     }
 
+    /** Bounds of the clickable Button/TextButton that carries [label], not the label Text inside it. */
+    private fun buttonBounds(label: String): Rect =
+        composeRule.onNode(hasClickAction() and hasText(label))
+            .unclippedBounds()
+
     /**
      * The content container must end at or above the primary button's top, so the buttons sit below the
      * scrolling area rather than over it. Each button must be at least 48 dp tall and lie inside the window.
@@ -106,7 +114,7 @@ class SetupWizardLargeFontTest {
     private fun assertButtonsReachable(primary: String) {
         val window = composeRule.onRoot().unclippedBounds()
         val content = contentBounds()
-        val primaryBounds = composeRule.onNodeWithText(primary).unclippedBounds()
+        val primaryBounds = buttonBounds(primary)
         assertTrue(
             "content bottom ${content.bottom} must be at or above $primary top ${primaryBounds.top}",
             content.bottom <= primaryBounds.top + TOLERANCE_PX,
@@ -114,7 +122,7 @@ class SetupWizardLargeFontTest {
         val minHeightPx = MIN_TOUCH_DP * InstrumentationRegistry.getInstrumentation()
             .targetContext.resources.displayMetrics.density
         listOf(primary, "Back", "Skip for now").forEach { label ->
-            val bounds = composeRule.onNodeWithText(label).unclippedBounds()
+            val bounds = buttonBounds(label)
             assertTrue(
                 "$label height ${bounds.height} px must be at least $minHeightPx px (48 dp)",
                 bounds.height >= minHeightPx,
