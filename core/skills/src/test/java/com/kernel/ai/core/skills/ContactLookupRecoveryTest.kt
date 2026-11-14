@@ -127,7 +127,7 @@ class ContactLookupRecoveryTest {
             nearMatches = listOf("Laurelle Smith"),
         )
         assertEquals(
-            "I couldn't find Laurel. Did you mean Laurelle Smith? Add them in Settings → People & Contacts.",
+            "I couldn't find Laurel. Closest contact: Laurelle Smith. Add them in Settings → People & Contacts.",
             result.error,
         )
         val suggestion = result.actions.first()

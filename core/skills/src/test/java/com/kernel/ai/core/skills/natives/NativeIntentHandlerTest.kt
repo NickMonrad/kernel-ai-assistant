@@ -38,6 +38,7 @@ import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.repository.ListMutationBlockedException
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.memory.profile.UserProfileYaml
+import com.kernel.ai.core.skills.ContactLookupRecovery
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
 import io.mockk.Runs
@@ -656,6 +657,23 @@ class NativeIntentHandlerTest {
 
         val required = assertCapabilityRequired(result, CapabilityKey.ContactLookup, "make_call")
         assertEquals(mapOf("contact" to "Susan Monrad"), required.contextParams)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun `make_call unresolved contact returns recovery actions and never dials`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        every { contentResolver.query(any(), any(), any(), any(), any()) } returns null
+
+        val result = handleIntent("make_call", mapOf("contact" to "Zephyrine Test"))
+
+        val failure = result as SkillResult.Failure
+        assertEquals("make_call", failure.skillName)
+        assertTrue(failure.error.contains("People & Contacts"))
+        assertEquals(ContactLookupRecovery.PEOPLE_DESTINATION, failure.actions.first().deepLink.destination)
+        assertEquals("true", failure.actions.first().deepLink.args[ContactLookupRecovery.ARG_CALL])
         verify(exactly = 0) { context.startActivity(any()) }
     }
 

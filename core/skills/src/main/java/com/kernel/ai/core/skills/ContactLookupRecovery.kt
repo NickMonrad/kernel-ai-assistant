@@ -158,9 +158,9 @@ object ContactLookupRecovery {
         if (nearMatches.isNotEmpty()) {
             val single = nearMatches.size == 1
             val message = if (single) {
-                "I couldn't find $displayQuery. Did you mean ${nearMatches.first()}? $GUIDANCE"
+                "I couldn't find $displayQuery. Closest contact: ${nearMatches.first()}. $GUIDANCE"
             } else {
-                "I couldn't find $displayQuery. Did you mean ${nearMatches.joinToString(" or ")}? $GUIDANCE"
+                "I couldn't find $displayQuery. Closest contacts: ${nearMatches.joinToString(" or ")}. $GUIDANCE"
             }
             val suggestions = nearMatches.map { name ->
                 SettingsAction(
