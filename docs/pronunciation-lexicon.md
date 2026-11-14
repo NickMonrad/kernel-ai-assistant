@@ -36,8 +36,10 @@ Whole-word respellings applied to text before the Sherpa voices (Piper, Kokoro) 
 
 ## Status of seed entries
 
-Owner picks (by ear, 2026-11-14) are `verify: false`. Owner suggestions still awaiting a
-confirmation listen are `verify: true`. Candidate clips are in `nz-names-audio/`, `round2/` and `round3/`.
+All entries are owner picks (by ear, 2026-11-14) and `verify: false`.
+
+**Policy for future entries:** use common NZ English pronunciations, not attempted Māori
+pronunciations. Set `verify: true` only for an entry with no owner pick yet. Candidate clips are in `nz-names-audio/`, `round2/` and `round3/`.
 
 | Name | Say | verify | Basis |
 |---|---|---|---|
@@ -50,9 +52,9 @@ confirmation listen are `verify: true`. Candidate clips are in `nz-names-audio/`
 | Taupō | Toe-paw | false | Owner pick (many people say "Tau-poe") |
 | Whanganui, Wanganui | Wonga-noo-ee | false | Owner, by ear, 2026-11-14 |
 | Tauranga | Toe-rung-ah | false | Owner, by ear, 2026-11-14 |
-| Paraparaumu | Para-pa-ram | true | Owner suggestion, round 3 ("Para-puh-ram" also rendered) |
+| Paraparaumu | Para-puh-ram | false | Owner, by ear, 2026-11-14 |
 | Taihape | Tie-happy | false | Owner, by ear, 2026-11-14 (replaces Tie-ha-peh) |
-| Waikato | Why-car-tor | true | Owner suggestion, round 3 ("Why-kat-o" also rendered) |
+| Waikato | Why-kat-o | false | Owner, by ear, 2026-11-14 |
 
 Not in the lexicon: Ōtaki, Waikanae, Hāwera, Rotorua (not clearly wrong, not listened to).
 
