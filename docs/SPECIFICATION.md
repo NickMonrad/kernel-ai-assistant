@@ -1590,7 +1590,7 @@ When adding dependencies or features that span multiple modules (especially feat
 ./gradlew testDebugUnitTest          # Unit tests, debug variant only
 ./gradlew connectedDebugAndroidTest  # Compose UI tests (requires connected device)
 ./gradlew lint                       # Android lint
-./gradlew installDebug               # Build + install on connected device
+./gradlew assembleDebug                # Build debug APK; install: adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :core:inference:test       # Single-module test
 python3 scripts/adb_skill_test.py    # Device routing/profile regression harness
 python3 scripts/adb_skill_test.py --phases llm_tools  # E2E model tool-call generation harness
