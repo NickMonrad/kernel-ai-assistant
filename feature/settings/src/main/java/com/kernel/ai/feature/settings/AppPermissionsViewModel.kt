@@ -133,7 +133,6 @@ class AppPermissionsViewModel @Inject constructor(
         }
     }
 
-
     /** Decides how a "grant access" action for [item] must proceed. */
     fun routeFor(item: AppPermissionItem, shouldShowRationale: Boolean): PermissionRoute =
         decidePermissionRoute(

@@ -68,19 +68,35 @@ class PermissionRequestStore internal constructor(private val prefs: SharedPrefe
 }
 
 /**
+ * Android returns a denial without showing a dialog when the permission is permanently denied.
+ * A dialog needs user interaction, so a denial that returns within [SILENT_DENIAL_MAX_MS] of the
+ * launch had no dialog. This catches permanent denials made before the denied-once record existed.
+ */
+const val SILENT_DENIAL_MAX_MS = 400L
+
+fun isSilentDenial(elapsedMs: Long): Boolean = elapsedMs in 0 until SILENT_DENIAL_MAX_MS
+
+/**
  * Call from every runtime-permission result callback, at every request site.
  *
  * - Granted: clears the record, so a later revoke (including one-time grants) goes back to "Allow".
  * - Denied while [shouldShowRationale] is true: records the first in-app denial. A dialog that was
  *   only dismissed does not set rationale on Android 11+, so it is not recorded and the row keeps
  *   offering the in-app request.
+ * - Denied with [silentlyDenied] (see [isSilentDenial]): records a permanent denial, so the row
+ *   routes to App info from now on.
  *
  * [shouldShowRationale] must be read from the Activity in the callback, never during composition.
  */
-fun Context.recordPermissionResult(permission: String, granted: Boolean, shouldShowRationale: Boolean) {
+fun Context.recordPermissionResult(
+    permission: String,
+    granted: Boolean,
+    shouldShowRationale: Boolean,
+    silentlyDenied: Boolean = false,
+) {
     val store = PermissionRequestStore.from(this)
     when {
         granted -> store.clear(permission)
-        shouldShowRationale -> store.markDenied(permission)
+        shouldShowRationale || silentlyDenied -> store.markDenied(permission)
     }
 }

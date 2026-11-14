@@ -47,6 +47,9 @@ import com.kernel.ai.core.permissions.PermissionRoute
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
+import android.os.SystemClock
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.kernel.ai.core.permissions.isSilentDenial
 import com.kernel.ai.core.permissions.recordPermissionResult
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,17 +71,25 @@ fun AppPermissionsScreen(
         }
     }
 
-    // Remembers which row launched the request so its result is recorded against that permission.
-    var pendingPermission by remember { mutableStateOf<String?>(null) }
+    // Which row launched the request, and when. Saved so a result that arrives after the activity
+    // is recreated (rotation while the system dialog is open) is still recorded. The launch time
+    // detects a silent denial, which returns with no dialog shown.
+    var pendingPermission by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingLaunchedAt by rememberSaveable { mutableStateOf(0L) }
     val requestPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         pendingPermission?.let { permission ->
+            val shouldShowRationale = !granted && rationaleFor(permission)
+            val silent = !granted && !shouldShowRationale &&
+                isSilentDenial(SystemClock.elapsedRealtime() - pendingLaunchedAt)
             context.recordPermissionResult(
                 permission,
                 granted,
-                shouldShowRationale = !granted && rationaleFor(permission),
+                shouldShowRationale = shouldShowRationale,
+                silentlyDenied = silent,
             )
+            if (silent) viewModel.openRuntimePermissionAppInfo(permission)
         }
         pendingPermission = null
         viewModel.refresh(rationaleFor)
@@ -127,7 +138,7 @@ fun AppPermissionsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                text = "Review the permissions and Android access Jandal uses for specific features. Allow requests access here. Special access opens Android settings.",
+                text = stringResource(R.string.app_permissions_intro),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -143,6 +154,7 @@ fun AppPermissionsScreen(
                             null, PermissionRoute.Granted -> Unit
                             PermissionRoute.RequestInApp -> {
                                 pendingPermission = perm.permission
+                                pendingLaunchedAt = SystemClock.elapsedRealtime()
                                 requestPermissionLauncher.launch(perm.permission)
                             }
                             PermissionRoute.AppInfo -> viewModel.openRuntimePermissionAppInfo(perm.permission)

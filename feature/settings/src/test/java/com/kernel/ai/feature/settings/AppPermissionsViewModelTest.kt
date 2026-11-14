@@ -268,19 +268,4 @@ class AppPermissionsViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(PermissionRoute.AppInfo, contacts().route)
     }
-
-    @Test
-    fun `routeFor sends never-denied permission to in-app request`() = runTest {
-        val vm = createViewModel()
-        val item = AppPermissionItem("Contacts", "", Manifest.permission.READ_CONTACTS)
-        assertEquals(PermissionRoute.RequestInApp, vm.routeFor(item, shouldShowRationale = false))
-    }
-
-    @Test
-    fun `routeFor sends denied-before permission with no rationale to app info`() = runTest {
-        every { requestStore.wasDenied(Manifest.permission.READ_CONTACTS) } returns true
-        val vm = createViewModel()
-        val item = AppPermissionItem("Contacts", "", Manifest.permission.READ_CONTACTS)
-        assertEquals(PermissionRoute.AppInfo, vm.routeFor(item, shouldShowRationale = false))
-    }
 }

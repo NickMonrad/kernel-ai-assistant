@@ -233,7 +233,6 @@ fun VoiceScreen(
         }
     }
 
-
     var showDefaultAssistantPrompt by remember { mutableStateOf(false) }
 
     val assistantRoleLauncher = rememberLauncherForActivityResult(
