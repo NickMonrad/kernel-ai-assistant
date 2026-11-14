@@ -9,11 +9,11 @@ enum class VoiceOutputEngine(
 ) {
     AndroidTts(
         displayName = "Android TTS",
-        description = "Uses the platform text-to-speech engine and works without local Sherpa assets.",
+        description = "Uses the device's built-in speech voice. Works without a download.",
     ),
     SherpaExperimental(
         displayName = "Piper",
-        description = "Natural-sounding local Piper voices via Sherpa-ONNX. Falls back to Android TTS while the voice downloads or if playback fails.",
+        description = "Natural-sounding local voices. Falls back to Android TTS while the voice downloads or if playback fails.",
     ),
     KokoroExperimental(
         displayName = "Kokoro (Experimental)",

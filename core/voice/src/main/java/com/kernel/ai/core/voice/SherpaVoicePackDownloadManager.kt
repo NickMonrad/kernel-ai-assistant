@@ -8,6 +8,7 @@ import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.inference.download.isOnMeteredNetwork
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import kotlinx.coroutines.flow.first
 import androidx.work.OneTimeWorkRequestBuilder
@@ -51,6 +52,8 @@ class SherpaVoicePackDownloadManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val observerJobs = ConcurrentHashMap<SherpaPiperVoice, Job>()
     private val observerJobsKokoro = ConcurrentHashMap<SherpaKokoroVoice, Job>()
+    /** Voices the user let download over mobile data, for that pack only. Cleared on success, cancel or delete (#1868). */
+    private val mobileDataVoices: MutableSet<SherpaPiperVoice> = ConcurrentHashMap.newKeySet()
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
 
@@ -119,16 +122,30 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         DownloadConsent.hasUnfinishedWork(workManager.getWorkInfosForUniqueWork(workerTag).get().map { it.state })
     }
 
+    /** Network for [voice]: mobile data only when the user allowed it for this pack, else the global choice (#1868). */
+    private suspend fun networkFor(voice: SherpaPiperVoice): DownloadNetworkChoice =
+        if (voice in mobileDataVoices) {
+            DownloadNetworkChoice.MOBILE_DATA_ALLOWED
+        } else {
+            DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first())
+        }
+
 
     /**
      * Enqueue a download for [voice]. No-op if already downloaded.
      * Pass [force] = true to re-download.
      */
-    fun startDownload(voice: SherpaPiperVoice, force: Boolean = false, restartRunning: Boolean = false) {
+    fun startDownload(
+        voice: SherpaPiperVoice,
+        force: Boolean = false,
+        restartRunning: Boolean = false,
+        allowMobileData: Boolean = false,
+    ) {
         if (!canDownloadVoice(isReleaseBuild, voice)) {
             Log.w(TAG, "Blocked download of ${voice.displayName} (not release-visible in release build)")
             return
         }
+        if (allowMobileData) mobileDataVoices += voice
         if (!force && voice.isDownloaded(context)) {
             updateState(voice, VoicePackDownloadState.Downloaded(voice.voiceDir(context).absolutePath))
             return
@@ -149,7 +166,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                     updateState(voice, VoicePackDownloadState.Downloading())
                 }
 
-                val network = DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first())
+                val network = networkFor(voice)
                 val request = OneTimeWorkRequestBuilder<VoicePackDownloadWorker>()
                     .setInputData(
                         Data.Builder()
@@ -178,6 +195,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
     /** Cancel an in-progress download. The partial `.tmp` file is preserved for resumption. */
     fun cancelDownload(voice: SherpaPiperVoice) {
         workManager.cancelUniqueWork(voice.workerTag)
+        mobileDataVoices -= voice
         updateState(voice, VoicePackDownloadState.NotDownloaded)
         Log.i(TAG, "Cancelled voice pack download: ${voice.displayName}")
     }
@@ -187,6 +205,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
      * Safe to call even if no pack is present (no-op).
      */
     fun deleteVoice(voice: SherpaPiperVoice) {
+        mobileDataVoices -= voice
         scope.launch {
             withContext(Dispatchers.IO) {
                 val dir = voice.voiceDir(context)
@@ -330,10 +349,14 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                             downloadedBytes = downloadedBytes,
                             bytesPerSecond = bps,
                             remainingMs = remainingMs,
+                            waitingForWifi = info.state == WorkInfo.State.ENQUEUED &&
+                                networkFor(voice) == DownloadNetworkChoice.WIFI_ONLY &&
+                                isOnMeteredNetwork(context),
                         )
                     }
 
                     WorkInfo.State.SUCCEEDED -> {
+                        mobileDataVoices -= voice
                         val isPresent = withContext(Dispatchers.IO) { voice.isDownloaded(context) }
                         if (isPresent) {
                             val dir = withContext(Dispatchers.IO) { voice.voiceDir(context) }
@@ -348,6 +371,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                     }
 
                     WorkInfo.State.FAILED -> {
+                        mobileDataVoices -= voice
                         // Trust filesystem over worker state — pack may have been pushed via ADB
                         val isPresent = withContext(Dispatchers.IO) { voice.isDownloaded(context) }
                         if (isPresent) {
