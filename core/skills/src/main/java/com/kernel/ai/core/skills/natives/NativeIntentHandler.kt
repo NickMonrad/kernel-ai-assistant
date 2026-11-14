@@ -50,6 +50,7 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.StoreListCatalog
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ContactLookupRecovery
+import com.kernel.ai.core.skills.ImportantDateRecovery
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -2771,16 +2772,21 @@ class NativeIntentHandler @Inject constructor(
             }
             val lower = targetStr.lowercase(Locale.ENGLISH)
             if (isLikelyCalendarDateLabel(lower)) {
-                if (!calendarBirthdayLookup.hasPermission()) {
-                    return SkillResult.CapabilityRequired(
-                        capabilityKey = CapabilityKey.CalendarLookup,
-                        skillName = "get_date_diff",
-                        contextParams = mapOf("target_date" to targetStr),
-                    )
+                // Only birthday queries read Android Calendar. Other labels get not-found plus Add.
+                if (lower.contains("birthday")) {
+                    if (!calendarBirthdayLookup.hasPermission()) {
+                        return SkillResult.CapabilityRequired(
+                            capabilityKey = CapabilityKey.CalendarLookup,
+                            skillName = "get_date_diff",
+                            contextParams = mapOf("target_date" to targetStr),
+                        )
+                    }
+                    if (calendarBirthdayLookup.getAllBirthdays().isEmpty()) {
+                        return ImportantDateRecovery.calendarNoBirthdaysFailure("get_date_diff", targetStr)
+                    }
+                    return ImportantDateRecovery.notFoundFailure("get_date_diff", targetStr, searchedCalendar = true)
                 }
-                val message = "I couldn't find $targetStr in your important dates or calendar. " +
-                    "Say \"$targetStr is 3 June\" to teach me."
-                return SkillResult.DirectReply(message, spokenSummary = message)
+                return ImportantDateRecovery.notFoundFailure("get_date_diff", targetStr)
             }
             return SkillResult.Failure(
                 "get_date_diff",
