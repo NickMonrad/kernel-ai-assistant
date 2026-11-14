@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.ConversationModelRules
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -14,6 +15,7 @@ import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.model.availability.computeAvailabilitySummary
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.prefs.ModelPreferences
+import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -35,7 +38,21 @@ class SettingsViewModel @Inject constructor(
     private val modelPreferences: ModelPreferences,
     private val authRepository: HuggingFaceAuthRepository,
     private val gatedModelStatusRepository: GatedModelStatusRepository,
+    private val downloadNetworkPreferences: DownloadNetworkPreferences,
 ) : ViewModel() {
+
+    /** "Download on mobile data" switch (#1855). Off when no choice is saved or Wi-Fi only is chosen. */
+    val mobileDataAllowed: StateFlow<Boolean> = downloadNetworkPreferences.choice
+        .map { it == DownloadNetworkChoice.MOBILE_DATA_ALLOWED }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setMobileDataAllowed(allowed: Boolean) {
+        viewModelScope.launch {
+            modelDownloadManager.setDownloadNetworkChoice(
+                if (allowed) DownloadNetworkChoice.MOBILE_DATA_ALLOWED else DownloadNetworkChoice.WIFI_ONLY,
+            )
+        }
+    }
 
     data class SettingsUiState(
         val activeModelLabel: String = "",
