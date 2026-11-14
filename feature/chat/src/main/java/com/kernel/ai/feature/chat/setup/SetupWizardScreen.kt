@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -41,6 +42,9 @@ import com.kernel.ai.feature.chat.formatBytesShort
 
 private const val FINISH_ID = "finish"
 private const val SKIP_ID = "skip"
+
+/** Test tag on the scrolling step content (#1903 large-font test). */
+internal const val SETUP_WIZARD_CONTENT_TAG = "setup_wizard_content"
 
 /**
  * First-run setup wizard (#1855, part 1). Step 1 explains how Jandal works; step 2 is download consent.
@@ -68,30 +72,58 @@ fun SetupWizardScreen(
         viewModel.onBack(onExit)
     }
     if (!state.loaded) return
+    SetupWizardContent(
+        state = state,
+        onChoiceSelected = viewModel::onChoiceSelected,
+        onPrimary = {
+            if (state.step == SetupStep.entries.last()) requestWizardAction(FINISH_ID) else viewModel.onContinue(onDone)
+        },
+        onBack = { viewModel.onBack(onExit) },
+        onSkip = { requestWizardAction(SKIP_ID) },
+    )
+}
 
+/**
+ * Stateless wizard layout (#1903). Step content scrolls above a pinned button row, so Continue/Finish,
+ * Back and Skip stay reachable at any font scale and in landscape.
+ */
+@Composable
+internal fun SetupWizardContent(
+    state: SetupWizardUiState,
+    onChoiceSelected: (DownloadNetworkChoice) -> Unit,
+    onPrimary: () -> Unit,
+    onBack: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    val isLast = state.step == SetupStep.entries.last()
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .systemBarsPadding()
+            .safeDrawingPadding()
             .padding(horizontal = 24.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        when (state.step) {
-            SetupStep.HOW_IT_WORKS -> HowItWorksStep()
-            SetupStep.DOWNLOAD -> DownloadStep(
-                plannedModels = state.plannedModels,
-                plannedVoices = state.plannedVoices,
-                choice = state.choice,
-                choiceRecorded = state.choiceRecorded,
-                onChoiceSelected = viewModel::onChoiceSelected,
-            )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .testTag(SETUP_WIZARD_CONTENT_TAG),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            when (state.step) {
+                SetupStep.HOW_IT_WORKS -> HowItWorksStep()
+                SetupStep.DOWNLOAD -> DownloadStep(
+                    plannedModels = state.plannedModels,
+                    plannedVoices = state.plannedVoices,
+                    choice = state.choice,
+                    choiceRecorded = state.choiceRecorded,
+                    onChoiceSelected = onChoiceSelected,
+                )
+            }
         }
-
-        val isLast = state.step == SetupStep.entries.last()
         Button(
-            onClick = {
-                if (isLast) requestWizardAction(FINISH_ID) else viewModel.onContinue(onDone)
-            },
+            onClick = onPrimary,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) {
             Text(if (isLast) "Finish" else "Continue")
@@ -102,15 +134,23 @@ fun SetupWizardScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(
-                onClick = { viewModel.onBack(onExit) },
+                onClick = onBack,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text("Back") }
             TextButton(
-                onClick = { requestWizardAction(SKIP_ID) },
+                onClick = onSkip,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text("Skip for now") }
         }
     }
+}
+
+/** Download-step size line. Zero bytes left means nothing to download, never "About 0 B" (#1903). */
+internal fun downloadSizeLine(totalBytes: Long, choiceRecorded: Boolean): String = when {
+    totalBytes <= 0L -> "Nothing left to download. Jandal already has every model and voice it needs on this phone."
+    choiceRecorded -> "About ${formatBytesShort(totalBytes)} still to download. " +
+        "Your network choice applies to downloads in progress."
+    else -> "About ${formatBytesShort(totalBytes)} in total. Nothing downloads until you finish this step."
 }
 
 private fun skipNote(choice: DownloadNetworkChoice): String = when (choice) {
@@ -152,11 +192,7 @@ private fun DownloadStep(
         modifier = Modifier.semantics { heading() },
     )
     Text(
-        text = if (choiceRecorded) {
-            "About ${formatBytesShort(totalBytes)} still to download. Your network choice applies to downloads in progress."
-        } else {
-            "About ${formatBytesShort(totalBytes)} in total. Nothing downloads until you finish this step."
-        },
+        text = downloadSizeLine(totalBytes, choiceRecorded),
         style = MaterialTheme.typography.bodyLarge,
     )
     plannedModels.forEach { model ->
