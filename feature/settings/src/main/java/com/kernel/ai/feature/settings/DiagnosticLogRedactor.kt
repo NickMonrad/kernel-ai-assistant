@@ -9,20 +9,23 @@ package com.kernel.ai.feature.settings
  * [REDACTED_MARKER] while keeping structural information (tags, timings, routes, intent
  * names, error codes, session IDs) intact.
  *
- * The rules mirror how the app's own log statements carry user text:
- * - quoted spans (`transcript='…'`, `applied to "…" → "…"`, `'$name'`);
- * - values of known content keys (`input=…`, `params={…}`, `args=…`, `title=…`, `snippet=…`);
+ * Fail-closed: once a message reaches a marker that starts user-derived content, everything
+ * from that marker to the end of the logical message is redacted, and only the safe prefix
+ * (tool or intent name, key, tag) is kept. Losing diagnostic detail is acceptable; leaking is not.
+ * The markers are:
+ * - tool calls whose arguments are content (`ToolSet: saveMemory(…)`, `ToolSet: runIntent(name, …)`);
+ * - content keys (`params=`, `reply=`, `request=`, `responsePreview=`, payloads `raw=`/`skill=`);
+ * - classifier inputs (`classify(…`), contact, alias and email resolution lines;
+ * - the first quote that opens a span (`"`, `“`, or `'`/`‘` not inside a word such as `Sarah's`);
  * - lines whose remainder is content (`llm_tools_assistant_reply: …`, `DirectReply: …`);
- * - tool calls whose arguments are content (`ToolSet: saveMemory(…)`);
  * - multi-line blocks that dump model output (`Profile LLM extraction succeeded:` + YAML);
  * - locations and account names (`fetched … for <place>`, `user=<name>`);
  * - email addresses and phone numbers anywhere.
  *
  * Rules run on a logical message: consecutive logcat lines with the same header are one message,
- * so a value or remainder that continues onto the next line is redacted to the end of the message.
- * Unquoted values end only at the specific next key the app emits (see [VALUE_END_TOKENS]); when
- * no known end exists they run to the end of the message. This is pattern-based and may be
- * incomplete; when in doubt it redacts more, never less.
+ * so a remainder that continues onto the next line is redacted to the end of the message.
+ * Unquoted values of plain content keys end only at the specific next key the app emits (see
+ * [VALUE_END_TOKENS]); when no known end exists they run to the end of the message.
  */
 internal object DiagnosticLogRedactor {
 
@@ -32,22 +35,18 @@ internal object DiagnosticLogRedactor {
     private val THREADTIME_LINE =
         Regex("""^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\s+\d+\s+\d+\s+[VDIWEF]\s+.*?: )(.*)$""")
 
-    /** Characters that end a quoted span's search: the span closes at the last closing quote before one of these. */
-    private val QUOTE_BOUNDARIES = listOf("\n", " →", " —", " ->", ")")
-
-    private val SMART_DOUBLE_QUOTED = Regex("""(?s)“.*?”""")
-    private val SMART_SINGLE_QUOTED = Regex("""(?s)(?<!\w)‘.*?’(?!\w)""")
-
-    private val EMAIL = Regex("""[\w.+-]+@[\w-]+(?:\.[\w-]+)+""")
+    private val EMAIL = Regex("""[\p{L}\p{N}._%+'-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+""")
 
     /**
-     * Phone-number-like digit runs (8–15 digits, optional `+`, up to two separators between digits,
-     * or ` - `: `(09) 123-4567`, `+1 (555) 123-4567`, `+64 21 - 123 4567`). A `.` separator is allowed
-     * only mid-run, so a timestamp's sub-second part (`09:20:00.000`) starts after `.`/`:` and is never
-     * a run start. A run followed by a unit (`12345678 bytes`, `1234 ms`) is a size or duration.
-     * Seven-digit numbers are redacted only in contact-resolution lines (see [REST_OF_MESSAGE]).
+     * Phone-number-like digit runs (8–15 digits, optional `+`, separators between digits: `(09) 123-4567`,
+     * `+1 (555) 123-4567`, `+64 21 - 123 4567`, `021 – 123 4567`). No `.` separator, so decimals such as
+     * `1234.5678` and timestamps never form a run. A run may follow `=` or `:` (`number=…`, `tel:…`).
      */
-    private val PHONE = Regex("""(?<![\w.=:/\-])(?!\d{4}-\d{2}-\d{2})\+?\d(?:(?: - |[ \-().]{0,2})\d){7,14}(?![\w.])(?!\s*(?:bytes|KB|MB|GB|ms)\b)""")
+    private val PHONE = Regex("""(?<![\w.\-/])(?!\d{4}-\d{2}-\d{2})\+?\d(?:(?: [-–] |[ \-–()]{0,2})\d){7,14}(?![\w.])""")
+
+    /** A bare digit run followed by a unit is a size or duration (`12345678 bytes`, `1234 ms`), not a phone number. */
+    private val BARE_DIGITS = Regex("""\+?\d+""")
+    private val SIZE_UNIT = Regex("""\s*(?:bytes|KB|MB|GB|ms)\b""")
 
     /** Weather cache keys `loc:<place>:(weekend|tomorrow|forecast:N|current)`: the place is content. */
     private val WEATHER_CACHE_LOCATION = Regex("""\bloc:.+?(?=:(?:weekend|tomorrow|forecast:\d+|current)\b)""")
@@ -64,9 +63,9 @@ internal object DiagnosticLogRedactor {
     private val PAYLOAD_ONLY_KEYS = setOf("skill")
 
     /**
-     * Tokens the app emits right after a content value. A value ends at the first of these
-     * (so `input=remind me x=5 …` is not cut at `x=5`); with none present it runs to the end
-     * of the message. Only tokens the code actually emits belong here.
+     * Tokens the app emits right after an unquoted content value. A value ends at the first of these
+     * (so `input=remind me x=5 …` is not cut at `x=5`); with none present it runs to the end of the
+     * message. Only tokens the code actually emits belong here.
      */
     private val VALUE_END_TOKENS = mapOf(
         "input" to listOf(" submitMode="),
@@ -77,10 +76,11 @@ internal object DiagnosticLogRedactor {
 
     private val KEY = Regex("""(?<![\w.])([A-Za-z_][\w]*)=""")
 
-    /** `transcript='…'` / `transcript="…"`: the quote is the last one before the next known key. */
-    private val TRANSCRIPT_OPEN = Regex("""(?<![\w.])transcript=(["'])""")
-
-    /** Markers after which the rest of the logical message is user or assistant content. */
+    /**
+     * Markers after which the rest of the logical message is user or assistant content. Each keeps the
+     * safe prefix (group 1) and drops everything after it. Order matters only where one rule's output
+     * would feed another.
+     */
     private val REST_OF_MESSAGE = listOf(
         Regex("""(?s)(llm_tools_assistant_reply: ).*"""),
         Regex("""(?s)(DirectReply: ).*"""),
@@ -96,21 +96,24 @@ internal object DiagnosticLogRedactor {
         Regex("""(?s)(GetWeatherSkill: fetched \d+-day forecast for ).*"""),
         Regex("""(?s)(GetWeatherSkill: fetched forecast for day \d+ \([^)\n]*\) for ).*"""),
         Regex("""(?s)(GetWeatherSkill: fetched weather for ).*"""),
-        // Request and response payloads: trailing fields, so the rest of the message is content.
-        Regex("""(?s)((?<![\w.])(?:request|responsePreview)=).*"""),
+        // Content-carrying keys: the value and everything after it is content.
+        Regex("""(?s)((?<![\w.])(?:params|reply|request|responsePreview)=).*"""),
         // Geocoding errors: only the query line is redacted; a throwable's stack trace stays.
         Regex("""(Geocoding failed for: )[^\n]*"""),
         Regex("""(Country capital lookup failed for: )[^\n]*"""),
-        // Contact resolution: the number after the arrow is content; the quoted name is redacted below.
-        Regex("""(?s)(Contact resolved: .*? → ).*"""),
+        // Contact, alias and email resolution: the name and number are content.
+        Regex("""(?s)(Contact resolved: ).*"""),
+        Regex("""(?s)(Alias resolved: ).*"""),
+        Regex("""(?s)(Self-referential contact ).*"""),
+        Regex("""(?s)(Email resolved(?: via alias)?:? ).*"""),
+        Regex("""(?s)(ToolSet: (?:saveMemory|searchMemory|queryWikipedia|getWeather|runJs)\().*"""),
+        // `runIntent(intent_name, {json})`: keep the intent name, drop the parameters.
+        Regex("""(?s)(ToolSet: runIntent\([^,\n()]*, ).*"""),
+        // A runIntent call without a `name, ` prefix: keep only the tool name.
+        Regex("""(?s)(ToolSet: runIntent\()(?![^,\n()]*, ).*"""),
+        // Classifier input is the user's text.
+        Regex("""(?s)((?<![\w.])classify\().*"""),
     )
-
-    /** Tool calls whose whole argument list is content. */
-    private val TOOLSET_CONTENT_CALL =
-        Regex("""ToolSet: (?:saveMemory|searchMemory|queryWikipedia|getWeather|runJs)\(""")
-
-    /** `runIntent(intent_name, {json})`: keep the intent name, drop the parameters. */
-    private val TOOLSET_RUN_INTENT = Regex("""ToolSet: runIntent\([^,\n)]*, """)
 
     /** Messages that continue with a multi-line dump of extracted or model content. */
     private val BLOCK_DUMP = Regex(
@@ -158,129 +161,54 @@ internal object DiagnosticLogRedactor {
     fun redactMessage(message: String): String {
         if (message.isEmpty()) return message
         var result = BLOCK_DUMP.replace(message) { "${it.groupValues[1]}\n$REDACTED_MARKER" }
-        result = redactCallArguments(result, TOOLSET_RUN_INTENT)
-        result = redactCallArguments(result, TOOLSET_CONTENT_CALL)
         REST_OF_MESSAGE.forEach { rule ->
             result = rule.replace(result) { "${it.groupValues[1]}$REDACTED_MARKER" }
         }
         result = WEATHER_CACHE_LOCATION.replace(result, "loc:$REDACTED_MARKER")
-        result = redactQuotedTranscripts(result)
         result = redactKeyValues(result)
-        result = redactQuotedSpans(result, '"')
-        result = redactQuotedSpans(result, '\'')
-        result = SMART_DOUBLE_QUOTED.replace(result, "“$REDACTED_MARKER”")
-        result = SMART_SINGLE_QUOTED.replace(result, "‘$REDACTED_MARKER’")
+        result = redactFromFirstQuote(result)
         result = EMAIL.replace(result, REDACTED_MARKER)
-        result = PHONE.replace(result, REDACTED_MARKER)
+        result = redactPhones(result)
         return result
+    }
+
+    /**
+     * Fail-closed quote rule: the first quote that opens a span (`"`, `“`, or `'`/`‘` not inside a
+     * word, so `Sarah's` does not open one) keeps the quote and drops the rest of the message.
+     */
+    private fun redactFromFirstQuote(text: String): String {
+        for (i in text.indices) {
+            val opens = when (text[i]) {
+                '"', '“' -> true
+                '\'', '‘' -> i == 0 || !(text[i - 1].isLetterOrDigit() || text[i - 1] == '_')
+                else -> false
+            }
+            if (opens) return text.substring(0, i + 1) + REDACTED_MARKER
+        }
+        return text
+    }
+
+    /** Replaces phone-number-like runs, except bare digit runs followed by a size or duration unit. */
+    private fun redactPhones(text: String): String {
+        val out = StringBuilder()
+        var cursor = 0
+        for (match in PHONE.findAll(text)) {
+            val end = match.range.last + 1
+            val sizeOrDuration = BARE_DIGITS.matches(match.value) &&
+                SIZE_UNIT.find(text, end)?.range?.first == end
+            if (sizeOrDuration) continue
+            out.append(text, cursor, match.range.first).append(REDACTED_MARKER)
+            cursor = end
+        }
+        out.append(text, cursor, text.length)
+        return out.toString()
     }
 
     /** Index of the first [VALUE_END_TOKENS] entry for [key] at or after [from], or -1. */
     private fun endTokenIndex(text: String, from: Int, key: String): Int =
         VALUE_END_TOKENS[key].orEmpty().map { text.indexOf(it, from) }.filter { it >= 0 }.minOrNull() ?: -1
 
-    /**
-     * `transcript='…'` and `transcript="…"` values may contain quotes of their own, so the
-     * closing quote is the last one before the next known key (or the message's final quote).
-     */
-    private fun redactQuotedTranscripts(text: String): String {
-        val out = StringBuilder()
-        var cursor = 0
-        for (match in TRANSCRIPT_OPEN.findAll(text)) {
-            val contentStart = match.range.last + 1
-            if (contentStart < cursor) continue
-            val quote = match.groupValues[1][0]
-            val endToken = endTokenIndex(text, contentStart, "transcript")
-            val contentEnd = when {
-                endToken >= 0 -> text.lastIndexOf(quote, endToken - 1).takeIf { it >= contentStart } ?: endToken
-                text.length - 1 >= contentStart && text.last() == quote -> text.length - 1
-                else -> text.length
-            }
-            out.append(text, cursor, contentStart).append(REDACTED_MARKER)
-            cursor = contentEnd
-        }
-        out.append(text, cursor, text.length)
-        return out.toString()
-    }
-
-    /**
-     * Redacts the content of `quote`-delimited spans, from each opening quote to its close. An
-     * apostrophe inside a word (`Sarah's`) does not open a span. A span with no closing quote is
-     * redacted to the end of the message, so a truncated quote never leaks its tail.
-     */
-    private fun redactQuotedSpans(text: String, quote: Char): String {
-        val out = StringBuilder()
-        var cursor = 0
-        var open = text.indexOf(quote)
-        while (open >= 0) {
-            val inWord = quote == '\'' && open > 0 && (text[open - 1].isLetterOrDigit() || text[open - 1] == '_')
-            if (inWord) {
-                open = text.indexOf(quote, open + 1)
-                continue
-            }
-            val close = closingQuote(text, open, quote)
-            out.append(text, cursor, open + 1).append(REDACTED_MARKER)
-            if (close < 0) {
-                cursor = text.length
-                break
-            }
-            cursor = close
-            open = text.indexOf(quote, close + 1)
-        }
-        out.append(text, cursor, text.length)
-        return out.toString()
-    }
-
-    /**
-     * Index of the quote closing the span opened at [open], or -1 when no quote follows it. The closing
-     * quote is the last one before the next [QUOTE_BOUNDARIES] entry that is not followed by a letter, so
-     * `"he said "hi" and left"` and `'the kids' party at Sarah's place'` stay whole.
-     */
-    private fun closingQuote(text: String, open: Int, quote: Char): Int {
-        val boundary = QUOTE_BOUNDARIES
-            .map { text.indexOf(it, open + 1) }
-            .filter { it >= 0 }
-            .minOrNull() ?: text.length
-        var last = -1
-        var i = text.indexOf(quote, open + 1)
-        while (i in 0 until boundary) {
-            val next = text.getOrNull(i + 1)
-            if (next == null || !(next.isLetterOrDigit() || next == '_')) last = i
-            i = text.indexOf(quote, i + 1)
-        }
-        return if (last >= 0) last else text.indexOf(quote, open + 1)
-    }
-
-    /** Replaces the arguments of each call matched by [callStart] (which ends just inside the `(`). */
-    private fun redactCallArguments(text: String, callStart: Regex): String {
-        val out = StringBuilder()
-        var cursor = 0
-        for (match in callStart.findAll(text)) {
-            val argsStart = match.range.last + 1
-            if (argsStart < cursor) continue
-            out.append(text, cursor, argsStart).append(REDACTED_MARKER)
-            cursor = closingParen(text, argsStart)
-        }
-        out.append(text, cursor, text.length)
-        return out.toString()
-    }
-
-    /** Index of the `)` closing a call whose arguments start at [from]; the message end if unclosed. */
-    private fun closingParen(text: String, from: Int): Int {
-        var depth = 1
-        for (i in from until text.length) {
-            when (text[i]) {
-                '(' -> depth++
-                ')' -> {
-                    depth--
-                    if (depth == 0) return i
-                }
-            }
-        }
-        return text.length
-    }
-
-    /** Replaces unquoted values of [CONTENT_KEYS] (and payload values of [PAYLOAD_ONLY_KEYS]). */
+    /** Replaces unquoted values of [CONTENT_KEYS] and payload values (`raw={…}`, `skill={…}`). */
     private fun redactKeyValues(text: String): String {
         val out = StringBuilder()
         var cursor = 0
@@ -290,14 +218,15 @@ internal object DiagnosticLogRedactor {
             val valueStart = match.range.last + 1
             val first = text.getOrNull(valueStart)
             val isPayload = first == '{' || first == '['
-            val redact = first != null && first != '"' && first != '\'' && first != '\n' &&
-                (key in CONTENT_KEYS || (key in PAYLOAD_ONLY_KEYS && isPayload))
+            val redact = first != null && first != '"' && first != '\'' && first != '‘' && first != '“' &&
+                first != '\n' && (key in CONTENT_KEYS || (key in PAYLOAD_ONLY_KEYS && isPayload))
             if (!redact) {
                 out.append(text, cursor, valueStart)
                 cursor = valueStart
                 continue
             }
-            val valueEnd = if (isPayload && key !in VALUE_END_TOKENS) bracketedEnd(text, valueStart) else unquotedEnd(text, valueStart, key)
+            // Payloads run to the end of the message: a bracket inside the text cannot end them early.
+            val valueEnd = if (isPayload) text.length else unquotedEnd(text, valueStart, key)
             out.append(text, cursor, valueStart).append(REDACTED_MARKER)
             cursor = valueEnd
         }
@@ -309,26 +238,5 @@ internal object DiagnosticLogRedactor {
     private fun unquotedEnd(text: String, start: Int, key: String): Int {
         val end = endTokenIndex(text, start, key)
         return if (end >= 0) end else text.length
-    }
-
-    /**
-     * End of a `{…}`/`[…]` payload, across lines. Only the bracket type that opened the value is
-     * counted, so a smiley or a bracket in the text (`:)`, `(see you)`) does not end it. A payload
-     * whose closing bracket never comes (truncated) runs to the end of the message.
-     */
-    private fun bracketedEnd(text: String, start: Int): Int {
-        val open = text[start]
-        val close = if (open == '{') '}' else ']'
-        var depth = 0
-        for (i in start until text.length) {
-            when (text[i]) {
-                open -> depth++
-                close -> {
-                    depth--
-                    if (depth == 0) return i + 1
-                }
-            }
-        }
-        return text.length
     }
 }

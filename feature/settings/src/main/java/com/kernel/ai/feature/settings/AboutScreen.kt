@@ -75,12 +75,14 @@ fun AboutScreen(
         buildTimestamp = buildTimestamp,
     )
 
-    LaunchedEffect(uiState.exportState) {
-        if (uiState.exportState is ExportState.Ready) {
-            val intent = (uiState.exportState as ExportState.Ready).intent
-            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    // Launch only while resumed: a result that became ready in the background waits for the screen.
+    LifecycleResumeEffect(uiState.exportState) {
+        val state = uiState.exportState
+        if (state is ExportState.Ready) {
+            context.startActivity(state.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             viewModel.clearExportState()
         }
+        onPauseOrDispose {}
     }
 
     // Launch only while resumed: a result that became ready in the background waits for the screen.

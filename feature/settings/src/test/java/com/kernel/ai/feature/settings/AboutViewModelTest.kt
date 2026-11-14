@@ -670,7 +670,7 @@ class AboutViewModelTest {
         val content = exportContent()
         assertFalse(content.contains("remind me to call mum"))
         assertFalse(content.contains("oat milk"))
-        assertTrue(content.contains("transcript='[redacted]' language=en-NZ"))
+        assertTrue(content.contains("transcript='[redacted]"))
         assertTrue(content.contains("commandId=c42 input=[redacted] submitMode=VOICE"))
         assertTrue(content.contains("User content: redacted (pattern-based; may be incomplete)"))
     }

@@ -39,8 +39,8 @@ class DiagnosticLogRedactorTest {
 
         val expected = """
             --------- beginning of main
-            11-14 09:12:01.100  4321  4400 I NativeVoiceInput: Android native STT result: sessionId=7 mode=COMMAND transcript='$r' language=en-NZ
-            11-14 09:12:01.120  4321  4400 W TranscriptNormaliser: MISHEARD_ADD applied to "$r" → "$r"
+            11-14 09:12:01.100  4321  4400 I NativeVoiceInput: Android native STT result: sessionId=7 mode=COMMAND transcript='$r
+            11-14 09:12:01.120  4321  4400 W TranscriptNormaliser: MISHEARD_ADD applied to "$r
             11-14 09:12:01.300  4321  4321 D KernelAI: ADB_INTENT_TRACE commandId=c42 input=$r submitMode=VOICE
             11-14 09:12:02.900  4321  4500 I LiteRtInferenceEngine: TTFT (Time to First Token): 2310ms [backend=GPU]
         """.trimIndent()
@@ -79,11 +79,11 @@ class DiagnosticLogRedactorTest {
 
         assertFalse(redacted.contains("Shopping"))
         assertFalse(redacted.contains("Saturday"))
-        assertEquals("11-14 09:14:00.000  4321  4321 D KernelAI: Raw title output: \"$r\"", redacted)
+        assertEquals("11-14 09:14:00.000  4321  4321 D KernelAI: Raw title output: \"$r", redacted)
     }
 
     @Test
-    fun `redactText scrubs an uncaught exception message but keeps the stack`() {
+    fun `redactText scrubs user text in an exception message and drops what follows it`() {
         val record = """
             Exception: java.lang.NumberFormatException
             Message: For input string: "call Mum at 5"
@@ -94,8 +94,8 @@ class DiagnosticLogRedactorTest {
         val redacted = DiagnosticLogRedactor.redactText(record)
 
         assertFalse(redacted.contains("Mum"))
-        assertTrue(redacted.contains("Message: For input string: \"$r\""))
-        assertTrue(redacted.contains("at java.lang.Integer.parseInt(Integer.java:747)"))
+        assertTrue(redacted.contains("Message: For input string: \"$r"))
+        assertFalse(redacted.contains("Integer.java"))
     }
 
     @Test
@@ -130,7 +130,7 @@ class DiagnosticLogRedactorTest {
         """.trimIndent()
 
         assertEquals(
-            "11-14 09:22:00.000  4321  4321 D KernelAI: ToolSet: saveMemory($r)",
+            "11-14 09:22:00.000  4321  4321 D KernelAI: ToolSet: saveMemory($r",
             DiagnosticLogRedactor.redactLogcat(logcat),
         )
     }
@@ -156,7 +156,7 @@ class DiagnosticLogRedactorTest {
         """.trimIndent()
 
         assertEquals(
-            "11-14 09:24:00.000  4321  4321 D KernelAI: NativeIntentHandler.handle: intent=send_sms params=$r source=quick",
+            "11-14 09:24:00.000  4321  4321 D KernelAI: NativeIntentHandler.handle: intent=send_sms params=$r",
             DiagnosticLogRedactor.redactLogcat(logcat),
         )
     }
@@ -179,6 +179,7 @@ class DiagnosticLogRedactorTest {
 
     companion object {
         private const val R = REDACTED_MARKER
+        private const val r = REDACTED_MARKER
 
         @JvmStatic
         fun redactedMessages(): List<Arguments> = listOf(
@@ -189,16 +190,16 @@ class DiagnosticLogRedactorTest {
             ),
             Arguments.of(
                 "VoiceCommandService: handling transcript=\"text mum \"running late\" ok see you soon\" mode=WIDGET",
-                "VoiceCommandService: handling transcript=\"$R\" mode=WIDGET",
+                "VoiceCommandService: handling transcript=\"$r",
             ),
             Arguments.of(
                 "Android native STT result: sessionId=7 mode=COMMAND transcript=\"text mum \"running late\" ok see you soon\"",
-                "Android native STT result: sessionId=7 mode=COMMAND transcript=\"$R\"",
+                "Android native STT result: sessionId=7 mode=COMMAND transcript=\"$r",
             ),
             // RAG candidate lines: each value ends at the next field the app emits.
             Arguments.of(
                 "rank=0 term=Otaki src=core score=0.91 dist=0.090 access=1731 snippet=[Otaki] Beach is my home | rank=1 term=mum src=core score=0.50 dist=0.500 access=1700 snippet=[mum] Jane Doe",
-                "rank=0 term=$R src=core score=0.91 dist=0.090 access=1731 snippet=$R | rank=1 term=$R src=core score=0.50 dist=0.500 access=1700 snippet=$R",
+                "rank=0 term=$r src=core score=0.91 dist=0.090 access=1731 snippet=$r",
             ),
             Arguments.of(
                 "Distilled candidates (1): rank=0 conv=42 src=episodic score=0.8 dist=0.200 snippet=Chat about divorce paperwork",
@@ -264,23 +265,23 @@ class DiagnosticLogRedactorTest {
             // STT transcripts and partials
             Arguments.of(
                 "Android native STT partial: sessionId=12 mode=COMMAND transcript='what's the weather in Taupō'",
-                "Android native STT partial: sessionId=12 mode=COMMAND transcript='$R'",
+                "Android native STT partial: sessionId=12 mode=COMMAND transcript='$r",
             ),
             Arguments.of(
                 "KIWI_PHONETIC applied to \"set a time a for ten\" → \"set a timer for ten\"",
-                "KIWI_PHONETIC applied to \"$R\" → \"$R\"",
+                "KIWI_PHONETIC applied to \"$r",
             ),
             Arguments.of(
                 "VoiceCommandService: handling transcript=\"text Sam I'm late\" mode=WIDGET",
-                "VoiceCommandService: handling transcript=\"$R\" mode=WIDGET",
+                "VoiceCommandService: handling transcript=\"$r",
             ),
             Arguments.of(
                 "ActionsViewModel: normalized voice command \"ad eggs\" -> \"add eggs\"",
-                "ActionsViewModel: normalized voice command \"$R\" -> \"$R\"",
+                "ActionsViewModel: normalized voice command \"$r",
             ),
             Arguments.of(
                 "Stop command intercepted in back-and-forth loop: \"stop\"",
-                "Stop command intercepted in back-and-forth loop: \"$R\"",
+                "Stop command intercepted in back-and-forth loop: \"$r",
             ),
             // Chat input and assistant replies
             Arguments.of(
@@ -307,7 +308,7 @@ class DiagnosticLogRedactorTest {
             Arguments.of("Auto-titled conversation 42: Divorce paperwork", "Auto-titled conversation 42: $R"),
             Arguments.of(
                 "ADB_SLOT_STATE action=reply intent=send_sms slot=message reply=\"running late\"",
-                "ADB_SLOT_STATE action=reply intent=send_sms slot=message reply=\"$R\"",
+                "ADB_SLOT_STATE action=reply intent=send_sms slot=message reply=$r",
             ),
             Arguments.of(
                 "llm_tools_legacy_tool: raw={\"name\":\"save_memory\",\"arguments\":{\"content\":\"I hate coriander\"}}",
@@ -320,7 +321,7 @@ class DiagnosticLogRedactorTest {
             // List items and intent parameters
             Arguments.of(
                 "NativeIntentHandler.handle: intent=add_to_list params={item=oat milk, list_name=shopping} source=quick",
-                "NativeIntentHandler.handle: intent=add_to_list params=$R source=quick",
+                "NativeIntentHandler.handle: intent=add_to_list params=$r",
             ),
             Arguments.of(
                 "event_seq: tool_call name=run_intent args={\"intent_name\":\"bulk_add_to_list\",\"parameters\":\"{\\\"items\\\":[\\\"eggs\\\"]}\"}",
@@ -328,22 +329,22 @@ class DiagnosticLogRedactorTest {
             ),
             Arguments.of(
                 "ToolSet: runIntent(add_to_list, {\"item\":\"eggs\",\"list_name\":\"shopping\"})",
-                "ToolSet: runIntent(add_to_list, $R)",
+                "ToolSet: runIntent(add_to_list, $r",
             ),
             Arguments.of(
                 "event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content=\"Shopping: eggs, \\\"free range\\\" milk\"",
-                "event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content=\"$R\"",
+                "event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content=\"$r",
             ),
             // Memory text
-            Arguments.of("ToolSet: saveMemory(My partner is called Sam)", "ToolSet: saveMemory($R)"),
-            Arguments.of("ToolSet: searchMemory(partner name)", "ToolSet: searchMemory($R)"),
+            Arguments.of("ToolSet: saveMemory(My partner is called Sam)", "ToolSet: saveMemory($r"),
+            Arguments.of("ToolSet: searchMemory(partner name)", "ToolSet: searchMemory($r"),
             Arguments.of(
                 "SaveMemorySkill: stored core memory — 'I'm allergic to peanuts'",
-                "SaveMemorySkill: stored core memory — '$R'",
+                "SaveMemorySkill: stored core memory — '$r",
             ),
             Arguments.of(
                 "SearchMemorySkill: query='partner' conversationId=c9 results=3",
-                "SearchMemorySkill: query='$R' conversationId=c9 results=3",
+                "SearchMemorySkill: query='$r",
             ),
             Arguments.of(
                 "Episodic distillation dropped ungrounded sentence: The user lives in Petone.",
@@ -352,16 +353,16 @@ class DiagnosticLogRedactorTest {
             // Intent classifier and contacts
             Arguments.of(
                 "classify('call mum') -> make_call score=0.82",
-                "classify('$R') -> make_call score=0.82",
+                "classify($r",
             ),
             Arguments.of(
                 "Alias resolved: 'mum' → 'Jane Doe' (+64 21 555 0199)",
-                "Alias resolved: '$R' → '$R' ($R)",
+                "Alias resolved: $r",
             ),
-            Arguments.of("Email resolved: 'Sam' → sam.smith@example.com", "Email resolved: '$R' → $R"),
+            Arguments.of("Email resolved: 'Sam' → sam.smith@example.com", "Email resolved: $r"),
             Arguments.of(
                 "ToolSet: getWeather(location=Ōtaki Beach, forecastDays=3)",
-                "ToolSet: getWeather($R)",
+                "ToolSet: getWeather($r",
             ),
             Arguments.of(
                 "Recipe generation success: sessionId=s1, dayIndex=2, title=Mum's lasagne",
@@ -370,15 +371,15 @@ class DiagnosticLogRedactorTest {
             // Brackets end only where their own type closes: smileys and brackets in text stay inside the map.
             Arguments.of(
                 "NativeIntentHandler.handle: intent=send_sms params={contact=Mum, message=sorry :) see you at 5 at Dr Patel} source=quick",
-                "NativeIntentHandler.handle: intent=send_sms params=$R source=quick",
+                "NativeIntentHandler.handle: intent=send_sms params=$r",
             ),
             Arguments.of(
                 "NativeIntentHandler.handle: intent=send_sms params={contact=Mum, message=ok (see you) [later]} source=quick",
-                "NativeIntentHandler.handle: intent=send_sms params=$R source=quick",
+                "NativeIntentHandler.handle: intent=send_sms params=$r",
             ),
             Arguments.of(
                 "NativeIntentHandler.handle: intent=send_sms params={a={b=1} c=2} source=quick",
-                "NativeIntentHandler.handle: intent=send_sms params=$R source=quick",
+                "NativeIntentHandler.handle: intent=send_sms params=$r",
             ),
             // A truncated map is redacted to the end of the message.
             Arguments.of(
@@ -388,11 +389,11 @@ class DiagnosticLogRedactorTest {
             // Inner quotes and apostrophes stay inside the span; it closes at the last quote before the delimiter.
             Arguments.of(
                 "classify('the kids' party at Sarah's place') -> birthday score=0.6",
-                "classify('$R') -> birthday score=0.6",
+                "classify($r",
             ),
             Arguments.of(
                 "ADB_SLOT_STATE action=reply intent=send_sms slot=message reply=\"he said \"hi\" and left early\"",
-                "ADB_SLOT_STATE action=reply intent=send_sms slot=message reply=\"$R\"",
+                "ADB_SLOT_STATE action=reply intent=send_sms slot=message reply=$r",
             ),
             // An unmatched opening quote is redacted to the end of the message.
             Arguments.of(
@@ -401,14 +402,51 @@ class DiagnosticLogRedactorTest {
             ),
             Arguments.of(
                 "ToolSet: runIntent params not valid JSON — failing closed: Unterminated string at 31 {\"item\":\"egg",
-                "ToolSet: runIntent params not valid JSON — failing closed: Unterminated string at 31 {\"$R\":\"$R",
+                "ToolSet: runIntent params not valid JSON — failing closed: Unterminated string at 31 {\"$r",
             ),
             Arguments.of("Speech says 'hello there", "Speech says '$R"),
             // Contact resolution: the number is content, whatever its shape; the name is quoted.
-            Arguments.of("Contact resolved: 'Mum' → 021 1234", "Contact resolved: '$R' → $R"),
-            Arguments.of("Contact resolved: 'Sam' → 1234567", "Contact resolved: '$R' → $R"),
-            Arguments.of("Contact resolved: 'Sam' → +64 21 - 123 4567", "Contact resolved: '$R' → $R"),
+            Arguments.of("Contact resolved: 'Mum' → 021 1234", "Contact resolved: $r"),
+            Arguments.of("Contact resolved: 'Sam' → 1234567", "Contact resolved: $r"),
+            Arguments.of("Contact resolved: 'Sam' → +64 21 - 123 4567", "Contact resolved: $r"),
             Arguments.of("Dialing contact +64 21 - 123 4567", "Dialing contact $R"),
+            // Fail-closed: a marker drops everything after it, so smileys, stray brackets, inner quotes,
+            // arrows, newlines and 7-digit numbers in alias or self-referential lines cannot leak.
+            Arguments.of(
+                "ToolSet: saveMemory(I love sushi :) my address is 12 Smith St)",
+                "ToolSet: saveMemory($r",
+            ),
+            Arguments.of(
+                "ToolSet: runIntent(send_sms, {\"contact\":\"Mum\",\"message\":\"hi :) see you at Dr Patel\"})",
+                "ToolSet: runIntent(send_sms, $r",
+            ),
+            Arguments.of("ToolSet: searchMemory(where is Sarah's place :) on Queen St)", "ToolSet: searchMemory($r"),
+            Arguments.of("ToolSet: runJs(params={\"text\":\"ok :) Sarah lives at 4 Elm Rd\"})", "ToolSet: runJs($r"),
+            Arguments.of("ToolSet: getWeather(location=Dunedin :) Mosgiel, forecastDays=3)", "ToolSet: getWeather($r"),
+            Arguments.of(
+                "NativeIntentHandler.handle: intent=send_sms params={contact=Mum, message=see you } at 12 Smith St}",
+                "NativeIntentHandler.handle: intent=send_sms params=$r",
+            ),
+            Arguments.of(
+                "NativeIntentHandler.handle: intent=send_sms params=[a, b ] c] d",
+                "NativeIntentHandler.handle: intent=send_sms params=$r",
+            ),
+            Arguments.of("ActionsViewModel: reply=\"I said \"ok\" :) see Sarah at 5\"", "ActionsViewModel: reply=$r"),
+            Arguments.of("ActionsViewModel: reply=\"he said \"hi\" → bye Sarah\"", "ActionsViewModel: reply=$r"),
+            Arguments.of("ActionsViewModel: heard \"ok :) tell \"Sarah\" hi\"", "ActionsViewModel: heard \"$r"),
+            Arguments.of("ActionsViewModel: reply=\"I said \"hi\"\nmeet at 12 Smith St\"", "ActionsViewModel: reply=$r"),
+            Arguments.of("classify('meet at Jo's :) house on Smith St') -> chat", "classify($r"),
+            Arguments.of("Alias resolved: 'mum' → 'Jane Smith' (309 1234)", "Alias resolved: $r"),
+            Arguments.of("Alias resolved: 'mum' → 'Jane Smith' (309-1234)", "Alias resolved: $r"),
+            Arguments.of("Self-referential contact 'me' → own number: 3091234", "Self-referential contact $r"),
+            Arguments.of("Email resolved: 'Zoë' → zoë@example.com", "Email resolved: $r"),
+            Arguments.of("Email resolved: 'Jane' → jane.o'neil@example.com", "Email resolved: $r"),
+            Arguments.of("Lookup email zoë@example.com now", "Lookup email $r now"),
+            Arguments.of("Lookup email jane.o'neil@example.com now", "Lookup email $r now"),
+            Arguments.of("Phone lookup number=0211234567 ok", "Phone lookup number=$r ok"),
+            Arguments.of("Dialing tel:0211234567 now", "Dialing tel:$r now"),
+            Arguments.of("Dialing 021 – 123 4567 now", "Dialing $r now"),
+            Arguments.of("Latency 021 123 4567 ms", "Latency $r ms"),
         )
 
         @JvmStatic
