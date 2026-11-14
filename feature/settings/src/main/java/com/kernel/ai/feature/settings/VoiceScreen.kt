@@ -106,6 +106,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
 import com.kernel.ai.core.permissions.recordPermissionResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -284,6 +285,7 @@ fun VoiceScreen(
                 Manifest.permission.RECORD_AUDIO,
             ),
         )
+        JandalEvents.record("permission", "record_audio", "granted" to granted)
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,

@@ -284,4 +284,25 @@ class TranscriptNormaliserTest {
         val once = TranscriptNormaliser.normalise("i've milk to my shopping list")
         assertEquals(once, TranscriptNormaliser.normalise(once))
     }
+
+    // ── #1852 — Petone heard as "patroni" ─────────────────────────────────────
+
+    @Test
+    fun `patroni is corrected to Petone as a whole word`() {
+        assertEquals("Petone", TranscriptNormaliser.normalise("patroni"))
+        assertEquals("I drove to Petone.", TranscriptNormaliser.normalise("I drove to patroni."))
+        assertEquals("Petone's train", TranscriptNormaliser.normalise("patroni's train"))
+    }
+
+    @Test
+    fun `patroni match is case insensitive`() {
+        assertEquals("Petone", TranscriptNormaliser.normalise("Patroni"))
+        assertEquals("Petone", TranscriptNormaliser.normalise("PATRONI"))
+    }
+
+    @Test
+    fun `words containing patroni are left alone`() {
+        assertEquals("patronised", TranscriptNormaliser.normalise("patronised"))
+        assertEquals("patronisingly", TranscriptNormaliser.normalise("patronisingly"))
+    }
 }

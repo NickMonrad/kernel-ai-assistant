@@ -136,6 +136,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
@@ -193,6 +194,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import com.kernel.ai.core.inference.ModelCapabilities
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
+import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.verticalScroll
@@ -319,6 +321,9 @@ fun ChatScreen(
         }
     }
     var showModelSettings by remember { mutableStateOf(false) }
+    val startModelDownload = rememberDownloadNotificationGate { id ->
+        id?.let { viewModel.retryDownload(KernelModel.valueOf(it)) }
+    }
 
     when (val state = uiState) {
         is ChatUiState.Loading -> LoadingContent()
@@ -329,8 +334,8 @@ fun ChatScreen(
         is ChatUiState.ModelsNotReady -> OnboardingContent(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
-            onRetry = viewModel::retryDownload,
-            onDownloadModel = viewModel::retryDownload,
+            onRetry = { model -> startModelDownload(model.name) },
+            onDownloadModel = { model -> startModelDownload(model.name) },
             onStartAuth = viewModel::startAuth,
             onNavigateToModelManagement = onNavigateToModelManagement,
             hfAuthenticated = state.hfAuthenticated,
@@ -405,6 +410,7 @@ fun ChatScreen(
                 )
                 val action = pendingVoiceAction
                 Log.d("ChatScreen", "Microphone permission result granted=$granted action=$action")
+                JandalEvents.record("permission", "record_audio", "granted" to granted)
                 if (granted) {
                     pendingVoiceAction = null
                     when (action) {

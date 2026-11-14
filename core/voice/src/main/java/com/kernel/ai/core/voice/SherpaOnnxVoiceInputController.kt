@@ -27,6 +27,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.SttFailure
 
 /**
  * VoiceInputController backed by Sherpa-ONNX recognizers accessed entirely via
@@ -226,9 +228,12 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             previousJob?.join()
 
             val spec = resolveSpec()
-            val rec = ensureRecognizer(spec) ?: return@withLock VoiceInputStartResult.Unavailable(
-                "Sherpa-ONNX STT model not available — download it from Settings → Voice."
-            )
+            val rec = ensureRecognizer(spec) ?: return@withLock run {
+                JandalEvents.record("voice", "stt_error", "category" to SttFailure.MODEL_UNAVAILABLE)
+                VoiceInputStartResult.Unavailable(
+                    "Sherpa-ONNX STT model not available — download it from Settings → Voice."
+                )
+            }
             val callerContext = currentCoroutineContext()
 
             synchronized(captureLock) {
@@ -242,11 +247,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
                 requestAudioFocus()
                 val ar = createAudioRecord() ?: run {
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
                     releaseAudioFocus()
                     return@withLock VoiceInputStartResult.Unavailable(
                         "Microphone unavailable — check RECORD_AUDIO permission."
                     )
                 }
+                JandalEvents.record("voice", "stt_ready", "mode" to mode, "zipformer" to (spec == SherpaSttModelSpec.ZIPFORMER))
 
                 val captureSessionId = VoiceCaptureSessionIds.allocate()
                 isRecording = true
@@ -261,6 +268,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                                 offlineAudioLoop(ar, mode, captureSessionId, rec, spec)
                         }
                     } catch (e: Exception) {
+                        JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
                         Log.e(TAG, "Audio loop error", e)
                         _events.tryEmit(
                             VoiceInputEvent.Error(
@@ -307,6 +315,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         rec: Any,
         spec: SherpaSttModelSpec,
     ) {
+        // Hotwords (#1852 investigation): NOT enabled. The source model
+        // Zengwei/icefall-asr-librispeech-pruned-transducer-stateless7-streaming-2022-12-29 ships
+        // data/lang_bpe_500/bpe.model with the same tokens.txt, and sherpa's
+        // scripts/export_bpe_vocab.py can build the bpe vocab. Enabling hotwords still needs that
+        // BPE asset shipped, a non-greedy decoder (modified_beam_search), and modelingUnit set in the
+        // recognizer config. Until then, pass "" here: with modelingUnit empty, any non-empty hotwords
+        // string passed to createStream exits the process.
         val stream = streamMethods.createStream!!.invoke(rec, "") // createStream(hotwords: String)
 
         val pcmBuf = ShortArray(CHUNK_SAMPLES)
@@ -334,6 +349,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 if (onlineMethods.isEndpoint!!.invoke(rec, stream) as Boolean) {
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
+                        JandalEvents.record("voice", "stt_result", "chars" to text.length)
                         _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                         lastPartial = ""
                     }
@@ -351,8 +367,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 if (System.currentTimeMillis() - started > LISTEN_TIMEOUT_MS) {
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
+                        JandalEvents.record("voice", "stt_result", "chars" to text.length)
                         _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                     } else {
+                        JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                         _events.tryEmit(
                             VoiceInputEvent.Error(
                                 mode,
@@ -378,7 +396,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             if (!exitedFromLoop) {
                 val text = signalEndAndDrainOnline(rec, stream)
                 if (text.isNotEmpty()) {
+                    JandalEvents.record("voice", "stt_result", "chars" to text.length)
                     _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
+                } else {
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                 }
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
             }
@@ -465,8 +486,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
                 val text = resultTextOffline(rec, stream)
                 if (text.isNotEmpty()) {
+                    JandalEvents.record("voice", "stt_result", "chars" to text.length)
                     _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                 } else {
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                     _events.tryEmit(
                         VoiceInputEvent.Error(
                             mode,
@@ -476,6 +499,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                     )
                 }
             } else {
+                JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                 _events.tryEmit(
                     VoiceInputEvent.Error(
                         mode,
