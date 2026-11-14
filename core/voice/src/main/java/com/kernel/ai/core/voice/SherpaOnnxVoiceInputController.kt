@@ -307,6 +307,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         rec: Any,
         spec: SherpaSttModelSpec,
     ) {
+        // Hotwords (#1852 investigation): NOT enabled. The source model
+        // Zengwei/icefall-asr-librispeech-pruned-transducer-stateless7-streaming-2022-12-29 ships
+        // data/lang_bpe_500/bpe.model with the same tokens.txt, and sherpa's
+        // scripts/export_bpe_vocab.py can build the bpe vocab. Enabling hotwords still needs that
+        // BPE asset shipped, a non-greedy decoder (modified_beam_search), and modelingUnit set in the
+        // recognizer config. Until then, pass "" here: with modelingUnit empty, any non-empty hotwords
+        // string passed to createStream exits the process.
         val stream = streamMethods.createStream!!.invoke(rec, "") // createStream(hotwords: String)
 
         val pcmBuf = ShortArray(CHUNK_SAMPLES)
