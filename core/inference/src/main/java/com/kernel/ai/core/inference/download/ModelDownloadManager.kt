@@ -238,17 +238,10 @@ class ModelDownloadManager @Inject constructor(
     private suspend fun refreshWaitingForWifi() {
         val wifiOnly = DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first()) ==
             DownloadNetworkChoice.WIFI_ONLY
-        val metered = isOnlineOnMeteredNetwork()
+        val metered = isOnMeteredNetwork(context)
         _waitingForWifi.value = KernelModel.entries
             .filter { workStates[it] == WorkInfo.State.ENQUEUED && wifiOnly && metered }
             .toSet()
-    }
-
-    private fun isOnlineOnMeteredNetwork(): Boolean {
-        val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return false
-        val network = connectivity.activeNetwork ?: return false
-        val capabilities = connectivity.getNetworkCapabilities(network) ?: return false
-        return !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     }
 
     // -------------------------------------------------------------------------

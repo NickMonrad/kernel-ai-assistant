@@ -27,7 +27,6 @@ import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.inference.download.DownloadState
-import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
@@ -174,10 +173,11 @@ internal fun aggregateInflectMicroAvailability(
 
     val graphDownloading = resolvedStates.any { (_, state) -> state is DownloadState.Downloading }
     val graphError = resolvedStates.firstOrNull { (_, state) -> state is DownloadState.Error }
-    val inflectOwnsFrontend = graphDownloading || graphError != null
+    val frontendPending = allGraphsDownloaded && frontendState is VoicePackDownloadState.Downloading
+    val inflectOwnsFrontend = graphDownloading || graphError != null || frontendPending
     val frontend = if (inflectOwnsFrontend) frontendState else VoicePackDownloadState.NotDownloaded
 
-    if (graphDownloading) {
+    if (graphDownloading || frontendPending) {
         val totalBytes = resolvedStates.sumOf { (model, _) -> model.approxSizeBytes } +
             frontendApproxDownloadBytes
         val downloadedBytes = resolvedStates.sumOf { (model, state) ->
@@ -543,6 +543,9 @@ class VoiceViewModel @Inject constructor(
         modelsForSpec(spec).forEach { modelDownloadManager.startDownload(it) }
     }
 
+    /** The Cori pack Inflect's Download started, so Inflect's Cancel can stop it (#1868). In-memory only. */
+    private var inflectStartedVoice: SherpaPiperVoice? = null
+
     fun downloadInflectMicro() {
         val currentStates = modelDownloadManager.downloadStates.value
         inflectModels
@@ -566,15 +569,27 @@ class VoiceViewModel @Inject constructor(
             frontendState is VoicePackDownloadState.Error
         ) {
             sherpaVoicePackDownloadManager.startDownload(selectedVoice)
+            inflectStartedVoice = selectedVoice
         }
     }
 
-    /** Cancels only Inflect graph downloads. The shared frontend pack belongs to the Piper row, so it keeps running. */
+    /**
+     * Cancels Inflect graph downloads. Also cancels the Cori pack Inflect started, unless Piper is the selected
+     * output (then the Piper row owns it).
+     */
     fun cancelInflectMicroDownload() {
         val currentStates = modelDownloadManager.downloadStates.value
         inflectModels
             .filter { currentStates[it] is DownloadState.Downloading }
             .forEach { modelDownloadManager.cancelDownload(it) }
+        val voice = inflectStartedVoice ?: return
+        val frontend = sherpaVoicePackDownloadManager.downloadStates.value[voice]
+        if (frontend is VoicePackDownloadState.Downloading &&
+            _uiState.value.selectedOutputEngine != VoiceOutputEngine.SherpaExperimental
+        ) {
+            sherpaVoicePackDownloadManager.cancelDownload(voice)
+            inflectStartedVoice = null
+        }
     }
 
     fun deleteInflectMicro() {
@@ -653,9 +668,9 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    /** Lets voice packs waiting on Wi-Fi download over mobile data; the manager re-queues them on the change. */
-    fun useMobileDataForVoices() {
-        modelDownloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
+    /** Lets this voice pack download over mobile data. Other downloads keep the global network choice (#1868). */
+    fun useMobileDataForVoice(voice: SherpaPiperVoice) {
+        sherpaVoicePackDownloadManager.startDownload(voice, restartRunning = true, allowMobileData = true)
     }
 
     /** Speaks a fixed sample through the selected output engine. Only for a downloaded voice; never automatic. */
@@ -665,7 +680,9 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             val result = sherpaVoiceOutputController.speak(VoiceSpeakRequest(text = SHERPA_SAMPLE_TEXT))
             _uiState.update {
-                it.copy(sherpaSampleError = (result as? VoiceOutputResult.Unavailable)?.message)
+                it.copy(
+                    sherpaSampleError = if (result is VoiceOutputResult.Unavailable) SAMPLE_FAILED_MESSAGE else null,
+                )
             }
         }
     }
@@ -829,3 +846,6 @@ class VoiceViewModel @Inject constructor(
 }
 
 private const val SHERPA_SAMPLE_TEXT = "Hi, this is Jandal. This is how this voice sounds."
+
+internal const val SAMPLE_FAILED_MESSAGE =
+    "Couldn't play the sample. Delete the voice and download it again, then retry."

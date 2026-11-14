@@ -1,37 +1,71 @@
 package com.kernel.ai.core.voice
 
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
+import com.kernel.ai.core.voice.VoiceDefaultsProvisioner.Companion.planSpeechOutputVoice
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class VoiceDefaultsProvisionerTest {
     @Test
-    fun `fresh install whose effective engine is Piper queues the missing voice`() {
-        assertTrue(
-            VoiceDefaultsProvisioner.shouldQueueSpeechOutputVoice(
-                engine = VoiceOutputEngine.SherpaExperimental,
-                voiceDownloaded = false,
-            ),
+    fun `updated install without a stored engine keeps Android TTS and starts nothing`() {
+        val plan = planSpeechOutputVoice(
+            hasStoredEngine = false,
+            isExistingInstall = true,
+            effectiveEngine = VoiceOutputEngine.SherpaExperimental,
+            voiceDownloaded = false,
         )
+
+        assertEquals(true, plan.keepAndroidTts)
+        assertEquals(false, plan.startDownload)
     }
 
     @Test
-    fun `effective Android TTS never queues the Piper voice`() {
-        assertFalse(
-            VoiceDefaultsProvisioner.shouldQueueSpeechOutputVoice(
-                engine = VoiceOutputEngine.AndroidTts,
-                voiceDownloaded = false,
-            ),
+    fun `fresh install whose effective engine is Piper starts the missing voice`() {
+        val plan = planSpeechOutputVoice(
+            hasStoredEngine = false,
+            isExistingInstall = false,
+            effectiveEngine = VoiceOutputEngine.SherpaExperimental,
+            voiceDownloaded = false,
         )
+
+        assertEquals(false, plan.keepAndroidTts)
+        assertEquals(true, plan.startDownload)
     }
 
     @Test
-    fun `an already downloaded Piper voice is not queued again`() {
-        assertFalse(
-            VoiceDefaultsProvisioner.shouldQueueSpeechOutputVoice(
-                engine = VoiceOutputEngine.SherpaExperimental,
-                voiceDownloaded = true,
-            ),
+    fun `effective Android TTS never starts the Piper voice`() {
+        val plan = planSpeechOutputVoice(
+            hasStoredEngine = true,
+            isExistingInstall = false,
+            effectiveEngine = VoiceOutputEngine.AndroidTts,
+            voiceDownloaded = false,
         )
+
+        assertEquals(false, plan.startDownload)
+    }
+
+    @Test
+    fun `stored Piper with the voice already downloaded starts nothing`() {
+        val plan = planSpeechOutputVoice(
+            hasStoredEngine = true,
+            isExistingInstall = true,
+            effectiveEngine = VoiceOutputEngine.SherpaExperimental,
+            voiceDownloaded = true,
+        )
+
+        assertEquals(false, plan.keepAndroidTts)
+        assertEquals(false, plan.startDownload)
+    }
+
+    @Test
+    fun `stored Piper with a missing voice starts it even on an updated install`() {
+        val plan = planSpeechOutputVoice(
+            hasStoredEngine = true,
+            isExistingInstall = true,
+            effectiveEngine = VoiceOutputEngine.SherpaExperimental,
+            voiceDownloaded = false,
+        )
+
+        assertEquals(false, plan.keepAndroidTts)
+        assertEquals(true, plan.startDownload)
     }
 }

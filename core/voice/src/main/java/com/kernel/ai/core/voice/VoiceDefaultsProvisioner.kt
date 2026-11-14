@@ -77,9 +77,19 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     private suspend fun queueSpeechOutputVoice() {
         if (prefs.getBoolean(KEY_VOICE_QUEUED, false)) return
-        val engine = voiceOutputPreferences.selectedEngine.first()
         val voice = voiceOutputPreferences.selectedSherpaVoice.first()
-        if (shouldQueueSpeechOutputVoice(engine, voice.isDownloaded(context))) {
+        // Read before any write below: the plan needs the engine as the user left it.
+        val plan = planSpeechOutputVoice(
+            hasStoredEngine = voiceOutputPreferences.hasStoredEngine(),
+            isExistingInstall = modelDownloadManager.isExistingInstall(),
+            effectiveEngine = voiceOutputPreferences.selectedEngine.first(),
+            voiceDownloaded = voice.isDownloaded(context),
+        )
+        if (plan.keepAndroidTts) {
+            // An updated install keeps the engine it had. The default would otherwise switch it to Piper silently.
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
+        }
+        if (plan.startDownload) {
             Log.i(TAG, "Queuing Piper voice ${voice.name}")
             voicePackDownloadManager.startDownload(voice)
         }
@@ -96,9 +106,27 @@ class VoiceDefaultsProvisioner @Inject constructor(
     }
 
     companion object {
-        /** Queue the voice once the engine is decided: only when Piper is effective and the voice is missing. */
-        internal fun shouldQueueSpeechOutputVoice(engine: VoiceOutputEngine, voiceDownloaded: Boolean): Boolean =
-            engine == VoiceOutputEngine.SherpaExperimental && !voiceDownloaded
+        /** What the first run does with the speech output engine and voice. */
+        internal data class SpeechOutputVoicePlan(val keepAndroidTts: Boolean, val startDownload: Boolean)
+
+        /**
+         * - Updated install without a stored engine: keep Android TTS, so the new default does not switch to Piper.
+         * - Otherwise: start the selected voice when Piper is effective and the voice is missing.
+         */
+        internal fun planSpeechOutputVoice(
+            hasStoredEngine: Boolean,
+            isExistingInstall: Boolean,
+            effectiveEngine: VoiceOutputEngine,
+            voiceDownloaded: Boolean,
+        ): SpeechOutputVoicePlan =
+            if (!hasStoredEngine && isExistingInstall) {
+                SpeechOutputVoicePlan(keepAndroidTts = true, startDownload = false)
+            } else {
+                SpeechOutputVoicePlan(
+                    keepAndroidTts = false,
+                    startDownload = effectiveEngine == VoiceOutputEngine.SherpaExperimental && !voiceDownloaded,
+                )
+            }
 
         private const val PREFS_NAME = "voice_defaults_provisioner"
         private const val KEY_ZIPFORMER_QUEUED = "zipformer_queued_v1"

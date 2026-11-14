@@ -347,7 +347,7 @@ fun VoiceScreen(
         onCancelSherpaVoice = viewModel::cancelSherpaVoiceDownload,
         onDeleteSherpaVoice = viewModel::deleteSherpaVoice,
         onPlaySherpaSample = viewModel::playSherpaSample,
-        onUseMobileDataForVoices = viewModel::useMobileDataForVoices,
+        onUseMobileDataForVoice = viewModel::useMobileDataForVoice,
         onDownloadKokoroVoice = viewModel::downloadKokoroVoice,
         onCancelKokoroVoice = viewModel::cancelKokoroVoiceDownload,
         onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
@@ -555,7 +555,7 @@ private fun VoiceScreenContent(
     onCancelSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onPlaySherpaSample: (SherpaPiperVoice) -> Unit = { _ -> },
-    onUseMobileDataForVoices: () -> Unit = {},
+    onUseMobileDataForVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onCancelKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
@@ -948,7 +948,7 @@ private fun VoiceScreenContent(
             HorizontalDivider()
 
             Text(
-                text = "Spoken output engine",
+                text = "How Jandal speaks",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -973,8 +973,8 @@ private fun VoiceScreenContent(
                             Text(engine.description)
                             Text(
                                 text = when {
-                                    engineActive -> "Currently active"
-                                    engineSelected -> "Selected — setup required"
+                                    engineActive -> "Active"
+                                    engineSelected -> "Selected, setup needed"
                                     else -> "Inactive"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -1029,6 +1029,7 @@ private fun VoiceScreenContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
 
+                val selectedSherpaName = uiState.selectedSherpaVoice.displayName
                 val sherpaHelpText = when {
                     !uiState.hasDownloadedSherpaVoice ->
                         "Download a voice below before this option can speak."
@@ -1038,7 +1039,11 @@ private fun VoiceScreenContent(
                         "Only downloaded voices can be selected. Android TTS speaks only while it is selected above."
                 }
                 VoiceInfoCard(
-                    title = "${uiState.selectedSherpaVoice.displayName} is active",
+                    title = if (uiState.isSelectedSherpaVoiceDownloaded) {
+                        "$selectedSherpaName is selected"
+                    } else {
+                        "$selectedSherpaName is not downloaded"
+                    },
                     message = sherpaHelpText,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
@@ -1074,12 +1079,14 @@ private fun VoiceScreenContent(
                             enabled = isDownloaded,
                         )
                     }
-                    Text(
-                        text = "About ${formatBytes(voiceRow.voice.approxDownloadBytes)} download",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                    )
+                    if (!isDownloaded) {
+                        Text(
+                            text = "About ${formatBytes(voiceRow.voice.approxDownloadBytes)} download",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        )
+                    }
                     val voiceRowState = voiceRow.downloadState
                     when (voiceRowState) {
                         is VoicePackDownloadState.NotDownloaded -> {
@@ -1093,14 +1100,14 @@ private fun VoiceScreenContent(
                         is VoicePackDownloadState.Downloading -> {
                             if (voiceRowState.waitingForWifi) {
                                 Text(
-                                    text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data.",
+                                    text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this voice only.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                                 )
                                 Button(
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                    onClick = onUseMobileDataForVoices,
+                                    onClick = { onUseMobileDataForVoice(voiceRow.voice) },
                                 ) {
                                     Text("Use mobile data")
                                 }
@@ -1185,7 +1192,7 @@ private fun VoiceScreenContent(
                 }
                 uiState.sherpaSampleError?.let { message ->
                     Text(
-                        text = "Play sample failed: $message",
+                        text = message,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -1804,11 +1811,11 @@ private fun VoiceOutputSelectionCard(
     val selectedEngineReady = !inflectSelected || inflectMicroReady
     val message = when (selectedEngine) {
         VoiceOutputEngine.AndroidTts ->
-            "Android TTS is currently the only engine that will speak. Sherpa voices below stay inactive until you switch engines."
+            "Android TTS speaks. Piper voices below stay inactive until you select Piper."
         VoiceOutputEngine.SherpaExperimental ->
-            "Sherpa Piper is currently the only engine that will speak. Android TTS is inactive until you switch back."
+            "Piper speaks. Android TTS is inactive until you select Android TTS."
         VoiceOutputEngine.KokoroExperimental ->
-            "Kokoro (Experimental) is currently the only engine that will speak. Android TTS is inactive until you switch back."
+            "Kokoro (Experimental) speaks. Android TTS is inactive until you select Android TTS."
         VoiceOutputEngine.InflectMicroExperimental ->
             if (selectedEngineReady) {
                 "Inflect Micro is selected and ready to speak. Android TTS remains the fallback if synthesis is unavailable."
@@ -1819,9 +1826,9 @@ private fun VoiceOutputSelectionCard(
 
     VoiceInfoCard(
         title = if (selectedEngineReady) {
-            "Active engine: ${selectedEngine.displayName}"
+            "Active: ${selectedEngine.displayName}"
         } else {
-            "Selected engine: ${selectedEngine.displayName}"
+            "Selected: ${selectedEngine.displayName}"
         },
         message = message,
         modifier = modifier,

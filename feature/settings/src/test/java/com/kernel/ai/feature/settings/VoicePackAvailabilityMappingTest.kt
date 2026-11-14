@@ -107,7 +107,7 @@ class VoicePackAvailabilityMappingTest {
     }
 
     @Test
-    fun `downloaded Inflect graphs do not inherit Cori's download progress`() {
+    fun `downloaded Inflect graphs wait for Cori progress instead of showing Download`() {
         val mapped = aggregateInflectMicroAvailability(
             requiredModels = inflectModels,
             states = inflectModels.associateWith { DownloadState.Downloaded(localPath = "/data/inflect") },
@@ -115,6 +115,8 @@ class VoicePackAvailabilityMappingTest {
             frontendApproxDownloadBytes = 115_574_061L,
         )
 
-        assertEquals(ModelAvailabilityState.NotDisplayed, mapped)
+        assertTrue(mapped is ModelAvailabilityState.Preparing)
+        val progress = (mapped as ModelAvailabilityState.Preparing).progress
+        assertTrue(progress > 0f && progress < 1f)
     }
 }
