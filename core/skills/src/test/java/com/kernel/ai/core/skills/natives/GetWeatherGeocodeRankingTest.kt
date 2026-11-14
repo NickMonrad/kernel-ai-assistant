@@ -73,4 +73,22 @@ class GetWeatherGeocodeRankingTest {
         assertNull(parseGeocodeCandidate(JSONObject("""{"lat":"x","lon":"1"}""")))
         assertNull(parseGeocodeCandidate(null))
     }
+
+    @Test
+    fun `missing top importance keeps provider order even for a home-country match`() {
+        val topNoScore = GeocodeCandidate(1.0, 2.0, "us", null)
+        assertEquals(topNoScore, rankGeocodeCandidates(listOf(topNoScore, aucklandNz), "nz"))
+    }
+
+    @Test
+    fun `missing home importance does not win the home-country bias`() {
+        val homeNoScore = GeocodeCandidate(-36.85, 174.76, "nz", null)
+        assertEquals(oaklandCa, rankGeocodeCandidates(listOf(oaklandCa, homeNoScore), "nz"))
+    }
+
+    @Test
+    fun `absent importance field parses as unknown, not zero`() {
+        val json = JSONObject("""{"lat":"1.0","lon":"2.0","address":{"country_code":"nz"}}""")
+        assertEquals(null, parseGeocodeCandidate(json)?.importance)
+    }
 }

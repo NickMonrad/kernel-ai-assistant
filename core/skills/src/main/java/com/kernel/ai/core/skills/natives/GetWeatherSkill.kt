@@ -263,7 +263,7 @@ internal data class GeocodeCandidate(
     val lat: Double,
     val lon: Double,
     val countryCode: String?,
-    val importance: Double,
+    val importance: Double?,
 )
 
 /** Geocoding outcome; separates "no such place" from "service unreachable". */
@@ -284,7 +284,7 @@ internal fun parseGeocodeCandidate(obj: JSONObject?): GeocodeCandidate? {
         lat = lat,
         lon = lon,
         countryCode = obj.optJSONObject("address")?.optString("country_code")?.takeIf { it.isNotBlank() },
-        importance = obj.optDouble("importance", 0.0),
+        importance = if (obj.has("importance")) obj.optDouble("importance") else null,
     )
 }
 
@@ -301,7 +301,9 @@ internal fun rankGeocodeCandidates(
 ): GeocodeCandidate? {
     val top = candidates.firstOrNull() ?: return null
     val home = homeCountryCode?.let { code -> candidates.firstOrNull { it.countryCode.equals(code, ignoreCase = true) } }
-    return if (home != null && home.importance >= top.importance * HOME_COUNTRY_IMPORTANCE_RATIO) home else top
+    val topImportance = top.importance ?: return top
+    val homeImportance = home?.importance ?: return top
+    return if (home != null && homeImportance >= topImportance * HOME_COUNTRY_IMPORTANCE_RATIO) home else top
 }
 
 /** English country name for an ISO code, locale-independent (#1894). Null if unknown. */
@@ -772,7 +774,7 @@ class GetWeatherSkill @Inject constructor(
                 capitalArray.optString(0).takeIf { it.isNotBlank() }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Country capital lookup failed for: $countryName", e)
+            Log.w(TAG, "Country capital lookup failed", e)
             null
         }
     }
@@ -962,7 +964,7 @@ class GetWeatherSkill @Inject constructor(
             val body = retryWithBackoff("Weekend Forecast API") {
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
-                        throw IllegalStateException("Forecast API returned ${response.code}")
+                        throw HttpStatusException(response.code)
                     }
                     response.body?.string() ?: throw IllegalStateException("Empty forecast response")
                 }
@@ -993,7 +995,7 @@ class GetWeatherSkill @Inject constructor(
             val body = retryWithBackoff("Forecast API ($days days)") {
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
-                        throw IllegalStateException("Forecast API returned ${response.code}")
+                        throw HttpStatusException(response.code)
                     }
                     response.body?.string() ?: throw IllegalStateException("Empty forecast response")
                 }
@@ -1086,7 +1088,7 @@ class GetWeatherSkill @Inject constructor(
             val low = minTemps.optDouble(i, Double.NaN)
             Triple(formattedDate, desc, Pair(high.takeUnless { it.isNaN() }, low.takeUnless { it.isNaN() }))
         }
-        Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast for $locationLabel")
+        Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast")
         val firstCode = codes.optInt(0, -1)
         val firstHigh = maxTemps.optDouble(0, Double.NaN)
         val firstLow = minTemps.optDouble(0, Double.NaN)
@@ -1165,7 +1167,7 @@ class GetWeatherSkill @Inject constructor(
         val body = retryWithBackoff("Forecast API (day $dayIndex)") {
             httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw IllegalStateException("Forecast API returned ${response.code}")
+                    throw HttpStatusException(response.code)
                 }
                 response.body?.string() ?: throw IllegalStateException("Empty forecast response")
             }
@@ -1216,7 +1218,7 @@ class GetWeatherSkill @Inject constructor(
         val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val text = "$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr"
 
-        Log.d(TAG, "GetWeatherSkill: fetched forecast for day $dayIndex ($formattedDate) for $locationLabel")
+        Log.d(TAG, "GetWeatherSkill: fetched forecast for day $dayIndex ($formattedDate)")
 
         val temperatureText = buildString {
             if (!high.isNaN()) append("%.0f°C".format(high))
@@ -1276,7 +1278,7 @@ class GetWeatherSkill @Inject constructor(
                 val url = "https://air-quality-api.open-meteo.com/v1/air-quality" +
                     "?${openMeteoCoordinateQuery(lat, lon)}&current=us_aqi,pm2_5&timezone=auto"
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                    if (!response.isSuccessful) throw IllegalStateException("Air quality API returned ${response.code}")
+                    if (!response.isSuccessful) throw HttpStatusException(response.code)
                     response.body?.string() ?: throw IllegalStateException("Empty air quality response")
                 }
             } ?: return@withContext null
@@ -1315,7 +1317,7 @@ class GetWeatherSkill @Inject constructor(
             val weatherBody = retryWithBackoff("Weather API") {
                 httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                     if (!response.isSuccessful) {
-                        throw IllegalStateException("Weather API returned ${response.code}")
+                        throw HttpStatusException(response.code)
                     }
                     response.body?.string() ?: throw IllegalStateException("Empty weather response")
                 }
@@ -1426,7 +1428,7 @@ class GetWeatherSkill @Inject constructor(
             }
         }.trimEnd()
 
-        Log.d(TAG, "GetWeatherSkill: fetched weather for $locationLabel")
+        Log.d(TAG, "GetWeatherSkill: fetched current weather")
         // DirectReply: structured data — numeric temperature/humidity/wind values
         val precipText = buildString {
             if (precipChance >= 0) append("Rain chance $precipChance%")
