@@ -104,7 +104,8 @@ fun ConversationListScreen(
     val chatsWelcomeDismissed by viewModel.chatsWelcomeDismissed.collectAsStateWithLifecycle()
     val tabHintsDismissed by viewModel.tabHintsDismissed.collectAsStateWithLifecycle()
     val assistantReadiness by viewModel.assistantReadiness.collectAsStateWithLifecycle()
-    val welcomeState = chatsEmptyState(chatsWelcomeDismissed, assistantReadiness)
+    val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
+    val welcomeState = chatsEmptyState(chatsWelcomeDismissed, assistantReadiness, downloadStates)
 
     var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
     var pendingArchive by remember { mutableStateOf<ConversationEntity?>(null) }
@@ -229,19 +230,21 @@ fun ConversationListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    SmallFloatingActionButton(
-                        onClick = onNavigateToVoiceActions,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = "Voice action")
-                    }
-                    SmallFloatingActionButton(
-                        onClick = onNavigateToActions,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ) {
-                        Icon(Icons.Default.Bolt, contentDescription = "Quick action")
+                    if (welcomeState !is ChatsEmptyState.Welcome) {
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToVoiceActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice action")
+                        }
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = "Quick action")
+                        }
                     }
                     FloatingActionButton(
                         onClick = onNewConversation,

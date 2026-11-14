@@ -10,13 +10,19 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -91,5 +97,46 @@ class ConversationListViewModelTest {
         val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
         viewModel.downloadAssistantModel(KernelModel.GEMMA_4_E4B)
         verify(exactly = 1) { downloadManager.startDownload(KernelModel.GEMMA_4_E4B, false, any()) }
+    }
+
+    @Test
+    fun `welcome state is unknown until the conversation count has loaded`() {
+        every { repository.observeConversationCount() } returns MutableSharedFlow()
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val collector = CoroutineScope(dispatcher).launch { viewModel.chatsWelcomeDismissed.collect {} }
+        dispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.chatsWelcomeDismissed.value)
+        collector.cancel()
+    }
+
+    @Test
+    fun `returning user with conversations never sees the welcome, even before the preference is written`() {
+        every { chatPreferences.chatsWelcomeDismissed } returns flowOf(false)
+        conversationCount.value = 2
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val collector = CoroutineScope(dispatcher).launch { viewModel.chatsWelcomeDismissed.collect {} }
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, viewModel.chatsWelcomeDismissed.value)
+        collector.cancel()
+    }
+
+    @Test
+    fun `first run with no conversations shows the welcome once both values have loaded`() {
+        every { chatPreferences.chatsWelcomeDismissed } returns flowOf(false)
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val collector = CoroutineScope(dispatcher).launch { viewModel.chatsWelcomeDismissed.collect {} }
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, viewModel.chatsWelcomeDismissed.value)
+        collector.cancel()
+    }
+
+    @Test
+    fun `hidden welcome stays hidden when there are no conversations`() {
+        every { chatPreferences.chatsWelcomeDismissed } returns flowOf(true)
+        val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager)
+        val collector = CoroutineScope(dispatcher).launch { viewModel.chatsWelcomeDismissed.collect {} }
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, viewModel.chatsWelcomeDismissed.value)
+        collector.cancel()
     }
 }

@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import com.kernel.ai.core.skills.QuickIntentRouter
@@ -41,6 +42,18 @@ class ChatsWelcomeTest {
         assertEquals(
             ChatsEmptyState.Welcome(WelcomeDownload.Waiting(KernelModel.GEMMA_4_E4B)),
             chatsEmptyState(welcomeDismissed = false, readiness = notStarted),
+        )
+    }
+
+    @Test
+    fun `waiting card reports a failed recommended-model download so it can offer a retry`() {
+        assertEquals(
+            ChatsEmptyState.Welcome(WelcomeDownload.Waiting(KernelModel.GEMMA_4_E4B, failed = true)),
+            chatsEmptyState(
+                welcomeDismissed = false,
+                readiness = notStarted,
+                downloadStates = mapOf(KernelModel.GEMMA_4_E4B to DownloadState.Error("network")),
+            ),
         )
     }
 

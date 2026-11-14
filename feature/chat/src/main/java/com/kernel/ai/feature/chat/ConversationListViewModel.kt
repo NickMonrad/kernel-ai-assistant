@@ -29,9 +29,17 @@ class ConversationListViewModel @Inject constructor(
     private val downloadManager: ModelDownloadManager,
 ) : ViewModel() {
 
-    /** Null until preferences load, so a returning user never sees the welcome flash. */
-    val chatsWelcomeDismissed: StateFlow<Boolean?> = chatPreferences.chatsWelcomeDismissed
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    /**
+     * Null until both the welcome preference and the total conversation count (archived included) have loaded.
+     * True when the welcome is hidden or any conversation exists, so a returning user never sees the welcome flash.
+     */
+    val chatsWelcomeDismissed: StateFlow<Boolean?> = combine(
+        chatPreferences.chatsWelcomeDismissed,
+        repository.observeConversationCount(),
+    ) { dismissed, count -> dismissed || count > 0 }
+        .stateIn<Boolean?>(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val downloadStates = downloadManager.downloadStates
 
     val tabHintsDismissed: StateFlow<Boolean?> = chatPreferences.tabHintsDismissed
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

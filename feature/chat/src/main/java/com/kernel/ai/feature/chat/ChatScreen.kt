@@ -2419,7 +2419,7 @@ internal fun ConversationDownloadProgress(
     val progressModifier = Modifier
         .fillMaxWidth()
         .semantics {
-            contentDescription = "Model download progress"
+            contentDescription = "Download progress"
             if (percent != null) stateDescription = "$percent percent"
         }
     if (progress != null && progress > 0f) {

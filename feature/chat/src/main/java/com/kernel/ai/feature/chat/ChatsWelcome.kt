@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
 
 /** What the Chats empty state shows. [Loading] renders nothing until preferences are known. */
@@ -54,33 +55,45 @@ internal sealed interface WelcomeDownload {
     /** Assistant files are downloading and the assistant cannot chat yet. [progress] is 0.0–1.0, or null when unknown. */
     data class InProgress(val model: KernelModel, val progress: Float?) : WelcomeDownload
 
-    /** Nothing is downloading, and the assistant cannot chat until files arrive. Offers a download action. */
-    data class Waiting(val model: KernelModel) : WelcomeDownload
+    /**
+     * Nothing is downloading, and the assistant cannot chat until files arrive. Offers a download action.
+     * [failed] is true when the last attempt errored, so the card says so and offers a retry.
+     */
+    data class Waiting(val model: KernelModel, val failed: Boolean = false) : WelcomeDownload
 }
 
 /**
  * Chooses the Chats empty state.
  *
- * @param welcomeDismissed null while the preference is loading, otherwise whether the welcome is hidden.
+ * @param welcomeDismissed null while the preference or conversation count is loading; otherwise true when the
+ *   welcome is hidden or any conversation exists.
  * @param readiness Current conversation-model readiness.
+ * @param downloadStates Per-model download states, used to flag a failed recommended-model download.
  */
 internal fun chatsEmptyState(
     welcomeDismissed: Boolean?,
     readiness: ConversationModelReadiness,
+    downloadStates: Map<KernelModel, DownloadState> = emptyMap(),
 ): ChatsEmptyState = when (welcomeDismissed) {
     null -> ChatsEmptyState.Loading
     true -> ChatsEmptyState.Plain
-    false -> ChatsEmptyState.Welcome(welcomeDownloadFor(readiness))
+    false -> ChatsEmptyState.Welcome(welcomeDownloadFor(readiness, downloadStates))
 }
 
-internal fun welcomeDownloadFor(readiness: ConversationModelReadiness): WelcomeDownload = when (readiness) {
+internal fun welcomeDownloadFor(
+    readiness: ConversationModelReadiness,
+    downloadStates: Map<KernelModel, DownloadState> = emptyMap(),
+): WelcomeDownload = when (readiness) {
     is ConversationModelReadiness.Ready,
     is ConversationModelReadiness.FallbackActive -> WelcomeDownload.Ready
     is ConversationModelReadiness.FallbackPreparing ->
         WelcomeDownload.Upgrading(readiness.downloadingModel, readiness.progress)
     is ConversationModelReadiness.Preparing ->
         WelcomeDownload.InProgress(readiness.downloadingModel, readiness.progress)
-    is ConversationModelReadiness.ActionRequired -> WelcomeDownload.Waiting(readiness.recommendedModel)
+    is ConversationModelReadiness.ActionRequired -> WelcomeDownload.Waiting(
+        model = readiness.recommendedModel,
+        failed = downloadStates[readiness.recommendedModel] is DownloadState.Error,
+    )
 }
 
 /** A tappable prompt on the welcome. [needsAssistantFiles] is false when the quick-intent router handles it. */
@@ -148,8 +161,8 @@ internal fun ChatsWelcome(
         when (download) {
             WelcomeDownload.Ready -> Unit
             is WelcomeDownload.Upgrading -> DownloadCard(
-                title = "Getting a better model",
-                body = "Jandal can chat now. A larger model, about ${formatBytesShort(download.model.approxSizeBytes)}, " +
+                title = "Getting a better Jandal",
+                body = "Jandal can chat now. A bigger upgrade, about ${formatBytesShort(download.model.approxSizeBytes)}, " +
                     "is downloading to replace it. Keep Wi-Fi on until it finishes.",
                 progress = download.progress,
             )
@@ -160,11 +173,16 @@ internal fun ChatsWelcome(
                 progress = download.progress,
             )
             is WelcomeDownload.Waiting -> DownloadCard(
-                title = "Getting Jandal ready",
-                body = "Jandal needs to download about ${formatBytesShort(download.model.approxSizeBytes)} " +
-                    "before it can chat. Keep Wi-Fi on. Timers, weather and shopping lists already work.",
+                title = if (download.failed) "Download failed" else "Getting Jandal ready",
+                body = if (download.failed) {
+                    "Jandal couldn't finish downloading about ${formatBytesShort(download.model.approxSizeBytes)}. " +
+                        "Check your connection, then try again. Timers, weather and shopping lists already work."
+                } else {
+                    "Jandal needs to download about ${formatBytesShort(download.model.approxSizeBytes)} " +
+                        "before it can chat. Keep Wi-Fi on. Timers, weather and shopping lists already work."
+                },
                 progress = null,
-                actionLabel = "Download ${download.model.displayName}",
+                actionLabel = if (download.failed) "Try again" else "Download now",
                 onAction = { onDownloadModel(download.model) },
             )
         }
@@ -204,8 +222,12 @@ internal fun ChatsWelcome(
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.semantics { heading() },
                     )
+                    TabHintRow(
+                        label = "Actions",
+                        hint = "Quick things like timers, lists and weather, without starting a chat.",
+                        prominent = true,
+                    )
                     TabHintRow(label = "Chats", hint = "talk to Jandal")
-                    TabHintRow(label = "Actions", hint = "quick commands, typed or spoken")
                     TabHintRow(label = "Tools", hint = "lists, timers and settings")
                     TextButton(
                         onClick = onDismissTabHints,
@@ -278,7 +300,7 @@ private fun DownloadCard(
 }
 
 @Composable
-private fun TabHintRow(label: String, hint: String) {
+private fun TabHintRow(label: String, hint: String, prominent: Boolean = false) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -286,7 +308,11 @@ private fun TabHintRow(label: String, hint: String) {
             .semantics(mergeDescendants = true) {},
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        Text(
+            label,
+            style = if (prominent) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+            color = if (prominent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        )
         Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
