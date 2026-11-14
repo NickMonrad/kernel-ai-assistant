@@ -12,7 +12,7 @@ class SkillExecutor @Inject constructor(
     private val registry: SkillRegistry,
 ) {
     suspend fun execute(rawOutput: String): SkillResult {
-        val call = parseSkillCall(rawOutput)?.copy(route = IntentRoute.LLM_TOOL_CALL)
+        val call = parseSkillCall(rawOutput)?.copy(route = IntentRoute.LLM_TOOL)
             ?: return SkillResult.ParseError(rawOutput, "Invalid JSON or missing 'name' field")
 
         val skill = registry.get(call.skillName)

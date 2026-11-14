@@ -16,6 +16,8 @@ import java.util.concurrent.RejectedExecutionException
 
 private const val TAG = "KernelAI"
 
+private const val EXPORT_WAIT_MS = 5_000L
+
 /** File under the app's filesDir that persists events across process death. */
 const val JANDAL_EVENTS_FILE_NAME = "jandal_events.log"
 
@@ -50,17 +52,19 @@ internal const val JANDAL_EVENT_MAX_FILE_BYTES = 512L * 1024
 internal const val JANDAL_EVENT_REDACTED = "[redacted]"
 
 /** Which layer chose the intent. Exported as a constant; never carries user text (#1870). */
-enum class IntentRoute { QUICK_REGEX, QUICK_CLASSIFIER, SLOT_FILL, CONFIRMATION, RECOVERY, LLM_TOOL_CALL, ACTION_UI, OTHER }
+enum class IntentRoute { QUICK_REGEX, QUICK_CLASSIFIER, SLOT_FILL, CONFIRMATION, RECOVERY, LLM_TOOL, ACTION_UI, OTHER }
 
 /** Category, name and field keys: short lowercase snake_case constants written in code. */
 private val IDENTIFIER = Regex("[a-z][a-z0-9_]{0,31}")
 
 /** Stable wake-session category names from WakeWordService and the cue path. OTHER for unlisted values (#1870). */
 enum class WakeCategory {
-    STT_NO_FINAL_RESULT, STT_UNAVAILABLE, STT_RECOGNITION_FAILED, NO_SPEECH_WINDOW_EXHAUSTED,
-    ROUTE_ACTIVITY_FAILED, SESSION_CANCELLED, SESSION_FAILED, RECORD_AUDIO_PERMISSION_MISSING,
-    MICROPHONE_FGS_START_NOT_ALLOWED, USAGE_ACCESS_MISSING, USAGE_ACCESS_REVOKED,
-    WAKE_MODEL_UNAVAILABLE, CAMERA_FOREGROUND_YIELD, OTHER,
+    STT_NO_FINAL_RESULT, STT_UNAVAILABLE, STT_RECOGNITION_FAILED, STT_STOPPED_WITHOUT_RESULT,
+    NO_SPEECH_WINDOW_EXHAUSTED, ROUTE_ACTIVITY_FAILED, SESSION_CANCELLED, SESSION_FAILED,
+    TRANSCRIPT_COLLECTION_FAILED, STARTUP_COLLECTION_FAILED, WAKE_CAPTURE_SUSPENDED,
+    RECORD_AUDIO_PERMISSION_MISSING, MICROPHONE_FGS_START_NOT_ALLOWED, USAGE_ACCESS_MISSING,
+    USAGE_ACCESS_REVOKED, WAKE_MODEL_UNAVAILABLE, CAMERA_FOREGROUND_YIELD,
+    TONE_GENERATOR_UNAVAILABLE, PLAYBACK_START_FAILED, PLAYBACK_EXCEPTION, OTHER,
 }
 
 /** Command handoff outcome for wake sessions (#1870). */
@@ -322,7 +326,11 @@ object JandalEvents {
      * first, so history from before [install] completes is included (#1870).
      */
     fun exportLines(nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): List<String> {
-        writer.submit(Callable {}).get()
+        try {
+            writer.submit(Callable {}).get(EXPORT_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            Log.w(TAG, "Jandal event writer did not drain in time; exporting current snapshot", e)
+        }
         return renderJandalEventLines(buffer.snapshot(), nowMs, zone)
     }
 

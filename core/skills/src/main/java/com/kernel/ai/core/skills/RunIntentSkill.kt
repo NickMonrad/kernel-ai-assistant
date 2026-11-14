@@ -1,4 +1,6 @@
 package com.kernel.ai.core.skills
+import com.kernel.ai.core.inference.diagnostics.IntentOutcome
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 
 import com.kernel.ai.core.skills.natives.NativeIntentHandler
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
@@ -213,7 +215,7 @@ class RunIntentSkill @Inject constructor(
     // Success: action result — delegates to NativeIntentHandler; LLM narration appropriate
     override suspend fun execute(call: SkillCall): SkillResult {
         val intentName = call.arguments["intent_name"]?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure(name, "Missing required parameter: intent_name.")
+            ?: return rejected(call, IntentOutcome.PARSE_ERROR, SkillResult.Failure(name, "Missing required parameter: intent_name."))
         val extraParams = call.arguments - "intent_name"
         // Validate slot values before dispatching — catches invalid already-populated
         // params from direct model tool calls (KernelAIToolSet.runIntent) that bypass
@@ -221,8 +223,14 @@ class RunIntentSkill @Inject constructor(
         val invalid = validationRegistry.validateParams(intentName, extraParams)
         if (invalid != null) {
             val message = invalid.errorMessage ?: "Invalid value for $intentName. Please try again."
-            return SkillResult.Failure("$name/$intentName", message)
+            return rejected(call, IntentOutcome.FAILURE, SkillResult.Failure("$name/$intentName", message))
         }
         return handler.handle(intentName, extraParams, call.route)
+    }
+
+    /** Records a run_intent rejected before the handler so the export shows the attempt. Never logs the intent name (#1870). */
+    private fun rejected(call: SkillCall, outcome: IntentOutcome, result: SkillResult): SkillResult {
+        JandalEvents.record("intent", "run_intent", "route" to call.route, "success" to false, "outcome" to outcome)
+        return result
     }
 }

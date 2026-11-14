@@ -51,7 +51,6 @@ import com.kernel.ai.core.skills.StoreListCatalog
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.ToolPresentation
-import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.DayOfWeek
 import java.time.Instant
@@ -164,7 +163,6 @@ class NativeIntentHandler @Inject constructor(
     private val listMutations: ListMutationRepository? = null,
 ) {
 
-    private val intentRegistry = IntentContractRegistry()
 
     suspend fun handle(intentName: String, params: Map<String, String>, route: IntentRoute = IntentRoute.OTHER): SkillResult {
         val normalizedName = normalizeIntentName(intentName)

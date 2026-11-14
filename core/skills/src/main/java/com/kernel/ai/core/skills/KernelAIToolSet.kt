@@ -1,4 +1,5 @@
 package com.kernel.ai.core.skills
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 
 import android.util.Log
 import com.google.ai.edge.litertlm.Tool
@@ -860,16 +861,14 @@ class KernelAIToolSet @Inject constructor(
                 return toolResult
             }
 
+        val call = SkillCall(
+            skillName = skillName,
+            arguments = args,
+            maxToolResultTokens = maxToolResultTokens,
+            route = IntentRoute.LLM_TOOL,
+        )
         return try {
-            val result = runBlocking {
-                skill.execute(
-                    SkillCall(
-                        skillName = skillName,
-                        arguments = args,
-                        maxToolResultTokens = maxToolResultTokens,
-                    ),
-                )
-            }
+            val result = runBlocking { SkillOutcomeEvents.execute(skill, call) }
             val succeeded = result is SkillResult.Success || result is SkillResult.DirectReply
             recordToolOutcome(skillName, succeeded)
             lastToolWasDirectReply = result is SkillResult.DirectReply
@@ -923,6 +922,7 @@ class KernelAIToolSet @Inject constructor(
             )
             toolResult
         } catch (e: Exception) {
+            SkillOutcomeEvents.record(call, SkillResult.Failure(skillName, e.message ?: "Unknown error executing $skillName"))
             recordToolOutcome(skillName, succeeded = false)
             lastToolPresentation = null
             lastToolSpokenSummary = null

@@ -5,6 +5,7 @@ import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.TtsFailure
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -32,6 +33,7 @@ class FallbackVoiceOutputController @Inject constructor(
     private val androidTts: AndroidTextToSpeechController,
 ) : VoiceOutputController {
     private val activeController = MutableStateFlow<VoiceOutputController>(androidTts)
+    @Volatile private var liveStream: RecordedStreamingSession? = null
 
     override val events: Flow<VoiceOutputEvent> = activeController.flatMapLatest { it.events }
 
@@ -91,6 +93,8 @@ class FallbackVoiceOutputController @Inject constructor(
     }
 
     override fun stop() {
+        liveStream?.abandon()
+        liveStream = null
         sherpa.stop()
         inflect.stop()
         androidTts.stop()
@@ -112,6 +116,7 @@ class FallbackVoiceOutputController @Inject constructor(
                 TAG,
                 "Sherpa-ONNX TTS unavailable (${sherpaResult.message}); routing to Android TTS fallback.",
             )
+            recordFallback(VoiceOutputEngine.SherpaExperimental)
             activate(androidTts)
             androidTts.warmUp()
         }
@@ -136,6 +141,7 @@ class FallbackVoiceOutputController @Inject constructor(
             )
         }
 
+        recordFallback(VoiceOutputEngine.SherpaExperimental)
         activate(androidTts)
         val androidWarmUpResult = androidTts.warmUp()
         if (androidWarmUpResult is VoiceOutputResult.Unavailable) {
@@ -155,6 +161,7 @@ class FallbackVoiceOutputController @Inject constructor(
                 TAG,
                 "Inflect Micro TTS unavailable (${inflectResult.message}); routing to Android TTS fallback.",
             )
+            recordFallback(VoiceOutputEngine.InflectMicroExperimental)
             activate(androidTts)
             androidTts.warmUp()
         }
@@ -176,6 +183,7 @@ class FallbackVoiceOutputController @Inject constructor(
                 "Inflect Micro TTS unavailable (${warmUpResult.message}); routing to Android TTS fallback.",
             )
         }
+        recordFallback(VoiceOutputEngine.InflectMicroExperimental)
         activate(androidTts)
         val androidWarmUpResult = androidTts.warmUp()
         if (androidWarmUpResult is VoiceOutputResult.Unavailable) return androidWarmUpResult
@@ -241,6 +249,7 @@ class FallbackVoiceOutputController @Inject constructor(
             TAG,
             "Inflect Micro TTS unavailable (${warmUpResult.message}); routing streaming session to Android TTS fallback.",
         )
+        recordFallback(VoiceOutputEngine.InflectMicroExperimental)
         activate(androidTts)
         val androidWarmUpResult = androidTts.warmUp()
         return if (androidWarmUpResult is VoiceOutputResult.Unavailable) {
@@ -267,6 +276,7 @@ class FallbackVoiceOutputController @Inject constructor(
             TAG,
             "Sherpa-ONNX TTS unavailable (${warmUpResult.message}); routing streaming session to Android TTS fallback.",
         )
+        recordFallback(VoiceOutputEngine.SherpaExperimental)
         activate(androidTts)
         val androidWarmUpResult = androidTts.warmUp()
         return if (androidWarmUpResult is VoiceOutputResult.Unavailable) {
@@ -284,22 +294,35 @@ class FallbackVoiceOutputController @Inject constructor(
         engine: VoiceOutputEngine,
         delegate: VoiceOutputStreamingSession,
     ): VoiceOutputStreamingSession {
+        liveStream?.abandon()
         JandalEvents.record("tts", "speak_start", "engine" to engine, "streaming" to true)
-        return RecordedStreamingSession(engine, delegate)
+        return RecordedStreamingSession(engine, delegate).also { liveStream = it }
+    }
+
+    /** Android TTS fallback, recorded so the export shows which engine failed and why (#1870). */
+    private fun recordFallback(from: VoiceOutputEngine) {
+        JandalEvents.record("tts", "fallback", "from" to from, "to" to VoiceOutputEngine.AndroidTts, "reason" to TtsFailure.UNAVAILABLE)
     }
 
     private fun activate(controller: VoiceOutputController) {
+        if (controller !== sherpa) {
+            liveStream?.abandon()
+            liveStream = null
+        }
         activeController.value = controller
         stopInactiveControllers(controller)
     }
 
+    /** Ends the streaming speak event exactly once: final append, cancel, or stop/engine switch (#1870). */
     private class RecordedStreamingSession(
         private val engine: VoiceOutputEngine,
         private val delegate: VoiceOutputStreamingSession,
     ) : VoiceOutputStreamingSession {
+        private val open = AtomicBoolean(true)
+
         override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
             val result = delegate.append(text, isFinal)
-            if (isFinal) {
+            if (isFinal && open.compareAndSet(true, false)) {
                 val spoken = result is VoiceOutputResult.Spoken
                 if (!spoken) JandalEvents.record("tts", "speak_failed", "engine" to engine, "category" to TtsFailure.UNAVAILABLE)
                 JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to spoken)
@@ -309,7 +332,15 @@ class FallbackVoiceOutputController @Inject constructor(
 
         override suspend fun cancel() {
             delegate.cancel()
-            JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to false, "cancelled" to true)
+            if (open.compareAndSet(true, false)) {
+                JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to false, "cancelled" to true)
+            }
+        }
+
+        fun abandon() {
+            if (open.compareAndSet(true, false)) {
+                JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to false, "stopped" to true)
+            }
         }
     }
 

@@ -363,8 +363,13 @@ class ModelDownloadManager @Inject constructor(
             .collect { infoList ->
                 val info = infoList.firstOrNull() ?: return@collect
                 if (info.state != lastWorkerState) {
+                    // WorkManager replays the last finished run on the first emission of every app
+                    // start. That is not a transition this session observed, so it is not exported (#1870).
+                    val replayedFinished = lastWorkerState == null && info.state.isFinished
                     lastWorkerState = info.state
-                    JandalEvents.record("download", "worker_phase", "model" to model, "phase" to info.state.toWorkerPhase())
+                    if (!replayedFinished) {
+                        JandalEvents.record("download", "worker_phase", "model" to model, "phase" to info.state.toWorkerPhase())
+                    }
                 }
 
                 val newState: DownloadState = when (info.state) {

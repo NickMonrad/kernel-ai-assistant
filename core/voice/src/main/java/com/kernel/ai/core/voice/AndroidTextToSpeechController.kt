@@ -177,6 +177,7 @@ class AndroidTextToSpeechController @Inject constructor(
         request: VoiceSpeakRequest,
     ): VoiceOutputStreamingSession {
         val playbackToken = nextPlaybackToken()
+        JandalEvents.record("tts", "speak_start", "streaming" to true)
         return object : VoiceOutputStreamingSession {
             private var hasQueuedChunk = false
             private var isClosed = false
@@ -525,6 +526,7 @@ class AndroidTextToSpeechController @Inject constructor(
                 }
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
+                    JandalEvents.record("tts", "utterance_error", "code" to errorCode)
                     onUtteranceFinished(utteranceId)
                 }
 

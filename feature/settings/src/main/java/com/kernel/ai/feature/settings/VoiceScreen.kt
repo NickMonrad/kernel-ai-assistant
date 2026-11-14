@@ -242,10 +242,7 @@ fun VoiceScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        JandalEvents.record(
-            "permission", "mic_result",
-            "outcome" to if (granted) LifecycleOutcome.GRANTED else LifecycleOutcome.DENIED,
-        )
+        JandalEvents.record("permission", "record_audio", "granted" to granted)
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,

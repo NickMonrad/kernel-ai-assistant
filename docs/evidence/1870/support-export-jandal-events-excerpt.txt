@@ -1,3 +1,5 @@
+NOTE (#1870 round 4): superseded. This excerpt was captured at d604464a before the round-3/4 fixes
+(native tool-call outcomes, wake refusals, TTS fallback events). Kept for history; not current evidence.
 PR #1883 at d604464a, S23U RFCW11265XH, debug build md5 a103df0bc76a0b16e66dc74d1eb9c747
 Source: About > Email support > Send (chats NOT included), email-app chooser cancelled, attachment
 cache/kernel_debug_log_0.1.0_20261114_164841_641.txt pulled with run-as. No email sent.

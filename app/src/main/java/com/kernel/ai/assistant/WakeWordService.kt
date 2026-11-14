@@ -1,4 +1,5 @@
 package com.kernel.ai.assistant
+import com.kernel.ai.core.inference.diagnostics.WakeCategory
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -673,13 +674,9 @@ class WakeWordService : Service() {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — refusing to start")
             JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.REFUSED_NO_MIC_PERMISSION)
             stopSelf(startId)
-            AcousticJournalBridge.record(
-                type = AcousticEventType.SERVICE_ERROR,
-                metadata = { mapOf("category" to "record_audio_permission_missing") },
-            )
+            recordServiceError(WakeCategory.RECORD_AUDIO_PERMISSION_MISSING)
             return START_NOT_STICKY
         }
-        JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.STARTED)
 
         val foregroundStarted = tryPromoteToMicrophoneForeground(
             promote = { startForeground(NOTIFICATION_ID, buildNotification(NOTIFICATION_TEXT_LISTENING)) },
@@ -689,10 +686,7 @@ class WakeWordService : Service() {
                     "WakeWordService: microphone FGS promotion not allowed; " +
                         "will retry when the app is foreground (${error.message})",
                 )
-                AcousticJournalBridge.record(
-                    type = AcousticEventType.SERVICE_ERROR,
-                    metadata = { mapOf("category" to "microphone_fgs_start_not_allowed") },
-                )
+                recordServiceError(WakeCategory.MICROPHONE_FGS_START_NOT_ALLOWED)
             },
         )
         if (!foregroundStarted) {
@@ -715,22 +709,17 @@ class WakeWordService : Service() {
                     "— refusing to start wake capture",
             )
             stopSelf(startId)
-            AcousticJournalBridge.record(
-                type = AcousticEventType.SERVICE_ERROR,
-                metadata = { mapOf("category" to "usage_access_missing") },
-            )
+            recordServiceError(WakeCategory.USAGE_ACCESS_MISSING)
             return START_NOT_STICKY
         }
 
         if (!wakeWordDetector.isAvailable) {
             Log.i(TAG, "WakeWordService: model not yet available (#984) — stopping")
-            AcousticJournalBridge.record(
-                type = AcousticEventType.SERVICE_ERROR,
-                metadata = { mapOf("category" to "wake_model_unavailable") },
-            )
+            recordServiceError(WakeCategory.WAKE_MODEL_UNAVAILABLE)
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.STARTED)
 
         // Guard: if the detector and collector are already running (re-delivery of a
         // START_STICKY intent or a spurious onResume retry), do not start duplicates.
@@ -783,6 +772,15 @@ class WakeWordService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /** Refusals and yields reach the acoustic journal (debug) and the support export (#1870). */
+    private fun recordServiceError(category: WakeCategory) {
+        AcousticJournalBridge.record(
+            type = AcousticEventType.SERVICE_ERROR,
+            metadata = { mapOf("category" to category.name.lowercase()) },
+        )
+        JandalEvents.record("service", "wake_error", "category" to category)
+    }
 
     // ── Honor camera coexistence (#1502) ───────────────────────────────────────
 
@@ -840,10 +838,7 @@ class WakeWordService : Service() {
             releaseWakeDetector = { wakeWordDetector.stop() },
             releaseVoiceCapture = { voiceInputController.stopListening() },
         )
-        AcousticJournalBridge.record(
-            type = AcousticEventType.SERVICE_ERROR,
-            metadata = { mapOf("category" to "camera_foreground_yield") },
-        )
+        recordServiceError(WakeCategory.CAMERA_FOREGROUND_YIELD)
         updateNotification(NOTIFICATION_TEXT_CAMERA_PAUSED)
     }
 
@@ -890,10 +885,7 @@ class WakeWordService : Service() {
      */
     private fun onHonorCameraCoexistenceUnavailable() {
         Log.w(TAG, "WakeWordService: Usage Access lost — releasing microphone and stopping")
-        AcousticJournalBridge.record(
-            type = AcousticEventType.SERVICE_ERROR,
-            metadata = { mapOf("category" to "usage_access_revoked") },
-        )
+        recordServiceError(WakeCategory.USAGE_ACCESS_REVOKED)
         releaseWakeCaptureThenStop(
             suspendLatch = { isWakeCaptureSuspended = true },
             releaseWakeDetector = { wakeWordDetector.stop() },
@@ -949,19 +941,13 @@ class WakeWordService : Service() {
         }
         ensureWakeVerifierModels()
         if (!wakeWordDetector.isAvailable) {
-            AcousticJournalBridge.record(
-                type = AcousticEventType.SERVICE_ERROR,
-                metadata = { mapOf("category" to "wake_model_unavailable") },
-            )
+            recordServiceError(WakeCategory.WAKE_MODEL_UNAVAILABLE)
             return
         }
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — not re-arming detector")
-            AcousticJournalBridge.record(
-                type = AcousticEventType.SERVICE_ERROR,
-                metadata = { mapOf("category" to "record_audio_permission_missing") },
-            )
+            recordServiceError(WakeCategory.RECORD_AUDIO_PERMISSION_MISSING)
             return
         }
         val generationId = AcousticJournalBridge.allocateGenerationId()

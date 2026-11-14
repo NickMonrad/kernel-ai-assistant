@@ -1535,6 +1535,7 @@ class NativeIntentHandlerTest {
         coEvery { listItemDao.getByList(42L) } returns emptyList()
         JandalEvents.install(java.io.File.createTempFile("jandal-intent-outcome", ".log"))
 
+        val before = JandalEvents.exportLines().size
         val result = handleIntent(
             handlerWithListMutations(mutations),
             "add_to_list",
@@ -1543,7 +1544,7 @@ class NativeIntentHandlerTest {
         JandalEvents.awaitWritesForTest()
 
         assertInstanceOf(SkillResult.DirectReply::class.java, result)
-        val line = JandalEvents.exportLines().last { " intent add_to_list " in it }
+        val line = JandalEvents.exportLines().drop(before).last { " intent add_to_list " in it }
         assertTrue(line.contains("success=true"), line)
         assertTrue(line.contains("outcome=SUCCESS"), line)
     }

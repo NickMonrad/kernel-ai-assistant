@@ -2234,7 +2234,7 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         if (skill != null) {
-                            val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.OTHER)
+                            val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.SLOT_FILL)
                             when (skillResult) {
                                 is SkillResult.DirectReply -> {
                                     appendAssistantMessageWithToolCall(
@@ -2512,7 +2512,7 @@ class ChatViewModel @Inject constructor(
                     )
                     return@launch
                 }
-                when (val result = searchMemory.execute(SkillCall(searchMemory.name, mapOf("query" to text)))) {
+                when (val result = SkillOutcomeEvents.execute(searchMemory, mapOf("query" to text), IntentRoute.OTHER)) {
                     is SkillResult.DirectReply -> {
                         appendAssistantMessageWithToolCall(
                             convId = convId,

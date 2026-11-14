@@ -214,7 +214,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                     "Sherpa-ONNX STT model not available — download it from Settings → Voice."
                 )
             }
-            JandalEvents.record("voice", "stt_ready", "zipformer" to (spec == SherpaSttModelSpec.ZIPFORMER))
 
             requestAudioFocus()
             val ar = createAudioRecord() ?: run {
@@ -223,6 +222,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                     "Microphone unavailable — check RECORD_AUDIO permission."
                 )
             }
+            JandalEvents.record("voice", "stt_ready", "mode" to mode, "zipformer" to (spec == SherpaSttModelSpec.ZIPFORMER))
 
             val captureSessionId = VoiceCaptureSessionIds.allocate()
             isRecording = true
@@ -237,7 +237,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                             offlineAudioLoop(ar, mode, captureSessionId, rec, spec)
                     }
                 } catch (e: Exception) {
-            JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
                     _events.tryEmit(
                         VoiceInputEvent.Error(
                             mode,
@@ -326,6 +326,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                         JandalEvents.record("voice", "stt_result", "chars" to text.length)
                         _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                     } else {
+                        JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                         _events.tryEmit(
                             VoiceInputEvent.Error(
                                 mode,
@@ -452,6 +453,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                     )
                 }
             } else {
+                JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                 _events.tryEmit(
                     VoiceInputEvent.Error(
                         mode,

@@ -13,10 +13,12 @@ import com.kernel.ai.core.skills.natives.NativeIntentHandler
  */
 object SkillOutcomeEvents {
 
-    suspend fun execute(skill: Skill, arguments: Map<String, String>, route: IntentRoute): SkillResult {
-        val call = SkillCall(skill.name, arguments, route = route)
-        return skill.execute(call).also { record(call, it) }
-    }
+    suspend fun execute(skill: Skill, arguments: Map<String, String>, route: IntentRoute): SkillResult =
+        execute(skill, SkillCall(skill.name, arguments, route = route))
+
+    /** Runs [call] and records its outcome. Used by the Gemma native tool path with its token budget (#1870). */
+    suspend fun execute(skill: Skill, call: SkillCall): SkillResult =
+        skill.execute(call).also { record(call, it) }
 
     fun record(call: SkillCall, result: SkillResult) {
         if (call.skillName == RUN_INTENT) return
