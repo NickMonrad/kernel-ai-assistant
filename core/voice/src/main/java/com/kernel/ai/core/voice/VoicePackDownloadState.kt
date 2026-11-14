@@ -19,6 +19,8 @@ sealed class VoicePackDownloadState {
         val downloadedBytes: Long = 0L,
         val bytesPerSecond: Long = 0L,
         val remainingMs: Long = 0L,
+        /** Queued but not running because the Wi-Fi-only choice is waiting for an unmetered network. */
+        val waitingForWifi: Boolean = false,
     ) : VoicePackDownloadState()
 
     /**

@@ -18,6 +18,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceNotice
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -69,6 +70,7 @@ class ActionsViewModelVoiceTest {
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
+    private val voiceInputNotices = MutableSharedFlow<VoiceNotice>(replay = 1)
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
     private val spokenResponsesEnabled = MutableStateFlow(true)
 
@@ -106,6 +108,7 @@ class ActionsViewModelVoiceTest {
         every { quickActionDao.observeAll() } returns flowOf(emptyList<QuickActionEntity>())
         coEvery { quickActionDao.insert(any()) } just Runs
         every { voiceInputController.events } returns voiceInputEvents
+        every { voiceInputController.notices } returns voiceInputNotices
         every { voiceInputController.stopListening() } just Runs
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
@@ -123,6 +126,7 @@ class ActionsViewModelVoiceTest {
         every { voiceOutputController.stop() } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.autoSpeak } returns flowOf(true)
+        every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
         viewModel = ActionsViewModel(
             quickIntentRouter = quickIntentRouter,
             skillRegistry = skillRegistry,
@@ -2772,6 +2776,35 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `hand-off note is shown for this capture and the handed-off command is not retried`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        // Posted while the start ran (start-time fallback): only the replay can deliver it.
+        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+        assertEquals("Using Zipformer for this request.", viewModel.error.value)
+
+        voiceInputNotices.emit(VoiceNotice(9L, "Another surface's note"))
+        advanceUntilIdle()
+        assertEquals("Using Zipformer for this request.", viewModel.error.value)
+
+        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
+        advanceUntilIdle()
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "I didn't catch anything", captureSessionId = 1L),
+        )
+        advanceUntilIdle()
+
+        assertEquals("I didn't catch anything", viewModel.error.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
     fun `idle command retry budget resets on fresh startVoiceCommand call`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
@@ -3144,11 +3177,11 @@ class ActionsViewModelVoiceTest {
     @Test
     fun `calendar permission capability required sets calendar permission state`() = runTest(dispatcher) {
         val runIntentSkill = mockk<Skill>()
-        every { quickIntentRouter.route("when is our anniversary") } returns
+        every { quickIntentRouter.route("when is mum's birthday") } returns
             QuickIntentRouter.RouteResult.RegexMatch(
                 QuickIntentRouter.MatchedIntent(
                     intentName = "get_date_diff",
-                    params = mapOf("target_date" to "our anniversary"),
+                    params = mapOf("target_date" to "mum's birthday"),
                 ),
             )
         every { skillRegistry.get("get_date_diff") } returns null
@@ -3161,7 +3194,7 @@ class ActionsViewModelVoiceTest {
             skillName = "get_date_diff",
         )
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
 
         assertNotNull(viewModel.calendarPermissionState.value)
@@ -3171,11 +3204,11 @@ class ActionsViewModelVoiceTest {
     @Test
     fun `calendar permission dismiss clears dialog state`() = runTest(dispatcher) {
         val runIntentSkill = mockk<Skill>()
-        every { quickIntentRouter.route("when is our anniversary") } returns
+        every { quickIntentRouter.route("when is mum's birthday") } returns
             QuickIntentRouter.RouteResult.RegexMatch(
                 QuickIntentRouter.MatchedIntent(
                     intentName = "get_date_diff",
-                    params = mapOf("target_date" to "our anniversary"),
+                    params = mapOf("target_date" to "mum's birthday"),
                 ),
             )
         every { skillRegistry.get("get_date_diff") } returns null
@@ -3188,7 +3221,7 @@ class ActionsViewModelVoiceTest {
             skillName = "get_date_diff",
         )
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
         assertNotNull(viewModel.calendarPermissionState.value)
 
@@ -3269,17 +3302,17 @@ class ActionsViewModelVoiceTest {
     @Test
     fun `calendar lookup capability required leaves weather location state null`() = runTest(dispatcher) {
         stubQuickActionResult(
-            input = "when is our anniversary",
+            input = "when is mum's birthday",
             intentName = "get_date_diff",
-            params = mapOf("target_date" to "our anniversary"),
+            params = mapOf("target_date" to "mum's birthday"),
             result = SkillResult.CapabilityRequired(
                 capabilityKey = CapabilityKey.CalendarLookup,
                 skillName = "get_date_diff",
-                contextParams = mapOf("target_date" to "our anniversary"),
+                contextParams = mapOf("target_date" to "mum's birthday"),
             ),
         )
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
 
         assertNull(viewModel.weatherLocationState.value)
@@ -3344,13 +3377,13 @@ class ActionsViewModelVoiceTest {
             ),
         )
         stubQuickActionResult(
-            input = "when is our anniversary",
+            input = "when is mum's birthday",
             intentName = "get_date_diff",
-            params = mapOf("target_date" to "our anniversary"),
+            params = mapOf("target_date" to "mum's birthday"),
             result = SkillResult.CapabilityRequired(
                 capabilityKey = CapabilityKey.CalendarLookup,
                 skillName = "get_date_diff",
-                contextParams = mapOf("target_date" to "our anniversary"),
+                contextParams = mapOf("target_date" to "mum's birthday"),
             ),
         )
 
@@ -3358,7 +3391,7 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
         assertNotNull(viewModel.weatherLocationState.value)
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
 
         assertNull(viewModel.weatherLocationState.value)
@@ -3507,11 +3540,11 @@ class ActionsViewModelVoiceTest {
         val runIntentSkill = mockk<Skill>()
         val events = mutableListOf<ActionsViewModel.UiEvent>()
         val collectJob = launch { viewModel.events.collect { events += it } }
-        every { quickIntentRouter.route("when is our anniversary") } returns
+        every { quickIntentRouter.route("when is mum's birthday") } returns
             QuickIntentRouter.RouteResult.RegexMatch(
                 QuickIntentRouter.MatchedIntent(
                     intentName = "get_date_diff",
-                    params = mapOf("target_date" to "our anniversary"),
+                    params = mapOf("target_date" to "mum's birthday"),
                 ),
             )
         every { skillRegistry.get("get_date_diff") } returns null
@@ -3523,12 +3556,12 @@ class ActionsViewModelVoiceTest {
             SkillResult.CapabilityRequired(
                 capabilityKey = CapabilityKey.CalendarLookup,
                 skillName = "get_date_diff",
-                contextParams = mapOf("target_date" to "our anniversary"),
+                contextParams = mapOf("target_date" to "mum's birthday"),
             ),
-            SkillResult.Success("Your anniversary is on Monday"),
+            SkillResult.Success("Mum's birthday is on Monday"),
         )
 
-        viewModel.executeAction("when is our anniversary", InputMode.Text)
+        viewModel.executeAction("when is mum's birthday", InputMode.Text)
         advanceUntilIdle()
         assertNotNull(viewModel.calendarPermissionState.value)
 
@@ -4404,5 +4437,141 @@ class ActionsViewModelVoiceTest {
 
         verify(atLeast = 1) { voiceOutputController.stop() }
         assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
+    fun `card speaker reads the tapped card and marks only that card speaking`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertEquals("card-a", viewModel.speakingActionId.value)
+        assertStreamedReplyOnce { it == "First reply." }
+    }
+
+    @Test
+    fun `tapping the speaking card again stops playback`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertNull(viewModel.speakingActionId.value)
+        verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `stopping card speech resets the playback banner state`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
+    fun `tapping another card moves playback to that card`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        viewModel.toggleSpeakAction("card-b", "Second reply.")
+        advanceUntilIdle()
+
+        assertEquals("card-b", viewModel.speakingActionId.value)
+        assertStreamedReplyOnce { it == "Second reply." }
+    }
+
+    @Test
+    fun `card playback ends when its speech stops`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("First reply."))
+        advanceUntilIdle()
+        assertEquals("card-a", viewModel.speakingActionId.value)
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertNull(viewModel.speakingActionId.value)
+    }
+
+    @Test
+    fun `tapping a card clears a voice reply's Speaking banner`() = runTest(dispatcher) {
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Voice reply."))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Speaking("Voice reply."),
+            viewModel.voicePlaybackState.value,
+        )
+
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+        assertEquals("card-a", viewModel.speakingActionId.value)
+    }
+
+    @Test
+    fun `card whose speech stops without ever starting is cleared`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertNull(viewModel.speakingActionId.value)
+    }
+
+    @Test
+    fun `stale stop from the previous card does not clear the card now speaking`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("First reply."))
+        advanceUntilIdle()
+
+        viewModel.toggleSpeakAction("card-b", "Second reply.")
+        // The stop() issued by the switch can report SpeakingStopped after card-b has been set.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals("card-b", viewModel.speakingActionId.value)
+    }
+
+    @Test
+    fun `releasing a card stops only that card's playback`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        viewModel.releaseActionSpeech("card-b")
+        assertEquals("card-a", viewModel.speakingActionId.value)
+
+        viewModel.releaseActionSpeech("card-a")
+        assertNull(viewModel.speakingActionId.value)
+        verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `stopping voice output also stops card playback`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        viewModel.stopVoiceOutput()
+
+        assertNull(viewModel.speakingActionId.value)
+    }
+
+    @Test
+    fun `card speech that fails to start clears the card and surfaces the error`() = runTest(dispatcher) {
+        coEvery { voiceOutputController.openStreamingSession(any()) } returns object : VoiceOutputStreamingSession {
+            override suspend fun append(text: String, isFinal: Boolean) =
+                VoiceOutputResult.Unavailable("No voice installed.")
+        }
+
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertNull(viewModel.speakingActionId.value)
+        assertEquals("No voice installed.", viewModel.error.value)
     }
 }

@@ -25,12 +25,15 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import com.kernel.ai.core.permissions.PermissionRequestStore
+import com.kernel.ai.core.permissions.PermissionRoute
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppPermissionsViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val context: Context = mockk(relaxed = true)
+    private val requestStore: PermissionRequestStore = mockk(relaxed = true)
     private val pm: PackageManager = mockk()
     private lateinit var viewModel: AppPermissionsViewModel
 
@@ -50,7 +53,7 @@ class AppPermissionsViewModelTest {
     }
 
     private fun createViewModel(): AppPermissionsViewModel {
-        viewModel = AppPermissionsViewModel(context)
+        viewModel = AppPermissionsViewModel(context, requestStore)
         testDispatcher.scheduler.advanceUntilIdle()
         return viewModel
     }
@@ -223,5 +226,46 @@ class AppPermissionsViewModelTest {
 
         val phoneAfter = vm.uiState.value.permissions.first { it.label == "Phone" }
         assertFalse(phoneAfter.isGranted)
+    }
+
+    // ── Route after runtime-request results ───────────────────────────
+
+    @Test
+    fun `route is unknown until a refresh supplies a live rationale`() = runTest {
+        every {
+            ContextCompat.checkSelfPermission(any(), Manifest.permission.READ_CONTACTS)
+        } returns PackageManager.PERMISSION_DENIED
+
+        val vm = createViewModel()
+
+        assertEquals(null, vm.uiState.value.permissions.first { it.label == "Contacts" }.route)
+    }
+
+    @Test
+    fun `route moves from request to app info after a denial and then no rationale`() = runTest {
+        every {
+            ContextCompat.checkSelfPermission(any(), Manifest.permission.READ_CONTACTS)
+        } returns PackageManager.PERMISSION_DENIED
+        val denied = mutableSetOf<String>()
+        every { requestStore.wasDenied(any()) } answers { firstArg<String>() in denied }
+
+        val vm = createViewModel()
+        fun contacts() = vm.uiState.value.permissions.first { it.label == "Contacts" }
+
+        // Never denied: the first refresh routes to an in-app request.
+        vm.refresh { false }
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(PermissionRoute.RequestInApp, contacts().route)
+
+        // The denial callback recorded a denial while rationale was still true: stays "Allow".
+        denied.add(Manifest.permission.READ_CONTACTS)
+        vm.refresh { true }
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(PermissionRoute.RequestInApp, contacts().route)
+
+        // Denied before and rationale now gone: permanently denied, route to app info.
+        vm.refresh { false }
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(PermissionRoute.AppInfo, contacts().route)
     }
 }

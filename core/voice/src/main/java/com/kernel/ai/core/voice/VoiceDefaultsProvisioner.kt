@@ -4,8 +4,10 @@ import android.content.Context
 import android.util.Log
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.isDownloaded
+import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -26,14 +28,14 @@ private const val LEGACY_VOSK_DIR = "voice"
  *
  * - queues the offline Zipformer STT model when the selected input engine needs it
  *   ([VoiceInputEngine.Auto] uses it as the offline fallback and for alert commands);
- * - queues the selected Piper voice (Cori by default) when Piper is the active output engine;
+ * - queues the selected Sherpa voice (Cori by default) when the effective engine is Sherpa Piper.
+ *   That is the tier default on fresh installs, so it starts after the wizard's network choice.
+ *   A stored Android TTS choice never queues it. Choosing Piper later goes through [PiperVoiceSetup];
  * - deletes the unpacked model left behind by the removed Vosk engine.
  *
  * Downloads go through the existing managers, so they are no-ops when the files exist and they
  * reuse the managers' network constraints and progress reporting. Each default is queued once
- * only, so a model the user deletes in Settings is not downloaded again. Installs updated from
- * a version before this change, with no stored output engine, keep Android TTS instead of
- * switching to Piper and downloading a voice.
+ * only, so a model the user deletes in Settings is not downloaded again.
  */
 @Singleton
 class VoiceDefaultsProvisioner @Inject constructor(
@@ -42,36 +44,26 @@ class VoiceDefaultsProvisioner @Inject constructor(
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val modelDownloadManager: ModelDownloadManager,
     private val voicePackDownloadManager: SherpaVoicePackDownloadManager,
+    private val downloadNetworkPreferences: DownloadNetworkPreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
     fun start() {
         scope.launch {
+            // Read before the consent wait: the wizard does not change whether this is an existing install (#1868).
+            val isExistingInstall = modelDownloadManager.isExistingInstall()
             runCatching { deleteLegacyVoskModel() }
                 .onFailure { Log.w(TAG, "Failed to delete legacy Vosk model", it) }
-            runCatching { keepAndroidTtsForUpdatedInstalls() }
-                .onFailure { Log.w(TAG, "Failed to preserve output engine for updated install", it) }
+            // Nothing downloads before the user has chosen a download network in the setup wizard (#1855).
+            downloadNetworkPreferences.choice.first { DownloadConsent.voiceDefaultsAllowed(it) }
             runCatching { queueSpeechInputModel() }
                 .onFailure { Log.w(TAG, "Failed to queue speech input model", it) }
-            runCatching { queueSpeechOutputVoice() }
+            runCatching { queueSpeechOutputVoice(isExistingInstall) }
                 .onFailure { Log.w(TAG, "Failed to queue speech output voice", it) }
         }
     }
 
-    private suspend fun keepAndroidTtsForUpdatedInstalls() {
-        if (prefs.getBoolean(KEY_OUTPUT_DEFAULT_RESOLVED, false)) return
-        if (isUpdatedInstall() && !voiceOutputPreferences.hasStoredEngine()) {
-            Log.i(TAG, "Updated install with no stored output engine: keeping Android TTS")
-            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
-        }
-        prefs.edit().putBoolean(KEY_OUTPUT_DEFAULT_RESOLVED, true).apply()
-    }
-
-    private fun isUpdatedInstall(): Boolean = runCatching {
-        val info = context.packageManager.getPackageInfo(context.packageName, 0)
-        info.lastUpdateTime > info.firstInstallTime
-    }.getOrDefault(false)
 
     private suspend fun queueSpeechInputModel() {
         if (prefs.getBoolean(KEY_ZIPFORMER_QUEUED, false)) return
@@ -85,14 +77,25 @@ class VoiceDefaultsProvisioner @Inject constructor(
         prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
     }
 
-    private suspend fun queueSpeechOutputVoice() {
+    private suspend fun queueSpeechOutputVoice(isExistingInstall: Boolean) {
         if (prefs.getBoolean(KEY_VOICE_QUEUED, false)) return
-        if (voiceOutputPreferences.selectedEngine.first() != VoiceOutputEngine.SherpaExperimental) return
         val voice = voiceOutputPreferences.selectedSherpaVoice.first()
-        if (!voice.isDownloaded(context)) {
+        // Read after the consent wait: an engine the user picked in Settings during the wait must not be overwritten.
+        val plan = planSpeechOutputVoice(
+            hasStoredEngine = voiceOutputPreferences.hasStoredEngine(),
+            isExistingInstall = isExistingInstall,
+            effectiveEngine = voiceOutputPreferences.selectedEngine.first(),
+            voiceDownloaded = voice.isDownloaded(context),
+        )
+        if (plan.keepAndroidTts) {
+            // An updated install keeps the engine it had. The default would otherwise switch it to Piper silently.
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
+        }
+        if (plan.startDownload) {
             Log.i(TAG, "Queuing Piper voice ${voice.name}")
             voicePackDownloadManager.startDownload(voice)
         }
+        // Marked on every decided path, so a voice the user cancels or deletes is not queued again.
         prefs.edit().putBoolean(KEY_VOICE_QUEUED, true).apply()
     }
 
@@ -105,8 +108,29 @@ class VoiceDefaultsProvisioner @Inject constructor(
     }
 
     companion object {
+        /** What the first run does with the speech output engine and voice. */
+        internal data class SpeechOutputVoicePlan(val keepAndroidTts: Boolean, val startDownload: Boolean)
+
+        /**
+         * - Updated install without a stored engine: keep Android TTS, so the new default does not switch to Piper.
+         * - Otherwise: start the selected voice when Piper is effective and the voice is missing.
+         */
+        internal fun planSpeechOutputVoice(
+            hasStoredEngine: Boolean,
+            isExistingInstall: Boolean,
+            effectiveEngine: VoiceOutputEngine,
+            voiceDownloaded: Boolean,
+        ): SpeechOutputVoicePlan =
+            if (!hasStoredEngine && isExistingInstall) {
+                SpeechOutputVoicePlan(keepAndroidTts = true, startDownload = false)
+            } else {
+                SpeechOutputVoicePlan(
+                    keepAndroidTts = false,
+                    startDownload = effectiveEngine == VoiceOutputEngine.SherpaExperimental && !voiceDownloaded,
+                )
+            }
+
         private const val PREFS_NAME = "voice_defaults_provisioner"
-        private const val KEY_OUTPUT_DEFAULT_RESOLVED = "output_default_resolved_v1"
         private const val KEY_ZIPFORMER_QUEUED = "zipformer_queued_v1"
         private const val KEY_VOICE_QUEUED = "piper_voice_queued_v1"
 

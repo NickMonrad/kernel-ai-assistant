@@ -136,6 +136,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
@@ -159,6 +160,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.skills.SettingsDeepLink
+import com.kernel.ai.core.permissions.recordPermissionResult
+import com.kernel.ai.core.permissions.PermissionRequestStore
+import com.kernel.ai.core.permissions.PermissionRoute
+import com.kernel.ai.core.permissions.decidePermissionRoute
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
@@ -192,6 +198,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import com.kernel.ai.core.inference.ModelCapabilities
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.memory.entity.ModelSettingsEntity
+import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.verticalScroll
@@ -251,6 +258,8 @@ fun ChatScreen(
     externalDraft: String? = null,
     onExternalDraftConsumed: () -> Unit = {},
     onBack: () -> Unit = {},
+    /** #1859: opens an in-app Settings destination for a failed lookup's recovery action. Never dials. */
+    onOpenSettingsDeepLink: (SettingsDeepLink) -> Unit = {},
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
@@ -263,6 +272,7 @@ fun ChatScreen(
     val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
     val microphoneState by viewModel.microphoneState.collectAsStateWithLifecycle()
     val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
+    val settingsActionState by viewModel.settingsActionState.collectAsStateWithLifecycle()
     val mealPlannerActivity by viewModel.mealPlannerActivity.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -318,6 +328,9 @@ fun ChatScreen(
         }
     }
     var showModelSettings by remember { mutableStateOf(false) }
+    val startModelDownload = rememberDownloadNotificationGate { id ->
+        id?.let { viewModel.retryDownload(KernelModel.valueOf(it)) }
+    }
 
     when (val state = uiState) {
         is ChatUiState.Loading -> LoadingContent()
@@ -328,8 +341,8 @@ fun ChatScreen(
         is ChatUiState.ModelsNotReady -> OnboardingContent(
             isDownloading = state.isDownloading,
             modelProgress = state.modelProgress,
-            onRetry = viewModel::retryDownload,
-            onDownloadModel = viewModel::retryDownload,
+            onRetry = { model -> startModelDownload(model.name) },
+            onDownloadModel = { model -> startModelDownload(model.name) },
             onStartAuth = viewModel::startAuth,
             onNavigateToModelManagement = onNavigateToModelManagement,
             hfAuthenticated = state.hfAuthenticated,
@@ -357,6 +370,14 @@ fun ChatScreen(
             val weatherLocationPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission(),
             ) { granted ->
+                context.recordPermissionResult(
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                    granted,
+                    shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                        context as android.app.Activity,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ),
+                )
                 if (granted) {
                     viewModel.onWeatherLocationPermissionGranted()
                 } else {
@@ -369,15 +390,69 @@ fun ChatScreen(
                 }
             }
 
+            var pendingCalendarLaunchedAt by rememberSaveable { mutableStateOf(0L) }
+            val calendarPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestMultiplePermissions(),
+            ) { results ->
+                val activity = context as android.app.Activity
+                // A silent denial returns with no dialog shown, so it is detected by launch-to-result timing.
+                val elapsed = android.os.SystemClock.elapsedRealtime() - pendingCalendarLaunchedAt
+                results.forEach { (permission, granted) ->
+                    val shouldShowRationale = !granted &&
+                        ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
+                    val silent = !granted && !shouldShowRationale &&
+                        com.kernel.ai.core.permissions.isSilentDenial(elapsed)
+                    context.recordPermissionResult(
+                        permission,
+                        granted,
+                        shouldShowRationale = shouldShowRationale,
+                        silentlyDenied = silent,
+                    )
+                    // Silently denied: the system will not prompt again, so send the user to App info.
+                    if (silent) openRuntimePermissionRepair(permission)
+                }
+                if (calendarPermissionsGranted(results)) viewModel.onCalendarPermissionGranted() else viewModel.onCalendarPermissionDenied()
+            }
+            fun requestCalendarPermissions(permissions: List<String>) {
+                val store = PermissionRequestStore.from(context)
+                val activity = context as android.app.Activity
+                val routes = permissions.associateWith { permission ->
+                    decidePermissionRoute(
+                        isGranted = ContextCompat.checkSelfPermission(context, permission) ==
+                            PackageManager.PERMISSION_GRANTED,
+                        isSpecialAccess = false,
+                        wasDeniedBefore = store.wasDenied(permission),
+                        shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(activity, permission),
+                    )
+                }
+                // Permanently denied: the system will not show the prompt, so send the user to App info.
+                val permanentlyDenied = routes.entries.firstOrNull { it.value == PermissionRoute.AppInfo }?.key
+                if (permanentlyDenied != null) {
+                    viewModel.onCalendarPermissionDenied()
+                    openRuntimePermissionRepair(permanentlyDenied)
+                    return
+                }
+                val toRequest = routes.filterValues { it != PermissionRoute.Granted }.keys
+                if (toRequest.isNotEmpty()) {
+                    pendingCalendarLaunchedAt = android.os.SystemClock.elapsedRealtime()
+                    calendarPermissionLauncher.launch(toRequest.toTypedArray())
+                } else {
+                    // Every permission is already granted (e.g. granted in Settings): resume directly.
+                    viewModel.onCalendarPermissionGranted()
+                }
+            }
+
             LaunchedEffect(Unit) {
                 viewModel.events.collect { event ->
                     when (event) {
-                        ChatViewModel.UiEvent.RequestWeatherLocationPermission ->
+                        ChatViewModel.UiEvent.RequestWeatherLocationPermission -> {
                             weatherLocationPermissionLauncher.launch(
                                 Manifest.permission.ACCESS_COARSE_LOCATION,
                             )
+                        }
                         ChatViewModel.UiEvent.RepairWeatherLocationPermission ->
                             openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
+                        is ChatViewModel.UiEvent.RequestCalendarPermission -> requestCalendarPermissions(event.permissions)
                     }
                 }
             }
@@ -385,8 +460,17 @@ fun ChatScreen(
             val micPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission(),
             ) { granted ->
+                context.recordPermissionResult(
+                    Manifest.permission.RECORD_AUDIO,
+                    granted,
+                    shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                        context as android.app.Activity,
+                        Manifest.permission.RECORD_AUDIO,
+                    ),
+                )
                 val action = pendingVoiceAction
                 Log.d("ChatScreen", "Microphone permission result granted=$granted action=$action")
+                JandalEvents.record("permission", "record_audio", "granted" to granted)
                 if (granted) {
                     pendingVoiceAction = null
                     when (action) {
@@ -576,6 +660,17 @@ fun ChatScreen(
                         onDismissRequest = { viewModel.dismissMicrophoneRepairDialog() },
                     )
                 }
+            }
+            // In-app recovery actions for a failed lookup (#1859). Nothing is called or sent from here.
+            settingsActionState?.let { state ->
+                SettingsActionChooserDialog(
+                    state = state,
+                    onSelect = { link ->
+                        viewModel.dismissSettingsActionDialog()
+                        onOpenSettingsDeepLink(link)
+                    },
+                    onDismiss = viewModel::dismissSettingsActionDialog,
+                )
             }
             weatherLocationState?.let { weatherState ->
                 PermissionOverlayDialog(

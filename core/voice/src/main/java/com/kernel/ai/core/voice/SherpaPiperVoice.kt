@@ -51,7 +51,7 @@ enum class SherpaPiperVoice(
     ),
     CoriHigh(
         displayName = "Cori",
-        description = "Higher-quality British English female voice with smoother playback.",
+        description = "Natural British English voice that works offline.",
         assetDirectoryName = "vits-piper-en_GB-cori-high",
         downloadKey = "en_GB-cori-high",
         approxDownloadBytes = 115_574_061L,

@@ -2,6 +2,8 @@ package com.kernel.ai.feature.chat
 
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.core.skills.isFactualWikipediaQuestion
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 import java.util.regex.Pattern
@@ -64,15 +66,53 @@ private fun formatToolCallForClipboard(toolCall: ToolCallInfo): String = buildSt
  * If [text] contains fewer than [maxSentences] sentence-ending boundaries the full text
  * is returned so short responses are never cut off.
  */
-private val KNOWN_ABBREV = setOf("dr", "mr", "mrs", "ms", "prof", "st", "vs", "etc", "jr", "sr")
+private val KNOWN_ABBREV = setOf(
+    "dr", "mr", "mrs", "ms", "prof", "jr", "sr", "vs", "etc",
+    // NZ/AU street and place forms: "Mt. Ruapehu", "Great North Rd. Ponsonby".
+    "st", "rd", "ave", "pl", "cres", "hwy", "tce", "ln", "blvd", "ct", "rte", "pde", "cct", "ste", "mt",
+)
 private val INITIALS_REGEX = Regex("""([A-Za-z]\.)+""")  // matches "U.S.", "e.g.", "i.e."
+private val CAPITAL_INITIALS_REGEX = Regex("""([A-Z]\.)+""")  // "B.", "U.S."; not "e.g."
 
+// Quotes and brackets can open a token: "(Dr." and "\"Mt." are still the abbreviation.
 private fun isAbbreviationFragment(fragment: String): Boolean {
-    val trimmed = fragment.trim()
+    val trimmed = fragment.trim().trimStart('(', '[', '"', '\'')
     if (trimmed.contains(' ')) return false          // multi-word — never an abbreviation fragment
     val withoutTrailingPunct = trimmed.trimEnd('.', '!', '?', '"', '\'', ')')
     return withoutTrailingPunct.lowercase() in KNOWN_ABBREV ||
            INITIALS_REGEX.matches(withoutTrailingPunct + ".")
+}
+
+/** True when the `.` at [periodIndex] closes a known abbreviation (`a.m.`, `Dr.`, `e.g.`), not a sentence. */
+private fun endsWithAbbreviation(text: String, periodIndex: Int): Boolean {
+    var start = periodIndex
+    while (start > 0 && !text[start - 1].isWhitespace()) start--
+    return isAbbreviationFragment(text.substring(start, periodIndex + 1))
+}
+
+/**
+ * True when the `.` at [periodIndex] ends a capital initial (`option B.`, `the U.S.`) that
+ * closes a sentence: the next word starts with a capital and is not an initial, and the word
+ * before the initial is not an initial (`J. R. R. Tolkien` never splits inside the name).
+ * Limitation: a name such as "John F. Kennedy" splits after "F." because "Kennedy" looks like a new sentence.
+ */
+private fun endsInitialSentence(text: String, periodIndex: Int): Boolean {
+    var start = periodIndex
+    while (start > 0 && !text[start - 1].isWhitespace()) start--
+    val token = text.substring(start, periodIndex + 1).trimStart('(', '[', '"', '\'')
+    if (!CAPITAL_INITIALS_REGEX.matches(token)) return false
+
+    val nextWord = Regex("""\S+""").find(text, periodIndex + 1)?.takeIf { match ->
+        match.range.first > periodIndex + 1      // a whitespace must separate the period and the word
+    }?.value ?: return false
+    if (!nextWord[0].isUpperCase() || Regex("""[A-Z]\.""").matches(nextWord.take(2))) return false
+
+    var prevEnd = start
+    while (prevEnd > 0 && text[prevEnd - 1].isWhitespace()) prevEnd--
+    var prevStart = prevEnd
+    while (prevStart > 0 && !text[prevStart - 1].isWhitespace()) prevStart--
+    val prev = text.substring(prevStart, prevEnd).trimStart('(', '[', '"', '\'')
+    return !INITIALS_REGEX.matches(prev)
 }
 
 internal fun truncateForSpeech(text: String, maxSentences: Int): String {
@@ -105,7 +145,8 @@ internal fun normalizeChatTextForSpeech(text: String): String =
         .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break
         .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start
         .replace(Regex("""(?m)^\s*[-*•]\s*"""), "")       // strip bullet markers at line start (lone * has no trailing ws)
-        .replace(Regex("""[•‣◦∙⋅·]\s*"""), "")           // strip any remaining inline bullet chars
+        .let(SpeechCardText::speakable)                   // card separators (incl. spaced ·) and line breaks, before the bullet rule drops ·
+        .replace(Regex("""[•‣◦∙⋅]\s*"""), "")           // strip any remaining inline bullet chars
         .let(::normalizeFractionsForSpeech)               // expand fractions/units before pronunciation overrides
         .replace(Regex("""(?<!\d):(?!\d)(?!//)\s*"""), ". ")   // non-numeric colons → sentence break (preserves ://)
         .replace(Regex("""[—–]\s*"""), ", ")              // em/en dashes → natural comma pause
@@ -248,7 +289,9 @@ private fun findSpeechChunkBoundary(
                 val next = text.getOrNull(index + 1)
                 if (next == null || next.isWhitespace() || next == '"' || next == '\'' || next == ')') {
                     val boundary = index + 1
-                    if (boundary >= minChunkLength && !splitsStructuredValue(text, boundary)) {
+                    if (boundary >= minChunkLength && !splitsStructuredValue(text, boundary) &&
+                        !(char == '.' && endsWithAbbreviation(text, index) && !endsInitialSentence(text, index))
+                    ) {
                         return SpeechChunkBoundary(index = boundary, type = SpeechChunkBoundaryType.STRONG)
                     }
                 }
@@ -864,3 +907,43 @@ internal fun buildKnownNzContextReply(
         "${entry.term}: $definition."
     }
 }
+
+/**
+ * Tool-chip text for a failed skill: the diagnostic when present, else the user-facing error.
+ * Chips and logs may show [SkillResult.Failure.technicalDetail]; bubbles and speech never do.
+ */
+internal fun failureChipText(result: SkillResult.Failure): String =
+    result.technicalDetail ?: result.error
+
+/**
+ * Chat bubble for a failed skill. When [SkillResult.Failure.technicalDetail] is set, [error] is a
+ * complete reply and is shown without the generic "something went wrong" prefix.
+ */
+internal fun failureChatReply(result: SkillResult.Failure): String = when {
+    result.skillName == "send_email" || result.technicalDetail != null -> result.error
+    else -> "I tried to do that but something went wrong: ${result.error}"
+}
+
+/**
+ * Speech for a finished turn whose reply is a tool's result. When [replyText] is that result,
+ * verbatim or echoed by the model, returns the tool's [toolSpokenSummary]; the bubble keeps the
+ * card. Null means speak the reply as written.
+ */
+internal fun toolSpokenOverrideFor(
+    replyText: String,
+    toolResultText: String?,
+    toolSpokenSummary: String?,
+): String? {
+    val summary = toolSpokenSummary?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val result = toolResultText?.let(::collapseSpeechSpaces)?.takeIf { it.isNotEmpty() } ?: return null
+    val reply = collapseSpeechSpaces(replyText)
+    if (reply.isEmpty()) return null
+    val isToolResult = reply.contains(result) || (reply.length >= 20 && result.contains(reply))
+    return summary.takeIf { isToolResult }
+}
+
+private fun collapseSpeechSpaces(text: String): String = text.trim().replace(Regex("\\s+"), " ")
+
+/** Chooser state for a failed lookup's in-app recovery actions (#1859); null when there are none. */
+internal fun settingsActionStateFor(result: SkillResult.Failure): SettingsActionState? =
+    if (result.actions.isEmpty()) null else SettingsActionState(result.error, result.actions)

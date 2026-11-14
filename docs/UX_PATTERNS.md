@@ -592,6 +592,8 @@ Every assistant message bubble shows a `VolumeUp` icon button that plays/stops T
 message independently of the global voice mode. The button is always visible on assistant bubbles,
 not just when voice mode is active.
 
+Quick Action cards show the same `VolumeUp` play/stop button at the top-right of the card header, before copy and delete. Starting a card stops any other Actions voice output. The icon is the only playback control on cards, so no "Speaking response" banner appears for card speech.
+
 ### 5.5 Streaming / loading states
 
 - Show a "Thinking…" / progress indicator while the model is initialising or generating.
@@ -632,6 +634,19 @@ Dialog copy follows Material 3 conventions: title is a noun phrase ("Delete conv
 gives consequence, buttons are "Cancel" (dismiss) and the destructive action verb ("Delete", "Archive").
 
 ---
+
+### 7.1 Settings-action result dialog
+
+When a skill fails in a way the user can fix in Settings (for example, a contact is missing from
+People & Contacts), the result carries `SkillResult.Failure.actions` (`SettingsAction` list). The
+Quick Actions (`ActionsScreen`) shows a `PermissionOverlayDialog` titled with the failure message, body
+"Choose what to do next.", one action per settings destination, and a **Not now** action.
+Chat (`ChatScreen`) shows the same dialog for the same failure, and the text reply carries the `error` guidance.
+
+- The `error` text always names the in-app next step (for example "Add them in Settings → People & Contacts."), so voice and model replies keep the guidance without the dialog.
+- The dialog is dismissible from **Not now**, the scrim, and back. Test tags: `settings_action_dialog`, `settings_action_not_now`, `settings_action_<index>`.
+- Choosing an action deep-links into the destination. Prefill payloads (for example a contact alias) are consumed once so rotation does not reopen them.
+- Spoken confirmation ("yes" to "Call now?") is not part of this pattern yet; the dialog's buttons are the only confirmation path.
 
 ## 8. Multi-select Mode
 
@@ -766,6 +781,10 @@ Before raising a PR for any new feature that adds a list/collection screen, veri
 
 Model discovery, acquisition, selection, and lifecycle management follow a separate, dedicated
 pattern document: **[`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md)**.
+
+The Models screen groups chat brain, memory search, and quick-command models into role sections, with a
+"Still needed" card and read-only voice status rows. See the "Models Screen Role Sections (#1857)"
+section of the model availability patterns.
 
 The model availability patterns govern:
 

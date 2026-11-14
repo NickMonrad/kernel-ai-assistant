@@ -1,4 +1,6 @@
 package com.kernel.ai.core.skills
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 
 import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
@@ -250,7 +252,7 @@ class KernelAIToolSetTest {
         assertEquals("Stopwatch status", result["result"])
 
         coVerify {
-            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status")))
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status"), route = IntentRoute.LLM_TOOL))
         }
     }
 
@@ -316,7 +318,7 @@ class KernelAIToolSetTest {
 
         assertEquals("Unknown intent", result["error"])
         coVerify {
-            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "unknown_action")))
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "unknown_action"), route = IntentRoute.LLM_TOOL))
         }
     }
 
@@ -364,7 +366,7 @@ class KernelAIToolSetTest {
         verify(exactly = 1) { registry.get("load_skill") }
         coVerify(exactly = 1) { loadSkill.execute(any()) }
         coVerify(exactly = 1) {
-            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status")))
+            runIntent.execute(SkillCall("run_intent", mapOf("intent_name" to "get_stopwatch_status"), route = IntentRoute.LLM_TOOL))
         }
         verify(exactly = 1) { registry.get("run_intent") }
     }
@@ -536,6 +538,63 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `failure technicalDetail feeds terminal chip detail but not the bubble text`() {
+        val skill = mockk<Skill>(relaxed = true)
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.Failure(
+            "run_intent",
+            "I couldn't do that one. Try asking another way.",
+            technicalDetail = "Unknown intent: create_calendar_event",
+        )
+        every { registry.get("run_intent") } returns skill
+
+        val modelResult = toolSet.runIntent("create_calendar_event", "{}")
+
+        assertEquals("I couldn't do that one. Try asking another way.", toolSet.terminalToolResult())
+        assertEquals("Unknown intent: create_calendar_event", toolSet.terminalToolDetail())
+        // The model keeps the wrong name so it can self-correct; the bubble text never carries it.
+        assertEquals(
+            mapOf(
+                "error" to "I couldn't do that one. Try asking another way.",
+                "detail" to "Unknown intent: create_calendar_event",
+            ),
+            modelResult,
+        )
+        assertEquals("I couldn't do that one. Try asking another way.", toolSet.lastToolResult())
+    }
+
+    @Test
+    fun `terminal chip detail falls back to bubble text when no technicalDetail`() {
+        val skill = mockk<Skill>(relaxed = true)
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(any()) } returns SkillResult.Failure("run_intent", "Permission denied")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+
+        assertEquals("Permission denied", toolSet.terminalToolDetail())
+    }
+
+    @Test
+    fun `technicalDetail does not leak into a later successful terminal call`() {
+        val failing = mockk<Skill>(relaxed = true)
+        every { failing.name } returns "run_intent"
+        coEvery { failing.execute(any()) } returns SkillResult.Failure(
+            "run_intent", "I couldn't do that one. Try asking another way.", technicalDetail = "Unknown intent: x",
+        )
+        val succeeding = mockk<Skill>(relaxed = true)
+        every { succeeding.name } returns "run_intent"
+        coEvery { succeeding.execute(any()) } returns SkillResult.DirectReply("Alarm set")
+        every { registry.get("run_intent") } returns failing
+        toolSet.runIntent("get_calendar", "{}")
+        every { registry.get("run_intent") } returns succeeding
+
+        toolSet.runIntent("set_alarm", """{"hour":"7"}""")
+
+        assertEquals("Alarm set", toolSet.terminalToolDetail())
+    }
+
+    @Test
     fun `resetAttemptState clears attempt calls but preserves turn sequence and terminal record`() {
         val skill = mockk<Skill>()
         every { skill.name } returns "run_intent"
@@ -699,6 +758,25 @@ class KernelAIToolSetTest {
         assertTrue(secondSnapshot.calls.isEmpty())
         assertNull(secondSnapshot.terminalCall)
         assertTrue(secondSnapshot.generationAttempts.isEmpty())
+    }
+
+    @Test
+    fun `native tool call outcome is recorded with the LLM_TOOL route`() = runTest {
+        JandalEvents.install(java.io.File.createTempFile("jandal-llm-tool", ".log"))
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
+        val skill = mockk<Skill>()
+        every { skill.name } returns "get_system_info"
+        coEvery { skill.execute(any()) } returns SkillResult.DirectReply("System info")
+        every { registry.get("get_system_info") } returns skill
+
+        toolSet.getSystemInfo()
+        JandalEvents.awaitWritesForTest()
+
+        val exported = JandalEvents.exportLines()
+        val line = exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1).last { " skill get_system_info " in it }
+        assertTrue(line.contains("route=LLM_TOOL"), line)
+        assertTrue(line.contains("success=true"), line)
     }
 
 }

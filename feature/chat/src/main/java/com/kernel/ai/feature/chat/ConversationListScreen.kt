@@ -75,7 +75,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.memory.entity.ConversationEntity
+import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -87,6 +89,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 fun ConversationListScreen(
     onOpenConversation: (String) -> Unit,
     onNewConversation: () -> Unit,
+    onOpenSetupWizard: () -> Unit = {},
     onNavigateToActions: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
@@ -107,7 +110,26 @@ fun ConversationListScreen(
     val tabHintsDismissed by viewModel.tabHintsDismissed.collectAsStateWithLifecycle()
     val assistantReadiness by viewModel.assistantReadiness.collectAsStateWithLifecycle()
     val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
-    val welcomeState = chatsEmptyState(chatsWelcomeDismissed, assistantReadiness, downloadStates)
+    val waitingForWifi by viewModel.waitingForWifi.collectAsStateWithLifecycle()
+    val setupWizardPending by viewModel.setupWizardPending.collectAsStateWithLifecycle()
+    val welcomeState = chatsEmptyState(
+        chatsWelcomeDismissed,
+        assistantReadiness,
+        downloadStates,
+        waitingForWifi,
+        setupWizardPending,
+    )
+    val startAssistantDownload = rememberDownloadNotificationGate { id ->
+        id?.let { viewModel.downloadAssistantModel(KernelModel.valueOf(it)) }
+    }
+    // Show the setup wizard once per app session on first run (#1855). Skipping or finishing it clears pending.
+    var setupWizardOpened by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(setupWizardPending) {
+        if (setupWizardPending == true && !setupWizardOpened) {
+            setupWizardOpened = true
+            onOpenSetupWizard()
+        }
+    }
 
     var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
     var pendingArchive by remember { mutableStateOf<ConversationEntity?>(null) }
@@ -315,7 +337,7 @@ fun ConversationListScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
-            chatsDownloadBanner(assistantReadiness, welcomeState, isInSelectionMode, showArchived)?.let { banner ->
+            chatsDownloadBanner(assistantReadiness, welcomeState, isInSelectionMode, showArchived, waitingForWifi)?.let { banner ->
                 ChatsDownloadBanner(
                     banner = banner,
                     onClick = onNavigateToGettingStarted,
@@ -358,7 +380,8 @@ fun ConversationListScreen(
                             showTabHints = tabHintsDismissed == false,
                             onStartChatting = onNewConversation,
                             onExamplePrompt = onOpenExamplePrompt,
-                            onDownloadModel = viewModel::downloadAssistantModel,
+                            onDownloadModel = { model -> startAssistantDownload(model.name) },
+                            onUseMobileData = viewModel::useMobileData,
                             onDismissTabHints = viewModel::dismissTabHints,
                             onHideWelcome = viewModel::hideWelcome,
                             modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),

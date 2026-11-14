@@ -10,6 +10,9 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import com.kernel.ai.core.skills.SettingsAction
+import com.kernel.ai.core.skills.SettingsDeepLink
+import com.kernel.ai.core.skills.SkillResult
 import org.junit.jupiter.params.provider.ValueSource
 
 /**
@@ -220,6 +223,17 @@ class ChatTextUtilsTest {
                 "aye-aye unchanged",
                 normalizeChatTextForSpeech("aye-aye unchanged"),
             )
+        }
+
+        @Test
+        fun `weather card through chat speech keeps degrees and drops card separators`() {
+            val card = "☀️ Oakland — 11°C · Clear sky\n🌡 Today: H:17°C / L:10°C\n💧 Humidity: 92%"
+            val result = normalizeChatTextForSpeech(card)
+            assertTrue(result.contains("11°C"), "degrees kept, got: $result")
+            assertTrue(result.contains("high 17"), "high read out, got: $result")
+            assertTrue(result.contains("low 10"), "low read out, got: $result")
+            assertFalse(result.contains("·") || result.contains("/") || result.contains("|"), "separators removed, got: $result")
+            assertFalse(result.contains(".."), "no doubled full stop, got: $result")
         }
 
         @Test
@@ -438,6 +452,70 @@ class ChatTextUtilsTest {
             assertTrue(chunk?.startsWith("Keeorah this chunk should break on whitespace") == true)
             assertTrue(chunk?.endsWith(",") == true)
             assertTrue(buffer.isNotEmpty())
+        }
+
+        @Test
+        fun `NZ and AU street and place abbreviations do not end a chunk`() {
+            val buffer = StringBuilder(
+                "Walk up the slopes of Mt. Ruapehu before lunch. Then head down the Great North Rd. to the cafe.",
+            )
+
+            val first = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+            val second = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("Walk up the slopes of Mt. Ruapehu before lunch.", first)
+            assertEquals("Then head down the Great North Rd. to the cafe.", second)
+        }
+
+        @Test
+        fun `no is not an abbreviation so it still ends a chunk`() {
+            val buffer = StringBuilder("The answer is no. Then we leave the house now.")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("The answer is no.", chunk)
+        }
+
+        @Test
+        fun `abbreviation after an opening bracket or quote does not end a chunk`() {
+            val bracketed = StringBuilder("Ask (Dr. Smith) today. Then leave now.")
+            val quoted = StringBuilder("The sign read \"Mt. Ruapehu\" today. Then leave now.")
+
+            assertEquals(
+                "Ask (Dr. Smith) today.",
+                popNextStreamingSpeechChunk(buffer = bracketed, minChunkLength = 10, preferredChunkLength = 200),
+            )
+            assertEquals(
+                "The sign read \"Mt. Ruapehu\" today.",
+                popNextStreamingSpeechChunk(buffer = quoted, minChunkLength = 10, preferredChunkLength = 200),
+            )
+        }
+
+        @Test
+        fun `a capital initial that closes a sentence ends a chunk`() {
+            val buffer = StringBuilder("Visit the U.S. Meanwhile, rest here now.")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("Visit the U.S.", chunk)
+        }
+
+        @Test
+        fun `a single capital initial that closes a sentence ends a chunk`() {
+            val buffer = StringBuilder("Choose option B. Then rest here now.")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("Choose option B.", chunk)
+        }
+
+        @Test
+        fun `initials inside a name do not split the name`() {
+            val buffer = StringBuilder("Read J. R. R. Tolkien today. Then rest here now.")
+
+            val chunk = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
+
+            assertEquals("Read J. R. R. Tolkien today.", chunk)
         }
 
         @Test
@@ -1671,5 +1749,32 @@ class ChatTextUtilsTest {
         )) {
             assertFalse(containsExplicitToolActionVerb(q), q)
         }
+    }
+
+    @Test
+    fun `recovery failure opens the chat chooser with its actions and message`() {
+        val actions = listOf(
+            SettingsAction("Add to contacts", SettingsDeepLink("contact_aliases", mapOf("alias" to "wife"))),
+            SettingsAction("Choose from contacts", SettingsDeepLink("contact_aliases", mapOf("pick" to "true"))),
+        )
+        val failure = SkillResult.Failure(
+            skillName = "make_call",
+            error = "I don't know who your wife is yet. Add them in Settings → People & Contacts.",
+            technicalDetail = "Unresolved contact: make_call",
+            actions = actions,
+        )
+
+        val state = settingsActionStateFor(failure)
+
+        assertNotNull(state)
+        assertEquals(failure.error, state!!.message)
+        assertEquals(actions, state.actions)
+    }
+
+    @Test
+    fun `plain failure opens no chat chooser`() {
+        val failure = SkillResult.Failure(skillName = "make_call", error = "Dialer exploded")
+
+        assertNull(settingsActionStateFor(failure))
     }
 }

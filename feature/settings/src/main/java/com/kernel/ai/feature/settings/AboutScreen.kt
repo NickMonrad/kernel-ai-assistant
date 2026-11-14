@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.settings
 
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -57,6 +58,7 @@ fun AboutScreen(
     onBack: () -> Unit,
     onNavigateToLegalPrivacy: () -> Unit,
     onNavigateToGettingStarted: () -> Unit,
+    onNavigateToSetupWizard: () -> Unit = {},
     versionName: String,
     versionCode: Int,
     buildType: String,
@@ -66,6 +68,7 @@ fun AboutScreen(
 ) {
 
     val uiState by viewModel.uiState.collectAsState()
+    val isDebuggable = (LocalContext.current.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     val context = LocalContext.current
     var showSupportSheet by rememberSaveable { mutableStateOf(false) }
     val buildInfo = DiagnosticBuildInfo(
@@ -190,6 +193,16 @@ fun AboutScreen(
             )
             HorizontalDivider()
 
+            if (isDebuggable) {
+                ListItem(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.restartSetupWizardAsFirstRun(onNavigateToSetupWizard) },
+                    headlineContent = { Text("Run setup wizard as first run") },
+                    supportingContent = { Text("Debug only. Restarts the wizard without deleting any data") },
+                )
+                HorizontalDivider()
+            }
             // ── Logging ───────────────────────────────────────────────────────
             Text(
                 text = "Logging",

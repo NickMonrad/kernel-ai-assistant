@@ -6,6 +6,9 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
 import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.inference.setup.SetupWizardPreferences
+import com.kernel.ai.core.inference.setup.SetupWizardProgress
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,6 +30,7 @@ class ConversationListViewModel @Inject constructor(
     private val repository: ConversationRepository,
     private val chatPreferences: ChatPreferences,
     private val downloadManager: ModelDownloadManager,
+    private val setupWizardPreferences: SetupWizardPreferences,
 ) : ViewModel() {
 
     /**
@@ -49,6 +53,13 @@ class ConversationListViewModel @Inject constructor(
     val tabHintsDismissed: StateFlow<Boolean?> = chatPreferences.tabHintsDismissed
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** True while the first-run setup wizard is not finished or skipped. Null until loaded (#1855). */
+    val setupWizardPending: StateFlow<Boolean?> = setupWizardPreferences.progress
+        .map<SetupWizardProgress, Boolean?> { it.decided && !it.completed }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val waitingForWifi: StateFlow<Set<KernelModel>> = downloadManager.waitingForWifi
+
     val assistantReadiness: StateFlow<ConversationModelReadiness> = combine(
         downloadManager.downloadStates,
         ChatsDebugOverrides.simulateDownload,
@@ -66,6 +77,13 @@ class ConversationListViewModel @Inject constructor(
 
     init {
         // The welcome is one-time: once any conversation exists (archived included), it never returns.
+        // First-run decision for the setup wizard (#1855). Existing installs are marked complete.
+        viewModelScope.launch {
+            val alreadyDecided = setupWizardPreferences.progress.first().decided
+            val existingInstall = downloadManager.isExistingInstall()
+            downloadManager.adoptLegacyChoice(alreadyDecided, existingInstall)
+            setupWizardPreferences.decideFirstRun(existingInstall)
+        }
         viewModelScope.launch {
             repository.observeConversationCount().first { it > 0 }
             chatPreferences.setChatsWelcomeDismissed(true)
@@ -75,6 +93,11 @@ class ConversationListViewModel @Inject constructor(
     /** Starts (or retries) the download of [model] from the welcome, same path as the chat recovery card. */
     fun downloadAssistantModel(model: KernelModel) {
         downloadManager.startDownload(model, force = false)
+    }
+
+    /** Chooses mobile data for downloads waiting on Wi-Fi, from the welcome (#1855). */
+    fun useMobileData() {
+        downloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
     }
 
     private val _searchQuery = MutableStateFlow("")

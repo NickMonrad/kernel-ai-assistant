@@ -24,7 +24,7 @@ Because the Play Store manages the final signing key, the upload key is only use
 ```
 
 - `versionCode` is a monotonically increasing integer. The AAB is written to `app/build/outputs/bundle/release/app-release.aab`.
-- The `versionName` in `build.gradle.kts` is `"0.1.0"` for the initial release.
+- The `versionName` in `build.gradle.kts` is `"0.1.0"` as the prefix. Release builds report `0.1.<versionCode>` (see [GitHub APK for testers](#github-apk-for-testers-without-play)); debug builds report `0.1.0`.
 - Release builds use `-PversionCode=N` when an explicit code is required; otherwise they default to `1`.
 - Release signing reads `keystore.properties` at the repository root. A detached worktree cannot see an unrelated main-checkout file. To use the owner's existing file without copying it, pass `-PreleaseSigningPropertiesFile=/absolute/path/to/keystore.properties`; this path names the properties file only and does not expose its contents.
 
@@ -34,7 +34,7 @@ Because the Play Store manages the final signing key, the upload key is only use
 |---|---|
 | `applicationId` | `ai.jandal.assistant` |
 | `versionCode` | `1` (first release) |
-| `versionName` | `0.1.0` |
+| `versionName` | `0.1.<versionCode>` for release (e.g. `0.1.1`); `0.1.0` for debug |
 | `compileSdk` | `36` |
 | `targetSdk` | `36` |
 | `minSdk` | `35` |
@@ -192,8 +192,43 @@ Type the three short secrets in **Settings › Environments › play-release ›
 2. **Actions › Play release › Run workflow**: leave **Use workflow from** on `main`, choose the track (`internal` or `alpha`), then **Run workflow**. Any other branch fails in the `Require main` job without requesting approval.
 3. Open the run. `Publish to Play` waits for review; choose **Review deployments**, tick `play-release`, then **Approve and deploy**. The job receives the secrets only after this approval.
 4. The job builds and signs the AAB, rejects it if unsigned (`verifyReleaseBundleForPlayUpload`), uploads it to the chosen track with the next Play `versionCode`, and removes the credentials. Check the release under the track in Play Console.
+5. For an `alpha` run, or an `internal` run with **github_release** ticked, the same Gradle run also builds the signed release APK (`:app:assembleRelease`, ordered before the upload) and publishes it as a full GitHub release (see below). If the APK build fails, nothing is uploaded to Play.
 
 The workflow decodes the keystore and writes the signing properties file and service-account JSON under `$RUNNER_TEMP` (outside the checkout) with `umask 077`, passes only their paths to Gradle, and deletes them in an always-run step. Passwords never appear as `-P` arguments.
+
+#### GitHub APK for testers without Play
+
+Testers who don't use the Play Store get the same build as the Play test track as a single signed APK on [GitHub Releases](https://github.com/NickMonrad/kernel-ai-assistant/releases). The `publish` job runs one Gradle command, `:app:publishReleaseBundle -PgithubTesterApk=true`, for alpha runs and for internal runs with **github_release** ticked. `publishReleaseBundle` depends on `:app:verifyTesterApkForPlayPublish` (in `app/build.gradle.kts`), which depends on `assembleRelease`, `bundleRelease` and GPP's `processReleaseVersionCodes`. So the APK is built and checked after GPP has fixed the versionCode, and before GPP uploads anything. The `github-release` job has `contents: write` and no secrets; it only downloads the staged APK (artifact retention 1 day) and creates the release. The signing job keeps `contents: read`.
+
+- **Version:** release builds (Play bundle and APK) report `versionName` `0.1.<versionCode>`. The prefix comes from `defaultConfig.versionName` in `app/build.gradle.kts`, so a version bump changes both. Debug builds keep `defaultConfig.versionName`. Because Play and GitHub report the same versionName, About, diagnostics and report emails match across channels.
+- **Tag and title:** `v0.1.<versionCode>` and `Jandal AI 0.1.<versionCode>`, for example `v0.1.5`. Full releases, not pre-releases. The release body names the track (closed testing or internal testing) it was built for.
+- **Asset:** exactly one, `jandal-ai-0.1.<versionCode>.apk`, signed with the upload certificate. The APK SHA-256 and the signer certificate SHA-256 are in the release body, not as extra assets.
+- **Checks before upload** (`scripts/release/verify_tester_apk.sh`, run by `verifyTesterApkForPlayPublish`): `aapt2 dump badging` must show `ai.jandal.assistant`; the versionName must equal `0.1.<versionCode>`; the APK versionCode must equal the single Play-assigned code in `app/build/intermediates/gpp/release/available-version-codes.txt`; and the `apksigner` signer digest must equal the AAB's upload certificate. A failure stops the run before `publishReleaseBundle` uploads, so Play gets no build whose APK failed these checks.
+- **After upload:** staging and the `github-release` job still run after Play has the build. If either fails, Play has a build with no GitHub APK; see Re-running below.
+- **Signer digest:** the `publish` job prints it in the `Build tester APK and publish release bundle to Play` step (from the verifier's `Tester APK ok` line), and the release body includes it.
+- **Not yet run end to end:** the first alpha run is the first real exercise of the pre-upload checks. Check its job log.
+- **Re-running:** if only the `github-release` job fails (for example the GitHub API), use **Re-run failed jobs**. It downloads the staged APK again without another Play upload, as long as the artifact is still within its 1-day retention. After that, the artifact is gone and the release cannot be rebuilt from this run; start a new run instead. A new run uploads a new versionCode, so the earlier Play build stays on the track and should be halted in Play Console if it is not wanted.
+- A re-run of the same run for the same versionCode fails at `gh release create` because the tag exists. This only happens on a manual re-run of the whole workflow.
+
+##### Install notes for testers
+
+- Download `jandal-ai-0.1.<versionCode>.apk`, allow installs from your browser, and open it.
+- Updates: install the newer APK over the top; settings and downloads are kept.
+- **Can't mix with Play installs.** Play re-signs with Google's app-signing key, so the GitHub APK has a different signature. Switching between Play and GitHub needs an uninstall first, which deletes the app's data and downloaded models.
+- No automatic updates in the app. Watch the repo's releases, or use Obtainium below.
+- Feedback: Settings → About → Email support, or a GitHub issue.
+
+#### Obtainium
+
+Obtainium (ImranR98/Obtainium) tracks the GitHub releases directly:
+
+1. Add app, source **GitHub**, URL `https://github.com/NickMonrad/kernel-ai-assistant`.
+2. Leave **Include prereleases** off. Tester builds are full releases, so they are candidates. Debug and PR builds are pre-releases and are ignored.
+3. Optional: set the APK filter regex to `^jandal-ai-.*\.apk$` so only the tester APK is considered.
+4. Leave **Verify latest tag** off. By default Obtainium takes the newest full release by date. Turning on **Verify latest tag** would make it use the release marked Latest, which the workflow also sets (`--latest`), so either setting works.
+5. Obtainium compares the release tag (`v0.1.<versionCode>`, with the `v` stripped) with the installed app's versionName. Both are `0.1.<n>` in standard `x.y.z` form, so version detection stays enabled and each build is distinct.
+
+Obtainium cannot install over a Play-installed copy (different signature), so use one channel per device.
 
 ## Security Rules
 
@@ -205,7 +240,7 @@ The workflow decodes the keystore and writes the signing properties file and ser
 
 ## Versioning Convention
 
-`versionCode` is a monotonically increasing integer. Local non-publish builds default to `1` unless `-PversionCode` is supplied. GPP `ResolutionStrategy.AUTO` resolves a publishing bundle to the next available Play versionCode; it does not change CI's explicit run-number versionCode because CI does not execute publish tasks. `versionName` remains `"0.1.0"` for this release candidate.
+`versionCode` is a monotonically increasing integer. Local non-publish builds default to `1` unless `-PversionCode` is supplied. GPP `ResolutionStrategy.AUTO` resolves a publishing bundle to the next available Play versionCode; it does not change CI's explicit run-number versionCode because CI does not execute publish tasks. `versionName` is `<major.minor>.<versionCode>` for release builds (Play and tester APK) and `defaultConfig.versionName` for debug builds; see [GitHub APK for testers](#github-apk-for-testers-without-play).
 
 
 

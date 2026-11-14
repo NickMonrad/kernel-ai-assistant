@@ -69,7 +69,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.HonorCameraCoexistence
+import com.kernel.ai.core.voice.androidNativeWarning
+import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
@@ -85,7 +88,7 @@ import kotlin.math.roundToInt
 import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
+import android.widget.Toast
 import android.util.Log
 import android.provider.Settings
 import android.Manifest
@@ -96,11 +99,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.recordPermissionResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -135,6 +141,9 @@ fun VoiceScreen(
         if (needsUsageAccess) showUsageAccessDialog = true else viewModel.setHeyJandalEnabled(true)
     }
 
+    var showDefaultAssistantNotSetYet by remember { mutableStateOf(false) }
+    var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
+    var awaitingAssistantReturn by remember { mutableStateOf(false) }
     val micDenialClassifier = remember { PermissionDenialClassifier() }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -142,6 +151,14 @@ fun VoiceScreen(
                 viewModel.refreshAssistantStatus(
                     roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
                 )
+                // Back from assistant Settings: role held → success, and drop any "Not set yet" note.
+                if ((awaitingAssistantReturn || showDefaultAssistantNotSetYet) &&
+                    roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+                ) {
+                    awaitingAssistantReturn = false
+                    showDefaultAssistantNotSetYet = false
+                    showDefaultAssistantSuccess = true
+                }
                 needsUsageAccess = requiresUsageAccess()
 
                 // 0. Settings-return handling: Usage Access round-trip (#1502). Continue the
@@ -221,18 +238,38 @@ fun VoiceScreen(
     }
 
     var showDefaultAssistantPrompt by remember { mutableStateOf(false) }
-    var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
 
     val assistantRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
-        // Re-check role state immediately on return — do not rely solely on ON_RESUME.
-        val roleGranted = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
-        if (roleGranted) {
+        // Settings returned. Role held → success; otherwise the short note, never the full prompt.
+        awaitingAssistantReturn = false
+        if (roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true) {
+            showDefaultAssistantNotSetYet = false
             showDefaultAssistantSuccess = true
         } else {
-            // Role not granted — let the user try again.
-            showDefaultAssistantPrompt = true
+            showDefaultAssistantNotSetYet = true
+        }
+    }
+
+    // Opens the voice-input settings page (its "Digital assistant app" row sets the role),
+    // falling back to default apps. Shows a message if neither page resolves.
+    val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_no_settings_page)
+    fun openAssistantSettings() {
+        awaitingAssistantReturn = true
+        try {
+            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+        } catch (_: Exception) {
+            try {
+                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            } catch (_: Exception) {
+                awaitingAssistantReturn = false
+                Toast.makeText(
+                    context,
+                    noSettingsPageMessage,
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -240,6 +277,15 @@ fun VoiceScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.RECORD_AUDIO,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.RECORD_AUDIO,
+            ),
+        )
+        JandalEvents.record("permission", "record_audio", "granted" to granted)
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
@@ -300,6 +346,8 @@ fun VoiceScreen(
         onDownloadSherpaVoice = viewModel::downloadSherpaVoice,
         onCancelSherpaVoice = viewModel::cancelSherpaVoiceDownload,
         onDeleteSherpaVoice = viewModel::deleteSherpaVoice,
+        onPlaySherpaSample = viewModel::playSherpaSample,
+        onUseMobileDataForVoice = viewModel::useMobileDataForVoice,
         onDownloadKokoroVoice = viewModel::downloadKokoroVoice,
         onCancelKokoroVoice = viewModel::cancelKokoroVoiceDownload,
         onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
@@ -328,7 +376,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_mic_not_now",
                     onClick = {
                         showMicRepairDialog = false
@@ -364,7 +412,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_mic_not_now",
                     onClick = {
                         showMicDurableRequiredDialog = false
@@ -405,7 +453,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_usage_access_not_now",
                     onClick = {
                         showUsageAccessDialog = false
@@ -426,34 +474,40 @@ fun VoiceScreen(
         DefaultAssistantPrompt(
             onGrant = {
                 showDefaultAssistantPrompt = false
-                // Launch the assistant role setup intent
-                val manufacturer = Build.MANUFACTURER
-                val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
-                    manufacturer.equals("honor", ignoreCase = true)
-                when {
-                    usesSettingsFlow -> {
-                        try {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-                        } catch (_: Exception) {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                        }
-                    }
-                    else -> {
-                        val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                        if (intent != null) {
-                            assistantRoleLauncher.launch(intent)
-                        } else {
-                            try {
-                                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                            } catch (_: Exception) {
-                                // No standard default-apps page — nothing more we can do.
-                            }
-                        }
-                    }
-                }
+                openAssistantSettings()
             },
             onCancel = {
                 showDefaultAssistantPrompt = false
+            },
+        )
+    }
+
+    // Role still not held after returning from Settings: short note with Try again.
+    if (showDefaultAssistantNotSetYet) {
+        PermissionOverlayDialog(
+            title = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_title),
+            body = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_body),
+            actions = listOf(
+                PermissionDialogAction(
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_try_again),
+                    testTag = "default_assistant_not_set_try_again",
+                    onClick = {
+                        showDefaultAssistantNotSetYet = false
+                        openAssistantSettings()
+                    },
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
+                    testTag = "default_assistant_not_set_not_now",
+                    onClick = {
+                        showDefaultAssistantNotSetYet = false
+                    },
+                ),
+            ),
+            dialogTestTag = "default_assistant_not_set_yet",
+            onDismissRequest = {
+                showDefaultAssistantNotSetYet = false
             },
         )
     }
@@ -500,6 +554,8 @@ private fun VoiceScreenContent(
     onDownloadSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onCancelSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
+    onPlaySherpaSample: (SherpaPiperVoice) -> Unit = { _ -> },
+    onUseMobileDataForVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onCancelKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
@@ -625,11 +681,22 @@ private fun VoiceScreenContent(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             VoiceInputEngine.entries.forEach { engine ->
-                val warning = when (engine) {
-                    VoiceInputEngine.AndroidNative ->
-                        uiState.androidNativeAvailabilityMessage ?: engine.warning
-                    else -> engine.warning
+                val zipformerDownloaded =
+                    uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
+                val nativeWarningText = if (
+                    engine == VoiceInputEngine.AndroidNative && uiState.selectedInputEngine == engine
+                ) {
+                    androidNativeSettingsWarning(
+                        blockingMessage = uiState.androidNativeAvailabilityMessage,
+                        capabilities = uiState.androidNativeCapabilities,
+                        localeReady = uiState.androidNativeLocaleReady,
+                        onlineAllowed = uiState.allowOnlineSpeechFallback,
+                        zipformerDownloaded = zipformerDownloaded,
+                    )
+                } else {
+                    null
                 }
+                val warning = engine.warning
                 val languageSummary = when (engine) {
                     VoiceInputEngine.AndroidNative -> uiState.androidNativeLanguageSummary
                     else -> null
@@ -659,11 +726,16 @@ private fun VoiceScreenContent(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
-                            if (engine == VoiceInputEngine.AndroidNative && warning != null) {
+                            if (nativeWarningText != null) {
                                 VoiceWarningCard(
-                                    message = warning,
+                                    message = nativeWarningText,
                                     modifier = Modifier.padding(top = 8.dp),
                                 )
+                                Row(modifier = Modifier.padding(top = 4.dp)) {
+                                    TextButton(onClick = { onVoiceInputEngineSelected(VoiceInputEngine.Auto) }) {
+                                        Text("Use Automatic")
+                                    }
+                                }
                             }
                         }
                     },
@@ -687,6 +759,28 @@ private fun VoiceScreenContent(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
+                if (onlineSpeechToggleVisible(selected = uiState.selectedInputEngine, row = engine)) {
+                    ListItem(
+                        modifier = Modifier.fillMaxWidth(),
+                        headlineContent = { Text("Allow online speech recognition") },
+                        supportingContent = {
+                            Text(
+                                "Off: voice input never leaves this phone. On: Jandal uses Android " +
+                                    "speech recognition, which is usually more accurate. Voice commands " +
+                                    "try on-device recognition first and retry with your phone's speech " +
+                                    "service (usually Google) if that fails; Hey Jandal and alarm commands " +
+                                    "use that service straight away. That service may send your audio " +
+                                    "off the phone.",
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = uiState.allowOnlineSpeechFallback,
+                                onCheckedChange = onAllowOnlineSpeechFallbackChanged,
+                            )
+                        },
+                    )
+                }
                 // Sherpa-family STT: always show download card until the model is downloaded;
                 // once downloaded, only show the card when the engine is actively selected.
                 if (engine.isSherpaFamily) {
@@ -701,8 +795,7 @@ private fun VoiceScreenContent(
                                 VoiceInputEngine.SherpaParaformer -> SherpaSttModelSpec.PARAFORMER.subtitle
                                 else -> ""
                             },
-                            state = uiState.sherpaSttAvailability[engine]
-                                ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+                            state = state.toModelAvailability(),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
                         val sttState = state
@@ -746,26 +839,6 @@ private fun VoiceScreenContent(
                 }
             }
 
-            ListItem(
-                modifier = Modifier.fillMaxWidth(),
-                headlineContent = { Text("Allow online speech recognition") },
-                supportingContent = {
-                    Text(
-                        "Off: voice input never leaves this phone. On: Jandal uses Android " +
-                            "speech recognition, which is usually more accurate. Voice commands " +
-                            "try on-device recognition first and retry with your phone's speech " +
-                            "service (usually Google) if that fails; Hey Jandal and alarm commands " +
-                            "use that service straight away. That service may send your audio " +
-                            "off the phone.",
-                    )
-                },
-                trailingContent = {
-                    Switch(
-                        checked = uiState.allowOnlineSpeechFallback,
-                        onCheckedChange = onAllowOnlineSpeechFallbackChanged,
-                    )
-                },
-            )
             HorizontalDivider()
 
             Text(
@@ -875,7 +948,7 @@ private fun VoiceScreenContent(
             HorizontalDivider()
 
             Text(
-                text = "Spoken output engine",
+                text = "How Jandal speaks",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -884,14 +957,20 @@ private fun VoiceScreenContent(
             VoiceOutputSelectionCard(
                 selectedEngine = uiState.selectedOutputEngine,
                 inflectMicroReady = uiState.isInflectMicroReady,
+                sherpaVoiceReady = uiState.isSelectedSherpaVoiceDownloaded,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
             uiState.availableOutputEngines.forEach { engine ->
                 val engineSelected = uiState.selectedOutputEngine == engine
-                val engineActive = engineSelected &&
-                    (engine != VoiceOutputEngine.InflectMicroExperimental ||
-                        uiState.isInflectMicroReady)
+                val engineReady = when (engine) {
+                    VoiceOutputEngine.InflectMicroExperimental -> uiState.isInflectMicroReady
+                    VoiceOutputEngine.SherpaExperimental -> uiState.isSelectedSherpaVoiceDownloaded
+                    else -> true
+                }
+                val engineActive = engineSelected && engineReady
+                val selectedVoiceDownloading = uiState.sherpaVoices
+                    .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState is VoicePackDownloadState.Downloading
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -900,8 +979,12 @@ private fun VoiceScreenContent(
                             Text(engine.description)
                             Text(
                                 text = when {
-                                    engineActive -> "Currently active"
-                                    engineSelected -> "Selected — setup required"
+                                    engineActive -> "Active"
+                                    engineSelected && engine == VoiceOutputEngine.SherpaExperimental &&
+                                        selectedVoiceDownloading -> "Setting up"
+                                    engineSelected && engine == VoiceOutputEngine.SherpaExperimental ->
+                                        "Needs ${uiState.selectedSherpaVoice.displayName}"
+                                    engineSelected -> "Selected, setup needed"
                                     else -> "Inactive"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -921,11 +1004,46 @@ private fun VoiceScreenContent(
                         )
                     },
                 )
+                if (engine == VoiceOutputEngine.SherpaExperimental && engineSelected) {
+                    Text(
+                        text = sherpaVoiceStatusLine(
+                            voice = uiState.selectedSherpaVoice,
+                            state = uiState.sherpaVoices
+                                .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                    )
+                }
                 HorizontalDivider()
             }
 
+            val piperVoiceDownloadState = uiState.sherpaVoices
+                .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState
+            if (
+                uiState.selectedOutputEngine != VoiceOutputEngine.SherpaExperimental &&
+                piperVoiceDownloadState is VoicePackDownloadState.Downloading
+            ) {
+                Text(
+                    text = sherpaVoiceStatusLine(uiState.selectedSherpaVoice, piperVoiceDownloadState),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                // While the Inflect row is preparing, it owns this Cori download and shows the one Cancel.
+                if (uiState.inflectMicroAvailability !is ModelAvailabilityState.Preparing) {
+                    OutlinedButton(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        onClick = { onCancelSherpaVoice(uiState.selectedSherpaVoice) },
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            }
+
             Text(
-                text = "Choose one spoken output engine. Android TTS and Sherpa Piper are alternative playback paths, so only the selected engine will speak.",
+                text = "Choose how Jandal speaks. Only the selected option speaks.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -938,80 +1056,40 @@ private fun VoiceScreenContent(
             val showSherpaVoiceControls = sherpaSelected
             if (showSherpaVoiceControls) {
                 Text(
-                    text = "Sherpa Piper voice",
+                    text = "Voice",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
 
+                val selectedSherpaName = uiState.selectedSherpaVoice.displayName
                 val sherpaHelpText = when {
                     !uiState.hasDownloadedSherpaVoice ->
-                        "Download a Sherpa voice pack below before Sherpa Piper can speak."
+                        "Download a voice below before this option can speak."
                     !uiState.isSelectedSherpaVoiceDownloaded ->
-                        "Your saved Sherpa voice is not downloaded on this device. Download it again or choose another installed voice below."
+                        "Your saved voice is not downloaded on this device. Download it again or choose another installed voice below."
                     else ->
-                        "Only downloaded voices can be selected. Android TTS is disabled while Sherpa Piper is selected above."
+                        "Only downloaded voices can be selected. Android TTS speaks only while it is selected above."
                 }
                 VoiceInfoCard(
-                    title = "Sherpa Piper is active",
+                    title = if (uiState.isSelectedSherpaVoiceDownloaded) {
+                        "$selectedSherpaName is selected"
+                    } else {
+                        "$selectedSherpaName is not downloaded"
+                    },
                     message = sherpaHelpText,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
 
-                // Speech rate slider — range 0.5–1.5 in steps of 0.05 (19 discrete steps)
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    SliderRow(
-                        label = "Speech rate",
-                        valueLabel = "%.2fx".format(uiState.sherpaSpeed),
-                        value = uiState.sherpaSpeed,
-                        valueRange = 0.5f..1.5f,
-                        steps = 19,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaSpeedChanged(
-                                (newVal * 20).roundToInt() / 20f
-                            )
-                        },
-                    )
-                }
-
-                // Pitch slider — range 0.5–2.0 in steps of 0.05 (29 discrete steps)
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SliderRow(
-                        label = "Pitch",
-                        valueLabel = "%.2fx".format(uiState.sherpaPitch),
-                        value = uiState.sherpaPitch,
-                        valueRange = 0.5f..2.0f,
-                        steps = 29,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaPitchChanged(
-                                (newVal * 20).roundToInt() / 20f
-                            )
-                        },
-                    )
-                }
-
-                // Volume boost slider — range 0.5–3.0 in steps of 0.25 (9 discrete steps)
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SliderRow(
-                        label = "Volume boost",
-                        valueLabel = "%.2fx".format(uiState.sherpaGain),
-                        value = uiState.sherpaGain,
-                        valueRange = 0.5f..3.0f,
-                        steps = 9,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaGainChanged(
-                                (newVal * 4).roundToInt() / 4f
-                            )
-                        },
-                    )
-                }
 
                 // Tracks whether the speaker selector is expanded; resets to true on voice change.
                 var speakerSelectorExpanded by rememberSaveable(uiState.selectedSherpaVoice) {
                     mutableStateOf(true)
                 }
 
-                uiState.sherpaVoices.forEach { voiceRow ->
+                val sortedVoices = uiState.sherpaVoices
+                    .sortedByDescending { it.voice == uiState.selectedSherpaVoice }
+                sortedVoices.forEach { voiceRow ->
                     val isSelected = uiState.selectedSherpaVoice == voiceRow.voice
                     val isDownloaded = voiceRow.downloadState is VoicePackDownloadState.Downloaded
                     val isMultiSpeaker = voiceRow.voice == SherpaPiperVoice.VctkMedium ||
@@ -1034,6 +1112,14 @@ private fun VoiceScreenContent(
                             enabled = isDownloaded,
                         )
                     }
+                    if (!isDownloaded) {
+                        Text(
+                            text = "About ${formatBytes(voiceRow.voice.approxDownloadBytes)} download",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        )
+                    }
                     val voiceRowState = voiceRow.downloadState
                     when (voiceRowState) {
                         is VoicePackDownloadState.NotDownloaded -> {
@@ -1045,6 +1131,20 @@ private fun VoiceScreenContent(
                             }
                         }
                         is VoicePackDownloadState.Downloading -> {
+                            if (voiceRowState.waitingForWifi) {
+                                Text(
+                                    text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this voice only.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                )
+                                Button(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                    onClick = { onUseMobileDataForVoice(voiceRow.voice) },
+                                ) {
+                                    Text("Use mobile data")
+                                }
+                            }
                             OutlinedButton(
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                                 onClick = { onCancelSherpaVoice(voiceRow.voice) },
@@ -1053,11 +1153,19 @@ private fun VoiceScreenContent(
                             }
                         }
                         is VoicePackDownloadState.Downloaded -> {
-                            OutlinedButton(
+                            Row(
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                onClick = { onDeleteSherpaVoice(voiceRow.voice) },
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("Delete")
+                                if (isSelected) {
+                                    Button(onClick = { onPlaySherpaSample(voiceRow.voice) }) {
+                                        Text("Play sample")
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                OutlinedButton(onClick = { onDeleteSherpaVoice(voiceRow.voice) }) {
+                                    Text("Delete")
+                                }
                             }
                         }
                         is VoicePackDownloadState.Error -> {
@@ -1115,9 +1223,71 @@ private fun VoiceScreenContent(
                         }
                     }
                 }
+                uiState.sherpaSampleError?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+
+                // Speech rate slider — range 0.5–1.5 in steps of 0.05 (19 discrete steps)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    SliderRow(
+                        label = "Speech rate",
+                        valueLabel = "%.2fx".format(uiState.sherpaSpeed),
+                        value = uiState.sherpaSpeed,
+                        valueRange = 0.5f..1.5f,
+                        steps = 19,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaSpeedChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
+                // Pitch slider — range 0.5–2.0 in steps of 0.05 (29 discrete steps)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Pitch",
+                        valueLabel = "%.2fx".format(uiState.sherpaPitch),
+                        value = uiState.sherpaPitch,
+                        valueRange = 0.5f..2.0f,
+                        steps = 29,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaPitchChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
+                // Volume boost slider — range 0.5–3.0 in steps of 0.25 (9 discrete steps)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Volume boost",
+                        valueLabel = "%.2fx".format(uiState.sherpaGain),
+                        value = uiState.sherpaGain,
+                        valueRange = 0.5f..3.0f,
+                        steps = 9,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaGainChanged(
+                                (newVal * 4).roundToInt() / 4f
+                            )
+                        },
+                    )
+                }
             }
 
             val inflectModelState = uiState.inflectMicroAvailability
+            val coriDownloading = uiState.sherpaVoices
+                .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState is VoicePackDownloadState.Downloading
+            val inflectGraphsReady = uiState.inflectMicroStates.isNotEmpty() &&
+                uiState.inflectMicroStates.values.all {
+                    it is com.kernel.ai.core.inference.download.DownloadState.Downloaded
+                }
             if (
                 VoiceOutputEngine.InflectMicroExperimental in uiState.availableOutputEngines &&
                 (
@@ -1178,6 +1348,17 @@ private fun VoiceScreenContent(
                         ) {
                             Text("Retry")
                         }
+                    }
+                    inflectModelState is ModelAvailabilityState.NotDisplayed &&
+                        inflectGraphsReady &&
+                        coriDownloading &&
+                        uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental -> {
+                        Text(
+                            text = "The Piper voice above is still downloading. Inflect is ready once it finishes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
                     }
                     else -> {
                         Button(
@@ -1569,6 +1750,40 @@ private fun KokoroSpeakerSelector(
     }
 }
 
+/**
+ * Warning for the Android native engine row, shown only while that engine is selected. A blocking
+ * availability message wins; otherwise the capability warning. Online-off is not a warning when
+ * Zipformer is downloaded, because a stall then hands off to Zipformer.
+ */
+private fun androidNativeSettingsWarning(
+    blockingMessage: String?,
+    capabilities: VoiceCapabilities?,
+    localeReady: Boolean,
+    onlineAllowed: Boolean,
+    zipformerDownloaded: Boolean,
+): String? {
+    val fallback = if (zipformerDownloaded) {
+        "Sherpa-ONNX Zipformer is downloaded and is used if Android speech fails to start or stalls."
+    } else {
+        "Download Sherpa-ONNX Zipformer below as an offline fallback."
+    }
+    val capabilityWarning = capabilities?.let {
+        androidNativeWarning(it, localeReady, onlineAllowed || zipformerDownloaded)
+    }
+    val message = blockingMessage ?: when (capabilityWarning) {
+        null -> return null
+        AndroidNativeWarning.NoRecognitionService ->
+            "Android speech recognition is not available on this device."
+        AndroidNativeWarning.NoOnDeviceRecognizer ->
+            "No on-device Android speech recognizer. Offline capture cannot work."
+        AndroidNativeWarning.LanguagePackMissing ->
+            "The on-device language pack for this device is missing."
+        AndroidNativeWarning.OnlineOff ->
+            "Online speech is off. If the on-device recognizer stays silent, voice input stalls."
+    }
+    return "$message $fallback"
+}
+
 @Composable
 private fun VoiceWarningCard(
     message: String,
@@ -1640,17 +1855,25 @@ private fun VoiceInfoCard(
 private fun VoiceOutputSelectionCard(
     selectedEngine: VoiceOutputEngine,
     inflectMicroReady: Boolean,
+    sherpaVoiceReady: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val inflectSelected = selectedEngine == VoiceOutputEngine.InflectMicroExperimental
-    val selectedEngineReady = !inflectSelected || inflectMicroReady
+    val selectedEngineReady = when (selectedEngine) {
+        VoiceOutputEngine.InflectMicroExperimental -> inflectMicroReady
+        VoiceOutputEngine.SherpaExperimental -> sherpaVoiceReady
+        else -> true
+    }
     val message = when (selectedEngine) {
         VoiceOutputEngine.AndroidTts ->
-            "Android TTS is currently the only engine that will speak. Sherpa voices below stay inactive until you switch engines."
+            "Android TTS speaks. Piper voices below stay inactive until you select Piper."
         VoiceOutputEngine.SherpaExperimental ->
-            "Sherpa Piper is currently the only engine that will speak. Android TTS is inactive until you switch back."
+            if (selectedEngineReady) {
+                "Piper speaks. Android TTS is inactive until you select Android TTS."
+            } else {
+                "Piper is selected, but its voice is not ready yet. Android TTS speaks until it is."
+            }
         VoiceOutputEngine.KokoroExperimental ->
-            "Kokoro (Experimental) is currently the only engine that will speak. Android TTS is inactive until you switch back."
+            "Kokoro (Experimental) speaks. Android TTS is inactive until you select Android TTS."
         VoiceOutputEngine.InflectMicroExperimental ->
             if (selectedEngineReady) {
                 "Inflect Micro is selected and ready to speak. Android TTS remains the fallback if synthesis is unavailable."
@@ -1661,9 +1884,9 @@ private fun VoiceOutputSelectionCard(
 
     VoiceInfoCard(
         title = if (selectedEngineReady) {
-            "Active engine: ${selectedEngine.displayName}"
+            "Active: ${selectedEngine.displayName}"
         } else {
-            "Selected engine: ${selectedEngine.displayName}"
+            "Selected: ${selectedEngine.displayName}"
         },
         message = message,
         modifier = modifier,
@@ -1819,4 +2042,23 @@ private fun VoiceScreenPreview() {
     }
 }
 
+/**
+ * The "Allow online speech recognition" switch is shown under an engine row only when that row is
+ * the selected engine and the engine is Automatic or Android native (the only engines it affects).
+ */
+internal fun onlineSpeechToggleVisible(selected: VoiceInputEngine, row: VoiceInputEngine): Boolean =
+    row == selected && (row == VoiceInputEngine.Auto || row == VoiceInputEngine.AndroidNative)
 
+/** One-line status for the selected Piper voice, shown under the Piper option. */
+private fun sherpaVoiceStatusLine(voice: SherpaPiperVoice, state: VoicePackDownloadState?): String =
+    when (state) {
+        is VoicePackDownloadState.Downloaded -> "${voice.displayName} · Ready"
+        is VoicePackDownloadState.Downloading ->
+            if (state.waitingForWifi) {
+                "${voice.displayName} · Waiting for Wi-Fi"
+            } else {
+                "${voice.displayName} · Downloading ${(state.progress * 100).toInt()}%"
+            }
+        is VoicePackDownloadState.Error -> "${voice.displayName} · Download failed"
+        else -> "${voice.displayName} · Not downloaded"
+    }

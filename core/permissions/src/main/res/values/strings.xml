@@ -43,10 +43,14 @@
 
     <!-- Default assistant role setup -->
     <string name="default_assistant_setup_title">Set Hey Jandal as default assistant</string>
-    <string name="default_assistant_setup_description">Hey Jandal needs to be set as your default assistant to respond to the wake word.</string>
+    <string name="default_assistant_setup_description">Tap Default digital assistant app (or Digital assistant app), then choose Jandal. Jandal needs this to listen for Hey Jandal.</string>
     <string name="default_assistant_setup_grant">Set as default</string>
     <string name="default_assistant_setup_cancel">Not now</string>
     <string name="default_assistant_setup_success_title">Default assistant set</string>
     <string name="default_assistant_setup_success_description">Jandal is now your default assistant. You can change this in System settings at any time.</string>
     <string name="default_assistant_setup_success_ok">OK</string>
+    <string name="default_assistant_not_set_title">Not set yet</string>
+    <string name="default_assistant_not_set_body">Jandal isn\'t your default assistant yet. Tap Try again to reopen Settings, then tap Default digital assistant app (or Digital assistant app) and choose Jandal.</string>
+    <string name="default_assistant_not_set_try_again">Try again</string>
+    <string name="default_assistant_no_settings_page">This device has no Settings page for default assistants. Open Settings and set Jandal as your digital assistant.</string>
 </resources>
