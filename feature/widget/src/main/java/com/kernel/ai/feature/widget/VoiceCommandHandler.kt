@@ -3,9 +3,10 @@ package com.kernel.ai.feature.widget
 import android.content.Context
 import android.util.Log
 import com.kernel.ai.core.memory.dao.QuickActionDao
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.QuickIntentRouter
-import com.kernel.ai.core.skills.SkillCall
+import com.kernel.ai.core.skills.SkillOutcomeEvents
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentationJson
@@ -31,7 +32,7 @@ class VoiceCommandHandler @Inject constructor(
                 if (result.intent.intentName == "start_meal_planner") {
                     navigator.navigateToChat(context, transcript)
                 } else {
-                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context)
+                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context, IntentRoute.QUICK_REGEX)
                 }
             }
             is QuickIntentRouter.RouteResult.ClassifierMatch -> {
@@ -39,7 +40,7 @@ class VoiceCommandHandler @Inject constructor(
                 if (result.intent.intentName == "start_meal_planner") {
                     navigator.navigateToChat(context, transcript)
                 } else {
-                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context)
+                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context, IntentRoute.QUICK_CLASSIFIER)
                 }
             }
             is QuickIntentRouter.RouteResult.NeedsSlot -> {
@@ -58,6 +59,7 @@ class VoiceCommandHandler @Inject constructor(
         intentName: String,
         params: Map<String, String>,
         context: Context,
+        route: IntentRoute,
     ) {
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
@@ -78,7 +80,7 @@ class VoiceCommandHandler @Inject constructor(
             return
         }
 
-        val skillResult = skill.execute(SkillCall(skill.name, callParams))
+        val skillResult = SkillOutcomeEvents.execute(skill, callParams, route)
         if (skillResult is SkillResult.Failure && skillResult.fallThroughToModel) {
             Log.d(TAG, "VoiceCommandHandler: '$intentName' missed with model fallthrough → opening chat")
             navigator.navigateToChat(context, transcript)

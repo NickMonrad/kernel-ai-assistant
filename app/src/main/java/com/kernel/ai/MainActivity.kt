@@ -19,6 +19,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.collectAsState
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.permissions.recordPermissionResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
@@ -122,6 +123,7 @@ class MainActivity : ComponentActivity() {
                     ),
                 )
             }
+            JandalEvents.record("permission", "notification_result", "granted" to (results[android.Manifest.permission.POST_NOTIFICATIONS] == true))
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
