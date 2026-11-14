@@ -39,6 +39,8 @@ import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.model.availability.ModelRoleCopy
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.feature.chat.formatBytesShort
 
 private const val FINISH_ID = "finish"
@@ -51,8 +53,9 @@ internal const val SETUP_WIZARD_CONTENT_TAG = "setup_wizard_content"
 private val COMPACT_HEIGHT = 480.dp
 
 /**
- * First-run setup wizard (#1855, part 1). Step 1 explains how Jandal works; step 2 is download consent.
- * [onExit] leaves without completing (back on the first step); [onDone] runs after finishing or skipping.
+ * First-run setup wizard (#1855). Step 1 explains how Jandal works; step 2 chooses speech input and output;
+ * step 3 is download consent. [onExit] leaves without completing (back on the first step); [onDone] runs after
+ * finishing or skipping.
  */
 @Composable
 fun SetupWizardScreen(
@@ -78,6 +81,8 @@ fun SetupWizardScreen(
     if (!state.loaded) return
     SetupWizardContent(
         state = state,
+        onInputSelected = viewModel::onInputSelected,
+        onOutputSelected = viewModel::onOutputSelected,
         onChoiceSelected = viewModel::onChoiceSelected,
         onPrimary = {
             if (state.step == SetupStep.entries.last()) requestWizardAction(FINISH_ID) else viewModel.onContinue(onDone)
@@ -94,6 +99,8 @@ fun SetupWizardScreen(
 @Composable
 internal fun SetupWizardContent(
     state: SetupWizardUiState,
+    onInputSelected: (VoiceInputEngine) -> Unit,
+    onOutputSelected: (VoiceOutputEngine) -> Unit,
     onChoiceSelected: (DownloadNetworkChoice) -> Unit,
     onPrimary: () -> Unit,
     onBack: () -> Unit,
@@ -113,7 +120,7 @@ internal fun SetupWizardContent(
                     .testTag(SETUP_WIZARD_CONTENT_TAG),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                StepContent(Modifier, state, onChoiceSelected)
+                StepContent(Modifier, state, onInputSelected, onOutputSelected, onChoiceSelected)
                 WizardButtons(isLast, onPrimary, onBack, onSkip)
             }
         } else {
@@ -130,7 +137,7 @@ internal fun SetupWizardContent(
                         .verticalScroll(scrollState)
                         .testTag(SETUP_WIZARD_CONTENT_TAG),
                 ) {
-                    StepContent(Modifier, state, onChoiceSelected)
+                    StepContent(Modifier, state, onInputSelected, onOutputSelected, onChoiceSelected)
                 }
                 WizardButtons(isLast, onPrimary, onBack, onSkip)
             }
@@ -139,13 +146,28 @@ internal fun SetupWizardContent(
 }
 
 @Composable
-private fun StepContent(modifier: Modifier, state: SetupWizardUiState, onChoiceSelected: (DownloadNetworkChoice) -> Unit) {
+private fun StepContent(
+    modifier: Modifier,
+    state: SetupWizardUiState,
+    onInputSelected: (VoiceInputEngine) -> Unit,
+    onOutputSelected: (VoiceOutputEngine) -> Unit,
+    onChoiceSelected: (DownloadNetworkChoice) -> Unit,
+) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         when (state.step) {
             SetupStep.HOW_IT_WORKS -> HowItWorksStep()
+            SetupStep.VOICE -> VoiceStep(
+                inputOptions = state.inputOptions,
+                inputReason = state.inputReason,
+                inputEngine = state.inputEngine,
+                outputOptions = state.outputOptions,
+                outputEngine = state.outputEngine,
+                onInputSelected = onInputSelected,
+                onOutputSelected = onOutputSelected,
+            )
             SetupStep.DOWNLOAD -> DownloadStep(
                 plannedModels = state.plannedModels,
                 plannedVoices = state.plannedVoices,
@@ -214,6 +236,77 @@ private fun HowItWorksStep() {
 }
 
 @Composable
+private fun VoiceStep(
+    inputOptions: List<VoiceInputEngine>,
+    inputReason: String?,
+    inputEngine: VoiceInputEngine,
+    outputOptions: List<VoiceOutputEngine>,
+    outputEngine: VoiceOutputEngine,
+    onInputSelected: (VoiceInputEngine) -> Unit,
+    onOutputSelected: (VoiceOutputEngine) -> Unit,
+) {
+    Text(
+        text = "How should Jandal hear and talk to you?",
+        style = MaterialTheme.typography.headlineSmall,
+        modifier = Modifier.semantics { heading() },
+    )
+    Text(
+        text = "Pick both now. Nothing downloads until you finish the next step.",
+        style = MaterialTheme.typography.bodyLarge,
+    )
+    Text(
+        text = "When you talk to Jandal",
+        style = MaterialTheme.typography.titleSmall,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+    inputReason?.let { reason ->
+        Text(text = reason, style = MaterialTheme.typography.bodySmall)
+    }
+    inputOptions.forEach { engine ->
+        ChoiceOption(
+            title = inputTitle(engine),
+            body = inputBody(engine),
+            selected = inputEngine == engine,
+            onSelect = { onInputSelected(engine) },
+        )
+    }
+    Text(
+        text = "When Jandal talks back",
+        style = MaterialTheme.typography.titleSmall,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+    outputOptions.forEach { engine ->
+        ChoiceOption(
+            title = outputTitle(engine),
+            body = outputBody(engine),
+            selected = outputEngine == engine,
+            onSelect = { onOutputSelected(engine) },
+        )
+    }
+}
+
+private fun inputTitle(engine: VoiceInputEngine): String = when (engine) {
+    VoiceInputEngine.AndroidNative -> "Android's own listener"
+    else -> "Automatic (recommended)"
+}
+
+private fun inputBody(engine: VoiceInputEngine): String = when (engine) {
+    VoiceInputEngine.AndroidNative -> "Uses the speech recognition built into your phone."
+    else -> "Works offline on this phone."
+}
+
+private fun outputTitle(engine: VoiceOutputEngine): String = when (engine) {
+    VoiceOutputEngine.AndroidTts -> "Your phone's voice"
+    else -> "Cori, natural voice (about ${formatBytesShort(SherpaPiperVoice.CoriHigh.approxDownloadBytes)})"
+}
+
+private fun outputBody(engine: VoiceOutputEngine): String = when (engine) {
+    VoiceOutputEngine.AndroidTts -> "The voice already on your phone. Nothing to download."
+    else -> "Sounds more natural and works offline. It downloads with the other files in the next step. " +
+        "May be slower on older phones."
+}
+
+@Composable
 private fun DownloadStep(
     plannedModels: List<KernelModel>,
     plannedVoices: List<SherpaPiperVoice>,
@@ -242,7 +335,7 @@ private fun DownloadStep(
     }
     plannedVoices.forEach { voice ->
         Column {
-            Text(text = "${voice.displayName} voice (Piper)", style = MaterialTheme.typography.bodyLarge)
+            Text(text = "${voice.displayName} natural voice", style = MaterialTheme.typography.bodyLarge)
             Text(text = formatBytesShort(voice.approxDownloadBytes), style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -252,13 +345,13 @@ private fun DownloadStep(
         style = MaterialTheme.typography.titleSmall,
         modifier = Modifier.padding(top = 8.dp),
     )
-    NetworkOption(
+    ChoiceOption(
         title = "Wi-Fi only (recommended)",
         body = "Downloads wait until you are on Wi-Fi.",
         selected = choice == DownloadNetworkChoice.WIFI_ONLY,
         onSelect = { onChoiceSelected(DownloadNetworkChoice.WIFI_ONLY) },
     )
-    NetworkOption(
+    ChoiceOption(
         title = "Allow mobile data",
         body = "Downloads may use your mobile data plan.",
         selected = choice == DownloadNetworkChoice.MOBILE_DATA_ALLOWED,
@@ -267,7 +360,7 @@ private fun DownloadStep(
 }
 
 @Composable
-private fun NetworkOption(title: String, body: String, selected: Boolean, onSelect: () -> Unit) {
+private fun ChoiceOption(title: String, body: String, selected: Boolean, onSelect: () -> Unit) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()

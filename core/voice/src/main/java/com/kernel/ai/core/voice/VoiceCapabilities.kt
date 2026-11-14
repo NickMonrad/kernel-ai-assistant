@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import android.content.Context
+import android.speech.tts.TextToSpeech
 import android.speech.SpeechRecognizer
 
 /**
@@ -59,3 +60,16 @@ fun readVoiceCapabilities(context: Context): VoiceCapabilities = VoiceCapabiliti
     platformRecognizerPresent = SpeechRecognizer.isRecognitionAvailable(context),
     onDeviceRecognitionAvailable = SpeechRecognizer.isOnDeviceRecognitionAvailable(context),
 )
+
+/**
+ * True when [TextToSpeech] reports at least one installed engine (#1855 part 2). Engine listing does not wait
+ * for init, so this creates a short-lived instance and shuts it down at once. Call on the main thread.
+ */
+fun readHasSystemTtsEngine(context: Context): Boolean {
+    val tts = TextToSpeech(context) { }
+    try {
+        return tts.engines.isNotEmpty()
+    } finally {
+        tts.shutdown()
+    }
+}

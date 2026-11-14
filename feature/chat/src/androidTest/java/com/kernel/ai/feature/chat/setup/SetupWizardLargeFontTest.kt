@@ -92,6 +92,18 @@ class SetupWizardLargeFontTest {
         )
     }
 
+    @Test
+    fun voiceStepButtonsReachableAtLargeFontPortrait() {
+        setWizard(SetupStep.VOICE, PORTRAIT)
+        assertButtonsReachable(primary = "Continue", size = PORTRAIT, compact = false)
+    }
+
+    @Test
+    fun voiceStepButtonsReachableAtLargeFontLandscape() {
+        setWizard(SetupStep.VOICE, LANDSCAPE)
+        assertButtonsReachable(primary = "Continue", size = LANDSCAPE, compact = true)
+    }
+
     private fun setWizard(step: SetupStep, size: DpSize) {
         composeRule.setContent {
             DeviceConfigurationOverride(
@@ -173,6 +185,8 @@ class SetupWizardLargeFontTest {
                 plannedModels = emptyList(),
                 plannedVoices = emptyList(),
             ),
+            onInputSelected = {},
+            onOutputSelected = {},
             onChoiceSelected = {},
             onPrimary = {},
             onBack = {},
