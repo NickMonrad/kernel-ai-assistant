@@ -312,6 +312,18 @@ class ActionsViewModel @Inject constructor(
 
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
+
+    private val _speakingActionId = MutableStateFlow<String?>(null)
+
+    /** Id of the quick-action card whose reply is being read aloud (#1026), or null. */
+    val speakingActionId: StateFlow<String?> = _speakingActionId.asStateFlow()
+    private var speakActionJob: Job? = null
+
+    /** Set once speech for the card in [_speakingActionId] has started; gates its SpeakingStopped reset. */
+    private var actionSpeechAudible = false
+
+    /** Set when a card starts while another card was playing: that card's stop may still arrive late. */
+    private var actionStaleStopPending = false
     private val _slotReplyAutoRearmArmed = MutableStateFlow(false)
     val slotReplyAutoRearmArmed: StateFlow<Boolean> = _slotReplyAutoRearmArmed.asStateFlow()
     private val _slotPromptPlaybackStarted = MutableStateFlow(false)
@@ -381,7 +393,7 @@ class ActionsViewModel @Inject constructor(
                     setSlotReplyAutoRearmArmed(false, "spokenResponsesDisabled")
                     cancelPendingVoiceSlotReplyRestart()
                     cancelPendingVoiceSpeech()
-                    voiceOutputController.stop()
+                    stopAllVoiceOutput()
                 }
             }
         }
@@ -527,6 +539,11 @@ class ActionsViewModel @Inject constructor(
             voiceOutputController.events.collect { event ->
                 when (event) {
                     is VoiceOutputEvent.SpeakingStarted -> {
+                        // Recorded before the cancel check below: card speech must not be lost to it.
+                        if (_speakingActionId.value != null) {
+                            actionSpeechAudible = true
+                            actionStaleStopPending = false
+                        }
                         if (voiceSpeechCancelled) {
                             // Speech the user abandoned can still report a start; no SpeakingStopped
                             // follows it on Inflect, so accepting it would leave the card on Speaking.
@@ -534,7 +551,9 @@ class ActionsViewModel @Inject constructor(
                             return@collect
                         }
                         cancelPendingVoiceSlotReplyRestart()
-                        _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                        if (_speakingActionId.value == null) {
+                            _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                        }
                         if (event.text == expectedSlotPromptSpeech) {
                             _slotPromptPlaybackStarted.value = true
                             Log.d(TAG, "ActionsViewModel: slot prompt playback started")
@@ -542,6 +561,14 @@ class ActionsViewModel @Inject constructor(
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
                         _voicePlaybackState.value = VoicePlaybackState.Idle
+                        // Card speech shows only the card's icon, not the banner (#1026 review S4).
+                        // While a stale stop from the previous card may still arrive, only an audible start clears the card.
+                        if (
+                            _speakingActionId.value != null &&
+                            (actionSpeechAudible || (!actionStaleStopPending && speakActionJob?.isActive != true))
+                        ) {
+                            clearActionSpeechState()
+                        }
                         if (
                             shouldAutoStartVoiceSlotReply &&
                             _pendingSlot.value?.inputMode == InputMode.Voice &&
@@ -623,8 +650,74 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
-        voiceOutputController.stop()
+        stopAllVoiceOutput()
         _voicePlaybackState.value = VoicePlaybackState.Idle
+    }
+
+    // ── Quick-action card speaker (#1026) ───────────────────────────────────
+
+    /**
+     * Reads a card's reply aloud, or stops it when that card is already speaking. Mirrors chat's
+     * per-message speaker (#785) and reuses sentence-chunked playback (#1842). Only one card plays
+     * at a time; tapping another card stops the previous one.
+     */
+    fun toggleSpeakAction(actionId: String, text: String) {
+        val previouslySpeaking = _speakingActionId.value
+        val wasSpeakingThisCard = previouslySpeaking == actionId
+        cancelPendingVoiceSpeech()
+        stopAllVoiceOutput()
+        _voicePlaybackState.value = VoicePlaybackState.Idle
+        setSlotReplyAutoRearmArmed(false, "speakAction")
+        if (wasSpeakingThisCard) return
+        // The previous card's stop may still report SpeakingStopped after this card starts.
+        actionStaleStopPending = previouslySpeaking != null
+        _speakingActionId.value = actionId
+        speakActionJob = viewModelScope.launch {
+            val maxSentences = voiceOutputPreferences.maxSpokenSentences.first()
+            val spoken = truncateForSpeech(normalizeChatTextForSpeech(text), maxSentences)
+            if (spoken.isBlank()) {
+                clearActionSpeechState()
+                return@launch
+            }
+            val result = try {
+                speakInSentenceChunks(voiceOutputController, spoken)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: card speech failed to start", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            }
+            if (result is VoiceOutputResult.Unavailable && _speakingActionId.value == actionId) {
+                _error.value = result.message
+                clearActionSpeechState()
+            }
+        }
+    }
+
+    /** Stops playback if [actionId] is the card speaking, e.g. when it leaves the screen or is deleted. */
+    fun releaseActionSpeech(actionId: String) {
+        if (_speakingActionId.value == actionId) stopAllVoiceOutput()
+    }
+
+    /** Resets card speech state and cancels its job; does not touch audio. */
+    private fun stopActionSpeech() {
+        val wasActive = _speakingActionId.value != null || speakActionJob != null
+        speakActionJob?.cancel()
+        clearActionSpeechState()
+        if (wasActive) _voicePlaybackState.value = VoicePlaybackState.Idle
+    }
+
+    /** Stops every Actions voice output path, including a playing quick-action card (#1026). */
+    private fun stopAllVoiceOutput() {
+        stopActionSpeech()
+        voiceOutputController.stop()
+    }
+
+    private fun clearActionSpeechState() {
+        speakActionJob = null
+        actionSpeechAudible = false
+        actionStaleStopPending = false
+        _speakingActionId.value = null
     }
 
     fun pauseTransientVoiceUi(reason: String = "unspecified") {
@@ -637,10 +730,11 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
+        stopActionSpeech()
         unbindActionsVoiceSession()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
-        voiceOutputController.stop()
+        stopAllVoiceOutput()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
@@ -657,7 +751,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onPhonePermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -833,7 +927,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onWeatherLocationPermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -945,7 +1039,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onContactPermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -1038,7 +1132,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onCalendarPermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -1295,7 +1389,7 @@ class ActionsViewModel @Inject constructor(
                 try {
                     setSlotReplyAutoRearmArmed(false, "onDndResumeCheck")
                     clearExpectedSlotPromptSpeech()
-                    voiceOutputController.stop()
+                    stopAllVoiceOutput()
                     val result = executeIntent(
                         query = pending.query,
                         intentName = pending.intentName,
@@ -1372,7 +1466,7 @@ class ActionsViewModel @Inject constructor(
                 try {
                     setSlotReplyAutoRearmArmed(false, "onWriteSettingsResumeCheck")
                     clearExpectedSlotPromptSpeech()
-                    voiceOutputController.stop()
+                    stopAllVoiceOutput()
                     val result = executeIntent(
                         query = pending.query,
                         intentName = pending.intentName,
@@ -1436,7 +1530,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "executeAction")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 _uiState.value = UiState.Executing
 
                 val routeResult = quickIntentRouter.route(normalizedQuery)
@@ -1561,7 +1655,7 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = UiState.Executing
             try {
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.originalQuery,
                     intentName = pending.request.intentName,
@@ -1607,7 +1701,7 @@ class ActionsViewModel @Inject constructor(
         cancelPendingVoiceSpeech()
         _pendingSlot.value = null
         stopVoiceCapture()
-        voiceOutputController.stop()
+        stopAllVoiceOutput()
     }
 
     private fun primePendingSlot(
@@ -1848,9 +1942,10 @@ class ActionsViewModel @Inject constructor(
                 _microphoneState.value = MicrophoneState()
             }
 
+            val spokenSummary = spokenSummaryFrom(skillResult)
             ExecutedAction(
-                entity = buildEntityFromSkillResult(query, intentName, skillResult),
-                spokenSummary = spokenSummaryFrom(skillResult),
+                entity = buildEntityFromSkillResult(query, intentName, skillResult).copy(spokenSummary = spokenSummary),
+                spokenSummary = spokenSummary,
                 fallThroughToModel = (skillResult as? SkillResult.Failure)?.fallThroughToModel == true,
             )
         } else {
@@ -2041,7 +2136,7 @@ class ActionsViewModel @Inject constructor(
         cancelPendingVoiceSpeech()
         _error.value = null
         if (interruptPlayback) {
-            voiceOutputController.stop()
+            stopAllVoiceOutput()
         }
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
         viewModelScope.launch {
@@ -2075,6 +2170,7 @@ class ActionsViewModel @Inject constructor(
             ?: normaliseUserValuesForTts(toSpokenSummary(text), userValues)
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
+        if (_speakingActionId.value != null) stopAllVoiceOutput()
         cancelPendingVoiceSpeech()
         // A new reply supersedes the cancellation, so its SpeakingStarted events count again.
         voiceSpeechCancelled = false
@@ -2137,7 +2233,7 @@ class ActionsViewModel @Inject constructor(
             // The user moved on mid-reply, so sentence chunks would keep speaking over the new
             // interaction while still queuing (Inflect: while playing). stop() halts them; Inflect
             // emits no SpeakingStopped after stop(), so the playback state is reset here as well.
-            voiceOutputController.stop()
+            stopAllVoiceOutput()
             _voicePlaybackState.value = VoicePlaybackState.Idle
         }
     }
