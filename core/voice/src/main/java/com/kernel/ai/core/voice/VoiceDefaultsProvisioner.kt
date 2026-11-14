@@ -7,7 +7,6 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.isDownloaded
-import com.kernel.ai.core.inference.download.isUpdatedInstall
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -29,14 +28,14 @@ private const val LEGACY_VOSK_DIR = "voice"
  *
  * - queues the offline Zipformer STT model when the selected input engine needs it
  *   ([VoiceInputEngine.Auto] uses it as the offline fallback and for alert commands);
- * - queues the selected Piper voice (Cori by default) when Piper is the active output engine;
+ * - queues the selected Piper voice only when the user has explicitly stored a Piper engine choice.
+ *   The default engine never downloads a voice on its own: Voice settings and the setup wizard
+ *   start it with one tap under the download network choice (#1868);
  * - deletes the unpacked model left behind by the removed Vosk engine.
  *
  * Downloads go through the existing managers, so they are no-ops when the files exist and they
  * reuse the managers' network constraints and progress reporting. Each default is queued once
- * only, so a model the user deletes in Settings is not downloaded again. Installs updated from
- * a version before this change, with no stored output engine, keep Android TTS instead of
- * switching to Piper and downloading a voice.
+ * only, so a model the user deletes in Settings is not downloaded again.
  */
 @Singleton
 class VoiceDefaultsProvisioner @Inject constructor(
@@ -54,8 +53,6 @@ class VoiceDefaultsProvisioner @Inject constructor(
         scope.launch {
             runCatching { deleteLegacyVoskModel() }
                 .onFailure { Log.w(TAG, "Failed to delete legacy Vosk model", it) }
-            runCatching { keepAndroidTtsForUpdatedInstalls() }
-                .onFailure { Log.w(TAG, "Failed to preserve output engine for updated install", it) }
             // Nothing downloads before the user has chosen a download network in the setup wizard (#1855).
             downloadNetworkPreferences.choice.first { DownloadConsent.voiceDefaultsAllowed(it) }
             runCatching { queueSpeechInputModel() }
@@ -63,15 +60,6 @@ class VoiceDefaultsProvisioner @Inject constructor(
             runCatching { queueSpeechOutputVoice() }
                 .onFailure { Log.w(TAG, "Failed to queue speech output voice", it) }
         }
-    }
-
-    private suspend fun keepAndroidTtsForUpdatedInstalls() {
-        if (prefs.getBoolean(KEY_OUTPUT_DEFAULT_RESOLVED, false)) return
-        if (context.isUpdatedInstall() && !voiceOutputPreferences.hasStoredEngine()) {
-            Log.i(TAG, "Updated install with no stored output engine: keeping Android TTS")
-            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts)
-        }
-        prefs.edit().putBoolean(KEY_OUTPUT_DEFAULT_RESOLVED, true).apply()
     }
 
 
@@ -89,6 +77,7 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     private suspend fun queueSpeechOutputVoice() {
         if (prefs.getBoolean(KEY_VOICE_QUEUED, false)) return
+        if (!voiceOutputPreferences.hasStoredEngine()) return
         if (voiceOutputPreferences.selectedEngine.first() != VoiceOutputEngine.SherpaExperimental) return
         val voice = voiceOutputPreferences.selectedSherpaVoice.first()
         if (!voice.isDownloaded(context)) {
@@ -108,7 +97,6 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     companion object {
         private const val PREFS_NAME = "voice_defaults_provisioner"
-        private const val KEY_OUTPUT_DEFAULT_RESOLVED = "output_default_resolved_v1"
         private const val KEY_ZIPFORMER_QUEUED = "zipformer_queued_v1"
         private const val KEY_VOICE_QUEUED = "piper_voice_queued_v1"
 

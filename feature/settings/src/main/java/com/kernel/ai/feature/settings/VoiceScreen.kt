@@ -346,6 +346,7 @@ fun VoiceScreen(
         onDownloadSherpaVoice = viewModel::downloadSherpaVoice,
         onCancelSherpaVoice = viewModel::cancelSherpaVoiceDownload,
         onDeleteSherpaVoice = viewModel::deleteSherpaVoice,
+        onPlaySherpaSample = viewModel::playSherpaSample,
         onDownloadKokoroVoice = viewModel::downloadKokoroVoice,
         onCancelKokoroVoice = viewModel::cancelKokoroVoiceDownload,
         onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
@@ -552,6 +553,7 @@ private fun VoiceScreenContent(
     onDownloadSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onCancelSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
+    onPlaySherpaSample: (SherpaPiperVoice) -> Unit = { _ -> },
     onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onCancelKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
     onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
@@ -1027,53 +1029,6 @@ private fun VoiceScreenContent(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
 
-                // Speech rate slider — range 0.5–1.5 in steps of 0.05 (19 discrete steps)
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    SliderRow(
-                        label = "Speech rate",
-                        valueLabel = "%.2fx".format(uiState.sherpaSpeed),
-                        value = uiState.sherpaSpeed,
-                        valueRange = 0.5f..1.5f,
-                        steps = 19,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaSpeedChanged(
-                                (newVal * 20).roundToInt() / 20f
-                            )
-                        },
-                    )
-                }
-
-                // Pitch slider — range 0.5–2.0 in steps of 0.05 (29 discrete steps)
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SliderRow(
-                        label = "Pitch",
-                        valueLabel = "%.2fx".format(uiState.sherpaPitch),
-                        value = uiState.sherpaPitch,
-                        valueRange = 0.5f..2.0f,
-                        steps = 29,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaPitchChanged(
-                                (newVal * 20).roundToInt() / 20f
-                            )
-                        },
-                    )
-                }
-
-                // Volume boost slider — range 0.5–3.0 in steps of 0.25 (9 discrete steps)
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SliderRow(
-                        label = "Volume boost",
-                        valueLabel = "%.2fx".format(uiState.sherpaGain),
-                        value = uiState.sherpaGain,
-                        valueRange = 0.5f..3.0f,
-                        steps = 9,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaGainChanged(
-                                (newVal * 4).roundToInt() / 4f
-                            )
-                        },
-                    )
-                }
 
                 // Tracks whether the speaker selector is expanded; resets to true on voice change.
                 var speakerSelectorExpanded by rememberSaveable(uiState.selectedSherpaVoice) {
@@ -1092,7 +1047,7 @@ private fun VoiceScreenContent(
                     ) {
                         ModelCardCompact(
                             title = voiceRow.voice.displayName,
-                            description = voiceRow.voice.description,
+                            description = "${voiceRow.voice.description} ${formatBytes(voiceRow.voice.approxDownloadBytes)}.",
                             state = uiState.sherpaVoiceAvailability[voiceRow.voice]
                                 ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
                             modifier = Modifier.weight(1f),
@@ -1122,11 +1077,19 @@ private fun VoiceScreenContent(
                             }
                         }
                         is VoicePackDownloadState.Downloaded -> {
-                            OutlinedButton(
+                            Row(
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                onClick = { onDeleteSherpaVoice(voiceRow.voice) },
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("Delete")
+                                if (isSelected) {
+                                    Button(onClick = { onPlaySherpaSample(voiceRow.voice) }) {
+                                        Text("Play sample")
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                OutlinedButton(onClick = { onDeleteSherpaVoice(voiceRow.voice) }) {
+                                    Text("Delete")
+                                }
                             }
                         }
                         is VoicePackDownloadState.Error -> {
@@ -1183,6 +1146,54 @@ private fun VoiceScreenContent(
                             }
                         }
                     }
+                }
+
+                // Speech rate slider — range 0.5–1.5 in steps of 0.05 (19 discrete steps)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    SliderRow(
+                        label = "Speech rate",
+                        valueLabel = "%.2fx".format(uiState.sherpaSpeed),
+                        value = uiState.sherpaSpeed,
+                        valueRange = 0.5f..1.5f,
+                        steps = 19,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaSpeedChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
+                // Pitch slider — range 0.5–2.0 in steps of 0.05 (29 discrete steps)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Pitch",
+                        valueLabel = "%.2fx".format(uiState.sherpaPitch),
+                        value = uiState.sherpaPitch,
+                        valueRange = 0.5f..2.0f,
+                        steps = 29,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaPitchChanged(
+                                (newVal * 20).roundToInt() / 20f
+                            )
+                        },
+                    )
+                }
+
+                // Volume boost slider — range 0.5–3.0 in steps of 0.25 (9 discrete steps)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SliderRow(
+                        label = "Volume boost",
+                        valueLabel = "%.2fx".format(uiState.sherpaGain),
+                        value = uiState.sherpaGain,
+                        valueRange = 0.5f..3.0f,
+                        steps = 9,
+                        onValueChangeFinished = { newVal ->
+                            onSherpaGainChanged(
+                                (newVal * 4).roundToInt() / 4f
+                            )
+                        },
+                    )
                 }
             }
 

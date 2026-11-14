@@ -94,6 +94,23 @@ class VoiceViewModelTest {
             KernelModel.entries.associateWith { DownloadState.NotDownloaded as DownloadState },
         )
     private lateinit var viewModel: VoiceViewModel
+    private val voiceOutputController: com.kernel.ai.core.voice.VoiceOutputController = mockk(relaxed = true)
+
+    @Test
+    fun `play sample speaks only for a downloaded voice`() = runTest {
+        sherpaDownloadStates.value = mapOf(
+            SherpaPiperVoice.JennyDioco to VoicePackDownloadState.Downloaded("/voices/jenny"),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.playSherpaSample(SherpaPiperVoice.JennyDioco)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { voiceOutputController.speak(any()) }
+
+        viewModel.playSherpaSample(SherpaPiperVoice.NorthernEnglishMale)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { voiceOutputController.speak(any()) }
+    }
 
     private fun newViewModel() = VoiceViewModel(
         androidNativeRecognitionSupport,
@@ -105,6 +122,7 @@ class VoiceViewModelTest {
         modelDownloadManager,
         hardwareProfileDetector,
         context,
+        voiceOutputController,
     )
 
     @BeforeEach
@@ -235,6 +253,7 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             context,
+            voiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -265,6 +284,7 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             context,
+            voiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -295,6 +315,7 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             context,
+            voiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -402,6 +423,7 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             releaseContext,
+            voiceOutputController,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -433,6 +455,7 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             releaseContext,
+            voiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -505,57 +528,6 @@ class VoiceViewModelTest {
             )
             assertFalse(viewModel.uiState.value.isInflectMicroReady)
         }
-    @Test
-    fun `downloaded graphs and downloading frontend map to Preparing`() = runTest {
-        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
-            InflectMicroModelSpec.requiredModels.forEach { required ->
-                put(
-                    KernelModel.entries.first { it.fileName == required.fileName },
-                    DownloadState.Downloaded("/models/${required.fileName}"),
-                )
-            }
-        }
-        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
-            put(
-                SherpaPiperVoice.JennyDioco,
-                VoicePackDownloadState.Downloading(progress = 0.5f),
-            )
-        }
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        assertTrue(
-            viewModel.uiState.value.inflectMicroAvailability
-                is ModelAvailabilityState.Preparing,
-        )
-        assertFalse(viewModel.uiState.value.isInflectMicroReady)
-    }
-
-    @Test
-    fun `frontend failure maps to retryable logical model`() = runTest {
-        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
-            InflectMicroModelSpec.requiredModels.forEach { required ->
-                put(
-                    KernelModel.entries.first { it.fileName == required.fileName },
-                    DownloadState.Downloaded("/models/${required.fileName}"),
-                )
-            }
-        }
-        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
-            put(
-                SherpaPiperVoice.JennyDioco,
-                VoicePackDownloadState.Error("frontend extraction failed"),
-            )
-        }
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals(
-            ModelAvailabilityState.ActionRequired(
-                ActionReason.DownloadFailed("frontend extraction failed"),
-            ),
-            viewModel.uiState.value.inflectMicroAvailability,
-        )
-        assertFalse(viewModel.uiState.value.isInflectMicroReady)
-    }
 
     @Test
     fun `partial Inflect graph availability never maps to ready`() = runTest {
@@ -848,6 +820,7 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             releaseContext,
+            voiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -895,6 +868,7 @@ class VoiceViewModelTest {
             modelDownloadManager,
             hardwareProfileDetector,
             releaseContext,
+            voiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 

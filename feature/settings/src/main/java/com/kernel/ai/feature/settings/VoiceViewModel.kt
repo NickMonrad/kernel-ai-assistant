@@ -13,6 +13,9 @@ import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
+import com.kernel.ai.core.voice.PiperVoiceSetup
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
@@ -142,11 +145,13 @@ internal fun VoicePackDownloadState.toModelAvailability(): ModelAvailabilityStat
 }
 
 /**
- * Aggregates the Inflect graph states and the shared eSpeak frontend pack into one
- * logical model-management state.
+ * Aggregates the Inflect graph states and the shared eSpeak frontend pack into the Inflect row's
+ * model-management state.
  *
- * A partial bundle is never ready. Downloading takes precedence over an error so that the
- * single Cancel action remains available while any prerequisite is still in progress.
+ * The frontend is the selected Sherpa voice pack (Cori by default), which the Piper row owns. It
+ * counts toward Inflect only while an Inflect graph is itself downloading or failed, so another
+ * voice's download never shows here as Inflect work (#1868). A partial bundle is never ready.
+ * Downloading takes precedence over an error so the single Cancel action stays available.
  */
 internal fun aggregateInflectMicroAvailability(
     requiredModels: List<KernelModel>,
@@ -163,11 +168,12 @@ internal fun aggregateInflectMicroAvailability(
         return ModelAvailabilityState.Ready
     }
 
-    val frontendDownloading = frontendState as? VoicePackDownloadState.Downloading
-    if (
-        resolvedStates.any { (_, state) -> state is DownloadState.Downloading } ||
-        frontendDownloading != null
-    ) {
+    val graphDownloading = resolvedStates.any { (_, state) -> state is DownloadState.Downloading }
+    val graphError = resolvedStates.firstOrNull { (_, state) -> state is DownloadState.Error }
+    val inflectOwnsFrontend = graphDownloading || graphError != null
+    val frontend = if (inflectOwnsFrontend) frontendState else VoicePackDownloadState.NotDownloaded
+
+    if (graphDownloading) {
         val totalBytes = resolvedStates.sumOf { (model, _) -> model.approxSizeBytes } +
             frontendApproxDownloadBytes
         val downloadedBytes = resolvedStates.sumOf { (model, state) ->
@@ -176,10 +182,10 @@ internal fun aggregateInflectMicroAvailability(
                 is DownloadState.Downloading -> (model.approxSizeBytes * state.progress).toLong()
                 else -> 0L
             }
-        } + when (frontendState) {
+        } + when (frontend) {
             is VoicePackDownloadState.Downloaded -> frontendApproxDownloadBytes
             is VoicePackDownloadState.Downloading ->
-                (frontendApproxDownloadBytes * frontendState.progress).toLong()
+                (frontendApproxDownloadBytes * frontend.progress).toLong()
             else -> 0L
         }
         return ModelAvailabilityState.Preparing(
@@ -192,12 +198,11 @@ internal fun aggregateInflectMicroAvailability(
         )
     }
 
-    val graphError = resolvedStates.firstOrNull { (_, state) -> state is DownloadState.Error }
     if (graphError != null) {
         val (model, state) = graphError
         return (state as DownloadState.Error).toAvailability(model, hfAuth = false)
     }
-    val frontendError = frontendState as? VoicePackDownloadState.Error
+    val frontendError = frontend as? VoicePackDownloadState.Error
     if (frontendError != null) {
         return ModelAvailabilityState.ActionRequired(
             ActionReason.DownloadFailed(frontendError.message),
@@ -233,7 +238,9 @@ class VoiceViewModel @Inject constructor(
     private val modelDownloadManager: ModelDownloadManager,
     private val hardwareProfileDetector: HardwareProfileDetector,
     @ApplicationContext private val context: Context,
+    private val voiceOutputController: VoiceOutputController,
 ) : ViewModel() {
+    private val piperVoiceSetup = PiperVoiceSetup(voiceOutputPreferences, sherpaVoicePackDownloadManager)
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
     private val inflectReleaseEligible: Boolean =
@@ -645,6 +652,16 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(selectedOutputEngine = engine) }
         viewModelScope.launch {
             voiceOutputPreferences.setSelectedEngine(engine)
+            piperVoiceSetup.onEngineChosen(engine)
+        }
+    }
+
+    /** Speaks a fixed sample through the selected output engine. Only for a downloaded voice; never automatic. */
+    fun playSherpaSample(voice: SherpaPiperVoice) {
+        val row = _uiState.value.sherpaVoices.firstOrNull { it.voice == voice }
+        if (row?.downloadState !is VoicePackDownloadState.Downloaded) return
+        viewModelScope.launch {
+            voiceOutputController.speak(VoiceSpeakRequest(text = SHERPA_SAMPLE_TEXT))
         }
     }
 
@@ -805,3 +822,5 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(isDefaultAssistant = isRoleHeld) }
     }
 }
+
+private const val SHERPA_SAMPLE_TEXT = "Hi, this is Jandal. This is how this voice sounds."

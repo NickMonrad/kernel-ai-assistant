@@ -1,11 +1,14 @@
 package com.kernel.ai.feature.settings
 
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.UnavailableReason
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class VoicePackAvailabilityMappingTest {
@@ -43,6 +46,73 @@ class VoicePackAvailabilityMappingTest {
             states = emptyMap(),
             frontendState = VoicePackDownloadState.NotDownloaded,
             frontendApproxDownloadBytes = 0L,
+        )
+
+        assertEquals(ModelAvailabilityState.NotDisplayed, mapped)
+    }
+
+    private val inflectModels = listOf(
+        KernelModel.entries.first { it.fileName == "duration.onnx" },
+        KernelModel.entries.first { it.fileName == "decode.onnx" },
+    )
+
+    @Test
+    fun `Cori downloading does not show Inflect as downloading`() {
+        val mapped = aggregateInflectMicroAvailability(
+            requiredModels = inflectModels,
+            states = emptyMap(),
+            frontendState = VoicePackDownloadState.Downloading(progress = 0.5f),
+            frontendApproxDownloadBytes = 115_574_061L,
+        )
+
+        assertEquals(ModelAvailabilityState.NotDisplayed, mapped)
+    }
+
+    @Test
+    fun `finished Cori does not make Inflect ready or show a contradictory state`() {
+        val mapped = aggregateInflectMicroAvailability(
+            requiredModels = inflectModels,
+            states = emptyMap(),
+            frontendState = VoicePackDownloadState.Downloaded(localDir = "/data/voices/cori"),
+            frontendApproxDownloadBytes = 115_574_061L,
+        )
+
+        assertEquals(ModelAvailabilityState.NotDisplayed, mapped)
+    }
+
+    @Test
+    fun `Cori failure is not reported as an Inflect failure when Inflect has not started`() {
+        val mapped = aggregateInflectMicroAvailability(
+            requiredModels = inflectModels,
+            states = emptyMap(),
+            frontendState = VoicePackDownloadState.Error("disk full"),
+            frontendApproxDownloadBytes = 115_574_061L,
+        )
+
+        assertEquals(ModelAvailabilityState.NotDisplayed, mapped)
+    }
+
+    @Test
+    fun `Inflect graph download counts the shared pack in its own progress`() {
+        val mapped = aggregateInflectMicroAvailability(
+            requiredModels = inflectModels,
+            states = mapOf(inflectModels[0] to DownloadState.Downloading(progress = 1f)),
+            frontendState = VoicePackDownloadState.Downloaded(localDir = "/data/voices/cori"),
+            frontendApproxDownloadBytes = 115_574_061L,
+        )
+
+        assertTrue(mapped is ModelAvailabilityState.Preparing)
+        val progress = (mapped as ModelAvailabilityState.Preparing).progress
+        assertTrue(progress > 0f && progress < 1f)
+    }
+
+    @Test
+    fun `downloaded Inflect graphs do not inherit Cori's download progress`() {
+        val mapped = aggregateInflectMicroAvailability(
+            requiredModels = inflectModels,
+            states = inflectModels.associateWith { DownloadState.Downloaded(localPath = "/data/inflect") },
+            frontendState = VoicePackDownloadState.Downloading(progress = 0.3f),
+            frontendApproxDownloadBytes = 115_574_061L,
         )
 
         assertEquals(ModelAvailabilityState.NotDisplayed, mapped)
