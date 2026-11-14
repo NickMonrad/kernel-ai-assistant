@@ -31,6 +31,9 @@ enum class LifecycleOutcome { STARTED, STOPPED, REFUSED_NO_MIC_PERMISSION, GRANT
 /** TTS failure categories. Fixed enum values only (#1870). */
 enum class TtsFailure { UNAVAILABLE, ENGINE_START }
 
+/** Intent dispatch outcome category. Fixed enum values only (#1870). */
+enum class IntentOutcome { SUCCESS, FAILURE, PARSE_ERROR, UNKNOWN_SKILL, CAPABILITY_REQUIRED, OTHER }
+
 /** Most events kept in memory and on disk (ring buffer; oldest evicted first). */
 const val JANDAL_EVENT_CAPACITY = 500
 

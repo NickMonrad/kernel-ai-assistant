@@ -319,7 +319,7 @@ class ModelDownloadManager @Inject constructor(
         _downloadStates.update { it.toMutableMap().apply { put(model, state) } }
         // Transitions only: progress ticks within one state are not recorded.
         if (previous?.javaClass != state.javaClass) {
-            JandalEvents.record("download", "state", "model" to model.name, "state" to state.toJandalStateKind())
+            JandalEvents.record("download", "state", "model" to model, "state" to state.toJandalStateKind())
         }
     }
 
@@ -364,7 +364,7 @@ class ModelDownloadManager @Inject constructor(
                 val info = infoList.firstOrNull() ?: return@collect
                 if (info.state != lastWorkerState) {
                     lastWorkerState = info.state
-                    JandalEvents.record("download", "worker_phase", "model" to model.name, "phase" to info.state.toWorkerPhase())
+                    JandalEvents.record("download", "worker_phase", "model" to model, "phase" to info.state.toWorkerPhase())
                 }
 
                 val newState: DownloadState = when (info.state) {

@@ -72,6 +72,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import com.kernel.ai.core.inference.diagnostics.IntentOutcome
 private const val TAG = "KernelAI"
 
 interface ClockAlertController {
@@ -256,9 +257,11 @@ class NativeIntentHandler @Inject constructor(
 
     /** Outcome only: registered intent names, never params or result text (#1870). */
     private fun recordIntentOutcome(normalizedName: String, result: SkillResult) {
-        val name = if (intentRegistry.get(normalizedName) != null) normalizedName else "unknown_intent"
-        JandalEvents.record("intent", name, "success" to (result is SkillResult.Success))
+        val name = if (normalizedName in HANDLED_INTENT_NAMES) normalizedName else "unknown_intent"
+        val outcome = intentOutcomeOf(result)
+        JandalEvents.record("intent", name, "success" to (outcome == IntentOutcome.SUCCESS), "outcome" to outcome)
     }
+
 
     /**
      * Normalizes LLM-generated intent names to their canonical form.
@@ -297,6 +300,33 @@ class NativeIntentHandler @Inject constructor(
             "freeway" to "motorway",
             "freeways" to "motorways",
         )
+
+        /** Every name the dispatch `when` handles. Logging gate for #1870; keep in sync with `execute`. */
+        internal val HANDLED_INTENT_NAMES = setOf(
+            "toggle_flashlight_on", "toggle_flashlight_off", "send_email", "send_sms", "set_alarm", "set_timer",
+            "cancel_timer", "list_timers", "cancel_timer_named", "get_timer_remaining", "start_stopwatch",
+            "pause_stopwatch", "resume_stopwatch", "lap_stopwatch", "reset_stopwatch", "get_stopwatch_status",
+            "cancel_alarm", "create_calendar_event", "get_battery", "get_time", "get_date", "toggle_dnd_on",
+            "toggle_dnd_off", "set_volume", "toggle_wifi", "toggle_bluetooth", "toggle_airplane_mode",
+            "toggle_hotspot", "play_media", "play_media_album", "play_media_playlist", "play_youtube",
+            "play_spotify", "play_plexamp", "play_youtube_music", "play_netflix", "play_plex", "play_podcast",
+            "podcast_skip_forward", "podcast_skip_back", "podcast_speed", "pause_media", "stop_media",
+            "next_track", "previous_track", "open_app", "navigate_to", "find_nearby", "make_call", "add_to_list",
+            "bulk_add_to_list", "create_list", "get_list_items", "remove_from_list", "add_reminder",
+            "smart_home_on", "smart_home_off", "get_weather", "get_date_diff", "calculate_arithmetic",
+            "convert_units", "convert_cooking_measure", "convert_currency", "get_system_info",
+            "save_important_date", "list_important_dates", "remove_important_date", "save_memory", "create_note",
+            "list_notes", "set_brightness",
+        )
+        /** Outcome category for logging. DirectReply is a successful reply (e.g. add_to_list) (#1870). */
+        internal fun intentOutcomeOf(result: SkillResult): IntentOutcome = when (result) {
+            is SkillResult.Success, is SkillResult.DirectReply -> IntentOutcome.SUCCESS
+            is SkillResult.Failure -> IntentOutcome.FAILURE
+            is SkillResult.ParseError -> IntentOutcome.PARSE_ERROR
+            is SkillResult.UnknownSkill -> IntentOutcome.UNKNOWN_SKILL
+            is SkillResult.CapabilityRequired -> IntentOutcome.CAPABILITY_REQUIRED
+            else -> IntentOutcome.OTHER
+        }
 
         internal val KNOWN_INTENTS = setOf(
             "toggle_flashlight_on", "toggle_flashlight_off",
