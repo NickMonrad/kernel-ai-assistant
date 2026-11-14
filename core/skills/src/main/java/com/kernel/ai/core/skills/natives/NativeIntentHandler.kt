@@ -171,7 +171,7 @@ class NativeIntentHandler @Inject constructor(
         if (normalizedName != intentName) {
             Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
         }
-        Log.d(TAG, "NativeIntentHandler.handle: intent=$normalizedName params=${CalendarLogRedaction.params(normalizedName, params)}")
+        Log.d(TAG, "NativeIntentHandler.handle: intent=$normalizedName paramKeys=${params.size}")
         val result = try {
             when (normalizedName) {
                 "toggle_flashlight_on" -> setTorch(true)

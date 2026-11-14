@@ -56,7 +56,6 @@ import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.natives.isPersonalMemoryRecallQuery
-import com.kernel.ai.core.skills.natives.CalendarLogRedaction
 import com.kernel.ai.core.skills.natives.isCurrentConversationRecallQuery
 import com.kernel.ai.core.skills.intent.IntentCandidate
 import com.kernel.ai.core.skills.intent.RecoveryResult
@@ -2641,7 +2640,7 @@ class ChatViewModel @Inject constructor(
                                     Log.d("KernelAI", "RecoveryOrchestrator: slot_validation_blocked intent=${recovery.intentName}")
                                     return@launch
                                 }
-                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} params=${CalendarLogRedaction.params(recovery.intentName, callParams)}")
+                                Log.d("KernelAI", "RecoveryOrchestrator.Execute: intent=${recovery.intentName} paramKeys=${callParams.size}")
                                 val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.RECOVERY)
                                 when (skillResult) {
                                     is SkillResult.DirectReply -> {
@@ -2695,7 +2694,7 @@ class ChatViewModel @Inject constructor(
                             return@launch
                         }
                         is RecoveryResult.AskConfirmation -> {
-                            Log.d("KernelAI", "RecoveryOrchestrator.AskConfirmation: intent=${recovery.intentName} params=${CalendarLogRedaction.params(recovery.intentName, recovery.params)}")
+                            Log.d("KernelAI", "RecoveryOrchestrator.AskConfirmation: intent=${recovery.intentName} paramKeys=${recovery.params.size}")
                             pendingConfirmationIntent = QuickIntentRouter.MatchedIntent(
                                 intentName = recovery.intentName,
                                 params = recovery.params,
@@ -2768,7 +2767,7 @@ class ChatViewModel @Inject constructor(
                     return@launch
                 }
                 if (skill != null) {
-                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} params=${CalendarLogRedaction.params(matchedIntent.intentName, callParams)}")
+                    Log.d("KernelAI", "NativeIntentHandler.handle: intent=${matchedIntent.intentName} paramKeys=${callParams.size}")
                     val skillResult = SkillOutcomeEvents.execute(
                         skill,
                         callParams,
@@ -2782,7 +2781,7 @@ class ChatViewModel @Inject constructor(
                         is com.kernel.ai.core.skills.SkillResult.DirectReply -> {
                             // Skill produced a complete, self-contained reply — show it verbatim
                             // and bypass the LLM entirely to avoid number/unit corruption.
-                            Log.d("KernelAI", "DirectReply: ${CalendarLogRedaction.text(CalendarLogRedaction.mentionsCalendarIntent(matchedIntent.intentName), skillResult.content, 200)}")
+                            Log.d("KernelAI", "DirectReply: len=${skillResult.content.length}")
                             appendAssistantMessageWithToolCall(
                                 convId = convId,
                                 content = skillResult.content,
@@ -3597,7 +3596,7 @@ class ChatViewModel @Inject constructor(
                             if (nativeToolCall != null) {
                                 Log.d(
                                     "KernelAI",
-                                    "llm_tools_native_tool: tool=${nativeToolCall.skillName} request=${CalendarLogRedaction.text(CalendarLogRedaction.mentionsCalendarIntent(nativeToolCall.requestJson, nativeToolCall.skillName) || kernelAIToolSet.lastToolIsCalendar(), nativeToolCall.requestJson, 500)}",
+                                    "llm_tools_native_tool: tool=${nativeToolCall.skillName} requestLen=${nativeToolCall.requestJson.length}",
                                 )
                             requestCalendarPermissionIfNeeded(kernelAIToolSet.lastToolCapabilityRequired())
                             // E2E marker: native SDK skill result
@@ -3615,10 +3614,10 @@ class ChatViewModel @Inject constructor(
                             val toolCallResult = if (nativeToolCall == null) {
                                 Log.d(
                                     "KernelAI",
-                                    "llm_tools_legacy_tool: raw=${CalendarLogRedaction.text(CalendarLogRedaction.mentionsCalendarIntent(fullContent), fullContent, 500)}",
+                                    "llm_tools_legacy_tool: len=${fullContent.length}",
                                 )
-                                // E2E marker: legacy assistant reply text (collapse newlines to avoid logcat splits)
-                                Log.d("KernelAI", "llm_tools_assistant_reply: ${CalendarLogRedaction.text(CalendarLogRedaction.mentionsCalendarIntent(fullContent), fullContent, 1000).replace('\n', ' ')}")
+                                // E2E marker: legacy assistant reply size (content is not logged)
+                                Log.d("KernelAI", "llm_tools_assistant_reply: len=${fullContent.length}")
                                 tryExecuteToolCall(fullContent)
                             } else null
                             if (nativeToolCall != null || toolCallResult != null) {
@@ -3672,7 +3671,7 @@ class ChatViewModel @Inject constructor(
                                 }
 
                                 // E2E marker: assistant reply text (collapse newlines to avoid logcat splits)
-                                Log.d("KernelAI", "llm_tools_assistant_reply: ${CalendarLogRedaction.text(CalendarLogRedaction.mentionsCalendarIntent(fullContent, nativeToolCall?.requestJson) || kernelAIToolSet.lastToolIsCalendar(), resultContent, 1000).replace('\n', ' ')}")
+                                Log.d("KernelAI", "llm_tools_assistant_reply: len=${resultContent.length}")
 
                                 // Update streaming message with result text
                                 _messages.update { msgs ->
@@ -4232,7 +4231,7 @@ class ChatViewModel @Inject constructor(
         // E2E marker: skill execution result
         Log.d(
             "KernelAI",
-            "llm_tools_skill_result: skill=${CalendarLogRedaction.text(CalendarLogRedaction.mentionsCalendarIntent(extracted), extracted, 200)} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
+            "llm_tools_skill_result: argsLen=${extracted.length} mode=${when(result) { is SkillResult.Success -> "success"; is SkillResult.DirectReply -> "direct_reply"; else -> "failure" }} success=${result !is SkillResult.Failure}",
         )
         return when (result) {
             is SkillResult.Success -> {
