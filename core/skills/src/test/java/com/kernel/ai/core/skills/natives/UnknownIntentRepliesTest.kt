@@ -35,6 +35,8 @@ class UnknownIntentRepliesTest {
         listOf(
             "add_calendar_event", "create_event", "delete_calendar_event", "send_mail",
             "compose_email", "schedule_meeting", "book_appointment", "update_calendar_event",
+            "reschedule_meeting", "invite_to_meeting", "rsvp_event", "new_event", "draft_email",
+            "write_email", "archive_email", "mark_email_read", "clear_inbox",
         ).forEach { name ->
             assertEquals(UnknownIntentReplies.GENERIC_REPLY, UnknownIntentReplies.replyFor(name), name)
         }

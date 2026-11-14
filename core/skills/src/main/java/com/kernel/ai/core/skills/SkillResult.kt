@@ -50,10 +50,11 @@ sealed class SkillResult {
     /**
      * Skill found but execution failed. Fields:
      *
-     * - [error] is the user-facing reply text. Chat bubbles and Quick Actions cards show it as-is
-     *   when [technicalDetail] is set. Without [technicalDetail], Quick Actions prefixes it with
-     *   "Action failed:" and chat prefixes it with "I tried to do that but something went wrong:".
-     *   Voice (VoiceCommandHandler) speaks [error] as-is.
+     * - [error] is the user-facing reply text. Quick-route branches, the model-path bubble and voice
+     *   show it as-is. Only the text tool-call path (ChatViewModel.tryExecuteToolCall via
+     *   failureChatReply, skipping send_email) prepends "I tried to do that but something went wrong:",
+     *   and only when [technicalDetail] is null. Quick Actions (ActionsViewModel) prepends
+     *   "Action failed:" under the same condition. Voice (VoiceCommandHandler) speaks [error] as-is.
      * - [fallThroughToModel] = true marks an internal miss. Chat (quick-route path), Quick Actions
      *   and voice hand the original request to the model and do NOT display [error]. Use it only
      *   when the model should answer instead. Several ChatViewModel failure branches do not read

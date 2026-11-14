@@ -30,7 +30,9 @@ object UnknownIntentReplies {
      */
     private val WRITE_VERBS = setOf(
         "add", "create", "delete", "remove", "send", "compose", "update", "edit", "book", "cancel",
-        "set", "make", "reply", "forward", "move", "modify",
+        "set", "make", "reply", "forward", "move", "modify", "reschedule", "invite", "accept",
+        "decline", "rsvp", "new", "change", "plan", "arrange", "organise", "organize", "setup",
+        "block", "save", "insert", "post", "draft", "write", "archive", "mark", "clear",
     )
 
     /** Returns the friendly reply for an unregistered intent name. Never includes [intentName]. */

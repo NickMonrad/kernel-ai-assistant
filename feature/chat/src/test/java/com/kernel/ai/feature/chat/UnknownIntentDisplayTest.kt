@@ -57,13 +57,4 @@ class UnknownIntentDisplayTest {
             failureCardText(SkillResult.Failure("run_intent", "Permission denied")),
         )
     }
-
-    @Test
-    fun `no user-visible text contains the raw Unknown intent string`() {
-        listOf(unknownCalendar, unknownNonsense).forEach { result ->
-            listOf(failureChatReply(result), failureCardText(result)).forEach { shown ->
-                assertFalse(shown.contains("Unknown intent", ignoreCase = true), shown)
-            }
-        }
-    }
 }

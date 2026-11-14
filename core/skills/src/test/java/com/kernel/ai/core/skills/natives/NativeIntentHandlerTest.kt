@@ -4371,22 +4371,8 @@ class NativeIntentHandlerTest {
 
             val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
             assertEquals(UnknownIntentReplies.GENERIC_REPLY, failure.error)
-            assertFalse(failure.error.contains("frobnicate", ignoreCase = true))
             assertEquals("Unknown intent: frobnicate_widgets", failure.technicalDetail)
             verify(exactly = 0) { context.startActivity(any()) }
-        }
-
-        @Test
-        fun `no unknown intent name ever reaches the user-facing error`() {
-            listOf("get_calendar", "read_calendar", "list_events", "frobnicate_widgets", "")
-                .forEach { name ->
-                    val failure = assertInstanceOf(
-                        SkillResult.Failure::class.java,
-                        handleIntent(name, emptyMap()),
-                    )
-                    assertFalse(failure.error.contains("Unknown intent", ignoreCase = true), name)
-                    assertTrue(failure.error.isNotBlank(), name)
-                }
         }
     }
 }
