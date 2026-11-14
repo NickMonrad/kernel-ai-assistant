@@ -57,6 +57,14 @@ class SetupWizardDownloadSizeLineTest {
     }
 
     @Test
+    fun `a small positive total never prints as 0 B`() {
+        val line = downloadSizeLine(totalBytes = 4096L, choiceRecorded = true)
+
+        assertTrue(line.startsWith("About 4096 B still to download."))
+        assertFalse(line.contains("0 B"))
+    }
+
+    @Test
     fun `non-zero bytes keep the total wording on a first run`() {
         val line = downloadSizeLine(totalBytes = 300_000_000L, choiceRecorded = false)
 
