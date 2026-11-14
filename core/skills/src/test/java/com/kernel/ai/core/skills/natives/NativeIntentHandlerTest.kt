@@ -4328,4 +4328,51 @@ class NativeIntentHandlerTest {
             assertInstanceOf(SkillResult.CapabilityRequired::class.java, result)
         }
     }
+
+    @Nested
+    inner class UnknownIntentFallback {
+        private val calendarReply = UnknownIntentReplies.CALENDAR_READ_REPLY
+
+        @Test
+        fun `get_calendar gives calendar capability reply and keeps detail for the chip`() {
+            val result = handleIntent("get_calendar", mapOf("date" to "next week"))
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(calendarReply, failure.error)
+            assertFalse(failure.fallThroughToModel)
+            assertEquals("Unknown intent: get_calendar", failure.technicalDetail)
+            verify(exactly = 0) { context.startActivity(any()) }
+            coVerify(exactly = 0) { clockRepository.createAlarm(any()) }
+        }
+
+        @Test
+        fun `read_calendar gives calendar capability reply`() {
+            val result = handleIntent("read_calendar", emptyMap())
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(calendarReply, failure.error)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `write-style calendar name gets generic reply, not the read offer`() {
+            val failure = assertInstanceOf(
+                SkillResult.Failure::class.java,
+                handleIntent("add_calendar_event", emptyMap()),
+            )
+
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, failure.error)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+        @Test
+        fun `nonsense intent gives generic reply and does not echo the name to the user`() {
+            val result = handleIntent("frobnicate_widgets", emptyMap())
+
+            val failure = assertInstanceOf(SkillResult.Failure::class.java, result)
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, failure.error)
+            assertEquals("Unknown intent: frobnicate_widgets", failure.technicalDetail)
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+    }
 }
