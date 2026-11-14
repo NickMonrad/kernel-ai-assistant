@@ -2151,7 +2151,7 @@ class NativeIntentHandler @Inject constructor(
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
-            "Added \"$item\" to your $listName.",
+            ListConfirmationText.added(listOf(item), listName),
             presentation = buildListPreview(listName, items),
         )
     }
@@ -2194,8 +2194,7 @@ class NativeIntentHandler @Inject constructor(
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
-            "Added ${items.size} item${if (items.size == 1) "" else "s"} to your $listName:\n" +
-                items.joinToString(", "),
+            ListConfirmationText.added(items, listName),
             presentation = buildListPreview(listName, currentItems),
         )
     }
@@ -2289,7 +2288,7 @@ class NativeIntentHandler @Inject constructor(
         val all = list?.let { runBlocking { listItemDao.getByList(it.id) } } ?: emptyList()
         val match = all.firstOrNull { it.text.equals(item, ignoreCase = true) }
             ?: all.firstOrNull { it.text.contains(item, ignoreCase = true) }
-            ?: return SkillResult.DirectReply("\"$item\" not found in $listName.")
+            ?: return SkillResult.DirectReply(ListConfirmationText.notFound(item, listName))
         val remaining = runBlocking {
             if (listId == null) return@runBlocking emptyList()
             listMutations?.deleteItem(match.id) ?: listItemDao.deleteItem(match.id)
@@ -2297,7 +2296,7 @@ class NativeIntentHandler @Inject constructor(
         }
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
-            "Removed \"${match.text}\" from $listName.",
+            ListConfirmationText.removed(match.text, listName),
             presentation = buildListPreview(listName, remaining, "No items left."),
         )
     }

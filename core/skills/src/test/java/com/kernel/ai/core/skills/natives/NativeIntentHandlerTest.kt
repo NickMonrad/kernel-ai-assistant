@@ -950,7 +950,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added \"golden journey item\" to your widget test.",
+            "Added golden journey item to your widget test.",
             (result as SkillResult.DirectReply).content,
         )
         assertEquals(7L, insertedItem.captured.listId)
@@ -1490,7 +1490,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added \"Dessert\" to your Meal Plan.",
+            "Added Dessert to your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItem(42L, "Dessert", any(), any()) }
@@ -1511,7 +1511,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added 1 item to your Meal Plan:\nkiwi",
+            "Added kiwi to your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(42L, listOf("kiwi")) }
@@ -1621,7 +1621,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added 2 items to your Meal Plan:\nDessert, Coffee",
+            "Added Dessert and Coffee to your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(42L, listOf("Dessert", "Coffee")) }
@@ -1643,7 +1643,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Removed \"Dessert\" from Meal Plan.",
+            "Removed Dessert from your Meal Plan.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.deleteItem(8L) }
@@ -1763,7 +1763,7 @@ class NativeIntentHandlerTest {
 
         assertEquals(
             SkillResult.DirectReply(
-                "Added \"milk\" to your shopping list.",
+                "Added milk to your shopping list.",
                 presentation = addResult.let { (it as SkillResult.DirectReply).presentation },
             ),
             addResult,
@@ -1793,7 +1793,7 @@ class NativeIntentHandlerTest {
         )
         val groceryAlias = handleIntent("get_list_items", mapOf("list_name" to "grocery list"))
 
-        assertEquals("Added \"lactose-free yoghurt\" to your Shopping.", (result as SkillResult.DirectReply).content)
+        assertEquals("Added lactose-free yoghurt to your Shopping.", (result as SkillResult.DirectReply).content)
         assertEquals("Your Shopping is empty.", (groceryAlias as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { mutations.addItem(7L, "lactose-free yoghurt", any(), any()) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
@@ -1826,9 +1826,9 @@ class NativeIntentHandlerTest {
             mapOf("item" to "dessert", "list_name" to "Meal Plan list"),
         )
 
-        assertEquals("Added \"Dessert\" to your Meal Plan.", (add as SkillResult.DirectReply).content)
+        assertEquals("Added Dessert to your Meal Plan.", (add as SkillResult.DirectReply).content)
         assertEquals("Meal Plan (1 item):\n• Dessert", (read as SkillResult.DirectReply).content)
-        assertEquals("Removed \"Dessert\" from Meal Plan.", (remove as SkillResult.DirectReply).content)
+        assertEquals("Removed Dessert from your Meal Plan.", (remove as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { mutations.addItem(42L, "Dessert", any(), any()) }
         coVerify(exactly = 1) { mutations.deleteItem(8L) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
@@ -1854,7 +1854,7 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            "Added 2 items to your Test hierarchy:\nPens, Paper",
+            "Added Pens and Paper to your Test hierarchy.",
             (result as SkillResult.DirectReply).content,
         )
         coVerify(exactly = 1) { mutations.addItems(73L, listOf("Pens", "Paper")) }
@@ -1956,7 +1956,7 @@ class NativeIntentHandlerTest {
 
         assertEquals("Test hierarchy list", match.intent.params["list_name"])
         assertEquals("Test hierarchy", match.intent.params["list_name_for_creation"])
-        assertEquals("Added \"lactose-free yoghurt\" to your test hierarchy.", (result as SkillResult.DirectReply).content)
+        assertEquals("Added lactose-free yoghurt to your test hierarchy.", (result as SkillResult.DirectReply).content)
         coVerify(exactly = 1) { mutations.createCollection("test hierarchy") }
         coVerify(exactly = 1) { mutations.addItem(91L, "lactose-free yoghurt", any(), any()) }
     }
