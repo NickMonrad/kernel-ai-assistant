@@ -24,7 +24,6 @@ import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.permissions.MicrophoneReadiness
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
-import com.kernel.ai.core.model.availability.UnavailableReason
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -450,7 +449,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+            ModelAvailabilityState.NotDisplayed,
             viewModel.uiState.value.inflectMicroAvailability,
         )
     }
@@ -501,7 +500,7 @@ class VoiceViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(
-                ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+                ModelAvailabilityState.NotDisplayed,
                 viewModel.uiState.value.inflectMicroAvailability,
             )
             assertFalse(viewModel.uiState.value.isInflectMicroReady)
@@ -570,7 +569,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+            ModelAvailabilityState.NotDisplayed,
             viewModel.uiState.value.inflectMicroAvailability,
         )
         assertFalse(viewModel.uiState.value.isInflectMicroReady)
@@ -661,7 +660,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
+            ModelAvailabilityState.NotDisplayed,
             viewModel.uiState.value.inflectMicroAvailability,
         )
         assertFalse(viewModel.uiState.value.isInflectMicroReady)
