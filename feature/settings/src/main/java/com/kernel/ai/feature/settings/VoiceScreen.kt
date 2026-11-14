@@ -1031,11 +1031,14 @@ private fun VoiceScreenContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
-                OutlinedButton(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                    onClick = { onCancelSherpaVoice(uiState.selectedSherpaVoice) },
-                ) {
-                    Text("Cancel")
+                // While the Inflect row is preparing, it owns this Cori download and shows the one Cancel.
+                if (uiState.inflectMicroAvailability !is ModelAvailabilityState.Preparing) {
+                    OutlinedButton(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        onClick = { onCancelSherpaVoice(uiState.selectedSherpaVoice) },
+                    ) {
+                        Text("Cancel")
+                    }
                 }
             }
 

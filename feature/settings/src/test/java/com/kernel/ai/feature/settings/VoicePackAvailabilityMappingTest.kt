@@ -71,7 +71,7 @@ class VoicePackAvailabilityMappingTest {
     }
 
     @Test
-    fun `Cori downloading shows Inflect progress while Piper is not selected`() {
+    fun `Cori downloading alone is not Inflect progress while Piper is not selected`() {
         val mapped = aggregateInflectMicroAvailability(
             requiredModels = inflectModels,
             states = emptyMap(),
@@ -80,9 +80,22 @@ class VoicePackAvailabilityMappingTest {
             piperSelected = false,
         )
 
+        assertEquals(ModelAvailabilityState.NotDisplayed, mapped)
+    }
+
+    @Test
+    fun `Piper-owned downloaded Cori does not stall Inflect graph progress`() {
+        val mapped = aggregateInflectMicroAvailability(
+            requiredModels = inflectModels,
+            states = inflectModels.associateWith { DownloadState.Downloading(progress = 0.5f) },
+            frontendState = VoicePackDownloadState.Downloaded(localDir = "/data/voices/cori"),
+            frontendApproxDownloadBytes = 115_574_061L,
+            piperSelected = true,
+        )
+
         assertTrue(mapped is ModelAvailabilityState.Preparing)
         val progress = (mapped as ModelAvailabilityState.Preparing).progress
-        assertTrue(progress > 0f && progress < 1f)
+        assertEquals(0.5f, progress, 0.01f)
     }
 
     @Test

@@ -68,4 +68,18 @@ class VoiceDefaultsProvisionerTest {
         assertEquals(false, plan.keepAndroidTts)
         assertEquals(true, plan.startDownload)
     }
+
+    @Test
+    fun `engine picked during the consent wait is not overwritten by the updated-install default`() {
+        // The caller reads hasStoredEngine after the wait, so a Piper pick made during it is stored by then.
+        val plan = planSpeechOutputVoice(
+            hasStoredEngine = true,
+            isExistingInstall = true,
+            effectiveEngine = VoiceOutputEngine.SherpaExperimental,
+            voiceDownloaded = false,
+        )
+
+        assertEquals(false, plan.keepAndroidTts)
+        assertEquals(true, plan.startDownload)
+    }
 }

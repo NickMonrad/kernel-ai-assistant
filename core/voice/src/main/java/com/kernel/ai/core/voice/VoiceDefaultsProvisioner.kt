@@ -51,8 +51,7 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     fun start() {
         scope.launch {
-            // First-run decision, read before the wizard can write an engine or start downloads (#1868).
-            val hasStoredEngine = voiceOutputPreferences.hasStoredEngine()
+            // Read before the consent wait: the wizard does not change whether this is an existing install (#1868).
             val isExistingInstall = modelDownloadManager.isExistingInstall()
             runCatching { deleteLegacyVoskModel() }
                 .onFailure { Log.w(TAG, "Failed to delete legacy Vosk model", it) }
@@ -60,7 +59,7 @@ class VoiceDefaultsProvisioner @Inject constructor(
             downloadNetworkPreferences.choice.first { DownloadConsent.voiceDefaultsAllowed(it) }
             runCatching { queueSpeechInputModel() }
                 .onFailure { Log.w(TAG, "Failed to queue speech input model", it) }
-            runCatching { queueSpeechOutputVoice(hasStoredEngine, isExistingInstall) }
+            runCatching { queueSpeechOutputVoice(isExistingInstall) }
                 .onFailure { Log.w(TAG, "Failed to queue speech output voice", it) }
         }
     }
@@ -78,12 +77,12 @@ class VoiceDefaultsProvisioner @Inject constructor(
         prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
     }
 
-    private suspend fun queueSpeechOutputVoice(hasStoredEngine: Boolean, isExistingInstall: Boolean) {
+    private suspend fun queueSpeechOutputVoice(isExistingInstall: Boolean) {
         if (prefs.getBoolean(KEY_VOICE_QUEUED, false)) return
         val voice = voiceOutputPreferences.selectedSherpaVoice.first()
-        // Read before any write below: the plan needs the engine as the user left it.
+        // Read after the consent wait: an engine the user picked in Settings during the wait must not be overwritten.
         val plan = planSpeechOutputVoice(
-            hasStoredEngine = hasStoredEngine,
+            hasStoredEngine = voiceOutputPreferences.hasStoredEngine(),
             isExistingInstall = isExistingInstall,
             effectiveEngine = voiceOutputPreferences.selectedEngine.first(),
             voiceDownloaded = voice.isDownloaded(context),

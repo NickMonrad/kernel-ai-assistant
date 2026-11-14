@@ -151,9 +151,10 @@ internal fun VoicePackDownloadState.toModelAvailability(): ModelAvailabilityStat
  * Aggregates the Inflect graph states and the shared Cori frontend pack into the Inflect row's state.
  *
  * While Piper is the selected output, the Piper row owns Cori: Inflect shows only its own graphs and never
- * offers to cancel Cori. While Piper is not selected, a running Cori download is shown on the Inflect row
- * with its progress, and the row's Cancel stops it too (#1868). Inflect is ready only when its graphs and
- * the selected Cori pack are both downloaded. Downloading takes precedence over an error.
+ * offers to cancel Cori. While Piper is not selected, Inflect owns the shared Cori pack only once it has
+ * started its own graphs, hit a graph error, or has all graphs downloaded and Cori is downloading. Only then
+ * is the row's Cancel shown with, and stops, that Cori download (#1868). Inflect is ready only when its graphs
+ * and the selected Cori pack are both downloaded. Downloading takes precedence over an error.
  */
 internal fun aggregateInflectMicroAvailability(
     requiredModels: List<KernelModel>,
@@ -174,13 +175,16 @@ internal fun aggregateInflectMicroAvailability(
     val graphDownloading = resolvedStates.any { (_, state) -> state is DownloadState.Downloading }
     val graphError = resolvedStates.firstOrNull { (_, state) -> state is DownloadState.Error }
     val frontendDownloading = frontendState is VoicePackDownloadState.Downloading
-    val inflectOwnsFrontend = !piperSelected &&
-        (frontendDownloading || graphDownloading || graphError != null)
+    val inflectOwnsFrontend = !piperSelected && (
+        graphDownloading || graphError != null || (allGraphsDownloaded && frontendDownloading)
+    )
     val frontend = if (inflectOwnsFrontend) frontendState else VoicePackDownloadState.NotDownloaded
+    // Cori bytes count toward Inflect's progress only while Inflect owns the pack; a pack Piper owns is not
+    // Inflect's work, and a downloaded pack Inflect owns is already done.
+    val frontendBytes = if (inflectOwnsFrontend) frontendApproxDownloadBytes else 0L
 
     if (graphDownloading || (inflectOwnsFrontend && frontendDownloading)) {
-        val totalBytes = resolvedStates.sumOf { (model, _) -> model.approxSizeBytes } +
-            frontendApproxDownloadBytes
+        val totalBytes = resolvedStates.sumOf { (model, _) -> model.approxSizeBytes } + frontendBytes
         val downloadedBytes = resolvedStates.sumOf { (model, state) ->
             when (state) {
                 is DownloadState.Downloaded -> model.approxSizeBytes
@@ -188,9 +192,8 @@ internal fun aggregateInflectMicroAvailability(
                 else -> 0L
             }
         } + when (frontend) {
-            is VoicePackDownloadState.Downloaded -> frontendApproxDownloadBytes
-            is VoicePackDownloadState.Downloading ->
-                (frontendApproxDownloadBytes * frontend.progress).toLong()
+            is VoicePackDownloadState.Downloaded -> frontendBytes
+            is VoicePackDownloadState.Downloading -> (frontendBytes * frontend.progress).toLong()
             else -> 0L
         }
         return ModelAvailabilityState.Preparing(
