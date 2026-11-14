@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.DownloadState
@@ -123,11 +124,8 @@ internal fun welcomeExamplePromptsFor(download: WelcomeDownload): List<WelcomeEx
     is WelcomeDownload.Waiting -> welcomeExamplePrompts.filterNot { it.needsAssistantFiles }
 }
 
-/** Bottom clearance for the main + FAB (56dp, 16dp end margin, 16dp gap) at the end of the welcome. */
+/** Bottom clearance at the end of the first-run welcome, so the last card scrolls above the main + FAB. */
 private val WelcomeFabBottomClearance = 88.dp
-
-/** End clearance for the main + FAB column (16dp margin + 56dp FAB + 8dp gap), so no card or tip sits under it. */
-private val WelcomeFabEndClearance = 80.dp
 
 @Composable
 internal fun ChatsWelcome(
@@ -153,7 +151,7 @@ internal fun ChatsWelcome(
             .padding(
                 start = 24.dp,
                 top = 16.dp,
-                end = if (reopened) 24.dp else 24.dp + WelcomeFabEndClearance,
+                end = 24.dp,
             )
             .testTag("chats_welcome"),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -279,8 +277,8 @@ internal fun ChatsWelcome(
             ) {
                 Text("Hide welcome")
             }
-            Spacer(Modifier.height(WelcomeFabBottomClearance))
         }
+        Spacer(Modifier.height(if (reopened) 24.dp else WelcomeFabBottomClearance))
     }
 }
 
@@ -419,9 +417,9 @@ internal fun ChatsDownloadBanner(banner: DownloadBanner, onClick: () -> Unit, mo
         modifier = modifier
             .fillMaxWidth()
             .testTag("chats_download_banner")
-            .clickable(role = Role.Button, onClickLabel = "Open getting started", onClick = onClick)
             // One focus stop: TalkBack reads the text once; the bar is decorative (its value is in the text).
-            .semantics(mergeDescendants = true) {},
+            .semantics(mergeDescendants = true) { this.onClick(label = "Open getting started", action = null) },
+        onClick = onClick,
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(banner.text, style = MaterialTheme.typography.bodyMedium)
@@ -440,7 +438,7 @@ internal fun ChatsDownloadBanner(banner: DownloadBanner, onClick: () -> Unit, mo
  * Example prompts shown in a short row on Chats until the user has about three conversations.
  */
 internal fun showTryAskingChips(
-    conversationCount: Int,
+    conversationCount: Int?,
     welcomeState: ChatsEmptyState,
     showArchived: Boolean,
     isInSelectionMode: Boolean,
@@ -450,7 +448,7 @@ internal fun showTryAskingChips(
         !showArchived &&
         !isInSelectionMode &&
         searchQuery.isBlank() &&
-        conversationCount < TRY_ASKING_CHIPS_MAX_CONVERSATIONS
+        conversationCount != null && conversationCount < TRY_ASKING_CHIPS_MAX_CONVERSATIONS
 
 internal const val TRY_ASKING_CHIPS_MAX_CONVERSATIONS = 3
 

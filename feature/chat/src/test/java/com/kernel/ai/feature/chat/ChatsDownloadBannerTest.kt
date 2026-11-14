@@ -76,11 +76,12 @@ class ChatsDownloadBannerTest {
 
     @Test
     fun `try asking chips show only for a near-empty plain list with no search`() {
-        fun chips(count: Int, state: ChatsEmptyState = ChatsEmptyState.Plain, query: String = "") =
+        fun chips(count: Int?, state: ChatsEmptyState = ChatsEmptyState.Plain, query: String = "") =
             showTryAskingChips(count, state, showArchived = false, isInSelectionMode = false, searchQuery = query)
 
         assertTrue(chips(0))
         assertTrue(chips(2))
+        assertFalse(chips(null))
         assertFalse(chips(TRY_ASKING_CHIPS_MAX_CONVERSATIONS))
         assertFalse(chips(1, query = "milk"))
         assertFalse(chips(1, state = ChatsEmptyState.Welcome(WelcomeDownload.Ready)))

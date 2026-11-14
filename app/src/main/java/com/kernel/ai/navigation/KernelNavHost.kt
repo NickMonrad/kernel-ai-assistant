@@ -539,7 +539,7 @@ fun KernelNavHost(
                                 navController.navigate(ROUTE_SETTINGS) { launchSingleTop = true }
                             },
                             onNavigateToGettingStarted = {
-                                navController.navigate(ROUTE_GETTING_STARTED)
+                                navController.navigate(ROUTE_GETTING_STARTED) { launchSingleTop = true }
                             },
                         )
                     }
@@ -907,7 +907,7 @@ fun KernelNavHost(
                             navController.navigate(ROUTE_LEGAL_PRIVACY)
                         },
                         onNavigateToGettingStarted = {
-                            navController.navigate(ROUTE_GETTING_STARTED)
+                            navController.navigate(ROUTE_GETTING_STARTED) { launchSingleTop = true }
                         },
                         versionName = com.kernel.ai.BuildConfig.VERSION_NAME,
                         versionCode = com.kernel.ai.BuildConfig.VERSION_CODE,

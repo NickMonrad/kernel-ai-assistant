@@ -23,7 +23,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
 /**
@@ -66,18 +66,29 @@ class GettingStartedViewModel @Inject constructor(
     private val downloadManager: ModelDownloadManager,
 ) : ViewModel() {
 
-    internal val download: StateFlow<WelcomeDownload> = downloadManager.downloadStates
-        .map { states -> welcomeDownloadFor(readinessFor(states), states) }
+    internal val download: StateFlow<WelcomeDownload> = combine(
+        downloadManager.downloadStates,
+        ChatsDebugOverrides.simulateDownload,
+    ) { states, simulate -> downloadFor(states, simulate) }
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            welcomeDownloadFor(readinessFor(downloadManager.downloadStates.value), downloadManager.downloadStates.value),
+            downloadFor(downloadManager.downloadStates.value, simulate = false),
         )
 
     fun downloadAssistantModel(model: KernelModel) {
         downloadManager.startDownload(model, force = false)
     }
 
-    private fun readinessFor(states: Map<KernelModel, com.kernel.ai.core.inference.download.DownloadState>): ConversationModelReadiness =
-        ConversationModelReadiness.compute(downloadManager.deviceTier, states)
+    private fun downloadFor(
+        states: Map<KernelModel, com.kernel.ai.core.inference.download.DownloadState>,
+        simulate: Boolean,
+    ): WelcomeDownload {
+        val readiness: ConversationModelReadiness = if (simulate) {
+            ChatsDebugOverrides.SimulatedDownload
+        } else {
+            ConversationModelReadiness.compute(downloadManager.deviceTier, states)
+        }
+        return welcomeDownloadFor(readiness, states)
+    }
 }

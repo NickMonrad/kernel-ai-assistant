@@ -116,8 +116,8 @@ fun ConversationListScreen(
     var contextMenuTarget by remember { mutableStateOf<ConversationEntity?>(null) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     val conversationCount by viewModel.conversationCount.collectAsStateWithLifecycle()
-    val debugShowWelcome by viewModel.debugShowWelcome.collectAsStateWithLifecycle()
-    val debugSimulateDownload by viewModel.debugSimulateDownload.collectAsStateWithLifecycle()
+    val debugShowWelcome by ChatsDebugOverrides.showWelcome.collectAsStateWithLifecycle()
+    val debugSimulateDownload by ChatsDebugOverrides.simulateDownload.collectAsStateWithLifecycle()
 
     // ── Drag-and-drop local state (optimistic UI) ──────────────────────────
     var localPinned by remember { mutableStateOf(pinnedConversations) }
@@ -217,7 +217,7 @@ fun ConversationListScreen(
                                         },
                                         onClick = {
                                             showOverflowMenu = false
-                                            viewModel.toggleDebugWelcome()
+                                            ChatsDebugOverrides.toggleWelcome()
                                         },
                                     )
                                     DropdownMenuItem(
@@ -226,7 +226,7 @@ fun ConversationListScreen(
                                         },
                                         onClick = {
                                             showOverflowMenu = false
-                                            viewModel.toggleDebugDownload()
+                                            ChatsDebugOverrides.toggleDownload()
                                         },
                                     )
                                 }
@@ -329,7 +329,7 @@ fun ConversationListScreen(
                 )
             }
 
-            if (conversations.isEmpty()) {
+            if (conversations.isEmpty() || welcomeState is ChatsEmptyState.Welcome) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -569,7 +569,6 @@ fun ConversationListScreen(
             }
         } // end Column
     }
-
 
     // Archive confirmation dialog
     pendingArchive?.let { conversation ->
