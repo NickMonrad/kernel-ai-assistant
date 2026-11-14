@@ -32,6 +32,8 @@ val playServiceAccountFile = configuredPlayServiceAccountPath?.let(::file)
     ?: defaultPlayServiceAccountFile
 val requestedTaskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
 val isPlayBundlePublishRequested = "publishReleaseBundle" in requestedTaskNames
+val isTesterApkRequested = isPlayBundlePublishRequested &&
+    providers.gradleProperty("githubTesterApk").orNull == "true"
 
 play {
     if (isPlayBundlePublishRequested && playServiceAccountFile.isFile) {
@@ -66,6 +68,27 @@ val verifyReleaseBundleForPlayUpload = tasks.register("verifyReleaseBundleForPla
     }
 }
 
+// Checks the tester APK against the Play-assigned versionCode and the upload certificate before
+// publishReleaseBundle uploads. processReleaseVersionCodes (GPP) writes the code this run uses.
+val verifyTesterApkForPlayPublish = tasks.register("verifyTesterApkForPlayPublish") {
+    group = "verification"
+    description = "Verifies the signed tester APK matches the Play upload before publishing."
+    dependsOn("assembleRelease", "bundleRelease", "processReleaseVersionCodes")
+    doLast {
+        val buildDirectory = layout.buildDirectory.get().asFile
+        val process = ProcessBuilder(
+            "bash",
+            rootProject.file("scripts/release/verify_tester_apk.sh").absolutePath,
+            releaseApkArtifact(buildDirectory, isSigned = true).absolutePath,
+            buildDirectory.resolve("outputs/bundle/release/app-release.aab").absolutePath,
+            buildDirectory.resolve("intermediates/gpp/release/available-version-codes.txt").absolutePath,
+            releaseVersionPrefix,
+        ).inheritIO()
+        process.environment()["BUILD_TOOLS_DIR"] = locateAapt2().parentFile.absolutePath
+        check(process.start().waitFor() == 0) { "Tester APK verification failed; see the log above." }
+    }
+}
+
 // GPP's version-code task runs before bundle creation, so reject missing keys before any task executes.
 gradle.taskGraph.whenReady {
     val unsupportedPublisherTask = gradle.taskGraph.allTasks.firstOrNull { task ->
@@ -97,8 +120,9 @@ tasks.configureEach {
     }
     if (name == "publishReleaseBundle") {
         dependsOn(verifyReleaseBundleForPlayUpload)
-        // A tester APK requested in the same run is built first: if it fails, nothing reaches Play.
-        mustRunAfter(tasks.matching { it.name == "assembleRelease" })
+        // Requested by play-release.yml only when the tester APK is published too. The APK is
+        // checked (and built) before this task runs, so a bad APK never reaches Play.
+        if (isTesterApkRequested) dependsOn(verifyTesterApkForPlayPublish)
     }
 }
 
@@ -157,6 +181,8 @@ val releaseSigningProperties = releaseSigningPropertiesFile
     }
 
 val baseVersionName = "0.1.0"
+// Release outputs are "<prefix>.<versionCode>"; the prefix is baseVersionName without its patch.
+val releaseVersionPrefix = baseVersionName.substringBeforeLast('.')
 
 android {
     namespace = "com.kernel.ai"
@@ -273,7 +299,7 @@ android {
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
         variant.outputs.forEach { output ->
-            output.versionName.set(output.versionCode.map { "${baseVersionName.substringBeforeLast('.')}.$it" })
+            output.versionName.set(output.versionCode.map { "$releaseVersionPrefix.$it" })
         }
     }
 }
@@ -779,7 +805,7 @@ tasks.register("generateReleaseDependencyInventory") {
             "source_commit" to commit,
             "version_name" to android.defaultConfig.versionName,
             "version_code" to android.defaultConfig.versionCode,
-            "release_output_version_name_note" to "Release outputs (Play bundle and tester APK) report 0.1.<versionCode>; defaultConfig.versionName is only the prefix.",
+            "release_output_version_name_note" to "Release outputs (Play bundle and tester APK) report $releaseVersionPrefix.<versionCode>; defaultConfig.versionName is only the source of that prefix.",
             "configuration" to "releaseRuntimeClasspath",
             "component_count" to entries.size,
             "file_dependency_count" to fileDependencies.size,

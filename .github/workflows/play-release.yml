@@ -187,9 +187,9 @@ jobs:
           echo "Credentials written to \$RUNNER_TEMP/play-release (owner-only)."
 
       # ── Build and publish ────────────────────────────────────────────
-      # One Gradle run, so GPP's AUTO versionCode is shared by the tester APK and the
-      # bundle. assembleRelease is ordered before publishReleaseBundle (build.gradle.kts),
-      # so a failed APK build stops the run before anything reaches Play.
+      # One Gradle run. :app:publishReleaseBundle depends on verifyTesterApkForPlayPublish
+      # when -PgithubTesterApk=true, which builds the release APK and checks it (package,
+      # versionName, Play-assigned versionCode, upload certificate) before GPP uploads.
       - name: Build tester APK and publish release bundle to Play (${{ inputs.track }})
         env:
           PLAY_TRACK: ${{ inputs.track }}
@@ -200,14 +200,15 @@ jobs:
             internal|alpha) ;;
             *) echo "::error::Unsupported track '$PLAY_TRACK'"; exit 1 ;;
           esac
-          TASKS=(:app:publishReleaseBundle)
+          EXTRA=()
           if [ "$BUILD_APK" = "true" ]; then
-            TASKS=(:app:assembleRelease "${TASKS[@]}")
+            EXTRA=(-PgithubTesterApk=true)
           fi
-          ./gradlew --no-daemon --no-build-cache "${TASKS[@]}" \
+          ./gradlew --no-daemon --no-build-cache :app:publishReleaseBundle "${EXTRA[@]}" \
             -PreleaseSigningPropertiesFile="$CRED_DIR/keystore.properties" \
             -PplayServiceAccountFile="$CRED_DIR/play-service-account.json" \
             -PplayTrack="$PLAY_TRACK"
+
 
       - name: Remove credentials
         if: always()
@@ -215,51 +216,18 @@ jobs:
           rm -rf "$RUNNER_TEMP/play-release"
           echo "Credential directory removed."
 
-      # ── Tester APK checks and staging (no secrets needed) ────────────
-      # Reads package, versionCode and versionName from the APK itself, so the GitHub
-      # release reports exactly what the APK installs as.
-      - name: Verify and stage tester APK
+      # ── Stage tester APK (checks already passed in Gradle) ───────────
+      - name: Stage tester APK
         if: ${{ inputs.track == 'alpha' || inputs.github_release }}
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/release/app-release.apk
-          AAB=app/build/outputs/bundle/release/app-release.aab
           BT_DIR=$(printf '%s\n' "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-
-          BADGING=$("$BT_DIR/aapt2" dump badging "$APK")
-          PACKAGE=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$BADGING" | head -1)
-          VERSION_CODE=$(sed -n "s/^package: .* versionCode='\([0-9]*\)'.*/\1/p" <<<"$BADGING" | head -1)
-          VERSION_NAME=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" <<<"$BADGING" | head -1)
-          if [ "$PACKAGE" != "ai.jandal.assistant" ]; then
-            echo "::error::APK package is '$PACKAGE', expected ai.jandal.assistant."; exit 1
-          fi
-          if [ -z "$VERSION_CODE" ] || [ -z "$VERSION_NAME" ] || [ "${VERSION_NAME##*.}" != "$VERSION_CODE" ]; then
-            echo "::error::APK versionName '$VERSION_NAME' does not end with versionCode '$VERSION_CODE'."
-            exit 1
-          fi
-
+          VERSION_NAME=$("$BT_DIR/aapt2" dump badging "$APK" \
+            | sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" | head -1)
+          [ -n "$VERSION_NAME" ] || { echo "::error::No versionName in $APK"; exit 1; }
           APK_CERT=$("$BT_DIR/apksigner" verify --print-certs "$APK" \
             | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f')
-          AAB_CERT=$(keytool -printcert -jarfile "$AAB" | sed -n 's/^.*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
-          if [ -z "$APK_CERT" ] || [ "$APK_CERT" != "$AAB_CERT" ]; then
-            echo "::error::APK signer does not match the uploaded bundle's upload certificate."
-            exit 1
-          fi
-
-          # GPP's AUTO resolution writes the Play-assigned code for this run here, one line
-          # per output. The APK must carry exactly that code, or the GitHub and Play builds differ.
-          GPP_CODES=app/build/intermediates/gpp/release/available-version-codes.txt
-          if [ ! -s "$GPP_CODES" ] || [ "$(wc -l < "$GPP_CODES")" -ne 1 ]; then
-            echo "::error::Expected exactly one Play versionCode in $GPP_CODES."
-            exit 1
-          fi
-          PLAY_CODE=$(tr -d '[:space:]' < "$GPP_CODES")
-          if [ "$PLAY_CODE" != "$VERSION_CODE" ]; then
-            echo "::error::APK versionCode $VERSION_CODE does not match the Play-assigned versionCode $PLAY_CODE."
-            exit 1
-          fi
-          echo "versionCode $VERSION_CODE matches the Play-assigned versionCode."
-          echo "APK $VERSION_NAME (versionCode $VERSION_CODE) signed by SHA-256 $APK_CERT, matching the upload certificate."
 
           STAGE="$RUNNER_TEMP/tester-release"
           mkdir -p "$STAGE"

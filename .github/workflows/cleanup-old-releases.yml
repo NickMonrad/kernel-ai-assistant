@@ -65,12 +65,28 @@ jobs:
             exit 0
           fi
 
+          # Fail closed: anything other than the exact string "false" is a dry run.
+          if [ "$DRY_RUN" != "false" ]; then
+            echo "dry_run=$DRY_RUN: nothing will be changed."
+          fi
+
           while read -r TAG; do
-            if [ "$DRY_RUN" = "true" ]; then
-              echo "Would delete release + tag: $TAG"
-            else
-              echo "Deleting release + tag: $TAG"
+            NUMBER=${TAG#pr-}
+            # A preview for a PR that is still open is kept, even if old. If the state lookup
+            # fails, keep the release (fail closed).
+            if ! STATE=$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json state --jq .state 2>/dev/null); then
+              echo "Keeping $TAG: could not read PR #$NUMBER state."
+              continue
+            fi
+            if [ "$STATE" = "OPEN" ]; then
+              echo "Keeping $TAG: PR #$NUMBER is still open."
+              continue
+            fi
+            if [ "$DRY_RUN" = "false" ]; then
+              echo "Deleting release + tag: $TAG (PR #$NUMBER is $STATE)"
               gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            else
+              echo "Would delete release + tag: $TAG (PR #$NUMBER is $STATE)"
             fi
           done < candidates.txt
 
