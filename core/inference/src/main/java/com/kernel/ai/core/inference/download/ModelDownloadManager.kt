@@ -115,10 +115,9 @@ class ModelDownloadManager @Inject constructor(
         KernelModel.entries.forEach { model ->
             ensureObserving(model)
         }
-        // Nothing is queued until the user has chosen a download network (#1855). Existing installs
-        // are first migrated to their current behaviour, without a prompt.
+        // Nothing is queued until the user has chosen a download network (#1855). The legacy choice for
+        // updated installs is settled at the first-run decision (ConversationListViewModel).
         scope.launch {
-            migrateLegacyChoice()
             queueAutoDownloads()
         }
 
@@ -166,9 +165,13 @@ class ModelDownloadManager @Inject constructor(
     /** True for an install updated from an earlier build. Fresh installs are false (#1855). */
     fun isExistingInstall(): Boolean = context.isUpdatedInstall()
 
-    private suspend fun migrateLegacyChoice() {
+    /**
+     * Settles the legacy network choice for an updated install at the first-run decision (#1855). Runs only
+     * when that decision was not yet recorded, so it happens at most once per install.
+     */
+    suspend fun adoptLegacyChoice(alreadyDecided: Boolean, existingInstall: Boolean) {
+        val legacy = DownloadConsent.legacyChoiceOnFirstDecision(alreadyDecided, existingInstall) ?: return
         if (downloadNetworkPreferences.choice.first() != null) return
-        val legacy = DownloadConsent.legacyChoiceFor(context.isUpdatedInstall()) ?: return
         downloadNetworkPreferences.setChoice(legacy)
         Log.i(TAG, "Updated install: keeping the current network behaviour without a prompt")
     }

@@ -39,6 +39,9 @@ import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.feature.chat.formatBytesShort
 
+private const val FINISH_ID = "finish"
+private const val SKIP_ID = "skip"
+
 /**
  * First-run setup wizard (#1855, part 1). Step 1 explains how Jandal works; step 2 is download consent.
  * [onExit] leaves without completing (back on the first step); [onDone] runs after finishing or skipping.
@@ -51,7 +54,16 @@ fun SetupWizardScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val requestDownloadStart = rememberDownloadNotificationGate { viewModel.onContinue(onDone) }
+    val requestWizardAction = rememberDownloadNotificationGate { id ->
+        when (id) {
+            FINISH_ID -> viewModel.onContinue(onDone)
+            SKIP_ID -> viewModel.onSkip { choice ->
+                Toast.makeText(context, skipNote(choice), Toast.LENGTH_LONG).show()
+                onDone()
+            }
+            else -> Unit
+        }
+    }
     BackHandler(enabled = state.loaded && state.step != SetupStep.HOW_IT_WORKS) {
         viewModel.onBack(onExit)
     }
@@ -70,6 +82,7 @@ fun SetupWizardScreen(
                 plannedModels = state.plannedModels,
                 plannedVoices = state.plannedVoices,
                 choice = state.choice,
+                choiceRecorded = state.choiceRecorded,
                 onChoiceSelected = viewModel::onChoiceSelected,
             )
         }
@@ -77,7 +90,7 @@ fun SetupWizardScreen(
         val isLast = state.step == SetupStep.entries.last()
         Button(
             onClick = {
-                if (isLast) requestDownloadStart(null) else viewModel.onContinue(onDone)
+                if (isLast) requestWizardAction(FINISH_ID) else viewModel.onContinue(onDone)
             },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) {
@@ -93,12 +106,7 @@ fun SetupWizardScreen(
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text("Back") }
             TextButton(
-                onClick = {
-                    viewModel.onSkip { choice ->
-                        Toast.makeText(context, skipNote(choice), Toast.LENGTH_LONG).show()
-                        onDone()
-                    }
-                },
+                onClick = { requestWizardAction(SKIP_ID) },
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text("Skip for now") }
         }
@@ -134,6 +142,7 @@ private fun DownloadStep(
     plannedModels: List<KernelModel>,
     plannedVoices: List<SherpaPiperVoice>,
     choice: DownloadNetworkChoice,
+    choiceRecorded: Boolean,
     onChoiceSelected: (DownloadNetworkChoice) -> Unit,
 ) {
     val totalBytes = DownloadConsent.firstRunEstimateBytes(plannedModels, plannedVoices.sumOf { it.approxDownloadBytes })
@@ -143,7 +152,11 @@ private fun DownloadStep(
         modifier = Modifier.semantics { heading() },
     )
     Text(
-        text = "About ${formatBytesShort(totalBytes)} in total. Nothing downloads until you finish this step.",
+        text = if (choiceRecorded) {
+            "About ${formatBytesShort(totalBytes)} still to download. Your network choice applies to downloads in progress."
+        } else {
+            "About ${formatBytesShort(totalBytes)} in total. Nothing downloads until you finish this step."
+        },
         style = MaterialTheme.typography.bodyLarge,
     )
     plannedModels.forEach { model ->

@@ -74,6 +74,23 @@ class ConversationListViewModelTest {
     }
 
     @Test
+    fun `the legacy network choice is settled only at the first decision`() {
+        every { setupWizardPreferences.progress } returns flowOf(SetupWizardProgress(decided = false, completed = false))
+        every { downloadManager.isExistingInstall() } returns true
+        ConversationListViewModel(repository, chatPreferences, downloadManager, setupWizardPreferences)
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { downloadManager.adoptLegacyChoice(alreadyDecided = false, existingInstall = true) }
+    }
+
+    @Test
+    fun `an install already decided never re-runs the legacy choice`() {
+        every { downloadManager.isExistingInstall() } returns true
+        ConversationListViewModel(repository, chatPreferences, downloadManager, setupWizardPreferences)
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { downloadManager.adoptLegacyChoice(alreadyDecided = true, existingInstall = true) }
+    }
+
+    @Test
     fun `wizard is pending only when decided and not completed`() {
         every { setupWizardPreferences.progress } returns flowOf(SetupWizardProgress(decided = true, completed = false))
         val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager, setupWizardPreferences)

@@ -53,8 +53,9 @@ class SetupWizardPreferences internal constructor(private val dataStore: DataSto
         }
 
     /**
-     * Records the first-launch decision. [existingInstall] is true when models or download work already
-     * exist; such installs are marked complete and never shown the wizard.
+     * Records the first-launch decision. [existingInstall] is true for an install updated from an earlier
+     * build (see `isUpdatedInstall`). Updated installs are marked complete and never shown the wizard. Fresh
+     * installs are recorded as decided but not completed, so the wizard shows until finished or skipped.
      */
     suspend fun decideFirstRun(existingInstall: Boolean) {
         dataStore.edit { prefs ->

@@ -25,8 +25,8 @@ object SetupWizardFlow {
 
     /**
      * Whether the wizard should be completed at first launch of a build that has it. A new install
-     * stays incomplete (shown once). An install that already has models or download work is marked
-     * complete, so it is not shown the wizard. Once [alreadyDecided], the stored value stands.
+     * stays incomplete (shown once). An updated install is marked complete, so it is not shown the wizard.
+     * Once [alreadyDecided], the stored value stands.
      */
     fun completedAfterFirstLaunchDecision(
         alreadyDecided: Boolean,

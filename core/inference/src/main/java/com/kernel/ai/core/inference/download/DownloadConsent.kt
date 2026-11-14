@@ -31,12 +31,13 @@ object DownloadConsent {
     fun voiceDefaultsAllowed(choice: DownloadNetworkChoice?): Boolean = autoQueueAllowed(choice)
 
     /**
-     * Unfinished work is re-enqueued when the choice changes between two known values. Null is never
-     * a change to act on: before the first choice nothing is queued, and an auto-queue is started by
-     * the caller's own check. Re-enqueue uses REPLACE so the new network constraint applies.
+     * Unfinished work is re-enqueued when the network that applies to it changes. The network that
+     * applies is [effectiveForManualDownload]: jobs started before any choice (manual downloads) run
+     * Wi-Fi only, so moving from "not chosen" to mobile data changes their constraint and must
+     * re-queue them. Moving to "not chosen" never happens (the choice cannot be unset).
      */
     fun shouldRequeueOnChoiceChange(previous: DownloadNetworkChoice?, next: DownloadNetworkChoice?): Boolean =
-        previous != null && next != null && previous != next
+        next != null && effectiveForManualDownload(previous) != effectiveForManualDownload(next)
 
     /** True when any job in [states] is queued, running or blocked. */
     fun hasUnfinishedWork(states: Collection<WorkInfo.State>): Boolean = states.any { !it.isFinished }
@@ -44,11 +45,17 @@ object DownloadConsent {
     /**
      * Updated installs (last update later than first install) keep their current behaviour: any
      * connection, no prompt. Fresh installs stay null until the user chooses in the wizard (#1855).
-     * Decided from the install record, never from queued work, so a fresh install with no choice
-     * cannot be mistaken for an existing one.
      */
     fun legacyChoiceFor(isUpdatedInstall: Boolean): DownloadNetworkChoice? =
         if (isUpdatedInstall) DownloadNetworkChoice.MOBILE_DATA_ALLOWED else null
+
+    /**
+     * The legacy choice is decided once, at the first-run decision of this build. An install whose
+     * decision was already recorded (including a fresh install that abandoned the wizard) never gets
+     * one, so a later app update cannot silently allow mobile data (#1855).
+     */
+    fun legacyChoiceOnFirstDecision(alreadyDecided: Boolean, isUpdatedInstall: Boolean): DownloadNetworkChoice? =
+        if (alreadyDecided) null else legacyChoiceFor(isUpdatedInstall)
 
     /**
      * Network for a download the user starts directly. Before any choice exists the safe default is

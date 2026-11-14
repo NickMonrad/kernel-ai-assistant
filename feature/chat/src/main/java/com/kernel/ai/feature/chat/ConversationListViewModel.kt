@@ -67,7 +67,9 @@ class ConversationListViewModel @Inject constructor(
         // The welcome is one-time: once any conversation exists (archived included), it never returns.
         // First-run decision for the setup wizard (#1855). Existing installs are marked complete.
         viewModelScope.launch {
+            val alreadyDecided = setupWizardPreferences.progress.first().decided
             val existingInstall = downloadManager.isExistingInstall()
+            downloadManager.adoptLegacyChoice(alreadyDecided, existingInstall)
             setupWizardPreferences.decideFirstRun(existingInstall)
         }
         viewModelScope.launch {

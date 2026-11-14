@@ -88,12 +88,21 @@ class DownloadConsentTest {
     }
 
     @Test
-    fun `choice change re-queues only between two known choices`() {
+    fun `choice change re-queues when the network that applies to queued work changes`() {
         assertTrue(DownloadConsent.shouldRequeueOnChoiceChange(DownloadNetworkChoice.WIFI_ONLY, DownloadNetworkChoice.MOBILE_DATA_ALLOWED))
         assertTrue(DownloadConsent.shouldRequeueOnChoiceChange(DownloadNetworkChoice.MOBILE_DATA_ALLOWED, DownloadNetworkChoice.WIFI_ONLY))
+        assertTrue(DownloadConsent.shouldRequeueOnChoiceChange(null, DownloadNetworkChoice.MOBILE_DATA_ALLOWED))
         assertFalse(DownloadConsent.shouldRequeueOnChoiceChange(null, DownloadNetworkChoice.WIFI_ONLY))
         assertFalse(DownloadConsent.shouldRequeueOnChoiceChange(DownloadNetworkChoice.WIFI_ONLY, null))
         assertFalse(DownloadConsent.shouldRequeueOnChoiceChange(DownloadNetworkChoice.WIFI_ONLY, DownloadNetworkChoice.WIFI_ONLY))
+        assertFalse(DownloadConsent.shouldRequeueOnChoiceChange(DownloadNetworkChoice.MOBILE_DATA_ALLOWED, DownloadNetworkChoice.MOBILE_DATA_ALLOWED))
+    }
+
+    @Test
+    fun `legacy choice is decided once so an abandoned fresh install never gets mobile data on update`() {
+        assertEquals(DownloadNetworkChoice.MOBILE_DATA_ALLOWED, DownloadConsent.legacyChoiceOnFirstDecision(alreadyDecided = false, isUpdatedInstall = true))
+        assertNull(DownloadConsent.legacyChoiceOnFirstDecision(alreadyDecided = true, isUpdatedInstall = true))
+        assertNull(DownloadConsent.legacyChoiceOnFirstDecision(alreadyDecided = false, isUpdatedInstall = false))
     }
 
     @Test

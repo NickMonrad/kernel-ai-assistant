@@ -71,7 +71,7 @@ class SetupWizardStateTest {
     }
 
     @Test
-    fun `existing install with models is completed and never shown the wizard`() {
+    fun `updated install is completed on the first decision so it never shows the wizard`() {
         assertTrue(SetupWizardFlow.completedAfterFirstLaunchDecision(alreadyDecided = false, previouslyCompleted = false, existingInstall = true))
     }
 

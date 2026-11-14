@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat.setup
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
@@ -20,12 +21,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+private const val KEY_SELECTED_CHOICE = "selected_download_choice"
+
 /** One screen of the setup wizard. [loaded] is false until persisted progress is read. */
 data class SetupWizardUiState(
     val loaded: Boolean = false,
     val step: SetupStep = SetupStep.HOW_IT_WORKS,
     /** Radio selection on the download step. Wi-Fi is preselected; nothing is saved until Continue. */
     val choice: DownloadNetworkChoice = DownloadNetworkChoice.WIFI_ONLY,
+    /** True when a network choice is already saved (a re-run from Settings, or a finished first run). */
+    val choiceRecorded: Boolean = false,
     /** Models the first-run plan downloads, shared with the auto-queue (#1855). Loaded with the progress. */
     val plannedModels: List<KernelModel> = emptyList(),
     /** Voice packs the first run queues for the default output engine (Cori on Piper tiers). */
@@ -35,13 +40,15 @@ data class SetupWizardUiState(
 /**
  * Drives the first-run setup wizard (#1855, part 1: how it works and download consent).
  * Progress is restored from [SetupWizardPreferences] so process death resumes the same step.
- * The download choice is only saved when the user presses Continue on the download step.
+ * The selected network is kept in [SavedStateHandle] until Continue or Skip saves it, so process death
+ * during the notification prompt keeps the selection.
  */
 @HiltViewModel
 class SetupWizardViewModel @Inject constructor(
     private val downloadManager: ModelDownloadManager,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
     private val setupWizardPreferences: SetupWizardPreferences,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SetupWizardUiState())
@@ -52,11 +59,14 @@ class SetupWizardViewModel @Inject constructor(
             val progress = setupWizardPreferences.progress.first()
             // A completed wizard (re-run from Settings) always starts from the first step.
             val start = if (progress.completed) SetupStep.HOW_IT_WORKS else progress.step
-            val choice = downloadNetworkPreferences.choice.first() ?: DownloadNetworkChoice.WIFI_ONLY
+            val stored = downloadNetworkPreferences.choice.first()
+            val selected = savedStateHandle.get<String>(KEY_SELECTED_CHOICE)
+                ?.let { DownloadNetworkChoice.fromStorageName(it) }
             _uiState.value = _uiState.value.copy(
                 loaded = true,
                 step = start,
-                choice = choice,
+                choice = selected ?: stored ?: DownloadNetworkChoice.WIFI_ONLY,
+                choiceRecorded = stored != null,
                 plannedModels = downloadManager.plannedFirstRunModels(),
                 plannedVoices = plannedVoicesFor(downloadManager.deviceTier),
             )
@@ -64,6 +74,7 @@ class SetupWizardViewModel @Inject constructor(
     }
 
     fun onChoiceSelected(choice: DownloadNetworkChoice) {
+        savedStateHandle[KEY_SELECTED_CHOICE] = choice.name
         _uiState.value = _uiState.value.copy(choice = choice)
     }
 
