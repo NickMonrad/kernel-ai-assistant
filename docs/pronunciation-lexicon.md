@@ -36,20 +36,25 @@ Whole-word respellings applied to text before the Sherpa voices (Piper, Kokoro) 
 
 ## Status of seed entries
 
-| Name | Result | Basis |
-|---|---|---|
-| Petone | `Pih-toe-nee`, verify false | Owner confirmed on #1852 (best of 7 variants). Note: the owner's string is `Pih-toe-nee`; earlier drafts used `Pih-toh-nee`. |
-| Taupō | `Toe-paw`, verify true | IDP IELTS NZ guide (ielts.co.nz, "New Zealand place names commonly mispronounced"). eSpeak en-gb-x-rp gives `tˈɔːpəʊ`. |
-| Taihape | `Tie-ha-peh`, verify true | Same IDP IELTS guide. eSpeak gives `tˈeɪheɪp`. |
-| Pūkekohe | dropped | eSpeak `pjˈuːkɪkˌəʊh` is wrong. No documentary respelling could be read: the Waikato Māori pronunciation audio could not be checked and the Tripadvisor forum is not a source. |
-| Whakatāne | dropped | eSpeak `wˈækɐtˌeɪn` is wrong (wh as w). The Waikato page has audio only; not checked. |
-| Te Awamutu | dropped | eSpeak `tˈiː ɐwˈæmuːtˌuː` is wrong. Waikato audio only; not checked. |
-| Porirua | dropped | eSpeak `pɔːɹˈɜːjuːɐ` is wrong. No readable source. |
-| Whanganui, Tauranga, Matamata, Paraparaumu | not added (pending owner pick) | eSpeak output is anglicised (wh→w, `Tauranga` ≈ "tor-ang-ga"). The IDP IELTS page gives corrections: `Toe-rung-a`, `Mutter-mutter`, `Para-para-umoo`, and Whanganui `Wanga-nu-ee`. Cori candidates rendered in `nz-names-audio/` for the owner to listen. |
-| Ōtaki, Waikanae, Whakatāne spelling, Hāwera, Rotorua | not added | eSpeak output not clearly wrong; not listened to. |
+Owner picks (by ear, 2026-11-14) are `verify: false`. Owner suggestions still awaiting a
+confirmation listen are `verify: true`. Candidate clips are in `nz-names-audio/` and `round2/`.
 
-The NZ Geographic Board gazetteer (gazetteer.linz.govt.nz) and Te Aka Māori Dictionary were
-attempted and returned no pronunciation text.
+| Name | Say | verify | Basis |
+|---|---|---|---|
+| Petone | Pih-toe-nee | false | Owner pick |
+| Pūkekohe | Pook-ee-koh-ee | false | Owner pick |
+| Whakatāne | Fukka-tarn-ee | false | Owner pick |
+| Te Awamutu | Tee Ah-wa-moo-too | false | Owner pick |
+| Porirua | Pore-ee-roo-uh | false | Owner pick |
+| Matamata | Mah-tah-mah-tah | false | Owner pick |
+| Taupō | Toe-paw | false | Owner pick (many people say "Tau-poe") |
+| Whanganui, Wanganui | Wonga-noo-ee | true | Owner suggestion |
+| Tauranga | Toe-rung-ah | true | Owner suggestion |
+| Paraparaumu | Pah-rah-pah-rau-moo | true | Owner suggestion ("Para-param" also rendered) |
+| Taihape | Tie-happy | true | Owner suggestion (replaces Tie-ha-peh) |
+| Waikato | Why-kah-toe | true | Owner suggestion (eSpeak: WAY-kah-toe) |
+
+Not in the lexicon: Ōtaki, Waikanae, Hāwera, Rotorua (not clearly wrong, not listened to).
 
 ## Adding an entry
 

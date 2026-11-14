@@ -117,6 +117,14 @@ class PronunciationLexiconTest {
     }
 
     @Test
+    fun `shipped asset matches both Whanganui and Wanganui spellings`() {
+        val json = File("src/lexicon/assets/${PronunciationLexicon.ASSET_NAME}").readText()
+        PronunciationLexicon.install(PronunciationLexicon.parse(json))
+        assertEquals("Wonga-noo-ee", PronunciationLexicon.apply("Whanganui"))
+        assertEquals("Wonga-noo-ee", PronunciationLexicon.apply("Wanganui"))
+    }
+
+    @Test
     fun `Sherpa speech preparation applies the lexicon before number handling`() {
         install("Petone" to "Pih-toe-nee")
         assertEquals(

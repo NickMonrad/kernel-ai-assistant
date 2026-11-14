@@ -1,19 +1,17 @@
 {
   "entries": [
-    {
-      "word": "Petone",
-      "say": "Pih-toe-nee",
-      "verify": false
-    },
-    {
-      "word": "Taupō",
-      "say": "Toe-paw",
-      "verify": true
-    },
-    {
-      "word": "Taihape",
-      "say": "Tie-ha-peh",
-      "verify": true
-    }
+    { "word": "Petone", "say": "Pih-toe-nee", "verify": false, "source": "owner, by ear, 2026-11-14" },
+    { "word": "Pūkekohe", "say": "Pook-ee-koh-ee", "verify": false, "source": "owner, by ear, 2026-11-14" },
+    { "word": "Whakatāne", "say": "Fukka-tarn-ee", "verify": false, "source": "owner, by ear, 2026-11-14" },
+    { "word": "Te Awamutu", "say": "Tee Ah-wa-moo-too", "verify": false, "source": "owner, by ear, 2026-11-14" },
+    { "word": "Porirua", "say": "Pore-ee-roo-uh", "verify": false, "source": "owner, by ear, 2026-11-14" },
+    { "word": "Matamata", "say": "Mah-tah-mah-tah", "verify": false, "source": "owner, by ear, 2026-11-14" },
+    { "word": "Taupō", "say": "Toe-paw", "verify": false, "source": "owner, by ear, 2026-11-14" },
+    { "word": "Whanganui", "say": "Wonga-noo-ee", "verify": true, "source": "owner suggestion, pending confirmation listen" },
+    { "word": "Wanganui", "say": "Wonga-noo-ee", "verify": true, "source": "owner suggestion, pending confirmation listen" },
+    { "word": "Tauranga", "say": "Toe-rung-ah", "verify": true, "source": "owner suggestion, pending confirmation listen" },
+    { "word": "Paraparaumu", "say": "Pah-rah-pah-rau-moo", "verify": true, "source": "owner suggestion, pending confirmation listen" },
+    { "word": "Taihape", "say": "Tie-happy", "verify": true, "source": "owner suggestion, pending confirmation listen" },
+    { "word": "Waikato", "say": "Why-kah-toe", "verify": true, "source": "owner suggestion, pending confirmation listen" }
   ]
 }
