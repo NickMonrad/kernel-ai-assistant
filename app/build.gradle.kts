@@ -779,6 +779,7 @@ tasks.register("generateReleaseDependencyInventory") {
             "source_commit" to commit,
             "version_name" to android.defaultConfig.versionName,
             "version_code" to android.defaultConfig.versionCode,
+            "release_output_version_name_note" to "Release outputs (Play bundle and tester APK) report 0.1.<versionCode>; defaultConfig.versionName is only the prefix.",
             "configuration" to "releaseRuntimeClasspath",
             "component_count" to entries.size,
             "file_dependency_count" to fileDependencies.size,

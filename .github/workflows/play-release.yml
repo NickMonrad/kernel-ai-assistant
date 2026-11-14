@@ -245,6 +245,20 @@ jobs:
             echo "::error::APK signer does not match the uploaded bundle's upload certificate."
             exit 1
           fi
+
+          # GPP's AUTO resolution writes the Play-assigned code for this run here, one line
+          # per output. The APK must carry exactly that code, or the GitHub and Play builds differ.
+          GPP_CODES=app/build/intermediates/gpp/release/available-version-codes.txt
+          if [ ! -s "$GPP_CODES" ] || [ "$(wc -l < "$GPP_CODES")" -ne 1 ]; then
+            echo "::error::Expected exactly one Play versionCode in $GPP_CODES."
+            exit 1
+          fi
+          PLAY_CODE=$(tr -d '[:space:]' < "$GPP_CODES")
+          if [ "$PLAY_CODE" != "$VERSION_CODE" ]; then
+            echo "::error::APK versionCode $VERSION_CODE does not match the Play-assigned versionCode $PLAY_CODE."
+            exit 1
+          fi
+          echo "versionCode $VERSION_CODE matches the Play-assigned versionCode."
           echo "APK $VERSION_NAME (versionCode $VERSION_CODE) signed by SHA-256 $APK_CERT, matching the upload certificate."
 
           STAGE="$RUNNER_TEMP/tester-release"

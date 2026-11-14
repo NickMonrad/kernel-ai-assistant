@@ -24,7 +24,7 @@ Because the Play Store manages the final signing key, the upload key is only use
 ```
 
 - `versionCode` is a monotonically increasing integer. The AAB is written to `app/build/outputs/bundle/release/app-release.aab`.
-- The `versionName` in `build.gradle.kts` is `"0.1.0"` for the initial release.
+- The `versionName` in `build.gradle.kts` is `"0.1.0"` as the prefix. Release builds report `0.1.<versionCode>` (see [GitHub APK for testers](#github-apk-for-testers-without-play)); debug builds report `0.1.0`.
 - Release builds use `-PversionCode=N` when an explicit code is required; otherwise they default to `1`.
 - Release signing reads `keystore.properties` at the repository root. A detached worktree cannot see an unrelated main-checkout file. To use the owner's existing file without copying it, pass `-PreleaseSigningPropertiesFile=/absolute/path/to/keystore.properties`; this path names the properties file only and does not expose its contents.
 
@@ -34,7 +34,7 @@ Because the Play Store manages the final signing key, the upload key is only use
 |---|---|
 | `applicationId` | `ai.jandal.assistant` |
 | `versionCode` | `1` (first release) |
-| `versionName` | `0.1.0` |
+| `versionName` | `0.1.<versionCode>` for release (e.g. `0.1.1`); `0.1.0` for debug |
 | `compileSdk` | `36` |
 | `targetSdk` | `36` |
 | `minSdk` | `35` |
@@ -204,7 +204,8 @@ Testers who don't use the Play Store get the same build as the Play test track a
 - **Tag and title:** `v0.1.<versionCode>` and `Jandal AI 0.1.<versionCode>`, for example `v0.1.5`. Full releases, not pre-releases. The release body names the track (closed testing or internal testing) it was built for.
 - **Asset:** exactly one, `jandal-ai-0.1.<versionCode>.apk`, signed with the upload certificate. The APK SHA-256 and the signer certificate SHA-256 are in the release body, not as extra assets.
 - **Checks before staging:** `aapt2 dump badging` must show `ai.jandal.assistant`, and the versionName must end in the versionCode; the `apksigner` signer digest must equal the uploaded bundle's upload certificate. The signer digest is printed in the job log.
-- **Not yet run end to end:** the first alpha run must confirm that the APK versionCode matches the new Play build.
+- **Self-check:** the workflow compares the APK versionCode with GPP's Play-assigned code in `app/build/intermediates/gpp/release/available-version-codes.txt` (one line, equal to the APK code) and fails otherwise. The first alpha run still needs a human look at the job log, because it is the first real exercise of this path.
+- **Ordering limit:** the APK checks run after `publishReleaseBundle` has uploaded. GPP assigns the versionCode during that task, so the check cannot run before the upload without a separate publish. If a check fails, Play already has the build and no GitHub APK exists for that versionCode. Recovery: fix the cause and re-run; the re-run uploads a new versionCode, so the failed Play build stays on the track and should be halted in Play Console.
 - **Re-running** for an existing `versionCode` fails at `gh release create` because the tag exists. Each Play upload gets a new `versionCode`, so this only happens on a manual re-run.
 
 ##### Install notes for testers
