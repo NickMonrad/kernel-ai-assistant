@@ -282,7 +282,8 @@ class AboutViewModel @Inject constructor(
         val scrubTrace: (String) -> String =
             if (includeUserContent) { text -> text } else DiagnosticLogRedactor::redactTraceText
 
-        if (exitRecords.isEmpty() && logcat.output == null) {
+        val eventLines = JandalEvents.exportLines()
+        if (exitRecords.isEmpty() && logcat.output == null && eventLines.isEmpty()) {
             val detail = logcat.failureDetail ?: "no recent process exits were recorded"
             throw Exception(
                 "No useful diagnostics were available ($detail). This device may restrict " +
@@ -339,7 +340,7 @@ class AboutViewModel @Inject constructor(
                 append(scrub(recordText))
             }
             appendLine()
-            append(renderJandalEventSection(JandalEvents.exportLines(), scrub))
+            append(renderJandalEventSection(eventLines, scrub))
             appendLine()
             appendLine("Current process logcat")
             appendLine("----------------------")
