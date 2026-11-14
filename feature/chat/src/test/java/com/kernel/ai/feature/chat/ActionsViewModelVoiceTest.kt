@@ -4461,6 +4461,16 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `stopping card speech resets the playback banner state`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
     fun `tapping another card moves playback to that card`() = runTest(dispatcher) {
         viewModel.toggleSpeakAction("card-a", "First reply.")
         advanceUntilIdle()

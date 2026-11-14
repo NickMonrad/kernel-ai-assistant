@@ -733,7 +733,12 @@ fun ActionsScreen(
                                 onSpeak = {
                                     viewModel.toggleSpeakAction(
                                         action.id,
-                                        quickActionSpeechText(action.resultText, action.presentationJson),
+                                        quickActionSpeechText(
+                                            spokenSummary = action.spokenSummary,
+                                            resultText = action.resultText,
+                                            presentationJson = action.presentationJson,
+                                            isSuccess = action.isSuccess,
+                                        ),
                                     )
                                 },
                                 onReleaseSpeech = { viewModel.releaseActionSpeech(action.id) },
@@ -1907,8 +1912,20 @@ private fun formatActionTimestamp(millis: Long): String {
     return sdf.format(Date(millis))
 }
 
-/** Text a quick-action card reads aloud: the short spoken summary for rich results, else the reply. */
-internal fun quickActionSpeechText(resultText: String, presentationJson: String?): String {
-    val spoken = ToolPresentationJson.fromJsonString(presentationJson)?.toSpokenSummary()
-    return spoken?.takeIf { it.isNotBlank() } ?: resultText
+/**
+ * Text a quick-action card reads aloud. Priority: the skill's own spoken summary (#1026 review B2),
+ * then the presentation summary for successful rich cards, then the raw reply.
+ */
+internal fun quickActionSpeechText(
+    spokenSummary: String?,
+    resultText: String,
+    presentationJson: String?,
+    isSuccess: Boolean,
+): String {
+    spokenSummary?.takeIf { it.isNotBlank() }?.let { return it }
+    if (isSuccess) {
+        ToolPresentationJson.fromJsonString(presentationJson)?.toSpokenSummary()
+            ?.takeIf { it.isNotBlank() }?.let { return it }
+    }
+    return resultText
 }
