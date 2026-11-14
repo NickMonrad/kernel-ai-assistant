@@ -86,22 +86,22 @@ Do not repeat this repository context, prescribe every file/tool/step, require a
 
 ### Model selection for delegated work (all harnesses)
 
-Applies only once delegation is justified by the rules above. Choose by type of work, not by harness:
+This table picks the model only once delegation is justified by the rules above. It does not make delegation the default: the active agent still reviews inline unless a separate review is warranted. Choose by type of work, not by harness:
 
 | Work | Model |
 |------|-------|
 | Searching and reading code, gathering context, summarising logs or test output, running checks, mechanical or fully specified edits, focused unit tests | Haiku 5.5 (`claude-haiku-5-5`) |
-| Reviewing or verifying any change (including the `.docs/agents/review-gates-*.md` gates), security review, design decisions, LiteRT/inference-path changes, debugging a Haiku attempt didn't solve | Opus 5.5 (`claude-opus-5-5`) |
+| Reviewing or verifying a change (when delegated; including the `.docs/agents/review-gates-*.md` gates), security review, design decisions, LiteRT/inference-path changes, debugging a Haiku attempt didn't solve | Opus 5.5 (`claude-opus-5-5`) |
 | Anything | Fable only when the user asks |
 
-Never use Haiku 4.5 or older. Haiku needs an explicit brief (see Task briefs).
+Never use Haiku 4.5 or older. A Haiku brief names the files and what done looks like; it does not script every step (see Task briefs).
 
 How each harness applies this:
-- **Claude Code:** the default subagent model is Haiku 5.5, set in the user's `CLAUDE_CODE_SUBAGENT_MODEL`. Pass `model: "opus"` on the Agent call for Opus work. The `code-reviewer` agent in `.claude/agents/` is pinned to Opus.
+- **Claude Code:** always pass `model` on the Agent call: `"haiku"` for the Haiku row, `"opus"` for the Opus row. Do not rely on a default; without one, a subagent inherits the parent's model. A user-level `CLAUDE_CODE_SUBAGENT_MODEL` is only a fallback. The `code-reviewer` agent in `.claude/agents/` is pinned to `claude-opus-5-5` and restricted to read-only Bash by a hook.
 - **OMP `task`:** follow "OMP delegation and recovery" below. Configured routing chooses the model.
 - **Paseo-launched sessions:** always set the model from the table.
-- **opencode:** the frontmatter in `.opencode/agents/*.md` sets the model.
-- **Other harnesses:** pick from the table wherever the harness lets you choose a model.
+- **opencode:** this table does not apply. The agents in `.opencode/agents/` run the local model pinned in their frontmatter.
+- **Other harnesses** (including GitHub's `.github/agents/`): pick from the table wherever the harness lets you choose a model.
 
 ### OMP delegation and recovery
 
