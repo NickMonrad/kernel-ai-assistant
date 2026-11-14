@@ -7,7 +7,7 @@ Whole-word respellings applied to text before the Sherpa voices (Piper, Kokoro) 
 - Data: `core/voice/src/lexicon/assets/pronunciation_lexicon.json`. The module keeps the
   `#769` override that clears `src/main/assets`, and adds this directory as an extra asset source.
 - Code: `core/voice/src/main/java/com/kernel/ai/core/voice/PronunciationLexicon.kt`.
-  Applied first in `SherpaSpeechText.prepare`, which Piper and Kokoro both call.
+  Applied in `SherpaSpeechText.prepare` after `SpeechCardText` and before number and date expansion, which Piper and Kokoro both call.
 - R8: `core/voice/consumer-rules.pro` keeps the Gson-read `RawFile` / `RawEntry` fields. Without
   it, release builds rename the fields and every entry parses as null.
 
