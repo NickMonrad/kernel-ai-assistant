@@ -16,7 +16,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.then
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.filterToOne
 import androidx.compose.ui.test.onAncestors
@@ -41,6 +43,9 @@ class SetupWizardLargeFontTest {
 
     @get:Rule
     val composeRule = createComposeRule()
+
+    /** Density the wizard is laid out with under DeviceConfigurationOverride (captured in [WizardUnderTest]). */
+    private var layoutDensity: Float = 0f
 
     @Test
     fun step1LastParagraphScrollsIntoViewAtLargeFont() {
@@ -76,7 +81,7 @@ class SetupWizardLargeFontTest {
     fun step2ButtonsReachableAtLargeFontLandscape() {
         setWizard(step = SetupStep.DOWNLOAD, size = LANDSCAPE)
 
-        assertButtonsReachable(primary = "Finish")
+        assertButtonsReachable(primary = "Finish", scrollButtonsIntoView = true)
     }
 
     @Test
@@ -111,7 +116,7 @@ class SetupWizardLargeFontTest {
      * The content container must end at or above the primary button's top, so the buttons sit below the
      * scrolling area rather than over it. Each button must be at least 48 dp tall and lie inside the window.
      */
-    private fun assertButtonsReachable(primary: String) {
+    private fun assertButtonsReachable(primary: String, scrollButtonsIntoView: Boolean = false) {
         val window = composeRule.onRoot().unclippedBounds()
         val content = contentBounds()
         val primaryBounds = buttonBounds(primary)
@@ -119,12 +124,14 @@ class SetupWizardLargeFontTest {
             "content bottom ${content.bottom} must be at or above $primary top ${primaryBounds.top}",
             content.bottom <= primaryBounds.top + TOLERANCE_PX,
         )
-        val minHeightPx = MIN_TOUCH_DP * InstrumentationRegistry.getInstrumentation()
-            .targetContext.resources.displayMetrics.density
+        val minHeightPx = MIN_TOUCH_DP * layoutDensity
         listOf(primary, "Back", "Skip for now").forEach { label ->
+            if (scrollButtonsIntoView) {
+                composeRule.onNode(hasClickAction() and hasText(label)).performScrollTo()
+            }
             val bounds = buttonBounds(label)
             assertTrue(
-                "$label height ${bounds.height} px must be at least $minHeightPx px (48 dp)",
+                "$label height ${bounds.height} px must be at least $minHeightPx px (48 dp); bounds=$bounds window=$window",
                 bounds.height >= minHeightPx,
             )
             assertInside(bounds, window)
@@ -156,6 +163,7 @@ class SetupWizardLargeFontTest {
 
     @Composable
     private fun WizardUnderTest(step: SetupStep) {
+        layoutDensity = LocalDensity.current.density
         SetupWizardContent(
             state = SetupWizardUiState(
                 loaded = true,

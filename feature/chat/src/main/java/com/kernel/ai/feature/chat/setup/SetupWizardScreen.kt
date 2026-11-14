@@ -3,6 +3,7 @@ package com.kernel.ai.feature.chat.setup
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +47,9 @@ private const val SKIP_ID = "skip"
 /** Test tag on the scrolling step content (#1903 large-font test). */
 internal const val SETUP_WIZARD_CONTENT_TAG = "setup_wizard_content"
 
+/** Below this window height the wizard scrolls as one page instead of pinning its buttons (#1903). */
+private val COMPACT_HEIGHT = 480.dp
+
 /**
  * First-run setup wizard (#1855, part 1). Step 1 explains how Jandal works; step 2 is download consent.
  * [onExit] leaves without completing (back on the first step); [onDone] runs after finishing or skipping.
@@ -84,8 +88,8 @@ fun SetupWizardScreen(
 }
 
 /**
- * Stateless wizard layout (#1903). Step content scrolls above a pinned button row, so Continue/Finish,
- * Back and Skip stay reachable at any font scale and in landscape.
+ * Stateless wizard layout (#1903). Portrait: step content scrolls above a pinned button row. Short windows
+ * (landscape phones): the whole page scrolls so the buttons keep a 48 dp minimum instead of being squeezed.
  */
 @Composable
 internal fun SetupWizardContent(
@@ -96,52 +100,82 @@ internal fun SetupWizardContent(
     onSkip: () -> Unit,
 ) {
     val isLast = state.step == SetupStep.entries.last()
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .safeDrawingPadding()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .testTag(SETUP_WIZARD_CONTENT_TAG),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            when (state.step) {
-                SetupStep.HOW_IT_WORKS -> HowItWorksStep()
-                SetupStep.DOWNLOAD -> DownloadStep(
-                    plannedModels = state.plannedModels,
-                    plannedVoices = state.plannedVoices,
-                    choice = state.choice,
-                    choiceRecorded = state.choiceRecorded,
-                    onChoiceSelected = onChoiceSelected,
-                )
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
+        if (maxHeight < COMPACT_HEIGHT) {
+            // Short windows (landscape phones at large font): a pinned button row cannot keep its 48 dp minimum,
+            // so the whole page scrolls and the buttons stay reachable at the end of it.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                StepContent(Modifier.testTag(SETUP_WIZARD_CONTENT_TAG), state, onChoiceSelected)
+                WizardButtons(isLast, onPrimary, onBack, onSkip)
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .testTag(SETUP_WIZARD_CONTENT_TAG),
+                ) {
+                    StepContent(Modifier, state, onChoiceSelected)
+                }
+                WizardButtons(isLast, onPrimary, onBack, onSkip)
             }
         }
-        Button(
-            onClick = onPrimary,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        ) {
-            Text(if (isLast) "Finish" else "Continue")
+    }
+}
+
+@Composable
+private fun StepContent(modifier: Modifier, state: SetupWizardUiState, onChoiceSelected: (DownloadNetworkChoice) -> Unit) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        when (state.step) {
+            SetupStep.HOW_IT_WORKS -> HowItWorksStep()
+            SetupStep.DOWNLOAD -> DownloadStep(
+                plannedModels = state.plannedModels,
+                plannedVoices = state.plannedVoices,
+                choice = state.choice,
+                choiceRecorded = state.choiceRecorded,
+                onChoiceSelected = onChoiceSelected,
+            )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(
-                onClick = onBack,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) { Text("Back") }
-            TextButton(
-                onClick = onSkip,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) { Text("Skip for now") }
-        }
+    }
+}
+
+@Composable
+private fun WizardButtons(isLast: Boolean, onPrimary: () -> Unit, onBack: () -> Unit, onSkip: () -> Unit) {
+    Button(
+        onClick = onPrimary,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+    ) {
+        Text(if (isLast) "Finish" else "Continue")
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(
+            onClick = onBack,
+            modifier = Modifier.heightIn(min = 48.dp),
+        ) { Text("Back") }
+        TextButton(
+            onClick = onSkip,
+            modifier = Modifier.heightIn(min = 48.dp),
+        ) { Text("Skip for now") }
     }
 }
 
