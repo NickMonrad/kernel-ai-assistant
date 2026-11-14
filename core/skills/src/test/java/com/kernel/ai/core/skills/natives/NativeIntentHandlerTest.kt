@@ -678,6 +678,28 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `unresolved contact suggestion query runs off the caller thread`() {
+        every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
+            PackageManager.PERMISSION_GRANTED
+        coEvery { contactAliasRepository.getByAlias(any()) } returns null
+        val suggestionThreads = mutableListOf<Thread>()
+        // CONTACTS URI is null in JVM tests, so identify the suggestion query by its projection.
+        every { contentResolver.query(any(), any(), any(), any(), any()) } answers {
+            val projection = secondArg<Array<out String>?>()
+            if (projection?.contentEquals(arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)) == true) {
+                suggestionThreads += Thread.currentThread()
+            }
+            null
+        }
+        val callerThread = Thread.currentThread()
+
+        handleIntent("make_call", mapOf("contact" to "Zephyrine Test"))
+
+        assertTrue(suggestionThreads.isNotEmpty())
+        assertTrue(suggestionThreads.all { it !== callerThread }, "caller=${callerThread.name} query=${suggestionThreads.map { it.name }}")
+    }
+
+    @Test
     fun `make_call literal phone number does not require contacts permission`() {
         every { context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) } returns
             PackageManager.PERMISSION_DENIED

@@ -897,7 +897,11 @@ fun ActionsScreen(
                     onClick = { viewModel.onSettingsActionSelected(action.deepLink) },
                     isPrimary = index == 0,
                 )
-            },
+            } + PermissionDialogAction(
+                label = "Not now",
+                testTag = "permission_dialog_settings_action_not_now",
+                onClick = { viewModel.dismissSettingsActionDialog() },
+            ),
             dialogTestTag = "permission_dialog_settings_action",
             onDismissRequest = { viewModel.dismissSettingsActionDialog() },
         )

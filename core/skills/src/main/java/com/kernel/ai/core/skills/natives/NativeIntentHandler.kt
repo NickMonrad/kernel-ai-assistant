@@ -70,7 +70,9 @@ import javax.inject.Singleton
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+ import kotlinx.coroutines.runBlocking
 private const val TAG = "KernelAI"
 
 interface ClockAlertController {
@@ -337,7 +339,7 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Email ─────────────────────────────────────────────────────────────────
 
-    private fun sendEmail(params: Map<String, String>): SkillResult {
+    private suspend fun sendEmail(params: Map<String, String>): SkillResult {
         // Use ACTION_SENDTO with mailto: URI so the system routes directly to an
         // email app instead of showing the generic share sheet (ACTION_SEND behaviour).
         val contact = params["contact"]?.trim()?.takeIf { it.isNotBlank() }
@@ -382,7 +384,7 @@ class NativeIntentHandler @Inject constructor(
 
     // ── SMS ───────────────────────────────────────────────────────────────────
 
-    private fun sendSms(params: Map<String, String>): SkillResult {
+    private suspend fun sendSms(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: params["phone"]
         
         // If the user provided a named contact (has letters), check READ_CONTACTS permission first.
@@ -1444,7 +1446,7 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Phone Call ────────────────────────────────────────────────────────────
 
-    private fun makeCall(params: Map<String, String>): SkillResult {
+    private suspend fun makeCall(params: Map<String, String>): SkillResult {
         val contact = params["contact"] ?: return SkillResult.Failure("make_call", "No contact specified")
         if (isVoicemailTarget(contact)) {
             return openVoicemail(contact)
@@ -1531,7 +1533,7 @@ class NativeIntentHandler @Inject constructor(
         contact.any { it.isLetter() } && contact.trim().lowercase() !in selfContactTerms
 
     /** Recovery result for a named contact that could not be resolved. */
-    private fun contactNotFound(skillName: String, contact: String, callRequested: Boolean = false): SkillResult.Failure =
+    private suspend fun contactNotFound(skillName: String, contact: String, callRequested: Boolean = false): SkillResult.Failure =
         ContactLookupRecovery.notFoundResult(
             skillName = skillName,
             query = contact,
@@ -1543,30 +1545,35 @@ class NativeIntentHandler @Inject constructor(
             callRequested = callRequested,
         )
 
-    /** Sound-alike contact names for [query]. Empty without READ_CONTACTS or when the query fails. */
+    /**
+     * Sound-alike contact names for [query]. Empty without READ_CONTACTS or when the query fails.
+     * Runs the contacts query on [Dispatchers.IO] so callers on the main thread never block on it.
+     */
     @SuppressLint("MissingPermission")
-    private fun suggestContactNames(query: String): List<String> {
+    private suspend fun suggestContactNames(query: String): List<String> {
         if (context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             return emptyList()
         }
-        return try {
-            val names = context.contentResolver.query(
-                ContactsContract.Contacts.CONTENT_URI,
-                arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY),
-                "${ContactsContract.Contacts.HAS_PHONE_NUMBER} = 1",
-                null,
-                null,
-            )?.use { cursor ->
-                buildList {
-                    while (cursor.moveToNext()) cursor.getString(0)?.let(::add)
-                }
-            }.orEmpty()
-            ContactLookupRecovery.nearMatches(query, names)
-        } catch (e: SecurityException) {
-            Log.w(TAG, "Contact name lookup denied", e)
-            emptyList()
+        return withContext(Dispatchers.IO) {
+            try {
+                val names = context.contentResolver.query(
+                    ContactsContract.Contacts.CONTENT_URI,
+                    arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY),
+                    "${ContactsContract.Contacts.HAS_PHONE_NUMBER} = 1",
+                    null,
+                    null,
+                )?.use { cursor ->
+                    buildList {
+                        while (cursor.moveToNext()) cursor.getString(0)?.let(::add)
+                    }
+                }.orEmpty()
+                ContactLookupRecovery.nearMatches(query, names)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Contact name lookup denied", e)
+                emptyList()
+            }
         }
     }
     @SuppressLint("MissingPermission")
