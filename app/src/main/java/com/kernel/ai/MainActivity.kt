@@ -18,6 +18,8 @@ import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.collectAsState
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.LifecycleOutcome
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.ui.theme.KernelAITheme
@@ -109,7 +111,16 @@ class MainActivity : ComponentActivity() {
     private val externalDraft = mutableStateOf<ExternalDraftRequest?>(null)
 
     private val requestOnboardingPermissions =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* no-op */ }
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            JandalEvents.record(
+                "permission", "notification_result",
+                "outcome" to if (results[android.Manifest.permission.POST_NOTIFICATIONS] == true) {
+                    LifecycleOutcome.GRANTED
+                } else {
+                    LifecycleOutcome.DENIED
+                },
+            )
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

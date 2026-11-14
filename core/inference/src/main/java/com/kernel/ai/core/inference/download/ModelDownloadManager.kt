@@ -12,7 +12,9 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.annotation.VisibleForTesting
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.diagnostics.DownloadStateKind
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.WorkerPhase
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
@@ -317,16 +319,25 @@ class ModelDownloadManager @Inject constructor(
         _downloadStates.update { it.toMutableMap().apply { put(model, state) } }
         // Transitions only: progress ticks within one state are not recorded.
         if (previous?.javaClass != state.javaClass) {
-            JandalEvents.record("download", "state", "model" to model.name, "state" to state.toJandalStateName())
+            JandalEvents.record("download", "state", "model" to model.name, "state" to state.toJandalStateKind())
         }
     }
 
-    /** Fixed names for the diagnostic log. `javaClass.simpleName` is obfuscated in release builds. */
-    private fun DownloadState.toJandalStateName(): String = when (this) {
-        DownloadState.NotDownloaded -> "NOT_DOWNLOADED"
-        is DownloadState.Downloaded -> "DOWNLOADED"
-        is DownloadState.Error -> "ERROR"
-        else -> "DOWNLOADING"
+    /** Enum values only: `javaClass.simpleName` is obfuscated in release builds, and strings are redacted (#1870). */
+    private fun DownloadState.toJandalStateKind(): DownloadStateKind = when (this) {
+        DownloadState.NotDownloaded -> DownloadStateKind.NOT_DOWNLOADED
+        is DownloadState.Downloaded -> DownloadStateKind.DOWNLOADED
+        is DownloadState.Error -> DownloadStateKind.ERROR
+        else -> DownloadStateKind.DOWNLOADING
+    }
+
+    private fun WorkInfo.State.toWorkerPhase(): WorkerPhase = when (this) {
+        WorkInfo.State.ENQUEUED -> WorkerPhase.ENQUEUED
+        WorkInfo.State.RUNNING -> WorkerPhase.RUNNING
+        WorkInfo.State.SUCCEEDED -> WorkerPhase.SUCCEEDED
+        WorkInfo.State.FAILED -> WorkerPhase.FAILED
+        WorkInfo.State.BLOCKED -> WorkerPhase.BLOCKED
+        WorkInfo.State.CANCELLED -> WorkerPhase.CANCELLED
     }
 
     // Issue 3 fix: guard against launching duplicate observeWorkInfo coroutines
@@ -346,10 +357,15 @@ class ModelDownloadManager @Inject constructor(
         // session (the first ENQUEUED/RUNNING emission). Subsequent progress ticks skip
         // the filesystem check entirely, avoiding redundant mkdirs() syscalls.
         var filesystemChecked = false
+        var lastWorkerState: WorkInfo.State? = null
         workManager
             .getWorkInfosByTagFlow(model.workerTag)
             .collect { infoList ->
                 val info = infoList.firstOrNull() ?: return@collect
+                if (info.state != lastWorkerState) {
+                    lastWorkerState = info.state
+                    JandalEvents.record("download", "worker_phase", "model" to model.name, "phase" to info.state.toWorkerPhase())
+                }
 
                 val newState: DownloadState = when (info.state) {
                     WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED -> {

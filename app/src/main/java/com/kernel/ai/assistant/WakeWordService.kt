@@ -35,6 +35,8 @@ import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.WakeWordHandoff
 import com.kernel.ai.core.inference.download.DownloadSource
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.LifecycleOutcome
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.SherpaSttModelSpec
@@ -669,6 +671,7 @@ class WakeWordService : Service() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — refusing to start")
+            JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.REFUSED_NO_MIC_PERMISSION)
             stopSelf(startId)
             AcousticJournalBridge.record(
                 type = AcousticEventType.SERVICE_ERROR,
@@ -676,6 +679,7 @@ class WakeWordService : Service() {
             )
             return START_NOT_STICKY
         }
+        JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.STARTED)
 
         val foregroundStarted = tryPromoteToMicrophoneForeground(
             promote = { startForeground(NOTIFICATION_ID, buildNotification(NOTIFICATION_TEXT_LISTENING)) },
@@ -771,6 +775,7 @@ class WakeWordService : Service() {
 
     override fun onDestroy() {
         instance = null
+        JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.STOPPED)
         cameraMonitorJob = null
         wakeWordDetector.stop()
         serviceScope.cancel()

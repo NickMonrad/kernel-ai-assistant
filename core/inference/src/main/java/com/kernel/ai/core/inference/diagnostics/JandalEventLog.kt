@@ -19,6 +19,15 @@ private const val TAG = "KernelAI"
 /** File under the app's filesDir that persists events across process death. */
 const val JANDAL_EVENTS_FILE_NAME = "jandal_events.log"
 
+/** WorkManager phases recorded for model downloads. Fixed enum values only (#1870). */
+enum class WorkerPhase { ENQUEUED, RUNNING, SUCCEEDED, FAILED, BLOCKED, CANCELLED }
+
+/** Download state kinds recorded for model downloads. Fixed enum values only (#1870). */
+enum class DownloadStateKind { NOT_DOWNLOADED, DOWNLOADED, ERROR, DOWNLOADING }
+
+/** Lifecycle and permission outcomes. Fixed enum values only (#1870). */
+enum class LifecycleOutcome { STARTED, STOPPED, REFUSED_NO_MIC_PERMISSION, GRANTED, DENIED }
+
 /** Most events kept in memory and on disk (ring buffer; oldest evicted first). */
 const val JANDAL_EVENT_CAPACITY = 500
 

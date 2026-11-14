@@ -339,14 +339,7 @@ class AboutViewModel @Inject constructor(
                 append(scrub(recordText))
             }
             appendLine()
-            appendLine("Recent Jandal events (in-app log, last 24 hours)")
-            appendLine("------------------------------------------------")
-            val eventLines = JandalEvents.exportLines()
-            if (eventLines.isEmpty()) {
-                appendLine("No Jandal events recorded.")
-            } else {
-                eventLines.forEach { appendLine(scrub(it)) }
-            }
+            append(renderJandalEventSection(JandalEvents.exportLines(), scrub))
             appendLine()
             appendLine("Current process logcat")
             appendLine("----------------------")
