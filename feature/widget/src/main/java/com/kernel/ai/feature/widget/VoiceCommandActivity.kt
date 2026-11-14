@@ -48,6 +48,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.kernel.ai.core.voice.WakeWordHandoff
+import com.kernel.ai.core.permissions.recordPermissionResult
+import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
@@ -102,6 +104,14 @@ class VoiceCommandActivity : ComponentActivity() {
     private val requestMicPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
+        recordPermissionResult(
+            Manifest.permission.RECORD_AUDIO,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                this,
+                Manifest.permission.RECORD_AUDIO,
+            ),
+        )
         if (granted) startVoiceSession() else finish()
     }
 

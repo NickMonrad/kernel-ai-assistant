@@ -88,7 +88,7 @@ import kotlin.math.roundToInt
 import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
+import android.widget.Toast
 import android.util.Log
 import android.provider.Settings
 import android.Manifest
@@ -99,11 +99,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Assistant
 import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.recordPermissionResult
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -138,6 +140,9 @@ fun VoiceScreen(
         if (needsUsageAccess) showUsageAccessDialog = true else viewModel.setHeyJandalEnabled(true)
     }
 
+    var showDefaultAssistantNotSetYet by remember { mutableStateOf(false) }
+    var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
+    var awaitingAssistantReturn by remember { mutableStateOf(false) }
     val micDenialClassifier = remember { PermissionDenialClassifier() }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -145,6 +150,14 @@ fun VoiceScreen(
                 viewModel.refreshAssistantStatus(
                     roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true,
                 )
+                // Back from assistant Settings: role held → success, and drop any "Not set yet" note.
+                if ((awaitingAssistantReturn || showDefaultAssistantNotSetYet) &&
+                    roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
+                ) {
+                    awaitingAssistantReturn = false
+                    showDefaultAssistantNotSetYet = false
+                    showDefaultAssistantSuccess = true
+                }
                 needsUsageAccess = requiresUsageAccess()
 
                 // 0. Settings-return handling: Usage Access round-trip (#1502). Continue the
@@ -224,18 +237,38 @@ fun VoiceScreen(
     }
 
     var showDefaultAssistantPrompt by remember { mutableStateOf(false) }
-    var showDefaultAssistantSuccess by remember { mutableStateOf(false) }
 
     val assistantRoleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
-        // Re-check role state immediately on return — do not rely solely on ON_RESUME.
-        val roleGranted = roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true
-        if (roleGranted) {
+        // Settings returned. Role held → success; otherwise the short note, never the full prompt.
+        awaitingAssistantReturn = false
+        if (roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) == true) {
+            showDefaultAssistantNotSetYet = false
             showDefaultAssistantSuccess = true
         } else {
-            // Role not granted — let the user try again.
-            showDefaultAssistantPrompt = true
+            showDefaultAssistantNotSetYet = true
+        }
+    }
+
+    // Opens the voice-input settings page (its "Digital assistant app" row sets the role),
+    // falling back to default apps. Shows a message if neither page resolves.
+    val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_no_settings_page)
+    fun openAssistantSettings() {
+        awaitingAssistantReturn = true
+        try {
+            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+        } catch (_: Exception) {
+            try {
+                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            } catch (_: Exception) {
+                awaitingAssistantReturn = false
+                Toast.makeText(
+                    context,
+                    noSettingsPageMessage,
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -243,6 +276,14 @@ fun VoiceScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.RECORD_AUDIO,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.RECORD_AUDIO,
+            ),
+        )
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
@@ -331,7 +372,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_mic_not_now",
                     onClick = {
                         showMicRepairDialog = false
@@ -367,7 +408,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_mic_not_now",
                     onClick = {
                         showMicDurableRequiredDialog = false
@@ -408,7 +449,7 @@ fun VoiceScreen(
                     isPrimary = true,
                 ),
                 PermissionDialogAction(
-                    label = "Not now",
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
                     testTag = "hey_jandal_usage_access_not_now",
                     onClick = {
                         showUsageAccessDialog = false
@@ -429,34 +470,40 @@ fun VoiceScreen(
         DefaultAssistantPrompt(
             onGrant = {
                 showDefaultAssistantPrompt = false
-                // Launch the assistant role setup intent
-                val manufacturer = Build.MANUFACTURER
-                val usesSettingsFlow = manufacturer.equals("samsung", ignoreCase = true) ||
-                    manufacturer.equals("honor", ignoreCase = true)
-                when {
-                    usesSettingsFlow -> {
-                        try {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-                        } catch (_: Exception) {
-                            assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                        }
-                    }
-                    else -> {
-                        val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
-                        if (intent != null) {
-                            assistantRoleLauncher.launch(intent)
-                        } else {
-                            try {
-                                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-                            } catch (_: Exception) {
-                                // No standard default-apps page — nothing more we can do.
-                            }
-                        }
-                    }
-                }
+                openAssistantSettings()
             },
             onCancel = {
                 showDefaultAssistantPrompt = false
+            },
+        )
+    }
+
+    // Role still not held after returning from Settings: short note with Try again.
+    if (showDefaultAssistantNotSetYet) {
+        PermissionOverlayDialog(
+            title = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_title),
+            body = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_body),
+            actions = listOf(
+                PermissionDialogAction(
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_not_set_try_again),
+                    testTag = "default_assistant_not_set_try_again",
+                    onClick = {
+                        showDefaultAssistantNotSetYet = false
+                        openAssistantSettings()
+                    },
+                    isPrimary = true,
+                ),
+                PermissionDialogAction(
+                    label = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_setup_cancel),
+                    testTag = "default_assistant_not_set_not_now",
+                    onClick = {
+                        showDefaultAssistantNotSetYet = false
+                    },
+                ),
+            ),
+            dialogTestTag = "default_assistant_not_set_yet",
+            onDismissRequest = {
+                showDefaultAssistantNotSetYet = false
             },
         )
     }
