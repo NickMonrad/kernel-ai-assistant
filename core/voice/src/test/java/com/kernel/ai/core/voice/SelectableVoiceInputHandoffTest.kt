@@ -327,6 +327,21 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
+    fun `cancelling the caller during the start-time zipformer load cancels the load`() = runTest(dispatcher) {
+        coEvery { native.startListening(any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
+        val loadCancelled = zipformerLoadHangs()
+        val c = controller()
+
+        val start = async { c.startListening(mode) }
+        advanceUntilIdle()
+        start.cancel() // no stopListening: the caller itself goes away
+        advanceUntilIdle()
+
+        assertTrue(loadCancelled.isCompleted)
+        assertTrue(start.isCancelled)
+    }
+
+    @Test
     fun `stop during the start-time zipformer load reports a capture that ended at once`() = runTest(dispatcher) {
         coEvery { native.startListening(any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
         val loadCancelled = zipformerLoadHangs()

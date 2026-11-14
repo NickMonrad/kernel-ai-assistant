@@ -352,6 +352,9 @@ class SelectableVoiceInputController @Inject constructor(
                 job.await()
             }
         } catch (e: CancellationException) {
+            // Covers both a cancelled job (stop / newer start) and a cancelled caller; in the
+            // latter case the job must not keep loading Zipformer on its own.
+            job.cancel()
             currentCoroutineContext().ensureActive()
             Log.i(TAG, "Zipformer start cancelled: capture stopped or superseded")
             null

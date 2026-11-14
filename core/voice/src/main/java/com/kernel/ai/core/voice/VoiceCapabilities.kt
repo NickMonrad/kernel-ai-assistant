@@ -7,8 +7,9 @@ import android.speech.SpeechRecognizer
  * What the device offers for speech recognition, read from the platform. Pure data, so callers
  * and tests can build fixtures directly. Read with [readVoiceCapabilities].
  *
- * @property platformRecognizerPresent a speech recognition service is registered. False on
- *   GrapheneOS and similar ROMs without Google services.
+ * @property platformRecognizerPresent a speech recognition service is registered. The app
+ *   exports its own `JandalRecognitionService`, so this is normally true even on ROMs without
+ *   Google services (GrapheneOS); [onDeviceRecognitionAvailable] is the real support signal.
  * @property onDeviceRecognitionAvailable an on-device recognizer exists. It may still lack
  *   the language pack, so check the locale separately.
  */

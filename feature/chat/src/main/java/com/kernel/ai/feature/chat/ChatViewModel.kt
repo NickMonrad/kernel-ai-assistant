@@ -1849,6 +1849,10 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
+        // A note from a hand-off that lands just before the stop must not show while idle.
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceNoticeJob = null
+        chatVoiceSessionId = null
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
