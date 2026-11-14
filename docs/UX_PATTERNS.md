@@ -767,7 +767,7 @@ Before raising a PR for any new feature that adds a list/collection screen, veri
 Model discovery, acquisition, selection, and lifecycle management follow a separate, dedicated
 pattern document: **[`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md)**.
 
-The Models screen groups chat, memory, and quick-answer models into role sections, with a
+The Models screen groups chat brain, memory search, and quick-command models into role sections, with a
 "Still needed" card and read-only voice status rows. See the "Models Screen Role Sections (#1857)"
 section of the model availability patterns.
 

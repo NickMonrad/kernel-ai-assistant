@@ -176,4 +176,14 @@ class ModelRolesTest {
         assertFalse(rows.getValue(e4b).selectable)
         assertTrue(ModelRoles.deletionBreaksApp(e2b, HardwareTier.MID_RANGE, st))
     }
+
+    @Test
+    fun `E-4B is not allowed on phone below flagship, while a not-yet-downloaded E-2B still is`() {
+        val mid = chat(ModelRoles.sections(null, HardwareTier.MID_RANGE, states())).rows.associateBy { it.model }
+        assertFalse(mid.getValue(e4b).allowedOnPhone)
+        assertTrue(mid.getValue(e2b).allowedOnPhone)
+        assertFalse(mid.getValue(e2b).selectable)
+        val flagship = chat(ModelRoles.sections(null, HardwareTier.FLAGSHIP, states())).rows.associateBy { it.model }
+        assertTrue(flagship.getValue(e4b).allowedOnPhone)
+    }
 }

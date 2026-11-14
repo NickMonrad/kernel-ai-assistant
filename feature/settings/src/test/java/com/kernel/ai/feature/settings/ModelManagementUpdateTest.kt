@@ -6,6 +6,7 @@ import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.DownloadSource
+import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
@@ -15,14 +16,18 @@ import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -87,6 +92,59 @@ class ModelManagementUpdateTest {
 
         verify(exactly = 1) {
             downloadManager.startDownload(arctic, force = true, source = DownloadSource.USER_INITIATED)
+        }
+    }
+
+    private fun newViewModel(): ModelManagementViewModel = ModelManagementViewModel(
+        modelDownloadManager = downloadManager,
+        modelPreferences = modelPreferences,
+        authRepository = authRepository,
+        jandalPersona = persona,
+        gatedModelStatusRepository = gatedStatusRepository,
+        context = context,
+        sherpaVoicePackDownloadManager = voicePacks,
+        voiceOutputPreferences = voiceOutputPreferences,
+    )
+
+    @Test
+    fun `deleting a saved E-4B choice that mid-range cannot select resets it to automatic`() {
+        val e4b = KernelModel.GEMMA_4_E4B
+        every { downloadManager.deviceTier } returns HardwareTier.MID_RANGE
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(e4b to DownloadState.Downloaded("/models/e4b")),
+        )
+        every { modelPreferences.preferredConversationModel } returns flowOf(e4b)
+        val viewModel = newViewModel()
+        val collector = viewModel.uiState.launchIn(CoroutineScope(Dispatchers.Unconfined))
+        try {
+            viewModel.deleteModel(e4b)
+            coVerify(exactly = 1) { modelPreferences.setPreferredModel(null) }
+            // deleteModel finishes its file work on Dispatchers.IO and resumes on Main; wait for that
+            // so the coroutine does not outlive the test and reset Main.
+            verify(timeout = 2_000) { downloadManager.refreshState(e4b) }
+        } finally {
+            collector.cancel()
+        }
+    }
+
+    @Test
+    fun `deleting the saved E-4B choice on flagship, where it answers chat, changes nothing`() {
+        val e4b = KernelModel.GEMMA_4_E4B
+        every { downloadManager.deviceTier } returns HardwareTier.FLAGSHIP
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            mapOf(
+                e4b to DownloadState.Downloaded("/models/e4b"),
+                KernelModel.GEMMA_4_E2B to DownloadState.Downloaded("/models/e2b"),
+            ),
+        )
+        every { modelPreferences.preferredConversationModel } returns flowOf(e4b)
+        val viewModel = newViewModel()
+        val collector = viewModel.uiState.launchIn(CoroutineScope(Dispatchers.Unconfined))
+        try {
+            viewModel.deleteModel(e4b)
+            coVerify(exactly = 0) { modelPreferences.setPreferredModel(any()) }
+        } finally {
+            collector.cancel()
         }
     }
 }

@@ -414,12 +414,14 @@ If these questions cannot be answered immediately from the UI, the design should
 ## Models Screen Role Sections (#1857)
 
 The Models screen groups models by what they do for the user, not by file: a **Chat brain**
-section, a **Memory** section, and a **Quick answers** section. Each section has a title, a
+section, a **Memory search** section, and a **Quick commands** section. Each section has a title, a
 one-line summary, and rows for its models.
 
-- Chat brain rows are limited to `ConversationModelRules.selectableConversationModels(tier)`.
-  Below flagship, E-4B is not offered. A saved E-4B preference on those tiers is ignored and E-2B
-  answers; the section shows "Your choice isn't available on this phone right now".
+- Chat brain choices are limited to `ConversationModelRules.selectableConversationModels(tier)`.
+  Below flagship, E-4B stays listed (under Optional or Not needed on this phone) with a disabled
+  radio and the "Not available on this phone" reason. A saved E-4B preference on those tiers is
+  ignored and E-2B answers; the section shows "Your choice isn't available on this phone right now".
+  Deleting that saved choice resets it to automatic first, so its file can be removed.
 - "Still needed" card lists only the downloads that make the app ready. Progress shows only for
   models the tier can select.
 - Disabled choices stay in the list with a reason ("Not available on this phone"). Radios expose

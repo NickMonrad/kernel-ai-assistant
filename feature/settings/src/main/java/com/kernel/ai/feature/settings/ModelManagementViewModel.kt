@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.inference.download.ConversationModelRules
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
@@ -227,8 +228,12 @@ class ModelManagementViewModel @Inject constructor(
 
     fun deleteModel(model: KernelModel) {
         if (model.isBundled) return
-        // Never delete the currently selected conversation model
-        if (model == uiState.value.preferredModel) return
+        // The chat brain in use cannot be deleted. A saved pick this tier cannot select is ignored
+        // by the engine, so reset it to automatic first; otherwise its file could never be removed.
+        if (model == uiState.value.preferredModel) {
+            if (model in ConversationModelRules.selectableConversationModels(modelDownloadManager.deviceTier)) return
+            setPreferredModel(null)
+        }
         // Cancel any in-progress download before deleting the file
         val currentState = modelDownloadManager.downloadStates.value[model]
         if (currentState is DownloadState.Downloading) {

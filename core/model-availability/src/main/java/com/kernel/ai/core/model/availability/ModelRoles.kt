@@ -52,6 +52,11 @@ data class ModelRoleRow(
     val recommended: Boolean,
     /** Whether tapping the row chooses it. False when the tier cannot run this model. */
     val selectable: Boolean,
+    /**
+     * False only when this phone can never run the model (E-4B below flagship). Distinct from
+     * [selectable], which is also false while the model is not downloaded yet.
+     */
+    val allowedOnPhone: Boolean,
 )
 
 data class ModelRoleSection(
@@ -205,8 +210,9 @@ object ModelRoles {
                 model == using && deletionBreaksApp(model, tier, states)
             }
         }
-        val selectable = ready && (role != ModelRole.CHAT_BRAIN ||
-            model in ConversationModelRules.selectableConversationModels(tier))
+        val allowedOnPhone = role != ModelRole.CHAT_BRAIN ||
+            model in ConversationModelRules.selectableConversationModels(tier)
+        val selectable = ready && allowedOnPhone
         val group = when {
             ready && inUse -> ModelGroup.IN_USE
             ready -> ModelGroup.OPTIONAL
@@ -224,6 +230,7 @@ object ModelRoles {
             required = required,
             recommended = recommended,
             selectable = selectable,
+            allowedOnPhone = allowedOnPhone,
         )
     }
 

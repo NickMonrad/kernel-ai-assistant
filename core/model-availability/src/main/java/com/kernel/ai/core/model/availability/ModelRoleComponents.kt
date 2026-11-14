@@ -137,6 +137,7 @@ fun RoleSectionView(
                         state = availabilityOf(row.model),
                         required = row.required,
                         recommended = row.recommended,
+                        allowedOnPhone = row.allowedOnPhone,
                         selected = if (onSelect != null) section.preferred == row.model && row.selectable else null,
                         onSelect = if (onSelect != null && row.selectable) ({ onSelect(row.model) }) else null,
                         onPrimary = onPrimary,
@@ -167,6 +168,7 @@ fun RoleSectionView(
                             state = availabilityOf(row.model),
                             required = false,
                             recommended = row.recommended,
+                            allowedOnPhone = row.allowedOnPhone,
                             selected = if (onSelect != null) section.preferred == row.model && row.selectable else null,
                             onSelect = if (onSelect != null && row.selectable) ({ onSelect(row.model) }) else null,
                             onPrimary = onPrimary,
@@ -271,6 +273,7 @@ private fun ModelRoleRowItem(
     state: ModelAvailabilityState,
     required: Boolean,
     recommended: Boolean,
+    allowedOnPhone: Boolean,
     selected: Boolean?,
     onSelect: (() -> Unit)?,
     onPrimary: (KernelModel) -> Unit,
@@ -288,7 +291,7 @@ private fun ModelRoleRowItem(
                 onClick = onSelect ?: {},
             )
             .semantics {
-                if (onSelect == null) stateDescription = ModelRoleCopy.NOT_ON_THIS_PHONE
+                if (!allowedOnPhone) stateDescription = ModelRoleCopy.NOT_ON_THIS_PHONE
             }
     } else {
         Modifier
