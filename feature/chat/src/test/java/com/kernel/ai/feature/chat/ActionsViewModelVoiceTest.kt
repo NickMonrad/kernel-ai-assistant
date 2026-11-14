@@ -123,6 +123,7 @@ class ActionsViewModelVoiceTest {
         every { voiceOutputController.stop() } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.autoSpeak } returns flowOf(true)
+        every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
         viewModel = ActionsViewModel(
             quickIntentRouter = quickIntentRouter,
             skillRegistry = skillRegistry,
@@ -4404,5 +4405,104 @@ class ActionsViewModelVoiceTest {
 
         verify(atLeast = 1) { voiceOutputController.stop() }
         assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
+    fun `card speaker reads the tapped card and marks only that card speaking`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertEquals("card-a", viewModel.speakingActionId.value)
+        assertStreamedReplyOnce { it == "First reply." }
+    }
+
+    @Test
+    fun `tapping the speaking card again stops playback`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertNull(viewModel.speakingActionId.value)
+        verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `tapping another card moves playback to that card`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        viewModel.toggleSpeakAction("card-b", "Second reply.")
+        advanceUntilIdle()
+
+        assertEquals("card-b", viewModel.speakingActionId.value)
+        assertStreamedReplyOnce { it == "Second reply." }
+    }
+
+    @Test
+    fun `card playback ends when its speech stops`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("First reply."))
+        advanceUntilIdle()
+        assertEquals("card-a", viewModel.speakingActionId.value)
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertNull(viewModel.speakingActionId.value)
+    }
+
+    @Test
+    fun `stale stop from the previous card does not clear the card now speaking`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("First reply."))
+        advanceUntilIdle()
+
+        viewModel.toggleSpeakAction("card-b", "Second reply.")
+        // The stop() issued by the switch can report SpeakingStopped after card-b has been set.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals("card-b", viewModel.speakingActionId.value)
+    }
+
+    @Test
+    fun `releasing a card stops only that card's playback`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        viewModel.releaseActionSpeech("card-b")
+        assertEquals("card-a", viewModel.speakingActionId.value)
+
+        viewModel.releaseActionSpeech("card-a")
+        assertNull(viewModel.speakingActionId.value)
+        verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `stopping voice output also stops card playback`() = runTest(dispatcher) {
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        viewModel.stopVoiceOutput()
+
+        assertNull(viewModel.speakingActionId.value)
+    }
+
+    @Test
+    fun `card speech that fails to start clears the card and surfaces the error`() = runTest(dispatcher) {
+        coEvery { voiceOutputController.openStreamingSession(any()) } returns object : VoiceOutputStreamingSession {
+            override suspend fun append(text: String, isFinal: Boolean) =
+                VoiceOutputResult.Unavailable("No voice installed.")
+        }
+
+        viewModel.toggleSpeakAction("card-a", "First reply.")
+        advanceUntilIdle()
+
+        assertNull(viewModel.speakingActionId.value)
+        assertEquals("No voice installed.", viewModel.error.value)
     }
 }

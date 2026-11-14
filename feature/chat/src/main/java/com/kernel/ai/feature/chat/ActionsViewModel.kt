@@ -308,6 +308,15 @@ class ActionsViewModel @Inject constructor(
 
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
+
+    private val _speakingActionId = MutableStateFlow<String?>(null)
+
+    /** Id of the quick-action card whose reply is being read aloud (#1026), or null. */
+    val speakingActionId: StateFlow<String?> = _speakingActionId.asStateFlow()
+    private var speakActionJob: Job? = null
+
+    /** Set once speech for the card in [_speakingActionId] has started; gates its SpeakingStopped reset. */
+    private var actionSpeechAudible = false
     private val _slotReplyAutoRearmArmed = MutableStateFlow(false)
     val slotReplyAutoRearmArmed: StateFlow<Boolean> = _slotReplyAutoRearmArmed.asStateFlow()
     private val _slotPromptPlaybackStarted = MutableStateFlow(false)
@@ -508,6 +517,8 @@ class ActionsViewModel @Inject constructor(
             voiceOutputController.events.collect { event ->
                 when (event) {
                     is VoiceOutputEvent.SpeakingStarted -> {
+                        // Recorded before the cancel check below: card speech must not be lost to it.
+                        if (_speakingActionId.value != null) actionSpeechAudible = true
                         if (voiceSpeechCancelled) {
                             // Speech the user abandoned can still report a start; no SpeakingStopped
                             // follows it on Inflect, so accepting it would leave the card on Speaking.
@@ -523,6 +534,7 @@ class ActionsViewModel @Inject constructor(
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
                         _voicePlaybackState.value = VoicePlaybackState.Idle
+                        if (_speakingActionId.value != null && actionSpeechAudible) clearActionSpeechState()
                         if (
                             shouldAutoStartVoiceSlotReply &&
                             _pendingSlot.value?.inputMode == InputMode.Voice &&
@@ -588,8 +600,61 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
+        stopActionSpeech()
         voiceOutputController.stop()
         _voicePlaybackState.value = VoicePlaybackState.Idle
+    }
+
+    // ── Quick-action card speaker (#1026) ───────────────────────────────────
+
+    /**
+     * Reads a card's reply aloud, or stops it when that card is already speaking. Mirrors chat's
+     * per-message speaker (#785) and reuses sentence-chunked playback (#1842). Only one card plays
+     * at a time; tapping another card stops the previous one.
+     */
+    fun toggleSpeakAction(actionId: String, text: String) {
+        val wasSpeakingThisCard = _speakingActionId.value == actionId
+        stopActionSpeech()
+        if (wasSpeakingThisCard) return
+        _speakingActionId.value = actionId
+        speakActionJob = viewModelScope.launch {
+            val maxSentences = voiceOutputPreferences.maxSpokenSentences.first()
+            val spoken = truncateForSpeech(normalizeChatTextForSpeech(text), maxSentences)
+            if (spoken.isBlank()) {
+                clearActionSpeechState()
+                return@launch
+            }
+            val result = try {
+                speakInSentenceChunks(voiceOutputController, spoken)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: card speech failed to start", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            }
+            if (result is VoiceOutputResult.Unavailable && _speakingActionId.value == actionId) {
+                _error.value = result.message
+                clearActionSpeechState()
+            }
+        }
+    }
+
+    /** Stops playback if [actionId] is the card speaking, e.g. when it leaves the screen or is deleted. */
+    fun releaseActionSpeech(actionId: String) {
+        if (_speakingActionId.value == actionId) stopActionSpeech()
+    }
+
+    private fun stopActionSpeech() {
+        val wasActive = _speakingActionId.value != null || speakActionJob != null
+        speakActionJob?.cancel()
+        clearActionSpeechState()
+        if (wasActive) voiceOutputController.stop()
+    }
+
+    private fun clearActionSpeechState() {
+        speakActionJob = null
+        actionSpeechAudible = false
+        _speakingActionId.value = null
     }
 
     fun pauseTransientVoiceUi(reason: String = "unspecified") {
@@ -602,6 +667,7 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
+        stopActionSpeech()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
         voiceOutputController.stop()
@@ -2035,6 +2101,7 @@ class ActionsViewModel @Inject constructor(
             ?: normaliseUserValuesForTts(toSpokenSummary(text), userValues)
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
+        stopActionSpeech()
         cancelPendingVoiceSpeech()
         // A new reply supersedes the cancellation, so its SpeakingStarted events count again.
         voiceSpeechCancelled = false
