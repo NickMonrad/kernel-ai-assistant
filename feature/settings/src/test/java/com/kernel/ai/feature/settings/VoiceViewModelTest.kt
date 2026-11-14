@@ -946,11 +946,8 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `cancelInflectMicroDownload stops the Cori pack Inflect started when Piper is not selected`() = runTest {
-        io.mockk.every { sherpaVoicePackDownloadManager.startDownload(any()) } returns Unit
-        io.mockk.every { sherpaVoicePackDownloadManager.cancelDownload(any()) } returns Unit
-        viewModel.downloadInflectMicro()
-        testDispatcher.scheduler.advanceUntilIdle()
+    fun `cancelInflectMicroDownload stops a running Cori pack shown on the Inflect row when Piper is not selected`() = runTest {
+        io.mockk.every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
         sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
             put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloading(progress = 0.2f))
         }
@@ -968,13 +965,31 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `cancelInflectMicroDownload leaves the Cori pack running when Piper is the selected engine`() = runTest {
-        io.mockk.every { sherpaVoicePackDownloadManager.startDownload(any()) } returns Unit
-        selectedOutputEngine.value = VoiceOutputEngine.SherpaExperimental
-        testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.downloadInflectMicro()
+    fun `cancelInflectMicroDownload still stops Cori after the view model is recreated`() = runTest {
+        io.mockk.every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
         sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
             put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloading(progress = 0.2f))
+        }
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloading(progress = 0.4f))
+        }
+        val recreated = newViewModel()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        recreated.cancelInflectMicroDownload()
+
+        io.mockk.verify(exactly = 1) { sherpaVoicePackDownloadManager.cancelDownload(SherpaPiperVoice.JennyDioco) }
+    }
+
+    @Test
+    fun `cancelInflectMicroDownload leaves the Cori pack running when Piper is the selected engine`() = runTest {
+        io.mockk.every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
+        selectedOutputEngine.value = VoiceOutputEngine.SherpaExperimental
+        sherpaDownloadStates.value = sherpaDownloadStates.value.toMutableMap().apply {
+            put(SherpaPiperVoice.JennyDioco, VoicePackDownloadState.Downloading(progress = 0.2f))
+        }
+        modelDownloadStates.value = modelDownloadStates.value.toMutableMap().apply {
+            put(KernelModel.INFLECT_MICRO_DURATION, DownloadState.Downloading(progress = 0.4f))
         }
         testDispatcher.scheduler.advanceUntilIdle()
 

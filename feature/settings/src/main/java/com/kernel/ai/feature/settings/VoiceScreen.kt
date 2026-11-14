@@ -957,14 +957,20 @@ private fun VoiceScreenContent(
             VoiceOutputSelectionCard(
                 selectedEngine = uiState.selectedOutputEngine,
                 inflectMicroReady = uiState.isInflectMicroReady,
+                sherpaVoiceReady = uiState.isSelectedSherpaVoiceDownloaded,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
             uiState.availableOutputEngines.forEach { engine ->
                 val engineSelected = uiState.selectedOutputEngine == engine
-                val engineActive = engineSelected &&
-                    (engine != VoiceOutputEngine.InflectMicroExperimental ||
-                        uiState.isInflectMicroReady)
+                val engineReady = when (engine) {
+                    VoiceOutputEngine.InflectMicroExperimental -> uiState.isInflectMicroReady
+                    VoiceOutputEngine.SherpaExperimental -> uiState.isSelectedSherpaVoiceDownloaded
+                    else -> true
+                }
+                val engineActive = engineSelected && engineReady
+                val selectedVoiceDownloading = uiState.sherpaVoices
+                    .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState is VoicePackDownloadState.Downloading
                 ListItem(
                     modifier = Modifier.fillMaxWidth(),
                     headlineContent = { Text(engine.displayName) },
@@ -974,6 +980,10 @@ private fun VoiceScreenContent(
                             Text(
                                 text = when {
                                     engineActive -> "Active"
+                                    engineSelected && engine == VoiceOutputEngine.SherpaExperimental &&
+                                        selectedVoiceDownloading -> "Setting up"
+                                    engineSelected && engine == VoiceOutputEngine.SherpaExperimental ->
+                                        "Needs ${uiState.selectedSherpaVoice.displayName}"
                                     engineSelected -> "Selected, setup needed"
                                     else -> "Inactive"
                                 },
@@ -1007,6 +1017,26 @@ private fun VoiceScreenContent(
                     )
                 }
                 HorizontalDivider()
+            }
+
+            val piperVoiceDownloadState = uiState.sherpaVoices
+                .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState
+            if (
+                uiState.selectedOutputEngine != VoiceOutputEngine.SherpaExperimental &&
+                piperVoiceDownloadState is VoicePackDownloadState.Downloading
+            ) {
+                Text(
+                    text = sherpaVoiceStatusLine(uiState.selectedSherpaVoice, piperVoiceDownloadState),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                OutlinedButton(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                    onClick = { onCancelSherpaVoice(uiState.selectedSherpaVoice) },
+                ) {
+                    Text("Cancel")
+                }
             }
 
             Text(
@@ -1249,6 +1279,12 @@ private fun VoiceScreenContent(
             }
 
             val inflectModelState = uiState.inflectMicroAvailability
+            val coriDownloading = uiState.sherpaVoices
+                .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState is VoicePackDownloadState.Downloading
+            val inflectGraphsReady = uiState.inflectMicroStates.isNotEmpty() &&
+                uiState.inflectMicroStates.values.all {
+                    it is com.kernel.ai.core.inference.download.DownloadState.Downloaded
+                }
             if (
                 VoiceOutputEngine.InflectMicroExperimental in uiState.availableOutputEngines &&
                 (
@@ -1309,6 +1345,17 @@ private fun VoiceScreenContent(
                         ) {
                             Text("Retry")
                         }
+                    }
+                    inflectModelState is ModelAvailabilityState.NotDisplayed &&
+                        inflectGraphsReady &&
+                        coriDownloading &&
+                        uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental -> {
+                        Text(
+                            text = "The Piper voice above is still downloading. Inflect is ready once it finishes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
                     }
                     else -> {
                         Button(
@@ -1805,15 +1852,23 @@ private fun VoiceInfoCard(
 private fun VoiceOutputSelectionCard(
     selectedEngine: VoiceOutputEngine,
     inflectMicroReady: Boolean,
+    sherpaVoiceReady: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val inflectSelected = selectedEngine == VoiceOutputEngine.InflectMicroExperimental
-    val selectedEngineReady = !inflectSelected || inflectMicroReady
+    val selectedEngineReady = when (selectedEngine) {
+        VoiceOutputEngine.InflectMicroExperimental -> inflectMicroReady
+        VoiceOutputEngine.SherpaExperimental -> sherpaVoiceReady
+        else -> true
+    }
     val message = when (selectedEngine) {
         VoiceOutputEngine.AndroidTts ->
             "Android TTS speaks. Piper voices below stay inactive until you select Piper."
         VoiceOutputEngine.SherpaExperimental ->
-            "Piper speaks. Android TTS is inactive until you select Android TTS."
+            if (selectedEngineReady) {
+                "Piper speaks. Android TTS is inactive until you select Android TTS."
+            } else {
+                "Piper is selected, but its voice is not ready yet. Android TTS speaks until it is."
+            }
         VoiceOutputEngine.KokoroExperimental ->
             "Kokoro (Experimental) speaks. Android TTS is inactive until you select Android TTS."
         VoiceOutputEngine.InflectMicroExperimental ->

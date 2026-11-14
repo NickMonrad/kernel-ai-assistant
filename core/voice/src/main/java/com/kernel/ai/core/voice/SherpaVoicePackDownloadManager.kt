@@ -141,11 +141,11 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         restartRunning: Boolean = false,
         allowMobileData: Boolean = false,
     ) {
-        if (allowMobileData) mobileDataVoices += voice
         if (!canDownloadVoice(isReleaseBuild, voice)) {
             Log.w(TAG, "Blocked download of ${voice.displayName} (not release-visible in release build)")
             return
         }
+        if (allowMobileData) mobileDataVoices += voice
         if (!force && voice.isDownloaded(context)) {
             updateState(voice, VoicePackDownloadState.Downloaded(voice.voiceDir(context).absolutePath))
             return
@@ -371,6 +371,7 @@ class SherpaVoicePackDownloadManager @Inject constructor(
                     }
 
                     WorkInfo.State.FAILED -> {
+                        mobileDataVoices -= voice
                         // Trust filesystem over worker state — pack may have been pushed via ADB
                         val isPresent = withContext(Dispatchers.IO) { voice.isDownloaded(context) }
                         if (isPresent) {

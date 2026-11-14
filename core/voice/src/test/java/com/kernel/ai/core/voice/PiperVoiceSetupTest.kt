@@ -1,6 +1,5 @@
 package com.kernel.ai.core.voice
 
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -31,7 +30,7 @@ class PiperVoiceSetupTest {
     fun `choosing Piper starts the selected missing voice once`() = runBlocking {
         setup.onEngineChosen(VoiceOutputEngine.SherpaExperimental)
 
-        coVerify(exactly = 1) { voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh) }
+        verify(exactly = 1) { voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh) }
     }
 
     @Test
@@ -53,7 +52,7 @@ class PiperVoiceSetupTest {
 
         setup.onEngineChosen(VoiceOutputEngine.SherpaExperimental)
 
-        coVerify(exactly = 1) { voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh) }
+        verify(exactly = 1) { voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh) }
     }
 
     @Test

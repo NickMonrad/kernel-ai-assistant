@@ -148,19 +148,19 @@ internal fun VoicePackDownloadState.toModelAvailability(): ModelAvailabilityStat
 }
 
 /**
- * Aggregates the Inflect graph states and the shared eSpeak frontend pack into the Inflect row's
- * model-management state.
+ * Aggregates the Inflect graph states and the shared Cori frontend pack into the Inflect row's state.
  *
- * The frontend is the selected Sherpa voice pack (Cori by default), which the Piper row owns. It
- * counts toward Inflect only while an Inflect graph is itself downloading or failed, so another
- * voice's download never shows here as Inflect work (#1868). A partial bundle is never ready.
- * Downloading takes precedence over an error so the single Cancel action stays available.
+ * While Piper is the selected output, the Piper row owns Cori: Inflect shows only its own graphs and never
+ * offers to cancel Cori. While Piper is not selected, a running Cori download is shown on the Inflect row
+ * with its progress, and the row's Cancel stops it too (#1868). Inflect is ready only when its graphs and
+ * the selected Cori pack are both downloaded. Downloading takes precedence over an error.
  */
 internal fun aggregateInflectMicroAvailability(
     requiredModels: List<KernelModel>,
     states: Map<KernelModel, DownloadState>,
     frontendState: VoicePackDownloadState,
     frontendApproxDownloadBytes: Long,
+    piperSelected: Boolean,
 ): ModelAvailabilityState {
     val resolvedStates = requiredModels.map { model ->
         model to (states[model] ?: DownloadState.NotDownloaded)
@@ -173,11 +173,12 @@ internal fun aggregateInflectMicroAvailability(
 
     val graphDownloading = resolvedStates.any { (_, state) -> state is DownloadState.Downloading }
     val graphError = resolvedStates.firstOrNull { (_, state) -> state is DownloadState.Error }
-    val frontendPending = allGraphsDownloaded && frontendState is VoicePackDownloadState.Downloading
-    val inflectOwnsFrontend = graphDownloading || graphError != null || frontendPending
+    val frontendDownloading = frontendState is VoicePackDownloadState.Downloading
+    val inflectOwnsFrontend = !piperSelected &&
+        (frontendDownloading || graphDownloading || graphError != null)
     val frontend = if (inflectOwnsFrontend) frontendState else VoicePackDownloadState.NotDownloaded
 
-    if (graphDownloading || frontendPending) {
+    if (graphDownloading || (inflectOwnsFrontend && frontendDownloading)) {
         val totalBytes = resolvedStates.sumOf { (model, _) -> model.approxSizeBytes } +
             frontendApproxDownloadBytes
         val downloadedBytes = resolvedStates.sumOf { (model, state) ->
@@ -301,7 +302,7 @@ class VoiceViewModel @Inject constructor(
                         inflectEligible = inflectReleaseEligible,
                     )
                 } ?: VoiceOutputEngine.AndroidTts
-                _uiState.update { it.copy(selectedOutputEngine = effectiveEngine) }
+                _uiState.update { it.copy(selectedOutputEngine = effectiveEngine).withInflectAvailability() }
                 if (effectiveEngine != engine) {
                     voiceOutputPreferences.setSelectedEngine(effectiveEngine)
                 }
@@ -318,6 +319,7 @@ class VoiceViewModel @Inject constructor(
                         states = state.inflectMicroStates,
                         frontendState = selectedVoiceState,
                         frontendApproxDownloadBytes = voice.approxDownloadBytes,
+                        piperSelected = state.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental,
                     )
                     state.copy(
                         selectedSherpaVoice = voice,
@@ -370,6 +372,7 @@ class VoiceViewModel @Inject constructor(
                         states = it.inflectMicroStates,
                         frontendState = selectedVoiceState,
                         frontendApproxDownloadBytes = it.selectedSherpaVoice.approxDownloadBytes,
+                        piperSelected = it.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental,
                     )
                     it.copy(
                         sherpaVoices = sherpaRows,
@@ -472,6 +475,7 @@ class VoiceViewModel @Inject constructor(
                         states = inflectStates,
                         frontendState = selectedVoiceState,
                         frontendApproxDownloadBytes = it.selectedSherpaVoice.approxDownloadBytes,
+                        piperSelected = it.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental,
                     )
                     it.copy(
                         inflectMicroStates = inflectStates,
@@ -543,9 +547,6 @@ class VoiceViewModel @Inject constructor(
         modelsForSpec(spec).forEach { modelDownloadManager.startDownload(it) }
     }
 
-    /** The Cori pack Inflect's Download started, so Inflect's Cancel can stop it (#1868). In-memory only. */
-    private var inflectStartedVoice: SherpaPiperVoice? = null
-
     fun downloadInflectMicro() {
         val currentStates = modelDownloadManager.downloadStates.value
         inflectModels
@@ -569,27 +570,40 @@ class VoiceViewModel @Inject constructor(
             frontendState is VoicePackDownloadState.Error
         ) {
             sherpaVoicePackDownloadManager.startDownload(selectedVoice)
-            inflectStartedVoice = selectedVoice
         }
     }
 
     /**
-     * Cancels Inflect graph downloads. Also cancels the Cori pack Inflect started, unless Piper is the selected
-     * output (then the Piper row owns it).
+     * Cancels Inflect's graph downloads. While Piper is not selected, also cancels a running Cori download,
+     * which the Inflect row shows as its own progress. State-derived, so it works after the ViewModel is recreated (#1868).
      */
     fun cancelInflectMicroDownload() {
         val currentStates = modelDownloadManager.downloadStates.value
         inflectModels
             .filter { currentStates[it] is DownloadState.Downloading }
             .forEach { modelDownloadManager.cancelDownload(it) }
-        val voice = inflectStartedVoice ?: return
-        val frontend = sherpaVoicePackDownloadManager.downloadStates.value[voice]
-        if (frontend is VoicePackDownloadState.Downloading &&
-            _uiState.value.selectedOutputEngine != VoiceOutputEngine.SherpaExperimental
-        ) {
+        if (_uiState.value.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental) return
+        val voice = _uiState.value.selectedSherpaVoice
+        if (sherpaVoicePackDownloadManager.downloadStates.value[voice] is VoicePackDownloadState.Downloading) {
             sherpaVoicePackDownloadManager.cancelDownload(voice)
-            inflectStartedVoice = null
         }
+    }
+
+    /** Recomputes the Inflect row from the current engine, selected voice and download states. */
+    private fun VoiceUiState.withInflectAvailability(): VoiceUiState {
+        val frontend = sherpaVoicePackDownloadManager.downloadStates.value[selectedSherpaVoice]
+            ?: VoicePackDownloadState.NotDownloaded
+        val availability = aggregateInflectMicroAvailability(
+            requiredModels = inflectModels,
+            states = inflectMicroStates,
+            frontendState = frontend,
+            frontendApproxDownloadBytes = selectedSherpaVoice.approxDownloadBytes,
+            piperSelected = selectedOutputEngine == VoiceOutputEngine.SherpaExperimental,
+        )
+        return copy(
+            inflectMicroAvailability = availability,
+            isInflectMicroReady = availability is ModelAvailabilityState.Ready,
+        )
     }
 
     fun deleteInflectMicro() {
@@ -661,10 +675,12 @@ class VoiceViewModel @Inject constructor(
                 inflectEligible = inflectReleaseEligible,
             )
         ) return
-        _uiState.update { it.copy(selectedOutputEngine = engine) }
+        val previous = _uiState.value.selectedOutputEngine
+        _uiState.update { it.copy(selectedOutputEngine = engine).withInflectAvailability() }
         viewModelScope.launch {
             voiceOutputPreferences.setSelectedEngine(engine)
-            piperVoiceSetup.onEngineChosen(engine)
+            // Re-tapping the selected engine must not re-run the Piper start logic.
+            if (engine != previous) piperVoiceSetup.onEngineChosen(engine)
         }
     }
 

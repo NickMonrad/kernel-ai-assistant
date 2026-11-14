@@ -51,13 +51,16 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     fun start() {
         scope.launch {
+            // First-run decision, read before the wizard can write an engine or start downloads (#1868).
+            val hasStoredEngine = voiceOutputPreferences.hasStoredEngine()
+            val isExistingInstall = modelDownloadManager.isExistingInstall()
             runCatching { deleteLegacyVoskModel() }
                 .onFailure { Log.w(TAG, "Failed to delete legacy Vosk model", it) }
             // Nothing downloads before the user has chosen a download network in the setup wizard (#1855).
             downloadNetworkPreferences.choice.first { DownloadConsent.voiceDefaultsAllowed(it) }
             runCatching { queueSpeechInputModel() }
                 .onFailure { Log.w(TAG, "Failed to queue speech input model", it) }
-            runCatching { queueSpeechOutputVoice() }
+            runCatching { queueSpeechOutputVoice(hasStoredEngine, isExistingInstall) }
                 .onFailure { Log.w(TAG, "Failed to queue speech output voice", it) }
         }
     }
@@ -75,13 +78,13 @@ class VoiceDefaultsProvisioner @Inject constructor(
         prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
     }
 
-    private suspend fun queueSpeechOutputVoice() {
+    private suspend fun queueSpeechOutputVoice(hasStoredEngine: Boolean, isExistingInstall: Boolean) {
         if (prefs.getBoolean(KEY_VOICE_QUEUED, false)) return
         val voice = voiceOutputPreferences.selectedSherpaVoice.first()
         // Read before any write below: the plan needs the engine as the user left it.
         val plan = planSpeechOutputVoice(
-            hasStoredEngine = voiceOutputPreferences.hasStoredEngine(),
-            isExistingInstall = modelDownloadManager.isExistingInstall(),
+            hasStoredEngine = hasStoredEngine,
+            isExistingInstall = isExistingInstall,
             effectiveEngine = voiceOutputPreferences.selectedEngine.first(),
             voiceDownloaded = voice.isDownloaded(context),
         )
