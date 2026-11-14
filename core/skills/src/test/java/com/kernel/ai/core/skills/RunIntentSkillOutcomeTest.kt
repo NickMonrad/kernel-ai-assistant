@@ -15,14 +15,17 @@ class RunIntentSkillOutcomeTest {
     @Test
     fun `run_intent rejected without an intent name is exported as a parse error on its route`() = runBlocking {
         JandalEvents.install(File.createTempFile("jandal-run-intent", ".log"))
-        val before = JandalEvents.exportLines().size
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
 
         val result = RunIntentSkill(mockk<NativeIntentHandler>(relaxed = true))
             .execute(SkillCall("run_intent", emptyMap(), route = IntentRoute.LLM_TOOL))
         JandalEvents.awaitWritesForTest()
 
         assertInstanceOf(SkillResult.Failure::class.java, result)
-        val line = JandalEvents.exportLines().drop(before).last { " intent run_intent " in it }
+        JandalEvents.awaitWritesForTest()
+        val exported = JandalEvents.exportLines()
+        val line = exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1).last { " intent run_intent " in it }
         assertTrue(line.contains("route=LLM_TOOL"), line)
         assertTrue(line.contains("success=false"), line)
         assertTrue(line.contains("outcome=PARSE_ERROR"), line)

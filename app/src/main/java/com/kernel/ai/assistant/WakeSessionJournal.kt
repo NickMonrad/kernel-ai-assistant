@@ -61,9 +61,9 @@ internal class WakeSessionJournal(
 }
 
 /**
- * Wake events for the support export (#1870). Carries only the event type and ids: metadata
- * is not forwarded, so transcript hashes and outcome strings never reach the log. Partial
- * transcripts are skipped so they cannot push older events out of the buffer.
+ * Wake events for the support export (#1870). Forwards only the event type, the ids, and the
+ * enum-valued category and outcome. Free-text metadata (transcript hashes, outcome strings)
+ * is dropped. Partial transcripts are skipped so they cannot push older events out of the buffer.
  */
 internal fun recordWakeJandalEvent(
     type: String,

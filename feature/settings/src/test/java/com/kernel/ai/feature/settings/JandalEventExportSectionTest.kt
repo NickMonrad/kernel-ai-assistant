@@ -44,7 +44,7 @@ class JandalEventExportSectionTest {
     @Test
     fun `free text never reaches the section with chat opt-in on or off`() {
         JandalEvents.record("chat", "message_sent", "text" to "call Alice 0412345678 about milk")
-        JandalEvents.record("permission", "mic_result", "outcome" to LifecycleOutcome.GRANTED)
+        JandalEvents.record("permission", "record_audio", "granted" to true)
         JandalEvents.awaitWritesForTest()
         val lines = JandalEvents.exportLines()
 
@@ -56,7 +56,7 @@ class JandalEventExportSectionTest {
             assertFalse(section.contains("milk"))
             assertFalse(section.contains("0412345678"))
             assertTrue(section.contains("message_sent"))
-            assertTrue(section.contains("GRANTED"))
+            assertTrue(section.contains("record_audio granted=true"))
         }
     }
 }

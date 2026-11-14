@@ -37,7 +37,8 @@ class WakeCategoryExportTest {
             "playback_exception" to WakeCategory.PLAYBACK_EXCEPTION,
         )
         JandalEvents.awaitWritesForTest()
-        val before = JandalEvents.exportLines().size
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
 
         emitted.forEach { (raw, _) ->
             recordWakeJandalEvent(AcousticEventType.SERVICE_ERROR, generationId = 1L, sessionId = 1L) {
@@ -45,7 +46,8 @@ class WakeCategoryExportTest {
             }
         }
         JandalEvents.awaitWritesForTest()
-        val lines = JandalEvents.exportLines().drop(before)
+        val exported = JandalEvents.exportLines()
+        val lines = exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1)
 
         emitted.forEach { (raw, expected) ->
             assertTrue(

@@ -20,7 +20,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -182,6 +181,16 @@ internal fun shouldRefreshAlertRecognizerOnNoSpeech(
  */
 const val NO_SPEECH_WINDOW_EXHAUSTED = "no_speech_window_exhausted"
 
+/**
+ * Stable categories for on-device failures that the controller can hand to another recognizer
+ * (Zipformer) without user action: the recognizer never became ready ([NATIVE_NOT_READY]), or
+ * its watchdog expired before any speech progress ([NATIVE_STALLED]). Recognizer-reported
+ * errors (no match, speech timeout, network) and stalls after speech keep a null category and
+ * are surfaced as-is.
+ */
+const val NATIVE_NOT_READY = "native_not_ready"
+const val NATIVE_STALLED = "native_stalled"
+
 internal fun shouldRetryWithPlatformAfterWatchdogTimeout(
     backend: RecognizerBackend,
     sawPartialTranscript: Boolean,
@@ -195,7 +204,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private val recognitionSupport: AndroidNativeRecognitionSupport,
 ) : VoiceInputController {
 
-    private val _events = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 8)
+    private val _events = voiceEventFlow()
     override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
 
 
@@ -452,6 +461,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         mode = mode,
                         captureSessionId = sessionId,
                         message = "On-device speech recognition didn't start. Please try again.",
+                        category = NATIVE_NOT_READY,
                     ),
                 )
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
@@ -633,17 +643,14 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         // expires (alert command, refreshed recognizer, no speech, no
                         // partials), the entire command window has elapsed — classify it
                         // as NO_SPEECH_WINDOW_EXHAUSTED so the wake session skips the
-                        // pointless attempt-2 and re-arms.  Everything else (speech
-                        // progress, non-alert modes, genuine errors) stays generic.
-                        category = if (
-                            isRefreshed &&
-                            mode == VoiceCaptureMode.AlertCommand &&
-                            !heardSpeech &&
-                            !sawPartialTranscript
-                        ) {
-                            NO_SPEECH_WINDOW_EXHAUSTED
-                        } else {
-                            null
+                        // pointless attempt-2 and re-arms.  #1853: any other stall before
+                        // speech progress is NATIVE_STALLED, which the selectable controller
+                        // may hand to Zipformer.  Stalls after speech progress stay generic.
+                        category = when {
+                            heardSpeech || sawPartialTranscript -> null
+                            isRefreshed && mode == VoiceCaptureMode.AlertCommand ->
+                                NO_SPEECH_WINDOW_EXHAUSTED
+                            else -> NATIVE_STALLED
                         },
                     ),
                 )

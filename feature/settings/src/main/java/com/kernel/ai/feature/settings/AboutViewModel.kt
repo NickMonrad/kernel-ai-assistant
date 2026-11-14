@@ -283,7 +283,7 @@ class AboutViewModel @Inject constructor(
             if (includeUserContent) { text -> text } else DiagnosticLogRedactor::redactTraceText
 
         val eventLines = JandalEvents.exportLines()
-        if (exitRecords.isEmpty() && logcat.output == null && eventLines.isEmpty()) {
+        if (exitRecords.isEmpty() && logcat.output == null) {
             val detail = logcat.failureDetail ?: "no recent process exits were recorded"
             throw Exception(
                 "No useful diagnostics were available ($detail). This device may restrict " +

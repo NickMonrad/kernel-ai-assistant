@@ -19,13 +19,15 @@ class SkillOutcomeEventsTest {
         every { skill.name } returns "outcome_probe_skill"
         coEvery { skill.execute(any()) } returns SkillResult.Success("ok")
         JandalEvents.install(File.createTempFile("jandal-skill-outcome", ".log"))
-        val before = JandalEvents.exportLines().size
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
 
         val result = SkillOutcomeEvents.execute(skill, emptyMap(), IntentRoute.CONFIRMATION)
         JandalEvents.awaitWritesForTest()
 
         assertEquals(SkillResult.Success("ok"), result)
-        val line = JandalEvents.exportLines().drop(before).single { " skill outcome_probe_skill " in it }
+        val exported = JandalEvents.exportLines()
+        val line = exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1).single { " skill outcome_probe_skill " in it }
         assertTrue("route=CONFIRMATION" in line, line)
         assertTrue("success=true" in line && "outcome=SUCCESS" in line, line)
     }
@@ -36,12 +38,14 @@ class SkillOutcomeEventsTest {
         every { skill.name } returns "outcome_failure_skill"
         coEvery { skill.execute(any()) } returns SkillResult.Failure("outcome_failure_skill", "boom")
         JandalEvents.install(File.createTempFile("jandal-skill-outcome", ".log"))
-        val before = JandalEvents.exportLines().size
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
 
         SkillOutcomeEvents.execute(skill, emptyMap(), IntentRoute.RECOVERY)
         JandalEvents.awaitWritesForTest()
 
-        val line = JandalEvents.exportLines().drop(before).single { " skill outcome_failure_skill " in it }
+        val exported = JandalEvents.exportLines()
+        val line = exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1).single { " skill outcome_failure_skill " in it }
         assertTrue("route=RECOVERY" in line, line)
         assertTrue("success=false" in line && "outcome=FAILURE" in line, line)
     }

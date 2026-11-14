@@ -1,6 +1,6 @@
 # Jandal AI — Roadmap
 
-> **Last updated:** 2026-11-10 (tracked anaphoric list-add reliability in #1787)
+> **Last updated:** 2026-11-14 (added Build 6 closed-test onboarding and guidance feedback; tracked anaphoric list-add reliability in #1787)
 >
 > This is the living roadmap for Jandal AI. It tracks what's been built, what's next,
 > and what's planned. If you have ideas, [open an issue](https://github.com/NickMonrad/kernel-ai-assistant/issues/new)
@@ -25,7 +25,7 @@
 | **Intent router (complex)** | Gemma-4 native SDK tool calling (`@Tool`) + constrained decoding |
 | **Vector search** | sqlite-vec 0.1.9 via bundled SQLite 3.49.2 |
 | **Wasm runtime** | Chicory (pure JVM) |
-| **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM); S21 Exynos (Mali GPU, 8GB RAM) |
+| **Test device** | Samsung Galaxy S23 Ultra (SD 8 Gen 2, 12GB RAM) is the primary test device; S21 Exynos (Mali GPU, 8GB RAM) is used only for named gates and extra capacity |
 
 ---
 
@@ -63,6 +63,37 @@ Completed from the previous sequence: #1555, #1548, #1582 and #1581.
 This sequence may be interrupted only by a newly discovered release blocker or regression.
 
 Wake-word battery and reliability qualification are complete for v0.1. Broader permission orchestration (#1140), evidence-platform work (#1113), living voice QA (#824), and wake-word optimisation (#1395) are post-launch unless a new release-candidate regression proves otherwise.
+
+### Build 6: closed-test feedback (onboarding and guidance)
+
+Goal: make first run easy enough that testers can onboard unaided before public tester recruiting. This is closed-test onboarding polish and does not change the frozen #1014 v0.1 launch scope. Tracking issue: [#1866](https://github.com/NickMonrad/kernel-ai-assistant/issues/1866).
+
+| Issue | Summary |
+|-------|---------|
+| [#1855](https://github.com/NickMonrad/kernel-ai-assistant/issues/1855) | Setup wizard: ask before any model download (Wi-Fi by default), choose speech in and out, and set up "Hey Jandal". |
+| [#1857](https://github.com/NickMonrad/kernel-ai-assistant/issues/1857) | Models screen grouped by role with a Still needed card; plain-English purpose for each model (e.g. Arctic Embed = memory and search); E-2B shown as a smaller option, not as missing, when E-4B is installed. |
+| [#1858](https://github.com/NickMonrad/kernel-ai-assistant/issues/1858) | Default-assistant loop: "set as default" opens the system page instead of re-prompting; in-app permission requests. |
+| [#1853](https://github.com/NickMonrad/kernel-ai-assistant/issues/1853) | Android native speech stalls with online recognition off, and phones without Google services. Agreed fix: automatically fall back to Zipformer when Android native fails and Zipformer is downloaded, saved setting unchanged, and the user sees a note when the fallback happens. |
+| [#1859](https://github.com/NickMonrad/kernel-ai-assistant/issues/1859) | Contact not found (e.g. "call my wife"): explain aliases and link straight to adding one. |
+| [#1860](https://github.com/NickMonrad/kernel-ai-assistant/issues/1860) | Birthday or date not found: say when calendar or contact sync is off and link to turn it on. |
+| [#1850](https://github.com/NickMonrad/kernel-ai-assistant/issues/1850) | Mic-ready cue: a clear visual "speak now" state and a haptic tick when the recognizer is ready (plus a soft audible cue), and a pre-roll buffer so words spoken up to ~500 ms early are not lost. |
+| [#1852](https://github.com/NickMonrad/kernel-ai-assistant/issues/1852) | NZ place names: pronunciation lexicon for speech output and better recognition (e.g. "Petone"). |
+| [#1854](https://github.com/NickMonrad/kernel-ai-assistant/issues/1854) / [#1856](https://github.com/NickMonrad/kernel-ai-assistant/pull/1856) | GitHub tester APKs: closed-test builds also published as signed APKs on GitHub Releases for Obtainium. |
+| [#1026](https://github.com/NickMonrad/kernel-ai-assistant/issues/1026) | Speaker icon on Quick Action cards to play or stop TTS, reusing the sentence playback from #1842. |
+| [#1864](https://github.com/NickMonrad/kernel-ai-assistant/issues/1864) | Friendly reply instead of a raw "Unknown intent" error (PR [#1865](https://github.com/NickMonrad/kernel-ai-assistant/pull/1865)). |
+| [#942](https://github.com/NickMonrad/kernel-ai-assistant/issues/942) | Calendar: read events (e.g. "what's on this week"), which testers asked for. Creating events is an owner decision, not part of this build. |
+| [#1867](https://github.com/NickMonrad/kernel-ai-assistant/issues/1867) | Welcome screen: the + button covers the download card and tips, and overlaps the Actions tab FAB; add bottom spacing. |
+| [#1868](https://github.com/NickMonrad/kernel-ai-assistant/issues/1868) | Voice output: choosing Piper gets Cori straight away; Inflect row no longer shows a fake download; updated installs move off Android TTS. |
+| [#1869](https://github.com/NickMonrad/kernel-ai-assistant/issues/1869) | Welcome card disappears after the first chat with no way back; keep download progress visible on Chats. |
+| [#1870](https://github.com/NickMonrad/kernel-ai-assistant/issues/1870) | Support log on Honor/MagicOS has nothing from Jandal; include Jandal's own recent events. |
+| [#1871](https://github.com/NickMonrad/kernel-ai-assistant/issues/1871) | Spoken list confirmation rushes the item ("…shopping list milk" with no pause). |
+| [#1872](https://github.com/NickMonrad/kernel-ai-assistant/issues/1872) | Weather reply is slow to start speaking; measure where the time goes and fix the biggest delay. |
+| [#1873](https://github.com/NickMonrad/kernel-ai-assistant/issues/1873) | Easy ways to stop Jandal talking: a volume key stops speech, Stop on the notification, shorter replies (part 1 of #1381). |
+| [#1877](https://github.com/NickMonrad/kernel-ai-assistant/issues/1877) | Beta test page: "Join our Discord" link (PR [#1878](https://github.com/NickMonrad/kernel-ai-assistant/pull/1878)). |
+
+Later / design: [#1862](https://github.com/NickMonrad/kernel-ai-assistant/issues/1862) — personal speech corrections (teach Jandal what you said vs what it heard). Not for build 6; needs design first. [#1874](https://github.com/NickMonrad/kernel-ai-assistant/issues/1874) — barge-in: "Hey Jandal" or "stop" interrupts speech via echo cancellation (part 2 of #1381), after build 6.
+
+Follow-ups outside the build 6 milestone: [#1875](https://github.com/NickMonrad/kernel-ai-assistant/issues/1875) (sanitise intent and param logging) and [#1876](https://github.com/NickMonrad/kernel-ai-assistant/issues/1876) (`ChatViewModel` failure branches ignore `fallThroughToModel`).
 
 ---
 

@@ -18,8 +18,9 @@ import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.collectAsState
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
+import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
-import com.kernel.ai.core.inference.diagnostics.LifecycleOutcome
+import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.ui.theme.KernelAITheme
@@ -112,14 +113,17 @@ class MainActivity : ComponentActivity() {
 
     private val requestOnboardingPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            JandalEvents.record(
-                "permission", "notification_result",
-                "outcome" to if (results[android.Manifest.permission.POST_NOTIFICATIONS] == true) {
-                    LifecycleOutcome.GRANTED
-                } else {
-                    LifecycleOutcome.DENIED
-                },
-            )
+            results.forEach { (permission, granted) ->
+                recordPermissionResult(
+                    permission,
+                    granted,
+                    shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                        this,
+                        permission,
+                    ),
+                )
+            }
+            JandalEvents.record("permission", "notification_result", "granted" to (results[android.Manifest.permission.POST_NOTIFICATIONS] == true))
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {

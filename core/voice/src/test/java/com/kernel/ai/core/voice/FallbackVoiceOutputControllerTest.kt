@@ -227,13 +227,15 @@ class FallbackVoiceOutputControllerTest {
             com.kernel.ai.core.inference.diagnostics.JandalEvents.install(
                 java.io.File.createTempFile("jandal-tts-stream", ".log"),
             )
-            val before = com.kernel.ai.core.inference.diagnostics.JandalEvents.exportLines().size
+            val mark = System.nanoTime() % 999_999_999L
+            com.kernel.ai.core.inference.diagnostics.JandalEvents.record("test", "mark", "id" to mark)
 
             val result = buildController().openStreamingSession(request).append("Kia ora", isFinal = true)
             com.kernel.ai.core.inference.diagnostics.JandalEvents.awaitWritesForTest()
 
             assertEquals(VoiceOutputResult.Unavailable("generation failed"), result)
-            val lines = com.kernel.ai.core.inference.diagnostics.JandalEvents.exportLines().drop(before)
+            val exported = com.kernel.ai.core.inference.diagnostics.JandalEvents.exportLines()
+            val lines = exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1)
             org.junit.jupiter.api.Assertions.assertTrue(
                 lines.any { " tts speak_start " in it && "engine=SHERPA_EXPERIMENTAL" in it && "streaming=true" in it },
                 lines.toString(),

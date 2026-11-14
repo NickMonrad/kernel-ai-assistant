@@ -228,6 +228,7 @@ class FallbackVoiceOutputController @Inject constructor(
                         "Inflect Micro TTS streaming synthesis failed (${inflectResult.message}); " +
                             "routing to Android TTS fallback.",
                     )
+                    recordFallback(VoiceOutputEngine.InflectMicroExperimental)
                     activate(androidTts)
                     val androidWarmUpResult = androidTts.warmUp()
                     if (androidWarmUpResult is VoiceOutputResult.Unavailable) {

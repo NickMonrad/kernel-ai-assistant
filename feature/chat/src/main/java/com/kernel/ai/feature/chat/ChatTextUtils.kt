@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.core.inference.JandalPersona
+import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.isFactualWikipediaQuestion
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 import java.util.regex.Pattern
@@ -863,4 +864,20 @@ internal fun buildKnownNzContextReply(
     } else {
         "${entry.term}: $definition."
     }
+}
+
+/**
+ * Tool-chip text for a failed skill: the diagnostic when present, else the user-facing error.
+ * Chips and logs may show [SkillResult.Failure.technicalDetail]; bubbles and speech never do.
+ */
+internal fun failureChipText(result: SkillResult.Failure): String =
+    result.technicalDetail ?: result.error
+
+/**
+ * Chat bubble for a failed skill. When [SkillResult.Failure.technicalDetail] is set, [error] is a
+ * complete reply and is shown without the generic "something went wrong" prefix.
+ */
+internal fun failureChatReply(result: SkillResult.Failure): String = when {
+    result.skillName == "send_email" || result.technicalDetail != null -> result.error
+    else -> "I tried to do that but something went wrong: ${result.error}"
 }

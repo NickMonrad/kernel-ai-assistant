@@ -32,7 +32,7 @@ class VoiceCommandHandler @Inject constructor(
                 if (result.intent.intentName == "start_meal_planner") {
                     navigator.navigateToChat(context, transcript)
                 } else {
-                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context)
+                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context, IntentRoute.QUICK_REGEX)
                 }
             }
             is QuickIntentRouter.RouteResult.ClassifierMatch -> {
@@ -40,7 +40,7 @@ class VoiceCommandHandler @Inject constructor(
                 if (result.intent.intentName == "start_meal_planner") {
                     navigator.navigateToChat(context, transcript)
                 } else {
-                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context)
+                    executeIntentInPlace(transcript, result.intent.intentName, result.intent.params, context, IntentRoute.QUICK_CLASSIFIER)
                 }
             }
             is QuickIntentRouter.RouteResult.NeedsSlot -> {
@@ -59,6 +59,7 @@ class VoiceCommandHandler @Inject constructor(
         intentName: String,
         params: Map<String, String>,
         context: Context,
+        route: IntentRoute,
     ) {
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
@@ -79,7 +80,7 @@ class VoiceCommandHandler @Inject constructor(
             return
         }
 
-        val skillResult = SkillOutcomeEvents.execute(skill, callParams, IntentRoute.OTHER)
+        val skillResult = SkillOutcomeEvents.execute(skill, callParams, route)
         if (skillResult is SkillResult.Failure && skillResult.fallThroughToModel) {
             Log.d(TAG, "VoiceCommandHandler: '$intentName' missed with model fallthrough → opening chat")
             navigator.navigateToChat(context, transcript)

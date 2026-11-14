@@ -11,10 +11,12 @@ class WakeSessionJournalJandalTest {
 
     private fun exportAfter(block: () -> Unit): List<String> {
         JandalEvents.install(File.createTempFile("jandal-wake", ".log"))
-        val before = JandalEvents.exportLines().size
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
         block()
         JandalEvents.awaitWritesForTest()
-        return JandalEvents.exportLines().drop(before)
+        val exported = JandalEvents.exportLines()
+        return exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1)
     }
 
     @Test
