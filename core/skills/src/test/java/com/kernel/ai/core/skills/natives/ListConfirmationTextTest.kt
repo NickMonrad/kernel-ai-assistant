@@ -30,6 +30,23 @@ class ListConfirmationTextTest {
     }
 
     @Test
+    fun `spoken add names short lists in full`() {
+        assertEquals(
+            "Added milk, bread, eggs and tea to your shopping list.",
+            ListConfirmationText.spokenAdded(listOf("milk", "bread", "eggs", "tea"), "shopping list"),
+        )
+    }
+
+    @Test
+    fun `spoken add of more than the item limit speaks a count and still ends with the list name`() {
+        val items = listOf("milk", "bread", "eggs", "tea", "rice", "oats", "jam", "salt", "pepper", "honey")
+        assertEquals(
+            "Added 10 items to your shopping list.",
+            ListConfirmationText.spokenAdded(items, "shopping list"),
+        )
+    }
+
+    @Test
     fun `remove confirmation names the item and the list`() {
         assertEquals(
             "Removed milk from your shopping list.",
@@ -54,6 +71,43 @@ class ListConfirmationTextTest {
         assertEquals(
             "Removed eggs from your to-do list.",
             ListConfirmationText.removed(" eggs, ", "to-do list"),
+        )
+    }
+
+    @Test
+    fun `punctuation-only items are dropped from add confirmations`() {
+        assertEquals(
+            "Added milk to your shopping list.",
+            ListConfirmationText.added(listOf("milk", ".", " - ", ""), "shopping list"),
+        )
+        assertEquals(
+            "No items added to your shopping list.",
+            ListConfirmationText.added(listOf(".", ""), "shopping list"),
+        )
+    }
+
+    @Test
+    fun `list read of a short list names every item`() {
+        assertEquals(
+            "Your shopping list has 3 items: milk, eggs and bread.",
+            ListConfirmationText.spokenListed("shopping list", listOf("milk", "eggs", "bread")),
+        )
+    }
+
+    @Test
+    fun `list read of a single item uses the singular`() {
+        assertEquals(
+            "Your shopping list has 1 item: milk.",
+            ListConfirmationText.spokenListed("shopping list", listOf("milk")),
+        )
+    }
+
+    @Test
+    fun `list read of a long list names the first items and counts the rest`() {
+        val items = listOf("milk", "eggs", "bread", "rice", "tea", "oats", "jam", "salt", "pepper", "honey")
+        assertEquals(
+            "Your shopping list has 10 items: milk, eggs, bread, rice and 6 more.",
+            ListConfirmationText.spokenListed("shopping list", items),
         )
     }
 

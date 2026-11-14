@@ -2196,6 +2196,7 @@ class NativeIntentHandler @Inject constructor(
         return SkillResult.DirectReply(
             ListConfirmationText.added(items, listName),
             presentation = buildListPreview(listName, currentItems),
+            spokenSummary = ListConfirmationText.spokenAdded(items, listName),
         )
     }
 
@@ -2272,6 +2273,7 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.DirectReply(
                 "$listName (${items.size} item${if (items.size == 1) "" else "s"}):\n$bullets",
                 presentation = buildListPreview(listName, items),
+                spokenSummary = ListConfirmationText.spokenListed(listName, items.map { it.text }),
             )
         }
     }

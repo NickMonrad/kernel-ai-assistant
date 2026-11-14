@@ -1772,6 +1772,7 @@ class NativeIntentHandlerTest {
             SkillResult.DirectReply(
                 "shopping list (1 item):\n• milk",
                 presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+                spokenSummary = "Your shopping list has 1 item: milk.",
             ),
             readResult,
         )
@@ -1859,6 +1860,76 @@ class NativeIntentHandlerTest {
         )
         coVerify(exactly = 1) { mutations.addItems(73L, listOf("Pens", "Paper")) }
         coVerify(exactly = 0) { mutations.createCollection(any()) }
+    }
+
+    @Test
+    fun `bulk add of many items keeps the full text on screen and speaks a count`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val items = listOf("Pens", "Paper", "Glue", "Tape", "Scissors", "Stapler")
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.addItems(73L, items) } returns items.indices.map { it.toLong() + 18L }
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "bulk_add_to_list",
+            mapOf("items" to """["Pens","Paper","Glue","Tape","Scissors","Stapler"]""", "list_name" to "Test hierarchy list"),
+        ) as SkillResult.DirectReply
+
+        assertEquals("Added Pens, Paper, Glue, Tape, Scissors and Stapler to your Test hierarchy.", result.content)
+        assertEquals("Added 6 items to your Test hierarchy.", result.spokenSummary)
+    }
+
+    @Test
+    fun `remove of an item not on the list replies with a natural not-found sentence`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        coEvery { listItemDao.getByList(73L) } returns emptyList()
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+
+        val result = handleIntent(
+            handlerWithListMutations(mutations),
+            "remove_from_list",
+            mapOf("item" to "eggs", "list_name" to "Test hierarchy list"),
+        )
+
+        assertEquals(
+            "I couldn't find eggs in your Test hierarchy.",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 0) { mutations.deleteItem(any()) }
+    }
+
+    @Test
+    fun `reading a long list speaks a summary instead of every bullet`() {
+        val hierarchy = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 73L,
+            name = "Test hierarchy",
+            collectionId = "nextcloud-test-hierarchy",
+        )
+        coEvery { listNameDao.getAll() } returns listOf(hierarchy)
+        val rows = listOf("Pens", "Paper", "Glue", "Tape", "Scissors", "Stapler", "Ruler", "Chalk", "Paint", "Brush")
+            .mapIndexed { index, text ->
+                ListItemEntity(id = index.toLong(), listId = 73L, text = text, createdAt = 0L, updatedAt = 0L)
+            }
+        coEvery { listItemDao.getByList(73L) } returns rows
+
+        val result = handleIntent("get_list_items", mapOf("list_name" to "Test hierarchy list")) as SkillResult.DirectReply
+
+        assertEquals(
+            "Your Test hierarchy has 10 items: Pens, Paper, Glue, Tape and 6 more.",
+            result.spokenSummary,
+        )
+        assertTrue(result.content.contains("• Brush"), "on-screen reply must keep every item")
     }
 
     @Test
@@ -2015,6 +2086,7 @@ class NativeIntentHandlerTest {
             SkillResult.DirectReply(
                 "shopping list (1 item):\n• milk",
                 presentation = readResult.let { (it as SkillResult.DirectReply).presentation },
+                spokenSummary = "Your shopping list has 1 item: milk.",
             ),
             readResult,
         )
