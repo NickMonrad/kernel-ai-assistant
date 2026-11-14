@@ -407,7 +407,7 @@ fun ChatScreen(
                     // Silently denied: the system will not prompt again, so send the user to App info.
                     if (silent) openRuntimePermissionRepair(permission)
                 }
-                if (results.values.all { it }) viewModel.onCalendarPermissionGranted() else viewModel.onCalendarPermissionDenied()
+                if (calendarPermissionsGranted(results)) viewModel.onCalendarPermissionGranted() else viewModel.onCalendarPermissionDenied()
             }
             fun requestCalendarPermissions(permissions: List<String>) {
                 val store = PermissionRequestStore.from(context)
@@ -424,6 +424,7 @@ fun ChatScreen(
                 // Permanently denied: the system will not show the prompt, so send the user to App info.
                 val permanentlyDenied = routes.entries.firstOrNull { it.value == PermissionRoute.AppInfo }?.key
                 if (permanentlyDenied != null) {
+                    viewModel.onCalendarPermissionDenied()
                     openRuntimePermissionRepair(permanentlyDenied)
                     return
                 }

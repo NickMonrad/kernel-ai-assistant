@@ -157,6 +157,10 @@ private val STOP_PHRASES = setOf("stop", "cancel", "done", "that's all", "thats 
 internal fun shouldWaitForAppForegroundAfterEviction(currentState: Lifecycle.State): Boolean =
     currentState < Lifecycle.State.STARTED
 
+/** True only when a permission request returned results and all were granted. A cancelled request returns an empty map. */
+internal fun calendarPermissionsGranted(results: Map<String, Boolean>): Boolean =
+    results.isNotEmpty() && results.values.all { it }
+
 /**
  * Suspends until the process is eligible to start foreground services.
  *
@@ -270,6 +274,7 @@ class ChatViewModel @Inject constructor(
     )
 
     private data class PendingCalendarPermissionAction(
+        val conversationId: String,
         val query: String,
         val intentName: String,
         val params: Map<String, String>,
@@ -1086,6 +1091,7 @@ class ChatViewModel @Inject constructor(
             val isFreshConversation = navConversationId == null
             val id = navConversationId ?: conversationRepository.createConversation()
             conversationId = id
+            clearPendingCalendarPermission()
             // Persist resolved ID so process-death recreation restores the right conversation
             // instead of creating a fresh one on every cold start.
             savedStateHandle["conversationId"] = id
@@ -1491,8 +1497,8 @@ class ChatViewModel @Inject constructor(
         }
     }
     /**
-     * Re-executes a weather QIR call after permission repair. The user message was already
-     * persisted by [sendMessage], so this path appends only the resulting assistant message.
+     * Re-executes a QIR call (weather or calendar) after its permission is granted. The user message was
+     * already persisted by [sendMessage], so this path appends only the resulting assistant message.
      */
     private suspend fun retryWeatherLocationAction(
         convId: String,
@@ -1508,7 +1514,7 @@ class ChatViewModel @Inject constructor(
         if (skill == null) {
             appendAssistantMessage(
                 convId = convId,
-                content = "I couldn't complete that weather request.",
+                content = "I couldn't complete that request.",
                 shouldIndex = false,
             )
             return
@@ -1551,7 +1557,7 @@ class ChatViewModel @Inject constructor(
             }
             else -> appendAssistantMessage(
                 convId = convId,
-                content = "I couldn't complete that weather request.",
+                content = "I couldn't complete that request.",
                 shouldIndex = false,
             )
         }
@@ -1809,6 +1815,8 @@ class ChatViewModel @Inject constructor(
     fun onCalendarPermissionGranted() {
         val pending = pendingCalendarPermissionAction ?: return
         pendingCalendarPermissionAction = null
+        // Only re-run for the conversation that asked; a switched or new conversation must not get the answer.
+        if (pending.conversationId != conversationId) return
         pendingVoiceReply = pending.submitMode == SubmitMode.Voice
         viewModelScope.launch {
             val convId = conversationId ?: return@launch
@@ -1819,8 +1827,10 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /** Drops the pending calendar request when the in-chat calendar permission prompt is denied. */
-    fun onCalendarPermissionDenied() {
+    /** Drops the pending calendar request. Called on denial, App-info routing, and conversation switch. */
+    fun onCalendarPermissionDenied() = clearPendingCalendarPermission()
+
+    private fun clearPendingCalendarPermission() {
         pendingCalendarPermissionAction = null
     }
 
@@ -2947,6 +2957,7 @@ class ChatViewModel @Inject constructor(
                                     skillResult.capabilityKey == CapabilityKey.CalendarWrite
                                 ) {
                                     pendingCalendarPermissionAction = PendingCalendarPermissionAction(
+                                        conversationId = convId,
                                         query = text,
                                         intentName = matchedIntent.intentName,
                                         params = callParams,
@@ -4172,6 +4183,7 @@ class ChatViewModel @Inject constructor(
             _voicePlaybackState.value = VoicePlaybackState.Idle
             val id = conversationRepository.createConversation()
             conversationId = id
+            clearPendingCalendarPermission()
             _messages.value = emptyList()
             _conversationTitle.value = null
             titleGenerationStarted = false
@@ -4527,9 +4539,9 @@ class ChatViewModel @Inject constructor(
         if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
             "Jandal needs Location access for local weather. Turn on Location in app permissions, or ask for weather in a named city."
         } else if (result.capabilityKey == CapabilityKey.CalendarWrite) {
-            "Jandal needs Calendar read and write access to add events. Allow Calendar in app permissions, then ask again."
+            "Jandal needs Calendar read and write access to add events. Allow it when prompted and Jandal will add the event."
         } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
-            "Jandal needs calendar access to read your events. Allow Calendar in app permissions, then ask again."
+            "Jandal needs calendar access to read your events. Allow it when prompted and Jandal will answer."
         } else {
             "Permission required for ${result.skillName}."
         }
