@@ -382,27 +382,32 @@ fun ChatScreen(
                 }
             }
 
-            val calendarWritePermissions = arrayOf(
-                Manifest.permission.READ_CALENDAR,
-                Manifest.permission.WRITE_CALENDAR,
-            )
-            val calendarWritePermissionLauncher = rememberLauncherForActivityResult(
+            var pendingCalendarLaunchedAt by rememberSaveable { mutableStateOf(0L) }
+            val calendarPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestMultiplePermissions(),
             ) { results ->
                 val activity = context as android.app.Activity
+                // A silent denial returns with no dialog shown, so it is detected by launch-to-result timing.
+                val elapsed = android.os.SystemClock.elapsedRealtime() - pendingCalendarLaunchedAt
                 results.forEach { (permission, granted) ->
+                    val shouldShowRationale = !granted &&
+                        ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
+                    val silent = !granted && !shouldShowRationale &&
+                        com.kernel.ai.core.permissions.isSilentDenial(elapsed)
                     context.recordPermissionResult(
                         permission,
                         granted,
-                        shouldShowRationale = !granted &&
-                            ActivityCompat.shouldShowRequestPermissionRationale(activity, permission),
+                        shouldShowRationale = shouldShowRationale,
+                        silentlyDenied = silent,
                     )
+                    // Silently denied: the system will not prompt again, so send the user to App info.
+                    if (silent) openRuntimePermissionRepair(permission)
                 }
             }
-            fun requestCalendarWritePermission() {
+            fun requestCalendarPermissions(permissions: List<String>) {
                 val store = PermissionRequestStore.from(context)
                 val activity = context as android.app.Activity
-                val routes = calendarWritePermissions.associateWith { permission ->
+                val routes = permissions.associateWith { permission ->
                     decidePermissionRoute(
                         isGranted = ContextCompat.checkSelfPermission(context, permission) ==
                             PackageManager.PERMISSION_GRANTED,
@@ -418,7 +423,10 @@ fun ChatScreen(
                     return
                 }
                 val toRequest = routes.filterValues { it != PermissionRoute.Granted }.keys
-                if (toRequest.isNotEmpty()) calendarWritePermissionLauncher.launch(toRequest.toTypedArray())
+                if (toRequest.isNotEmpty()) {
+                    pendingCalendarLaunchedAt = android.os.SystemClock.elapsedRealtime()
+                    calendarPermissionLauncher.launch(toRequest.toTypedArray())
+                }
             }
 
             LaunchedEffect(Unit) {
@@ -431,7 +439,7 @@ fun ChatScreen(
                         }
                         ChatViewModel.UiEvent.RepairWeatherLocationPermission ->
                             openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
-                        ChatViewModel.UiEvent.RequestCalendarWritePermission -> requestCalendarWritePermission()
+                        is ChatViewModel.UiEvent.RequestCalendarPermission -> requestCalendarPermissions(event.permissions)
                     }
                 }
             }

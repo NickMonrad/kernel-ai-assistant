@@ -111,13 +111,45 @@ class CalendarEventRepliesTest {
         }
 
         @Test
+        @DisplayName("a multi-day all-day block is in the window of every day it covers")
+        fun multiDayAllDayOverlapsWindow() {
+            val monday = LocalDate.of(2025, 11, 17)
+            val wednesday = monday.plusDays(2)
+            val block = allDay(monday).copy(endMillis = monday.plusDays(5).atStartOfDay(utc).toInstant().toEpochMilli())
+            val window = CalendarEventReplies.readWindow(CalendarRange.TODAY, false, wednesday, utc, instant(utc, wednesday, 9))
+            assertTrue(CalendarEventReplies.isInWindow(block, window))
+        }
+
+        @Test
+        @DisplayName("an all-day event that ends at the window start day is excluded")
+        fun allDayEndingAtWindowStartExcluded() {
+            val monday = LocalDate.of(2025, 11, 17)
+            val wednesday = monday.plusDays(2)
+            val mondayOnly = allDay(monday).copy(endMillis = wednesday.atStartOfDay(utc).toInstant().toEpochMilli())
+            val window = CalendarEventReplies.readWindow(CalendarRange.TODAY, false, wednesday, utc, instant(utc, wednesday, 9))
+            assertFalse(CalendarEventReplies.isInWindow(mondayOnly, window))
+        }
+
+        @Test
+        @DisplayName("NZ across DST: upcoming (7 days from 25 Sep 2026) keeps day 6 and drops day 7")
+        fun upcomingDstBoundaryDropsDaySeven() {
+            val today = LocalDate.of(2026, 9, 25)
+            val window = CalendarEventReplies.readWindow(CalendarRange.UPCOMING, false, today, nz, instant(nz, today, 12))
+            val daySix = LocalDate.of(2026, 10, 1)
+            val daySeven = LocalDate.of(2026, 10, 2)
+            assertTrue(CalendarEventReplies.isInWindow(timed(nz, daySix, 23, 23), window))
+            assertFalse(CalendarEventReplies.isInWindow(timed(nz, daySeven, 0, 1), window))
+            assertFalse(CalendarEventReplies.isInWindow(allDay(daySeven), window))
+        }
+
+        @Test
         @DisplayName("keyword search without a range starts at now and looks ahead a year")
         fun keywordWindow() {
             val today = LocalDate.of(2025, 11, 20)
             val now = instant(utc, today, 12)
             val window = CalendarEventReplies.readWindow(null, true, today, utc, now)
             assertEquals(now.toEpochMilli(), window.fromMillis)
-            assertEquals(today.plusDays(CalendarEventReplies.KEYWORD_LOOKAHEAD_DAYS), window.toDateExclusive)
+            assertEquals(today.plusDays(365), window.toDateExclusive)
         }
     }
 

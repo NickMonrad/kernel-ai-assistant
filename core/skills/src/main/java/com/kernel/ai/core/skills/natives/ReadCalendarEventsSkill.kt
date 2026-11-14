@@ -43,12 +43,14 @@ class ReadCalendarEventsSkill @Inject constructor(
     )
 
     override suspend fun execute(call: SkillCall): SkillResult = withContext(Dispatchers.IO) {
+        val zone = ZoneId.systemDefault()
+        val now = Instant.now()
         readCalendarEvents(
             store = store,
             params = call.arguments,
-            today = LocalDate.now(),
-            zone = ZoneId.systemDefault(),
-            now = Instant.now(),
+            today = now.atZone(zone).toLocalDate(),
+            zone = zone,
+            now = now,
         )
     }
 }

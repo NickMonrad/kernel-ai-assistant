@@ -1,5 +1,6 @@
 package com.kernel.ai.core.skills
 import com.kernel.ai.core.skills.natives.CalendarLogRedaction
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.inference.diagnostics.IntentRoute
 import com.kernel.ai.core.inference.diagnostics.IntentOutcome
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
@@ -218,6 +219,10 @@ class KernelAIToolSet @Inject constructor(
     @Volatile private var lastToolPresentation: ToolPresentation? = null
     @Volatile private var lastToolSpokenSummary: String? = null
     @Volatile private var lastToolWasDirectReply: Boolean = false
+    // Calendar redaction and permission state for the current tool call (#1897 review).
+    @Volatile private var lastToolCalendar: Boolean = false
+    @Volatile private var lastToolCapability: CapabilityKey? = null
+    @Volatile private var resolvedRunIntentName: String? = null
     // The current turn's user message; lets queryWikipedia answer the original question (#1689).
     @Volatile private var turnUserMessage: String? = null
 
@@ -505,8 +510,17 @@ class KernelAIToolSet @Inject constructor(
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
-        Log.d(TAG, "event_seq: tool_call name=$name args=${request.take(256)}")
+        lastToolCapability = null
+        lastToolCalendar = CalendarLogRedaction.mentionsCalendarIntent(name, request) ||
+            CalendarLogRedaction.isCalendarIntent(if (name == "run_intent") resolvedRunIntentName else null)
+        Log.d(TAG, "event_seq: tool_call name=$name args=${CalendarLogRedaction.text(lastToolCalendar, request, 256)}")
     }
+
+    /** True when the current tool call is a calendar intent; the chat layer uses it to redact logs. */
+    fun lastToolIsCalendar(): Boolean = lastToolCalendar
+
+    /** Capability the current tool call needed but did not have, if any (drives the in-app permission prompt). */
+    fun lastToolCapabilityRequired(): CapabilityKey? = lastToolCapability
 
     // -------------------------------------------------------------------------
     // Gateway tools — each delegates to the matching Skill.execute()
@@ -609,8 +623,9 @@ class KernelAIToolSet @Inject constructor(
             recordRunIntentRejected(IntentOutcome.FAILURE)
             return denyInSafeModelTest("run_intent", request, arguments)
         }
+        resolvedRunIntentName = resolvedIntentName
         val diagnosticOrder = recordToolCall("run_intent", request, arguments)
-        Log.d(TAG, "ToolSet: runIntent($intentName, ${CalendarLogRedaction.params(intentName, parameters)})")
+        Log.d(TAG, "ToolSet: runIntent($intentName, ${CalendarLogRedaction.params(resolvedIntentName, parameters)})")
 
         val reservedSkillNames = setOf(
             "load_skill",
@@ -892,6 +907,7 @@ class KernelAIToolSet @Inject constructor(
         )
         return try {
             val result = runBlocking { SkillOutcomeEvents.execute(skill, call) }
+            lastToolCapability = (result as? SkillResult.CapabilityRequired)?.capabilityKey
             val succeeded = result is SkillResult.Success || result is SkillResult.DirectReply
             recordToolOutcome(skillName, succeeded)
             lastToolWasDirectReply = result is SkillResult.DirectReply
@@ -920,7 +936,7 @@ class KernelAIToolSet @Inject constructor(
                         "resultType=${result::class.simpleName} " +
                         "directReply=$lastToolWasDirectReply " +
                         "returnedToGemma=$returnedToGemma " +
-                        "content=\"${CalendarLogRedaction.text(skillName, resultContent, 256).replace("\n", "\\n").replace("\"", "\\\"")}\"",
+                        "content=\"${CalendarLogRedaction.text(lastToolCalendar, resultContent, 256).replace("\n", "\\n").replace("\"", "\\\"")}\"",
                 )
             }
             val toolResult = when (result) {

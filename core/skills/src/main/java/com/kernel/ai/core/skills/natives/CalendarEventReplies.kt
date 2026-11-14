@@ -89,8 +89,11 @@ object CalendarEventReplies {
     /** True when [event] falls inside [window]. Exact for both all-day rows (by day) and timed rows (by instant). */
     fun isInWindow(event: CalendarEventRecord, window: ReadWindow): Boolean =
         if (event.allDay) {
-            val day = Instant.ofEpochMilli(event.beginMillis).atZone(ZoneOffset.UTC).toLocalDate()
-            !day.isBefore(window.fromDate) && day.isBefore(window.toDateExclusive)
+            // All-day rows store UTC midnights; [begin, end) overlaps the window's [fromDate, toDateExclusive).
+            val beginDay = Instant.ofEpochMilli(event.beginMillis).atZone(ZoneOffset.UTC).toLocalDate()
+            val endDay = Instant.ofEpochMilli(event.endMillis).atZone(ZoneOffset.UTC).toLocalDate()
+                .takeIf { it.isAfter(beginDay) } ?: beginDay.plusDays(1)
+            beginDay.isBefore(window.toDateExclusive) && endDay.isAfter(window.fromDate)
         } else {
             event.beginMillis < window.toMillis && event.endMillis > window.fromMillis
         }

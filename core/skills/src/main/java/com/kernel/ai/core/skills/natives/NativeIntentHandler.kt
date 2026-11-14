@@ -192,7 +192,11 @@ class NativeIntentHandler @Inject constructor(
                 "get_stopwatch_status" -> getStopwatchStatus()
                 "cancel_alarm" -> cancelAlarm(params)
                 "create_calendar_event" -> createCalendarEvent(params)
-                "read_calendar_events" -> readCalendarEvents(calendarEventStore, params, LocalDate.now(), ZoneId.systemDefault(), Instant.now())
+                "read_calendar_events" -> {
+                    val zone = ZoneId.systemDefault()
+                    val now = Instant.now()
+                    readCalendarEvents(calendarEventStore, params, now.atZone(zone).toLocalDate(), zone, now)
+                }
                 "get_battery" -> getBattery()
                 "get_time", "get_date" -> getTime(params)
                 "toggle_dnd_on" -> setDoNotDisturb(true)
