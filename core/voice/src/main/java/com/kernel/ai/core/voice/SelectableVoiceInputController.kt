@@ -1,16 +1,25 @@
 package com.kernel.ai.core.voice
 
 import android.util.Log
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -34,13 +43,17 @@ internal const val NATIVE_TEARDOWN_SETTLE_MS = 400L
 internal const val AUTO_STT_UNAVAILABLE_MESSAGE =
     "Voice input is still getting ready. The offline speech model is downloading, so try again in a minute."
 
-/** Notice when Android native could not start and Zipformer took the request. */
+/** Notice when Android native could not start or never became ready, and Zipformer took the request. */
 internal const val ZIPFORMER_START_NOTICE =
-    "Android speech isn't available on this phone right now. Used Zipformer for this request."
+    "Android speech isn't available on this phone right now. Using Zipformer for this request."
 
-/** Notice when Android native stopped responding and Zipformer took over the request. */
+/**
+ * Notice when Android native stopped responding before any speech progress and Zipformer took
+ * over. The user may have spoken and not been heard, and the cue is not replayed, so ask them
+ * to repeat.
+ */
 internal const val ZIPFORMER_STALL_NOTICE =
-    "Android speech stopped responding. Used Zipformer for this request."
+    "Android speech stopped responding, so Zipformer is listening now. Please say that again."
 
 /** Which recognizer [VoiceInputEngine.Auto] uses for one capture session. */
 internal enum class AutoSttRoute {
@@ -80,15 +93,17 @@ internal fun resolveAutoSttRoute(
  * Whether a terminal Android native error may be handed to Zipformer for the same capture.
  *
  * Only two failures qualify: the recognizer never became ready ([NATIVE_NOT_READY]) and the
- * watchdog expired with no speech progress ([NATIVE_STALLED]). Recognizer-reported errors
- * (no match, speech timeout, network) are surfaced instead, because a second recognizer would
- * only re-wait on the same silence. Once speech was detected, or any partial or transcript
- * arrived, the native error is never handed off, so the user's words are not silently replaced.
+ * watchdog expired before any speech progress ([NATIVE_STALLED]; the native controller leaves
+ * stalls after speech uncategorised). Recognizer-reported errors (no match, speech timeout,
+ * network) are surfaced instead, because a second recognizer would only re-wait on the same
+ * silence. [hadSpeechProgress] is the router's own record of SpeechDetected, partials and
+ * transcripts for the session; any of them blocks the hand-off, so the user's words are never
+ * silently replaced.
  */
 internal fun isZipformerHandoffEligible(category: String?, hadSpeechProgress: Boolean): Boolean =
     !hadSpeechProgress && (category == NATIVE_NOT_READY || category == NATIVE_STALLED)
 
-/** Native session facts needed to decide a hand-off. Touched only on Main. */
+/** Native session facts needed to decide a hand-off. Main thread only. */
 private data class NativeSessionFacts(
     val sessionId: Long,
     val readinessAnnounced: Boolean = false,
@@ -118,11 +133,20 @@ private fun VoiceInputEvent.withCaptureSessionId(id: Long): VoiceInputEvent = wh
 /**
  * Routes voice capture between Android native and Sherpa-ONNX Zipformer.
  *
- * Concurrency model: [startListening] and the hand-off run under [handoffMutex]. [stopListening]
- * is not a suspend function, so it cannot take the mutex; it bumps [generation] instead. A
- * hand-off checks [generation] after each suspension point and undoes its own Zipformer start
- * if the capture was stopped or superseded in the meantime. All routing state
- * ([generation], [nativeFacts], [handoff], [captureOpen]) is touched only on Main.
+ * Concurrency model:
+ * - Routing state ([activeController], [openGeneration], [expectedNativeSessionId],
+ *   [nativeFacts], [handoff]) is confined to the Main thread. [startListening] switches to
+ *   Main, and the event pipeline and every Zipformer start job run on [pipelineScope] (Main).
+ * - [stopListening] may be called from any thread. It only bumps the atomic [generation],
+ *   cancels the atomic [pendingZipformerStart] job, and stops both recognizers, which are
+ *   thread-safe themselves.
+ * - Each capture owns the generation it was started with. A stop or a newer start bumps
+ *   [generation], so a hand-off for an older capture can no longer commit.
+ * - Every Zipformer start made on the user's behalf (start-time fallback, mid-session hand-off)
+ *   runs as a cancellable job. Cancelling it while the model loads makes
+ *   [SherpaOnnxVoiceInputController.startListening] give up before it takes audio focus or
+ *   opens the microphone.
+ * - Starts and hand-offs are serialised by [startMutex].
  */
 @Singleton
 class SelectableVoiceInputController @Inject constructor(
@@ -134,22 +158,31 @@ class SelectableVoiceInputController @Inject constructor(
 
     private val activeController = MutableStateFlow<VoiceInputController>(sherpaOnnxVoiceInputController)
 
-    private var generation = 0L
-    private var captureOpen = false
+    private val generation = AtomicLong()
+    private val pendingZipformerStart = AtomicReference<Job?>(null)
+    private val startMutex = Mutex()
+
+    /** Generation of the capture that is currently open, or -1. Main only. */
+    private var openGeneration = -1L
+    /** Native session id returned by the current start. Main only. */
+    private var expectedNativeSessionId: Long? = null
     private var nativeFacts: NativeSessionFacts? = null
     private var handoff: ZipformerHandoff? = null
-    private val handoffMutex = Mutex()
 
     private val pipelineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val outbound = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 64)
-    private val noticeFlow = MutableSharedFlow<VoiceNotice>(extraBufferCapacity = 8)
+    private val outbound = voiceEventFlow()
+    private val noticeFlow = MutableSharedFlow<VoiceNotice>(
+        replay = 1,
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
 
     /**
      * One pipeline for all collectors. Collecting per subscriber would run the Zipformer
      * hand-off once per collector and could start two recognizers.
      */
     override val events: Flow<VoiceInputEvent> = outbound.asSharedFlow()
-    override val notices: Flow<VoiceNotice> = noticeFlow.asSharedFlow()
+    override val notices: SharedFlow<VoiceNotice> = noticeFlow.asSharedFlow()
 
     init {
         pipelineScope.launch {
@@ -160,24 +193,33 @@ class SelectableVoiceInputController @Inject constructor(
         }
     }
 
-    override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
-        withContext(Dispatchers.Main.immediate) {
-            handoffMutex.withLock {
-                generation++
+    override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
+        // Supersede any hand-off in flight before waiting for the start lock.
+        val gen = generation.incrementAndGet()
+        pendingZipformerStart.getAndSet(null)?.cancel()
+        return withContext(Dispatchers.Main.immediate) {
+            startMutex.withLock {
+                openGeneration = -1L
                 handoff = null
                 nativeFacts = null
+                expectedNativeSessionId = null
                 val allowOnlineFallback = voiceInputPreferences.allowOnlineSpeechFallback.first()
                 val result = when (voiceInputPreferences.selectedEngine.first()) {
-                    VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback)
-                    VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback)
+                    VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen)
+                    VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen)
                     else -> startSherpa(mode) // All Sherpa families.
                 }
-                captureOpen = result is VoiceInputStartResult.Started
+                if (result is VoiceInputStartResult.Started) openGeneration = gen
                 result
             }
         }
+    }
 
-    private suspend fun startAuto(mode: VoiceCaptureMode, allowOnlineFallback: Boolean): VoiceInputStartResult {
+    private suspend fun startAuto(
+        mode: VoiceCaptureMode,
+        allowOnlineFallback: Boolean,
+        gen: Long,
+    ): VoiceInputStartResult {
         val zipformerReady = zipformerDownloaded()
         if (zipformerReady && !allowOnlineFallback) {
             // Zipformer wins regardless of native support; skip the native availability check.
@@ -215,7 +257,7 @@ class SelectableVoiceInputController @Inject constructor(
                 // a session immediately can lose the shared on-device service
                 // (ERROR_SERVER_DISCONNECTED on the S23 Ultra), so let it settle first.
                 if (ranLiveCheck) delay(LIVE_CHECK_SETTLE_MS)
-                startNative(mode, allowOnlineFallback)
+                startNative(mode, allowOnlineFallback, gen)
             }
             AutoSttRoute.Zipformer -> startSherpa(mode)
             AutoSttRoute.Unavailable -> VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE)
@@ -225,43 +267,52 @@ class SelectableVoiceInputController @Inject constructor(
     /**
      * Starts Android native. If it cannot start at all and Zipformer is downloaded, the capture
      * starts on Zipformer for this request. The saved engine setting is not changed.
+     * Caller holds [startMutex].
      */
-    private suspend fun startNative(mode: VoiceCaptureMode, allowOnlineFallback: Boolean): VoiceInputStartResult {
+    private suspend fun startNative(
+        mode: VoiceCaptureMode,
+        allowOnlineFallback: Boolean,
+        gen: Long,
+    ): VoiceInputStartResult {
         activate(nativeAndroidVoiceInputController)
         val nativeResult = nativeAndroidVoiceInputController.startListening(mode, allowOnlineFallback)
-        if (nativeResult !is VoiceInputStartResult.Unavailable) return nativeResult
+        if (nativeResult is VoiceInputStartResult.Started) {
+            expectedNativeSessionId = nativeResult.captureSessionId
+            nativeFacts = nativeFacts?.takeIf { it.sessionId == nativeResult.captureSessionId }
+                ?: NativeSessionFacts(sessionId = nativeResult.captureSessionId)
+            return nativeResult
+        }
         if (!zipformerDownloaded()) return nativeResult
 
-        Log.w(TAG, "Android native unavailable at start; trying Zipformer: ${nativeResult.message}")
-        val gen = generation
-        val zipformer = startZipformerSession(mode, gen) ?: return nativeResult
+        Log.w(TAG, "Android native unavailable at start; trying Zipformer: ${(nativeResult as? VoiceInputStartResult.Unavailable)?.message}")
+        // Zipformer emits ListeningStarted while it starts, so route its events from now on.
         activeController.value = sherpaOnnxVoiceInputController
-        recordZipformerFallback(reason = NATIVE_NOT_READY, mode = mode)
-        postNotice(VoiceNotice(zipformer.captureSessionId, ZIPFORMER_START_NOTICE))
-        return zipformer
-    }
-
-    /**
-     * Starts Zipformer without activating it. Returns null when the capture was stopped or
-     * superseded while it was starting; in that case any started session is stopped again.
-     * Callers must hold [handoffMutex].
-     */
-    private suspend fun startZipformerSession(mode: VoiceCaptureMode, gen: Long): VoiceInputStartResult.Started? {
-        val result = try {
-            sherpaOnnxVoiceInputController.startListening(mode)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Zipformer failed to start", e)
-            return null
+        val zipformer = runZipformerStart(gen) {
+            val started = sherpaOnnxVoiceInputController.startListening(mode) as? VoiceInputStartResult.Started
+            when {
+                started == null -> null
+                gen != generation.get() -> {
+                    sherpaOnnxVoiceInputController.stopListening()
+                    null
+                }
+                else -> started
+            }
         }
-        if (result !is VoiceInputStartResult.Started) return null
-        if (gen != generation) {
-            // Stop was called while Zipformer was loading. Its activeJob now exists, so stop it.
-            sherpaOnnxVoiceInputController.stopListening()
-            return null
+        if (zipformer != null) {
+            recordZipformerFallback(reason = NATIVE_NOT_READY, mode = mode)
+            postNotice(VoiceNotice(zipformer.captureSessionId, ZIPFORMER_START_NOTICE))
+            return zipformer
         }
-        return result
+        activeController.value = nativeAndroidVoiceInputController
+        if (gen != generation.get()) {
+            // Stopped or superseded while Zipformer was starting: report a capture that ended
+            // at once, as a stop just after a start would, instead of the native failure.
+            val stoppedSessionId = VoiceCaptureSessionIds.allocate()
+            Log.i(TAG, "Capture stopped during the start-time Zipformer fallback; reporting sessionId=$stoppedSessionId as stopped")
+            outbound.tryEmit(VoiceInputEvent.ListeningStopped(mode, stoppedSessionId))
+            return VoiceInputStartResult.Started(stoppedSessionId)
+        }
+        return nativeResult
     }
 
     private suspend fun startSherpa(mode: VoiceCaptureMode): VoiceInputStartResult {
@@ -279,8 +330,42 @@ class SelectableVoiceInputController @Inject constructor(
         sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER)
 
     /**
-     * Routes one controller event. Each event is isolated: an exception here is logged and
-     * the next event is still routed, so one failure cannot stop voice input for the process.
+     * Runs [block] as the cancellable Zipformer start for the capture with generation [gen].
+     * [stopListening] and a newer [startListening] cancel it. Returns null when the capture
+     * was stopped or superseded, or when [block] failed or returned null; callers compare
+     * [gen] with [generation] to tell these apart.
+     */
+    private suspend fun runZipformerStart(
+        gen: Long,
+        block: suspend () -> VoiceInputStartResult.Started?,
+    ): VoiceInputStartResult.Started? {
+        val job = pipelineScope.async(start = CoroutineStart.LAZY) { block() }
+        pendingZipformerStart.set(job)
+        return try {
+            // Publish first, then re-check: a stop that ran before the publish bumped the
+            // generation; a stop after it cancels the job.
+            if (gen != generation.get()) {
+                Log.i(TAG, "Zipformer start skipped: capture already stopped or superseded")
+                job.cancel()
+                null
+            } else {
+                job.await()
+            }
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            Log.i(TAG, "Zipformer start cancelled: capture stopped or superseded")
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Zipformer failed to start", e)
+            null
+        } finally {
+            pendingZipformerStart.compareAndSet(job, null)
+        }
+    }
+
+    /**
+     * Routes one controller event. Each event is isolated: if routing throws, the original
+     * event is still delivered, so a terminal Error or ListeningStopped is never dropped.
      */
     private suspend fun route(controller: VoiceInputController, event: VoiceInputEvent) {
         try {
@@ -288,7 +373,8 @@ class SelectableVoiceInputController @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to route voice event ${event::class.simpleName}", e)
+            Log.e(TAG, "Failed to route voice event ${event::class.simpleName}; delivering it unchanged", e)
+            outbound.tryEmit(event)
         }
     }
 
@@ -298,16 +384,18 @@ class SelectableVoiceInputController @Inject constructor(
 
         if (controller === nativeAndroidVoiceInputController) {
             trackNative(event)
-            val facts = nativeFacts
-            if (
-                event is VoiceInputEvent.Error &&
-                captureOpen &&
-                facts != null &&
-                isZipformerHandoffEligible(event.category, facts.speechProgress) &&
-                handOffToZipformer(event)
-            ) {
-                // The native error is not surfaced: the capture continues on Zipformer.
-                return
+            if (event is VoiceInputEvent.Error && isHandoffCandidate(event)) {
+                val handled = try {
+                    handOffToZipformer(event)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Zipformer hand-off failed; surfacing the native error", e)
+                    false
+                }
+                // The native error is not surfaced: the capture continues on Zipformer, or the
+                // user stopped or restarted during the hand-off.
+                if (handled) return
             }
         }
 
@@ -323,7 +411,10 @@ class SelectableVoiceInputController @Inject constructor(
         outbound.emit(event)
     }
 
+    /** Records native session facts; events from any other native session are ignored. */
     private fun trackNative(event: VoiceInputEvent) {
+        val expected = expectedNativeSessionId
+        if (expected != null && event.captureSessionId != expected) return
         val previous = nativeFacts?.takeIf { it.sessionId == event.captureSessionId }
             ?: NativeSessionFacts(sessionId = event.captureSessionId)
         nativeFacts = when (event) {
@@ -336,6 +427,16 @@ class SelectableVoiceInputController @Inject constructor(
         }
     }
 
+    /** The error belongs to the open capture's native session and qualifies for a hand-off. */
+    private fun isHandoffCandidate(error: VoiceInputEvent.Error): Boolean {
+        val facts = nativeFacts ?: return false
+        return openGeneration != -1L &&
+            openGeneration == generation.get() &&
+            error.captureSessionId == expectedNativeSessionId &&
+            facts.sessionId == error.captureSessionId &&
+            isZipformerHandoffEligible(error.category, facts.speechProgress)
+    }
+
     /**
      * Replaces the failed native capture with Zipformer for the same mode.
      *
@@ -344,42 +445,47 @@ class SelectableVoiceInputController @Inject constructor(
      * not start, so the caller surfaces the native error and native stays active.
      */
     private suspend fun handOffToZipformer(error: VoiceInputEvent.Error): Boolean {
-        val gen = generation
+        val gen = openGeneration
         val nativeId = error.captureSessionId
         val reason = error.category.orEmpty()
+        val readinessAnnounced = nativeFacts?.readinessAnnounced == true
         // Tear native down first, then let its shared on-device service settle.
         nativeAndroidVoiceInputController.stopListening()
-        delay(NATIVE_TEARDOWN_SETTLE_MS)
-        return handoffMutex.withLock {
-            if (gen != generation) return@withLock true
-            if (!zipformerDownloaded()) return@withLock false
-
-            Log.w(TAG, "Android native failed ($reason); handing capture to Zipformer for this session")
-            val zipformer = startZipformerSession(error.mode, gen)
-            if (zipformer == null) {
-                if (gen != generation) return@withLock true
-                Log.w(TAG, "Zipformer hand-off failed to start; surfacing native error: ${error.message}")
-                return@withLock false
+        val zipformer = runZipformerStart(gen) {
+            delay(NATIVE_TEARDOWN_SETTLE_MS)
+            startMutex.withLock {
+                if (gen != generation.get() || !zipformerDownloaded()) return@withLock null
+                Log.w(TAG, "Android native failed ($reason); handing capture to Zipformer for this session")
+                val started = sherpaOnnxVoiceInputController.startListening(error.mode)
+                    as? VoiceInputStartResult.Started
+                    ?: return@withLock null
+                if (gen != generation.get()) {
+                    // Stopped after Zipformer opened the microphone; no newer capture can have
+                    // started while this job holds the lock.
+                    sherpaOnnxVoiceInputController.stopListening()
+                    return@withLock null
+                }
+                // Commit under the lock, before Zipformer's queued events are routed.
+                activeController.value = sherpaOnnxVoiceInputController
+                handoff = ZipformerHandoff(
+                    nativeSessionId = nativeId,
+                    zipformerSessionId = started.captureSessionId,
+                    readinessAnnounced = readinessAnnounced,
+                )
+                recordZipformerFallback(reason = reason, mode = error.mode)
+                val message = if (error.category == NATIVE_STALLED) ZIPFORMER_STALL_NOTICE else ZIPFORMER_START_NOTICE
+                postNotice(VoiceNotice(nativeId, message))
+                started
             }
-            activeController.value = sherpaOnnxVoiceInputController
-            handoff = ZipformerHandoff(
-                nativeSessionId = nativeId,
-                zipformerSessionId = zipformer.captureSessionId,
-                readinessAnnounced = nativeFacts?.readinessAnnounced == true,
-            )
-            recordZipformerFallback(reason = reason, mode = error.mode)
-            val message = if (error.category == NATIVE_STALLED) ZIPFORMER_STALL_NOTICE else ZIPFORMER_START_NOTICE
-            postNotice(VoiceNotice(nativeId, message))
-            true
         }
+        if (zipformer != null) return true
+        if (gen != generation.get()) return true
+        Log.w(TAG, "Zipformer hand-off did not start; surfacing native error: ${error.message}")
+        return false
     }
 
-    /**
-     * Emits [notice] on Main after the current task yields. A start-time notice is produced before
-     * `startListening` returns, so the caller has not yet recorded the session id it would match on.
-     */
     private fun postNotice(notice: VoiceNotice) {
-        pipelineScope.launch(Dispatchers.Main) { noticeFlow.emit(notice) }
+        noticeFlow.tryEmit(notice)
     }
 
     private fun recordZipformerFallback(reason: String, mode: VoiceCaptureMode) {
@@ -389,10 +495,10 @@ class SelectableVoiceInputController @Inject constructor(
         )
     }
 
+    /** Thread-safe: see the class concurrency notes. */
     override fun stopListening() {
-        generation++
-        handoff = null
-        captureOpen = false
+        generation.incrementAndGet()
+        pendingZipformerStart.getAndSet(null)?.cancel()
         nativeAndroidVoiceInputController.stopListening()
         sherpaOnnxVoiceInputController.stopListening()
     }

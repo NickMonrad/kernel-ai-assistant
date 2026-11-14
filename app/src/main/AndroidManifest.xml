@@ -49,7 +49,6 @@
         so that PackageManager.resolveActivity() returns non-null for these actions.
     -->
     <queries>
-        <package android:name="com.google.android.gms" />
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>

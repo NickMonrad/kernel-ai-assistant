@@ -11,8 +11,6 @@ class VoiceCapabilitiesTest {
     private val full = VoiceCapabilities(
         platformRecognizerPresent = true,
         onDeviceRecognitionAvailable = true,
-        googleServicesPresent = true,
-        systemTtsEnginePresent = true,
     )
 
     @Test
@@ -52,12 +50,6 @@ class VoiceCapabilitiesTest {
             AndroidNativeWarning.LanguagePackMissing,
             androidNativeWarning(full, localeReady = false, onlineAllowed = false),
         )
-    }
-
-    @Test
-    fun `google services absence alone does not warn`() {
-        val noGms = full.copy(googleServicesPresent = false)
-        assertNull(androidNativeWarning(noGms, localeReady = true, onlineAllowed = true))
     }
 
     @Test

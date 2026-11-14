@@ -67,8 +67,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.HonorCameraCoexistence
 import com.kernel.ai.core.voice.androidNativeWarning
@@ -643,11 +643,7 @@ private fun VoiceScreenContent(
                 } else {
                     null
                 }
-                val warning = when (engine) {
-                    VoiceInputEngine.AndroidNative ->
-                        uiState.androidNativeAvailabilityMessage ?: engine.warning
-                    else -> engine.warning
-                }
+                val warning = engine.warning
                 val languageSummary = when (engine) {
                     VoiceInputEngine.AndroidNative -> uiState.androidNativeLanguageSummary
                     else -> null
