@@ -58,14 +58,18 @@ sealed interface VoiceInputEvent {
     ) : VoiceInputEvent
 }
 
+data class VoiceNotice(val captureSessionId: Long, val message: String)
+
 interface VoiceInputController {
     val events: Flow<VoiceInputEvent> get() = emptyFlow()
 
     /**
      * Best-effort user-facing notes, such as a Zipformer hand-off after Android native failed.
-     * Not terminal: a note emitted with no collector is not replayed.
+     * Each note carries the capture session id the consumer received from [startListening], so
+     * a surface shows only the notes for its own capture. Not replayed: a note emitted while no
+     * collector is subscribed is lost.
      */
-    val notices: Flow<String> get() = emptyFlow()
+    val notices: Flow<VoiceNotice> get() = emptyFlow()
 
     suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult
 
@@ -85,8 +89,12 @@ interface VoiceInputController {
 }
 
 /**
- * Ordered, lossless hand-off from a controller's callbacks to its collectors. [tryEmit] queues
- * synchronously and never drops; a pump forwards each event to a [MutableSharedFlow].
+ * Ordered hand-off from a controller's callbacks to its collectors. [tryEmit] queues
+ * synchronously and never fails; a pump forwards each event to a [MutableSharedFlow].
+ *
+ * The queue is unbounded, so it grows only while the pump is blocked on a slow collector.
+ * Native sessions stop emitting once they end, which bounds growth. Events emitted while
+ * no collector is subscribed are not replayed, because [MutableSharedFlow] has no replay.
  *
  * The previous `MutableSharedFlow(extraBufferCapacity = 8).tryEmit` returned false and dropped
  * terminal Error/ListeningStopped events whenever the buffer was full, which left the UI

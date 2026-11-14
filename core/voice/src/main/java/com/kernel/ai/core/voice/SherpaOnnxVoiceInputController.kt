@@ -17,8 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
@@ -193,8 +191,8 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
     // ── Events ─────────────────────────────────────────────────────────────────
 
-    private val _events = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 8)
-    override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
+    private val _events = VoiceEventQueue(CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+    override val events: Flow<VoiceInputEvent> = _events.events
 
     // ── VoiceInputController ───────────────────────────────────────────────────
 

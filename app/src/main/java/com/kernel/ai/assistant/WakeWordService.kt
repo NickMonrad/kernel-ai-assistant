@@ -17,6 +17,8 @@ import androidx.core.content.ContextCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.voice.AcousticEventType
 import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
+import com.kernel.ai.core.voice.NATIVE_NOT_READY
+import com.kernel.ai.core.voice.NATIVE_STALLED
 import com.kernel.ai.core.voice.AcousticJournalBridge
 import com.kernel.ai.core.voice.CameraForegroundMonitor
 import com.kernel.ai.core.voice.HonorCameraCoexistence
@@ -209,6 +211,7 @@ internal suspend fun runWakeAttempt(
             attemptEvents.close(e)
         }
     }
+    var noticeJob: Job? = null
     try {
         var reachedReadiness = false
         try {
@@ -229,6 +232,13 @@ internal suspend fun runWakeAttempt(
             }
 
             val captureSessionId = startResult.captureSessionId
+            // #1853: a Zipformer hand-off for this capture is announced through onError, so the
+            // user is not left with a cue and then silence.
+            noticeJob = launch(start = CoroutineStart.UNDISPATCHED) {
+                voiceInputController.notices.collect { note ->
+                    if (note.captureSessionId == captureSessionId && note.message.isNotBlank()) onError(note.message)
+                }
+            }
             suspend fun awaitEvent(
                 isTerminal: (VoiceInputEvent) -> Boolean,
             ): VoiceInputEvent {
@@ -305,7 +315,12 @@ internal suspend fun runWakeAttempt(
                 // Genuine failures (any other error) still use the bounded retry.
                 WakeAttemptOutcome.NoTranscript(
                     "stt_recognition_failed",
-                    skipRetry = terminalEvent.category == NO_SPEECH_WINDOW_EXHAUSTED,
+                    // A stalled native recognizer with no Zipformer hand-off is reported once, not retried.
+                    skipRetry = terminalEvent.category in setOf(
+                        NO_SPEECH_WINDOW_EXHAUSTED,
+                        NATIVE_STALLED,
+                        NATIVE_NOT_READY,
+                    ),
                 )
             } else {
                 WakeAttemptOutcome.NoTranscript("stt_stopped_without_result")
@@ -319,6 +334,7 @@ internal suspend fun runWakeAttempt(
             throw WakeAttemptCollectionException(category, e)
         }
     } finally {
+        noticeJob?.cancel()
         collectorJob.cancelAndJoin()
         attemptEvents.cancel()
     }

@@ -350,6 +350,8 @@ class ActionsViewModel @Inject constructor(
     private var recentVoiceCommand: String? = null
     private var recentVoiceCommandAtMs: Long = 0L
     private var spokenResponsesEnabled = true
+    /** Capture session this screen started; errors and notes are shown only for it (#1853). */
+    private var actionsVoiceSessionId: Long? = null
 
     /**
      * Tracks how many automatic voice retries have been attempted for the current
@@ -379,7 +381,9 @@ class ActionsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            voiceInputController.notices.collect { note -> _error.value = note }
+            voiceInputController.notices.collect { note ->
+                if (note.captureSessionId == actionsVoiceSessionId) _error.value = note.message
+            }
         }
         viewModelScope.launch {
             voiceInputController.events.collect { event ->
@@ -418,8 +422,11 @@ class ActionsViewModel @Inject constructor(
                     }
                     is VoiceInputEvent.Error -> {
                         if (!ownsVoiceCapture(event.mode)) {
-                            // Terminal errors always reach the user (#1853): ownership gating dropped them silently.
-                            _error.value = event.message
+                            // Other surfaces' captures (wake, chat, widget) are not ours. Show only the
+                            // session this screen started; stopping clears the binding.
+                            if (event.captureSessionId != 0L && event.captureSessionId == actionsVoiceSessionId) {
+                                _error.value = event.message
+                            }
                             return@collect
                         }
                         // #790: Auto-retry with reprompt on voice errors during slot-fill or idle command.
@@ -585,6 +592,7 @@ class ActionsViewModel @Inject constructor(
     }
 
     fun stopVoiceCapture() {
+        actionsVoiceSessionId = null
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
@@ -609,6 +617,7 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
+        actionsVoiceSessionId = null
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
         voiceOutputController.stop()
@@ -2016,6 +2025,7 @@ class ActionsViewModel @Inject constructor(
             when (val result = voiceInputController.startListening(mode)) {
                 is VoiceInputStartResult.Started -> {
                     Log.d(TAG, "ActionsViewModel: voiceInputController.startListening started mode=$mode")
+                    actionsVoiceSessionId = result.captureSessionId
                     if (_voiceCaptureState.value is VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
                     }

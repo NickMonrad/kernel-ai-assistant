@@ -72,6 +72,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.HonorCameraCoexistence
 import com.kernel.ai.core.voice.androidNativeWarning
+import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
@@ -629,14 +630,16 @@ private fun VoiceScreenContent(
             VoiceInputEngine.entries.forEach { engine ->
                 val zipformerDownloaded =
                     uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
-                val nativeWarningKind = if (engine == VoiceInputEngine.AndroidNative) {
-                    uiState.androidNativeCapabilities?.let { capabilities ->
-                        androidNativeWarning(
-                            capabilities = capabilities,
-                            localeReady = uiState.androidNativeLocaleReady,
-                            onlineAllowed = uiState.allowOnlineSpeechFallback,
-                        )
-                    }
+                val nativeWarningText = if (
+                    engine == VoiceInputEngine.AndroidNative && uiState.selectedInputEngine == engine
+                ) {
+                    androidNativeSettingsWarning(
+                        blockingMessage = uiState.androidNativeAvailabilityMessage,
+                        capabilities = uiState.androidNativeCapabilities,
+                        localeReady = uiState.androidNativeLocaleReady,
+                        onlineAllowed = uiState.allowOnlineSpeechFallback,
+                        zipformerDownloaded = zipformerDownloaded,
+                    )
                 } else {
                     null
                 }
@@ -674,9 +677,9 @@ private fun VoiceScreenContent(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
-                            if (engine == VoiceInputEngine.AndroidNative && nativeWarningKind != null) {
+                            if (nativeWarningText != null) {
                                 VoiceWarningCard(
-                                    message = androidNativeWarningMessage(nativeWarningKind, zipformerDownloaded),
+                                    message = nativeWarningText,
                                     modifier = Modifier.padding(top = 8.dp),
                                 )
                                 Row(modifier = Modifier.padding(top = 4.dp)) {
@@ -689,11 +692,6 @@ private fun VoiceScreenContent(
                                         }
                                     }
                                 }
-                            } else if (engine == VoiceInputEngine.AndroidNative && warning != null) {
-                                VoiceWarningCard(
-                                    message = warning,
-                                    modifier = Modifier.padding(top = 8.dp),
-                                )
                             }
                         }
                     },
@@ -1599,22 +1597,38 @@ private fun KokoroSpeakerSelector(
     }
 }
 
-private fun androidNativeWarningMessage(warning: AndroidNativeWarning, zipformerDownloaded: Boolean): String {
+/**
+ * Warning for the Android native engine row, shown only while that engine is selected. A blocking
+ * availability message wins; otherwise the capability warning. Online-off is not a warning when
+ * Zipformer is downloaded, because a stall then hands off to Zipformer.
+ */
+private fun androidNativeSettingsWarning(
+    blockingMessage: String?,
+    capabilities: VoiceCapabilities?,
+    localeReady: Boolean,
+    onlineAllowed: Boolean,
+    zipformerDownloaded: Boolean,
+): String? {
     val fallback = if (zipformerDownloaded) {
-        "Sherpa-ONNX Zipformer is downloaded, so Automatic will use it."
+        "Sherpa-ONNX Zipformer is downloaded and is used if Android speech fails to start or stalls."
     } else {
-        "Download Sherpa-ONNX Zipformer for guaranteed offline voice input."
+        "Download Sherpa-ONNX Zipformer below as an offline fallback."
     }
-    return when (warning) {
+    val capabilityWarning = capabilities?.let {
+        androidNativeWarning(it, localeReady, onlineAllowed || zipformerDownloaded)
+    }
+    val message = blockingMessage ?: when (capabilityWarning) {
+        null -> return null
         AndroidNativeWarning.NoRecognitionService ->
-            "Android speech recognition is not available on this device. $fallback"
+            "Android speech recognition is not available on this device."
         AndroidNativeWarning.NoOnDeviceRecognizer ->
-            "No on-device Android speech recognizer. Offline capture cannot work. $fallback"
+            "No on-device Android speech recognizer. Offline capture cannot work."
         AndroidNativeWarning.LanguagePackMissing ->
-            "The on-device language pack for this device is missing. $fallback"
+            "The on-device language pack for this device is missing."
         AndroidNativeWarning.OnlineOff ->
-            "Online speech is off. If the on-device recognizer stays silent, voice input stalls. $fallback"
+            "Online speech is off. If the on-device recognizer stays silent, voice input stalls."
     }
+    return "$message $fallback"
 }
 
 @Composable
