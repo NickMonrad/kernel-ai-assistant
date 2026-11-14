@@ -22,6 +22,7 @@ import android.view.KeyEvent
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.IntentRoute
+import com.kernel.ai.core.inference.diagnostics.DebugVerboseLog
 import com.kernel.ai.core.memory.ContactAliasRepository
 import com.kernel.ai.core.memory.ImportantDateRepository
 import com.kernel.ai.core.memory.clock.AlarmDraft
@@ -172,6 +173,7 @@ class NativeIntentHandler @Inject constructor(
             Log.w(TAG, "NativeIntentHandler: normalized intent '$intentName' -> '$normalizedName'")
         }
         Log.d(TAG, "NativeIntentHandler.handle: intent=$normalizedName paramKeys=${params.size}")
+        if (DebugVerboseLog.active()) Log.d(TAG, "verbose_params: intent=$normalizedName params=$params")
         val result = try {
             when (normalizedName) {
                 "toggle_flashlight_on" -> setTorch(true)

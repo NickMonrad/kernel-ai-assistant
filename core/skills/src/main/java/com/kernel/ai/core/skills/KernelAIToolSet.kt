@@ -2,6 +2,7 @@ package com.kernel.ai.core.skills
 
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.inference.diagnostics.IntentRoute
+import com.kernel.ai.core.inference.diagnostics.DebugVerboseLog
 import com.kernel.ai.core.inference.diagnostics.IntentOutcome
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 
@@ -509,6 +510,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolWasDirectReply = false
         lastToolCapability = null
         Log.d(TAG, "event_seq: tool_call name=$name argsLen=${request.length}")
+        if (DebugVerboseLog.active()) Log.d(TAG, "verbose_tool_call: name=$name request=$request")
     }
 
 
@@ -931,6 +933,7 @@ class KernelAIToolSet @Inject constructor(
                         "contentLen=${resultContent.length}",
                 )
             }
+            if (DebugVerboseLog.active()) Log.d(TAG, "verbose_tool_result: name=$skillName content=$resultContent")
             val toolResult = when (result) {
                 is SkillResult.Success -> mapOf("result" to result.content)
                 is SkillResult.DirectReply -> mapOf("result" to result.content)
