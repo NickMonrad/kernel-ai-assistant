@@ -294,11 +294,6 @@ class ChatViewModel @Inject constructor(
         ),
     )
     private val _error = MutableStateFlow<String?>(null)
-    /** Non-null while the chooser for a failed lookup's in-app recovery actions is shown (#1859). */
-    data class SettingsActionState(
-        val message: String,
-        val actions: List<com.kernel.ai.core.skills.SettingsAction>,
-    )
     private val _settingsActionState = MutableStateFlow<SettingsActionState?>(null)
     val settingsActionState: StateFlow<SettingsActionState?> = _settingsActionState.asStateFlow()
 
@@ -307,9 +302,9 @@ class ChatViewModel @Inject constructor(
         _settingsActionState.value = null
     }
 
-    /** Shows the in-app recovery chooser for a failed typed lookup (#1859), if it has actions. */
-    private fun showSettingsActionsFor(result: SkillResult.Failure) {
-        settingsActionStateFor(result)?.let { _settingsActionState.value = it }
+    /** Sets the recovery chooser from a failed typed lookup (#1859); null clears it. */
+    private fun showSettingsActionsFor(result: SkillResult.Failure?) {
+        _settingsActionState.value = result?.let(::settingsActionStateFor)
     }
 
     private val _modelInitializationError = MutableStateFlow<String?>(null)
@@ -2895,6 +2890,7 @@ class ChatViewModel @Inject constructor(
                                     return@launch
                                 }
                                 if (!inferenceEngine.isReady.value) {
+                                    showSettingsActionsFor(skillResult)
                                     appendAssistantMessage(
                                         convId,
                                         skillResult.error,
@@ -3635,7 +3631,7 @@ class ChatViewModel @Inject constructor(
                             } else null
                             // #1859: a native lookup failure with recovery actions opens the same chooser as Quick Actions.
                             if (nativeToolCall != null) {
-                                kernelAIToolSet.terminalToolSettingsFailure()?.let { _settingsActionState.value = settingsActionStateFor(it) }
+                                showSettingsActionsFor(kernelAIToolSet.terminalToolSettingsFailure())
                             }
                             if (nativeToolCall != null || toolCallResult != null) {
                                 val rawToolCall = nativeToolCall ?: toolCallResult!!.first
@@ -4285,7 +4281,7 @@ class ChatViewModel @Inject constructor(
                     resultText = failureChipText(result),
                     isSuccess = false,
                 )
-                _settingsActionState.value = settingsActionStateFor(result)
+                showSettingsActionsFor(result)
                 Pair(toolCall, failureChatReply(result))
             }
             is SkillResult.CapabilityRequired -> null

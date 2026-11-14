@@ -601,26 +601,13 @@ fun ChatScreen(
             }
             // In-app recovery actions for a failed lookup (#1859). Nothing is called or sent from here.
             settingsActionState?.let { state ->
-                PermissionOverlayDialog(
-                    title = state.message,
-                    body = "Choose what to do next.",
-                    actions = state.actions.mapIndexed { index, action ->
-                        PermissionDialogAction(
-                            label = action.label,
-                            testTag = "settings_action_$index",
-                            onClick = {
-                                viewModel.dismissSettingsActionDialog()
-                                onOpenSettingsDeepLink(action.deepLink)
-                            },
-                            isPrimary = index == 0,
-                        )
-                    } + PermissionDialogAction(
-                        label = "Not now",
-                        testTag = "settings_action_not_now",
-                        onClick = { viewModel.dismissSettingsActionDialog() },
-                    ),
-                    dialogTestTag = "settings_action_dialog",
-                    onDismissRequest = { viewModel.dismissSettingsActionDialog() },
+                SettingsActionChooserDialog(
+                    state = state,
+                    onSelect = { link ->
+                        viewModel.dismissSettingsActionDialog()
+                        onOpenSettingsDeepLink(link)
+                    },
+                    onDismiss = viewModel::dismissSettingsActionDialog,
                 )
             }
             weatherLocationState?.let { weatherState ->

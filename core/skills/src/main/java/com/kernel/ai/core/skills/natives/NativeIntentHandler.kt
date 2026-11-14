@@ -1821,23 +1821,7 @@ class NativeIntentHandler @Inject constructor(
         requestedKey: String,
         requestedTokens: List<String>,
         candidate: ContactPhoneCandidate,
-    ): Int? {
-        val candidateKey = normalizeContactLookupKey(candidate.displayName)
-        if (candidateKey.isBlank()) return null
-        val candidateTokens = candidateKey.split(" ").filter { it.isNotBlank() }
-        val requestedPhrase = requestedTokens.joinToString(" ")
-        val fuzzyTokenScore = scoreFuzzyContactTokens(requestedTokens, candidateTokens)
-        return when {
-            candidateKey == requestedKey -> 500
-            candidateKey.startsWith("$requestedPhrase ") -> 420
-            candidateTokens.any { it == requestedKey } -> 380
-            requestedTokens.all { token -> candidateTokens.contains(token) } -> 320
-            candidateKey.contains(requestedPhrase) -> 260
-            candidateKey.contains(requestedKey.replace(" ", "")) -> 220
-            fuzzyTokenScore != null -> fuzzyTokenScore
-            else -> null
-        }
-    }
+    ): Int? = scoreContactNameMatch(requestedKey, requestedTokens, candidate.displayName)
 
     private fun scoreFuzzyContactTokens(
         requestedTokens: List<String>,

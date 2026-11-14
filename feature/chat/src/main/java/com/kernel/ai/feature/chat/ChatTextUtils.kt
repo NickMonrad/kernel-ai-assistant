@@ -883,5 +883,5 @@ internal fun failureChatReply(result: SkillResult.Failure): String = when {
 }
 
 /** Chooser state for a failed lookup's in-app recovery actions (#1859); null when there are none. */
-internal fun settingsActionStateFor(result: SkillResult.Failure): ChatViewModel.SettingsActionState? =
-    if (result.actions.isEmpty()) null else ChatViewModel.SettingsActionState(result.error, result.actions)
+internal fun settingsActionStateFor(result: SkillResult.Failure): SettingsActionState? =
+    if (result.actions.isEmpty()) null else SettingsActionState(result.error, result.actions)

@@ -15,7 +15,6 @@ import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.skills.SkillResult
-import com.kernel.ai.core.skills.SettingsAction
 import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
@@ -228,12 +227,6 @@ class ActionsViewModel @Inject constructor(
         val intentName: String,
         /** True when the user returned from settings without granting access. */
         val isAccessBlocked: Boolean = false,
-    )
-
-    /** Non-null while the chooser for a failed lookup's in-app recovery actions is shown (#1859). */
-    data class SettingsActionState(
-        val message: String,
-        val actions: List<SettingsAction>,
     )
 
     /** State for the contextual weather-location permission dialog. */

@@ -121,6 +121,10 @@ class ContactLookupRecoveryTest {
         "Philip, Phillip",
         "Martin, Martha",
         "Martha, Martin",
+        "Sam, Sim",
+        "Sim, Sam",
+        "Jon, Joan",
+        "Joan, Jon",
     )
     fun `near match rejects the documented non-matching pairs in both directions`(a: String, b: String) {
         assertTrue(ContactLookupRecovery.nearMatches(a, listOf(b)).isEmpty())

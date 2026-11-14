@@ -291,6 +291,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
+        lastToolSettingsFailure = null
         turnToolNames.clear()
         terminalToolName = null
         terminalToolRequest = null
@@ -320,6 +321,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
+        lastToolSettingsFailure = null
         // Preserve terminalToolName, terminalToolRequest, terminalToolResult, terminalToolDetail,
         // terminalToolPresentation, terminalToolSpokenSummary, terminalToolWasDirectReply,
         // terminalToolOutcome — these represent the turn's latest executable tool.
@@ -508,6 +510,7 @@ class KernelAIToolSet @Inject constructor(
         lastToolPresentation = null
         lastToolSpokenSummary = null
         lastToolWasDirectReply = false
+        lastToolSettingsFailure = null
         Log.d(TAG, "event_seq: tool_call name=$name args=${request.take(256)}")
     }
 

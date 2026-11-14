@@ -896,6 +896,7 @@ class NativeIntentHandlerTest {
 
         assertTrue(failure is SkillResult.Failure)
         verify(exactly = 0) { context.startActivity(any()) }
+        verify(exactly = 0) { contentResolver.query(any(), any(), any(), any(), any()) }
     }
 
     @Test
