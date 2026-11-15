@@ -9,10 +9,12 @@ import com.kernel.ai.core.ui.theme.FernGreenLight
 import com.kernel.ai.core.ui.theme.SandLight
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceId
+import com.kernel.ai.feature.widget.R
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.ColorFilter
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -98,8 +100,14 @@ private fun KernelWidgetContent(packageName: String) {
                 contentAlignment = Alignment.Center,
             ) {
                 Image(
-                    provider = ImageProvider(android.R.drawable.ic_btn_speak_now),
+                    provider = ImageProvider(R.drawable.ic_widget_mic),
                     contentDescription = "Voice input",
+                    colorFilter = ColorFilter.tint(
+                        DayNightColorProvider(
+                            day = Color.White,
+                            night = CharcoalDark,
+                        )
+                    ),
                     modifier = GlanceModifier.size(24.dp),
                 )
             }
