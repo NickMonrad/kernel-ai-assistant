@@ -534,6 +534,8 @@ class ChatViewModelQuickIntentRouterTest {
         viewModel.onInputChanged("what's on my calendar today")
         viewModel.sendMessage()
         advanceUntilIdle()
+        viewModel.onCalendarPermissionRouted(CapabilityKey.CalendarLookup, blocked = false)
+        advanceUntilIdle()
         assertTrue(
             viewModel.getConversationAsText().contains("Allow it when prompted"),
             viewModel.getConversationAsText(),

@@ -424,7 +424,7 @@ fun ChatScreen(
                 }
                 if (calendarPermissionsGranted(results)) viewModel.onCalendarPermissionGranted() else viewModel.onCalendarPermissionDenied()
             }
-            fun requestCalendarPermissions(permissions: List<String>) {
+            fun requestCalendarPermissions(permissions: List<String>, capability: com.kernel.ai.core.permissions.CapabilityKey) {
                 val store = PermissionRequestStore.from(context)
                 val activity = context as android.app.Activity
                 val routes = permissions.associateWith { permission ->
@@ -439,12 +439,14 @@ fun ChatScreen(
                 // Permanently denied: the system will not show the prompt, so send the user to App info.
                 val permanentlyDenied = routes.entries.firstOrNull { it.value == PermissionRoute.AppInfo }?.key
                 if (permanentlyDenied != null) {
+                    viewModel.onCalendarPermissionRouted(capability, blocked = true)
                     viewModel.onCalendarPermissionDenied()
                     openRuntimePermissionRepair(permanentlyDenied)
                     return
                 }
                 val toRequest = routes.filterValues { it != PermissionRoute.Granted }.keys
                 if (toRequest.isNotEmpty()) {
+                    viewModel.onCalendarPermissionRouted(capability, blocked = false)
                     pendingCalendarLaunchedAt = android.os.SystemClock.elapsedRealtime()
                     calendarPermissionLauncher.launch(toRequest.toTypedArray())
                 } else {
@@ -463,7 +465,7 @@ fun ChatScreen(
                         }
                         ChatViewModel.UiEvent.RepairWeatherLocationPermission ->
                             openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
-                        is ChatViewModel.UiEvent.RequestCalendarPermission -> requestCalendarPermissions(event.permissions)
+                        is ChatViewModel.UiEvent.RequestCalendarPermission -> requestCalendarPermissions(event.permissions, event.capability)
                     }
                 }
             }
