@@ -18,6 +18,8 @@ import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.kernelModels
+import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -451,7 +453,7 @@ class VoiceViewModel @Inject constructor(
                 _uiState.update { it.copy(heyJandalEnabled = enabled) }
                 if (enabled) {
                     // Ensure the selected online STT model is downloaded for wake-word verification.
-                    downloadSherpaStt(resolveWakeEngineForDownload())
+                    queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager)
                 }
             }
         }
@@ -540,10 +542,7 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    private fun modelsForSpec(spec: SherpaSttModelSpec): List<KernelModel> =
-        spec.requiredFileNames.mapNotNull { fileName ->
-            KernelModel.entries.firstOrNull { it.fileName == fileName }
-        }
+    private fun modelsForSpec(spec: SherpaSttModelSpec): List<KernelModel> = spec.kernelModels()
 
     fun downloadSherpaStt(engine: VoiceInputEngine) {
         val spec = SherpaSttModelSpec.forEngine(engine) ?: return
@@ -626,17 +625,6 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Resolves the STT engine whose model files should be downloaded for wake-word
-     * verification. Uses the user's selected engine if it's an online recognizer
-     * (Zipformer or Paraformer), otherwise falls back to Zipformer.
-     */
-    private suspend fun resolveWakeEngineForDownload(): VoiceInputEngine {
-        val engine = voiceInputPreferences.selectedEngine.first()
-        val spec = SherpaSttModelSpec.forEngine(engine)
-        return if (spec?.recognizerKind == SherpaSttModelSpec.RecognizerKind.Online) engine
-               else VoiceInputEngine.SherpaZipformer
-    }
 
     fun cancelSherpaSttDownload(engine: VoiceInputEngine) {
         val spec = SherpaSttModelSpec.forEngine(engine) ?: return
@@ -826,7 +814,7 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             wakeWordPreferences.setHeyJandalEnabled(enabled)
             if (enabled) {
-                downloadSherpaStt(resolveWakeEngineForDownload())
+                queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager)
             }
         }
     }

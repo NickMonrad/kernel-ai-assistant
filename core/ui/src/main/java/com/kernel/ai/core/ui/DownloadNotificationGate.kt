@@ -117,7 +117,8 @@ fun rememberDownloadNotificationGate(onProceed: (pendingId: String?) -> Unit): (
 private fun hasNotificationPermission(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, NOTIFICATION_PERMISSION) == PackageManager.PERMISSION_GRANTED
 
-private tailrec fun Context.findActivity(): Activity? = when (this) {
+/** The hosting [Activity] of this context, unwrapping [ContextWrapper]s; null outside an activity. */
+tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
