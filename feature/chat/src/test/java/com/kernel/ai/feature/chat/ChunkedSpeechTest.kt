@@ -205,4 +205,32 @@ class ChunkedSpeechTest {
         assertEquals("Sure, that's right. It is 24 degrees in Palmerston North today, with a light breeze.", chunk)
         assertEquals("", buffer.toString())
     }
+
+    @Test
+    fun `a 31-character first sentence becomes its own streamed chunk`() {
+        val buffer = StringBuilder("It is warm there in Apia today. Kia ora, welcome to the island.")
+
+        val chunk = popNextStreamingSpeechChunk(
+            buffer = buffer,
+            minChunkLength = VOICE_STREAM_FIRST_CHUNK_MIN_LENGTH,
+            preferredChunkLength = Int.MAX_VALUE,
+        )
+
+        assertEquals("It is warm there in Apia today.", chunk)
+        assertTrue(buffer.toString().startsWith(" Kia ora"), "rest of the reply must stay buffered")
+    }
+
+    @Test
+    fun `a 7-character greeting merges with the next sentence`() {
+        val buffer = StringBuilder("Mōrena. It is 24 degrees in Apia today.")
+
+        val chunk = popNextStreamingSpeechChunk(
+            buffer = buffer,
+            minChunkLength = VOICE_STREAM_FIRST_CHUNK_MIN_LENGTH,
+            preferredChunkLength = Int.MAX_VALUE,
+        )
+
+        assertTrue(chunk != null && chunk.contains("24 degrees"), "greeting must not be spoken alone: $chunk")
+        assertEquals("", buffer.toString())
+    }
 }

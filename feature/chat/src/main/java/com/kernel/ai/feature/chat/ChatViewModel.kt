@@ -4411,7 +4411,7 @@ class ChatViewModel @Inject constructor(
     private suspend fun drainVoiceStreamingBuffer() {
         val session = activeVoiceStreamingSession ?: return
         while (true) {
-            val minLength = if (activeVoiceChunksSent == 0) VOICE_FIRST_CHUNK_MIN_LENGTH else VOICE_MIN_CHUNK_LENGTH
+            val minLength = if (activeVoiceChunksSent == 0) VOICE_STREAM_FIRST_CHUNK_MIN_LENGTH else VOICE_MIN_CHUNK_LENGTH
             val chunk = popNextStreamingSpeechChunk(
                 buffer = activeVoiceStreamingBuffer,
                 minChunkLength = minLength,
