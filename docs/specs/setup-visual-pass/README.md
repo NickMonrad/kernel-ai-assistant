@@ -205,12 +205,14 @@ Don't use `primary` for text: the dark `primary` is `#4F7942`, which is only 3.4
     | State | Chip | Action |
     |---|---|---|
     | Off, not chosen | Off | **Turn on**. This records the choice; it's applied on Finish (`applyWakeWordChoice`), as today. |
-    | Chosen in this run, not applied yet | On at Finish | **Don't turn on** (text button). Description adds "Turns on when you tap Finish." |
-    | Stored on | On | **Turn off** (text button) |
-    | Chosen or on, microphone not granted | Needs access | **Allow microphone**. Caveat: "Hey Jandal needs microphone access." |
-    | Chosen or on, Honor/MagicOS without Usage Access | Needs access | **Open Usage Access**. Caveat: "On this phone it needs Usage Access, so it can pause while the camera's in use." (screen 4b) |
-    | No microphone, model not installed, or the phone can't support it | Not available | none. Today's `HeyJandalBlock` reason is the description. |
+    | Chosen in this run, not applied yet, no block | On at Finish | **Turn off** (text button) undoes the choice. Description adds "Turns on when you tap Finish." |
+    | Stored on, no block | On | **Turn off** (text button) |
+    | Stored on, turned off in this run | Off | **Turn on** undoes it. Description adds "Turns off when you tap Finish." |
+    | Chosen or on, microphone not granted | Needs access | **Allow microphone**, plus **Turn off** (text button). Caveat: "Hey Jandal needs microphone access. Stays off until this is fixed." |
+    | Chosen or on, Honor/MagicOS without Usage Access | Needs access | **Open Usage Access**, plus **Turn off** (text button). Caveat: "On this phone it needs Usage Access, so it can pause while the camera's in use. Stays off until this is fixed." (screen 4b) |
+    | No microphone, model not installed, or the phone can't support it | Not available | **Turn off** only if the choice is on; otherwise none. Today's `HeyJandalBlock` reason is the description. |
 
+    Finish never applies a blocked choice (`applyWakeWordChoice` writes nothing while a block remains), so a blocked card never says "Turns on when you tap Finish". These lines and buttons match today's `SetupWizardScreen` row; only the chip and layout are new.
     Skip throws a pending choice away, as today.
   - **Default assistant** (assistant sparkle): "Opens Jandal from your phone's assistant button or gesture. Hey Jandal works best with this on."
     - On: chip **On**, text button **Change**.
@@ -269,7 +271,7 @@ Don't use `primary` for text: the dark `primary` is `#4F7942`, which is only 3.4
 - [ ] Every size and total comes from the catalogue. The Hey Jandal size comes from a shared source.
 - [ ] Unit tests cover:
   - step 3 rows: driven by the plan and choices, by tier (E-4B vs E-2B), with downloaded items hidden, and Inflect only when eligible;
-  - the step 4 Hey Jandal states in the table.
+  - every step 4 Hey Jandal row in the table, including pending off and the blocked rows' "Stays off until this is fixed."
 - [ ] Tests:
   - `SetupWizardLargeFontTest` is updated for the new copy and asserts the last item is fully visible above the footer;
   - compact mode still scrolls the footer;
