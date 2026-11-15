@@ -70,6 +70,24 @@ Median send→SpeakingStarted: MAIN 38344 ms, BRANCH 47364 ms. It is not used fo
 
 Script: `measure-first-audio.sh` (token read on-device via `run-as`; no secrets committed).
 
-## Status: streamed-path re-measurement (pending)
+## Streamed-path re-measurement (path=stream, kiwi prompt)
 
-The results above are the finalize path: the router classified the prompt as a tool query, the branch first chunk was 48–64 chars, and `VoiceTiming path=` was not logged. They do not measure the streaming change. A re-measurement with `path=stream|final` logging and a non-router prompt is pending; the S23U device lock (`/tmp/jandal-s23u.lock`) was held by another agent when this round finished. Those results will be added here, labelled separately.
+Prompt: "Tell me three short facts about kiwi birds, one sentence each." (non-router). Alternating MAIN (origin/main 67a2365c + path/timing logs) / BRANCH (cd619981), 1 warm-up plus 3 measured runs per build, 60 s idle after each install. Both builds logged `VoiceTiming path=stream` on every run, so both exercise streaming. Script: `/tmp/s23u-stream-1892.sh` (not committed; same logic as `measure-first-audio.sh`).
+
+| Build | Run | lastToken→SpeakingStarted (ms) | firstChunkQueued→SpeakingStarted (ms) | decode tok/s |
+|---|---|---|---|---|
+| MAIN | 1 | +7524 | +5539 | 16.60 |
+| MAIN | 2 | +5879 | +3441 | 15.46 |
+| MAIN | 3 | +3211 | +586 | 13.08 |
+| BRANCH | 1 | +1405 | +4511 | 14.21 |
+| BRANCH | 2 | +3258 | +5044 | 12.20 |
+| BRANCH | 3 | +2469 | +3530 | 19.72 |
+
+Medians (n=3): lastToken→SpeakingStarted MAIN +5879 ms, BRANCH +2469 ms. firstChunkQueued→SpeakingStarted MAIN +3441 ms, BRANCH +4511 ms.
+
+Caveats:
+- n=3 per build, and the ranges overlap (MAIN 3211–7524, BRANCH 1405–3258 for lastToken). No significant difference is shown.
+- On MAIN, `fqChars=0` on every run: the logged first-chunk line is the empty finalize tail, so MAIN's firstChunkQueued is not a real first chunk. Use the lastToken column for MAIN.
+- Warm-up runs (excluded): MAIN +5483/+5839/+3453, BRANCH +1325/+4692/+6563 ms.
+- Earlier finalize-path table above is a different path (router-classified prompt); it is not comparable to this table.
+- Cori Ready in Settings was not checked by navigation; speech was produced through the engine on every run (SpeakingStarted logged).
