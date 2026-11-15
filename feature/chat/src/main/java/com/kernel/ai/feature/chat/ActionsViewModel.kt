@@ -725,20 +725,29 @@ class ActionsViewModel @Inject constructor(
         _speakingActionId.value = null
     }
 
-    fun pauseTransientVoiceUi(reason: String = "unspecified") {
+    /**
+     * Pauses transient voice UI when the Actions screen stops.
+     *
+     * [keepSpeech] = true (screen turned off, #1918): stops the mic and the slot-reply re-arm for
+     * privacy, but leaves spoken output running so the reply finishes in the background.
+     * [keepSpeech] = false (e.g. Home/navigation): stops listening and all speech, resets to idle.
+     */
+    fun pauseTransientVoiceUi(reason: String = "unspecified", keepSpeech: Boolean = false) {
         Log.d(
             TAG,
-            "ActionsViewModel: pauseTransientVoiceUi reason=$reason pendingSlot=${_pendingSlot.value != null} " +
+            "ActionsViewModel: pauseTransientVoiceUi reason=$reason keepSpeech=$keepSpeech " +
+                "pendingSlot=${_pendingSlot.value != null} " +
                 "voiceCaptureState=${_voiceCaptureState.value} voicePlaybackState=${_voicePlaybackState.value}",
         )
         setSlotReplyAutoRearmArmed(false, "pauseTransientVoiceUi:$reason")
-        clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
-        cancelPendingVoiceSpeech()
-        stopActionSpeech()
         unbindActionsVoiceSession()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
+        if (keepSpeech) return
+        clearExpectedSlotPromptSpeech()
+        cancelPendingVoiceSpeech()
+        stopActionSpeech()
         stopAllVoiceOutput()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }

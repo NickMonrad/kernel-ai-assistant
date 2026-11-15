@@ -675,6 +675,79 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `screen-off lifecycle stop keeps speech running and stops the mic`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
+        )
+        runCurrent()
+        clearMocks(voiceOutputController, answers = false)
+
+        viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop", keepSpeech = true)
+        runCurrent()
+
+        verify(exactly = 0) { voiceOutputController.stop() }
+        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Speaking("What would you like to say to your wife?"),
+            viewModel.voicePlaybackState.value,
+        )
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+
+        // Speech finishes in the background: slot-reply mic must not be re-armed.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
+    fun `home lifecycle stop still stops speech and the mic`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
+        )
+        runCurrent()
+
+        viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop", keepSpeech = false)
+        runCurrent()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
+    fun `returning after speech finished in the background shows idle`() = runTest(dispatcher) {
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
+        )
+        runCurrent()
+        viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop", keepSpeech = true)
+        runCurrent()
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        runCurrent()
+
+        // ON_RESUME: no speech left, so the screen state is idle and nothing is restarted.
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertNull(viewModel.speakingActionId.value)
+    }
+
+    @Test
     fun `partial transcript is surfaced while listening`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)

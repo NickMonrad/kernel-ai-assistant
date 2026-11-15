@@ -5,7 +5,8 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
-import android.net.Uri
+import android.os.PowerManager
+ import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
@@ -499,7 +500,10 @@ fun ActionsScreen(
                         "showBottomSheet=$showBottomSheet voiceCaptureState=$voiceCaptureState " +
                         "voicePlaybackState=$voicePlaybackState",
                 )
-                viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop")
+                // Screen off keeps speech running (#1918); Home/navigation still stops it.
+                val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
+                    ?.isInteractive == false
+                viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop", keepSpeech = screenOff)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
