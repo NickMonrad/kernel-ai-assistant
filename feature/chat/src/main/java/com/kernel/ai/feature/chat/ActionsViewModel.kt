@@ -544,7 +544,10 @@ class ActionsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             // Volume key or media Stop (#1873) while a quick-action card is speaking (#1026).
-            speechStopCoordinator.stopRequests.collect { stopAllVoiceOutput() }
+            speechStopCoordinator.stopRequests.collect {
+                stopAllVoiceOutput()
+                _voicePlaybackState.value = VoicePlaybackState.Idle
+            }
         }
         viewModelScope.launch {
             voiceOutputController.events.collect { event ->

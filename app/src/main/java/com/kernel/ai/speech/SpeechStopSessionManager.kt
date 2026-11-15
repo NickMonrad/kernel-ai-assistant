@@ -26,8 +26,8 @@ import kotlinx.coroutines.launch
  * While [SpeechStopCoordinator.isSpeaking] is true a [MediaSession] is active. Its PlaybackState
  * advertises ACTION_STOP plus a "Stop" custom action, and its callbacks route Stop, Pause and the
  * custom action to [SpeechStopCoordinator.requestStop]. A MediaStyle notification bound to the
- * session lets System UI draw the media card in the shade and on the lock screen; its Stop routes
- * through the same session callbacks, so no receiver is needed. The notification and session are
+ * session lets System UI draw the media card in the shade (verified on S23U). Lock-screen display is
+ * not verified: the S21 lock-screen check failed (PR #1913). Its Stop routes through the same session callbacks, so no receiver is needed. The notification and session are
  * released when speech ends.
  */
 @Singleton

@@ -453,6 +453,8 @@ class ChatViewModel @Inject constructor(
     */
     private var chatCommandVoiceRetryCount = 0
     private var awaitingVoicePlaybackCompletion = false
+    /** Set by a stop while generating; the re-arm waits for generation to complete (SF2). */
+    private var rearmBackAndForthAfterGeneration = false
 
     /** Capture session of the current chat voice input; its notes are shown (#1853, #1866). */
     private var chatVoiceSessionId: Long? = null
@@ -876,12 +878,26 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            // Volume key or media Stop (#1873). Stop exactly as the chat stop path does, then resume
-            // listening in back-and-forth mode: stopVoicePlayback() clears awaitingVoicePlaybackCompletion,
-            // so the SpeakingStopped handler above will not rearm on its own.
+            // Volume key or media Stop (#1873). Only the screen whose reply is playing owns this stop
+            // (SF2): a background chat or an Actions stop must not re-arm listening here.
             speechStopCoordinator.stopRequests.collect {
-                stopVoicePlayback()
-                if (_voiceMode.value == VoiceMode.BackAndForth) {
+                val ownsPlayback = awaitingVoicePlaybackCompletion
+                stopVoicePlayback() // clears awaitingVoicePlaybackCompletion
+                if (!ownsPlayback || _voiceMode.value != VoiceMode.BackAndForth) return@collect
+                if (inferenceEngine.isGenerating.value) {
+                    rearmBackAndForthAfterGeneration = true
+                    return@collect
+                }
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                rearmVoiceInput()
+            }
+        }
+        viewModelScope.launch {
+            // A deferred re-arm (stop requested while generating) fires once generation completes.
+            inferenceEngine.isGenerating.collect { generating ->
+                if (generating || !rearmBackAndForthAfterGeneration) return@collect
+                rearmBackAndForthAfterGeneration = false
+                if (_voiceMode.value == VoiceMode.BackAndForth && !_isSpeakingResponse.value) {
                     _voiceCaptureState.value = VoiceCaptureState.Idle
                     rearmVoiceInput()
                 }

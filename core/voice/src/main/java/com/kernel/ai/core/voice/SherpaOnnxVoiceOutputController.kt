@@ -111,6 +111,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     // ── Playback cancellation ────────────────────────────────────────────────
     @Volatile private var stopped = false
     @Volatile private var nextPlaybackToken = 0L
+    private val speakingStopGate = SpeakingStopGate()
     @Volatile private var activeStreamingPlayback: ActiveStreamingPlayback? = null
     private val playbackLock = Any()
 
@@ -172,10 +173,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             stopped = false
             val myGeneration = nonStreamingPlaybackGeneration.incrementAndGet()
 
-            // Track whether SpeakingStarted was emitted so SpeakingStopped is only sent when
-            // it has a matching start — stops the back-and-forth loop from firing on a stopped
-            // or failed synthesis where no audio was ever played.
-            var speakingStarted = false
+            // SpeakingStopped is paired to this reply's SpeakingStarted by the gate (SpeakingStopGate).
+            val stopToken = allocatePlaybackToken()
             val effectiveSid = effectiveSid(speakerCount, voiceSid)
             return@withContext try {
                 // Reflect: GeneratedAudio audio = tts.generate(text, sid, speed)
@@ -201,17 +200,17 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                         if (isKokoro) "kokoro" else "sherpa",
                         spokenText.length,
                     )
+                    speakingStopGate.markStarted(stopToken)
                     _events.emit(VoiceOutputEvent.SpeakingStarted(request.text))
-                    speakingStarted = true
                     playOnAudioTrack(samples, sampleRate, myGeneration)
                 }
                 releaseAudioFocus()
-                if (speakingStarted) _events.emit(VoiceOutputEvent.SpeakingStopped)
+                if (speakingStopGate.claimStopped(stopToken)) _events.emit(VoiceOutputEvent.SpeakingStopped)
                 VoiceOutputResult.Spoken
             } catch (e: Exception) {
                 Log.e(TAG, "Sherpa generate() failed", e)
                 releaseAudioFocus()
-                if (speakingStarted) _events.emit(VoiceOutputEvent.SpeakingStopped)
+                if (speakingStopGate.claimStopped(stopToken)) _events.emit(VoiceOutputEvent.SpeakingStopped)
                 VoiceOutputResult.Unavailable("Sherpa generate failed: ${e.message}")
             }
         }
@@ -478,6 +477,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                                 if (isKokoro) "kokoro" else "sherpa",
                                 chunk.text.length,
                             )
+                            speakingStopGate.markStarted(playbackToken)
                             _events.emit(VoiceOutputEvent.SpeakingStarted(request.text.ifBlank { "" }))
                             emittedStarted = true
                         }
@@ -493,11 +493,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 }
             }
         } finally {
-            // Runs exactly once per worker, including when stop() cancels it. Keyed on
-            // emittedStarted, not on activeStreamingPlayback, which stop() clears first.
+            // Runs exactly once per worker, including when stop() cancels it. The gate, not
+            // activeStreamingPlayback (which stop() clears first), decides whether this unwind ends speech.
             releaseAudioFocus()
             finishStreamingPlayback(playbackToken)
-            if (emittedStarted) _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
+            if (speakingStopGate.claimStopped(playbackToken)) _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
         }
     }
 

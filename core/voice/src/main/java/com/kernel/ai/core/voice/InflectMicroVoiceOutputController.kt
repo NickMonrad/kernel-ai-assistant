@@ -39,6 +39,7 @@ class InflectMicroVoiceOutputController @Inject constructor(
     @Volatile private var runnerDirectory: File? = null
     @Volatile private var frontendDataDirectory: File? = null
     @Volatile private var audioFocusRequest: AudioFocusRequest? = null
+    private val speakingStopGate = SpeakingStopGate()
 
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
         prepare()
@@ -80,6 +81,7 @@ class InflectMicroVoiceOutputController @Inject constructor(
                             requestAudioFocus()
                             VoiceOutputTrace.speakingStarted("inflect", request.text)
                             VoiceOutputTrace.logSpeakingStarted("inflect", request.text.length)
+                            speakingStopGate.markStarted(generation)
                             eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStarted(request.text))
                             started = true
                         }
@@ -103,10 +105,10 @@ class InflectMicroVoiceOutputController @Inject constructor(
                 Log.e(TAG, "Inflect synthesis failed", error)
                 VoiceOutputResult.Unavailable("Inflect synthesis failed: ${error.message}")
             } finally {
-                // Once per speak(), on every exit path including stop(). Playback started means
-                // SpeakingStarted was emitted, so a matching SpeakingStopped must follow.
+                // Once per speak(), on every exit path including stop(). The gate pairs the stop with
+                // this speak's SpeakingStarted, so a stale unwind cannot end a newer reply's speech.
                 releaseAudioFocus()
-                if (started) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
+                if (speakingStopGate.claimStopped(generation)) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
             }
         }
     }
