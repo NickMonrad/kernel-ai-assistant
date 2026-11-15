@@ -201,7 +201,6 @@ class ChatViewModelVoiceTest {
             streamedChunks += firstArg<String>() to secondArg<Boolean>()
             VoiceOutputResult.Spoken
         }
-        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
         every { voiceOutputController.stop() } just runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.autoSpeak } returns MutableStateFlow(true)
@@ -281,7 +280,7 @@ class ChatViewModelVoiceTest {
         val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
         assertEquals("", state.inputText)
         assertEquals(1L, state.inputTextReplacementRevision)
-        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
     }
 
     @Test
@@ -297,7 +296,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
     }
 
     @Test
@@ -352,9 +351,7 @@ class ChatViewModelVoiceTest {
             "You: Convert 1 gallon to litres\nJandal: 1 gallon is 3.785411784 liters.",
             viewModel.getConversationAsText(),
         )
-        coVerify {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "1 gallon is 3.79 liters." })
-        }
+        assertEquals(listOf("1 gallon is 3.79 liters." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
     @Test
@@ -442,9 +439,7 @@ class ChatViewModelVoiceTest {
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "I'll remember your birthday is 15 March." })
-        }
+        assertEquals(listOf("I'll remember your birthday is 15 March." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
@@ -498,9 +493,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "I'll remember your birthday is 15 March." })
-        }
+        assertEquals(listOf("I'll remember your birthday is 15 March." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
@@ -561,9 +554,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "I'll remember your birthday is 15 March." })
-        }
+        assertEquals(listOf("I'll remember your birthday is 15 March." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
@@ -611,9 +602,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: Could not save memory right now."))
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "Could not save memory right now." })
-        }
+        assertEquals(listOf("Could not save memory right now." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
@@ -650,9 +639,7 @@ class ChatViewModelVoiceTest {
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: Could not complete the confirmed action."))
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "Could not complete the confirmed action." })
-        }
+        assertEquals(listOf("Could not complete the confirmed action." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
@@ -678,7 +665,6 @@ class ChatViewModelVoiceTest {
     fun `one-shot voice stays idle after spoken reply playback stops`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Hello one shot") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Hello one shot")
-        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
 
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -701,7 +687,6 @@ class ChatViewModelVoiceTest {
     fun `back-and-forth voice re-arms listening after spoken reply playback stops`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Hello loop") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Hello loop")
-        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
 
         val viewModel = createViewModel()
         advanceUntilIdle()

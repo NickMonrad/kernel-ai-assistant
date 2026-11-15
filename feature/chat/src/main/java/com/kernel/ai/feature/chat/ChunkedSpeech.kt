@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat
 
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -25,17 +26,28 @@ internal suspend fun speakInSentenceChunks(
     text: String,
 ): VoiceOutputResult {
     val session = controller.openStreamingSession(VoiceSpeakRequest(text = text))
+    return appendSentenceChunks(session, text)
+}
+
+/**
+ * Queues [text] on [session] as sentence-sized chunks; the last chunk is final. Shared by the
+ * Actions/speaker-button path and the chat voice reply path so both use the same first-chunk and
+ * tail rules.
+ */
+internal suspend fun appendSentenceChunks(
+    session: VoiceOutputStreamingSession,
+    text: String,
+): VoiceOutputResult {
     try {
         val buffer = StringBuilder(text)
         var isFirst = true
         while (buffer.isNotBlank()) {
             // A short first chunk lets playback start while the rest is synthesised (#1872).
             val minLength = if (isFirst) VOICE_FIRST_CHUNK_MIN_LENGTH else VOICE_MIN_CHUNK_LENGTH
-            val preferredLength = VOICE_PREFERRED_CHUNK_LENGTH
             var chunk = popNextStreamingSpeechChunk(
                 buffer = buffer,
                 minChunkLength = minLength,
-                preferredChunkLength = preferredLength,
+                preferredChunkLength = VOICE_PREFERRED_CHUNK_LENGTH,
                 force = buffer.length < minLength,
             ) ?: break
             // A tail under ~20 characters ("Thanks.") would be a separate, barely audible chunk;

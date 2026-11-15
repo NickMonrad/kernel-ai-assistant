@@ -174,4 +174,35 @@ class ChunkedSpeechTest {
         assertTrue(cancelled, "session.cancel() must run on cancellation")
         assertTrue(appended.none { it.second }, "no final append expected when cancel() is overridden: $appended")
     }
+
+    @Test
+    fun `streaming drain never cuts a sentence at a comma`() {
+        val buffer = StringBuilder(
+            "In Palmerston North, Manawatu-Wanganui, it's 24 degrees with partly cloudy skies " +
+                "and a light breeze, feeling like 25 degrees, and the forecast keeps going for a while longer, " +
+                "still no full stop yet",
+        )
+
+        val chunk = popNextStreamingSpeechChunk(
+            buffer = buffer,
+            minChunkLength = VOICE_MIN_CHUNK_LENGTH,
+            preferredChunkLength = Int.MAX_VALUE,
+        )
+
+        assertEquals(null, chunk, "a partial sentence must wait for its full stop")
+    }
+
+    @Test
+    fun `streaming first chunk ends at the first full stop from 40 characters`() {
+        val buffer = StringBuilder("Sure, that's right. It is 24 degrees in Palmerston North today, with a light breeze.")
+
+        val chunk = popNextStreamingSpeechChunk(
+            buffer = buffer,
+            minChunkLength = VOICE_FIRST_CHUNK_MIN_LENGTH,
+            preferredChunkLength = Int.MAX_VALUE,
+        )
+
+        assertEquals("Sure, that's right. It is 24 degrees in Palmerston North today, with a light breeze.", chunk)
+        assertEquals("", buffer.toString())
+    }
 }

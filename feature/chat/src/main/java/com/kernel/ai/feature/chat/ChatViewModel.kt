@@ -141,8 +141,6 @@ internal fun shouldForceGpuConversationResetEachTurn(
 ): Boolean = backend == BackendType.GPU && (!isDebugBuild || debugForceReset)
 // Covers the 60s GPU attempt, CPU fallback, and cleanup; foreground and lock waits are excluded.
 internal const val MODEL_INITIALIZATION_WATCHDOG_MS = 150_000L
-private const val CHAT_VOICE_MIN_CHUNK_LENGTH = VOICE_MIN_CHUNK_LENGTH
-private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = VOICE_PREFERRED_CHUNK_LENGTH
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
 private const val LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND = "__orchtest:load_skill_abort_replay"
 private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND = "__orchtest:load_skill_native_continuation"
@@ -388,6 +386,8 @@ class ChatViewModel @Inject constructor(
     private var activeStreamingThinking = StringBuilder()
     private var activeVoiceStreamingSession: VoiceOutputStreamingSession? = null
     private var activeVoiceStreamingBuffer = StringBuilder()
+    private var activeVoiceChunksSent = 0
+    private var assistantSpeechJob: Job? = null
     private var isVoiceStreamingEnabledForTurn = false
     private var suppressVoiceOutputForCurrentResponse = false
     private var spokenResponsesEnabled = true
@@ -1669,7 +1669,7 @@ class ChatViewModel @Inject constructor(
         _voiceMode.value = mode
         viewModelScope.launch {
             if (_voicePlaybackState.value != VoicePlaybackState.Idle) {
-                voiceOutputController.stop()
+                stopChatSpeech()
             }
             _error.value = null
             _voiceCaptureState.value = VoiceCaptureState.Preparing
@@ -1916,7 +1916,7 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
-        voiceOutputController.stop()
+        stopChatSpeech()
         _voicePlaybackState.value = VoicePlaybackState.Idle
         _speakingMessageId.value = null
     }
@@ -1934,7 +1934,7 @@ class ChatViewModel @Inject constructor(
             speakMessageJob = null
             awaitingVoicePlaybackCompletion = false
             pendingVoiceReply = false
-            voiceOutputController.stop()
+            stopChatSpeech()
             _speakingMessageId.value = null
             _isSpeakingResponse.value = false
             _voicePlaybackState.value = VoicePlaybackState.Idle
@@ -1945,7 +1945,7 @@ class ChatViewModel @Inject constructor(
         // Prevent the SpeakingStopped handler from rearming the voice loop.
         awaitingVoicePlaybackCompletion = false
         pendingVoiceReply = false
-        voiceOutputController.stop()
+        stopChatSpeech()
         _speakingMessageId.value = messageId
         val normalizedText = normalizeChatTextForSpeech(text)
         speakMessageJob = viewModelScope.launch {
@@ -1980,7 +1980,7 @@ class ChatViewModel @Inject constructor(
     fun stopSpeaking() {
         speakMessageJob?.cancel()
         speakMessageJob = null
-        voiceOutputController.stop()
+        stopChatSpeech()
     }
 
     fun submitInitialQueryIfNeeded(initialQuery: String, speakResponse: Boolean = false) {
@@ -4167,10 +4167,17 @@ class ChatViewModel @Inject constructor(
         isVoiceStreamingEnabledForTurn = false
         activeVoiceStreamingBuffer = StringBuilder()
         activeVoiceStreamingSession = null
-        voiceOutputController.stop()
+        stopChatSpeech()
         _isSpeakingResponse.value = false
         _voicePlaybackState.value = VoicePlaybackState.Idle
         _speakingMessageId.value = null
+    }
+
+    /** Stops speech output and cancels an in-flight chunked reply so no later chunk is queued. */
+    private fun stopChatSpeech() {
+        assistantSpeechJob?.cancel()
+        assistantSpeechJob = null
+        voiceOutputController.stop()
     }
 
     fun getConversationAsText(): String {
@@ -4370,6 +4377,7 @@ class ChatViewModel @Inject constructor(
         streamingEnabled: Boolean,
     ) {
         activeVoiceStreamingBuffer = StringBuilder()
+        activeVoiceChunksSent = 0
         activeVoiceStreamingSession = null
         isVoiceStreamingEnabledForTurn = streamingEnabled
         val shouldSpeak = pendingVoiceReply
@@ -4392,23 +4400,24 @@ class ChatViewModel @Inject constructor(
         // that summary or the model's own words, decided in finalizeVoicePlaybackForResponse.
         val summaryToolRan = kernelAIToolSet.terminalToolSpokenSummary() != null ||
             kernelAIToolSet.terminalToolPresentation()?.toSpokenSummary() != null
-        if (!summaryToolRan) drainVoiceStreamingBuffer(force = false)
+        if (!summaryToolRan) drainVoiceStreamingBuffer()
     }
 
-    private suspend fun drainVoiceStreamingBuffer(force: Boolean) {
+    /**
+     * Queues complete sentences from the streamed buffer. Only sentence-ending boundaries are used
+     * (no mid-sentence comma or whitespace cut), so a partial sentence is never spoken. The first
+     * chunk may end at a full stop from 40 characters (#1890). The unfinished tail is flushed on finalize.
+     */
+    private suspend fun drainVoiceStreamingBuffer() {
         val session = activeVoiceStreamingSession ?: return
         while (true) {
+            val minLength = if (activeVoiceChunksSent == 0) VOICE_FIRST_CHUNK_MIN_LENGTH else VOICE_MIN_CHUNK_LENGTH
             val chunk = popNextStreamingSpeechChunk(
                 buffer = activeVoiceStreamingBuffer,
-                minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
-                preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
-                force = force,
+                minChunkLength = minLength,
+                preferredChunkLength = Int.MAX_VALUE,
             ) ?: break
-            speakVoiceChunk(
-                session = session,
-                chunk = chunk,
-                isFinal = false,
-            )
+            speakVoiceChunk(session = session, chunk = chunk, isFinal = false)
         }
     }
 
@@ -4418,25 +4427,20 @@ class ChatViewModel @Inject constructor(
             return
         }
         val session = activeVoiceStreamingSession ?: return
-        val finalChunk = if (spokenOverride != null) {
+        val result = when {
             // A tool's spoken summary replaces the streamed text; the unspoken buffer is dropped.
-            finalizeChatTextForSpeech(spokenOverride)
-        } else if (isVoiceStreamingEnabledForTurn) {
-            val bufferedChunks = mutableListOf<String>()
-            while (true) {
-                val chunk = popNextStreamingSpeechChunk(
-                    buffer = activeVoiceStreamingBuffer,
-                    minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
-                    preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
-                    force = true,
-                ) ?: break
-                bufferedChunks += chunk
+            spokenOverride != null -> {
+                activeVoiceStreamingBuffer.setLength(0)
+                appendSentenceChunks(session, spokenOverride)
             }
-            finalizeChatTextForSpeech(bufferedChunks.joinToString(" ").trim())
-        } else {
-            finalizeChatTextForSpeech(finalContent)
+            isVoiceStreamingEnabledForTurn -> {
+                // Complete sentences were queued while streaming; only the unfinished tail is left.
+                drainVoiceStreamingBuffer()
+                val tail = finalizeChatTextForSpeech(activeVoiceStreamingBuffer.toString())
+                session.append(tail, isFinal = true)
+            }
+            else -> appendSentenceChunks(session, finalContent)
         }
-        val result = session.append(finalChunk, isFinal = true)
         handleVoiceOutputResult(result)
         activeVoiceStreamingSession = null
         activeVoiceStreamingBuffer = StringBuilder()
@@ -4449,6 +4453,7 @@ class ChatViewModel @Inject constructor(
         isFinal: Boolean,
     ) {
         if (chunk.isBlank()) return
+        activeVoiceChunksSent++
         val result = session.append(chunk, isFinal = isFinal)
         handleVoiceOutputResult(result)
     }
@@ -4528,8 +4533,8 @@ class ChatViewModel @Inject constructor(
     private fun isStopCommand(transcript: String): Boolean =
         transcript.trim().lowercase() in STOP_PHRASES
 
-    /** Speaks the assistant reply if this was a voice-originated turn. */
-    private suspend fun speakAssistantReplyIfNeeded(content: String, spokenOverride: String? = null) {
+    /** Speaks the assistant reply if this was a voice-originated turn, one sentence chunk at a time. */
+    private fun speakAssistantReplyIfNeeded(content: String, spokenOverride: String? = null) {
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -4539,18 +4544,27 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        val spokenText = spokenOverride?.trim()?.takeIf { it.isNotBlank() }
-            ?: stripMarkdownForClipboard(content).trim()
-        if (spokenText.isBlank()) {
+        // The raw reply goes to the chunker, which cleans each chunk once; only the blank check
+        // looks at the cleaned form.
+        val spokenText = spokenOverride?.trim()?.takeIf { it.isNotBlank() } ?: content.trim()
+        if (normalizeChatTextForSpeech(spokenText).isBlank()) {
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             return
         }
 
         awaitingVoicePlaybackCompletion = true
-        when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = spokenText))) {
-            VoiceOutputResult.Spoken -> Unit
-            is VoiceOutputResult.Unavailable -> {
+        assistantSpeechJob?.cancel()
+        assistantSpeechJob = viewModelScope.launch {
+            val result = try {
+                speakInSentenceChunks(voiceOutputController, spokenText)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start chat voice reply", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            }
+            if (result is VoiceOutputResult.Unavailable) {
                 awaitingVoicePlaybackCompletion = false
                 _voiceMode.value = null
                 _error.value = withVoiceSettingsHint(result.message)
