@@ -2272,10 +2272,13 @@ class ActionsViewModel @Inject constructor(
         if (interruptPlayback) {
             stopAllVoiceOutput()
         }
-        // #1850: one hint use per user tap; retries do not come through here.
-        viewModelScope.launch {
-            val uses = voiceInputPreferences.recordMicUseStarted()
-            _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
+        // #1850: one hint use per user tap. Automatic starts (command retry, slot re-arm, safety
+        // net) reuse the tap's capture flow and must not count as a new use.
+        if (userInitiated) {
+            viewModelScope.launch {
+                val uses = voiceInputPreferences.recordMicUseStarted()
+                _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
+            }
         }
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
         viewModelScope.launch {

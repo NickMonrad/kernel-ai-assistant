@@ -771,9 +771,40 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         // ON_RESUME: no speech left, so the screen state is idle and nothing is restarted.
+        viewModel.onScreenResumed()
+        advanceUntilIdle()
         assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         assertNull(viewModel.speakingActionId.value)
+        coVerify(exactly = 0) { voiceInputController.startListening(any()) }
+    }
+
+    @Test
+    fun `automatic command retry and slot re-arm do not count as mic uses for the hint`() = runTest(dispatcher) {
+        coEvery { voiceInputPreferences.recordMicUseStarted() } returns 1
+        // User tap, then a voice error: the automatic retry reopens the mic.
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything."))
+        advanceUntilIdle()
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputPreferences.recordMicUseStarted() }
+
+        // Slot prompt ends: the automatic re-arm opens the slot-reply mic.
+        stubWifeSmsSlot()
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"))
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351)
+        runCurrent()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        coVerify(exactly = 1) { voiceInputPreferences.recordMicUseStarted() }
     }
 
     // ── #1918: background pause keeps every automatic mic path closed ───────
