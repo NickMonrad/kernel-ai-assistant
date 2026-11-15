@@ -32,7 +32,7 @@ internal fun logFirstChunkQueued(chars: Int) {
  * A short first chunk lets playback start while the rest is synthesised (#1872). A tail under ~20
  * characters ("Thanks.") would be a separate, barely audible chunk, so it is folded into the previous chunk.
  */
-internal suspend fun speakInSentenceChunks(
+suspend fun speakInSentenceChunks(
     controller: VoiceOutputController,
     text: String,
 ): VoiceOutputResult {

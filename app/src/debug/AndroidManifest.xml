@@ -40,6 +40,10 @@
                 <action android:name="com.kernel.ai.debug.action.CANCEL_INFLECT_GRAPH_PROBE" />
             </intent-filter>
         </receiver>
+        <!-- #1942: speaks a file's text through the production chunked TTS path (explicit component only). -->
+        <receiver
+            android:name="com.kernel.ai.debug.speech.SpeechProbeReceiver"
+            android:exported="true" />
         <!-- Explicit-component-only control endpoint (#1410): no intent filter,
              so only targeted broadcasts with -n reach it. -->
         <receiver
