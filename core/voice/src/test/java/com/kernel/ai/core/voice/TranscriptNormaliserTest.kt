@@ -309,16 +309,30 @@ class TranscriptNormaliserTest {
         assertEquals("what's the weather in Auckland", TranscriptNormaliser.normalise("what the whither in Auckland"))
         assertEquals("what's the weather in Auckland", TranscriptNormaliser.normalise("what the wither in Auckland"))
         assertEquals("what's the weather tomorrow", TranscriptNormaliser.normalise("what's the whether tomorrow"))
-        assertEquals("what's the weather tomorrow", TranscriptNormaliser.normalise("what's the wether tomorrow"))
         assertEquals("what's the weather tomorrow", TranscriptNormaliser.normalise("what's the way tomorrow"))
-        assertEquals("how's the weather in Wellington", TranscriptNormaliser.normalise("how's the wether in Wellington"))
+        assertEquals("how's the weather in wellington", TranscriptNormaliser.normalise("how's the wether in wellington"))
     }
 
     @Test
-    fun `weather mishears before a weather follower are corrected`() {
+    fun `curly apostrophes are handled like straight ones`() {
+        assertEquals("what’s the weather tomorrow", TranscriptNormaliser.normalise("what’s the whether tomorrow"))
+        assertEquals("How’s the weather in Wellington", TranscriptNormaliser.normalise("How’s the wether in Wellington"))
+    }
+
+    @Test
+    fun `capitalisation of the first word is kept`() {
+        assertEquals("What's the weather in Auckland", TranscriptNormaliser.normalise("What the whither in Auckland"))
+        assertEquals("How's the weather tomorrow", TranscriptNormaliser.normalise("How the wether tomorrow"))
+        assertEquals("What is the weather tomorrow", TranscriptNormaliser.normalise("What is the wether tomorrow"))
+    }
+
+    @Test
+    fun `bare weather mishear before a weather follower or at end is corrected`() {
         assertEquals("the weather in Auckland", TranscriptNormaliser.normalise("the whither in Auckland"))
         assertEquals("is the weather tomorrow", TranscriptNormaliser.normalise("is the wether tomorrow"))
         assertEquals("what's the weather", TranscriptNormaliser.normalise("what's the wether"))
+        assertEquals("what's the weather this morning", TranscriptNormaliser.normalise("what's the wether this morning"))
+        assertEquals("what's the weather next week", TranscriptNormaliser.normalise("what's the wether next week"))
     }
 
     @Test
@@ -326,6 +340,16 @@ class TranscriptNormaliserTest {
         assertEquals("I'll go whether or not it rains", TranscriptNormaliser.normalise("I'll go whether or not it rains"))
         assertEquals("whether or not to go", TranscriptNormaliser.normalise("whether or not to go"))
         assertEquals("what's whether or not tomorrow", TranscriptNormaliser.normalise("what's whether or not tomorrow"))
+    }
+
+    @Test
+    fun `over-broad phrases are untouched`() {
+        assertEquals("what's the way this works", TranscriptNormaliser.normalise("what's the way this works"))
+        assertEquals("how is the way this is done", TranscriptNormaliser.normalise("how is the way this is done"))
+        assertEquals("what's the way next", TranscriptNormaliser.normalise("what's the way next"))
+        assertEquals("how whether this matters", TranscriptNormaliser.normalise("how whether this matters"))
+        assertEquals("what whether now", TranscriptNormaliser.normalise("what whether now"))
+        assertEquals("what's the way like to X", TranscriptNormaliser.normalise("what's the way like to X"))
     }
 
     @Test

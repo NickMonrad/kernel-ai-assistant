@@ -1237,12 +1237,20 @@ Each phrase contains two or more intents. The system should ideally handle all o
 | 6 | "brighness up" | set_brightness |
 | 7 | "flashlgiht on" | toggle_flashlight_on |
 | 8 | "cancle the timer" | cancel_timer |
-| 9 | "what the whither in Auckland" (#1940) | get_weather |
-| 10 | "what the wither in Auckland" (#1940) | get_weather |
-| 11 | "what's the wether tomorrow" (#1940) | get_weather |
-| 12 | "what's the whether tomorrow" (#1940) | get_weather |
-| 13 | "what's the way tomorrow" (#1940) | get_weather |
-| 14 | "whether or not I need a jacket" (negative: must not route to get_weather via STT correction) | not get_weather |
+
+#### 4.9a Voice/STT-only weather mishears (#1940)
+
+These run only on voice transcripts: `TranscriptNormaliser` is applied by the STT controllers before routing. Typed input is not corrected, so these rows are not typed-input tests. Expected intent is after normalisation and `QuickIntentRouter`.
+
+| # | Voice transcript | Expected intent |
+|---|------------------|----------------|
+| 1 | "what the whither in Auckland" | get_weather (regex) |
+| 2 | "what the wither in Auckland" | get_weather (regex) |
+| 3 | "what's the whether tomorrow" | get_weather (regex) |
+| 4 | "what's the way tomorrow" | get_weather (regex) |
+| 5 | "how's the wether in wellington" | get_weather (regex) |
+| 6 | "what's the way this works" (negative: no weather route) | not get_weather |
+| 7 | "whether or not I need a jacket" (negative: no weather route) | not get_weather |
 
 ---
 

@@ -6,9 +6,12 @@ import android.util.Log
  * Pure-Kotlin normaliser that runs on every STT transcript *before* it reaches
  * any downstream consumer (intent router, LLM, RAG, chat, slot fill).
  *
- * Two alias tables:
- * - [KIWI_PHONETIC_REPLACEMENTS] — word-level Kiwi/Māori mishears (#935, #939)
+ * Alias and correction tables, applied in this order by [normalise]:
+ * - [WEATHER_MISHEAR_REPLACEMENTS] — context-gated "weather" mishears (#1940)
+ * - [AUCKLAND_REPLACEMENTS] — Auckland mishears (#1894)
+ * - [KIWI_PHONETIC_REPLACEMENTS] — word-level Kiwi/Māori mishears (#935, #939, #1852)
  * - [STT_UNIT_ALIAS_REPLACEMENTS] — unit/abbreviation normalisations (#1017)
+ * - [MISHEARD_ADD_LIST_COMMAND] — "add" misheard as "I've"/"I'd"/"ad" in list commands (#1820)
  *
  * ## False-positive note
  * `comrade` → `kumara` is a known limitation: "i was a comrade in arms" becomes
@@ -63,34 +66,43 @@ object TranscriptNormaliser {
     )
 
     /**
-     * Weather-keyword mishears from STT: #1940. Context-gated so ordinary uses of the same
-     * words survive: a correction only fires in a weather-shaped phrase ("what's the … in/for/
-     * tomorrow", "how's the … tomorrow", "the … in Auckland"). "whether or not" never matches
-     * because it has no weather-shaped follower.
+     * Weather-keyword mishears from STT: #1940. Voice-transcript only (called from the STT
+     * controllers, never from typed input). Context-gated so ordinary uses survive:
+     * a correction fires only in a weather-shaped phrase, i.e. a question head ("what's",
+     * "how's", "what is") + "the" + mishear, followed by a weather follower (in/for/at,
+     * today/tonight/tomorrow/outside/forecast, "this morning|afternoon|evening|week|weekend",
+     * "next week|weekend|few days|N days") or end of utterance. Bare "the way" also needs a
+     * time follower. "whether or not", "the way to", "the way this works", "how whether this
+     * matters" and "what whether now" are deliberately left alone.
      */
+    private const val WEATHER_FOLLOWER =
+        """(?:in|for|at|today|tonight|tomorrow|outside|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|few\s+days|\d+\s+days))"""
+    private const val WEATHER_TIME_FOLLOWER =
+        """(?:today|tonight|tomorrow|outside|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|few\s+days|\d+\s+days))"""
+    private const val WEATHER_QUESTION_HEAD = """(what(?:['’]s|\s+is)?|how(?:['’]s|\s+is)?)"""
+    private const val WEATHER_MISHEAR = """(?:whither|wither|wether|whether|wayther)"""
+
     private val WEATHER_MISHEAR_REPLACEMENTS: List<Pair<Regex, (MatchResult) -> String>> = listOf(
         // "what the whither in Auckland", "how's the wether tomorrow", "what's the whether" (end of utterance)
         Regex(
-            """\b(what(?:'s|\s+is)?|how(?:'s|\s+is)?)\s+(?:the\s+)?(?:whither|wither|wether|whether|wayther)\b(?=\s+(?:in|for|at|like|today|tonight|tomorrow|this|next|outside|here|now|forecast|looking|over)\b|\s*[.!?]*$)""",
+            """\b$WEATHER_QUESTION_HEAD\s+the\s+$WEATHER_MISHEAR\b(?=\s+$WEATHER_FOLLOWER\b|\s*[.!?]*$)""",
             RegexOption.IGNORE_CASE,
-        ) to { mr -> "${weatherQuestionHead(mr.groupValues[1])} the weather" },
-        // "what's the way tomorrow" / "how's the way in…" — "way" alone is too common (nav: "the way to"), so require a weather follower
+        ) to { mr -> "${questionHead(mr.groupValues[1])} the weather" },
+        // "what's the way tomorrow" — "the way" alone is navigation ("the way to"), so require a time follower
         Regex(
-            """\b(what(?:'s|\s+is)?|how(?:'s|\s+is)?)\s+the\s+way\b(?=\s+(?:today|tonight|tomorrow|this|next|outside|forecast|like|looking)\b)""",
+            """\b$WEATHER_QUESTION_HEAD\s+the\s+way\b(?=\s+$WEATHER_TIME_FOLLOWER\b)""",
             RegexOption.IGNORE_CASE,
-        ) to { mr -> "${weatherQuestionHead(mr.groupValues[1])} the weather" },
+        ) to { mr -> "${questionHead(mr.groupValues[1])} the weather" },
         // bare noun before a weather follower: "the whither in Auckland", "the wether tomorrow"
         Regex(
-            """\bthe\s+(?:whither|wither|wether|whether|wayther)\b(?=\s+(?:in|for|at|tomorrow|today|tonight|this\s+week|next)\b)""",
+            """\bthe\s+$WEATHER_MISHEAR\b(?=\s+$WEATHER_FOLLOWER\b)""",
             RegexOption.IGNORE_CASE,
         ) to { _ -> "the weather" },
     )
 
-    private fun weatherQuestionHead(lead: String): String = when (lead.lowercase()) {
-        "what" -> "what's"
-        "how" -> "how's"
-        else -> lead
-    }
+    /** "what" → "what's", "how" → "how's"; keeps the original casing and any existing "'s"/"is". */
+    private fun questionHead(lead: String): String =
+        if (Regex("""\s+is$|['’]s$""", RegexOption.IGNORE_CASE).containsMatchIn(lead)) lead else "${lead}'s"
 
     /** Unit/abbreviation normalisations: #1017. */
     private val STT_UNIT_ALIAS_REPLACEMENTS: List<Pair<Regex, String>> = listOf(
