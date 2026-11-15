@@ -43,7 +43,7 @@ This gate applies when the PR touches:
 | Device | When |
 |--------|------|
 | S23U (SD 8 Gen 2) | Primary — harness should work on both devices; S23U is sufficient |
-| S21 (Exynos) | Extra capacity only — parallel runs or device-specific harness changes; see `.docs/agents/risk-based-evidence-policy.md` |
+| S21 (Exynos) | Second test device: use it freely for parallel runs, overflow when the S23U is busy, and second-SoC (Exynos) comparison; see `.docs/agents/risk-based-evidence-policy.md` |
 
 ## Common Regressions to Check
 
