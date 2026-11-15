@@ -40,12 +40,14 @@ play_code=$(tr -d '[:space:]' < "$CODES")
   || fail "APK versionCode $version_code differs from Play-assigned versionCode $play_code"
 
 # Certificate digests are public; print them so a mismatch can be diagnosed from the CI log.
+# apksigner 36 prints "Signer #1 certificate SHA-256 digest:"; 37 prints "V2 Signer: certificate ..."
+# (or "V3.0 Signer:", "V2 Signer #1:"); the pattern accepts both.
 # The APK must have exactly one signer. The bundle must have exactly one signer, and only that
 # signer's own certificate (keytool's "Certificate #1" under "Signer #1") counts: an upload key
 # imported with a certificate chain makes keytool also list the issuer, which must not match.
 echo "Build tools: $BUILD_TOOLS_DIR"
 apk_certs=$("$BUILD_TOOLS_DIR/apksigner" verify --print-certs "$APK" \
-  | sed -n 's/^Signer.* certificate SHA-256 digest: *//p' | tr -d ':[:blank:]' | tr 'A-F' 'a-f' | sort -u)
+  | sed -nE 's/^(V[0-9.]+ )?Signer[^:]*:?( \([^)]*\))? certificate SHA-256 digest: *//p' | tr -d ':[:blank:]' | tr 'A-F' 'a-f' | sort -u)
 keytool_out=$(keytool -printcert -jarfile "$AAB")
 aab_signers=$(grep -c '^Signer #' <<<"$keytool_out" || true)
 aab_leaf_certs=$(awk '

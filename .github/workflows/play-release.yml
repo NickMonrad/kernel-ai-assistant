@@ -227,7 +227,8 @@ jobs:
             | sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" | head -1)
           [ -n "$VERSION_NAME" ] || { echo "::error::No versionName in $APK"; exit 1; }
           APK_CERT=$("$BT_DIR/apksigner" verify --print-certs "$APK" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f')
+            | sed -nE 's/^(V[0-9.]+ )?Signer[^:]*:?( \([^)]*\))? certificate SHA-256 digest: *//p' | awk 'NR == 1' | tr 'A-F' 'a-f')
+          [ -n "$APK_CERT" ] || { echo "::error::apksigner printed no signer certificate for $APK"; exit 1; }
 
           STAGE="$RUNNER_TEMP/tester-release"
           mkdir -p "$STAGE"
