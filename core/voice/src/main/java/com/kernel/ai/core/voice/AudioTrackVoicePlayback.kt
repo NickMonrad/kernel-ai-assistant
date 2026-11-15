@@ -28,6 +28,9 @@ internal fun playVoicePcmOnAudioTrack(
     )
     require(minBuffer > 0) { "AudioTrack buffer size unavailable" }
     val track = AudioTrack.Builder()
+        // Normal-latency output. A low-latency (fast) track has a tiny callback period; the Honor logged
+        // "mCbf call back interval is abnormal for low latency track" during the crackling stops (#1942).
+        .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANT)
@@ -81,7 +84,7 @@ internal fun playVoicePcmOnAudioTrack(
                 Thread.sleep(10)
             }
         } else {
-            track.pause()
+            fadeOutAndDiscard(track)
         }
     } finally {
         onTrackReleased(track)
@@ -89,6 +92,23 @@ internal fun playVoicePcmOnAudioTrack(
     }
 }
 
+/**
+ * Stops a cut-short track without a click. Pausing and flushing at full volume leaves the waveform
+ * at a non-zero level, which the output hears as a crackle. The mixer ramps volume changes, so the
+ * queued audio fades to silence over [FADE_OUT_MS] before the buffer is paused and discarded.
+ */
+private fun fadeOutAndDiscard(track: AudioTrack) {
+    try {
+        track.setVolume(0.0f)
+        Thread.sleep(FADE_OUT_MS)
+    } catch (_: Exception) {
+        // A track the framework already tore down: nothing left to fade.
+    }
+    track.pause()
+    track.flush()
+}
+
+private const val FADE_OUT_MS = 30L
 private const val AUDIO_CHUNK_FLOATS = 2048
 
 private fun audioTrackLatencyMs(track: AudioTrack): Int = try {

@@ -26,6 +26,7 @@ class CalendarEventStoreTest {
     private val store = CalendarEventStore(context)
 
     private val instanceColumns = listOf(
+        CalendarContract.Instances.EVENT_ID,
         CalendarContract.Instances.TITLE,
         CalendarContract.Instances.BEGIN,
         CalendarContract.Instances.END,
@@ -89,6 +90,7 @@ class CalendarEventStoreTest {
         selfStatus: Int = 1,
         status: Int = 1,
     ) = mapOf(
+        CalendarContract.Instances.EVENT_ID to 1L,
         CalendarContract.Instances.TITLE to title,
         CalendarContract.Instances.BEGIN to 1_000L,
         CalendarContract.Instances.END to 2_000L,

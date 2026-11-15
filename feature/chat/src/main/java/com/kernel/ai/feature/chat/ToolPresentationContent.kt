@@ -48,6 +48,7 @@ fun ToolPresentationContent(
         is ToolPresentation.Weather -> WeatherPresentationCard(presentation, modifier, compact, onSpeak, isSpeaking)
         is ToolPresentation.Status -> StatusPresentationCard(presentation, modifier)
         is ToolPresentation.ListPreview -> ListPreviewPresentationCard(presentation, modifier, compact)
+        is ToolPresentation.CalendarAgenda -> CalendarAgendaPresentationCard(presentation, modifier, compact)
         is ToolPresentation.ComputedResult -> ComputedResultPresentationCard(presentation, modifier)
     }
 }
@@ -367,6 +368,99 @@ private fun ListPreviewPresentationCard(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Calendar readout as rows: fixed-width time column, title, optional detail; day headers for multi-day windows (#1942). */
+@Composable
+private fun CalendarAgendaPresentationCard(
+    presentation: ToolPresentation.CalendarAgenda,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
+    var expanded by rememberSaveable(presentation.title, presentation.totalCount, compact) { mutableStateOf(false) }
+    val collapsedCount = if (compact) 3 else 5
+    val hiddenCount = presentation.totalCount - collapsedCount
+    val hasHiddenRows = hiddenCount > 0
+    val rowBudget = if (hasHiddenRows && !expanded) collapsedCount else Int.MAX_VALUE
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(modifier = Modifier.padding(if (compact) 12.dp else 16.dp)) {
+            Text(
+                text = presentation.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Spacer(Modifier.height(6.dp))
+            if (presentation.totalCount == 0) {
+                Text(
+                    text = presentation.emptyMessage ?: "Nothing on your calendar.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            } else {
+                var remaining = rowBudget
+                presentation.days.forEach { day ->
+                    val rows = day.rows.take(remaining)
+                    remaining -= rows.size
+                    if (rows.isNotEmpty()) {
+                        day.label?.let { label ->
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                        }
+                        rows.forEach { row -> CalendarAgendaRowText(row) }
+                        Spacer(Modifier.height(6.dp))
+                    }
+                }
+                if (hasHiddenRows) {
+                    TextButton(
+                        onClick = { expanded = !expanded },
+                        modifier = Modifier.padding(start = 4.dp),
+                    ) {
+                        Text(
+                            text = if (expanded) "Show less" else "Show more ($hiddenCount)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarAgendaRowText(row: ToolPresentation.CalendarAgendaRow) {
+    Row(verticalAlignment = Alignment.Top) {
+        Text(
+            text = row.timeText,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            maxLines = 1,
+            modifier = Modifier.width(112.dp),
+        )
+        Column {
+            Text(
+                text = row.title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            row.detail?.let { detail ->
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
             }
         }
     }

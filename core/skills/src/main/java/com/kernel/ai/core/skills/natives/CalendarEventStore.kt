@@ -14,6 +14,8 @@ import javax.inject.Singleton
 
 /** One calendar instance (recurring events are expanded) as returned by CalendarContract.Instances. */
 data class CalendarEventRecord(
+    /** CalendarContract event id; with [beginMillis] it identifies one instance for de-duplication. */
+    val eventId: Long,
     val title: String,
     val beginMillis: Long,
     val endMillis: Long,
@@ -62,6 +64,7 @@ class CalendarEventStore @Inject constructor(
             "${julianDay(fromDate)}/${julianDay(toDateExclusive.minusDays(1))}",
         )
         val projection = arrayOf(
+            CalendarContract.Instances.EVENT_ID,
             CalendarContract.Instances.TITLE,
             CalendarContract.Instances.BEGIN,
             CalendarContract.Instances.END,
@@ -80,6 +83,7 @@ class CalendarEventStore @Inject constructor(
             null,
             "${CalendarContract.Instances.BEGIN} ASC",
         )?.use { cursor ->
+            val eventIdIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
             val titleIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.TITLE)
             val beginIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
             val endIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.END)
@@ -94,6 +98,7 @@ class CalendarEventStore @Inject constructor(
                 if (cursor.getInt(statusIndex) == CalendarContract.Events.STATUS_CANCELED) continue
                 if (cursor.getInt(selfStatusIndex) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED) continue
                 results += CalendarEventRecord(
+                    eventId = cursor.getLong(eventIdIndex),
                     title = cursor.getString(titleIndex)?.trim().orEmpty(),
                     beginMillis = cursor.getLong(beginIndex),
                     endMillis = cursor.getLong(endIndex),
