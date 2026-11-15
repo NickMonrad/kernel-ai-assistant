@@ -7,10 +7,12 @@ import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.ModelPreferences
+import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -33,6 +35,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -46,6 +49,7 @@ class ModelManagementUpdateTest {
     private val gatedStatusRepository = mockk<GatedModelStatusRepository>(relaxed = true)
     private val voicePacks = mockk<SherpaVoicePackDownloadManager>(relaxed = true)
     private val voiceOutputPreferences = mockk<VoiceOutputPreferences>(relaxed = true)
+    private val downloadNetworkPreferences = mockk<DownloadNetworkPreferences>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val viewModelStore = ViewModelStore()
     @TempDir
@@ -66,6 +70,8 @@ class ModelManagementUpdateTest {
         every { gatedStatusRepository.get(any()) } returns flowOf(GatedModelStatus.NONE)
         every { voicePacks.downloadStates } returns MutableStateFlow(emptyMap())
         every { voiceOutputPreferences.selectedEngine } returns flowOf(VoiceOutputEngine.AndroidTts)
+        every { downloadManager.waitingForWifi } returns MutableStateFlow(emptySet())
+        every { downloadNetworkPreferences.choice } returns flowOf(null)
     }
 
     @AfterEach
@@ -89,6 +95,7 @@ class ModelManagementUpdateTest {
             context = context,
             sherpaVoicePackDownloadManager = voicePacks,
             voiceOutputPreferences = voiceOutputPreferences,
+            downloadNetworkPreferences = downloadNetworkPreferences,
         )
         viewModelStore.put("model-management", viewModel)
 
@@ -109,6 +116,7 @@ class ModelManagementUpdateTest {
         context = context,
         sherpaVoicePackDownloadManager = voicePacks,
         voiceOutputPreferences = voiceOutputPreferences,
+        downloadNetworkPreferences = downloadNetworkPreferences,
     ).also {
         it.ioDispatcher = Dispatchers.Main
         viewModelStore.put("model-management", it)
@@ -148,6 +156,52 @@ class ModelManagementUpdateTest {
         try {
             viewModel.deleteModel(e4b)
             coVerify(exactly = 0) { modelPreferences.setPreferredModel(any()) }
+        } finally {
+            collector.cancel()
+        }
+    }
+
+    @Test
+    fun `Downloads switch shows mobile data allowed when the saved choice is mobile data`() {
+        every { downloadNetworkPreferences.choice } returns flowOf(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
+        val viewModel = newViewModel()
+        val collector = viewModel.uiState.launchIn(CoroutineScope(Dispatchers.Unconfined))
+        try {
+            assertTrue(viewModel.uiState.value.mobileDataAllowed)
+        } finally {
+            collector.cancel()
+        }
+    }
+
+    @Test
+    fun `Downloads switch writes the same Wi-Fi only choice the setup guide writes`() {
+        val viewModel = newViewModel()
+
+        viewModel.setMobileDataAllowed(false)
+
+        verify(exactly = 1) {
+            downloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.WIFI_ONLY)
+        }
+    }
+
+    @Test
+    fun `Downloads switch writes mobile data when turned on`() {
+        val viewModel = newViewModel()
+
+        viewModel.setMobileDataAllowed(true)
+
+        verify(exactly = 1) {
+            downloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
+        }
+    }
+
+    @Test
+    fun `models queued on Wi-Fi only are reported as waiting for Wi-Fi`() {
+        every { downloadManager.waitingForWifi } returns MutableStateFlow(setOf(KernelModel.GEMMA_4_E4B))
+        val viewModel = newViewModel()
+        val collector = viewModel.uiState.launchIn(CoroutineScope(Dispatchers.Unconfined))
+        try {
+            assertEquals(setOf(KernelModel.GEMMA_4_E4B), viewModel.uiState.value.waitingForWifi)
         } finally {
             collector.cancel()
         }
