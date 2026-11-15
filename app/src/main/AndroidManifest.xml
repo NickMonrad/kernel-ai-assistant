@@ -203,6 +203,7 @@
 
         <!-- Homescreen widget -->
         <receiver
+            android:label="@string/kernel_widget_label"
             android:name="com.kernel.ai.feature.widget.KernelWidgetReceiver"
             android:exported="true">
             <intent-filter>

@@ -8,4 +8,5 @@
     android:initialLayout="@layout/glance_default_loading_layout"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
+    android:label="@string/kernel_widget_label"
     android:description="@string/widget_description" />
