@@ -1,11 +1,13 @@
 package com.kernel.ai.core.voice
 
 import android.content.Context
+import android.content.Intent
+import android.speech.tts.TextToSpeech
 import android.speech.SpeechRecognizer
 
 /**
  * What the device offers for speech recognition, read from the platform. Pure data, so callers
- * and tests can build fixtures directly. Read with [readVoiceCapabilities].
+ * and tests can build fixtures directly.
  *
  * @property platformRecognizerPresent a speech recognition service is registered. The app
  *   exports its own `JandalRecognitionService`, so this is normally true even on ROMs without
@@ -59,3 +61,13 @@ fun readVoiceCapabilities(context: Context): VoiceCapabilities = VoiceCapabiliti
     platformRecognizerPresent = SpeechRecognizer.isRecognitionAvailable(context),
     onDeviceRecognitionAvailable = SpeechRecognizer.isOnDeviceRecognitionAvailable(context),
 )
+
+/**
+ * True when at least one text-to-speech engine service is installed (#1855 part 2). Queries the
+ * package manager for the TTS service intent, so no [TextToSpeech] instance is created. The
+ * manifest declares this intent in `<queries>`, which makes it visible on Android 11+.
+ */
+fun systemTtsEngineInstalled(context: Context): Boolean =
+    context.packageManager
+        .queryIntentServices(Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE), 0)
+        .isNotEmpty()

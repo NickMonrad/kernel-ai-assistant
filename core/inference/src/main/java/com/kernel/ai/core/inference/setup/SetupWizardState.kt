@@ -1,11 +1,13 @@
 package com.kernel.ai.core.inference.setup
 
 /**
- * Ordered steps of the first-run setup wizard (#1855). Part 2 appends speech input and output, and
- * part 3 appends Hey Jandal and permissions. Each step is persisted by [name], so keep names stable.
+ * Ordered steps of the first-run setup wizard (#1855). Part 2 adds speech input and output (VOICE) before
+ * the download step, so the download size reflects the chosen voice. Part 3 appends Hey Jandal and permissions.
+ * Each step is persisted by [name], so keep names stable.
  */
 enum class SetupStep {
     HOW_IT_WORKS,
+    VOICE,
     DOWNLOAD,
     ;
 
