@@ -8,7 +8,7 @@ Conditions: media volume 0 during test (restored to 8). Recognizer route: Androi
 - NOT run on S21: hint on 6th use; cold-load stop path (needs Sherpa); Starting frame; chat Listening at font 1.15/2.0.
 
 ## S23U Actions voice (SM_S918B, serial RFCW11265XH)
-Build: debug APK from `feature/mic-ready-preroll-1850` (commit with Actions mic states), `ai.jandal.assistant.debug`, versionName 0.1.0, installed with `adb install -r`, lastUpdateTime verified.
+Build: the S23U Actions screenshots and timings below were captured on the debug build installed at 13:59 (screenshot status-bar times 14:02/14:06 match that install). Its exact SHA was not recorded; attribute to that install, not to later heads. Package `ai.jandal.assistant.debug`, versionName 0.1.0, `adb install -r`, lastUpdateTime verified at install time.
 Conditions: media volume 0 during capture (restored to 11), font_scale 1.15 and 2.0 (restored to 1.15). Recognizer route: Zipformer (Sherpa). Only Actions-screen voice capture was exercised. No speech was spoken; no transcripts were captured.
 
 ### Screenshots
@@ -29,6 +29,6 @@ Conditions: media volume 0 during capture (restored to 11), font_scale 1.15 and 
 
 ## Not done / owner checks
 - Three "speak immediately" Brisbane transcript tries: owner to run by hand; not performed by the agent.
-- Stop-during-model-load path: not exercised on device.
+- Stop-during-model-load path: unit tests added at `4ea9a473` (mid-load stop releases the mic and abandons focus with no second ListeningStarted; second start releases the previous capture). Device capture of the stop-during-load logcat is pending: the S23U is held by #1892's timing run. See `s23u-r4/README.md`.
 - Native (non-Sherpa) route has no pre-roll; not run on device.
 - S21 items above.
