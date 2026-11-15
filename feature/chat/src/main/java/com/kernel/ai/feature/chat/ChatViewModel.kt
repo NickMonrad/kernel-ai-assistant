@@ -78,6 +78,7 @@ import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.SpeechStopCoordinator
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
@@ -218,6 +219,7 @@ class ChatViewModel @Inject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val voiceInputController: VoiceInputController,
     private val voiceOutputController: VoiceOutputController,
+    private val speechStopCoordinator: SpeechStopCoordinator,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
@@ -451,6 +453,8 @@ class ChatViewModel @Inject constructor(
     */
     private var chatCommandVoiceRetryCount = 0
     private var awaitingVoicePlaybackCompletion = false
+    /** Set by a stop while generating; the re-arm waits for generation to complete (SF2). */
+    private var rearmBackAndForthAfterGeneration = false
 
     /** Capture session of the current chat voice input; its notes are shown (#1853, #1866). */
     private var chatVoiceSessionId: Long? = null
@@ -870,6 +874,32 @@ class ChatViewModel @Inject constructor(
                             _voiceMode.value = null
                         }
                     }
+                }
+            }
+        }
+        viewModelScope.launch {
+            // Volume key or media Stop (#1873). Only the screen whose reply is playing owns this stop
+            // (SF2): a background chat or an Actions stop must not re-arm listening here.
+            speechStopCoordinator.stopRequests.collect {
+                val ownsPlayback = awaitingVoicePlaybackCompletion
+                stopVoicePlayback() // clears awaitingVoicePlaybackCompletion
+                if (!ownsPlayback || _voiceMode.value != VoiceMode.BackAndForth) return@collect
+                if (inferenceEngine.isGenerating.value) {
+                    rearmBackAndForthAfterGeneration = true
+                    return@collect
+                }
+                _voiceCaptureState.value = VoiceCaptureState.Idle
+                rearmVoiceInput()
+            }
+        }
+        viewModelScope.launch {
+            // A deferred re-arm (stop requested while generating) fires once generation completes.
+            inferenceEngine.isGenerating.collect { generating ->
+                if (generating || !rearmBackAndForthAfterGeneration) return@collect
+                rearmBackAndForthAfterGeneration = false
+                if (_voiceMode.value == VoiceMode.BackAndForth && !_isSpeakingResponse.value) {
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    rearmVoiceInput()
                 }
             }
         }

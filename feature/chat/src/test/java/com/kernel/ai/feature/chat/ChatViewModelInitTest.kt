@@ -272,6 +272,7 @@ class ChatViewModelInitTest {
     fun `fresh chat initialization resets inherited inference session`() = runTest(dispatcher) {
         ChatViewModel(
           savedStateHandle = SavedStateHandle(),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -314,6 +315,7 @@ class ChatViewModelInitTest {
     fun `restored chat initialization does not reset current inference session`() = runTest(dispatcher) {
         ChatViewModel(
           savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -356,6 +358,7 @@ class ChatViewModelInitTest {
     fun `closing chat never shuts down process scoped inference engine`() = runTest(dispatcher) {
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -405,6 +408,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -463,6 +467,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -548,6 +553,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -611,6 +617,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -691,6 +698,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -759,6 +767,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = savedStateHandle,
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -825,6 +834,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(mapOf("minimalContext" to true)),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -881,6 +891,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -953,6 +964,7 @@ class ChatViewModelInitTest {
         }
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -1039,6 +1051,7 @@ class ChatViewModelInitTest {
         )
         val viewModel = ChatViewModel(
           savedStateHandle = savedStateHandle,
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -1152,6 +1165,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -1211,6 +1225,7 @@ class ChatViewModelInitTest {
 
         val viewModel = ChatViewModel(
           savedStateHandle = SavedStateHandle(),
+          speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
           chatPreferences = chatPreferences,
           authRepository = authRepository,
           inferenceEngine = inferenceEngine,
@@ -1845,6 +1860,7 @@ class ChatViewModelInitTest {
         savedStateHandle: SavedStateHandle = SavedStateHandle(),
     ): ChatViewModel = ChatViewModel(
       savedStateHandle = savedStateHandle,
+      speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
       chatPreferences = chatPreferences,
       authRepository = authRepository,
       inferenceEngine = inferenceEngine,

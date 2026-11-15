@@ -36,6 +36,7 @@ import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
+import com.kernel.ai.core.voice.SpeechStopCoordinator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -82,6 +83,7 @@ class ActionsViewModel @Inject constructor(
     private val quickActionDao: QuickActionDao,
     private val voiceInputController: VoiceInputController,
     private val voiceOutputController: VoiceOutputController,
+    private val speechStopCoordinator: SpeechStopCoordinator,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val startListeningCuePlayer: StartListeningCuePlayer,
 ) : ViewModel() {
@@ -538,6 +540,13 @@ class ActionsViewModel @Inject constructor(
                         }
                     }
                 }
+            }
+        }
+        viewModelScope.launch {
+            // Volume key or media Stop (#1873) while a quick-action card is speaking (#1026).
+            speechStopCoordinator.stopRequests.collect {
+                stopAllVoiceOutput()
+                _voicePlaybackState.value = VoicePlaybackState.Idle
             }
         }
         viewModelScope.launch {
