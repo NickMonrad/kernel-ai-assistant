@@ -4243,15 +4243,20 @@ class ChatViewModel @Inject constructor(
      */
     fun onScreenStopped(screenOff: Boolean) {
         backgroundPaused = true
-        awaitingVoicePlaybackCompletion = false
-        pendingVoiceReply = false
-        _voiceMode.value = null
-        voiceInputController.stopListening()
-        _voiceCaptureState.value = VoiceCaptureState.Idle
-        if (screenOff) return
+        if (screenOff) {
+            // Screen off: a reply still generating is spoken when it completes, and speech keeps playing.
+            // Only the mic closes; pendingVoiceReply and awaitingVoicePlaybackCompletion stay set (#1927).
+            _voiceMode.value = null
+            voiceInputController.stopListening()
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+            return
+        }
+        // Home: full voice-input cleanup (mic, loop, pending reply, hand-off notice) plus playback stop.
+        // stopVoicePlayback() makes the single voiceOutputController.stop() call (via stopChatSpeech).
+        stopVoiceInput()
+        speakMessageJob?.cancel()
+        speakMessageJob = null
         stopVoicePlayback()
-        stopSpeaking()
-        _speakingMessageId.value = null
     }
 
     /** Chat screen ON_RESUME (#1927): automatic mic paths may run again. */

@@ -81,10 +81,7 @@ internal fun playVoicePcmOnAudioTrack(
                 Thread.sleep(10)
             }
         } else {
-            // Cancelled mid-utterance (Home, stop, media Stop): halt output, then flush so the queued
-            // PCM is discarded rather than left in the track to play out or leak into the next utterance.
             track.pause()
-            track.flush()
         }
     } finally {
         onTrackReleased(track)

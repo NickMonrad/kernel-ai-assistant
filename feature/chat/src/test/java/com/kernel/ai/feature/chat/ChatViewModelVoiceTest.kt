@@ -65,7 +65,6 @@ import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.feature.chat.model.ChatUiState
-import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.clearMocks
 import io.mockk.coVerify
@@ -85,6 +84,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -469,6 +469,69 @@ class ChatViewModelVoiceTest {
 
         assertEquals(1, streamedChunks.size, "no chunk after the stop may be queued")
         coVerify(atLeast = 1) { voiceStreamingSession.cancel() }
+    }
+
+    @Test
+    fun `home stop during a voice-submitted reply cancels speech and queues no later chunk`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("The first sentence here is long enough to stand alone. "),
+            GenerationResult.Token("The second sentence follows after it and is spoken last."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+        val gate = CompletableDeferred<Unit>()
+        coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
+            streamedChunks += firstArg<String>() to secondArg<Boolean>()
+            gate.await()
+            VoiceOutputResult.Spoken
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story"))
+        runCurrent()
+
+        viewModel.onScreenStopped(screenOff = false)
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        assertEquals(1, streamedChunks.size, "no chunk after Home may be queued")
+        assertNull(viewModel.speakingMessageId.value)
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `screen-off during generation still speaks the reply when generation completes`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Say hi later") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Say hi later")
+        val generationGate = CompletableDeferred<Unit>()
+        every { inferenceEngine.generate(any()) } returns flow {
+            generationGate.await()
+            emit(GenerationResult.Token("Hi there, all good. "))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        advanceUntilIdle()
+        clearMocks(voiceInputController, answers = false)
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Say hi later"))
+        advanceUntilIdle()
+
+        viewModel.onScreenStopped(screenOff = true)
+        advanceUntilIdle()
+        assertEquals(emptyList<Pair<String, Boolean>>(), streamedChunks, "nothing spoken while generating")
+
+        generationGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Hi there, all good." to true), streamedChunks)
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.Command) }
     }
 
     @Test

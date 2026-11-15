@@ -520,37 +520,35 @@ fun ChatScreen(
                 }
             }
             
-            // ON_RESUME: re-check mic permission if we were awaiting repair settings return.
+            // Lifecycle: ON_RESUME re-checks mic/location repair grants and clears the Home/screen-off
+            // pause (#1927). ON_STOP with a real stop (not rotation) applies the #1927 rule: Home stops
+            // chat speech, screen off keeps it speaking. Same rule as ActionsScreen (#1918).
             val lifecycleOwner = LocalLifecycleOwner.current
             DisposableEffect(lifecycleOwner) {
                 val observer = LifecycleEventObserver { _, event ->
-                    if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                        val micGranted = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO,
-                        ) == PackageManager.PERMISSION_GRANTED
-                        viewModel.onChatMicRepairResumeCheck(micGranted)
-                        val locationGranted = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                        ) == PackageManager.PERMISSION_GRANTED
-                        viewModel.onChatWeatherLocationRepairResumeCheck(locationGranted)
-                    }
-                }
-                lifecycleOwner.lifecycle.addObserver(observer)
-                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-            }
-
-            // Home/app switch stops chat speech; screen off keeps it speaking (#1927). Same rule as
-            // ActionsScreen (#1918). Read the screen state on ON_STOP: Home with the screen on is not screen-off.
-            DisposableEffect(lifecycleOwner) {
-                val observer = LifecycleEventObserver { _, event ->
                     when (event) {
-                        androidx.lifecycle.Lifecycle.Event.ON_RESUME -> viewModel.onScreenResumed()
+                        androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                            viewModel.onScreenResumed()
+                            val micGranted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            viewModel.onChatMicRepairResumeCheck(micGranted)
+                            val locationGranted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.ACCESS_COARSE_LOCATION,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            viewModel.onChatWeatherLocationRepairResumeCheck(locationGranted)
+                        }
                         androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
-                            val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
-                                ?.isInteractive == false
-                            viewModel.onScreenStopped(screenOff = screenOff)
+                            // Rotation stops the activity with the screen on; it is not Home (MainActivity
+                            // handles no configChanges), so speech must not stop.
+                            val rotating = (context as? android.app.Activity)?.isChangingConfigurations == true
+                            if (!rotating) {
+                                val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
+                                    ?.isInteractive == false
+                                viewModel.onScreenStopped(screenOff = screenOff)
+                            }
                         }
                         else -> Unit
                     }
