@@ -456,6 +456,8 @@ fun ActionsScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                // Back in the foreground: automatic mic paths may run again (#1918).
+                viewModel.onScreenResumed()
                 val hasDndAccess = (context.getSystemService(Context.NOTIFICATION_SERVICE)
                     as? NotificationManager)?.isNotificationPolicyAccessGranted == true
                 viewModel.onDndResumeCheck(hasDndAccess)
@@ -500,10 +502,11 @@ fun ActionsScreen(
                         "showBottomSheet=$showBottomSheet voiceCaptureState=$voiceCaptureState " +
                         "voicePlaybackState=$voicePlaybackState",
                 )
-                // Screen off keeps speech running (#1918); Home/navigation still stops it.
+                // Screen off keeps speech running (#1918); Home/navigation still stops it. Both set the
+                // background pause that keeps every automatic mic path closed until ON_RESUME.
                 val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
                     ?.isInteractive == false
-                viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop", keepSpeech = screenOff)
+                viewModel.onScreenStopped(screenOff = screenOff)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -810,15 +813,8 @@ fun ActionsScreen(
             onDismiss = { viewModel.cancelSlotFill() },
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
             onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
-            // The sheet's safety net reads a composed (lifecycle-collected) armed flag that goes stale
-            // once the screen stops, so it re-checks the live ViewModel state before opening the mic.
-            onAutoVoiceReply = {
-                if (viewModel.slotReplyAutoRearmArmed.value) {
-                    requestVoiceCapture(VoiceCaptureMode.SlotReply)
-                } else {
-                    Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: slot voice fallback skipped, auto re-arm disarmed")
-                }
-            },
+            // Automatic start: the ViewModel re-checks the live re-arm and the background pause (#1918).
+            onAutoVoiceReply = viewModel::startAutoVoiceSlotReply,
             onStopVoiceReply = viewModel::stopVoiceCapture,
             externalDraft = slotReplyDraft,
             onExternalDraftConsumed = { slotReplyDraft = null },
