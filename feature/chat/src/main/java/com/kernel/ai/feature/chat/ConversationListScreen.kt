@@ -112,18 +112,20 @@ fun ConversationListScreen(
     val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
     val waitingForWifi by viewModel.waitingForWifi.collectAsStateWithLifecycle()
     val setupWizardPending by viewModel.setupWizardPending.collectAsStateWithLifecycle()
+    // Set once the wizard has been opened this session (#1855). Pending while it is set means it was left unfinished.
+    var setupWizardOpened by rememberSaveable { mutableStateOf(false) }
     val welcomeState = chatsEmptyState(
         chatsWelcomeDismissed,
         assistantReadiness,
         downloadStates,
         waitingForWifi,
         setupWizardPending,
+        setupWizardExited = setupWizardOpened,
     )
     val startAssistantDownload = rememberDownloadNotificationGate { id ->
         id?.let { viewModel.downloadAssistantModel(KernelModel.valueOf(it)) }
     }
     // Show the setup wizard once per app session on first run (#1855). Skipping or finishing it clears pending.
-    var setupWizardOpened by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(setupWizardPending) {
         if (setupWizardPending == true && !setupWizardOpened) {
             setupWizardOpened = true
@@ -386,6 +388,8 @@ fun ConversationListScreen(
                             onHideWelcome = viewModel::hideWelcome,
                             modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
                         )
+                    } else if (welcomeState == ChatsEmptyState.SetupWizardResume) {
+                        SetupWizardResumeCard(onFinishSetup = onOpenSetupWizard)
                     } else if (welcomeState == ChatsEmptyState.Plain) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("🧵", style = MaterialTheme.typography.displayMedium)
@@ -587,7 +591,7 @@ fun ConversationListScreen(
                         }
                     }
 
-                    item { Spacer(modifier = Modifier.height(88.dp)) }
+                    item { Spacer(modifier = Modifier.height(FabStackClearance)) }
                 }
             }
         } // end Column

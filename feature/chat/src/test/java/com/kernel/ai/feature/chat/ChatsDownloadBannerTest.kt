@@ -76,16 +76,37 @@ class ChatsDownloadBannerTest {
 
     @Test
     fun `download queued for Wi-Fi says so instead of showing progress`() {
-        val queued = ConversationModelReadiness.ActionRequired(recommendedModel = KernelModel.GEMMA_4_E4B)
+        val queued = ConversationModelReadiness.Preparing(KernelModel.GEMMA_4_E4B, progress = null)
         val b = chatsDownloadBanner(
-            queued,
-            ChatsEmptyState.Plain,
-            isInSelectionMode = false,
-            showArchived = false,
+            queued, ChatsEmptyState.Plain, isInSelectionMode = false, showArchived = false,
             waitingForWifi = setOf(KernelModel.GEMMA_4_E4B),
         )
-        assertEquals("Waiting for Wi-Fi", b?.text)
+        assertEquals("Waiting for Wi-Fi to download ${KernelModel.GEMMA_4_E4B.displayName}", b?.text)
         assertTrue(b?.waitingForWifi == true)
+    }
+
+    @Test
+    fun `queued fallback upgrade says so and drops its progress bar`() {
+        val queued = ConversationModelReadiness.FallbackPreparing(
+            recommendedModel = KernelModel.GEMMA_4_E4B,
+            fallbackModel = KernelModel.GEMMA_4_E2B,
+            downloadingModel = KernelModel.GEMMA_4_E4B,
+            progress = 0.5f,
+        )
+        val b = chatsDownloadBanner(
+            queued, ChatsEmptyState.Plain, isInSelectionMode = false, showArchived = false,
+            waitingForWifi = setOf(KernelModel.GEMMA_4_E4B),
+        )
+        assertEquals("Waiting for Wi-Fi to download ${KernelModel.GEMMA_4_E4B.displayName}", b?.text)
+        assertNull(b?.progress)
+    }
+
+    @Test
+    fun `a download not queued for Wi-Fi still shows progress`() {
+        val running = ConversationModelReadiness.Preparing(KernelModel.GEMMA_4_E4B, progress = 0.5f)
+        val b = banner(running)
+        assertFalse(b?.waitingForWifi == true)
+        assertEquals("Getting Jandal ready: 50%", b?.text)
     }
 
     @Test

@@ -20,6 +20,7 @@ import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
+import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -40,6 +41,9 @@ fun GettingStartedScreen(
     viewModel: GettingStartedViewModel = hiltViewModel(),
 ) {
     val download by viewModel.download.collectAsStateWithLifecycle()
+    val startAssistantDownload = rememberDownloadNotificationGate { id ->
+        id?.let { viewModel.downloadAssistantModel(KernelModel.valueOf(it)) }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -56,7 +60,7 @@ fun GettingStartedScreen(
             download = download,
             onStartChatting = onStartChatting,
             onExamplePrompt = onExamplePrompt,
-            onDownloadModel = viewModel::downloadAssistantModel,
+            onDownloadModel = { model -> startAssistantDownload(model.name) },
             onUseMobileData = viewModel::useMobileData,
             modifier = Modifier.padding(innerPadding),
         )

@@ -611,6 +611,16 @@ label (e.g. "Generating meal plan", "Generating recipe 2 of 5"). Two tones: `WOR
 - `isArchived = true` → show "Archived · Read-only" banner; hide input bar entirely.
 - Do not initialise the inference engine for archived conversations.
 
+### Chats first-run welcome, download banner, and Getting started
+
+- The first-run welcome waits for the setup wizard. Before the first-run decision is recorded, Chats shows only its loading state, so the welcome never flashes under the wizard (#1855).
+- A wizard left unfinished (Back on its first step) shows a "Setup isn't finished" card with **Finish setting up**, not a blank list. The FAB column is hidden on that card and on the welcome.
+- A download queued for Wi-Fi is reported as downloading, so it shows **Waiting for Wi-Fi** with a **Use mobile data** action on the welcome card. The Chats banner reads "Waiting for Wi-Fi to download <model>" and shows no progress bar.
+- The Chats banner covers only the conversation model. Tapping it opens Getting started, not Models.
+- Getting started is reachable from the Chats menu, the download banner, and Settings → About. Its **Start chatting** clears the Getting started entry from the back stack.
+- Scrollable Chats and Actions content clears the three-FAB stack with the shared `FabStackClearance`, so the two lists do not drift apart.
+
+
 ---
 
 ## 6. Touch Targets and Spacing

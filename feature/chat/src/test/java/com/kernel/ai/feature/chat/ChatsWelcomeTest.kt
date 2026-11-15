@@ -119,6 +119,33 @@ class ChatsWelcomeTest {
     }
 
     @Test
+    fun `a wizard left unfinished shows the resume card, not a blank list`() {
+        assertEquals(
+            ChatsEmptyState.SetupWizardResume,
+            chatsEmptyState(
+                welcomeDismissed = false,
+                readiness = notStarted,
+                setupWizardPending = true,
+                setupWizardExited = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `a download queued for Wi-Fi shows Waiting for Wi-Fi with a mobile data action`() {
+        val preparing = ConversationModelReadiness.Preparing(KernelModel.GEMMA_4_E4B, progress = null)
+        assertEquals(
+            ChatsEmptyState.Welcome(WelcomeDownload.InProgress(KernelModel.GEMMA_4_E4B, null, waitingForWifi = true)),
+            chatsEmptyState(
+                welcomeDismissed = false,
+                readiness = preparing,
+                waitingForWifi = setOf(KernelModel.GEMMA_4_E4B),
+                setupWizardPending = false,
+            ),
+        )
+    }
+
+    @Test
     fun `all example prompts are offered once the assistant is ready`() {
         assertEquals(welcomeExamplePrompts, welcomeExamplePromptsFor(WelcomeDownload.Ready))
     }

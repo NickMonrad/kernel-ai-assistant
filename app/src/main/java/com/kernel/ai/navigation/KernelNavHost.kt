@@ -959,7 +959,10 @@ fun KernelNavHost(
                     GettingStartedScreen(
                         onBack = { navController.popBackOrNavigateHome() },
                         onStartChatting = {
-                            navController.navigate(ROUTE_CHAT) { launchSingleTop = true }
+                            navController.navigate(ROUTE_CHAT) {
+                                popUpTo(ROUTE_GETTING_STARTED) { inclusive = true }
+                                launchSingleTop = true
+                            }
                         },
                         onExamplePrompt = { prompt ->
                             navController.navigate(buildActionsDraftRoute(prompt)) { launchSingleTop = true }

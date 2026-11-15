@@ -55,7 +55,7 @@ class ConversationListViewModel @Inject constructor(
 
     /** True while the first-run setup wizard is not finished or skipped. Null until loaded (#1855). */
     val setupWizardPending: StateFlow<Boolean?> = setupWizardPreferences.progress
-        .map<SetupWizardProgress, Boolean?> { it.decided && !it.completed }
+        .map<SetupWizardProgress, Boolean?> { setupWizardPendingOf(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val waitingForWifi: StateFlow<Set<KernelModel>> = downloadManager.waitingForWifi
@@ -268,3 +268,10 @@ class ConversationListViewModel @Inject constructor(
         }
     }
 }
+
+/**
+ * Pending state of the first-run setup wizard. Null until the first-run decision is recorded, so a fresh install
+ * shows neither the welcome nor the wizard resume card before the wizard state is known (#1855).
+ */
+internal fun setupWizardPendingOf(progress: SetupWizardProgress): Boolean? =
+    if (progress.decided) !progress.completed else null

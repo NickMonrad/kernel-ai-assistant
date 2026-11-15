@@ -119,8 +119,6 @@ private const val ACTIONS_SCREEN_TAG = "KernelAI"
 /** #1604: shown next to text supplied by another app until the user sends or discards it. */
 internal const val EXTERNAL_DRAFT_HINT = "Text from another app — review or edit it. Nothing runs until you send it."
 
-/** Bottom clearance for the Actions list: the three-FAB stack (40+12+40+12+56dp), its 16dp margin, and a 16dp gap. */
-private val ActionsFabStackClearance = 40.dp + 12.dp + 40.dp + 12.dp + 56.dp + 16.dp + 16.dp
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -734,7 +732,7 @@ fun ActionsScreen(
                             start = 16.dp,
                             top = 8.dp,
                             end = 16.dp,
-                            bottom = 8.dp + ActionsFabStackClearance,
+                            bottom = 8.dp + FabStackClearance + 16.dp,
                         ),
                     ) {
                         items(actions, key = { it.id }) { action ->

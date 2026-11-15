@@ -22,4 +22,11 @@ class ChatsFabVisibilityTest {
         assertFalse(showChatsFab(ChatsEmptyState.Plain, isInSelectionMode = true, showArchived = false))
         assertFalse(showChatsFab(ChatsEmptyState.Plain, isInSelectionMode = false, showArchived = true))
     }
+
+    @Test
+    fun `FAB column is hidden while the setup wizard resume card shows`() {
+        assertFalse(
+            showChatsFab(ChatsEmptyState.SetupWizardResume, isInSelectionMode = false, showArchived = false),
+        )
+    }
 }

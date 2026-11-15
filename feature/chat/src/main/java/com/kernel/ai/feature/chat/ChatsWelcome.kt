@@ -49,6 +49,9 @@ internal sealed interface ChatsEmptyState {
 
     /** First run: the welcome, with the assistant-files status it should explain. */
     data class Welcome(val download: WelcomeDownload) : ChatsEmptyState
+
+    /** First run, but the wizard was left unfinished (Back on its first step): a card reopens it. */
+    data object SetupWizardResume : ChatsEmptyState
 }
 
 /** Assistant-files status as shown on the welcome. */
@@ -60,10 +63,20 @@ internal sealed interface WelcomeDownload {
      * Assistant can chat now (the fallback model is installed), and the preferred model is downloading to replace it.
      * [progress] is 0.0–1.0, or null when unknown.
      */
-    data class Upgrading(val model: KernelModel, val progress: Float?) : WelcomeDownload
+    data class Upgrading(
+        val model: KernelModel,
+        val progress: Float?,
+        /** True when the better model is queued for Wi-Fi: the card says so and offers mobile data. */
+        val waitingForWifi: Boolean = false,
+    ) : WelcomeDownload
 
     /** Assistant files are downloading and the assistant cannot chat yet. [progress] is 0.0–1.0, or null when unknown. */
-    data class InProgress(val model: KernelModel, val progress: Float?) : WelcomeDownload
+    data class InProgress(
+        val model: KernelModel,
+        val progress: Float?,
+        /** True when the download is queued for Wi-Fi: the card says so and offers mobile data. */
+        val waitingForWifi: Boolean = false,
+    ) : WelcomeDownload
 
     /**
      * Nothing is downloading, and the assistant cannot chat until files arrive. Offers a download action.
@@ -72,8 +85,6 @@ internal sealed interface WelcomeDownload {
     data class Waiting(
         val model: KernelModel,
         val failed: Boolean = false,
-        /** True when the download is queued for Wi-Fi and the phone is on mobile data (#1855). */
-        val waitingForWifi: Boolean = false,
     ) : WelcomeDownload
 }
 
@@ -85,7 +96,10 @@ internal sealed interface WelcomeDownload {
  * @param readiness Current conversation-model readiness.
  * @param downloadStates Per-model download states, used to flag a failed recommended-model download.
  * @param setupWizardPending null until loaded; true while the first-run setup wizard is not finished. The welcome
- *   waits for the wizard, so it never shows underneath it (#1855).
+ *   waits for the wizard, so it never shows underneath it (#1855). Null also covers "not decided yet", so a fresh
+ *   install shows neither the welcome nor the Loading state's content.
+ * @param setupWizardExited true once the wizard was opened and left without finishing. The list then shows
+ *   [ChatsEmptyState.SetupWizardResume] instead of a blank screen.
  */
 internal fun chatsEmptyState(
     welcomeDismissed: Boolean?,
@@ -93,10 +107,12 @@ internal fun chatsEmptyState(
     downloadStates: Map<KernelModel, DownloadState> = emptyMap(),
     waitingForWifi: Set<KernelModel> = emptySet(),
     setupWizardPending: Boolean? = false,
+    setupWizardExited: Boolean = false,
 ): ChatsEmptyState = when {
     welcomeDismissed == null -> ChatsEmptyState.Loading
     welcomeDismissed -> ChatsEmptyState.Plain
-    setupWizardPending != false -> ChatsEmptyState.Loading
+    setupWizardPending == null -> ChatsEmptyState.Loading
+    setupWizardPending -> if (setupWizardExited) ChatsEmptyState.SetupWizardResume else ChatsEmptyState.Loading
     else -> ChatsEmptyState.Welcome(welcomeDownloadFor(readiness, downloadStates, waitingForWifi))
 }
 
@@ -107,14 +123,20 @@ internal fun welcomeDownloadFor(
 ): WelcomeDownload = when (readiness) {
     is ConversationModelReadiness.Ready,
     is ConversationModelReadiness.FallbackActive -> WelcomeDownload.Ready
-    is ConversationModelReadiness.FallbackPreparing ->
-        WelcomeDownload.Upgrading(readiness.downloadingModel, readiness.progress)
-    is ConversationModelReadiness.Preparing ->
-        WelcomeDownload.InProgress(readiness.downloadingModel, readiness.progress)
+    // A download queued for Wi-Fi is still reported as Downloading, so it arrives as Preparing or FallbackPreparing.
+    is ConversationModelReadiness.FallbackPreparing -> WelcomeDownload.Upgrading(
+        model = readiness.downloadingModel,
+        progress = readiness.progress,
+        waitingForWifi = readiness.downloadingModel in waitingForWifi,
+    )
+    is ConversationModelReadiness.Preparing -> WelcomeDownload.InProgress(
+        model = readiness.downloadingModel,
+        progress = readiness.progress,
+        waitingForWifi = readiness.downloadingModel in waitingForWifi,
+    )
     is ConversationModelReadiness.ActionRequired -> WelcomeDownload.Waiting(
         model = readiness.recommendedModel,
         failed = downloadStates[readiness.recommendedModel] is DownloadState.Error,
-        waitingForWifi = readiness.recommendedModel in waitingForWifi,
     )
 }
 
@@ -137,11 +159,15 @@ internal fun welcomeExamplePromptsFor(download: WelcomeDownload): List<WelcomeEx
 }
 
 /**
- * The Chats FAB column is hidden while the first-run welcome shows: its content is centred and spans the full width,
- * so no FAB clearance is needed at any scroll position or font scale. Selection and archive views hide it too.
+ * The Chats FAB column is hidden while the first-run welcome or the wizard resume card shows: their content is
+ * centred and spans the full width, so no FAB clearance is needed at any scroll position or font scale. Selection
+ * and archive views hide it too.
  */
 internal fun showChatsFab(welcomeState: ChatsEmptyState, isInSelectionMode: Boolean, showArchived: Boolean): Boolean =
-    !isInSelectionMode && !showArchived && welcomeState !is ChatsEmptyState.Welcome
+    !isInSelectionMode &&
+        !showArchived &&
+        welcomeState !is ChatsEmptyState.Welcome &&
+        welcomeState != ChatsEmptyState.SetupWizardResume
 
 @Composable
 internal fun ChatsWelcome(
@@ -154,8 +180,8 @@ internal fun ChatsWelcome(
     onDismissTabHints: () -> Unit,
     onHideWelcome: () -> Unit,
     /**
-     * Reopened from the menu (Getting started). There is no main FAB over it, so it keeps no FAB clearance, and it
-     * has no hide or "Got it" controls, which belong to first run only.
+     * Shown on the Getting started screen (from the Chats menu, the download banner, or Settings → About), not as the
+     * first-run welcome. That screen has no FAB column to clear, and the hide and "Got it" controls are first run only.
      */
     reopened: Boolean = false,
     modifier: Modifier = Modifier,
@@ -199,41 +225,55 @@ internal fun ChatsWelcome(
 
         when (download) {
             WelcomeDownload.Ready -> Unit
-            is WelcomeDownload.Upgrading -> DownloadCard(
-                title = "Getting a better Jandal",
-                body = "Jandal can chat now. A better version (about ${formatBytesShort(download.model.approxSizeBytes)}) " +
-                    "is downloading. Keep Wi-Fi on until it finishes.",
-                progress = download.progress,
+            is WelcomeDownload.Upgrading ->
+                if (download.waitingForWifi) {
+                    DownloadCard(
+                        title = "Waiting for Wi-Fi",
+                        body = "Jandal can chat now. A better version (about ${formatBytesShort(download.model.approxSizeBytes)}) " +
+                            "downloads when Wi-Fi is available.",
+                        progress = null,
+                        actionLabel = "Use mobile data",
+                        onAction = onUseMobileData,
+                    )
+                } else {
+                    DownloadCard(
+                        title = "Getting a better Jandal",
+                        body = "Jandal can chat now. A better version (about ${formatBytesShort(download.model.approxSizeBytes)}) " +
+                            "is downloading. Keep Wi-Fi on until it finishes.",
+                        progress = download.progress,
+                    )
+                }
+            is WelcomeDownload.InProgress ->
+                if (download.waitingForWifi) {
+                    DownloadCard(
+                        title = "Waiting for Wi-Fi",
+                        body = "Jandal will download about ${formatBytesShort(download.model.approxSizeBytes)} " +
+                            "when Wi-Fi is available. Timers, weather and shopping lists already work.",
+                        progress = null,
+                        actionLabel = "Use mobile data",
+                        onAction = onUseMobileData,
+                    )
+                } else {
+                    DownloadCard(
+                        title = "Getting Jandal ready",
+                        body = "Downloading about ${formatBytesShort(download.model.approxSizeBytes)}. " +
+                            "Keep Wi-Fi on until it finishes. Timers, weather and shopping lists already work.",
+                        progress = download.progress,
+                    )
+                }
+            is WelcomeDownload.Waiting -> DownloadCard(
+                title = if (download.failed) "Download failed" else "Getting Jandal ready",
+                body = if (download.failed) {
+                    "Jandal couldn't finish downloading about ${formatBytesShort(download.model.approxSizeBytes)}. " +
+                        "Check your connection, then try again. Timers, weather and shopping lists already work."
+                } else {
+                    "Jandal needs to download about ${formatBytesShort(download.model.approxSizeBytes)} " +
+                        "before it can chat. Keep Wi-Fi on. Timers, weather and shopping lists already work."
+                },
+                progress = null,
+                actionLabel = if (download.failed) "Try again" else "Download now",
+                onAction = { onDownloadModel(download.model) },
             )
-            is WelcomeDownload.InProgress -> DownloadCard(
-                title = "Getting Jandal ready",
-                body = "Downloading about ${formatBytesShort(download.model.approxSizeBytes)}. " +
-                    "Keep Wi-Fi on until it finishes. Timers, weather and shopping lists already work.",
-                progress = download.progress,
-            )
-            is WelcomeDownload.Waiting -> when {
-                download.waitingForWifi -> DownloadCard(
-                    title = "Waiting for Wi-Fi",
-                    body = "Jandal will download about ${formatBytesShort(download.model.approxSizeBytes)} " +
-                        "when Wi-Fi is available. Timers, weather and shopping lists already work.",
-                    progress = null,
-                    actionLabel = "Use mobile data",
-                    onAction = onUseMobileData,
-                )
-                else -> DownloadCard(
-                    title = if (download.failed) "Download failed" else "Getting Jandal ready",
-                    body = if (download.failed) {
-                        "Jandal couldn't finish downloading about ${formatBytesShort(download.model.approxSizeBytes)}. " +
-                            "Check your connection, then try again. Timers, weather and shopping lists already work."
-                    } else {
-                        "Jandal needs to download about ${formatBytesShort(download.model.approxSizeBytes)} " +
-                            "before it can chat. Keep Wi-Fi on. Timers, weather and shopping lists already work."
-                    },
-                    progress = null,
-                    actionLabel = if (download.failed) "Try again" else "Download now",
-                    onAction = { onDownloadModel(download.model) },
-                )
-            }
         }
 
         if (examples.isNotEmpty()) {
@@ -306,6 +346,40 @@ internal fun ChatsWelcome(
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** Chats list state after the setup wizard was left unfinished: a card that reopens the wizard (#1855). */
+@Composable
+internal fun SetupWizardResumeCard(onFinishSetup: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .testTag("chats_setup_resume"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = "Setup isn't finished",
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "Finish setup to choose how Jandal gets its files.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Button(
+            onClick = onFinishSetup,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 24.dp)
+                .heightIn(min = 56.dp),
+        ) {
+            Text("Finish setting up")
+        }
     }
 }
 
@@ -399,16 +473,21 @@ private fun TabHintRow(label: String, hint: String, prominent: Boolean = false) 
 
 // ── Chats: download banner once the welcome is gone ────────────────────────────────────────────
 
-/** Banner text and progress. [progress] is null when unknown (queued or not reported yet). */
+/**
+ * Banner text and progress. [progress] is null when unknown. [waitingModel] is set when the download is queued for
+ * Wi-Fi: the banner says so and shows no progress bar.
+ */
 internal data class DownloadBanner(
     val title: String,
     val progress: Float?,
-    /** True when the download is queued for Wi-Fi: the banner says so and shows no progress bar. */
-    val waitingForWifi: Boolean = false,
+    val waitingModel: KernelModel? = null,
 ) {
+    /** True when the download is queued for Wi-Fi. */
+    val waitingForWifi: Boolean get() = waitingModel != null
+
     val text: String
         get() = when {
-            waitingForWifi -> "Waiting for Wi-Fi"
+            waitingModel != null -> "Waiting for Wi-Fi to download ${waitingModel.displayName}"
             progress != null -> "$title: ${percentOf(progress)}%"
             else -> "$title…"
         }
@@ -429,7 +508,8 @@ private fun percentOf(progress: Float): Int = (progress * 100).roundToInt().coer
 /**
  * The Chats banner for [readiness], or null when it should not show: the welcome is still up (it shows progress
  * itself), selection mode is on, the archived view is open, or no conversation model is downloading. A download
- * queued for Wi-Fi shows "Waiting for Wi-Fi" instead of progress.
+ * queued for Wi-Fi is still reported as Downloading, so it arrives as Preparing or FallbackPreparing and shows
+ * "Waiting for Wi-Fi to download <model>" instead of progress.
  */
 internal fun chatsDownloadBanner(
     readiness: ConversationModelReadiness,
@@ -441,18 +521,21 @@ internal fun chatsDownloadBanner(
     if (welcomeState != ChatsEmptyState.Plain || isInSelectionMode || showArchived) return null
     return when (readiness) {
         is ConversationModelReadiness.FallbackPreparing ->
-            DownloadBanner("Getting a better Jandal", bannerProgress(readiness.progress))
+            downloadBanner("Getting a better Jandal", readiness.downloadingModel, readiness.progress, waitingForWifi)
         is ConversationModelReadiness.Preparing ->
-            DownloadBanner("Getting Jandal ready", bannerProgress(readiness.progress))
-        is ConversationModelReadiness.ActionRequired ->
-            if (readiness.recommendedModel in waitingForWifi) {
-                DownloadBanner("Getting Jandal ready", progress = null, waitingForWifi = true)
-            } else {
-                null
-            }
+            downloadBanner("Getting Jandal ready", readiness.downloadingModel, readiness.progress, waitingForWifi)
         else -> null
     }
 }
+
+private fun downloadBanner(
+    title: String,
+    model: KernelModel,
+    progress: Float?,
+    waitingForWifi: Set<KernelModel>,
+): DownloadBanner =
+    if (model in waitingForWifi) DownloadBanner(title, progress = null, waitingModel = model)
+    else DownloadBanner(title, bannerProgress(progress))
 
 @Composable
 internal fun ChatsDownloadBanner(banner: DownloadBanner, onClick: () -> Unit, modifier: Modifier = Modifier) {

@@ -101,12 +101,12 @@ class ConversationListViewModelTest {
     }
 
     @Test
-    fun `wizard is not pending before the first-run decision is made`() {
+    fun `wizard state is unknown, not pending, before the first-run decision is made`() {
         every { setupWizardPreferences.progress } returns flowOf(SetupWizardProgress(decided = false, completed = false))
         val viewModel = ConversationListViewModel(repository, chatPreferences, downloadManager, setupWizardPreferences)
         val collector = CoroutineScope(dispatcher).launch { viewModel.setupWizardPending.collect {} }
         dispatcher.scheduler.advanceUntilIdle()
-        assertEquals(false, viewModel.setupWizardPending.value)
+        assertEquals(null, viewModel.setupWizardPending.value)
         collector.cancel()
     }
 
