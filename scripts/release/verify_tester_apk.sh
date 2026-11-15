@@ -39,10 +39,22 @@ play_code=$(tr -d '[:space:]' < "$CODES")
 [[ "$play_code" == "$version_code" ]] \
   || fail "APK versionCode $version_code differs from Play-assigned versionCode $play_code"
 
-apk_cert=$("$BUILD_TOOLS_DIR/apksigner" verify --print-certs "$APK" \
-  | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f')
-aab_cert=$(keytool -printcert -jarfile "$AAB" | sed -n 's/^.*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
-[[ -n "$apk_cert" && "$apk_cert" == "$aab_cert" ]] \
+# Certificate digests are public; print them so a mismatch can be diagnosed from the CI log.
+# apksigner wording differs between versions ("Signer #1 certificate SHA-256 digest:" or
+# "Signer (minSdkVersion=…) certificate SHA-256 digest:"), and keytool can list more than one
+# certificate, so take every digest from each tool and require the APK's signer to be one of the
+# bundle's signer certificates.
+apk_certs=$("$BUILD_TOOLS_DIR/apksigner" verify --print-certs "$APK" \
+  | sed -n 's/^Signer.* certificate SHA-256 digest: *//p' | tr 'A-F' 'a-f' | tr -d '[:space:]:' | sort -u)
+aab_certs=$(keytool -printcert -jarfile "$AAB" \
+  | sed -n 's/^[[:space:]]*SHA256: *//p' | tr -d ':[:blank:]' | tr 'A-F' 'a-f' | sort -u)
+echo "APK signer SHA-256: ${apk_certs:-<none>}"
+echo "Bundle signer SHA-256: ${aab_certs:-<none>}"
+[[ -n "$apk_certs" ]] || fail "apksigner printed no signer certificate for $APK"
+[[ -n "$aab_certs" ]] || fail "keytool printed no signer certificate for $AAB"
+[[ "$(wc -l <<<"$apk_certs")" -eq 1 ]] || fail "APK has more than one signer certificate"
+grep -qxF "$apk_certs" <<<"$aab_certs" \
   || fail "APK signer does not match the bundle's upload certificate"
+apk_cert=$apk_certs
 
 echo "Tester APK ok: $package $version_name (versionCode $version_code), signer SHA-256 $apk_cert."
