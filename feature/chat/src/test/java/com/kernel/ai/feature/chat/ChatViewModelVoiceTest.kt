@@ -474,6 +474,31 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `reply retried after an empty first pass is spoken in full`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me about kiwi birds") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flowOf(GenerationResult.Complete(durationMs = 1L)),
+            flowOf(
+                GenerationResult.Token("Kiwi birds are flightless and nocturnal."),
+                GenerationResult.Complete(durationMs = 1L),
+            ),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about kiwi birds"))
+        advanceUntilIdle()
+
+        assertTrue(
+            streamedChunks.any { (chunk, _) -> chunk.contains("flightless and nocturnal") },
+            "retried reply was not spoken: $streamedChunks",
+        )
+    }
+
+    @Test
     fun `save memory router match bypasses llm wrapper`() = runTest(dispatcher) {
         val saveMemorySkill = object : Skill {
             override val name = "save_memory"

@@ -1,19 +1,37 @@
 package com.kernel.ai.feature.chat
 
+import android.util.Log
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class ChunkedSpeechTest {
+    @BeforeEach
+    fun setUp() {
+        // Debug timing lines call android.util.Log, which a plain JVM test cannot run.
+        mockkStatic(Log::class)
+        every { Log.d(any<String>(), any<String>()) } returns 0
+    }
+
+    @AfterEach
+    fun tearDown() {
+        unmockkStatic(Log::class)
+    }
+
     private val appended = mutableListOf<Pair<String, Boolean>>()
     private val session = object : VoiceOutputStreamingSession {
         override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
@@ -193,7 +211,7 @@ class ChunkedSpeechTest {
     }
 
     @Test
-    fun `streaming first chunk ends at the first full stop from 40 characters`() {
+    fun `non-streamed first chunk ends at the first full stop from 40 characters`() {
         val buffer = StringBuilder("Sure, that's right. It is 24 degrees in Palmerston North today, with a light breeze.")
 
         val chunk = popNextStreamingSpeechChunk(

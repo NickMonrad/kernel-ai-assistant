@@ -3459,6 +3459,7 @@ class ChatViewModel @Inject constructor(
                         needsHallucinationRetry = true
                         currentPrompt = INCOMPLETE_CHAIN_CORRECTION + "\n\n" + prompt
                         accumulatedContent = StringBuilder()
+                        resetVoiceStreamForRetry()
                         accumulatedThinking = StringBuilder()
                         activeStreamingContent = accumulatedContent
                         activeStreamingThinking = accumulatedThinking
@@ -3647,6 +3648,7 @@ class ChatViewModel @Inject constructor(
                                         append(text)
                                     }
                                     accumulatedContent = StringBuilder()
+                                    resetVoiceStreamForRetry()
                                     accumulatedThinking = StringBuilder()
                                     activeStreamingContent = accumulatedContent
                                     activeStreamingThinking = accumulatedThinking
@@ -3749,6 +3751,7 @@ class ChatViewModel @Inject constructor(
                                         needsHallucinationRetry = true
                                         currentPrompt = SYSTEM_ONLY_TOOL_RETRY_CORRECTION + "\n\n" + prompt
                                         accumulatedContent = StringBuilder()
+                                        resetVoiceStreamForRetry()
                                         accumulatedThinking = StringBuilder()
                                         activeStreamingContent = accumulatedContent
                                         activeStreamingThinking = accumulatedThinking
@@ -3874,6 +3877,7 @@ class ChatViewModel @Inject constructor(
                                         }
                                         // Reset streaming state for the retry pass
                                         accumulatedContent = StringBuilder()
+                                        resetVoiceStreamForRetry()
                                         accumulatedThinking = StringBuilder()
                                         activeStreamingContent = accumulatedContent
                                         activeStreamingThinking = accumulatedThinking
@@ -4405,6 +4409,12 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** A retry pass starts a fresh reply: re-arm streaming and clear the tool-call cut from the failed pass. */
+    private fun resetVoiceStreamForRetry() {
+        activeVoiceToolCallStarted = false
+        activeVoiceStreamingBuffer = StringBuilder()
+    }
+
     private suspend fun prepareVoicePlaybackForTurn(
         streamingEnabled: Boolean,
     ) {
@@ -4419,6 +4429,7 @@ class ChatViewModel @Inject constructor(
         if (!shouldSpeak || !autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) return
         // autoSpeakEnabled already reflects voiceOutputPreferences.autoSpeak via the cached field
         awaitingVoicePlaybackCompletion = true
+        logVoicePath(isVoiceStreamingEnabledForTurn)
         activeVoiceStreamingSession = voiceOutputController.openStreamingSession(
             VoiceSpeakRequest(text = "", locale = Locale.getDefault()),
         )
@@ -4475,6 +4486,12 @@ class ChatViewModel @Inject constructor(
             spokenOverride != null -> {
                 activeVoiceStreamingBuffer.setLength(0)
                 appendSentenceChunks(session, spokenOverride)
+            }
+            // Streamed text was cut at a tool-call marker, so the streamed tail is not the reply: speak the final content.
+            activeVoiceToolCallStarted -> {
+                activeVoiceStreamingBuffer.setLength(0)
+                // Raw tool-call text is never speech; a cut that produced no reply stays silent.
+                appendSentenceChunks(session, if (looksLikeRawToolCall(finalContent)) "" else finalContent)
             }
             isVoiceStreamingEnabledForTurn -> {
                 // Complete sentences were queued while streaming; only the unfinished tail is left.

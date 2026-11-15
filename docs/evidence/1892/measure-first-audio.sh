@@ -1,22 +1,30 @@
 #!/bin/bash
-# usage: measure-first-audio.sh <label>   (device-side harness token; never leaves the phone)
-S=R5CR605B71K
+# usage: measure-first-audio.sh <label>
+# Debug build only (ai.jandal.assistant.debug). Harness token is read on-device via run-as and never leaves the phone.
+# Needs the VoiceTiming debug lines (lastToken, firstChunkQueued, path=stream|final) from the branch/main debug build.
+# Device is expected to be awake and unlocked with screen kept on; this script sends no sleep/power keys.
+S=RFCW11265XH
 PKG=ai.jandal.assistant.debug
-Q="What is the capital of Samoa? Answer in two short sentences."
+Q="Tell me three short facts about kiwi birds, one sentence each."
 run() {
-  adb -s $S shell input keyevent KEYCODE_WAKEUP; adb -s $S shell wm dismiss-keyguard; adb -s $S logcat -c
+  adb -s $S logcat -c
   t0=$(adb -s $S shell date +%s%3N | tr -d '\r')
   adb -s $S shell "am start -n $PKG/com.kernel.ai.MainActivity --es quick_action_input '$Q' --ez quick_action_is_voice true --es adb_harness_token \$(run-as $PKG cat files/adb_harness_token)" >/dev/null
-  for n in $(seq 1 120); do
+  ss=""
+  for n in $(seq 1 150); do
     line=$(adb -s $S logcat -d -s KernelAI 2>/dev/null | grep SpeakingStarted | head -1)
-    if [ -n "$line" ]; then
-      ep=$(echo "$line" | grep -o 'epochMs=[0-9]*' | cut -d= -f2)
-      echo "$1 t0=$t0 speakingStarted=$ep delta_ms=$((ep - t0))"
-      return
-    fi
+    if [ -n "$line" ]; then ss=$(echo "$line" | grep -o 'epochMs=[0-9]*' | cut -d= -f2); break; fi
     sleep 1
   done
-  echo "$1 TIMEOUT no SpeakingStarted"
+  sleep 15
+  logs=$(adb -s $S logcat -d 2>/dev/null)
+  path=$(echo "$logs" | grep -o 'path=[a-z]*' | head -1 | cut -d= -f2)
+  last=$(echo "$logs" | grep 'VoiceTiming lastToken' | head -1 | grep -o 'epochMs=[0-9]*' | cut -d= -f2)
+  fq=$(echo "$logs" | grep 'firstChunkQueued epochMs' | head -1 | grep -o 'epochMs=[0-9]*' | cut -d= -f2)
+  fqc=$(echo "$logs" | grep 'firstChunkQueued epochMs' | head -1 | grep -o 'chars=[0-9]*' | cut -d= -f2)
+  dec=$(echo "$logs" | grep -o 'decode=[0-9]* tokens @ [0-9.]* tokens/s' | tail -1)
+  if [ -z "$ss" ]; then echo "$1 TIMEOUT no SpeakingStarted"; return; fi
+  echo "$1 path=$path t0=$t0 speakingStarted=$ss lastToken=$last firstChunkQueued=$fq fqChars=$fqc ss_minus_lastToken=$((ss - last)) ss_minus_firstChunk=$((ss - fq)) $dec"
 }
 adb -s $S shell am start -n $PKG/com.kernel.ai.MainActivity >/dev/null
 sleep 45

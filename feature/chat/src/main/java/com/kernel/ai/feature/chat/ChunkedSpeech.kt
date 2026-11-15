@@ -18,7 +18,11 @@ internal const val VOICE_MIN_FINAL_CHUNK_LENGTH = 20
 
 internal const val VOICE_TIMING_TAG = "VoiceTiming"
 
-/** Debug-only timing line for the #1892 first-audio measurement: the turn's first chunk being queued. */
+/** Debug-only timing lines for the #1892 first-audio measurement. */
+internal fun logVoicePath(streamed: Boolean) {
+    if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "path=${if (streamed) "stream" else "final"}")
+}
+
 internal fun logFirstChunkQueued(chars: Int) {
     if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "firstChunkQueued epochMs=${System.currentTimeMillis()} chars=$chars")
 }
