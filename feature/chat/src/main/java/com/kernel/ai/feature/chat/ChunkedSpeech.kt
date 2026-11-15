@@ -11,16 +11,14 @@ import kotlinx.coroutines.withContext
 
 internal const val VOICE_FIRST_CHUNK_MIN_LENGTH = 40
 
-/** Streamed first chunk ends at its first full stop from this length (#1892); shorter sentences merge forward. */
-internal const val VOICE_STREAM_FIRST_CHUNK_MIN_LENGTH = 20
 internal const val VOICE_MIN_CHUNK_LENGTH = 72
 internal const val VOICE_MIN_FINAL_CHUNK_LENGTH = 20
 
 internal const val VOICE_TIMING_TAG = "VoiceTiming"
 
 /** Debug-only timing lines for the #1892 first-audio measurement. */
-internal fun logVoicePath(streamed: Boolean) {
-    if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "path=${if (streamed) "stream" else "final"}")
+internal fun logVoicePath() {
+    if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "path=final")
 }
 
 internal fun logFirstChunkQueued(chars: Int) {

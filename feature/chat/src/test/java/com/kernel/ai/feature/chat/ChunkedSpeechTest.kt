@@ -194,23 +194,6 @@ class ChunkedSpeechTest {
     }
 
     @Test
-    fun `streaming drain never cuts a sentence at a comma`() {
-        val buffer = StringBuilder(
-            "In Palmerston North, Manawatu-Wanganui, it's 24 degrees with partly cloudy skies " +
-                "and a light breeze, feeling like 25 degrees, and the forecast keeps going for a while longer, " +
-                "still no full stop yet",
-        )
-
-        val chunk = popNextStreamingSpeechChunk(
-            buffer = buffer,
-            minChunkLength = VOICE_MIN_CHUNK_LENGTH,
-            preferredChunkLength = Int.MAX_VALUE,
-        )
-
-        assertEquals(null, chunk, "a partial sentence must wait for its full stop")
-    }
-
-    @Test
     fun `non-streamed first chunk ends at the first full stop from 40 characters`() {
         val buffer = StringBuilder("Sure, that's right. It is 24 degrees in Palmerston North today, with a light breeze.")
 
@@ -221,34 +204,6 @@ class ChunkedSpeechTest {
         )
 
         assertEquals("Sure, that's right. It is 24 degrees in Palmerston North today, with a light breeze.", chunk)
-        assertEquals("", buffer.toString())
-    }
-
-    @Test
-    fun `a 31-character first sentence becomes its own streamed chunk`() {
-        val buffer = StringBuilder("It is warm there in Apia today. Kia ora, welcome to the island.")
-
-        val chunk = popNextStreamingSpeechChunk(
-            buffer = buffer,
-            minChunkLength = VOICE_STREAM_FIRST_CHUNK_MIN_LENGTH,
-            preferredChunkLength = Int.MAX_VALUE,
-        )
-
-        assertEquals("It is warm there in Apia today.", chunk)
-        assertTrue(buffer.toString().startsWith(" Kia ora"), "rest of the reply must stay buffered")
-    }
-
-    @Test
-    fun `a 7-character greeting merges with the next sentence`() {
-        val buffer = StringBuilder("Mōrena. It is 24 degrees in Apia today.")
-
-        val chunk = popNextStreamingSpeechChunk(
-            buffer = buffer,
-            minChunkLength = VOICE_STREAM_FIRST_CHUNK_MIN_LENGTH,
-            preferredChunkLength = Int.MAX_VALUE,
-        )
-
-        assertTrue(chunk != null && chunk.contains("24 degrees"), "greeting must not be spoken alone: $chunk")
         assertEquals("", buffer.toString())
     }
 

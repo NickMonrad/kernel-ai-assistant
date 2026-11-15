@@ -97,3 +97,11 @@ Caveats:
 - Warm-up runs (excluded): MAIN +5483/+5839/+3453, BRANCH +1325/+4692/+6563 ms.
 - Earlier finalize-path table above is a different path (router-classified prompt); it is not comparable to this table.
 - Cori Ready in Settings was not checked by navigation; speech was produced through the engine on every run (SpeakingStarted logged).
+
+## Round 5: live streaming removed (finalize-only)
+
+Speech now starts only after generation completes, from the final reply text, split at sentence ends. The streamed-path numbers above (`path=stream`, cd619981) describe the removed live path and are superseded; they are not the current design.
+
+The finalize-path numbers in "Finalize-path result" are the current evidence: median 3.8 s from generation complete to speech on the branch (range 3.4–4.7 s) vs 15.7 s on main (range 12.7–17.3 s), S23U, router-classified prompt.
+
+Tradeoff: a native tool turn speaks the tool result text (`toolCall.resultText`), not the model's wording after the call. Live speech during generation is tracked as #1923 (build 7).
