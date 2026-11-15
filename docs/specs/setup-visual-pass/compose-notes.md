@@ -48,7 +48,7 @@ object JandalTheme {
 
 | Mockup | Code |
 |---|---|
-| Page background | `colorScheme.surface`. The mockups draw `#141414`; follow the README, not the picture. |
+| Page background, footer, fade end colour | `colorScheme.background` (dark `#1A1A1A`; light `SandLight`, so white cards keep an edge). Not `surface`: in light mode `surface` is white, like the cards. |
 | Card | `colorScheme.surfaceContainerHigh` |
 | Icon tile (step 4, welcome) | `colorScheme.surfaceContainerHighest` |
 | Icon tile (step 3 rows, tinted green in the picture) | `colorScheme.primaryContainer`, icon `onPrimaryContainer` |
@@ -59,8 +59,6 @@ object JandalTheme {
 | Tonal action | `FilledTonalButton` with `filledTonalButtonColors(containerColor = primaryContainer, contentColor = onPrimaryContainer)`. The M3 default uses `secondaryContainer`, which is teal (`#B3E5E5`) in the light scheme, so always pass these colours. |
 | Dividers, footer border | `colorScheme.outlineVariant` |
 | Welcome app-mark tile | `colorScheme.primaryContainer` |
-
-**Light-mode check:** in `JandalLightColorScheme`, `surface`, `surfaceContainer` and `surfaceContainerHigh` are all `Color.White`. Cards on a `surface` page have no visible edge in light mode. See Spec issues found.
 
 ## 2. Icons
 
@@ -139,11 +137,12 @@ The parts used by both setup (`:feature:chat`) and Settings (`:feature:settings`
     RadioButton(selected, onClick = null, enabled = enabled)
     [Icon(leadingIcon, null, Modifier.size(24.dp))]
     Column(Modifier.weight(1f))
-      FlowRow(horizontalArrangement = spacedBy(8.dp), itemVerticalArrangement = Center) { Text(title, titleMedium); tag?.invoke() }
+      FlowRow(horizontalArrangement = spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) { Text(title, titleMedium); tag?.invoke() }
       Text(description, bodyMedium, onSurfaceVariant)
       extraLine?.let { Text(it, bodySmall, onSurfaceVariant) }
   ```
-  - Use `FlowRow` so the tag wraps under the title at 2× font, instead of squeezing. Settings shows "Not downloaded" wrapped onto two lines; the chip must not wrap internally (see 3.3).
+  - Use `FlowRow` so the tag moves under the title at 2× font instead of squeezing. The chip itself never wraps (see 3.3, `maxLines = 1, softWrap = false`).
+  - `FlowRow` in foundation-layout 1.11.1 is `FlowRow(modifier, horizontalArrangement, verticalArrangement, itemVerticalAlignment: Alignment.Vertical, maxItemsInEachRow, maxLines, content)`. There is no `itemVerticalArrangement` parameter.
   - `selectable` merges its descendants, so TalkBack reads "Automatic, Recommended, Works offline…, selected, radio button, 1 of 2".
 - **Sub-content:** only when `subContent != null`. The caller decides: the online switch only while selected; Download while not downloaded.
   - `HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = outlineVariant)`.
@@ -184,10 +183,10 @@ data class CardAction(val label: String, val onClick: () -> Unit)
     status: ChipStatus,
     description: String,
     modifier: Modifier = Modifier,
-    caveat: String? = null,           // bodySmall; onWarningContainer colour when status == NeedsAccess
-    primary: CardAction? = null,      // FilledTonalButton
-    secondary: CardAction? = null,    // TextButton (Turn off, Don't turn on, Change)
-    why: String? = null,              // non-null shows "Why?" which opens WhySheet(title, why)
+    caveat: String? = null,           // bodySmall; onWarningContainer colour when status == NeedsAccess, else onSurfaceVariant
+    primary: CardAction? = null,      // FilledTonalButton (Turn on, Allow microphone, Open Usage Access, Open settings, Allow)
+    secondary: CardAction? = null,    // TextButton (Turn off, Change)
+    why: String? = null,              // non-null shows "Why?" which opens ExplanationSheet(title, why)
 )
 ```
 
@@ -232,8 +231,7 @@ data class CardAction(val label: String, val onClick: () -> Unit)
 ```
 
 - **Toggle row:** `Row(Modifier.fillMaxWidth().toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange))` containing `Column(weight 1f) { Text(title, titleSmall); Text(description, bodySmall, onSurfaceVariant) }` and `Switch(checked, onCheckedChange = null)`.
-- **More:** a `TextButton("More")` **below** the toggle row, outside `toggleable`, with `contentDescription = "More about online speech recognition"`.
-  - The mockups draw an inline underlined link. That would be a sub-48 dp target nested inside the toggle, which the README forbids ("each control is its own target of at least 48 dp").
+- **More:** a `TextButton("More")` directly **below** the toggle row, outside `toggleable`, with `contentDescription = "More about online speech recognition"`. Give it `Modifier.offset(x = (-12).dp)` so its label lines up with the description text, as the mockups draw it. It keeps its own 48 dp target.
 - **Copy and visibility move to `core/voice`**, because both feature modules depend on it:
   ```kotlin
   // core/voice/.../OnlineSpeechCopy.kt
@@ -253,8 +251,8 @@ data class CardAction(val label: String, val onClick: () -> Unit)
 @Composable fun SectionLabel(text: String, icon: ImageVector? = null, modifier: Modifier = Modifier)
 ```
 
-- **Build:** `Row(Modifier.semantics(mergeDescendants = true) { heading() }, spacedBy(8.dp))` containing `Icon(icon, null, Modifier.size(16.dp), tint = accent)` and `Text(text.uppercase(), labelLarge, accent)`.
-- **Uppercase:** `uppercase()` is visual only. TalkBack reads uppercase strings letter by letter in some locales, so also set `contentDescription = text` in the semantics block.
+- **Build:** `Row(Modifier.clearAndSetSemantics { heading(); contentDescription = text }, spacedBy(8.dp))` containing `Icon(icon, null, Modifier.size(16.dp), tint = accent)` and `Text(text.uppercase(), labelLarge, accent)`.
+- **Why `clearAndSetSemantics`:** it gives one heading node that reads the mixed-case `text`. With `semantics(mergeDescendants = true)` plus a `contentDescription`, TalkBack reads both the description and the merged uppercase `Text`. Some TalkBack locales also spell uppercase strings letter by letter.
 
 ### 3.8 Fixed footer, fade and "More below" (setup only)
 
@@ -280,18 +278,18 @@ data class CardAction(val label: String, val onClick: () -> Unit)
     Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(horizontal = 24.dp)
            .padding(top = 24.dp, bottom = 24.dp).testTag(SETUP_WIZARD_CONTENT_TAG), spacedBy(16.dp)) { content() }
     AnimatedVisibility(scrollState.canScrollForward, Modifier.align(BottomCenter), enter = fadeIn(), exit = fadeOut())
-      Column(Modifier.fillMaxWidth().clearAndSetSemantics {}.testTag(SETUP_MORE_BELOW_TAG))
-        Box(Modifier.fillMaxWidth().height(48.dp).background(Brush.verticalGradient(listOf(Color.Transparent, surface))))
-        Row(Modifier.fillMaxWidth().background(surface).padding(bottom = 6.dp), Center) { Icon(KeyboardArrowDown, null, 14.dp); Text("More below", labelMedium, onSurfaceVariant) }
+      Column(Modifier.fillMaxWidth().testTag(SETUP_MORE_BELOW_TAG).clearAndSetSemantics {})
+        Box(Modifier.fillMaxWidth().height(48.dp).background(Brush.verticalGradient(listOf(Color.Transparent, background))))
+        Row(Modifier.fillMaxWidth().background(background).padding(bottom = 6.dp), Center) { Icon(KeyboardArrowDown, null, 14.dp); Text("More below", labelMedium, onSurfaceVariant) }
   ```
   - `canScrollForward` is snapshot state backed by `derivedStateOf`, so reading it only recomposes when it flips.
   - The overlay has no `clickable` or `pointerInput`, so taps pass through to the content ("drawn only").
-  - `clearAndSetSemantics {}` keeps TalkBack from announcing the hint.
+  - `clearAndSetSemantics {}` keeps TalkBack from announcing the hint. Keep `testTag` **before** it in the chain, or the tag is cleared and tests can't find the node (§6).
   - The overlay goes away at the end of the page, so the last item is never covered there.
   - Use plain "More below". A count isn't worth item-position tracking.
 - **`SetupFooter`:**
   ```
-  Column(modifier.fillMaxWidth().background(surface).testTag(SETUP_FOOTER_TAG))
+  Column(modifier.fillMaxWidth().background(background).testTag(SETUP_FOOTER_TAG))
     HorizontalDivider(color = outlineVariant)
     Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 14.dp, bottom = 16.dp), spacedBy(8.dp))
       Button(onPrimary, Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(primaryLabel) }
@@ -322,7 +320,7 @@ Names in `code` are existing symbols, checked in this branch. **NEW** marks stat
 | `outputSizes` | `Map<VoiceOutputEngine, Long?>` | **NEW.** Bytes still to download per offered voice; `null` means already downloaded, so the tag says "Downloaded". |
 | `heyJandalExtraBytes` | `Long` | **NEW.** The Data rule; `0` hides the caveat's size sentence. |
 | `welcomeTotalBytes` | `Long` | **NEW**, or derive from `plannedModels`/`plannedVoices` at default choices. |
-| `isRerun` | `Boolean` | **NEW.** True when `progress.completed` was true at load. Drives the welcome and step 3 re-run wording. Today `choiceRecorded` is used as a proxy; see 4.3. |
+| `isRerun` | `Boolean` | **NEW** (README Data). True when the guide is opened from Settings, i.e. `progress.completed` was true at load (the view model already treats that as "re-run from Settings", line 118). Drives the welcome and step 3 re-run wording. Don't infer it from `choiceRecorded`. |
 
 - **`SetupVoiceDevice`:** add `isReleaseBuild()` (the same `FLAG_DEBUGGABLE` test as `VoiceViewModel`) and `inflectEligible()` (`InflectMicroModelSpec.isReleaseEligible(hardwareTier())`).
 - **`SetupSpeechOptions.outputOptions`:**
@@ -330,7 +328,7 @@ Names in `code` are existing symbols, checked in this branch. **NEW** marks stat
   VoiceOutputEngine.entriesForBuild(isRelease, inflectEligible)
       .filter { it == SherpaExperimental || it == InflectMicroExperimental || (it == AndroidTts && hasSystemTts) }
   ```
-  - The filter matters: debug builds also return `KokoroExperimental`, which setup must not offer.
+  - The filter matters: debug builds also return `KokoroExperimental`, which setup doesn't offer (README step 2).
   - Order: Cori, Inflect, Android TTS.
 - **Online switch:**
   - `onOnlineSpeechChanged(Boolean)` writes the SavedStateHandle key.
@@ -340,7 +338,7 @@ Names in `code` are existing symbols, checked in this branch. **NEW** marks stat
   - Extend `plannedVoicesFor` / add `plannedModelsFor(input, output)` so Inflect's `KernelModel`s (looked up by `InflectMicroModelSpec.requiredModels` file name, as `VoiceViewModel.inflectModels` does) are in `plannedModels` when Inflect is the output.
   - In `startChosenVoice`, queue them on Finish and Skip.
   - Extract `VoiceViewModel.downloadInflectMicro()` (lines 552–576) into a `core/voice` helper (for example `InflectMicroSetup.queue(modelDownloadManager, voicePackDownloadManager, frontendVoice)`) and call it from both places.
-  - It also starts the **Cori frontend pack**; see Spec issues found.
+  - It also starts the **Cori pack**, which Inflect needs. Per the README, Inflect's size tag and step 3 count Cori as well when Cori isn't downloaded (about 40 MB + 116 MB). Make `plannedVoicesFor(InflectMicroExperimental)` return `CoriHigh` when it isn't downloaded, so the existing voice row and total cover it.
 - **Hey Jandal size:**
   - Move `wakeVerifierKernelModels()` out of `app/.../WakeWordService.kt` (line 103, `internal`) into `core/voice`, next to `queueHeyJandalSttModel` in `HeyJandalGate.kt`.
   - Update its `:app` caller(s). Clean cutover: no wrapper left in `:app`.
@@ -408,68 +406,100 @@ DownloadStep(state, onChoiceSelected)
 
 - **`downloadRows`:** **NEW**. A pure `internal fun downloadRows(plannedModels, plannedVoices, output): List<DownloadRowItem>` in the setup package, unit-tested per README "Done when".
   - Gemma E4B or E2B gives "Chat and answers". The tier is already in the plan, because `DownloadConsent.autoQueueModels` drops E2B on `FLAGSHIP`.
-  - `ARCTIC_EMBED_M_V1_5` gives "Memory and search".
+  - `ARCTIC_EMBED_M_V1_5` plus `ARCTIC_EMBED_V1_5_VOCAB` give one "Memory and search" row, summed, like Zipformer.
   - `VoiceDefaultsProvisioner.zipformerModels()` gives one "Offline speech recognition" row, summed.
-  - Inflect's models give one "Inflect Micro" row.
+  - Inflect's models give one "Inflect Micro" row. The Cori pack it needs comes through `plannedVoices` (see 4.0), so it shows as the usual Cori row.
   - Each `plannedVoices` entry gives "${displayName} natural voice".
   - Any other planned model gets a row using `ModelRoleCopy.purpose` as a fallback, so the total always equals the sum of the rows.
   - Technical name: `KernelModel.displayName`.
 - **Replaces:**
   - `downloadSizeLine` and its test `SetupWizardDownloadSizeLineTest`; delete both or reduce them to the re-run line.
   - The zipformer/others/voices `Column`s in `DownloadStep`.
-- **Re-run check:** `choiceRecorded` is true on a re-run **and** on a first run whose network was already stored. Use the new `isRerun` for the re-run line.
+- **Re-run line:** show it from `isRerun` only. `choiceRecorded` is also true on a first run whose network choice was stored earlier.
 
 ### 4.4 Step 4, Make Jandal yours (`SetupStep.MAKE_JANDAL_YOURS`)
 
-**New mapping**, pure and unit-tested, in `MakeJandalYours.kt`:
+**New mapping**, pure and unit-tested, in `MakeJandalYours.kt`. It keeps today's logic in `MakeYoursStep` (`SetupWizardScreen.kt` lines 552–571, `wakeActions` and `wakeNote`) and adds the chip:
 
 ```kotlin
-internal data class HeyJandalCard(val chip: ChipStatus, val caveat: String?, val primary: Action?, val secondary: Action?)
-internal enum class Action { TurnOn, DontTurnOn, TurnOff, AllowMicrophone, OpenUsageAccess }
+internal data class HeyJandalCard(
+    val chip: ChipStatus,
+    val description: String,          // base line, plus "Turns on/off when you tap Finish." when pending and not blocked
+    val caveat: String?,              // block reason (+ "Stays off until this is fixed."), or the size/battery line
+    val primary: HeyJandalAction?,    // tonal button
+    val secondary: HeyJandalAction?,  // text button; only ever TurnOff
+)
+internal enum class HeyJandalAction { TurnOn, TurnOff, AllowMicrophone, OpenUsageAccess }
 internal fun MakeYoursRows.heyJandalCard(stored: Boolean, choice: Boolean, platform: MakeYoursPlatform, extraBytes: Long): HeyJandalCard
 ```
 
-The README table becomes:
+Inputs:
+- `choice` = `state.wakeWordChoice`, the choice Finish will apply, which starts at the stored value;
+- `stored` = `state.wakeWordStored`;
+- `pending` = `choice != stored`;
+- `block` = `heyJandalBlock(platform)`;
+- `fixable` = `block` is `MicrophoneNotGranted` or `UsageAccessNeeded`.
 
-| Condition | Chip | Actions |
+**Actions,** the same as today:
+- **Primary:**
+  - `MicrophoneNotGranted` gives `AllowMicrophone`;
+  - `UsageAccessNeeded` gives `OpenUsageAccess`;
+  - no block and `!choice` gives `TurnOn`;
+  - `NoMicrophone` / `ModelNotInstalled` give none.
+- **Secondary:** `TurnOff` whenever `choice` is true, including alongside a fix button and on a Not available card.
+
+**Lines.** This is today's `wakeNote` split into description and caveat. The `when` order matters: a blocked choice is never told it turns on.
+
+| Condition (first match) | Added line | Where |
 |---|---|---|
-| block is `NoMicrophone` / `ModelNotInstalled` | `NotAvailable` | none. `blockText(block)` becomes the description. |
-| `choice` and block `MicrophoneNotGranted` | `NeedsAccess` | `AllowMicrophone` |
-| `choice` and block `UsageAccessNeeded` | `NeedsAccess` | `OpenUsageAccess` |
-| `!choice` and a fixable block | `Off` | `TurnOn`, with the reason as a plain second line, not amber |
-| `choice && !stored` | `OnAtFinish` | `DontTurnOn`; description adds "Turns on when you tap Finish." |
-| `choice && stored` | `On` | `TurnOff` |
-| else | `Off` | `TurnOn` |
+| `block != null && choice` | "Stays off until this is fixed." after the block reason | caveat |
+| `pending && choice` (so no block) | "Turns on when you tap Finish." | description |
+| `pending` (so `!choice`, stored on) | "Turns off when you tap Finish." | description |
+| else | none | |
 
-- `choice` = `state.wakeWordChoice` (true for "chosen in this run" or "stored on").
-- `stored` = `state.wakeWordStored`.
-- Keep `MakeYoursStatus` and `MakeYoursRows.wakeWord` for the other rows. `defaultAssistant`, `notifications` and `exactAlarm` map to `ChipStatus` 1:1.
-- Delete `statusLabel` if nothing else uses it.
+**Chip and resulting rows** (one unit test per row, per README "Done when"):
+
+| README row | Condition | Chip | Primary | Secondary | Caveat |
+|---|---|---|---|---|---|
+| Off, not chosen | `!choice`, no block | `Off` | `TurnOn` | none | size/battery line |
+| Chosen, not applied | `choice && !stored`, no block | `OnAtFinish` | none | `TurnOff` | size/battery line; description + "Turns on when you tap Finish." |
+| Stored on | `choice && stored`, no block | `On` | none | `TurnOff` | size/battery line, if any bytes left |
+| Stored on, turned off in this run | `!choice && stored`, no block | `Off` | `TurnOn` | none | description + "Turns off when you tap Finish." |
+| Mic not granted | `choice`, `MicrophoneNotGranted` | `NeedsAccess` | `AllowMicrophone` | `TurnOff` | "Hey Jandal needs microphone access. Stays off until this is fixed." (amber) |
+| Honor Usage Access | `choice`, `UsageAccessNeeded` | `NeedsAccess` | `OpenUsageAccess` | `TurnOff` | "On this phone it needs Usage Access, so it can pause while the camera's in use. Stays off until this is fixed." (amber) |
+| Not available | `NoMicrophone` / `ModelNotInstalled` | `NotAvailable` | none | `TurnOff` if `choice` | the block reason is the description; plus "Stays off until this is fixed." as the caveat if `choice` |
+| (not in the README table) | `!choice` with a fixable block | `Off` | the fix button, as today | none | the block reason in plain `onSurfaceVariant`, not amber (README Shared parts 3) |
+
+- **Block copy:** update `MakeYoursRows.blockText` for the two fixable blocks to the README wording above, without the "Stays off…" sentence, which the mapping adds. Drop today's "Tap Allow microphone." / "Tap Open Usage Access, …" sentences, because the button sits right below. Keep the `NoMicrophone` / `ModelNotInstalled` texts. Update `MakeYoursRowsTest` to match.
+- **Size/battery line:** "Adds a {size} download. Uses a little battery." with `formatBytesShort(extraBytes)`. When `extraBytes == 0`, show only "Uses a little battery." Not shown when the caveat is a block reason.
+- **Why?:** pass `why` only when `secondary == null`. That matches screens 4 (Off: Turn on + Why?) and 4b (Needs access: Open Usage Access + Turn off, no Why?) and stops three buttons crowding the row. The Why? text is today's Hey Jandal `reason` string (`SetupWizardScreen.kt` 576–584).
+- **Other rows:** keep `MakeYoursStatus` and `MakeYoursRows.defaultAssistant` / `notifications` / `exactAlarm`, which map to `ChipStatus` 1:1. `MakeYoursRows.wakeWord` and `statusLabel` are replaced by `heyJandalCard`; delete them if nothing else uses them.
 
 ```
 MakeYoursStep(state, actions)
   Text(title, heading()); Text(subtitle)
-  SettingCard("hey_jandal", Mic, "Hey Jandal", card.chip, description, caveat, …, why = <today's Hey Jandal reason text>)
+  SettingCard("hey_jandal", Mic, "Hey Jandal", card.chip, card.description, caveat = card.caveat, primary/secondary from card, why = if (card.secondary == null) heyJandalWhy else null)
   SettingCard("default_assistant", AutoAwesome, …, primary = "Open settings" (Off) | secondary = "Change" (On) | none (NotAvailable), why = …)
-  SettingCard("notifications", Notifications, …, primary = "Allow" when Off → actions.onAllowNotifications)
-  SettingCard("exact_alarms", Alarm, …, primary = "Open settings" when Off → actions.onOpenExactAlarm)
+  SettingCard("notifications", Notifications, …, primary = "Allow" when Off → actions.onAllowNotifications, why = …)
+  SettingCard("exact_alarms", Alarm, …, primary = "Open settings" when Off → actions.onOpenExactAlarm, why = …)
   Spacer(Modifier.height(8.dp))
 ```
 
 - **Actions:** route through the existing `MakeYoursActions` callbacks; no new ones.
-  - `DontTurnOn` and `TurnOff` both call `onWakeWordChoiceChanged(false)`.
-- **Why? text:** today's inline `reason` / `note` strings from `MakeYoursStep` (`SetupWizardScreen.kt` 573–641) move into `why`.
+  - `TurnOn` calls `onWakeWordChoiceChanged(true)`; `TurnOff` calls `onWakeWordChoiceChanged(false)`.
+  - `AllowMicrophone` calls `onAllowMicrophone`; `OpenUsageAccess` calls `onOpenUsageAccess`.
+- **Why? text** for the other cards: today's inline `reason` / `note` strings from `MakeYoursStep` (`SetupWizardScreen.kt` 590–641).
 
 ### 4.5 Step 4b, Honor Needs access
 
 - **Same tree as 4.4.**
-- **Platform fields:** `platform.usageAccessRequired = true`, mic and model present, `wakeWordChoice = true`.
-- **Result:**
+- **Platform fields:** `platform.usageAccessRequired = true`, mic granted, model present; `wakeWordChoice = true` (stored or pending).
+- **Result** (the README's Honor row):
   - chip `NeedsAccess`;
   - `warningOutline` card border;
-  - the caveat in `onWarningContainer`;
-  - "Open Usage Access" as `FilledTonalButton`, plus "Why?".
-- **Description:** includes "Turns on when you tap Finish." because the choice is pending.
+  - caveat "On this phone it needs Usage Access, so it can pause while the camera's in use. Stays off until this is fixed." in `onWarningContainer`;
+  - "Open Usage Access" (`FilledTonalButton`) plus "Turn off" (`TextButton`), and no Why?.
+- **Description:** just "Say "Hey Jandal" to start talking, hands-free." It never says "Turns on when you tap Finish." while blocked, because `applyWakeWordChoice` writes nothing while a block remains.
 
 ### 4.6 Settings › Voice, speech recognition (`VoiceScreen.kt`)
 
@@ -501,13 +531,13 @@ ChoiceGroup(VoiceInputEngine.entries.size)
 ```
 
 - **Display names:** `displayName` for `Auto` is "Automatic (recommended)". Show "Automatic" plus the Recommended tag instead.
-- **Short descriptions:** need a `shortDescription(engine)` map in `VoiceScreen.kt`. The README gives Automatic, Android native, Zipformer and SenseVoice. For Whisper and Paraformer, shorten `VoiceInputEngine.description` with its meaning kept, for example "Offline, English only. Shows text when you stop." and "Offline, shows words as you speak."
+- **Descriptions:** per the README, keep each engine's existing `VoiceInputEngine.description` and shorten it to one line with the meaning kept (README gives "its existing description, shortened" for Automatic and the description plus language line for Android native). Put the shortened strings in a `shortDescription(engine)` map in `VoiceScreen.kt`. The mockup lines ("Picks the best recognizer on this phone. Works offline.", "Fully offline, shows words as you speak.", "Offline, multilingual.") are examples of that shortening. Don't rename engines (README Out of scope).
 - **Saving:** Settings keeps saving immediately (`setAllowOnlineSpeechFallback`).
 - **Download button:** when not downloaded, it uses `OutlinedButton` with a `Download` icon (per the mockup). Today's code uses a filled `Button`.
 
 ## 5. Previews
 
-Put setup previews in `feature/chat/.../setup/SetupWizardPreviews.kt` and component previews in `core/ui/.../ComponentPreviews.kt`. Use `@PreviewLightDark` (ui-tooling-preview 1.11) and wrap each in `KernelAITheme(darkTheme = isSystemInDarkTheme(), dynamicColor = false) { Surface { … } }`.
+Put setup previews in `feature/chat/.../setup/SetupWizardPreviews.kt` and component previews in `core/ui/.../ComponentPreviews.kt`. Use `@PreviewLightDark` (ui-tooling-preview 1.11) and wrap each in `KernelAITheme(darkTheme = isSystemInDarkTheme(), dynamicColor = false) { Surface(color = MaterialTheme.colorScheme.background) { … } }`, so previews show the real page colour.
 
 | Preview | Config | Content |
 |---|---|---|
@@ -517,8 +547,10 @@ Put setup previews in `feature/chat/.../setup/SetupWizardPreviews.kt` and compon
 | `Step3Preview` | `@PreviewLightDark` | E4B, Arctic, Zipformer, Cori |
 | `Step3NothingLeftPreview` | dark | empty plan, shows "Already downloaded" |
 | `Step4Preview` | `@PreviewLightDark` | default `MakeYoursPlatform` |
-| `Step4PendingPreview` | dark | `wakeWordChoice = true`, `wakeWordStored = false`, gives On at Finish |
-| `Step4HonorPreview` | `@PreviewLightDark` plus fontScale 2f | `usageAccessRequired = true`, `wakeWordChoice = true` (screen 4b) |
+| `Step4PendingPreview` | dark | `wakeWordChoice = true`, `wakeWordStored = false`, no block: On at Finish, Turn off |
+| `Step4PendingOffPreview` | dark | `wakeWordChoice = false`, `wakeWordStored = true`, no block: Off, Turn on, "Turns off when you tap Finish." |
+| `Step4HonorPreview` | `@PreviewLightDark` plus fontScale 2f | `usageAccessRequired = true`, `wakeWordChoice = true` (screen 4b): Open Usage Access + Turn off |
+| `Step4MicPreview` | dark | `micGranted = false`, `wakeWordChoice = true`: Allow microphone + Turn off |
 | `Step4NotAvailablePreview` | dark | `hasMicrophone = false` |
 | `Step4CompactPreview` | `@Preview(widthDp = 915, heightDp = 412, fontScale = 2f)` | compact mode |
 | `SpeechRecognitionSectionPreview` | `@PreviewLightDark` (feature/settings) | Auto selected, Zipformer downloaded, SenseVoice not |
@@ -570,10 +602,10 @@ The README's "Done when" asks for S23U screenshots of the pending, Needs access 
 - **`MakeYoursResumeRefreshTest`:** unchanged API, so it should pass as is. Rerun it.
 - **Unit tests (JUnit 5, `feature/chat/src/test/.../setup/`):**
   - `downloadRows`: E4B vs E2B tier, downloaded items hidden, Inflect only when chosen and eligible, and the rows sum to the total.
-  - `heyJandalCard`: one case per README table row.
+  - `heyJandalCard`: one case per row of the 4.4 table, including pending off, both blocked rows ("Stays off until this is fixed." and `TurnOff` present, and never "Turns on when you tap Finish."), and Not available with and without `choice`.
   - `SetupSpeechOptions.outputOptions`: Kokoro never offered, and Inflect on release only when eligible.
-  - Extend `SetupWizardViewModelTest`: the online switch is saved on Finish and Skip only when touched; Inflect is queued on Finish.
-  - Extend `MakeYoursRowsTest`.
+  - Extend `SetupWizardViewModelTest`: the online switch is saved on Finish and Skip only when touched; Inflect is queued on Finish with the Cori pack when Cori is missing.
+  - Update `MakeYoursRowsTest` for the new `blockText` copy and the removed `wakeWord` / `statusLabel`.
 
 ## 7. Risks and decisions for the implementer
 
@@ -581,22 +613,18 @@ The README's "Done when" asks for S23U screenshots of the pending, Needs access 
 2. **Selectable header vs sub-content:** never put `subContent` inside the `selectable` `Row`. A nested switch inside a radio row gives a double action, and TalkBack merges the switch into the radio announcement.
 3. **Scroll state key:** `rememberSaveable(state.step, saver = ScrollState.Saver)`. If you key with `remember` instead, rotation loses the position. If you don't key it at all, #1929 comes back.
 4. **Moving `wakeVerifierKernelModels`** touches `:app`. That is in scope, because the README requires a shared source. Update every caller in the same PR.
-5. **Inflect queueing:** `downloadInflectMicro` also starts the shared Cori frontend pack. If you extract it unchanged, step 3 must show that pack too, or the total is wrong. See Spec issues found.
+5. **Inflect queueing:** extract `downloadInflectMicro` into one shared helper. It starts the Cori pack too; step 3 shows that through `plannedVoices` (4.0, 4.3). Don't copy the logic into the setup view model.
 6. **Sample clips are new binary assets.** Making them needs Cori and Inflect synthesis on a dev machine or device, then Opus encoding to 150 KB or less. If no clip exists, the README says to hide the button. Don't ship a placeholder sound.
-7. **Light mode:** cards and the page are both white (`surface` = `surfaceContainerHigh` = `#FFFFFF`). Get the owner's call before adding borders. See Spec issues found.
-8. **`FlowRow`** is in `androidx.compose.foundation.layout`. If the compiler asks for `@OptIn(ExperimentalLayoutApi::class)` on `itemVerticalArrangement`, use plain `verticalArrangement` instead of opting in.
+7. **Page colour:** use `colorScheme.background` for the page, footer and fade, never `surface`. In light mode `surface` is white, the same as the cards. Grep the setup package for `colorScheme.surface)` and `Color.Transparent, surface` before review.
+8. **`FlowRow`:** in foundation-layout 1.11.1 the parameter is `itemVerticalAlignment: Alignment.Vertical`; there is no `itemVerticalArrangement`. The overload with `overflow: FlowRowOverflow` is the one tied to `ExperimentalLayoutApi`. Call the overload without `overflow`, which these components don't need, rather than adding `@OptIn`.
 9. **Hard-coded strings:** setup mixes literals and `R.string.*`. New copy can follow the surrounding style. Don't do a broad move to string resources; that is out of scope.
-10. **No device work** is needed to build this. On-device S23U screenshots are a PR requirement (README "Done when").
+10. **Why? on the Hey Jandal card:** shown only when the card has no `Turn off` text button, matching screens 4 and 4b. This is a reading of the mockups, not a README rule. If review wants Why? everywhere, the `FlowRow` action row already wraps a third button.
+11. **No device work** is needed to build this. On-device S23U screenshots are a PR requirement (README "Done when").
 
 ## Spec issues found
 
-Found while checking the README at `58d85a78` against the code. The README wasn't changed.
+Checked against the README at `5eb33313`. The earlier list is settled by `8c6feeca` and `5eb33313`: Inflect counts Cori, the page uses `background`, More is its own 48 dp button, chips don't wrap, `isRerun` exists, Kokoro isn't offered, and the mockups draw `#1A1A1A` and accent `#9FCB8F`.
 
-1. **Inflect also downloads the Cori pack.** `VoiceViewModel.downloadInflectMicro()` (lines 552–576) starts the selected Sherpa voice pack as Inflect's "shared Cori frontend" (see `aggregateInflectMicroAvailability`, line 153). Inflect isn't Ready until that pack is downloaded. The README says choosing Inflect queues "its two files … about 40 MB". The real cost is about 40 MB plus Cori (116 MB) when Cori isn't on the phone, so the step 2 size tag, the step 3 rows and the total all need it.
-2. **Light-mode cards have no edge.** In `JandalLightColorScheme`, `surface`, `surfaceContainer` and `surfaceContainerHigh` are all white. README "Page background `surface`, Cards `surfaceContainerHigh`" gives white cards on a white page in light mode. Options: the page on `background` (`SandLight`), or a 1 dp `outlineVariant` border on unselected cards in light mode only.
-3. **Step 4 picture vs text.** `04-make-jandal-yours.png` shows **Allow** for an Off "Alarms and timers" card, but the README says **Open settings**. The Notifications description in the picture lacks "Downloads keep going either way." Neither card has **Why?**, though today's rows have longer text, which the README's Why? rule covers. The text wins; these notes follow the text.
-4. **Inline "More" link.** Screens 2 and 5 draw "More" as an inline underlined link inside the switch row. The README requires every sub-content control to be its own 48 dp target. These notes use a separate `TextButton`. Re-render the mockups if the picture should match.
-5. **Settings tag wraps.** In `05-settings-voice.png` the "Not downloaded" chip wraps onto two lines next to "Sherpa-ONNX SenseVoice". A status chip must stay on one line. Wrap the chip under the title (FlowRow) instead.
-6. **Page background in the mockups.** They still draw `#141414` (about `surfaceContainerLow`), but the README says `surface` (`#1A1A1A` in dark). That is only a cosmetic difference, and the README wins.
-7. **Short descriptions missing.** The README gives the short copy for Automatic, Android native, Zipformer and SenseVoice only. Whisper and Paraformer need owner-approved one-liners. These notes suggest some in 4.6.
-8. **Re-run detection.** The README separates "first run" from "re-run from Settings" for the welcome total and the step 3 wording. The current state has no re-run flag; `choiceRecorded` also covers first runs where the network was stored before, so a new `isRerun` field is needed. This is not a contradiction; it is new state.
+One gap remains open:
+
+1. **Not chosen, with a fixable block.** The step 4 Hey Jandal table has no row for "not chosen, and the microphone isn't granted or Usage Access is missing". Today's `SetupWizardScreen` offers the fix button (Allow microphone / Open Usage Access) and no Turn on, with the reason as plain text. Shared parts 3 says such a card shows Off with the reason as plain secondary text. These notes follow today's code (4.4, last table row). Confirm, or add a README row if the card should offer Turn on instead.
