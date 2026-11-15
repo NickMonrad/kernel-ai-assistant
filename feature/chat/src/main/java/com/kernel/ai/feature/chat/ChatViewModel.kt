@@ -260,7 +260,12 @@ class ChatViewModel @Inject constructor(
     sealed interface UiEvent {
         data object RequestWeatherLocationPermission : UiEvent
         data object RepairWeatherLocationPermission : UiEvent
-        data class RequestCalendarPermission(val permissions: List<String>, val capability: CapabilityKey) : UiEvent
+        data class RequestCalendarPermission(
+            val permissions: List<String>,
+            val capability: CapabilityKey,
+            val conversationId: String,
+            val retryOnGrant: Boolean,
+        ) : UiEvent
     }
 
     /** State for the contextual local-weather location permission dialog. */
@@ -334,6 +339,8 @@ class ChatViewModel @Inject constructor(
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
     private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
     private var pendingCalendarPermissionAction: PendingCalendarPermissionAction? = null
+    private var modelTurnCalendarCapability: CapabilityKey? = null
+    private var calendarPermissionReplyMessageId: String? = null
     private var awaitingWeatherLocationSettingsReturn = false
     private val denialClassifier = PermissionDenialClassifier()
     val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
@@ -1602,19 +1609,14 @@ class ChatViewModel @Inject constructor(
                 shouldIndex = false,
                 spokenSummary = result.error,
             )
-            is SkillResult.CapabilityRequired -> {
-                if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
-                    pendingWeatherLocationAction = pending
-                    _weatherLocationState.value = WeatherLocationState()
-                } else {
-                    appendAssistantMessage(
-                        convId = convId,
-                        content = capabilityRequiredMessage(result),
-                        shouldIndex = false,
-                        spokenSummary = capabilityRequiredMessage(result),
-                    )
-                }
-            }
+            is SkillResult.CapabilityRequired -> presentCapabilityRequired(
+                convId = convId,
+                query = pending.query,
+                intentName = pending.intentName,
+                params = pending.params,
+                submitMode = pending.submitMode,
+                result = result,
+            )
             else -> appendAssistantMessage(
                 convId = convId,
                 content = "I couldn't complete that request.",
@@ -2166,6 +2168,7 @@ class ChatViewModel @Inject constructor(
             suppressCloseDistillationForSafeProbe = true
         }
         pendingVoiceReply = submitMode == SubmitMode.Voice
+        modelTurnCalendarCapability = null
 
         // Synchronous flag set — collapses the TOCTOU window before coroutine dispatch
         if (!inferenceEngine.isReady.value) {
@@ -2568,7 +2571,7 @@ class ChatViewModel @Inject constructor(
                 val previousUserMessage = _messages.value.dropLast(1)
                     .lastOrNull { it.role == ChatMessage.Role.USER }
                     ?.content
-                if (dispatchAnaphoricListAdd(text, previousUserMessage, convId)) return@launch
+                if (dispatchAnaphoricListAdd(text, previousUserMessage, convId, submitMode)) return@launch
             }
             val explicitWikipediaQuery = if (safeRunIntentTest) null else extractExplicitWikipediaQuery(text)
             val matchedIntent = explicitWikipediaQuery?.let {
@@ -3716,7 +3719,7 @@ class ChatViewModel @Inject constructor(
                                     "KernelAI",
                                     "llm_tools_native_tool: tool=${UnknownIntentReplies.loggableName(nativeToolCall.skillName)} requestLen=${nativeToolCall.requestJson.length}" + (if (DebugVerboseLog.active()) " request=${nativeToolCall.requestJson}" else ""),
                                 )
-                            requestCalendarPermissionIfNeeded(kernelAIToolSet.lastToolCapabilityRequired())
+                            kernelAIToolSet.lastToolCapabilityRequired()?.let { modelTurnCalendarCapability = it }
                             // E2E marker: native SDK skill result
                             val nativeResultMode = when {
                                 !nativeToolCall.isSuccess -> "failure"
@@ -3987,6 +3990,11 @@ class ChatViewModel @Inject constructor(
                                 turnsSinceReset++
                             }
 
+                            // The calendar permission reply follows the saved model turn, so it lands after it.
+                            modelTurnCalendarCapability?.let { capability ->
+                                modelTurnCalendarCapability = null
+                                requestCalendarPermissionIfNeeded(convId, capability, retryOnGrant = false)
+                            }
                             // Clear streaming tracking now that the message is fully persisted.
                             activeStreamingMsgId = null
                             activeStreamingPersistenceDisabled = false
@@ -4371,7 +4379,7 @@ class ChatViewModel @Inject constructor(
         val extracted = ToolCallExtractor.extractNativeToolCall(raw)
             ?: ToolCallExtractor.extractToolCallJson(raw) ?: return null
         val result = skillExecutor.execute(extracted)
-        requestCalendarPermissionIfNeeded((result as? SkillResult.CapabilityRequired)?.capabilityKey)
+        (result as? SkillResult.CapabilityRequired)?.capabilityKey?.let { modelTurnCalendarCapability = it }
         // E2E marker: skill execution result
         Log.d(
             "KernelAI",
@@ -4554,8 +4562,7 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Routes a CapabilityRequired result to its permission flow, or appends a plain reply when no
-     * permission UI exists. Calendar replies are appended by [onCalendarPermissionRouted] once the
-     * screen has chosen the runtime prompt or the App info path.
+     * permission UI exists. Calendar results set the retryable pending action and show the prompt reply.
      */
     private suspend fun presentCapabilityRequired(
         convId: String,
@@ -4584,7 +4591,7 @@ class ChatViewModel @Inject constructor(
                     params = params,
                     submitMode = submitMode,
                 )
-                requestCalendarPermissionIfNeeded(result.capabilityKey)
+                requestCalendarPermissionIfNeeded(convId, result.capabilityKey, retryOnGrant = true)
             }
             else -> {
                 val message = capabilityRequiredMessage(result)
@@ -4594,13 +4601,12 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Asks in-app for the calendar permissions a CapabilityRequired result needs: READ for lookup,
-     * READ + WRITE for create. The screen routes each permission (request, or app info when blocked)
-     * and reports the chosen path back through [onCalendarPermissionRouted].
+     * Shows the prompt-path calendar reply and asks the screen for the runtime permission. The reply is
+     * UI-only (not persisted, not spoken) so it never consumes [pendingVoiceReply]. The screen reports
+     * App-info routing through [onCalendarPermissionBlocked], which replaces this reply.
      */
-    private fun requestCalendarPermissionIfNeeded(capability: CapabilityKey?) {
-        val key = capability ?: return
-        val permissions = when (key) {
+    private fun requestCalendarPermissionIfNeeded(convId: String, capability: CapabilityKey, retryOnGrant: Boolean) {
+        val permissions = when (capability) {
             CapabilityKey.CalendarWrite -> listOf(
                 android.Manifest.permission.READ_CALENDAR,
                 android.Manifest.permission.WRITE_CALENDAR,
@@ -4608,22 +4614,36 @@ class ChatViewModel @Inject constructor(
             CapabilityKey.CalendarLookup -> listOf(android.Manifest.permission.READ_CALENDAR)
             else -> return
         }
-        viewModelScope.launch { _events.emit(UiEvent.RequestCalendarPermission(permissions, key)) }
-    }
-
-    /**
-     * Appends the calendar permission reply for the path the screen chose. [blocked] means Android
-     * will not show the prompt, so the user is sent to App info.
-     */
-    fun onCalendarPermissionRouted(capability: CapabilityKey, blocked: Boolean) {
-        val convId = conversationId ?: return
-        val message = calendarPermissionReply(capability, blocked) ?: return
+        showCalendarPermissionReply(convId, capability, retryOnGrant, blocked = false)
         viewModelScope.launch {
-            appendAssistantMessage(convId = convId, content = message, shouldIndex = false, spokenSummary = message)
+            _events.emit(UiEvent.RequestCalendarPermission(permissions, capability, convId, retryOnGrant))
         }
     }
 
-    private fun calendarPermissionReply(capability: CapabilityKey, blocked: Boolean): String? {
+    private fun showCalendarPermissionReply(
+        convId: String,
+        capability: CapabilityKey,
+        retryOnGrant: Boolean,
+        blocked: Boolean,
+    ) {
+        if (convId != conversationId) return
+        val text = calendarPermissionReply(capability, retryOnGrant, blocked) ?: return
+        val existingId = calendarPermissionReplyMessageId
+        if (blocked && existingId != null && _messages.value.any { it.id == existingId }) {
+            _messages.update { msgs -> msgs.map { if (it.id == existingId) it.copy(content = text) else it } }
+            return
+        }
+        val id = UUID.randomUUID().toString()
+        calendarPermissionReplyMessageId = id
+        _messages.update { it + ChatMessage(id = id, role = ChatMessage.Role.ASSISTANT, content = text) }
+    }
+
+    /** Screen reports that Android will not show the runtime prompt, so the user must use App info. */
+    fun onCalendarPermissionBlocked(convId: String, capability: CapabilityKey, retryOnGrant: Boolean) {
+        showCalendarPermissionReply(convId, capability, retryOnGrant, blocked = true)
+    }
+
+    private fun calendarPermissionReply(capability: CapabilityKey, retryOnGrant: Boolean, blocked: Boolean): String? {
         val (need, outcome) = when (capability) {
             CapabilityKey.CalendarWrite ->
                 "Jandal needs Calendar read and write access to add events." to "add the event"
@@ -4632,15 +4652,18 @@ class ChatViewModel @Inject constructor(
             else -> return null
         }
         val path = if (blocked) "Turn on Calendar in App info" else "Allow it when prompted"
-        return "$need $path and Jandal will $outcome."
+        return if (retryOnGrant) {
+            "$need $path and Jandal will $outcome."
+        } else {
+            "$need $path, then ask again."
+        }
     }
 
     private fun capabilityRequiredMessage(result: com.kernel.ai.core.skills.SkillResult.CapabilityRequired): String =
         if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
             "Jandal needs Location access for local weather. Turn on Location in app permissions, or ask for weather in a named city."
         } else {
-            calendarPermissionReply(result.capabilityKey, blocked = false)
-                ?: "Permission required for ${result.skillName}."
+            "Permission required for ${result.skillName}."
         }
 
     private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
@@ -4879,6 +4902,7 @@ class ChatViewModel @Inject constructor(
         userMessage: String,
         previousUserMessage: String?,
         convId: String,
+        submitMode: SubmitMode,
     ): Boolean {
         return when (
             val resolution = AnaphoricListAddResolver.resolve(userMessage, previousUserMessage)
@@ -4941,11 +4965,14 @@ class ChatViewModel @Inject constructor(
                         result.error,
                         shouldIndex = false,
                     )
-                    is SkillResult.CapabilityRequired -> {
-                        val message = capabilityRequiredMessage(result)
-                        requestCalendarPermissionIfNeeded((result as? SkillResult.CapabilityRequired)?.capabilityKey)
-                        appendAssistantMessage(convId, message, shouldIndex = false)
-                    }
+                    is SkillResult.CapabilityRequired -> presentCapabilityRequired(
+                        convId = convId,
+                        query = userMessage,
+                        intentName = intentName,
+                        params = intentParams,
+                        submitMode = submitMode,
+                        result = result,
+                    )
                     else -> appendAssistantMessage(
                         convId,
                         "I couldn't add that to your list just now.",

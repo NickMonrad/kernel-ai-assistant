@@ -402,12 +402,16 @@ fun ChatScreen(
             }
 
             var pendingCalendarLaunchedAt by rememberSaveable { mutableStateOf(0L) }
+            var pendingCalendarRequest by remember {
+                mutableStateOf<ChatViewModel.UiEvent.RequestCalendarPermission?>(null)
+            }
             val calendarPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestMultiplePermissions(),
             ) { results ->
                 val activity = context as android.app.Activity
                 // A silent denial returns with no dialog shown, so it is detected by launch-to-result timing.
                 val elapsed = android.os.SystemClock.elapsedRealtime() - pendingCalendarLaunchedAt
+                var silentDenial = false
                 results.forEach { (permission, granted) ->
                     val shouldShowRationale = !granted &&
                         ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
@@ -420,14 +424,24 @@ fun ChatScreen(
                         silentlyDenied = silent,
                     )
                     // Silently denied: the system will not prompt again, so send the user to App info.
-                    if (silent) openRuntimePermissionRepair(permission)
+                    if (silent) {
+                        silentDenial = true
+                        openRuntimePermissionRepair(permission)
+                    }
+                }
+                // Silent denial replaces the prompt reply with the App info reply for the same request.
+                if (silentDenial) {
+                    pendingCalendarRequest?.let { request ->
+                        viewModel.onCalendarPermissionBlocked(request.conversationId, request.capability, request.retryOnGrant)
+                    }
                 }
                 if (calendarPermissionsGranted(results)) viewModel.onCalendarPermissionGranted() else viewModel.onCalendarPermissionDenied()
             }
-            fun requestCalendarPermissions(permissions: List<String>, capability: com.kernel.ai.core.permissions.CapabilityKey) {
+            fun requestCalendarPermissions(request: ChatViewModel.UiEvent.RequestCalendarPermission) {
+                pendingCalendarRequest = request
                 val store = PermissionRequestStore.from(context)
                 val activity = context as android.app.Activity
-                val routes = permissions.associateWith { permission ->
+                val routes = request.permissions.associateWith { permission ->
                     decidePermissionRoute(
                         isGranted = ContextCompat.checkSelfPermission(context, permission) ==
                             PackageManager.PERMISSION_GRANTED,
@@ -439,14 +453,13 @@ fun ChatScreen(
                 // Permanently denied: the system will not show the prompt, so send the user to App info.
                 val permanentlyDenied = routes.entries.firstOrNull { it.value == PermissionRoute.AppInfo }?.key
                 if (permanentlyDenied != null) {
-                    viewModel.onCalendarPermissionRouted(capability, blocked = true)
+                    viewModel.onCalendarPermissionBlocked(request.conversationId, request.capability, request.retryOnGrant)
                     viewModel.onCalendarPermissionDenied()
                     openRuntimePermissionRepair(permanentlyDenied)
                     return
                 }
                 val toRequest = routes.filterValues { it != PermissionRoute.Granted }.keys
                 if (toRequest.isNotEmpty()) {
-                    viewModel.onCalendarPermissionRouted(capability, blocked = false)
                     pendingCalendarLaunchedAt = android.os.SystemClock.elapsedRealtime()
                     calendarPermissionLauncher.launch(toRequest.toTypedArray())
                 } else {
@@ -465,7 +478,7 @@ fun ChatScreen(
                         }
                         ChatViewModel.UiEvent.RepairWeatherLocationPermission ->
                             openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
-                        is ChatViewModel.UiEvent.RequestCalendarPermission -> requestCalendarPermissions(event.permissions, event.capability)
+                        is ChatViewModel.UiEvent.RequestCalendarPermission -> requestCalendarPermissions(event)
                     }
                 }
             }

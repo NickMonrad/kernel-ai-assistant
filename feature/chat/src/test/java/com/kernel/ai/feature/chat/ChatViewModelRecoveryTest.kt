@@ -22,11 +22,11 @@ import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
-import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillResult
@@ -46,6 +46,7 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.google.ai.edge.litertlm.ToolProvider
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -57,6 +58,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -66,6 +68,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -377,23 +380,24 @@ class ChatViewModelRecoveryTest {
         viewModel.sendMessage()
         advanceUntilIdle()
 
+        val request = withTimeout(1_000) { event.await() } as ChatViewModel.UiEvent.RequestCalendarPermission
         assertEquals(
-            ChatViewModel.UiEvent.RequestCalendarPermission(
-                permissions = listOf(
-                    android.Manifest.permission.READ_CALENDAR,
-                    android.Manifest.permission.WRITE_CALENDAR,
-                ),
-                capability = CapabilityKey.CalendarWrite,
-            ),
-            event.await(),
+            listOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR),
+            request.permissions,
         )
-
-        viewModel.onCalendarPermissionRouted(CapabilityKey.CalendarWrite, blocked = true)
-        advanceUntilIdle()
+        assertEquals(CapabilityKey.CalendarWrite, request.capability)
+        assertTrue(request.retryOnGrant)
+        coVerify(exactly = 0) { inferenceEngine.generate(any()) }
         assertTrue(
-            viewModel.getConversationAsText().contains("Turn on Calendar in App info and Jandal will add the event."),
+            viewModel.getConversationAsText().contains("Allow it when prompted and Jandal will add the event."),
             viewModel.getConversationAsText(),
         )
+
+        viewModel.onCalendarPermissionBlocked(request.conversationId, request.capability, request.retryOnGrant)
+        advanceUntilIdle()
+        val text = viewModel.getConversationAsText()
+        assertTrue(text.contains("Turn on Calendar in App info and Jandal will add the event."), text)
+        assertFalse(text.contains("Allow it when prompted"), text)
     }
 
 }
