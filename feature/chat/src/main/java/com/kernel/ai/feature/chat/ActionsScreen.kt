@@ -107,17 +107,13 @@ import com.kernel.ai.core.permissions.VoicePermissionPromptFactory
 import com.kernel.ai.core.permissions.VoicePermissionPromptState
 import com.kernel.ai.core.ui.permissions.VoicePermissionPrompt
 import com.kernel.ai.core.voice.VoiceCaptureMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.State
 import com.kernel.ai.feature.chat.InputMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -163,7 +159,7 @@ fun ActionsScreen(
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
-    val voiceInputLevel by viewModel.voiceInputLevel.collectAsStateWithLifecycle()
+    val voiceInputLevel = viewModel.voiceInputLevel.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
     val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
@@ -188,7 +184,6 @@ fun ActionsScreen(
         else -> ""
     }
 
-    // #1850: short haptic when the mic goes live, same as the chat input bar.
     val actionsView = androidx.compose.ui.platform.LocalView.current
     // #1850: start haptic is emitted once per mic start by the view model.
     LaunchedEffect(viewModel) {
@@ -1743,7 +1738,7 @@ private fun VoiceCaptureCard(
     state: ActionsViewModel.VoiceCaptureState,
     onStop: () -> Unit,
     micHintVisible: Boolean,
-    voiceInputLevel: Float,
+    voiceInputLevel: State<Float>,
 ) {
     val title = when (state) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> "Getting ready…"
@@ -1779,18 +1774,13 @@ private fun VoiceCaptureCard(
         ) {
             if (state is ActionsViewModel.VoiceCaptureState.Listening) {
                 // #1850: ring scales with the live input level while the mic is live.
-                val pulseScale by androidx.compose.animation.core.animateFloatAsState(
-                    targetValue = 1f + voiceInputLevel.coerceIn(0f, 1f),
-                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 100),
-                    label = "actions-listening-level-scale",
-                )
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(24.dp)) {
                     Box(
                         modifier = Modifier
                             .size(24.dp)
                             .graphicsLayer {
-                                scaleX = pulseScale
-                                scaleY = pulseScale
+                                scaleX = 1f + voiceInputLevel.value.coerceIn(0f, 1f)
+                                scaleY = scaleX
                             }
                             .background(
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),

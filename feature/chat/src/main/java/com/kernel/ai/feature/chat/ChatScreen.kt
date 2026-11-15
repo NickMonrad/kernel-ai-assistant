@@ -5,10 +5,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.runtime.State
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -277,7 +274,7 @@ fun ChatScreen(
     val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
     val microphoneState by viewModel.microphoneState.collectAsStateWithLifecycle()
     val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
-    val voiceInputLevel by viewModel.voiceInputLevel.collectAsStateWithLifecycle()
+    val voiceInputLevel = viewModel.voiceInputLevel.collectAsStateWithLifecycle()
     // #1850: short haptic when the mic goes live, emitted once per start by the view model.
     val chatView = androidx.compose.ui.platform.LocalView.current
     androidx.compose.runtime.LaunchedEffect(viewModel) {
@@ -862,7 +859,7 @@ private fun ChatContent(
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
-    voiceInputLevel: Float,
+    voiceInputLevel: State<Float>,
     micHintVisible: Boolean,
     mealPlannerActivity: MealPlannerActivity?,
     onPlannerSmartReplySelected: (MealPlannerSuggestion) -> Unit,
@@ -1621,7 +1618,7 @@ private fun InputBar(
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
-    voiceInputLevel: Float,
+    voiceInputLevel: State<Float>,
     micHintVisible: Boolean,
     mealPlannerActivity: MealPlannerActivity?,
     onTextChanged: (String) -> Unit,
@@ -1807,17 +1804,12 @@ private fun InputBar(
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.size(24.dp)) {
                                 if (currentStatus.pulse) {
                                     // #1850: ring scales with the live input level while Listening.
-                                    val pulseScale by androidx.compose.animation.core.animateFloatAsState(
-                                        targetValue = 1f + voiceInputLevel.coerceIn(0f, 1f),
-                                        animationSpec = tween(durationMillis = 100),
-                                        label = "voice-listening-level-scale",
-                                    )
                                     Box(
                                         modifier = Modifier
                                             .size(24.dp)
                                             .graphicsLayer {
-                                                scaleX = pulseScale
-                                                scaleY = pulseScale
+                                                scaleX = 1f + voiceInputLevel.value.coerceIn(0f, 1f)
+                                                scaleY = scaleX
                                             }
                                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape),
                                     )

@@ -2536,6 +2536,47 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `ListeningStarted emits one start haptic signal`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        val haptics = mutableListOf<Unit>()
+        val collectJob = launch { viewModel.listeningHaptics.collect { haptics += it } }
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+
+        assertEquals(1, haptics.size)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `mic hint is visible on the first mic start`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        coEvery { voiceInputPreferences.recordMicUseStarted() } returns 1
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.micHintVisible.value)
+    }
+
+    @Test
+    fun `mic hint is hidden after the hint budget is spent`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        coEvery { voiceInputPreferences.recordMicUseStarted() } returns 6
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+
+        assertEquals(false, viewModel.micHintVisible.value)
+    }
+
+    @Test
     fun `ListeningStarted for unowned mode does not trigger cue player`() = runTest(dispatcher) {
         // ActionsViewModel is Idle — it owns nothing. An event from an AlertCommand
         // session started elsewhere should be silently ignored.

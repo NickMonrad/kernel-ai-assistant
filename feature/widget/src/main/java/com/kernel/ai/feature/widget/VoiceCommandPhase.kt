@@ -6,11 +6,14 @@ import com.kernel.ai.core.voice.VoiceInputEvent
 internal enum class VoiceCommandPhase { Starting, Listening, Processing }
 
 /**
- * Phase after [event]. Only the events that move the overlay forward change it; Transcript,
- * Error and ListeningStopped end or retry the session in the activity, so the phase is kept.
+ * Phase after [event]. Listening and speech end move the overlay forward. Error resets it to
+ * Starting because the activity retries once (or shows the unavailable notice) and the recognizer
+ * is not live again until ListeningStarted. Transcript and ListeningStopped keep the phase: the
+ * activity finishes on a transcript.
  */
 internal fun phaseAfter(current: VoiceCommandPhase, event: VoiceInputEvent): VoiceCommandPhase = when (event) {
     is VoiceInputEvent.ListeningStarted -> VoiceCommandPhase.Listening
     is VoiceInputEvent.SpeechEnded -> VoiceCommandPhase.Processing
+    is VoiceInputEvent.Error -> VoiceCommandPhase.Starting
     else -> current
 }

@@ -23,10 +23,18 @@ class VoiceCommandPhaseTest {
     }
 
     @Test
-    fun `transcript and error keep the current phase because the activity ends or retries`() {
+    fun `transcript keeps the current phase because the activity finishes`() {
         assertEquals(
             VoiceCommandPhase.Listening,
             phaseAfter(VoiceCommandPhase.Listening, VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "x")),
+        )
+    }
+
+    @Test
+    fun `error resets to starting before a retry so the overlay does not show stale listening`() {
+        assertEquals(
+            VoiceCommandPhase.Starting,
+            phaseAfter(VoiceCommandPhase.Listening, VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "no speech")),
         )
         assertEquals(
             VoiceCommandPhase.Starting,

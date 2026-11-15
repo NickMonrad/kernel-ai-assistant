@@ -77,6 +77,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -217,6 +218,46 @@ class ChatViewModelVoiceTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkStatic(Log::class)
+    }
+
+    @Test
+    fun `SpeechEnded moves an owned command capture to Processing with the partial transcript`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "set a timer"))
+        voiceInputEvents.emit(VoiceInputEvent.SpeechEnded(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+
+        assertEquals(
+            ChatViewModel.VoiceCaptureState.Processing("set a timer"),
+            viewModel.voiceCaptureState.value,
+        )
+    }
+
+    @Test
+    fun `ListeningStarted emits one chat start haptic signal`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        val haptics = mutableListOf<Unit>()
+        val collectJob = launch { viewModel.listeningHaptics.collect { haptics += it } }
+
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+
+        assertEquals(1, haptics.size)
+        collectJob.cancel()
     }
 
     @Test
