@@ -1,0 +1,36 @@
+11-15 18:14:20.899 30149 30149 I AcousticStimulus: {"event":"started","trial_id":"qa-1794730460-natural_wake","fixture_id":"natural_wake","monotonic_ms":11446076074,"wall_clock_ms":1794730460899}
+11-15 18:14:22.454 30149  6132 I KernelAI: WakeWordDetector: detected (high confidence=0.7396962)
+11-15 18:14:22.486  7688  8214 V APM_AudioPolicyManager: stopInput portId 200
+11-15 18:14:22.498  7688 17925 V APM_AudioPolicyManager: releaseInput portId 200
+11-15 18:14:22.498  7688 17925 V APM_AudioPolicyManager: releaseInput 134
+11-15 18:14:22.511 30149 30257 D KernelAI: WakeWordDetector: stopped
+11-15 18:14:22.541  7688 17925 V APM_AudioPolicyManager: releaseInput exit
+11-15 18:14:22.620 30149 30257 I KernelAI: WakeWordService: yielding mic to voice session (AlertCommand)
+11-15 18:14:22.620 30149 30257 D KernelAI: WakeWordDetector: stopped
+11-15 18:14:22.623  7688 17925 V APM_AudioPolicyManager: startInput input:142, session:87095057)
+11-15 18:14:22.656 30149 30257 I ToneGenerator: startTone: try to start toneType 24 with volume=0.100000
+11-15 18:14:23.021 30149 30149 I AcousticStimulus: {"event":"completed","trial_id":"qa-1794730460-natural_wake","fixture_id":"natural_wake","monotonic_ms":11446078196,"wall_clock_ms":1794730463020}
+11-15 18:14:24.527 30149 30149 I AcousticStimulus: {"event":"started","trial_id":"qa-1794730463-cmd_time","fixture_id":"cmd_time","monotonic_ms":11446079702,"wall_clock_ms":1794730464526}
+11-15 18:14:26.111 30149 30149 I AcousticStimulus: {"event":"completed","trial_id":"qa-1794730463-cmd_time","fixture_id":"cmd_time","monotonic_ms":11446081287,"wall_clock_ms":1794730466111}
+11-15 18:14:28.045 30149  5910 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-15 18:14:28.096 30149  6361 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-15 18:14:28.099  7688 18198 V APM_AudioPolicyManager: stopInput portId 206
+11-15 18:14:28.103  7688  7688 V APM_AudioPolicyManager: startInput input:142, session:87095081)
+11-15 18:14:28.109  7688  7703 V APM_AudioPolicyManager: releaseInput portId 206
+11-15 18:14:28.109  7688  7703 V APM_AudioPolicyManager: releaseInput 142
+11-15 18:14:28.110  7688  7703 V APM_AudioPolicyManager: releaseInput(206) 1 clients remaining
+11-15 18:14:28.110  7688  7703 V APM_AudioPolicyManager: releaseInput(206) closeInput 142 by source_priority
+11-15 18:14:28.112 30149  6361 D KernelAI: WakeWordDetector: recording started
+11-15 18:14:28.130  7688  7703 V APM_AudioPolicyManager: releaseInput exit
+11-15 18:14:28.183  7688  8817 V APM_AudioPolicyManager: stopInput portId 210
+11-15 18:14:28.184  7688 18198 V APM_AudioPolicyManager: startInput input:150, session:87095081)
+11-15 18:14:28.227  7688  8817 V APM_AudioPolicyManager: releaseInput portId 210
+11-15 18:14:28.227  7688  8817 W APM_AudioPolicyManager: releaseInput no input for client 210
+11-15 18:14:28.502 30149 30149 I KernelAI: external_prompt_trust callerUid=10300 trust=DIRECT
+11-15 18:14:28.711 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-15 18:14:28.717 30149 30149 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-15 18:14:28.858 30149 30149 D KernelAI: WakeWordService: already running — ignoring duplicate onStartCommand
+11-15 18:14:28.952 30149 30149 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.
+11-15 18:14:31.730 30149  5911 D KernelAI: Sherpa streaming chunk: 2759ms for 22 chars, sid=0
+11-15 18:14:31.733 30149  5910 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=22 part=1/1 text=It's six fourteen P M.
+11-15 18:14:31.733 30149  5910 I KernelAI: SpeakingStarted engine=sherpa chars=22 epochMs=1794730471733

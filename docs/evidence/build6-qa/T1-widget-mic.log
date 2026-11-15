@@ -1,0 +1,45 @@
+--------- beginning of main
+11-15 18:04:32.965 30149 30149 D AudioManager: dispatching onAudioFocusChange(-2) to android.media.AudioManager@59a4bb7com.kernel.ai.core.voice.SherpaOnnxVoiceInputController$$ExternalSyntheticLambda1@c4e2f24
+11-15 18:04:33.000 30149 30149 I AcousticStimulus: {"event":"prepared","trial_id":"qa-1794729872-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445488175,"wall_clock_ms":1794729873000}
+11-15 18:04:33.004 30149 30149 I AcousticStimulus: {"event":"started","trial_id":"qa-1794729872-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445488180,"wall_clock_ms":1794729873004}
+11-15 18:04:33.517 22016 22016 I AudioManager: getParameters keys = g_effect_active_sound_info=track
+11-15 18:04:33.553 22016 22016 I AudioManager: setParameters keyValuePairs = g_effect_dolby_enable=0;g_effect_dolby_profile=5
+11-15 18:04:33.567 22016 22016 I AudioManager: setParameters keyValuePairs = g_effect_game_dolby_enable=0
+11-15 18:04:33.584 22016 22016 I AudioManager: setParameters keyValuePairs = g_effect_dolby_volume_leveler=-1
+11-15 18:04:33.586 22016 22016 I AudioManager: setParameters keyValuePairs = g_effect_dolby_enable=0;g_effect_dolby_profile=5
+11-15 18:04:34.978 30149 30149 D KernelAI: VoiceCommandActivity: final transcript="ought me to my shopping"
+11-15 18:04:35.051 30149 30149 I KernelAI: external_prompt_trust callerUid=10300 trust=DIRECT
+11-15 18:04:35.054 30149 30149 D KernelAI: ActionsViewModel: screen resumed, background pause cleared
+11-15 18:04:35.103 30149 30149 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:04:35.104 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:04:35.104 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:lifecycleOnStop
+11-15 18:04:35.207 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-15 18:04:35.246 30149 30149 D KernelAI: ActionsViewModel: FallThrough for "ought me to my shopping" → navigating to chat
+11-15 18:04:35.323 30149 30149 D AudioManager: dispatching onAudioFocusChange(1) to android.media.AudioManager@59a4bb7com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@6ff8ff9
+11-15 18:04:35.346 30149 30149 I AcousticStimulus: {"event":"completed","trial_id":"qa-1794729872-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445490522,"wall_clock_ms":1794729875346}
+11-15 18:04:35.379 30149 30149 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"qa-1794729872-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445490554,"wall_clock_ms":1794729875379,"cleanup_success":true,"exact_restoration_verified":true}
+11-15 18:04:35.422 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=navigateToChat keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:04:35.422 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:navigateToChat
+11-15 18:04:35.443 30149 30149 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:04:35.444 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:04:35.444 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:lifecycleOnStop
+11-15 18:04:35.493 30149 30149 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.
+11-15 18:04:35.697 30149 30149 I KernelAI: Eager inference initialization waiting for app foreground
+11-15 18:04:35.698 30149 30149 I KernelAI: Eager inference initialization permitted at lifecycle state=RESUMED
+11-15 18:04:35.699 30149 30149 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.
+11-15 18:04:35.729 30149 30149 D KernelAI: ADB_INTENT_TRACE commandId=773b36f9-1 input=redacted submitMode=Voice
+11-15 18:04:35.729 30149 30149 D KernelAI: TTFT_STAGE commandId=773b36f9-1 stage=accepted t_ms=0
+11-15 18:04:35.765 30149 30149 D KernelAI: TTFT_STAGE commandId=773b36f9-1 stage=coroutine_started t_ms=36
+11-15 18:04:35.799 30149 30149 D KernelAI: Set placeholder title for ce4dc8bd-8d23-4c5e-869b-a06e3c87ade8: "ought me to my shopping…"
+11-15 18:04:35.832 30149 30149 D KernelAI: TTFT_STAGE commandId=773b36f9-1 stage=route_done t_ms=102
+11-15 18:04:35.849 30149 30149 W KernelAI: UserProfileRepository.getName(): both paths returned null (profileText length=0). Profile may not contain a recognisable name field.
+11-15 18:04:35.850 30149 30149 D KernelAI: ADB_ROUTE_DECISION commandId=773b36f9-1 result=fallthrough best_guess=null confidence=0.0
+11-15 18:04:35.850 30149 30149 D KernelAI: llm_tools_route: result=fallthrough best_guess=null confidence=0.0
+11-15 18:04:53.780 30149 30149 D KernelAI: ADB_MODEL_STATE commandId=773b36f9-1 status=generating route=llm_fallthrough
+11-15 18:04:53.780 30149 30149 D KernelAI: TTFT_STAGE commandId=773b36f9-1 stage=model_ready t_ms=18050
+11-15 18:04:55.487 30149 30251 D KernelAI: Core vec search: 0 raw results, distances=[]
+11-15 18:04:55.489 30149 30251 D KernelAI: Episodic vec search: 0 raw results, distances=[]
+11-15 18:04:55.495 30149 30251 D KernelAI: Kiwi vec search: 2 raw results, distances=[0.718, 0.725]
+11-15 18:04:55.513 30149 30149 D KernelAI: TTFT_STAGE commandId=773b36f9-1 stage=rag_done t_ms=19783
+11-15 18:04:55.541 30149 30149 D KernelAI: generation_context_budget generation_id=773b36f9-1-g1 attempt=1 source=app_estimate resolved_token_cap=3072 app_context_window=3072 estimated_prior_fixed_tokens=2588 current_prompt_excluding_rag_tokens=237 response_reserve_tokens=1024 max_tool_result_tokens=0
+11-15 18:04:55.541 30149 30149 D KernelAI: TTFT_STAGE commandId=773b36f9-1 stage=generate_called t_ms=19812

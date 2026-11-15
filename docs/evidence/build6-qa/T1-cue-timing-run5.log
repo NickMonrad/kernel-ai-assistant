@@ -1,0 +1,21 @@
+11-15 18:10:07.581  7908  8056 I ActivityTaskManager: START u0 {dat=glance-action:/... flg=0x10000000 cmp=ai.jandal.assistant.debug/com.kernel.ai.feature.widget.VoiceCommandActivity (has extras)} with LAUNCH_SINGLE_TASK from uid 10300 (realCallingUid=10132) (B
+11-15 18:10:07.727  7908  7943 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/30149 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@59a4bb7com.kernel.ai.core.voice.SherpaOnnxVoiceInputController$$ExternalSynthe
+11-15 18:10:07.771  7688 18198 V APM_AudioPolicyManager: startInput input:126, session:87094969)
+11-15 18:10:07.786 30149 30149 I ToneGenerator: startTone: try to start toneType 24 with volume=0.316228
+11-15 18:10:07.787  7688  7688 V APM_AudioPolicyManager: startOutput() output 29, stream 3, session 87094977
+11-15 18:10:09.809  7908  8715 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/30149 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@59a4bb7com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0
+11-15 18:10:09.873 30149 30149 I AcousticStimulus: {"event":"started","trial_id":"qa-1794730209-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445825049,"wall_clock_ms":1794730209873}
+11-15 18:10:09.893  7688  7688 V APM_AudioPolicyManager: startOutput() output 21, stream 3, session 87094985
+11-15 18:10:12.261 30149 30149 I AcousticStimulus: {"event":"completed","trial_id":"qa-1794730209-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445827437,"wall_clock_ms":1794730212261}
+11-15 18:10:12.273  7908  8728 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/30149 clientId=android.media.AudioManager@59a4bb7com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@354441 callingPack=ai.jandal.assis
+11-15 18:10:12.274  7908  8728 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@59a4bb7com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@354441
+11-15 18:10:14.158 30149 30149 D KernelAI: VoiceCommandActivity: final transcript="add milk to my shopping list"
+11-15 18:10:14.225  7688  8214 V APM_AudioPolicyManager: stopInput portId 194
+11-15 18:10:14.235  7908  8728 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/30149 clientId=android.media.AudioManager@59a4bb7com.kernel.ai.core.voice.SherpaOnnxVoiceInputController$$ExternalSyntheticLambda1@4cadd74 callingPack=ai.jandal.assistan
+11-15 18:10:14.235  7908  8728 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@59a4bb7com.kernel.ai.core.voice.SherpaOnnxVoiceInputController$$ExternalSyntheticLambda1@4cadd74
+11-15 18:10:14.614 30149 30149 D KernelAI: NativeIntentHandler.handle: intent=add_to_list paramKeys=[item,list_name,list_name_for_creation]
+11-15 18:10:19.130 30149 30252 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=33 part=1/1 text=Added milk to your shopping list.
+11-15 18:10:19.131  7908  8715 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/30149 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@59a4bb7com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda
+11-15 18:10:19.187  7688 18198 V APM_AudioPolicyManager: startOutput() output 13, stream 11, session 87094993
+11-15 18:10:21.326  7908 10555 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/30149 clientId=android.media.AudioManager@59a4bb7com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@7f4ae8f callingPack=ai.jandal.assista
+11-15 18:10:21.326  7908 10555 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@59a4bb7com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@7f4ae8f

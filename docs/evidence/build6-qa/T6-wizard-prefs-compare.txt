@@ -1,0 +1,7 @@
+Pref files compared byte-for-byte (run-as copy) before wizard vs after each Back-exit.
+font 1.0 run: changed=[('files__datastore__setup_wizard_prefs.preferences_pb', 'changed')]
+font 2.0 run: changed=[('files__datastore__setup_wizard_prefs.preferences_pb', 'changed')]
+setup_wizard_prefs strings before=[b'completed', b'decided', b'step', b'DOWNLOAD'] after1.0=[b'completed', b'decided', b'step', b'HOW_IT_WORKS'] after2.0=[b'completed', b'decided', b'step', b'HOW_IT_WORKS']
+Only the wizard's own resume marker (step) changed; completed/decided flags and all user settings files (voice_input, voice_output, model, download_network, wake_word, chat) are byte-identical.
+Back trace at font 1.0: Make Jandal yours -> Download -> How should Jandal hear -> Welcome -> Settings
+Back trace at font 2.0: ['Nothing left to download. Jandal already', 'Pick both now. Nothing downloads until y', 'Kia ora, welcome to Jandal', 'Timer/alarm duration, snooze behaviour, ']

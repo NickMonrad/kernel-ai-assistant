@@ -1,0 +1,35 @@
+11-15 18:15:53.185 30149 30149 I AcousticStimulus: {"event":"started","trial_id":"qa-1794730552-wake_then_time","fixture_id":"wake_then_time","monotonic_ms":11446168360,"wall_clock_ms":1794730553185}
+11-15 18:15:53.232  7688  7703 V APM_AudioPolicyManager: startOutput() output 21, stream 3, session 87095129
+11-15 18:15:54.806 30149  6523 I KernelAI: WakeWordDetector: detected (high confidence=0.9024806)
+11-15 18:15:54.853  7688  7703 V APM_AudioPolicyManager: stopInput portId 220
+11-15 18:15:54.951 30149 30257 D KernelAI: WakeWordDetector: stopped
+11-15 18:15:55.118 30149 30250 I KernelAI: WakeWordService: yielding mic to voice session (AlertCommand)
+11-15 18:15:55.118 30149 30250 D KernelAI: WakeWordDetector: stopped
+11-15 18:15:55.121  7688  8817 V APM_AudioPolicyManager: startInput input:174, session:87095137)
+11-15 18:15:55.136 30149 30248 I ToneGenerator: startTone: try to start toneType 24 with volume=0.100000
+11-15 18:15:55.147  7688  8214 V APM_AudioPolicyManager: startOutput() output 29, stream 4, session 87095065
+11-15 18:15:56.742 30149 30149 I AcousticStimulus: {"event":"completed","trial_id":"qa-1794730552-wake_then_time","fixture_id":"wake_then_time","monotonic_ms":11446171918,"wall_clock_ms":1794730556742}
+11-15 18:15:58.773  7908 10359 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=ai.jandal.assistant.debug/com.kernel.ai.feature.widget.VoiceCommandActivity (has extras)} with LAUNCH_SINGLE_TASK from uid 10300 (BAL_ALLOW_PERMISSION) result code=0
+11-15 18:15:58.796 30149 30250 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-15 18:15:58.834  7688  8817 V APM_AudioPolicyManager: stopInput portId 225
+11-15 18:15:58.911 30149  7202 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-15 18:15:58.975  7688  8214 V APM_AudioPolicyManager: startInput input:182, session:87095145)
+11-15 18:15:58.989 30149  7202 D KernelAI: WakeWordDetector: recording started
+11-15 18:15:59.220  7908 10558 I ActivityTaskManager: START u0 {flg=0x34000000 cmp=ai.jandal.assistant.debug/com.kernel.ai.MainActivity (has extras)} with LAUNCH_SINGLE_TOP from uid 10300 (BAL_ALLOW_VISIBLE_WINDOW) result code=2
+11-15 18:15:59.248 30149 30149 D KernelAI: ActionsViewModel: screen resumed, background pause cleared
+11-15 18:15:59.254 30149 30149 I KernelAI: external_prompt_trust callerUid=10300 trust=DIRECT
+11-15 18:15:59.328 30149 30149 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:15:59.336 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:15:59.336 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:lifecycleOnStop
+11-15 18:15:59.524 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-15 18:15:59.536 30149 30149 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-15 18:15:59.605 30149 30149 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:15:59.606 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:15:59.606 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:lifecycleOnStop
+11-15 18:15:59.615 30149 30149 D KernelAI: WakeWordService: already running — ignoring duplicate onStartCommand
+11-15 18:15:59.618 30149 30149 D KernelAI: WakeWordService: already running — ignoring duplicate onStartCommand
+11-15 18:15:59.645 30149 30149 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.
+11-15 18:16:01.270 30149 30250 D KernelAI: Sherpa streaming chunk: 1616ms for 21 chars, sid=0
+11-15 18:16:01.273 30149  5910 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=21 part=1/1 text=It's six fifteen P M.
+11-15 18:16:01.273 30149  5910 I KernelAI: SpeakingStarted engine=sherpa chars=21 epochMs=1794730561273
+11-15 18:16:01.317  7688  8214 V APM_AudioPolicyManager: startOutput() output 13, stream 11, session 87095153

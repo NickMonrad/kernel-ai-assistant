@@ -1,0 +1,5 @@
+# HOME sent at 18:33:14.268
+11-15 18:33:14.215 30149 30257 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=46 part=1/1 text=The weather service isn't answering right now.
+11-15 18:33:14.936 30149 30149 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=Speaking(text=The weather service isn't answering right now. Try again in a few minutes.)
+11-15 18:33:14.938 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=Speaking(text=The weather service isn't answering right now. Try again in a few minutes.)
+11-15 18:33:14.948 30149 30257 D AudioTrack: stop(276): called with 16384 frames delivered

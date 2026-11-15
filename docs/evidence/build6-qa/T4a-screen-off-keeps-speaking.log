@@ -1,0 +1,41 @@
+# KEYCODE_SLEEP sent at 18:31:17.02; samples (s_after_sleep, our_started_players, wakefulness)=[(2.1, '0', 'Dozing'), (4.5, '0', 'Dozing'), (6.8, '0', 'Dozing'), (9.1, '0', 'Dozing'), (11.4, '0', 'Dozing'), (13.7, '0', 'Dozing'), (16.1, '1', 'Dozing'), (18.4, '1', 'Dozing'), (20.7, '1', 'Dozing'), (23.1, '1', 'Dozing')]
+11-15 18:31:15.979 30149 30255 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=51 part=1/1 text=Keeorah. Here is a short story for you about a dog.
+11-15 18:31:17.671  7688  8214 D AudioFlinger: setParameters: filtered dev setParameters keyvalue screen_state=off
+11-15 18:31:17.672  7694  7694 D audio_hw_primary: device-adev_set_parameters: param (screen_state=off)
+11-15 18:31:17.672  7694  7694 I audio_hw_primary_odm: odm_adev_set_parameters: enter with key(screen_state=off)
+11-15 18:31:17.672  7694  7694 V audio_hw_primary: device-adev_set_parameters: exit (screen_state=off)
+11-15 18:31:17.675  7694 11731 I Audio_a2dpsink_hw: adev_set_parameters: kevpairs=[screen_state=off]
+11-15 18:31:17.771  7688  8214 D AudioFlinger: setParameters: filtered dev setParameters keyvalue screen_state=off
+11-15 18:31:17.773  7694  7694 D audio_hw_primary: device-adev_set_parameters: param (screen_state=off)
+11-15 18:31:17.773  7694  7694 I audio_hw_primary_odm: odm_adev_set_parameters: enter with key(screen_state=off)
+11-15 18:31:17.773  7694  7694 V audio_hw_primary: device-adev_set_parameters: exit (screen_state=off)
+11-15 18:31:17.774  7694 11731 I Audio_a2dpsink_hw: adev_set_parameters: kevpairs=[screen_state=off]
+11-15 18:31:17.817  7688  8214 D AudioFlinger: setParameters: filtered dev setParameters keyvalue screen_state=off
+11-15 18:31:17.819  7694 11731 D audio_hw_primary: device-adev_set_parameters: param (screen_state=off)
+11-15 18:31:17.819  7694 11731 I audio_hw_primary_odm: odm_adev_set_parameters: enter with key(screen_state=off)
+11-15 18:31:17.819  7694 11731 V audio_hw_primary: device-adev_set_parameters: exit (screen_state=off)
+11-15 18:31:17.820  7694  7694 I Audio_a2dpsink_hw: adev_set_parameters: kevpairs=[screen_state=off]
+11-15 18:31:18.471  7688  4201 D AudioFlinger: setParameters: filtered dev setParameters keyvalue screen_state=off
+11-15 18:31:18.473  7694 11731 D audio_hw_primary: device-adev_set_parameters: param (screen_state=off)
+11-15 18:31:18.473  7694 11731 I audio_hw_primary_odm: odm_adev_set_parameters: enter with key(screen_state=off)
+11-15 18:31:18.473  7694 11731 V audio_hw_primary: device-adev_set_parameters: exit (screen_state=off)
+11-15 18:31:18.474  7694  7694 I Audio_a2dpsink_hw: adev_set_parameters: kevpairs=[screen_state=off]
+11-15 18:31:18.669  7688  4201 D AudioFlinger: setParameters: filtered dev setParameters keyvalue screen_state=off
+11-15 18:31:18.671  7694  7694 D audio_hw_primary: device-adev_set_parameters: param (screen_state=off)
+11-15 18:31:18.671  7694  7694 I audio_hw_primary_odm: odm_adev_set_parameters: enter with key(screen_state=off)
+11-15 18:31:18.671  7694  7694 V audio_hw_primary: device-adev_set_parameters: exit (screen_state=off)
+11-15 18:31:18.672  7694 11731 I Audio_a2dpsink_hw: adev_set_parameters: kevpairs=[screen_state=off]
+11-15 18:31:19.357 30149 30255 D AudioTrack: stop(265): called with 74252 frames delivered
+11-15 18:31:24.055  7688  7688 D AudioFlinger: setParameters: filtered dev setParameters keyvalue screen_state=off
+11-15 18:31:24.059  7694  7694 D audio_hw_primary: device-adev_set_parameters: param (screen_state=off)
+11-15 18:31:24.059  7694  7694 I audio_hw_primary_odm: odm_adev_set_parameters: enter with key(screen_state=off)
+11-15 18:31:24.059  7694  7694 V audio_hw_primary: device-adev_set_parameters: exit (screen_state=off)
+11-15 18:31:24.061  7694  7694 I Audio_a2dpsink_hw: adev_set_parameters: kevpairs=[screen_state=off]
+11-15 18:31:24.097  7688  7688 D AudioFlinger: setParameters: filtered dev setParameters keyvalue screen_state=off
+11-15 18:31:24.100  7694  7694 D audio_hw_primary: device-adev_set_parameters: param (screen_state=off)
+11-15 18:31:24.101  7694  7694 I audio_hw_primary_odm: odm_adev_set_parameters: enter with key(screen_state=off)
+11-15 18:31:24.101  7694  7694 V audio_hw_primary: device-adev_set_parameters: exit (screen_state=off)
+11-15 18:31:24.102  7694 11731 I Audio_a2dpsink_hw: adev_set_parameters: kevpairs=[screen_state=off]
+11-15 18:31:31.319 30149 30248 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=171 part=1/1 text=There was a little terrier named Rusty. Rusty wasn't the biggest dog, nor the most flashy, but he had a tail that never seemed to be asleep, and ears that twitched at the,
+11-15 18:31:40.728 30149 30248 D AudioTrack: stop(266): called with 207299 frames delivered
+11-15 18:31:40.751 30149 30248 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=77 part=1/1 text=slightest sound. Rusty lived in a house where the garden was his whole world.

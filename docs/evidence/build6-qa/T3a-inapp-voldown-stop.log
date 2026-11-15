@@ -1,0 +1,6 @@
+# vols before {3: '1', 11: '11', 4: '11'} after {3: '1', 11: '11', 4: '11'} ; key sent at 18:27:14.384
+11-15 18:27:12.852 30149 30250 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=51 part=1/1 text=Keeorah. Here is a short story for you about a dog.
+11-15 18:27:12.852 30149 30250 I KernelAI: SpeakingStarted engine=sherpa chars=51 epochMs=1794731232852
+11-15 18:27:12.853 30149 30149 D KernelAI: ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-15 18:27:14.701 25999 25999 I adbd    : adbd service requested 'shell,v2,raw:input keyevent KEYCODE_VOLUME_DOWN'
+11-15 18:27:14.961 30149 30250 D AudioTrack: stop(256): called with 45056 frames delivered

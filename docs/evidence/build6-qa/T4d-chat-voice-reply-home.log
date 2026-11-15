@@ -1,0 +1,15 @@
+# HOME sent at 18:36:15.694
+11-15 18:35:17.989 30149 17640 D AudioTrack: stop(280): called with 2112 frames delivered
+11-15 18:35:22.069  7690 17655 D AudioTrack: stop(281): called with 112183 frames delivered
+11-15 18:35:24.238 30149 30149 D KernelAI: VoiceCommandActivity: final transcript="tell me a short story about a dog"
+11-15 18:35:24.373 30149 30149 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:35:24.374 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:35:24.555 30149 30149 D KernelAI: ActionsViewModel: FallThrough for "tell me a short story about a dog" → navigating to chat
+11-15 18:35:24.656 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=navigateToChat keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:35:24.662 30149 30149 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:35:24.662 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:36:15.181 30149 17703 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=133 part=1/1 text=Keeorah. Once, there was a dog named Barnaby. Barnaby wasn't a particularly big dog, but he had the heart of a lion, to describe him.
+11-15 18:36:24.175 30149 17703 D AudioTrack: stop(282): called with 194906 frames delivered
+11-15 18:36:24.188 30149 17703 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=94 part=1/1 text=His favourite part of the day was the long, rambling walk through the green hills of Aotearoa.
+11-15 18:36:29.355 30149 17703 D AudioTrack: stop(283): called with 116845 frames delivered
+11-15 18:36:40.615 30149 30255 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=172 part=1/1 text=The smell of damp earth and wild flax was something he loved. One sunny afternoon, as the sun was dipping below the distant peaks, Barnaby found himself at the edge of the,

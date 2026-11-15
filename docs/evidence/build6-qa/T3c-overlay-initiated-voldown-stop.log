@@ -1,0 +1,11 @@
+# vols before {3: '1', 11: '11', 4: '11'} after {3: '1', 11: '11', 4: '11'} ; key sent at 18:29:08.664
+11-15 18:28:18.278 30149 15046 D AudioTrack: stop(260): called with 2112 frames delivered
+11-15 18:28:22.301  7690 15062 D AudioTrack: stop(261): called with 112183 frames delivered
+11-15 18:28:24.518 30149 30149 D KernelAI: VoiceCommandActivity: final transcript="tell me a short story about a dog"
+11-15 18:28:24.981 30149 30149 D KernelAI: ActionsViewModel: FallThrough for "tell me a short story about a dog" → navigating to chat
+11-15 18:28:25.090 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:28:25.090 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:lifecycleOnStop
+11-15 18:29:06.823 30149 13046 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=91 part=1/1 text=Keeorah. Here is a short story for you about a dog. There was a little terrier named Rusty.
+11-15 18:29:06.823 30149 13046 I KernelAI: SpeakingStarted engine=sherpa chars=91 epochMs=1794731346823
+11-15 18:29:06.835 30149 30149 D KernelAI: ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-15 18:29:09.440 30149 13046 D AudioTrack: stop(262): called with 55296 frames delivered

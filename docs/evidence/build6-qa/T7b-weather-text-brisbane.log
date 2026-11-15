@@ -1,0 +1,7 @@
+# widget text 'weather in Brisbane' submitted 18:34:32.840; reply rendered after live fetch budget at 18:34:43.040 (10.2 s); cache miss so stale branch not exercised
+11-15 18:34:32.840 30149 30149 D KernelAI: WidgetTextInputActivity: submitting text="Weather in Brisbane"
+11-15 18:34:32.963 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@f02f8bc
+11-15 18:34:40.687 30149 13046 W KernelAI: Weather API failed (attempt 0/1), retrying in 500ms
+11-15 18:34:40.687 30149 13046 W KernelAI: java.net.SocketTimeoutException: Read timed out
+11-15 18:34:43.040 30149 30149 W KernelAI: Live weather fetch exceeded the 10000 ms budget
+11-15 18:34:43.042 30149 30149 I KernelAI: Weather cache miss after API_UNAVAILABLE

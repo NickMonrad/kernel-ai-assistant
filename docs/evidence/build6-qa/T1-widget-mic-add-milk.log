@@ -1,0 +1,14 @@
+--------- beginning of main
+11-15 18:10:09.871 30149 30149 I AcousticStimulus: {"event":"prepared","trial_id":"qa-1794730209-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445825047,"wall_clock_ms":1794730209871}
+11-15 18:10:09.873 30149 30149 I AcousticStimulus: {"event":"started","trial_id":"qa-1794730209-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445825049,"wall_clock_ms":1794730209873}
+11-15 18:10:12.261 30149 30149 I AcousticStimulus: {"event":"completed","trial_id":"qa-1794730209-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445827437,"wall_clock_ms":1794730212261}
+11-15 18:10:12.293 30149 30149 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"qa-1794730209-cmd_add_milk","fixture_id":"cmd_add_milk","monotonic_ms":11445827468,"wall_clock_ms":1794730212292,"cleanup_success":true,"exact_restoration_verified":true}
+11-15 18:10:14.158 30149 30149 D KernelAI: VoiceCommandActivity: final transcript="add milk to my shopping list"
+11-15 18:10:14.228 30149 30149 I KernelAI: external_prompt_trust callerUid=10300 trust=DIRECT
+11-15 18:10:14.601 30149 30149 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-15 18:10:14.614 30149 30149 D KernelAI: NativeIntentHandler.handle: intent=add_to_list paramKeys=[item,list_name,list_name_for_creation]
+11-15 18:10:14.834 30149 30248 D KernelAI: Episodic distillation skipped for 46ba4481-f805-4d67-b933-868d8afc5154: only 1 messages (min 4)
+11-15 18:10:15.059 30149 30149 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.
+11-15 18:10:19.129 30149 30252 D KernelAI: Sherpa streaming chunk: 4039ms for 33 chars, sid=0
+11-15 18:10:19.130 30149 30252 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=33 part=1/1 text=Added milk to your shopping list.
+11-15 18:10:19.130 30149 30252 I KernelAI: SpeakingStarted engine=sherpa chars=33 epochMs=1794730219130
