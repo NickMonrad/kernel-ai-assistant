@@ -14,6 +14,10 @@ android {
         versionName = "0.1.0-timeracceptance"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+
+    buildFeatures {
+        buildConfig = true
+    }
 }
 
 dependencies {
