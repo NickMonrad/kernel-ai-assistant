@@ -31,7 +31,9 @@ import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.Skill
+import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
@@ -1945,6 +1947,55 @@ class ChatViewModelVoiceTest {
         androidx.lifecycle.ViewModelStore()
             .apply { put("chat-view-model", viewModel) }
             .clear()
+    }
+
+    @Test
+    fun `calendar permission reply is spoken on a voice-initiated turn`() = runTest(dispatcher) {
+        val input = "add dentist to my calendar tomorrow at 9am"
+        every { quickIntentRouter.route(input) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = input,
+            bestGuess = QuickIntentRouter.MatchedIntent(
+                intentName = "create_calendar_event",
+                params = emptyMap(),
+                source = "classifier",
+            ),
+            bestConfidence = 0.72f,
+        )
+        every { intentRecoveryOrchestrator.recover(any(), any(), any()) } returns RecoveryResult.Execute(
+            intentName = "create_calendar_event",
+            params = emptyMap(),
+        )
+        val calendarSkill = object : Skill {
+            override val name = "create_calendar_event"
+            override val description = "Create calendar event"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarWrite,
+                skillName = "create_calendar_event",
+            )
+        }
+        every { skillRegistry.get("create_calendar_event") } returns calendarSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input))
+        advanceUntilIdle()
+
+        coVerify {
+            voiceOutputController.openStreamingSession(
+                match<VoiceSpeakRequest> { it.text.contains("Allow it when prompted") },
+            )
+        }
+        coVerify {
+            conversationRepository.addMessage(
+                "conv-existing",
+                "assistant",
+                match { it.contains("Allow it when prompted") },
+                any(),
+                any(),
+            )
+        }
     }
     private fun createViewModel(
         savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),

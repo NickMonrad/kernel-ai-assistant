@@ -402,16 +402,12 @@ fun ChatScreen(
             }
 
             var pendingCalendarLaunchedAt by rememberSaveable { mutableStateOf(0L) }
-            var pendingCalendarRequest by remember {
-                mutableStateOf<ChatViewModel.UiEvent.RequestCalendarPermission?>(null)
-            }
             val calendarPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestMultiplePermissions(),
             ) { results ->
                 val activity = context as android.app.Activity
                 // A silent denial returns with no dialog shown, so it is detected by launch-to-result timing.
                 val elapsed = android.os.SystemClock.elapsedRealtime() - pendingCalendarLaunchedAt
-                var silentDenial = false
                 results.forEach { (permission, granted) ->
                     val shouldShowRationale = !granted &&
                         ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
@@ -424,24 +420,14 @@ fun ChatScreen(
                         silentlyDenied = silent,
                     )
                     // Silently denied: the system will not prompt again, so send the user to App info.
-                    if (silent) {
-                        silentDenial = true
-                        openRuntimePermissionRepair(permission)
-                    }
-                }
-                // Silent denial replaces the prompt reply with the App info reply for the same request.
-                if (silentDenial) {
-                    pendingCalendarRequest?.let { request ->
-                        viewModel.onCalendarPermissionBlocked(request.conversationId, request.capability, request.retryOnGrant)
-                    }
+                    if (silent) openRuntimePermissionRepair(permission)
                 }
                 if (calendarPermissionsGranted(results)) viewModel.onCalendarPermissionGranted() else viewModel.onCalendarPermissionDenied()
             }
-            fun requestCalendarPermissions(request: ChatViewModel.UiEvent.RequestCalendarPermission) {
-                pendingCalendarRequest = request
+            fun requestCalendarPermissions(permissions: List<String>) {
                 val store = PermissionRequestStore.from(context)
                 val activity = context as android.app.Activity
-                val routes = request.permissions.associateWith { permission ->
+                val routes = permissions.associateWith { permission ->
                     decidePermissionRoute(
                         isGranted = ContextCompat.checkSelfPermission(context, permission) ==
                             PackageManager.PERMISSION_GRANTED,
@@ -453,7 +439,6 @@ fun ChatScreen(
                 // Permanently denied: the system will not show the prompt, so send the user to App info.
                 val permanentlyDenied = routes.entries.firstOrNull { it.value == PermissionRoute.AppInfo }?.key
                 if (permanentlyDenied != null) {
-                    viewModel.onCalendarPermissionBlocked(request.conversationId, request.capability, request.retryOnGrant)
                     viewModel.onCalendarPermissionDenied()
                     openRuntimePermissionRepair(permanentlyDenied)
                     return
@@ -478,7 +463,7 @@ fun ChatScreen(
                         }
                         ChatViewModel.UiEvent.RepairWeatherLocationPermission ->
                             openRuntimePermissionRepair(Manifest.permission.ACCESS_COARSE_LOCATION)
-                        is ChatViewModel.UiEvent.RequestCalendarPermission -> requestCalendarPermissions(event)
+                        is ChatViewModel.UiEvent.RequestCalendarPermission -> requestCalendarPermissions(event.permissions)
                     }
                 }
             }

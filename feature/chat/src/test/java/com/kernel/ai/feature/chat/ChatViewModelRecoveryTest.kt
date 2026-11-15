@@ -346,7 +346,7 @@ class ChatViewModelRecoveryTest {
     }
 
     @Test
-    fun `fallthroughCalendarCapabilityRequestsPermissionInsteadOfModel`() = runTest(dispatcher) {
+    fun `fallthroughCalendarCapabilityRequestsPermissionAndSavesReply`() = runTest(dispatcher) {
         val input = "add dentist to my calendar tomorrow at 9am"
         every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
             input = input,
@@ -386,18 +386,24 @@ class ChatViewModelRecoveryTest {
             request.permissions,
         )
         assertEquals(CapabilityKey.CalendarWrite, request.capability)
-        assertTrue(request.retryOnGrant)
         coVerify(exactly = 0) { inferenceEngine.generate(any()) }
         assertTrue(
-            viewModel.getConversationAsText().contains("Allow it when prompted and Jandal will add the event."),
+            viewModel.getConversationAsText().contains(
+                "Allow it when prompted, or turn on Calendar in App info if Android won't ask. Jandal will add the event.",
+            ),
             viewModel.getConversationAsText(),
         )
-
-        viewModel.onCalendarPermissionBlocked(request.conversationId, request.capability, request.retryOnGrant)
-        advanceUntilIdle()
-        val text = viewModel.getConversationAsText()
-        assertTrue(text.contains("Turn on Calendar in App info and Jandal will add the event."), text)
-        assertFalse(text.contains("Allow it when prompted"), text)
+        coVerify {
+            conversationRepository.addMessage(
+                any(),
+                "assistant",
+                match { it.contains("Allow it when prompted") },
+                any(),
+                any(),
+            )
+        }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
+        assertFalse(viewModel.getConversationAsText().contains("Turn on Calendar in App info"))
     }
 
 }
