@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.voice.AndroidNativeWarning
+import com.kernel.ai.core.voice.HeyJandalGate
 import com.kernel.ai.core.voice.HonorCameraCoexistence
 import com.kernel.ai.core.voice.androidNativeWarning
 import com.kernel.ai.core.voice.VoiceCapabilities
@@ -90,7 +91,8 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import android.util.Log
-import android.provider.Settings
+import com.kernel.ai.core.permissions.defaultAssistantSettingsIntents
+import com.kernel.ai.core.permissions.launchFirstAvailable
 import android.Manifest
 import android.app.role.RoleManager
 import android.content.pm.PackageManager
@@ -132,10 +134,7 @@ fun VoiceScreen(
      * on ON_RESUME and on every enable attempt.
      */
     var needsUsageAccess by remember { mutableStateOf(false) }
-    val requiresUsageAccess = {
-        HonorCameraCoexistence.isAffectedDevice(context) &&
-            !HonorCameraCoexistence.hasUsageAccess(context)
-    }
+    val requiresUsageAccess = { HeyJandalGate.usageAccessRequired(context) }
     val enableHeyJandal = {
         needsUsageAccess = requiresUsageAccess()
         if (needsUsageAccess) showUsageAccessDialog = true else viewModel.setHeyJandalEnabled(true)
@@ -257,19 +256,10 @@ fun VoiceScreen(
     val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_no_settings_page)
     fun openAssistantSettings() {
         awaitingAssistantReturn = true
-        try {
-            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-        } catch (_: Exception) {
-            try {
-                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-            } catch (_: Exception) {
-                awaitingAssistantReturn = false
-                Toast.makeText(
-                    context,
-                    noSettingsPageMessage,
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
+        val opened = launchFirstAvailable(defaultAssistantSettingsIntents(), assistantRoleLauncher::launch)
+        if (!opened) {
+            awaitingAssistantReturn = false
+            Toast.makeText(context, noSettingsPageMessage, Toast.LENGTH_LONG).show()
         }
     }
 

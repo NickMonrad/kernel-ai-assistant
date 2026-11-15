@@ -49,12 +49,14 @@ class SetupWizardStateTest {
     fun `next moves forward and returns null on the last step`() {
         assertEquals(SetupStep.VOICE, SetupWizardFlow.next(SetupStep.HOW_IT_WORKS))
         assertEquals(SetupStep.DOWNLOAD, SetupWizardFlow.next(SetupStep.VOICE))
-        assertNull(SetupWizardFlow.next(SetupStep.DOWNLOAD))
+        assertEquals(SetupStep.MAKE_JANDAL_YOURS, SetupWizardFlow.next(SetupStep.DOWNLOAD))
+        assertNull(SetupWizardFlow.next(SetupStep.MAKE_JANDAL_YOURS))
     }
 
     @Test
     fun `previous moves back and returns null on the first step`() {
         assertEquals(SetupStep.VOICE, SetupWizardFlow.previous(SetupStep.DOWNLOAD))
+        assertEquals(SetupStep.DOWNLOAD, SetupWizardFlow.previous(SetupStep.MAKE_JANDAL_YOURS))
         assertEquals(SetupStep.HOW_IT_WORKS, SetupWizardFlow.previous(SetupStep.VOICE))
         assertNull(SetupWizardFlow.previous(SetupStep.HOW_IT_WORKS))
     }

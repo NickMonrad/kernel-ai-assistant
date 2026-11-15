@@ -19,6 +19,8 @@ import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.WakeWordPreferences
+import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +32,8 @@ import kotlinx.coroutines.launch
 private const val KEY_SELECTED_CHOICE = "selected_download_choice"
 private const val KEY_SELECTED_INPUT = "selected_speech_input"
 private const val KEY_SELECTED_OUTPUT = "selected_speech_output"
+private const val KEY_SELECTED_WAKE_WORD = "selected_wake_word"
+private const val KEY_NOTIFICATIONS_ASKED = "notifications_asked"
 
 /** One screen of the setup wizard. [loaded] is false until persisted progress is read. */
 data class SetupWizardUiState(
@@ -53,16 +57,28 @@ data class SetupWizardUiState(
     val plannedModels: List<KernelModel> = emptyList(),
     /** Voice packs still to download for the selected output engine (#1855). */
     val plannedVoices: List<SherpaPiperVoice> = emptyList(),
+    /** Live phone state for the Make Jandal yours rows (#1855 part 3). Refreshed on load and on every return. */
+    val platform: MakeYoursPlatform = MakeYoursPlatform(),
+    /** Hey Jandal as stored before this run. Written only by Finish, and only when it changed. */
+    val wakeWordStored: Boolean = false,
+    /** Hey Jandal choice on its row. Equals [wakeWordStored] until the user changes it in this run. */
+    val wakeWordChoice: Boolean = false,
+    /** True once the notification row launched the system prompt in this run; Finish then skips the download gate. */
+    val notificationsAsked: Boolean = false,
 )
 
 /**
- * Drives the first-run setup wizard (#1855): how it works, speech input and output, and download consent.
- * Progress is restored from [SetupWizardPreferences] so process death resumes the same step.
+ * Drives the first-run setup wizard (#1855): how it works, speech input and output, download consent, and
+ * optional Make Jandal yours rows. Progress is restored from [SetupWizardPreferences] so process death resumes
+ * the same step.
  *
- * Selections (download network, speech input, speech output) are kept in [SavedStateHandle] until Finish or
- * Skip saves them, so Back never stores anything. Finish saves the speech choices, then the network choice,
- * then queues the chosen downloads (Zipformer for Automatic, Cori for Sherpa). Skip saves choices only and
- * starts no download: the provisioner and the Voice screen handle downloads under the saved network rule.
+ * Selections (download network, speech input, speech output, Hey Jandal) are kept in [SavedStateHandle] until
+ * Finish or Skip saves them, so Back never stores anything. Finish saves the speech choices, then the network
+ * choice, then queues the chosen downloads (Zipformer for Automatic, Cori for Sherpa), then applies a changed
+ * Hey Jandal choice. Skip saves speech and network choices only, as before, and never applies Hey Jandal.
+ *
+ * The Make Jandal yours rows request nothing themselves. The screen launches each system prompt or page on a
+ * tap; this view model only reads state ([refreshPlatform]) and records choices.
  */
 @HiltViewModel
 class SetupWizardViewModel @Inject constructor(
@@ -75,6 +91,8 @@ class SetupWizardViewModel @Inject constructor(
     private val piperVoiceSetup: PiperVoiceSetup,
     private val setupVoiceDevice: SetupVoiceDevice,
     private val voiceDefaultsProvisioner: VoiceDefaultsProvisioner,
+    private val wakeWordPreferences: WakeWordPreferences,
+    private val platformReader: MakeYoursPlatformReader,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -141,6 +159,7 @@ class SetupWizardViewModel @Inject constructor(
                 else -> SetupSpeechOptions.offered(currentOutput, outputOptions)
             }
 
+            val wakeStored = wakeWordPreferences.heyJandalEnabled.first()
             voiceStates = voicePackDownloadManager.downloadStates.value
             allPlannedModels = downloadManager.plannedFirstRunModels()
             _uiState.value = _uiState.value.copy(
@@ -155,6 +174,10 @@ class SetupWizardViewModel @Inject constructor(
                 choiceRecorded = stored != null,
                 plannedModels = plannedModelsFor(effectiveInput(inputEngine)),
                 plannedVoices = plannedVoicesFor(effectiveOutput(outputEngine)),
+                platform = platformReader.read(),
+                wakeWordStored = wakeStored,
+                wakeWordChoice = savedStateHandle.get<Boolean>(KEY_SELECTED_WAKE_WORD) ?: wakeStored,
+                notificationsAsked = savedStateHandle.get<Boolean>(KEY_NOTIFICATIONS_ASKED) == true,
             )
         }
     }
@@ -204,12 +227,34 @@ class SetupWizardViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(choice = choice)
     }
 
+    /** Re-reads the phone's state for the Make Jandal yours rows. Reads only; never writes or requests. */
+    fun refreshPlatform() {
+        viewModelScope.launch {
+            val platform = platformReader.read()
+            _uiState.value = _uiState.value.copy(platform = platform)
+        }
+    }
+
+    /** Hey Jandal choice on its row. Written only by Finish (see [applyWakeWordChoice]). */
+    fun onWakeWordChoiceChanged(enabled: Boolean) {
+        savedStateHandle[KEY_SELECTED_WAKE_WORD] = enabled
+        _uiState.value = _uiState.value.copy(wakeWordChoice = enabled)
+    }
+
+    /** Records that the notification row launched the system prompt, so Finish does not ask a second time. */
+    fun onNotificationsRequested() {
+        savedStateHandle[KEY_NOTIFICATIONS_ASKED] = true
+        _uiState.value = _uiState.value.copy(notificationsAsked = true)
+    }
+
     /**
      * Advances one step. Nothing is saved here: choices are stored only by [onFinish] or [onSkip].
      * On the last step, finishes the wizard, then [onDone].
      */
     fun onContinue(onDone: () -> Unit) {
         val state = _uiState.value
+        // Saved on every Continue so the choice shown on the download step survives process death.
+        savedStateHandle[KEY_SELECTED_CHOICE] = state.choice.name
         val next = SetupWizardFlow.next(state.step)
         if (next != null) {
             _uiState.value = state.copy(step = next)
@@ -237,6 +282,7 @@ class SetupWizardViewModel @Inject constructor(
             saveNetworkChoice(state.choice)
             startChosenInput(effectiveInput(state.inputEngine))
             startChosenVoice(output)
+            applyWakeWordChoice(state)
             setupWizardPreferences.markCompleted()
             onDone()
         }
@@ -246,6 +292,7 @@ class SetupWizardViewModel @Inject constructor(
      * Ends the wizard. With no choice recorded yet, saves Wi-Fi only so models still download on Wi-Fi
      * (never paused forever). An explicit earlier choice is kept. [onDone] receives the choice that
      * applies now, so the caller can tell the user the truth. Cori starts only when the user picked it here.
+     * Skip never applies the Make Jandal yours choices.
      */
     fun onSkip(onDone: (DownloadNetworkChoice) -> Unit) {
         val state = _uiState.value
@@ -298,6 +345,22 @@ class SetupWizardViewModel @Inject constructor(
      */
     private suspend fun startChosenVoice(output: VoiceOutputEngine?) {
         if (output == VoiceOutputEngine.SherpaExperimental) piperVoiceSetup.onEngineChosen(output)
+    }
+
+    /**
+     * Applies the Hey Jandal choice from its row, only when the user changed it in this run. Off is written when
+     * Hey Jandal was stored On. On is written only when the wizard gate ([MakeYoursRows.heyJandalBlock]) passes; a
+     * blocked On writes nothing, so a stored value stands. The wake-word model is queued before On is saved.
+     */
+    private suspend fun applyWakeWordChoice(state: SetupWizardUiState) {
+        if (!touched(KEY_SELECTED_WAKE_WORD)) return
+        if (!state.wakeWordChoice) {
+            if (state.wakeWordStored) wakeWordPreferences.setHeyJandalEnabled(false)
+            return
+        }
+        if (state.wakeWordStored || MakeYoursRows.heyJandalBlock(state.platform) != null) return
+        queueHeyJandalSttModel(voiceInputPreferences, downloadManager)
+        wakeWordPreferences.setHeyJandalEnabled(true)
     }
 
     companion object {

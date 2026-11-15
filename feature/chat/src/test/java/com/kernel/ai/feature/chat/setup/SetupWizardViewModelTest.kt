@@ -18,6 +18,7 @@ import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.WakeWordPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
@@ -50,6 +51,8 @@ class SetupWizardViewModelTest {
     private val voiceInputPreferences: VoiceInputPreferences = mockk(relaxed = true)
     private val setupVoiceDevice: SetupVoiceDevice = mockk(relaxed = true)
     private val voiceDefaultsProvisioner: VoiceDefaultsProvisioner = mockk(relaxed = true)
+    private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
+    private val platformReader: MakeYoursPlatformReader = mockk(relaxed = true)
 
     @BeforeEach
     fun setUp() {
@@ -63,6 +66,15 @@ class SetupWizardViewModelTest {
         // Fresh install: nothing stored for speech input or output.
         coEvery { voiceInputPreferences.hasStoredEngine() } returns false
         coEvery { voiceOutputPreferences.hasStoredEngine() } returns false
+        every { wakeWordPreferences.heyJandalEnabled } returns flowOf(false)
+        every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
+        coEvery { platformReader.read() } returns MakeYoursPlatform(
+            hasMicrophone = true,
+            micGranted = true,
+            wakeModelAvailable = true,
+            assistantRoleAvailable = true,
+            assistantRoleHeld = true,
+        )
         device(nativeReady = true, hasTts = true, tier = HardwareTier.FLAGSHIP)
     }
 
@@ -100,6 +112,8 @@ class SetupWizardViewModelTest {
             piperVoiceSetup = PiperVoiceSetup(voiceOutputPreferences, voicePackDownloadManager),
             setupVoiceDevice = setupVoiceDevice,
             voiceDefaultsProvisioner = voiceDefaultsProvisioner,
+            wakeWordPreferences = wakeWordPreferences,
+            platformReader = platformReader,
             savedStateHandle = handle,
         )
 
@@ -266,6 +280,7 @@ class SetupWizardViewModelTest {
         assertEquals(VoiceOutputEngine.AndroidTts, vm.uiState.value.outputEngine)
 
         vm.onContinue {}
+        vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 0) { voiceOutputPreferences.setSelectedEngine(any()) }
@@ -333,6 +348,7 @@ class SetupWizardViewModelTest {
         vm.onOutputSelected(VoiceOutputEngine.SherpaExperimental)
 
         vm.onContinue {}
+        vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
         coVerifyOrder {
@@ -383,6 +399,7 @@ class SetupWizardViewModelTest {
         val vm = viewModel()
         vm.atDownloadStep()
 
+        vm.onContinue {}
         vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
@@ -466,6 +483,7 @@ class SetupWizardViewModelTest {
         vm.onChoiceSelected(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
 
         vm.onContinue {}
+        vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
         coVerifyOrder {
@@ -484,6 +502,7 @@ class SetupWizardViewModelTest {
         vm.onChoiceSelected(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
 
         vm.onContinue {}
+        vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
         coVerifyOrder {
@@ -499,6 +518,7 @@ class SetupWizardViewModelTest {
         vm.atDownloadStep()
 
         vm.onContinue {}
+        vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 1) { voiceDefaultsProvisioner.queueSpeechInput(VoiceInputEngine.Auto) }
@@ -510,6 +530,7 @@ class SetupWizardViewModelTest {
         vm.atDownloadStep()
         vm.onInputSelected(VoiceInputEngine.SherpaZipformer)
 
+        vm.onContinue {}
         vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
@@ -523,9 +544,140 @@ class SetupWizardViewModelTest {
         vm.onOutputSelected(VoiceOutputEngine.AndroidTts)
 
         vm.onContinue {}
+        vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 1) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.AndroidTts) }
         verify(exactly = 0) { voicePackDownloadManager.startDownload(any(), any(), any(), any()) }
+    }
+
+    // ── Make Jandal yours (#1855 part 3) ────────────────────────────────────
+
+    /** Loads the wizard and moves it to the Make Jandal yours step. */
+    private fun SetupWizardViewModel.atMakeYoursStep() {
+        atDownloadStep()
+        onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `skip on the make Jandal yours step writes no Hey Jandal choice`() {
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        vm.onWakeWordChoiceChanged(true)
+        vm.onSkip {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { wakeWordPreferences.setHeyJandalEnabled(any()) }
+    }
+
+    @Test
+    fun `finish applies a changed Hey Jandal choice when it can run`() {
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        vm.onWakeWordChoiceChanged(true)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { wakeWordPreferences.setHeyJandalEnabled(true) }
+    }
+
+    @Test
+    fun `finish turns Hey Jandal on without the default assistant, which does not block it`() {
+        coEvery { platformReader.read() } returns MakeYoursPlatform(
+            hasMicrophone = true,
+            micGranted = true,
+            wakeModelAvailable = true,
+            assistantRoleAvailable = true,
+            assistantRoleHeld = false,
+        )
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        vm.onWakeWordChoiceChanged(true)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { wakeWordPreferences.setHeyJandalEnabled(true) }
+    }
+
+    @Test
+    fun `finish does not write a blocked Hey Jandal On and keeps the stored value`() {
+        coEvery { platformReader.read() } returns MakeYoursPlatform(
+            hasMicrophone = true,
+            micGranted = false,
+            wakeModelAvailable = true,
+        )
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        vm.onWakeWordChoiceChanged(true)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { wakeWordPreferences.setHeyJandalEnabled(any()) }
+    }
+
+    @Test
+    fun `finish with Hey Jandal on queues its wake model after the network choice is saved`() {
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        vm.onWakeWordChoiceChanged(true)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerifyOrder {
+            downloadNetworkPreferences.setChoice(any())
+            downloadManager.startDownload(any())
+        }
+        coVerify(exactly = 1) { wakeWordPreferences.setHeyJandalEnabled(true) }
+    }
+
+    @Test
+    fun `finish keeps a stored Hey Jandal On when a new On is blocked`() {
+        every { wakeWordPreferences.heyJandalEnabled } returns flowOf(true)
+        coEvery { platformReader.read() } returns MakeYoursPlatform(
+            hasMicrophone = true,
+            micGranted = false,
+            wakeModelAvailable = true,
+        )
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        vm.onWakeWordChoiceChanged(true)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { wakeWordPreferences.setHeyJandalEnabled(any()) }
+    }
+
+    @Test
+    fun `re-run shows stored Hey Jandal and finishing without a change writes nothing`() {
+        every { setupWizardPreferences.progress } returns flowOf(
+            SetupWizardProgress(decided = true, completed = true),
+        )
+        every { wakeWordPreferences.heyJandalEnabled } returns flowOf(true)
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        assertTrue(vm.uiState.value.wakeWordStored)
+        assertTrue(vm.uiState.value.wakeWordChoice)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { wakeWordPreferences.setHeyJandalEnabled(any()) }
+    }
+
+    @Test
+    fun `refreshing the phone state reads it and writes nothing`() {
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        coEvery { platformReader.read() } returns MakeYoursPlatform(notificationsGranted = true)
+        vm.refreshPlatform()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.platform.notificationsGranted)
+        coVerify(exactly = 0) { wakeWordPreferences.setHeyJandalEnabled(any()) }
+    }
+
+    @Test
+    fun `notification prompt already asked in this run survives process death`() {
+        val handle = SavedStateHandle()
+        val first = viewModel(handle)
+        first.atMakeYoursStep()
+        first.onNotificationsRequested()
+        assertTrue(first.uiState.value.notificationsAsked)
+
+        val restored = viewModel(handle)
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue(restored.uiState.value.notificationsAsked)
     }
 }
