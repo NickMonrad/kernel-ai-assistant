@@ -69,3 +69,7 @@ no queue log. Replies ranged 36–259 tokens, so send→SpeakingStarted mixed ge
 Median send→SpeakingStarted: MAIN 38344 ms, BRANCH 47364 ms. It is not used for the conclusion above.
 
 Script: `measure-first-audio.sh` (token read on-device via `run-as`; no secrets committed).
+
+## Status: streamed-path re-measurement (pending)
+
+The results above are the finalize path: the router classified the prompt as a tool query, the branch first chunk was 48–64 chars, and `VoiceTiming path=` was not logged. They do not measure the streaming change. A re-measurement with `path=stream|final` logging and a non-router prompt is pending; the S23U device lock (`/tmp/jandal-s23u.lock`) was held by another agent when this round finished. Those results will be added here, labelled separately.
