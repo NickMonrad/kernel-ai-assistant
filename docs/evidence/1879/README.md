@@ -1,16 +1,29 @@
-# PR #1879 device evidence (S21, SM-G991B, Android 15)
+# Evidence for PR #1879 (welcome layout, Getting started)
 
-Build: `ai.jandal.assistant.debug` 0.1.0 from `d3f6b0a2`, installed with `install -r`, `lastUpdateTime=2026-11-15 09:59:29`. Data cleared before install (`pm clear`) for a first run.
+## Round 1: Samsung S21 (`R5CR605B71K`), before the review fixes
+
+Captured on commit `36a906e9`.
 
 | File | Shows |
 |---|---|
-| `s21-setup-wizard-first-run.png` | Setup wizard is on top on first run. Chats welcome is not shown underneath. |
-| `s21-welcome-font1.15.png` | Welcome at font 1.15 after the wizard. No content under the FAB. Download banner shows progress. |
-| `s21-welcome-font2.0.png` | Welcome at font 2.0. Banner is clipped at the viewport edge. |
-| `s21-welcome-font2.0-scrolled.png` | Same screen scrolled. Banner text, progress bar and "Try asking" chips are reachable. |
-| `s21-getting-started-font1.15.png` | Getting started opened from the ⋮ menu. Same download banner state. |
+| `s21-setup-wizard-first-run.png` | First-run wizard |
+| `s21-welcome-font1.15.png` | Welcome at font scale 1.15 |
+| `s21-welcome-font2.0.png` | Welcome at font scale 2.0 |
+| `s21-welcome-font2.0-scrolled.png` | Welcome at font 2.0, scrolled to the end |
+| `s21-getting-started-font1.15.png` | Getting started at font 1.15 |
 
-Not captured: "Waiting for Wi-Fi" (needs a queued download with mobile data chosen; not triggered). The banner shows a real download in progress (about 2.6 GB), not the debug simulation.
-Not captured: Getting started after a first chat (#1869 reopen path). Getting started is reachable from ⋮ before any chat.
-Font scale restored to 1.0 (the value found before the run).
-No personal data in the screenshots.
+## Round 2: Samsung S23U (`RFCW11265XH`), after the review fixes
+
+Captured on commit `186f0f16`. Debug build, `pm clear` before install.
+
+| File | Shows | Result |
+|---|---|---|
+| `s23u-wizard-first-run-r2.png` | First-run wizard | The welcome does not show underneath it. |
+| `s23u-setup-resume-card-after-back.png` | Back on wizard step 1, then Chats | "Setup isn't finished" card with "Finish setting up". The FAB column is hidden. |
+
+## Not captured in this round
+
+- The "Waiting for Wi-Fi" welcome card and the "Waiting for Wi-Fi to download <model>" banner. Reproducing them needs the download queued behind a Wi-Fi-only policy, and that was not set up in this session. Covered by unit tests (`ChatsWelcomeTest`, `ChatsDownloadBannerTest`) only.
+- The Chats banner while downloading, Getting started at font 2.0 after the shared FAB clearance change, and the Actions tab end. These are covered by unit tests of the shared `FabStackClearance` value only, not by a screenshot.
+
+Font scale is in the file name where it applies.
