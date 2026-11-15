@@ -73,14 +73,14 @@ class SetupWizardLargeFontTest {
         val option = composeRule.onNodeWithText("Allow mobile data")
         option.assertIsDisplayed()
         assertInside(option.unclippedBounds(), contentBounds())
-        assertButtonsReachable(primary = "Finish", size = PORTRAIT, compact = false)
+        assertButtonsReachable(primary = "Continue", size = PORTRAIT, compact = false)
     }
 
     @Test
     fun step2ButtonsReachableAtLargeFontLandscape() {
         setWizard(step = SetupStep.DOWNLOAD, size = LANDSCAPE)
 
-        assertButtonsReachable(primary = "Finish", size = LANDSCAPE, compact = true)
+        assertButtonsReachable(primary = "Continue", size = LANDSCAPE, compact = true)
     }
 
     @Test
@@ -104,6 +104,28 @@ class SetupWizardLargeFontTest {
     fun voiceStepButtonsReachableAtLargeFontLandscape() {
         setWizard(SetupStep.VOICE, LANDSCAPE)
         assertButtonsReachable(primary = "Continue", size = LANDSCAPE, compact = true)
+    }
+
+    @Test
+    fun makeJandalYoursButtonsReachableAtLargeFontPortrait() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, PORTRAIT)
+        assertButtonsReachable(primary = "Finish", size = PORTRAIT, compact = false)
+    }
+
+    @Test
+    fun makeJandalYoursButtonsReachableAtLargeFontLandscape() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, LANDSCAPE)
+        assertButtonsReachable(primary = "Finish", size = LANDSCAPE, compact = true)
+    }
+
+    @Test
+    fun makeJandalYoursLastRowScrollsIntoViewAtLargeFont() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, PORTRAIT)
+        composeRule.onNodeWithTag(SETUP_WIZARD_CONTENT_TAG)
+            .performScrollToNode(hasText("Alarms and timers"))
+        val row = composeRule.onNodeWithText("Alarms and timers")
+        row.assertIsDisplayed()
+        assertInside(row.unclippedBounds(), contentBounds())
     }
 
     private fun setWizard(step: SetupStep, size: DpSize) {
@@ -194,6 +216,7 @@ class SetupWizardLargeFontTest {
             onInputSelected = {},
             onOutputSelected = {},
             onChoiceSelected = {},
+            makeYours = MakeYoursActions(),
             onPrimary = {},
             onBack = {},
             onSkip = {},

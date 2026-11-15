@@ -90,7 +90,8 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import android.util.Log
-import android.provider.Settings
+import com.kernel.ai.core.permissions.defaultAssistantSettingsIntents
+import com.kernel.ai.core.permissions.launchFirstAvailable
 import android.Manifest
 import android.app.role.RoleManager
 import android.content.pm.PackageManager
@@ -257,19 +258,10 @@ fun VoiceScreen(
     val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.default_assistant_no_settings_page)
     fun openAssistantSettings() {
         awaitingAssistantReturn = true
-        try {
-            assistantRoleLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-        } catch (_: Exception) {
-            try {
-                assistantRoleLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-            } catch (_: Exception) {
-                awaitingAssistantReturn = false
-                Toast.makeText(
-                    context,
-                    noSettingsPageMessage,
-                    Toast.LENGTH_LONG,
-                ).show()
-            }
+        val opened = launchFirstAvailable(defaultAssistantSettingsIntents(), assistantRoleLauncher::launch)
+        if (!opened) {
+            awaitingAssistantReturn = false
+            Toast.makeText(context, noSettingsPageMessage, Toast.LENGTH_LONG).show()
         }
     }
 

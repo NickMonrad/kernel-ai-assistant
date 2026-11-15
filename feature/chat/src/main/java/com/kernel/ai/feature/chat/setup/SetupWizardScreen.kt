@@ -1,8 +1,13 @@
 package com.kernel.ai.feature.chat.setup
 
-import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -22,24 +27,42 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.model.availability.ModelRoleCopy
+import com.kernel.ai.core.permissions.PermissionRequestStore
+import com.kernel.ai.core.permissions.PermissionRoute
+import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.decidePermissionRoute
+import com.kernel.ai.core.permissions.defaultAssistantSettingsIntents
+import com.kernel.ai.core.permissions.exactAlarmSettingsIntents
+import com.kernel.ai.core.permissions.isSilentDenial
+import com.kernel.ai.core.permissions.launchFirstAvailable
+import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.feature.chat.formatBytesShort
@@ -54,9 +77,21 @@ internal const val SETUP_WIZARD_CONTENT_TAG = "setup_wizard_content"
 private val COMPACT_HEIGHT = 480.dp
 
 /**
+ * Button callbacks of the Make Jandal yours step (#1855 part 3). Each one runs only on a tap. The screen decides
+ * which system prompt or page to open; the view model records choices and reads state.
+ */
+data class MakeYoursActions(
+    val onWakeWordChoiceChanged: (Boolean) -> Unit = {},
+    val onAllowMicrophone: () -> Unit = {},
+    val onAllowNotifications: () -> Unit = {},
+    val onOpenDefaultAssistant: () -> Unit = {},
+    val onOpenExactAlarm: () -> Unit = {},
+)
+
+/**
  * First-run setup wizard (#1855). Step 1 explains how Jandal works; step 2 chooses speech input and output;
- * step 3 is download consent. [onExit] leaves without completing (back on the first step); [onDone] runs after
- * finishing or skipping.
+ * step 3 is download consent; step 4 is optional Make Jandal yours rows. [onExit] leaves without completing
+ * (back on the first step); [onDone] runs after finishing or skipping.
  */
 @Composable
 fun SetupWizardScreen(
@@ -66,6 +101,7 @@ fun SetupWizardScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val requestWizardAction = rememberDownloadNotificationGate { id ->
         when (id) {
             FINISH_ID -> viewModel.onContinue(onDone)
@@ -76,6 +112,70 @@ fun SetupWizardScreen(
             else -> Unit
         }
     }
+    // Every return from a system page or prompt re-reads the phone, so each row shows the state just set.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshPlatform()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    var requestedAt by rememberSaveable { mutableLongStateOf(0L) }
+    val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        context.recordPermissionResult(
+            permission = Manifest.permission.POST_NOTIFICATIONS,
+            granted = granted,
+            shouldShowRationale = context.findActivity()
+                ?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == true,
+            silentlyDenied = !granted && isSilentDenial(System.currentTimeMillis() - requestedAt),
+        )
+        viewModel.refreshPlatform()
+    }
+    val microphoneLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        context.recordPermissionResult(
+            permission = Manifest.permission.RECORD_AUDIO,
+            granted = granted,
+            shouldShowRationale = context.findActivity()
+                ?.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) == true,
+            silentlyDenied = !granted && isSilentDenial(System.currentTimeMillis() - requestedAt),
+        )
+        viewModel.refreshPlatform()
+    }
+
+    val makeYours = MakeYoursActions(
+        onWakeWordChoiceChanged = viewModel::onWakeWordChoiceChanged,
+        onAllowMicrophone = {
+            when (context.permissionRouteFor(Manifest.permission.RECORD_AUDIO)) {
+                PermissionRoute.RequestInApp -> {
+                    requestedAt = System.currentTimeMillis()
+                    microphoneLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+                else -> openAppInfo(context, Manifest.permission.RECORD_AUDIO)
+            }
+        },
+        onAllowNotifications = {
+            when (context.permissionRouteFor(Manifest.permission.POST_NOTIFICATIONS)) {
+                PermissionRoute.RequestInApp -> {
+                    viewModel.onNotificationsRequested()
+                    requestedAt = System.currentTimeMillis()
+                    notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                else -> openAppInfo(context, Manifest.permission.POST_NOTIFICATIONS)
+            }
+        },
+        onOpenDefaultAssistant = {
+            val opened = launchFirstAvailable(defaultAssistantSettingsIntents()) { context.startActivity(it) }
+            if (!opened) toast(context, "Couldn't open that page on this phone. In Settings, look for Default apps or Digital assistant app.")
+        },
+        onOpenExactAlarm = {
+            val opened = launchFirstAvailable(exactAlarmSettingsIntents(context.packageName)) {
+                context.startActivity(it)
+            }
+            if (!opened) toast(context, "Couldn't open Alarms & reminders on this phone. Search Settings for it.")
+        },
+    )
+
     BackHandler(enabled = state.loaded && state.step != SetupStep.HOW_IT_WORKS) {
         viewModel.onBack(onExit)
     }
@@ -85,12 +185,55 @@ fun SetupWizardScreen(
         onInputSelected = viewModel::onInputSelected,
         onOutputSelected = viewModel::onOutputSelected,
         onChoiceSelected = viewModel::onChoiceSelected,
+        makeYours = makeYours,
         onPrimary = {
-            if (state.step == SetupStep.entries.last()) requestWizardAction(FINISH_ID) else viewModel.onContinue(onDone)
+            if (state.step == SetupStep.entries.last()) {
+                // The notification row already asked in this run, so Finish must not ask a second time (#1902).
+                if (state.notificationsAsked) viewModel.onContinue(onDone) else requestWizardAction(FINISH_ID)
+            } else {
+                viewModel.onContinue(onDone)
+            }
         },
         onBack = { viewModel.onBack(onExit) },
-        onSkip = { requestWizardAction(SKIP_ID) },
+        onSkip = {
+            if (state.notificationsAsked) {
+                viewModel.onSkip { choice ->
+                    Toast.makeText(context, skipNote(choice), Toast.LENGTH_LONG).show()
+                    onDone()
+                }
+            } else {
+                requestWizardAction(SKIP_ID)
+            }
+        },
     )
+}
+
+/**
+ * The route for a permission the user has not granted (#1880 routing): an in-app request, or App info when
+ * Android will not ask again. Called on a tap, never during composition.
+ */
+private fun Context.permissionRouteFor(permission: String): PermissionRoute = decidePermissionRoute(
+    isGranted = false,
+    isSpecialAccess = false,
+    wasDeniedBefore = PermissionRequestStore.from(this).wasDenied(permission),
+    shouldShowRationale = findActivity()?.shouldShowRequestPermissionRationale(permission) == true,
+)
+
+private fun openAppInfo(context: Context, permission: String) {
+    val opened = launchFirstAvailable(listOf(RuntimePermissionRepair.intentFor(context.packageName, permission))) {
+        context.startActivity(it)
+    }
+    if (!opened) toast(context, "Couldn't open App info. Open Settings, then Apps, then Jandal AI.")
+}
+
+private fun toast(context: Context, message: String) {
+    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 /**
@@ -103,6 +246,7 @@ internal fun SetupWizardContent(
     onInputSelected: (VoiceInputEngine) -> Unit,
     onOutputSelected: (VoiceOutputEngine) -> Unit,
     onChoiceSelected: (DownloadNetworkChoice) -> Unit,
+    makeYours: MakeYoursActions,
     onPrimary: () -> Unit,
     onBack: () -> Unit,
     onSkip: () -> Unit,
@@ -121,7 +265,7 @@ internal fun SetupWizardContent(
                     .testTag(SETUP_WIZARD_CONTENT_TAG),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                StepContent(Modifier, state, onInputSelected, onOutputSelected, onChoiceSelected)
+                StepContent(Modifier, state, onInputSelected, onOutputSelected, onChoiceSelected, makeYours)
                 WizardButtons(isLast, onPrimary, onBack, onSkip)
             }
         } else {
@@ -138,7 +282,7 @@ internal fun SetupWizardContent(
                         .verticalScroll(scrollState)
                         .testTag(SETUP_WIZARD_CONTENT_TAG),
                 ) {
-                    StepContent(Modifier, state, onInputSelected, onOutputSelected, onChoiceSelected)
+                    StepContent(Modifier, state, onInputSelected, onOutputSelected, onChoiceSelected, makeYours)
                 }
                 WizardButtons(isLast, onPrimary, onBack, onSkip)
             }
@@ -153,6 +297,7 @@ private fun StepContent(
     onInputSelected: (VoiceInputEngine) -> Unit,
     onOutputSelected: (VoiceOutputEngine) -> Unit,
     onChoiceSelected: (DownloadNetworkChoice) -> Unit,
+    makeYours: MakeYoursActions,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -176,6 +321,7 @@ private fun StepContent(
                 choiceRecorded = state.choiceRecorded,
                 onChoiceSelected = onChoiceSelected,
             )
+            SetupStep.MAKE_JANDAL_YOURS -> MakeYoursStep(state, makeYours)
         }
     }
 }
@@ -374,6 +520,140 @@ private fun DownloadStep(
         selected = choice == DownloadNetworkChoice.MOBILE_DATA_ALLOWED,
         onSelect = { onChoiceSelected(DownloadNetworkChoice.MOBILE_DATA_ALLOWED) },
     )
+}
+
+/**
+ * Optional Make Jandal yours step (#1855 part 3). Four rows, each with a live status (On, Off or Not
+ * available) read from the phone. Nothing here requests a permission or opens a page until its button is tapped.
+ */
+@Composable
+private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) {
+    val platform = state.platform
+    val wakeStatus = MakeYoursRows.wakeWord(state.wakeWordStored, platform)
+    val wakeBlock = MakeYoursRows.wakeWordBlockReason(platform)
+    val assistantStatus = MakeYoursRows.defaultAssistant(platform)
+    val notificationStatus = MakeYoursRows.notifications(platform)
+    val exactStatus = MakeYoursRows.exactAlarm(platform)
+
+    Text(
+        text = "Make Jandal yours",
+        style = MaterialTheme.typography.headlineSmall,
+        modifier = Modifier.semantics { heading() },
+    )
+    Text(
+        text = "All of these are optional. Skip any of them and change them later in Settings.",
+        style = MaterialTheme.typography.bodyLarge,
+    )
+
+    val wakePending = state.wakeWordChoice != state.wakeWordStored
+    val wakeAction = when {
+        wakeStatus == MakeYoursStatus.NotAvailable -> null
+        !platform.micGranted -> "Allow microphone" to actions.onAllowMicrophone
+        !platform.assistantRoleHeld -> null
+        state.wakeWordChoice -> "Turn off" to { actions.onWakeWordChoiceChanged(false) }
+        else -> "Turn on" to { actions.onWakeWordChoiceChanged(true) }
+    }
+    MakeYoursRow(
+        id = "hey_jandal",
+        title = "Hey Jandal",
+        reason = "Say \"Hey Jandal\" and Jandal starts listening, hands-free. The mic stays on for the wake " +
+            "word, so it uses a little battery. It works most reliably once Jandal is your default assistant, " +
+            "which is the next row.",
+        status = wakeStatus,
+        note = when {
+            wakePending && state.wakeWordChoice -> "Turns on when you tap Finish."
+            wakePending -> "Turns off when you tap Finish."
+            wakeStatus != MakeYoursStatus.On && wakeStatus != MakeYoursStatus.NotAvailable -> wakeBlock
+            else -> null
+        },
+        action = wakeAction,
+    )
+
+    MakeYoursRow(
+        id = "default_assistant",
+        title = "Default assistant",
+        reason = "Makes Jandal the app that answers when you hold the home button or say the assistant " +
+            "trigger. Hey Jandal needs this to listen reliably in the background. Pick Jandal AI on the " +
+            "system page, then come back. This row updates by itself.",
+        status = assistantStatus,
+        note = if (assistantStatus == MakeYoursStatus.NotAvailable) {
+            "This phone has no default assistant setting."
+        } else {
+            null
+        },
+        action = if (assistantStatus == MakeYoursStatus.NotAvailable) {
+            null
+        } else {
+            "Open default assistant settings" to actions.onOpenDefaultAssistant
+        },
+    )
+
+    MakeYoursRow(
+        id = "notifications",
+        title = "Notifications",
+        reason = "Lets Jandal show download progress, alarms and reminders. Downloads keep going either way.",
+        status = notificationStatus,
+        note = if (notificationStatus == MakeYoursStatus.Off) {
+            "If Android won't ask again, Jandal opens App info so you can turn it on there."
+        } else {
+            null
+        },
+        action = if (notificationStatus == MakeYoursStatus.Off) {
+            "Allow notifications" to actions.onAllowNotifications
+        } else {
+            null
+        },
+    )
+
+    MakeYoursRow(
+        id = "exact_alarms",
+        title = "Alarms and timers",
+        reason = "So timers ring on time. Without this, Android can delay them.",
+        status = exactStatus,
+        note = if (exactStatus == MakeYoursStatus.Off) {
+            "Open Alarms & reminders, find Jandal AI, and turn on Allow. Then come back. This row updates by itself."
+        } else {
+            null
+        },
+        action = if (exactStatus == MakeYoursStatus.Off) {
+            "Open Alarms & reminders" to actions.onOpenExactAlarm
+        } else {
+            null
+        },
+    )
+}
+
+@Composable
+private fun MakeYoursRow(
+    id: String,
+    title: String,
+    reason: String,
+    status: MakeYoursStatus,
+    note: String?,
+    action: Pair<String, () -> Unit>?,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.semantics { heading() },
+        )
+        Text(text = reason, style = MaterialTheme.typography.bodySmall)
+        Text(
+            text = "Status: ${MakeYoursRows.statusLabel(status)}",
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.testTag("make_yours_status_$id"),
+        )
+        note?.let { Text(text = it, style = MaterialTheme.typography.bodySmall) }
+        action?.let { (label, onClick) ->
+            Button(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text(label)
+            }
+        }
+    }
 }
 
 @Composable
