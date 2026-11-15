@@ -8,11 +8,13 @@ import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.MessageEmbeddingDao
 import com.kernel.ai.core.memory.entity.MessageEmbeddingEntity
 import com.kernel.ai.core.memory.entity.MessageEntity
+import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.MemorySearchResult
 import com.kernel.ai.core.memory.vector.VectorSearchResult
 import com.kernel.ai.core.memory.vector.VectorStore
+import com.kernel.ai.core.memory.vector.EmbeddingIndexMigration
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -37,6 +39,7 @@ class RagRepositoryTest {
     private val embeddingDao: MessageEmbeddingDao = mockk()
     private val memoryRepository: MemoryRepository = mockk()
     private val episodicMemoryDao: EpisodicMemoryDao = mockk()
+    private val indexMigration: EmbeddingIndexMigration = mockk()
     private val jandalPersona: JandalPersona = mockk()
 
     private lateinit var ragRepository: RagRepository
@@ -44,6 +47,7 @@ class RagRepositoryTest {
     @BeforeEach
     fun setUp() {
         every { jandalPersona.currentPersonaMode } returns PersonaMode.HALF
+        coEvery { indexMigration.ensureCurrent() } returns true
         ragRepository = RagRepository(
             embeddingEngine = embeddingEngine,
             vectorStore = vectorStore,
@@ -51,6 +55,7 @@ class RagRepositoryTest {
             embeddingDao = embeddingDao,
             memoryRepository = memoryRepository,
             episodicMemoryDao = episodicMemoryDao,
+            indexMigration = indexMigration,
             jandalPersona = jandalPersona,
         )
     }
@@ -62,7 +67,7 @@ class RagRepositoryTest {
      */
     private suspend fun primeEpisodicTable(vector: FloatArray = floatArrayOf(0.5f, 0.5f, 0.0f)) {
         coEvery { embeddingDao.getRowIdForMessage(any()) } returns null
-        coEvery { embeddingEngine.embed(any()) } returns vector
+        coEvery { embeddingEngine.embedDocument(any()) } returns vector
         every { vectorStore.createTable(any(), any()) } just Runs
         coEvery { embeddingDao.insert(any()) } returns 1L
         every { vectorStore.upsert(any(), any(), any()) } just Runs
@@ -70,11 +75,69 @@ class RagRepositoryTest {
         ragRepository.indexMessage("prime-msg", "prime-conv", "priming content")
     }
 
+    @Test
+    fun `searchCoreAndEpisodic excludes cultural and identity memories`() = runTest {
+        coEvery { embeddingEngine.embedQuery(any()) } returns floatArrayOf(1.0f, 0.0f, 0.0f)
+        coEvery {
+            memoryRepository.searchMemories(
+                queryVector = any(),
+                coreTopK = any(),
+                episodicTopK = any(),
+                identityTopK = 0,
+                kiwiTopK = 0,
+            )
+        } returns emptyList()
+
+        ragRepository.searchCoreAndEpisodic("favourite coffee")
+
+        coVerify(exactly = 1) {
+            memoryRepository.searchMemories(
+                queryVector = any(),
+                coreTopK = 3,
+                episodicTopK = 3,
+                identityTopK = 0,
+                kiwiTopK = 0,
+            )
+        }
+    }
+
+    @Test
+    fun `getAllUserCoreMemories includes assistant-saved user facts but excludes identity rows`() = runTest {
+        coEvery { memoryRepository.getAllCoreMemories() } returns listOf(
+            CoreMemoryEntity(
+                id = "agent-user",
+                content = "my favourite coffee is a flat white",
+                createdAt = 1L,
+                lastAccessedAt = 1L,
+                source = "agent",
+            ),
+            CoreMemoryEntity(
+                id = "persona",
+                content = "Jandal's NZ identity fact",
+                createdAt = 2L,
+                lastAccessedAt = 2L,
+                source = "jandal_persona",
+                category = "agent_identity",
+            ),
+            CoreMemoryEntity(
+                id = "dreaming",
+                content = "unverified inferred fact",
+                createdAt = 3L,
+                lastAccessedAt = 3L,
+                source = "dreaming",
+            ),
+        )
+
+        val memories = ragRepository.getAllUserCoreMemories()
+
+        assertEquals(listOf("my favourite coffee is a flat white"), memories.map { it.content })
+    }
+
     // ─────────────────────────────── getRelevantContext ──────────────────────────────
 
     @Test
     fun `getRelevantContext — returns empty string when embedding engine returns empty array`() = runTest {
-        coEvery { embeddingEngine.embed(any()) } returns FloatArray(0)
+        coEvery { embeddingEngine.embedQuery(any()) } returns FloatArray(0)
 
         val result = ragRepository.getRelevantContext("any query", conversationId = "test-conv")
 
@@ -84,7 +147,7 @@ class RagRepositoryTest {
     @Test
     fun `getRelevantContext — returns only Core Memories section when core results exist and no episodic indexed`() = runTest {
         val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
-        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { embeddingEngine.embedQuery(any()) } returns queryVector
 
         // Memory tier: one core result — episodic table NOT created so no [Episodic Memories]
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
@@ -112,7 +175,7 @@ class RagRepositoryTest {
     @Test
     fun `getRelevantContext — includes kiwi memories in long-term memory section`() = runTest {
         val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
-        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { embeddingEngine.embedQuery(any()) } returns queryVector
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
             MemorySearchResult(
                 id = "kiwi-1",
@@ -139,7 +202,7 @@ class RagRepositoryTest {
         primeEpisodicTable(sharedVector)
 
         // Subsequent calls to embed (for getRelevantContext) reuse the same vector
-        coEvery { embeddingEngine.embed(any()) } returns sharedVector
+        coEvery { embeddingEngine.embedQuery(any()) } returns sharedVector
 
         // Memory tier: core only (episodic from searchMemories is NOT rendered)
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
@@ -177,7 +240,7 @@ class RagRepositoryTest {
     @Test
     fun `getRelevantContext — returns empty string when both memory tiers return no results`() = runTest {
         val queryVector = floatArrayOf(0.1f, 0.2f, 0.3f)
-        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { embeddingEngine.embedQuery(any()) } returns queryVector
 
         // No memory results from either tier
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns emptyList()
@@ -197,7 +260,7 @@ class RagRepositoryTest {
         // Prime tableCreated so the episodic retrieval path is active
         primeEpisodicTable(sharedVector)
 
-        coEvery { embeddingEngine.embed(any()) } returns sharedVector
+        coEvery { embeddingEngine.embedQuery(any()) } returns sharedVector
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns emptyList()
 
         // Vector search returns two candidates — one from each conversation
@@ -233,7 +296,7 @@ class RagRepositoryTest {
         // Prime tableCreated
         primeEpisodicTable(sharedVector)
 
-        coEvery { embeddingEngine.embed(any()) } returns sharedVector
+        coEvery { embeddingEngine.embedQuery(any()) } returns sharedVector
 
         // Memory tier throws — should be caught, not propagated
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } throws RuntimeException("Memory DB failure")
@@ -262,7 +325,7 @@ class RagRepositoryTest {
     @Test
     fun `getRelevantContext — lastAccessedAt tiebreaker orders memories with equal score by recency`() = runTest {
         val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
-        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { embeddingEngine.embedQuery(any()) } returns queryVector
 
         // Two memories with identical score — stale predates recent by access time.
         // Budget is deliberately tight (≈30 tokens) so only one fits.
@@ -280,7 +343,7 @@ class RagRepositoryTest {
     @Test
     fun `getRelevantContext — caps long-term memory lines across core and kiwi`() = runTest {
         val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
-        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { embeddingEngine.embedQuery(any()) } returns queryVector
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns (1..8).map { index ->
             MemorySearchResult(
                 id = "memory-$index",
@@ -304,7 +367,7 @@ class RagRepositoryTest {
     fun `getRelevantContext — boring mode excludes kiwi memories entirely`() = runTest {
         every { jandalPersona.currentPersonaMode } returns PersonaMode.BORING
         val queryVector = floatArrayOf(1.0f, 0.0f, 0.0f)
-        coEvery { embeddingEngine.embed(any()) } returns queryVector
+        coEvery { embeddingEngine.embedQuery(any()) } returns queryVector
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
             MemorySearchResult(
                 id = "core-1",
@@ -335,7 +398,7 @@ class RagRepositoryTest {
 
     @Test
     fun `getCulturalContext returns kiwi-only block for cultural query`() = runTest {
-        coEvery { embeddingEngine.embed(any()) } returns floatArrayOf(0.1f, 0.2f, 0.3f)
+        coEvery { embeddingEngine.embedQuery(any()) } returns floatArrayOf(0.1f, 0.2f, 0.3f)
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns listOf(
             MemorySearchResult(
                 id = "nz_140", content = "Kumara. Sweet potato.", source = "kiwi", score = 0.8f,
@@ -363,7 +426,7 @@ class RagRepositoryTest {
 
     @Test
     fun `getCulturalContext returns empty when no kiwi results`() = runTest {
-        coEvery { embeddingEngine.embed(any()) } returns floatArrayOf(0.1f, 0.2f, 0.3f)
+        coEvery { embeddingEngine.embedQuery(any()) } returns floatArrayOf(0.1f, 0.2f, 0.3f)
         coEvery { memoryRepository.searchMemories(any(), any(), any(), any(), any()) } returns emptyList()
 
         val result = ragRepository.getCulturalContext("what are they called in New Zealand")

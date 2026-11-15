@@ -510,6 +510,21 @@ When a user navigates into an archived item's detail screen:
 - Skip any expensive initialisation that only makes sense for active items (e.g. do not init Gemma-4 for archived conversations).
 - Apply `.navigationBarsPadding()` to the content column; use `contentWindowInsets = WindowInsets(0)` on the `Scaffold`.
 
+### 2.5a Lost provider access on a synced Nextcloud list (#1548)
+
+When a bound Nextcloud list can no longer be written — the share became read-only, or the owner
+removed it — the list must say so and offer exactly one resolution path:
+
+- Banner at the top of the list detail uses the error container, and the row indicator carries the
+  durable state label (`Unsynced changes`, `Unavailable`); no state is colour-only.
+- **Unsynced changes** (local work stranded by the access change) offers **Keep as local copy** and
+  **Discard local changes**. Neither is applied automatically, and the work is never pushed.
+- **Unavailable / read-only without stranded work** offers **Save as local copy**, which keeps the
+  original list bound and owner-following and puts the editable copy in a new local list.
+- Content-edit affordances (add, edit, check, reorder, multi-select) are disabled while the list is
+  blocked; device-local fields (pin, archive, favourite, reminder) stay available.
+- Overflow menus offer the same resolution entries so they are reachable without opening the list.
+
 ### 2.6 Retention / cleanup
 
 List items with an archiving lifecycle should have a configurable retention period:
@@ -548,7 +563,7 @@ Every feature that has user-configurable behaviour gets a dedicated settings scr
 ### 5.1 Input bar
 
 - The input bar lives at the bottom of the chat screen, docked above the navigation bar.
-- Draft text uses `rememberSaveable` local state (`draftText`) and syncs back to `ChatViewModel.onInputChanged()` on every edit. This prevents cursor jumps from whole-screen recomposition.
+- The input bar stores its draft as a saveable `TextFieldValue` (including selection) and syncs edits to `ChatViewModel.onInputChanged()`. Only explicit ViewModel replacement events (send-clear, smart replies, external drafts, voice transcripts) replace the local field; ordinary state echoes must not overwrite in-progress typing.
 - `showControlRow` (PTT / voice controls row visibility) is driven by `draftText.isBlank()`.
 - Attachment picker state lives in `InputBar` scope, not `ChatContent`.
 
@@ -577,6 +592,8 @@ Every assistant message bubble shows a `VolumeUp` icon button that plays/stops T
 message independently of the global voice mode. The button is always visible on assistant bubbles,
 not just when voice mode is active.
 
+Quick Action cards show the same `VolumeUp` play/stop button at the top-right of the card header, before copy and delete. Starting a card stops any other Actions voice output. The icon is the only playback control on cards, so no "Speaking response" banner appears for card speech.
+
 ### 5.5 Streaming / loading states
 
 - Show a "Thinking…" / progress indicator while the model is initialising or generating.
@@ -593,6 +610,15 @@ label (e.g. "Generating meal plan", "Generating recipe 2 of 5"). Two tones: `WOR
 
 - `isArchived = true` → show "Archived · Read-only" banner; hide input bar entirely.
 - Do not initialise the inference engine for archived conversations.
+
+### Chats first-run welcome, download banner, and Getting started
+
+- The first-run welcome waits for the setup wizard. Before the first-run decision is recorded, Chats shows only its loading state, so the welcome never flashes under the wizard (#1855).
+- A wizard left unfinished (Back on its first step) shows a "Setup isn't finished" card with **Finish setting up**, not a blank list. The FAB column is hidden on that card and on the welcome.
+- A download queued for Wi-Fi is reported as downloading, so it shows **Waiting for Wi-Fi** with a **Use mobile data** action on the welcome card. The Chats banner reads "Waiting for Wi-Fi to download <model>" and shows no progress bar.
+- The Chats banner covers only the conversation model. Tapping it opens Getting started, not Models.
+- Getting started is reachable from the Chats menu, the download banner, and Settings → About. Its **Start chatting** clears the Getting started entry from the back stack.
+- Scrollable Chats and Actions content clears the three-FAB stack with the shared `FabStackClearance`, so the two lists do not drift apart.
 
 ---
 
@@ -617,6 +643,19 @@ Dialog copy follows Material 3 conventions: title is a noun phrase ("Delete conv
 gives consequence, buttons are "Cancel" (dismiss) and the destructive action verb ("Delete", "Archive").
 
 ---
+
+### 7.1 Settings-action result dialog
+
+When a skill fails in a way the user can fix in Settings (for example, a contact is missing from
+People & Contacts), the result carries `SkillResult.Failure.actions` (`SettingsAction` list). The
+Quick Actions (`ActionsScreen`) shows a `PermissionOverlayDialog` titled with the failure message, body
+"Choose what to do next.", one action per settings destination, and a **Not now** action.
+Chat (`ChatScreen`) shows the same dialog for the same failure, and the text reply carries the `error` guidance.
+
+- The `error` text always names the in-app next step (for example "Add them in Settings → People & Contacts."), so voice and model replies keep the guidance without the dialog.
+- The dialog is dismissible from **Not now**, the scrim, and back. Test tags: `settings_action_dialog`, `settings_action_not_now`, `settings_action_<index>`.
+- Choosing an action deep-links into the destination. Prefill payloads (for example a contact alias) are consumed once so rotation does not reopen them.
+- Spoken confirmation ("yes" to "Call now?") is not part of this pattern yet; the dialog's buttons are the only confirmation path.
 
 ## 8. Multi-select Mode
 
@@ -751,6 +790,10 @@ Before raising a PR for any new feature that adds a list/collection screen, veri
 
 Model discovery, acquisition, selection, and lifecycle management follow a separate, dedicated
 pattern document: **[`model-availability-ux-patterns.md`](./model-availability-ux-patterns.md)**.
+
+The Models screen groups chat brain, memory search, and quick-command models into role sections, with a
+"Still needed" card and read-only voice status rows. See the "Models Screen Role Sections (#1857)"
+section of the model availability patterns.
 
 The model availability patterns govern:
 

@@ -25,7 +25,7 @@ data class KiwiMemoryEntity(
     val term: String = "",
     val definition: String = "",
     val triggerContext: String = "",
-    /** 1 (subtle) → 5 (high-energy). Controls retrieval distance threshold. */
+    /** Vibe metadata (1 subtle to 5 high-energy); per-vibe cutoffs await calibration. */
     val vibeLevel: Int = 1,
     val metadataJson: String = "{}",
 )

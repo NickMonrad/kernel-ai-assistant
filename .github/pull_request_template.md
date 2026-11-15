@@ -42,4 +42,7 @@ Closes #
 <!-- If docs were not updated for a behaviour-sensitive change, explain why. -->
 Docs not needed:
 
+## Review / merge
+- [ ] Do not merge until human/ChatGPT review and the user's explicit approval (unless approval is already recorded in the PR).
+
 <!-- Do not request GitHub Copilot Review. Human/ChatGPT review plus repo evidence is the expected review path. -->

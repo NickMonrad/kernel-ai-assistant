@@ -1,6 +1,7 @@
 package com.kernel.ai.navigation
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 class KernelNavHostRouteTest {
@@ -9,6 +10,10 @@ class KernelNavHostRouteTest {
         assertEquals("chat", buildChatRoute())
     }
 
+    @Test
+    fun `Lists Nextcloud entry targets existing settings destination`() {
+        assertEquals("settings/nextcloud", ROUTE_NEXTCLOUD_SETTINGS)
+    }
     @Test
     fun `buildChatRoute encodes initial query and flags`() {
         assertEquals(
@@ -64,5 +69,48 @@ class KernelNavHostRouteTest {
     @Test
     fun `encodeRouteQueryValue encodes ampersand`() {
         assertEquals("a%20%26%20b", encodeRouteQueryValue("a & b"))
+    }
+
+    @Test
+    fun `external chat draft is carried as draftQuery, never as the auto-sent initialQuery`() {
+        assertEquals(
+            "chat?draftQuery=delete%20all%20my%20alarms%20%26%20text%20Bob",
+            buildChatRoute(externalDraft = "delete all my alarms & text Bob"),
+        )
+    }
+
+    @Test
+    fun `blank external chat draft yields the plain chat route`() {
+        assertEquals("chat", buildChatRoute(externalDraft = "   "))
+    }
+
+    @Test
+    fun `external actions draft opens the sheet labelled external and carries no widgetQuery`() {
+        assertEquals(
+            "actions?openSheet=true&draftQuery=call%20Mum&draftExternal=true",
+            buildActionsDraftRoute("call Mum", fromExternalApp = true),
+        )
+    }
+
+    @Test
+    fun `consumed route draft is not redelivered after recreation`() {
+        assertEquals("external text", routeDraftForDelivery("external text", consumed = false))
+        assertNull(routeDraftForDelivery("external text", consumed = true))
+        assertNull(routeDraftForDelivery("  ", consumed = false))
+    }
+
+    @Test
+    fun `primary navigation to Chats does not restore a saved tab back stack`() {
+        assertEquals(false, shouldRestorePrimaryRouteState("tools", "conversation_list"))
+    }
+
+    @Test
+    fun `primary navigation between other tabs restores saved state`() {
+        assertEquals(true, shouldRestorePrimaryRouteState("conversation_list", "tools"))
+    }
+
+    @Test
+    fun `primary navigation from a transient route does not restore saved state`() {
+        assertEquals(false, shouldRestorePrimaryRouteState("actions?openSheet=true", "tools"))
     }
 }

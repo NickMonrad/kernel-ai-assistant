@@ -1,0 +1,79 @@
+package com.kernel.ai.feature.chat
+
+import android.util.Log
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceSpeakRequest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+
+internal const val VOICE_FIRST_CHUNK_MIN_LENGTH = 40
+
+internal const val VOICE_MIN_CHUNK_LENGTH = 72
+internal const val VOICE_MIN_FINAL_CHUNK_LENGTH = 20
+
+internal const val VOICE_TIMING_TAG = "VoiceTiming"
+
+internal fun logFirstChunkQueued(chars: Int) {
+    if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "firstChunkQueued epochMs=${System.currentTimeMillis()} chars=$chars")
+}
+
+/**
+ * Speaks [text] through a streaming session, one sentence-sized chunk at a time, so the first
+ * chunk starts playing while the next is synthesised. Slow local voices (Piper/Cori) otherwise
+ * synthesise a whole multi-sentence reply before any sound plays.
+ *
+ * The text is normalised before chunking, so a list marker such as "3." that a newline left behind
+ * does not end a chunk. Returns once the chunks are queued, not when playback ends; callers that
+ * need to know when speech finishes listen for [com.kernel.ai.core.voice.VoiceOutputEvent.SpeakingStopped].
+ *
+ * Splits at sentence ends only (never at a comma or word boundary), so a chunk is never cut mid-sentence.
+ * A short first chunk lets playback start while the rest is synthesised (#1872). A tail under ~20
+ * characters ("Thanks.") would be a separate, barely audible chunk, so it is folded into the previous chunk.
+ */
+internal suspend fun speakInSentenceChunks(
+    controller: VoiceOutputController,
+    text: String,
+): VoiceOutputResult {
+    val spoken = normalizeChatTextForSpeech(text)
+    val session = controller.openStreamingSession(VoiceSpeakRequest(text = spoken))
+    try {
+        val buffer = StringBuilder(spoken)
+        var isFirst = true
+        while (buffer.isNotBlank()) {
+            val minLength = if (isFirst) VOICE_FIRST_CHUNK_MIN_LENGTH else VOICE_MIN_CHUNK_LENGTH
+            var chunk = popNextStreamingSpeechChunk(
+                buffer = buffer,
+                minChunkLength = minLength,
+                preferredChunkLength = Int.MAX_VALUE,
+                force = buffer.length < minLength,
+            ) ?: break
+            // The whole reply is known here, so a short tail is final and is folded into this chunk.
+            val tail = buffer.toString().trim()
+            if (tail.isNotEmpty() && tail.length < VOICE_MIN_FINAL_CHUNK_LENGTH) {
+                buffer.setLength(0)
+                chunk = "$chunk ${finalizeChatTextForSpeech(tail)}"
+            }
+            if (isFirst) logFirstChunkQueued(chunk.length)
+            isFirst = false
+            val isLast = buffer.isBlank()
+            val result = session.append(chunk, isFinal = isLast)
+            if (result is VoiceOutputResult.Unavailable) {
+                // Close the session so the engine finishes what it already queued and still
+                // reports SpeakingStopped; otherwise listeners wait for a final chunk forever.
+                if (!isLast) session.append("", isFinal = true)
+                return result
+            }
+            if (isLast) return VoiceOutputResult.Spoken
+        }
+        // Residual text that didn't form a clean chunk boundary.
+        if (isFirst) logFirstChunkQueued(buffer.length)
+        return session.append(finalizeChatTextForSpeech(buffer.toString()), isFinal = true)
+    } catch (e: CancellationException) {
+        // Close the streaming session so the controller doesn't wait forever for a final
+        // chunk (stuck Speaking state / unclosed chunk channel).
+        withContext(NonCancellable) { runCatching { session.cancel() } }
+        throw e
+    }
+}

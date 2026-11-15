@@ -1,7 +1,43 @@
 # Kernel AI ProGuard Rules
 
-# Keep LiteRT model inference classes
+# LiteRT and LiteRT-LM JNI resolve these classes and members by name at runtime.
 -keep class com.google.ai.edge.** { *; }
+
+# LiteRT-LM builds tool declarations with Kotlin reflection over ToolSet classes: it reads
+# @Tool/@ToolParam annotations and function and parameter names. The @Tool methods are only
+# called reflectively, so without these rules R8 removes them as unused. The model then sees
+# no tools while tool-call constrained decoding is on, and every chat turn ends after the
+# opening thought marker (#1807). verifyReleaseJniKeepRules guards KernelAIToolSet.
+-keepattributes RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations,AnnotationDefault,Signature,InnerClasses,EnclosingMethod
+-keep class kotlin.Metadata { *; }
+-keep class * implements com.google.ai.edge.litertlm.ToolSet { *; }
+-keepclasseswithmembers class * {
+    @com.google.ai.edge.litertlm.Tool <methods>;
+}
+
+# LiteRT also packages legacy org.tensorflow.lite JNI entry points in libLiteRt.so;
+# the LiteRT AAR does not supply consumer keep rules for this namespace.
+-keep class org.tensorflow.lite.** { *; }
+# ONNX Runtime's JNI implementation resolves these Java types and members by
+# binary name at runtime; its Android AAR does not provide consumer keep rules.
+-keep class ai.onnxruntime.** { *; }
+
+# Sherpa-ONNX JNI uses Java names for native bindings; the checked-in AAR has an
+# empty proguard.txt, so preserve the classes and native-facing members.
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+
+# These AndroidX native libraries export JNI methods with package/class names;
+# their AARs do not ship consumer keep rules for these bindings.
+-keep class androidx.datastore.core.NativeSharedCounter { *; }
+-keep class androidx.graphics.path.** { *; }
+
+
+# Sherpa's JNI library also exports a JNI-named nativePhonemize entry point for
+# this app-owned class; preserve that class and its native method name.
+-keep class com.kernel.ai.core.voice.InflectPhonemizer { *; }
+# kernelvec exports JNI methods using VectorStoreJni's exact Java class/method names.
+-keep class com.kernel.ai.core.memory.vector.VectorStoreJni { *; }
+
 
 # Keep Hilt generated classes
 -keep class dagger.hilt.** { *; }

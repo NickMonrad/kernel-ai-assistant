@@ -287,16 +287,6 @@
             column="12"/>
     </issue>
 
-    <issue
-        id="GradleDependency"
-        message="A newer version of com.google.mediapipe:tasks-text than 0.10.33 is available: 0.20230731"
-        errorLine1="mediapipeTasksText = &quot;0.10.33&quot;"
-        errorLine2="                     ~~~~~~~~~">
-        <location
-            file="$HOME/.omp/wt/agp9-gradle9-kotlin2321/gradle/libs.versions.toml"
-            line="35"
-            column="22"/>
-    </issue>
 
     <issue
         id="GradleDependency"

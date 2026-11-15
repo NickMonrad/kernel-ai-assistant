@@ -8,12 +8,14 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceNotice
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -28,11 +30,17 @@ class WakeWordCueTest {
     private fun fakeController(
         events: Channel<VoiceInputEvent>,
         startResult: VoiceInputStartResult = VoiceInputStartResult.Started(42L),
+        notices: MutableSharedFlow<VoiceNotice> = MutableSharedFlow(replay = 1),
     ): VoiceInputController {
         val c = mockk<VoiceInputController>()
         every { c.events } returns events.receiveAsFlow()
+        every { c.notices } returns notices
         coEvery { c.startListening(VoiceCaptureMode.AlertCommand) } returns startResult
         return c
+    }
+
+    private fun VoiceInputController.withoutNotices() = apply {
+        every { notices } returns MutableSharedFlow(replay = 1)
     }
 
     // --- runWakeAttempt tests (unit-level) ---
@@ -92,6 +100,59 @@ class WakeWordCueTest {
         verify(exactly = 0) { cuePlayer.playCue(any()) }
     }
 
+    // --- #1853: hand-off notes and final-error toasts ---
+
+    @Test
+    fun `hand-off note is shown at once and the handed-off capture is not retried`() = runTest {
+        val events = Channel<VoiceInputEvent>(capacity = Channel.UNLIMITED)
+        val notices = MutableSharedFlow<VoiceNotice>(replay = 1)
+        val controller = fakeController(events, notices = notices)
+        val cuePlayer = mockk<StartListeningCuePlayer>()
+        every { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) } returns StartListeningCueResult(
+            started = true, context = StartListeningCueContext.WAKE_WORD,
+        )
+        // Posted while the capture started: only the replay delivers it.
+        notices.emit(VoiceNotice(42L, "Zipformer is listening now."))
+        events.send(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 42L))
+        events.send(VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "I didn't catch anything", captureSessionId = 42L))
+        val shown = mutableListOf<String>()
+        val attempts = mutableListOf<Int>()
+
+        val result = runWakeCaptureSession(onFinalError = { shown += "final: $it" }) { attempt ->
+            attempts += attempt
+            runWakeAttempt(controller, WakeSessionJournal(1L, 1L, emit = { _, _, _, _ -> }), cuePlayer, attempt) {
+                shown += it
+            }
+        }
+
+        assertEquals(listOf(1), attempts)
+        assertEquals(listOf("Zipformer is listening now.", "final: I didn't catch anything"), shown)
+        assertEquals(null, result.transcript)
+        verify(exactly = 1) { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) }
+    }
+
+    @Test
+    fun `an error followed by a retry is not shown, only the final one`() = runTest {
+        val shown = mutableListOf<String>()
+        val result = runWakeCaptureSession(onFinalError = { shown += it }) { attempt ->
+            WakeAttemptOutcome.NoTranscript("stt_recognition_failed", errorMessage = "error $attempt")
+        }
+        assertEquals(listOf("error 2"), shown)
+        assertEquals("stt_recognition_failed", result.cancellationCategory)
+    }
+
+    @Test
+    fun `an error that skips the retry is shown once`() = runTest {
+        val shown = mutableListOf<String>()
+        val attempts = mutableListOf<Int>()
+        runWakeCaptureSession(onFinalError = { shown += it }) { attempt ->
+            attempts += attempt
+            WakeAttemptOutcome.NoTranscript("stt_recognition_failed", skipRetry = true, errorMessage = "stalled")
+        }
+        assertEquals(listOf(1), attempts)
+        assertEquals(listOf("stalled"), shown)
+    }
+
     // --- runWakeCaptureSession tests (retry-loop level) ---
 
     @Test
@@ -144,7 +205,7 @@ class WakeWordCueTest {
     @Test
     fun `flow failure before readiness produces startup_collection_failed`() = runTest {
         val sessionId = 42L
-        val controller = mockk<VoiceInputController>()
+        val controller = mockk<VoiceInputController>().withoutNotices()
         every { controller.events } returns flow<VoiceInputEvent> {
             throw RuntimeException("connection lost")
         }
@@ -170,7 +231,7 @@ class WakeWordCueTest {
     @Test
     fun `flow failure after readiness produces transcript_collection_failed`() = runTest {
         val sessionId = 42L
-        val controller = mockk<VoiceInputController>()
+        val controller = mockk<VoiceInputController>().withoutNotices()
         every { controller.events } returns flow {
             emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = sessionId))
             throw RuntimeException("connection lost after readiness")
@@ -209,7 +270,7 @@ class WakeWordCueTest {
         val sessionId = 42L
         val fatal = AssertionError("fatal collector failure")
 
-        val controller = mockk<VoiceInputController>()
+        val controller = mockk<VoiceInputController>().withoutNotices()
         every { controller.events } returns flow<VoiceInputEvent> {
             throw fatal
         }
@@ -274,7 +335,7 @@ class WakeWordCueTest {
 
         val attemptQueues = listOf(attempt1Events, attempt2Events)
         var attIdx = 0
-        val controller = mockk<VoiceInputController>()
+        val controller = mockk<VoiceInputController>().withoutNotices()
         every { controller.events } answers {
             val queue = attemptQueues[attIdx]
             flow {

@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test
  */
 class SpecialPermissionRouteTest {
 
-    private val packageName = "com.kernel.ai.test"
+    private val packageName = "ai.jandal.assistant.test"
 
     @Test
     fun `ACCESS_NOTIFICATION_POLICY routes to NotificationPolicy`() {

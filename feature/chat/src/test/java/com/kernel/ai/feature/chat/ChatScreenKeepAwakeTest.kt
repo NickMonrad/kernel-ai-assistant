@@ -136,6 +136,20 @@ class ChatScreenKeepAwakeTest {
             ),
         )
     }
+    @Test
+    fun `shows inline indicator while response is being prepared before generation`() {
+        assertTrue(
+            shouldShowInlineGenerationIndicator(
+                readyState(
+                    isPreparingResponse = true,
+                    messages = listOf(
+                        ChatMessage(id = "user-1", role = ChatMessage.Role.USER, content = "hello"),
+                    ),
+                ),
+            ),
+        )
+    }
+
 
     @Test
     fun `hides inline generation indicator when assistant already has streaming bubble`() {
@@ -172,9 +186,66 @@ class ChatScreenKeepAwakeTest {
         )
     }
 
+    @Test
+    fun `does not keep screen awake after model initialization failure`() {
+        assertFalse(
+            shouldKeepChatScreenAwake(
+                uiState = ChatUiState.ModelInitializationFailed("load failed"),
+                voiceCaptureState = ChatViewModel.VoiceCaptureState.Idle,
+                voicePlaybackState = ChatViewModel.VoicePlaybackState.Idle,
+                voiceMode = null,
+            ),
+        )
+    }
+
+    @Test
+    fun `follows assistant response through streaming completion`() {
+        assertTrue(
+            shouldAutoScrollToLatest(
+                messageCount = 24,
+                lastVisibleItemIndex = 12,
+                latestAssistantIsStreaming = true,
+                latestAssistantWasStreaming = false,
+            ),
+        )
+        assertTrue(
+            shouldAutoScrollToLatest(
+                messageCount = 24,
+                lastVisibleItemIndex = 12,
+                latestAssistantIsStreaming = false,
+                latestAssistantWasStreaming = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `does not pull idle history browsing to latest`() {
+        assertFalse(
+            shouldAutoScrollToLatest(
+                messageCount = 24,
+                lastVisibleItemIndex = 12,
+                latestAssistantIsStreaming = false,
+                latestAssistantWasStreaming = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `keeps existing near-bottom auto-scroll behavior`() {
+        assertTrue(
+            shouldAutoScrollToLatest(
+                messageCount = 24,
+                lastVisibleItemIndex = 22,
+                latestAssistantIsStreaming = false,
+                latestAssistantWasStreaming = false,
+            ),
+        )
+    }
+
     private fun readyState(
         isGenerating: Boolean = false,
         isLoadingModel: Boolean = false,
+        isPreparingResponse: Boolean = false,
         messages: List<ChatMessage> = emptyList(),
     ) = ChatUiState.Ready(
         conversationId = "conv-1",
@@ -185,6 +256,7 @@ class ChatScreenKeepAwakeTest {
         inputText = "",
         error = null,
         isLoadingModel = isLoadingModel,
+        isPreparingResponse = isPreparingResponse,
         showThinkingProcess = true,
     )
 }

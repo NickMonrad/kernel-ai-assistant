@@ -18,7 +18,7 @@ You review code changes for the **Kernel AI Assistant** project with extremely h
 
 2. **Memory safety**
    - Model weights not released after use (leak risk)
-   - Holding EmbeddingGemma + Gemma-4 simultaneously (OOM on 8GB)
+   - Holding Arctic Embed M v1.5 + Gemma-4 simultaneously (OOM risk on 8GB; concurrency not device-verified)
    - Bitmap/tensor allocations without cleanup
    - Room cursors left open
    - Coroutine scopes not cancelled on ViewModel clear

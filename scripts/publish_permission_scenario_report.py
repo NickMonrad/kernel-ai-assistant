@@ -337,6 +337,7 @@ def build_public_result(bundle: ReportBundle, pr: int) -> dict[str, Any]:
 def build_public_evidence(bundle: ReportBundle, pr: int) -> dict[str, Any]:
     public_evidence = json.loads(json.dumps(bundle.evidence))
     public_evidence["pr"] = pr
+    public_evidence.pop("artifact_refs", None)
     ensure_no_serial_values(public_evidence, "public evidence.json")
     return public_evidence
 

@@ -20,7 +20,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URL
 
 private const val TAG = "ModelDownloadWorker"
 private const val NOTIFICATION_CHANNEL_ID = "kernel_model_download"
@@ -41,7 +40,7 @@ const val KEY_ERROR_CODE = "error_code"
 const val KEY_HF_ACCESS_TOKEN = "hf_access_token"
 
 /**
- * WorkManager [CoroutineWorker] that downloads a single `.litertlm` model file.
+ * WorkManager [CoroutineWorker] that downloads one model or tokenizer asset.
  *
  * Features:
  * - Foreground service with a progress notification (required for long-running downloads)
@@ -111,22 +110,20 @@ class ModelDownloadWorker(
         displayName: String,
         hfAccessToken: String? = null,
     ) {
-        val connection = URL(url).openConnection() as HttpURLConnection
-
-        // Attach Bearer token for gated HuggingFace models
-        if (!hfAccessToken.isNullOrBlank()) {
-            connection.setRequestProperty("Authorization", "Bearer $hfAccessToken")
-        }
-
         // Resume from partial download if tmp file exists
         val resumeFrom = tmpFile.length()
-        if (resumeFrom > 0) {
-            Log.i(TAG, "Resuming from byte $resumeFrom for $displayName")
-            connection.setRequestProperty("Range", "bytes=$resumeFrom-")
-            // Disable compression so Range requests work correctly
-            connection.setRequestProperty("Accept-Encoding", "identity")
+        val headers = buildMap {
+            // Attach Bearer token for gated HuggingFace models
+            if (!hfAccessToken.isNullOrBlank()) put("Authorization", "Bearer $hfAccessToken")
+            if (resumeFrom > 0) {
+                Log.i(TAG, "Resuming from byte $resumeFrom for $displayName")
+                put("Range", "bytes=$resumeFrom-")
+                // Disable compression so Range requests work correctly
+                put("Accept-Encoding", "identity")
+            }
         }
-        connection.connect()
+        // HTTPS only, including every redirect hop (#1678).
+        val connection = openHttpsDownload(url, headers)
 
         val responseCode = connection.responseCode
         if (responseCode == 401 || responseCode == 403) {
@@ -136,7 +133,8 @@ class ModelDownloadWorker(
             throw IOException("HTTP $responseCode for $url")
         }
 
-        val startedAt = resumeFrom
+        val resumed = responseCode == HttpURLConnection.HTTP_PARTIAL
+        val startedAt = if (resumed) resumeFrom else 0L
         var downloadedBytes = startedAt
 
         // Sliding window for rate calculation (last 5 intervals of ~200ms each)
@@ -148,7 +146,7 @@ class ModelDownloadWorker(
         var deltaBytes = 0L
 
         connection.inputStream.use { input ->
-            FileOutputStream(tmpFile, /* append */ true).use { output ->
+            FileOutputStream(tmpFile, /* append */ resumed).use { output ->
                 var bytesRead: Int
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
@@ -189,6 +187,7 @@ class ModelDownloadWorker(
                 }
             }
         }
+
 
         // Rename tmp → final file atomically
         if (outputFile.exists()) outputFile.delete()
@@ -252,6 +251,7 @@ class ModelDownloadWorker(
     private fun errorData(message: String): Data =
         Data.Builder().putString(KEY_ERROR_MESSAGE, message).build()
 }
+
 
 /** Thrown when the server returns 401 or 403 — model licence must be accepted first. */
 private class LicenceRequiredException(val responseCode: Int) : IOException("HTTP $responseCode — licence required")

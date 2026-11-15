@@ -18,7 +18,7 @@ internal fun acousticStimulusResultCode(result: StimulusResult): Int = when {
 }
 
 /**
- * Debug-only source playback endpoint. Invoke explicitly against com.kernel.ai.debug.
+ * Debug-only source playback endpoint. Invoke explicitly against ai.jandal.assistant.debug.
  */
 class AcousticStimulusReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

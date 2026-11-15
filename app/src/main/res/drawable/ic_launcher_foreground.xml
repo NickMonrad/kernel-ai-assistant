@@ -22,21 +22,21 @@
 
     <!-- Rounded green Y-strap, using the app-icon background colour as negative space. -->
     <path
-        android:strokeColor="#4F7942"
+        android:strokeColor="@color/jandal_green"
         android:strokeWidth="8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:fillColor="@android:color/transparent"
         android:pathData="M 54,34 L 54,39" />
     <path
-        android:strokeColor="#4F7942"
+        android:strokeColor="@color/jandal_green"
         android:strokeWidth="8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:fillColor="@android:color/transparent"
         android:pathData="M 54,39 C 48,48 41,55 39,64" />
     <path
-        android:strokeColor="#4F7942"
+        android:strokeColor="@color/jandal_green"
         android:strokeWidth="8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"

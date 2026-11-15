@@ -1,0 +1,103 @@
+> Task :core:memory:preBuild UP-TO-DATE
+> Task :core:inference:preBuild UP-TO-DATE
+> Task :core:inference:preDebugBuild UP-TO-DATE
+> Task :core:memory:preDebugBuild UP-TO-DATE
+> Task :core:memory:generateDebugResources UP-TO-DATE
+> Task :core:inference:generateDebugResources UP-TO-DATE
+> Task :core:inference:packageDebugResources UP-TO-DATE
+> Task :core:memory:packageDebugResources UP-TO-DATE
+> Task :core:memory:processDebugNavigationResources UP-TO-DATE
+> Task :core:inference:processDebugNavigationResources UP-TO-DATE
+> Task :core:memory:parseDebugLocalResources UP-TO-DATE
+> Task :core:inference:parseDebugLocalResources UP-TO-DATE
+> Task :core:memory:generateDebugRFile UP-TO-DATE
+> Task :core:inference:generateDebugRFile UP-TO-DATE
+> Task :core:inference:generateDebugBuildConfig UP-TO-DATE
+> Task :core:memory:javaPreCompileDebug UP-TO-DATE
+> Task :core:memory:preDebugAndroidTestBuild UP-TO-DATE
+> Task :core:memory:generateDebugAndroidTestResources UP-TO-DATE
+> Task :core:memory:packageDebugAndroidTestResources UP-TO-DATE
+> Task :core:memory:processDebugAndroidTestNavigationResources UP-TO-DATE
+> Task :core:memory:parseDebugAndroidTestLocalResources UP-TO-DATE
+> Task :core:memory:generateDebugAndroidTestRFile UP-TO-DATE
+> Task :core:memory:javaPreCompileDebugAndroidTest FROM-CACHE
+> Task :core:inference:kspDebugKotlin UP-TO-DATE
+> Task :core:inference:compileDebugKotlin UP-TO-DATE
+> Task :core:inference:javaPreCompileDebug UP-TO-DATE
+> Task :core:inference:compileDebugJavaWithJavac UP-TO-DATE
+> Task :core:memory:copyRoomSchemasToAndroidTestAssetsDebugAndroidTest
+> Task :core:memory:generateDebugAndroidTestAssets UP-TO-DATE
+> Task :core:memory:generateDebugAssets UP-TO-DATE
+> Task :core:memory:mergeDebugAssets UP-TO-DATE
+> Task :core:inference:transformDebugClassesWithAsm UP-TO-DATE
+> Task :core:inference:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :core:inference:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :core:inference:generateDebugAssets UP-TO-DATE
+> Task :core:inference:mergeDebugAssets UP-TO-DATE
+> Task :core:inference:compileDebugLibraryResources UP-TO-DATE
+> Task :core:inference:writeDebugAarMetadata UP-TO-DATE
+> Task :core:inference:extractDeepLinksDebug UP-TO-DATE
+> Task :core:memory:desugarDebugAndroidTestFileDependencies FROM-CACHE
+> Task :core:inference:processDebugManifest UP-TO-DATE
+> Task :core:inference:processDebugJavaRes UP-TO-DATE
+> Task :core:inference:bundleLibRuntimeToDirDebug UP-TO-DATE
+> Task :core:inference:mergeDebugJniLibFolders UP-TO-DATE
+> Task :core:inference:mergeDebugNativeLibs NO-SOURCE
+> Task :core:inference:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :core:memory:kspDebugKotlin UP-TO-DATE
+> Task :core:memory:compileDebugKotlin UP-TO-DATE
+> Task :core:memory:compileDebugJavaWithJavac UP-TO-DATE
+> Task :core:memory:transformDebugClassesWithAsm UP-TO-DATE
+> Task :core:memory:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :core:memory:kspDebugAndroidTestKotlin UP-TO-DATE
+> Task :core:memory:compileDebugAndroidTestKotlin UP-TO-DATE
+> Task :core:memory:compileDebugAndroidTestJavaWithJavac NO-SOURCE
+> Task :core:memory:copyRoomSchemas NO-SOURCE
+> Task :core:memory:mergeDebugAndroidTestAssets
+> Task :core:memory:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :core:memory:hiltCollectClassesDebugAndroidTest UP-TO-DATE
+> Task :core:memory:compressDebugAndroidTestAssets
+> Task :core:memory:hiltAggregateDepsDebugAndroidTest FROM-CACHE
+> Task :core:memory:hiltJavaCompileDebugAndroidTest NO-SOURCE
+> Task :core:memory:writeDebugAarMetadata UP-TO-DATE
+> Task :core:memory:compileDebugAndroidTestNavigationResources FROM-CACHE
+> Task :core:memory:compileDebugLibraryResources UP-TO-DATE
+> Task :core:memory:checkDebugAndroidTestAarMetadata
+> Task :core:memory:mapDebugAndroidTestSourceSetPaths
+> Task :core:memory:extractDeepLinksDebug UP-TO-DATE
+> Task :core:memory:processDebugManifest UP-TO-DATE
+> Task :core:memory:mergeDebugAndroidTestResources
+> Task :core:memory:processDebugAndroidTestManifest
+> Task :core:memory:processDebugAndroidTestJavaRes
+> Task :core:memory:processDebugJavaRes UP-TO-DATE
+> Task :core:memory:bundleLibRuntimeToDirDebug UP-TO-DATE
+> Task :core:memory:configureCMakeDebug[arm64-v8a]
+> Task :core:memory:checkDebugAndroidTestDuplicateClasses
+> Task :core:memory:buildCMakeDebug[arm64-v8a]
+> Task :core:memory:processDebugAndroidTestResources
+> Task :core:memory:mergeDebugAndroidTestJavaResource
+> Task :core:memory:configureCMakeDebug[x86_64]
+> Task :core:memory:buildCMakeDebug[x86_64]
+> Task :core:memory:mergeDebugJniLibFolders UP-TO-DATE
+> Task :core:memory:mergeDebugNativeLibs UP-TO-DATE
+> Task :core:memory:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :core:memory:mergeDebugAndroidTestJniLibFolders
+> Task :core:memory:validateSigningDebugAndroidTest
+> Task :core:memory:transformDebugAndroidTestClassesWithAsm
+> Task :core:memory:writeDebugAndroidTestSigningConfigVersions
+> Task :core:memory:mergeLibDexDebugAndroidTest
+> Task :core:memory:dexBuilderDebugAndroidTest
+> Task :core:memory:mergeDebugAndroidTestNativeLibs
+> Task :core:memory:mergeDebugAndroidTestGlobalSynthetics
+> Task :core:memory:mergeProjectDexDebugAndroidTest
+> Task :core:memory:stripDebugAndroidTestDebugSymbols
+> Task :core:memory:mergeExtDexDebugAndroidTest
+> Task :core:memory:packageDebugAndroidTest
+> Task :core:memory:createDebugAndroidTestApkListingFileRedirect
+Starting 1 tests on SM-S918B - 16
+Finished 1 tests on SM-S918B - 16
+> Task :core:memory:connectedDebugAndroidTest
+
+BUILD SUCCESSFUL in 21s
+84 actionable tasks: 29 executed, 4 from cache, 51 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

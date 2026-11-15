@@ -12,14 +12,56 @@ import android.os.IBinder
 import android.util.Log
 
 /**
+ * Defers stop requests until `startForeground()` has completed in `onStartCommand()`.
+ */
+internal class ForegroundServiceLifecycle {
+    private val lock = Any()
+    private var promotionPending = false
+    private var stopAfterPromotion = false
+
+    fun start(startService: () -> Unit) {
+        synchronized(lock) {
+            stopAfterPromotion = false
+            if (promotionPending) return
+            promotionPending = true
+            try {
+                startService()
+            } catch (e: RuntimeException) {
+                promotionPending = false
+                stopAfterPromotion = false
+                throw e
+            }
+        }
+    }
+
+    fun stop(stopService: () -> Unit) {
+        synchronized(lock) {
+            if (promotionPending) {
+                stopAfterPromotion = true
+                return
+            }
+            stopService()
+        }
+    }
+
+    fun promoted(stopService: () -> Unit): Boolean = synchronized(lock) {
+        promotionPending = false
+        if (!stopAfterPromotion) return@synchronized false
+        stopAfterPromotion = false
+        stopService()
+        true
+    }
+}
+
+/**
  * Foreground service that keeps the process at high OOM priority during
  * on-device response generation.
  *
  * Without this, switching away from the app during generation could trigger
  * onTrimMemory at BACKGROUND+ levels and cancel the active generation.
  *
- * Start at the beginning of [LiteRtInferenceEngine.generate], stop when the
- * flow closes (completion, error, or user cancellation).
+ * Start only when inference is ready to send a native request; stop when generation closes
+ * (completion, error, or user cancellation).
  */
 class InferenceGenerationService : Service() {
 
@@ -33,7 +75,11 @@ class InferenceGenerationService : Service() {
             notification,
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
-        Log.i(TAG, "Generation foreground service started — process OOM priority elevated")
+        if (lifecycle.promoted { stopSelfResult(startId) }) {
+            Log.i(TAG, "Generation service stopped after foreground promotion")
+        } else {
+            Log.i(TAG, "Generation foreground service started — process OOM priority elevated")
+        }
         return START_NOT_STICKY
     }
 
@@ -65,11 +111,15 @@ class InferenceGenerationService : Service() {
         private const val CHANNEL_ID = "kernel_inference_generation"
         private const val NOTIFICATION_ID = 9002
 
+        private val lifecycle = ForegroundServiceLifecycle()
+
         fun start(context: Context) {
             try {
-                context.startForegroundService(
-                    Intent(context, InferenceGenerationService::class.java),
-                )
+                lifecycle.start {
+                    context.startForegroundService(
+                        Intent(context, InferenceGenerationService::class.java),
+                    )
+                }
             } catch (e: ForegroundServiceStartNotAllowedException) {
                 Log.w(TAG, "Foreground service start not allowed on this device state — " +
                     "generation may be killed if process is backgrounded", e)
@@ -77,9 +127,11 @@ class InferenceGenerationService : Service() {
         }
 
         fun stop(context: Context) {
-            context.stopService(
-                Intent(context, InferenceGenerationService::class.java),
-            )
+            lifecycle.stop {
+                context.stopService(
+                    Intent(context, InferenceGenerationService::class.java),
+                )
+            }
         }
     }
 }

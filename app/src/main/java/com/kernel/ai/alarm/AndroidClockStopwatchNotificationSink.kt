@@ -8,6 +8,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.kernel.ai.MainActivity
+import com.kernel.ai.navigation.ROUTE_CLOCK_STOPWATCH
 import com.kernel.ai.core.memory.clock.ClockStopwatch
 import com.kernel.ai.core.memory.clock.StopwatchStatus
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -105,12 +106,20 @@ class AndroidClockStopwatchNotificationSink @Inject constructor(
         }
     }
 
+    /**
+     * #1553: opens Clock → Stopwatch via MainActivity's existing `navigation_route` seam.
+     *
+     * Uses its own request code: the timer, alarm and important-date content intents also target
+     * MainActivity with request code 0 and FLAG_UPDATE_CURRENT, so they share one PendingIntent
+     * (extras are not part of its identity). Reusing 0 would leak this route into their taps.
+     */
     private fun buildOpenAppPendingIntent(): PendingIntent =
         PendingIntent.getActivity(
             context,
-            0,
+            ClockAlertContract.STOPWATCH_NOTIFICATION_ID,
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("navigation_route", ROUTE_CLOCK_STOPWATCH)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

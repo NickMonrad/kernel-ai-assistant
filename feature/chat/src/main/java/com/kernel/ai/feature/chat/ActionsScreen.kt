@@ -6,8 +6,10 @@ import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.PowerManager
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
@@ -43,6 +45,8 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -52,6 +56,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -92,7 +97,10 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.ImeAction
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.ToolPresentationJson
+import com.kernel.ai.core.skills.SettingsDeepLink
+import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.permissions.RuntimePermissionRepair
+import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
 import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
@@ -100,6 +108,13 @@ import com.kernel.ai.core.permissions.VoicePermissionPromptFactory
 import com.kernel.ai.core.permissions.VoicePermissionPromptState
 import com.kernel.ai.core.ui.permissions.VoicePermissionPrompt
 import com.kernel.ai.core.voice.VoiceCaptureMode
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.State
 import com.kernel.ai.feature.chat.InputMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -108,6 +123,9 @@ import java.util.Date
 import java.util.Locale
 
 private const val ACTIONS_SCREEN_TAG = "KernelAI"
+
+/** #1604: shown next to text supplied by another app until the user sends or discards it. */
+internal const val EXTERNAL_DRAFT_HINT = "Text from another app — review or edit it. Nothing runs until you send it."
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,6 +136,11 @@ fun ActionsScreen(
     initialQueryIsVoice: Boolean = false,
     adbSlotReply: String? = null,
     draftQuery: String? = null,
+    /** #1604: [draftQuery] came from another app; label it and never run it automatically. */
+    draftFromExternalApp: Boolean = false,
+    /** #1604: slot reply text from another app, pre-filled into the pending slot's field. */
+    externalSlotReplyDraft: String? = null,
+    externalSlotReplyDraftSerial: Int = 0,
     onDraftQueryConsumed: () -> Unit = {},
     onAutoOpenSheetConsumed: () -> Unit = {},
     onAutoStartVoiceConsumed: () -> Unit = {},
@@ -126,20 +149,25 @@ fun ActionsScreen(
     onNewConversation: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToAppPermissions: () -> Unit = {},
+    onOpenSettingsDeepLink: (SettingsDeepLink) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val actions by viewModel.actions.collectAsStateWithLifecycle()
+    val speakingActionId by viewModel.speakingActionId.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
+    val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
+    val voiceInputLevel = viewModel.voiceInputLevel.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
     val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
     val handsFreeCallingState by viewModel.handsFreeCallingState.collectAsStateWithLifecycle()
     val dndState by viewModel.dndState.collectAsStateWithLifecycle()
     val writeSettingsState by viewModel.writeSettingsState.collectAsStateWithLifecycle()
+    val settingsActionState by viewModel.settingsActionState.collectAsStateWithLifecycle()
     val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
     val contactPermissionState by viewModel.contactPermissionState.collectAsStateWithLifecycle()
     val calendarPermissionState by viewModel.calendarPermissionState.collectAsStateWithLifecycle()
@@ -157,6 +185,14 @@ fun ActionsScreen(
         else -> ""
     }
 
+    val actionsView = androidx.compose.ui.platform.LocalView.current
+    // #1850: start haptic is emitted once per mic start by the view model.
+    LaunchedEffect(viewModel) {
+        viewModel.listeningHaptics.collect {
+            actionsView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        }
+    }
+
     val context = LocalContext.current
 
     fun openRuntimePermissionRepair(permission: String) {
@@ -164,7 +200,12 @@ fun ActionsScreen(
             context.startActivity(RuntimePermissionRepair.intentFor(context, permission))
         }
     }
-    var initialSheetText by remember { mutableStateOf("") }
+    var initialSheetText by rememberSaveable { mutableStateOf("") }
+    var initialSheetFromExternalApp by rememberSaveable { mutableStateOf(false) }
+    // #1604: an external slot reply only applies to the slot pending when it arrives.
+    var slotReplyDraft by remember(externalSlotReplyDraftSerial) {
+        mutableStateOf(externalSlotReplyDraft?.takeIf { it.isNotBlank() && pendingSlot != null })
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     var showBottomSheet by rememberSaveable { mutableStateOf(false) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -174,7 +215,16 @@ fun ActionsScreen(
     val microphonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.RECORD_AUDIO,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.RECORD_AUDIO,
+            ),
+        )
         Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: microphone permission result granted=$granted")
+        JandalEvents.record("permission", "record_audio", "granted" to granted)
         if (!granted) {
             val shouldShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(
                 context as android.app.Activity,
@@ -188,6 +238,14 @@ fun ActionsScreen(
     val phonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.CALL_PHONE,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.CALL_PHONE,
+            ),
+        )
         if (granted) {
             viewModel.onPhonePermissionGranted()
         } else {
@@ -202,6 +260,14 @@ fun ActionsScreen(
     val weatherLocationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+        )
         if (granted) {
             viewModel.onWeatherLocationPermissionGranted()
         } else {
@@ -216,6 +282,14 @@ fun ActionsScreen(
     val contactPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.READ_CONTACTS,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.READ_CONTACTS,
+            ),
+        )
         if (granted) {
             viewModel.onContactPermissionGranted()
         } else {
@@ -230,6 +304,14 @@ fun ActionsScreen(
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.READ_CALENDAR,
+            granted,
+            shouldShowRationale = !granted && ActivityCompat.shouldShowRequestPermissionRationale(
+                context as android.app.Activity,
+                Manifest.permission.READ_CALENDAR,
+            ),
+        )
         if (granted) {
             viewModel.onCalendarPermissionGranted()
         } else {
@@ -276,10 +358,12 @@ fun ActionsScreen(
 
     // Tools example prompt: prefill the Quick Action sheet with draft text.
     // The sheet is already opened by autoOpenSheet (same route includes openSheet=true).
-    // This only sets the draft text; no action is executed automatically.
+    // This only sets the draft text; no action is executed automatically. #1604 external text
+    // from another app uses the same path, so it too runs only on the sheet's send button.
     LaunchedEffect(draftQuery) {
         if (!draftQuery.isNullOrBlank()) {
             initialSheetText = draftQuery
+            initialSheetFromExternalApp = draftFromExternalApp
             if (!showBottomSheet) showBottomSheet = true
             onDraftQueryConsumed()
         }
@@ -327,8 +411,9 @@ fun ActionsScreen(
                 }
                 ActionsViewModel.UiEvent.RequestMicrophonePermission ->
                     showVoicePermissionPrompt = true
-                ActionsViewModel.UiEvent.RequestPhonePermission ->
+                ActionsViewModel.UiEvent.RequestPhonePermission -> {
                     phonePermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+                }
                 is ActionsViewModel.UiEvent.LaunchDialer -> {
                     val dialIntent = Intent(Intent.ACTION_DIAL).apply {
                         data = Uri.parse("tel:${Uri.encode(event.phoneNumber)}")
@@ -360,6 +445,7 @@ fun ActionsScreen(
                         context.startActivity(dndSettingsIntent)
                     }
                 }
+                is ActionsViewModel.UiEvent.OpenSettingsDeepLink -> onOpenSettingsDeepLink(event.link)
                 ActionsViewModel.UiEvent.OpenWriteSettings -> {
                     val writeSettingsIntent = Intent(
                         android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
@@ -371,12 +457,15 @@ fun ActionsScreen(
                         context.startActivity(writeSettingsIntent)
                     }
                 }
-                ActionsViewModel.UiEvent.RequestWeatherLocationPermission ->
+                ActionsViewModel.UiEvent.RequestWeatherLocationPermission -> {
                     weatherLocationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                ActionsViewModel.UiEvent.RequestReadContactsPermission ->
+                }
+                ActionsViewModel.UiEvent.RequestReadContactsPermission -> {
                     contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                ActionsViewModel.UiEvent.RequestReadCalendarPermission ->
+                }
+                ActionsViewModel.UiEvent.RequestReadCalendarPermission -> {
                     calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+                }
             }
         }
     }
@@ -384,6 +473,8 @@ fun ActionsScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                // Back in the foreground: automatic mic paths may run again (#1918).
+                viewModel.onScreenResumed()
                 val hasDndAccess = (context.getSystemService(Context.NOTIFICATION_SERVICE)
                     as? NotificationManager)?.isNotificationPolicyAccessGranted == true
                 viewModel.onDndResumeCheck(hasDndAccess)
@@ -428,7 +519,11 @@ fun ActionsScreen(
                         "showBottomSheet=$showBottomSheet voiceCaptureState=$voiceCaptureState " +
                         "voicePlaybackState=$voicePlaybackState",
                 )
-                viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop")
+                // Screen off keeps speech running (#1918); Home/navigation still stops it. Both set the
+                // background pause that keeps every automatic mic path closed until ON_RESUME.
+                val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
+                    ?.isInteractive == false
+                viewModel.onScreenStopped(screenOff = screenOff)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -440,6 +535,7 @@ fun ActionsScreen(
             // and interfering with the new destination.
             showBottomSheet = false
             initialSheetText = ""
+            initialSheetFromExternalApp = false
         }
     }
 
@@ -575,6 +671,8 @@ fun ActionsScreen(
             if (voiceCaptureState != ActionsViewModel.VoiceCaptureState.Idle) {
                 VoiceCaptureCard(
                     state = voiceCaptureState,
+                    micHintVisible = micHintVisible,
+                    voiceInputLevel = voiceInputLevel,
                     onStop = viewModel::stopVoiceCapture,
                 )
             }
@@ -655,14 +753,29 @@ fun ActionsScreen(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 16.dp,
-                            vertical = 8.dp,
+                            start = 16.dp,
+                            top = 8.dp,
+                            end = 16.dp,
+                            bottom = 8.dp + FabStackClearance + 16.dp,
                         ),
                     ) {
                         items(actions, key = { it.id }) { action ->
                             ActionHistoryCard(
                                 action = action,
                                 onDelete = { viewModel.deleteAction(action.id) },
+                                isSpeaking = speakingActionId == action.id,
+                                onSpeak = {
+                                    viewModel.toggleSpeakAction(
+                                        action.id,
+                                        quickActionSpeechText(
+                                            spokenSummary = action.spokenSummary,
+                                            resultText = action.resultText,
+                                            presentationJson = action.presentationJson,
+                                            isSuccess = action.isSuccess,
+                                        ),
+                                    )
+                                },
+                                onReleaseSpeech = { viewModel.releaseActionSpeech(action.id) },
                             )
                         }
                     }
@@ -689,12 +802,15 @@ fun ActionsScreen(
             onDismiss = {
                 showBottomSheet = false
                 initialSheetText = ""
+                initialSheetFromExternalApp = false
             },
             initialText = initialSheetText,
+            initialTextFromExternalApp = initialSheetFromExternalApp,
             onSubmit = { query ->
                 viewModel.executeAction(query)
                 showBottomSheet = false
                 initialSheetText = ""
+                initialSheetFromExternalApp = false
             },
             onVoiceAction = {
                 showBottomSheet = false
@@ -716,7 +832,11 @@ fun ActionsScreen(
             onDismiss = { viewModel.cancelSlotFill() },
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
             onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
+            // Automatic start: the ViewModel re-checks the live re-arm and the background pause (#1918).
+            onAutoVoiceReply = viewModel::startAutoVoiceSlotReply,
             onStopVoiceReply = viewModel::stopVoiceCapture,
+            externalDraft = slotReplyDraft,
+            onExternalDraftConsumed = { slotReplyDraft = null },
         )
     }
     // Hands-free calling contextual permission surface
@@ -857,6 +977,15 @@ fun ActionsScreen(
             ),
             dialogTestTag = "permission_dialog_write_settings",
             onDismissRequest = { viewModel.dismissWriteSettingsDialog() },
+        )
+    }
+
+    // In-app recovery actions for a failed lookup (#1859). Nothing is called or sent from here.
+    settingsActionState?.let { state ->
+        SettingsActionChooserDialog(
+            state = state,
+            onSelect = viewModel::onSettingsActionSelected,
+            onDismiss = viewModel::dismissSettingsActionDialog,
         )
     }
 
@@ -1147,7 +1276,10 @@ internal fun PendingSlotBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
+    onAutoVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
+    externalDraft: String? = null,
+    onExternalDraftConsumed: () -> Unit = {},
 ) {
     key(
         slot.request.intentName,
@@ -1166,7 +1298,10 @@ internal fun PendingSlotBottomSheet(
             onDismiss = onDismiss,
             onSubmit = onSubmit,
             onVoiceReply = onVoiceReply,
+            onAutoVoiceReply = onAutoVoiceReply,
             onStopVoiceReply = onStopVoiceReply,
+            externalDraft = externalDraft,
+            onExternalDraftConsumed = onExternalDraftConsumed,
         )
     }
 }
@@ -1183,11 +1318,24 @@ private fun SlotFillBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
+    /** Safety-net mic start; unlike [onVoiceReply] (a user tap) it must honour the live re-arm state. */
+    onAutoVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
+    externalDraft: String? = null,
+    onExternalDraftConsumed: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var inputText by rememberSaveable { mutableStateOf("") }
+    // #1604: true once text from another app has been placed in the field for review.
+    var showExternalDraftHint by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(externalDraft) {
+        if (!externalDraft.isNullOrBlank()) {
+            inputText = externalDraft
+            showExternalDraftHint = true
+            onExternalDraftConsumed()
+        }
+    }
     // Guards against submit() and onDismissRequest firing simultaneously (e.g. tap Send + swipe).
     var isSubmitting by rememberSaveable { mutableStateOf(false) }
     val slotReplyCaptureState = when (voiceCaptureState) {
@@ -1223,7 +1371,7 @@ private fun SlotFillBottomSheet(
                     ACTIONS_SCREEN_TAG,
                     "ActionsScreen: TTS never started — forcing slot voice fallback prompt=\"$promptMessage\"",
                 )
-                onVoiceReply()
+                onAutoVoiceReply()
             }
             return@LaunchedEffect
         }
@@ -1239,7 +1387,7 @@ private fun SlotFillBottomSheet(
                 ACTIONS_SCREEN_TAG,
                 "ActionsScreen: slot voice fallback firing (playback safety net) prompt=\"$promptMessage\"",
             )
-            onVoiceReply()
+            onAutoVoiceReply()
         }
     }
 
@@ -1274,6 +1422,15 @@ private fun SlotFillBottomSheet(
                     text = "You can type a reply or tap the mic to answer by voice.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (showExternalDraftHint) {
+                Text(
+                    text = EXTERNAL_DRAFT_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("slot_reply_external_hint"),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -1366,6 +1523,7 @@ private fun QuickActionBottomSheet(
     onVoiceAction: () -> Unit,
     onStopVoiceAction: () -> Unit,
     initialText: String = "",
+    initialTextFromExternalApp: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -1408,12 +1566,21 @@ private fun QuickActionBottomSheet(
             )
             if (initialText.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Example loaded — review or edit before running.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.testTag("quick_action_example_hint"),
-                )
+                if (initialTextFromExternalApp) {
+                    Text(
+                        text = EXTERNAL_DRAFT_HINT,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("quick_action_external_hint"),
+                    )
+                } else {
+                    Text(
+                        text = "Example loaded — review or edit before running.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("quick_action_example_hint"),
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -1585,26 +1752,31 @@ private fun VoiceTranscriptOverlay(
 private fun VoiceCaptureCard(
     state: ActionsViewModel.VoiceCaptureState,
     onStop: () -> Unit,
+    micHintVisible: Boolean,
+    voiceInputLevel: State<Float>,
 ) {
     val title = when (state) {
-        is ActionsViewModel.VoiceCaptureState.Preparing -> "Preparing offline voice input…"
+        is ActionsViewModel.VoiceCaptureState.Preparing -> "Getting ready…"
         is ActionsViewModel.VoiceCaptureState.Listening -> when (state.mode) {
-            VoiceCaptureMode.Command -> "Ready — speak your quick action"
-            VoiceCaptureMode.SlotReply -> "Ready — speak your reply"
             VoiceCaptureMode.AlertCommand -> "Listening for alert command…"
+            VoiceCaptureMode.Command, VoiceCaptureMode.SlotReply -> "Listening, speak now"
         }
-        is ActionsViewModel.VoiceCaptureState.Processing -> "Processing speech…"
+        is ActionsViewModel.VoiceCaptureState.Processing -> "Processing voice input"
         ActionsViewModel.VoiceCaptureState.Idle -> return
     }
     val detail = when (state) {
-        is ActionsViewModel.VoiceCaptureState.Listening -> state.transcript.ifBlank { "" }
+        is ActionsViewModel.VoiceCaptureState.Listening -> state.transcript.ifBlank {
+            if (micHintVisible) "Your words are being captured." else ""
+        }
         is ActionsViewModel.VoiceCaptureState.Processing -> state.transcript
         else -> ""
     }
+    val contentColor = MaterialTheme.colorScheme.onSecondaryContainer
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
         ),
@@ -1615,21 +1787,44 @@ private fun VoiceCaptureCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp))
+            if (state is ActionsViewModel.VoiceCaptureState.Listening) {
+                // #1850: ring scales with the live input level while the mic is live.
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(24.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .graphicsLayer {
+                                scaleX = 1f + voiceInputLevel.value.coerceIn(0f, 1f)
+                                scaleY = scaleX
+                            }
+                            .background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                androidx.compose.foundation.shape.CircleShape,
+                            ),
+                    )
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.Mic,
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            } else {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+            }
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = contentColor,
                 )
                 if (detail.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = detail,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        maxLines = 2,
+                        color = contentColor,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -1645,6 +1840,9 @@ private fun VoiceCaptureCard(
 private fun ActionHistoryCard(
     action: QuickActionEntity,
     onDelete: () -> Unit,
+    isSpeaking: Boolean,
+    onSpeak: () -> Unit,
+    onReleaseSpeech: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var isOverflowing by remember { mutableStateOf(false) }
@@ -1652,6 +1850,7 @@ private fun ActionHistoryCard(
     val presentation = remember(action.presentationJson) {
         ToolPresentationJson.fromJsonString(action.presentationJson)
     }
+    DisposableEffect(action.id) { onDispose { onReleaseSpeech() } }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1668,7 +1867,7 @@ private fun ActionHistoryCard(
                 .fillMaxWidth()
                 .padding(12.dp),
         ) {
-            // Header: icon + query + delete
+            // Header: status icon, skill name, then speak, copy and delete actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1700,6 +1899,18 @@ private fun ActionHistoryCard(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onSpeak) {
+                        Icon(
+                            imageVector = if (isSpeaking) {
+                                Icons.AutoMirrored.Filled.VolumeUp
+                            } else {
+                                Icons.AutoMirrored.Outlined.VolumeUp
+                            },
+                            contentDescription = if (isSpeaking) "Stop reading" else "Read aloud",
+                            modifier = Modifier.size(18.dp),
+                            tint = LocalContentColor.current.copy(alpha = if (isSpeaking) 1f else 0.6f),
+                        )
+                    }
                     IconButton(
                         onClick = {
                             clipboardManager.setText(
@@ -1776,4 +1987,22 @@ private fun formatActionHistoryClipboardText(action: QuickActionEntity): String 
 private fun formatActionTimestamp(millis: Long): String {
     val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
     return sdf.format(Date(millis))
+}
+
+/**
+ * Text a quick-action card reads aloud. Priority: the skill's own spoken summary (#1026 review B2),
+ * then the presentation summary for successful rich cards, then the raw reply.
+ */
+internal fun quickActionSpeechText(
+    spokenSummary: String?,
+    resultText: String,
+    presentationJson: String?,
+    isSuccess: Boolean,
+): String {
+    spokenSummary?.takeIf { it.isNotBlank() }?.let { return it }
+    if (isSuccess) {
+        ToolPresentationJson.fromJsonString(presentationJson)?.toSpokenSummary()
+            ?.takeIf { it.isNotBlank() }?.let { return it }
+    }
+    return resultText
 }

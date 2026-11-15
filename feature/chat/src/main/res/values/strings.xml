@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="cd_scroll_to_bottom">Scroll to bottom</string>
+    <string name="setup_wizard_assistant_page_missing">Couldn\'t open that page on this phone. In Settings, look for Default apps or Digital assistant app.</string>
+    <string name="setup_wizard_exact_alarm_page_missing">Couldn\'t open Alarms &amp; reminders on this phone. Search Settings for it.</string>
+    <string name="setup_wizard_usage_access_page_missing">Couldn\'t open Usage Access on this phone. Search Settings for Usage access.</string>
+    <string name="setup_wizard_app_info_missing">Couldn\'t open App info. Open Settings, then Apps, then Jandal AI.</string>
 </resources>

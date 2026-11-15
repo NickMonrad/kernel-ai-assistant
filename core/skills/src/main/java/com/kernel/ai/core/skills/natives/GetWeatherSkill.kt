@@ -3,6 +3,7 @@ package com.kernel.ai.core.skills.natives
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.LocationServices
@@ -15,14 +16,17 @@ import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import org.json.JSONArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.time.ZoneId
 import java.time.DayOfWeek
 import java.time.LocalDate
 import kotlin.math.roundToInt
@@ -34,6 +38,19 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+/**
+ * Round coordinates obtained from device location before they are used in outbound
+ * requests. Named-place coordinates must bypass this function.
+ */
+internal fun roundDeviceLocationCoordinate(coordinate: Double): Double =
+    (coordinate * 100).roundToInt() / 100.0
+
+internal fun openMeteoCoordinateQuery(latitude: Double, longitude: Double): String =
+    "latitude=$latitude&longitude=$longitude"
+
+internal fun nominatimReverseCoordinateQuery(latitude: Double, longitude: Double): String =
+    "lat=$latitude&lon=$longitude"
+
 // ── Top-level internal helpers (extracted for JVM testability) ────────────────
 
 /** Format an ISO date string "YYYY-MM-DD" to "EEE d MMM" (e.g. "Mon 1 Jun"). */
@@ -65,9 +82,12 @@ internal fun uvIndexLabel(uv: Double): String = when {
     else -> "Extreme"
 }
 
+/** Label used when no place name resolves. Never raw coordinates (#1694). */
+internal const val UNRESOLVED_LOCATION_LABEL = "your location"
+
 /** Strip country/region suffix from location label for speech output. */
 internal fun locationForSpeech(locationLabel: String?): String =
-    locationLabel?.substringBefore(",")?.trim()?.takeIf { it.isNotBlank() } ?: "your location"
+    locationLabel?.substringBefore(",")?.trim()?.takeIf { it.isNotBlank() } ?: UNRESOLVED_LOCATION_LABEL
 
 /** Build a natural-language spoken summary for current weather. */
 internal fun buildCurrentWeatherSpoken(
@@ -241,6 +261,72 @@ internal fun wmoDescription(code: Int): String = when (code) {
     else -> "Unknown"
 }
 
+/** A geocoding match, its country code and Nominatim importance (#1894). */
+internal data class GeocodeCandidate(
+    val lat: Double,
+    val lon: Double,
+    val countryCode: String?,
+    val importance: Double?,
+)
+
+/** Geocoding outcome; separates "no such place" from "service unreachable". */
+internal sealed class GeocodeOutcome {
+    data class Found(val candidate: GeocodeCandidate) : GeocodeOutcome()
+    data object NotFound : GeocodeOutcome()
+    data object Unavailable : GeocodeOutcome()
+}
+
+/** HTTP error status from a request. 4xx responses are not retried (#1894). */
+internal class HttpStatusException(val code: Int) : java.io.IOException("HTTP $code")
+
+internal fun parseGeocodeCandidate(obj: JSONObject?): GeocodeCandidate? {
+    if (obj == null) return null
+    val lat = obj.optString("lat").toDoubleOrNull() ?: return null
+    val lon = obj.optString("lon").toDoubleOrNull() ?: return null
+    return GeocodeCandidate(
+        lat = lat,
+        lon = lon,
+        countryCode = obj.optJSONObject("address")?.optString("country_code")?.takeIf { it.isNotBlank() },
+        importance = if (obj.has("importance")) obj.optDouble("importance") else null,
+    )
+}
+
+/** Home-country match wins only when its importance is at least this share of the top match's. */
+internal const val HOME_COUNTRY_IMPORTANCE_RATIO = 0.8
+
+/**
+ * Provider order is relevance order. Prefer the best home-country match only when it is nearly as
+ * important as the overall top match, so "Paris" stays Paris, France for an AU, NZ or US user.
+ */
+internal fun rankGeocodeCandidates(
+    candidates: List<GeocodeCandidate>,
+    homeCountryCode: String?,
+): GeocodeCandidate? {
+    val top = candidates.firstOrNull() ?: return null
+    val home = homeCountryCode?.let { code -> candidates.firstOrNull { it.countryCode.equals(code, ignoreCase = true) } }
+    val topImportance = top.importance ?: return top
+    val homeImportance = home?.importance ?: return top
+    return if (home != null && homeImportance >= topImportance * HOME_COUNTRY_IMPORTANCE_RATIO) home else top
+}
+
+/** English country name for an ISO code, locale-independent (#1894). Null if unknown. */
+internal fun englishCountryName(countryCode: String): String? {
+    val upper = countryCode.uppercase()
+    return java.util.Locale("", upper).getDisplayCountry(java.util.Locale.ENGLISH)
+        .takeIf { it.isNotBlank() && it != upper }
+}
+
+/** Append the English country name when the match is outside the home country (#1894). */
+internal fun weatherLocationLabel(
+    query: String,
+    candidate: GeocodeCandidate,
+    homeCountryCode: String?,
+): String {
+    val code = candidate.countryCode ?: return query
+    if (homeCountryCode == null || code.equals(homeCountryCode, ignoreCase = true)) return query
+    val name = englishCountryName(code) ?: return query
+    return "$query, $name"
+}
 // ── Weather lookup mode and failure reason helpers ──────────────────────────
 
 /**
@@ -263,6 +349,7 @@ internal enum class WeatherLookupFailureReason {
     CURRENT_LOCATION_UNAVAILABLE,
     NAMED_LOCATION_NOT_FOUND,
     API_UNAVAILABLE,
+    GEOCODE_UNAVAILABLE,
 }
 
 /** Human-readable user-facing message for each failure reason. */
@@ -274,27 +361,174 @@ internal fun weatherFailureMessage(reason: WeatherLookupFailureReason): String =
     WeatherLookupFailureReason.NAMED_LOCATION_NOT_FOUND ->
         "I couldn't find that location for weather. Try another city, like \"weather in Brisbane\"."
     WeatherLookupFailureReason.API_UNAVAILABLE ->
-        "Unable to fetch weather data right now. Please try again in a moment."
+        "The weather service isn't answering right now. Try again in a few minutes."
+    WeatherLookupFailureReason.GEOCODE_UNAVAILABLE ->
+        "I couldn't reach the location service just now. Please try again in a moment."
 }
+
+/** #1921 — a cached entry is usable when its age is within [maxAgeMillis]; a negative age (clock moved back) is not. */
+internal fun isCacheEntryUsable(cachedAtMillis: Long, nowMillis: Long, maxAgeMillis: Long): Boolean =
+    (nowMillis - cachedAtMillis) in 0..maxAgeMillis
+
+/** Forecast body for one place and shape. [displayName] keeps the place label for replays (#1921). */
+internal data class WeatherCacheEntry(val cachedAtMillis: Long, val displayName: String?, val body: String)
+
+internal fun encodeWeatherCacheEntry(entry: WeatherCacheEntry): String =
+    JSONObject()
+        .put("cachedAt", entry.cachedAtMillis)
+        .put("displayName", entry.displayName ?: JSONObject.NULL)
+        .put("body", entry.body)
+        .toString()
+
+internal fun decodeWeatherCacheEntry(raw: String): WeatherCacheEntry? = try {
+    val obj = JSONObject(raw)
+    WeatherCacheEntry(
+        cachedAtMillis = obj.getLong("cachedAt"),
+        displayName = obj.optString("displayName").takeIf { it.isNotBlank() },
+        body = obj.getString("body"),
+    )
+} catch (e: Exception) {
+    null
+}
+
+/** Mutable clock for cache ages; tests replace it to simulate elapsed time (#1921). */
+internal var weatherClockMillis: () -> Long = System::currentTimeMillis
+
+/**
+ * Local time of a cached forecast for speech and cards, e.g. "9:40 AM" or, from an earlier day,
+ * "Sat 14 Nov 9:40 AM" (#1921). [is24Hour] follows the device clock setting.
+ */
+internal fun staleForecastTimeText(
+    cachedAtMillis: Long,
+    nowMillis: Long,
+    is24Hour: Boolean,
+    zone: java.time.ZoneId,
+): String {
+    val cached = java.time.Instant.ofEpochMilli(cachedAtMillis).atZone(zone)
+    val today = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+    val clock = if (is24Hour) "HH:mm" else "h:mm a"
+    val pattern = if (cached.toLocalDate() == today) clock else "EEE d MMM $clock"
+    return cached.format(java.time.format.DateTimeFormatter.ofPattern(pattern, java.util.Locale.ENGLISH))
+}
+
+/**
+ * #1921 — label a cached forecast served after a live failure. Content, spoken summary and card all
+ * carry the time. Returns null when [result] is not a forecast, so an unlabelled stale result is never served.
+ */
+internal fun markStaleWeather(result: SkillResult?, timeText: String): SkillResult? {
+    if (result !is SkillResult.DirectReply) return null
+    val lead = "The weather service isn't answering, so here's the forecast from $timeText"
+    return SkillResult.DirectReply(
+        content = "$lead:\n${result.content}",
+        presentation = (result.presentation as? ToolPresentation.Weather)?.copy(
+            staleNoteText = "Forecast from $timeText. The weather service isn't answering, so it may be out of date.",
+        ) ?: result.presentation,
+        spokenSummary = "$lead: ${result.spokenSummary ?: result.content}",
+    )
+}
+
+/**
+ * Cache key for one lookup shape. Day-relative shapes ("tomorrow", "weekend") carry the local date so a
+ * key from yesterday cannot answer today's question across midnight (#1921).
+ */
+internal fun weatherCacheKey(
+    lookupMode: WeatherLookupMode,
+    location: String?,
+    weekend: Boolean,
+    dayParam: String?,
+    forecastDays: Int,
+    nowMillis: Long,
+    zone: java.time.ZoneId,
+): String {
+    val place = when (lookupMode) {
+        WeatherLookupMode.NAMED_LOCATION -> "loc:${location.orEmpty()}"
+        WeatherLookupMode.DEVICE_LOCATION -> "gps"
+    }
+    val date = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate().toString()
+    return when {
+        weekend -> "$place:weekend:$date"
+        dayParam == "tomorrow" -> "$place:tomorrow:$date"
+        forecastDays > 0 -> "$place:forecast:$forecastDays"
+        else -> "$place:current"
+    }
+}
+
+/**
+ * True when a stored entry cannot be decoded or is older than the stale window (#1921). Such entries are
+ * pruned on each cache write so per-place keys cannot accumulate.
+ */
+internal fun isWeatherEntryPrunable(raw: Any, nowMillis: Long): Boolean {
+    val entry = (raw as? String)?.let(::decodeWeatherCacheEntry) ?: return true
+    val age = nowMillis - entry.cachedAtMillis
+    return age > STALE_CACHE_MAX_AGE_MS || age < -FUTURE_CACHE_SLACK_MS
+}
+
+/**
+ * Drops daily rows dated before [today] from a cached multi-day body, so a stale replay never presents
+ * yesterday as the headline or first day (#1921). Returns null when no row remains. Uses the device date,
+ * not the place's date; adequate for NZ/AU but not for distant time zones.
+ */
+internal fun keepDailyRowsFrom(json: String, today: java.time.LocalDate): String? {
+    val obj = JSONObject(json)
+    val daily = obj.optJSONObject("daily") ?: return json
+    val times = daily.optJSONArray("time") ?: return json
+    val keep = (0 until times.length()).filter { !java.time.LocalDate.parse(times.getString(it)).isBefore(today) }
+    if (keep.isEmpty()) return null
+    if (keep.size == times.length()) return json
+    for (key in daily.keys().asSequence().toList()) {
+        val arr = daily.optJSONArray(key) ?: continue
+        val rebuilt = JSONArray()
+        keep.filter { it < arr.length() }.forEach { rebuilt.put(arr.get(it)) }
+        daily.put(key, rebuilt)
+    }
+    return obj.toString()
+}
+
+/**
+ * Current conditions keep the cached temperature but must not show a past day's high/low (#1921).
+ * Removes the `daily` block when its first row is not [today].
+ */
+internal fun dropStaleCurrentDaily(json: String, today: java.time.LocalDate): String {
+    val obj = JSONObject(json)
+    val first = obj.optJSONObject("daily")?.optJSONArray("time")?.optString(0)?.takeIf { it.isNotBlank() }
+        ?: return json
+    if (java.time.LocalDate.parse(first) == today) return json
+    obj.remove("daily")
+    return obj.toString()
+}
+
 // ── Weather cache constants ──────────────────────────────────────────────────
 
-/** Duration (ms) for serving cached weather data without a live API call. */
+/** Age (ms) within which a cached forecast is served without a live API call. */
 private const val CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000L // 2 hours
 
-/** Max retry attempts for transient Open-Meteo failures (timeout, 5xx). */
-private const val RETRY_MAX_ATTEMPTS = 2
+/** Age (ms) up to which a cached forecast may replace a failed live fetch (#1921). */
+private const val STALE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000L // 12 hours
 
-/** Base delay for exponential backoff between retries (ms). */
-private const val RETRY_BASE_DELAY_MS = 1000L
+/** Entries stamped more than this far in the future are treated as corrupt and pruned (#1921 N5). */
+private const val FUTURE_CACHE_SLACK_MS = 60_000L
 
-/** DataStore key for cached weather JSON body. */
-private val WEATHER_CACHE_JSON_KEY = stringPreferencesKey("weather_cache_json")
+/** Budget (ms) for geocoding, forecast and current conditions; air quality has its own budget (#1921). */
+private const val WEATHER_LIVE_BUDGET_MS = 10_000L
 
-/** DataStore key for cached weather timestamp (epoch millis). */
-private val WEATHER_CACHE_TIMESTAMP_KEY = longPreferencesKey("weather_cache_timestamp")
+/** Budget (ms) for the optional air-quality call, which runs after the forecast budget (#1921). */
+private const val AIR_QUALITY_BUDGET_MS = 3_000L
 
-/** DataStore key for cached weather location label. */
-private val WEATHER_CACHE_LOCATION_KEY = stringPreferencesKey("weather_cache_location")
+/** Hard cap (ms) on one weather HTTP call, including its body read, so a stalled call cannot outlive the budget (#1921). */
+private const val WEATHER_CALL_TIMEOUT_MS = WEATHER_LIVE_BUDGET_MS
+
+/** Per-request timeouts for weather calls (#1921). */
+private const val WEATHER_CONNECT_TIMEOUT_MS = 4_000L
+private const val WEATHER_READ_TIMEOUT_MS = 6_000L
+
+/** One retry for transient failures; the live budget also bounds it (#1921). */
+private const val RETRY_MAX_ATTEMPTS = 1
+
+/** Delay before the retry (ms). */
+private const val RETRY_BASE_DELAY_MS = 500L
+
+/** DataStore key prefix: one entry per cache key holding {cachedAt, displayName, body} (#1921). */
+private const val WEATHER_CACHE_ENTRY_PREFIX = "weather_entry:"
 
 /** Extension property providing the weather-specific DataStore. */
 private val Context.weatherDataStore: DataStore<Preferences> by preferencesDataStore(name = "weather_cache")
@@ -331,7 +565,7 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
         return SkillResult.Failure(skillName, "Weekend forecast not available within the forecast horizon.")
     }
 
-    val locationLabel = displayName ?: "GPS location"
+    val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
     val text = buildString {
         append("$locationLabel weekend forecast:\n")
         for (i in indices) {
@@ -452,18 +686,38 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
     )
 }
 
-/** Internal wrapper for fresh weather fetch outcomes — success or a specific failure reason. */
+/** Internal wrapper for fresh weather fetch outcomes — success, current conditions needing air quality, or a failure. */
 private sealed class LiveFetchResult {
     data class Success(val result: SkillResult) : LiveFetchResult()
+    data class Current(val fetch: CurrentWeatherFetch) : LiveFetchResult()
     data class Failed(val reason: WeatherLookupFailureReason) : LiveFetchResult()
 }
+
+/**
+ * Current conditions fetched inside the forecast budget. Air quality is added later by
+ * [GetWeatherSkill.buildCurrentWeather], outside that budget (#1921).
+ */
+private data class CurrentWeatherFetch(
+    val body: String,
+    val displayName: String?,
+    val lat: Double,
+    val lon: Double,
+    val fromCache: Boolean,
+)
 
 @Singleton
 class GetWeatherSkill @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val httpClient: OkHttpClient,
+    sharedHttpClient: OkHttpClient,
 ) : Skill {
-    private val weatherStore: DataStore<Preferences> = context.weatherDataStore
+    // Weather-only timeouts (#1921); the shared client keeps its own settings for other users.
+    private val httpClient: OkHttpClient = sharedHttpClient.newBuilder()
+        .connectTimeout(WEATHER_CONNECT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        .readTimeout(WEATHER_READ_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        .callTimeout(WEATHER_CALL_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        .build()
+    /** Test seam: swapped for an isolated DataStore in unit tests. */
+    internal var weatherStore: DataStore<Preferences> = context.weatherDataStore
 
     override val name = "get_weather_gps"
     override val description =
@@ -506,90 +760,127 @@ class GetWeatherSkill @Inject constructor(
         val weekendRequest = call.arguments["period"]?.trim()?.lowercase() == "weekend"
         val lookupMode = weatherLookupMode(location)
 
-        val cacheKey = when (lookupMode) {
-            WeatherLookupMode.NAMED_LOCATION -> when {
-                weekendRequest -> "loc:$location:weekend"
-                dayParam == "tomorrow" -> "loc:$location:tomorrow"
-                forecastDays > 0 -> "loc:$location:forecast:$forecastDays"
-                else -> "loc:$location:current"
-            }
-            WeatherLookupMode.DEVICE_LOCATION -> when {
-                weekendRequest -> "gps:weekend"
-                dayParam == "tomorrow" -> "gps:tomorrow"
-                forecastDays > 0 -> "gps:forecast:$forecastDays"
-                else -> "gps:current"
-            }
-        }
+        val cacheKey = weatherCacheKey(
+            lookupMode = lookupMode,
+            location = location,
+            weekend = weekendRequest,
+            dayParam = dayParam,
+            forecastDays = forecastDays,
+            nowMillis = weatherClockMillis(),
+            zone = ZoneId.systemDefault(),
+        )
 
+        val startedAtNanos = System.nanoTime()
         val freshResult = try {
-            when {
-                weekendRequest -> when (lookupMode) {
-                    WeatherLookupMode.NAMED_LOCATION ->
-                        fetchByLocationName(location.orEmpty(), targetWeekend = true, cacheKey = cacheKey)
-                    WeatherLookupMode.DEVICE_LOCATION ->
-                        fetchByDeviceLocation(targetWeekend = true, cacheKey = cacheKey)
-                }
-                dayParam == "tomorrow" -> {
-                    val targetDays = forecastDays.coerceAtLeast(2)
-                    when (lookupMode) {
+            withContext(Dispatchers.IO) { withTimeoutOrNull(WEATHER_LIVE_BUDGET_MS) {
+                when {
+                    weekendRequest -> when (lookupMode) {
                         WeatherLookupMode.NAMED_LOCATION ->
-                            fetchByLocationName(location.orEmpty(), targetDays, targetDay = true, cacheKey = cacheKey)
+                            fetchByLocationName(location.orEmpty(), targetWeekend = true, cacheKey = cacheKey)
                         WeatherLookupMode.DEVICE_LOCATION ->
-                            fetchByDeviceLocation(targetDays, targetDay = true, cacheKey = cacheKey)
+                            fetchByDeviceLocation(targetWeekend = true, cacheKey = cacheKey)
                     }
+                    dayParam == "tomorrow" -> {
+                        val targetDays = forecastDays.coerceAtLeast(2)
+                        when (lookupMode) {
+                            WeatherLookupMode.NAMED_LOCATION ->
+                                fetchByLocationName(location.orEmpty(), targetDays, targetDay = true, cacheKey = cacheKey)
+                            WeatherLookupMode.DEVICE_LOCATION ->
+                                fetchByDeviceLocation(targetDays, targetDay = true, cacheKey = cacheKey)
+                        }
+                    }
+                    lookupMode == WeatherLookupMode.NAMED_LOCATION ->
+                        fetchByLocationName(location.orEmpty(), forecastDays, cacheKey = cacheKey)
+                    else ->
+                        fetchByDeviceLocation(forecastDays, cacheKey = cacheKey)
                 }
-                lookupMode == WeatherLookupMode.NAMED_LOCATION ->
-                    fetchByLocationName(location.orEmpty(), forecastDays, cacheKey = cacheKey)
-                else ->
-                    fetchByDeviceLocation(forecastDays, cacheKey = cacheKey)
+            } } ?: run {
+                Log.w(TAG, "Live weather fetch exceeded the ${WEATHER_LIVE_BUDGET_MS} ms budget")
+                LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Live weather fetch crashed unexpectedly for key '$cacheKey'", e)
+            Log.w(TAG, "Live weather fetch crashed (${e.javaClass.simpleName})")
             LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
         }
 
-        when (freshResult) {
+        val failureReason = when (freshResult) {
             is LiveFetchResult.Success -> return freshResult.result
-            is LiveFetchResult.Failed -> {
-                val failureReason = freshResult.reason
-
-                if (failureReason == WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED) {
-                    Log.i(TAG, "GetWeatherSkill: returning CapabilityRequired(WeatherCurrentLocation)")
-                    return SkillResult.CapabilityRequired(
-                        capabilityKey = CapabilityKey.WeatherCurrentLocation,
-                        skillName = name,
-                        contextParams = emptyMap(),
-                    )
-                }
-
-                getRawCachedWeatherJson(cacheKey)?.let { cachedJson ->
-                    Log.i(TAG, "Serving stale weather cache for key '$cacheKey' after ${failureReason.name}")
-                    return try {
-                        when {
-                            weekendRequest -> parseWeekendResponse(cachedJson, displayName = null)
-                            dayParam == "tomorrow" ->
-                                parseForecastDayResponse(cachedJson, displayName = null, dayIndex = 1)
-                            forecastDays > 0 -> parseForecastResponse(cachedJson, displayName = null)
-                            else -> parseWeatherResponse(cachedJson, displayName = null, airQuality = null)
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Cache re-parse failed for key '$cacheKey'", e)
-                        SkillResult.Failure(name, "Cached weather data is corrupted. Please try again.")
-                    }
-                }
-
-                Log.i(TAG, "Weather cache miss for key '$cacheKey' after ${failureReason.name}")
-                if (failureReason == WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE) {
-                    // TODO(#1164): Replace this interim current-location guidance with the
-                    // contextual capability prompt + retry flow.
-                    Log.i(TAG, "Returning interim current-location guidance pending #1164")
-                }
-                return SkillResult.DirectReply(weatherFailureMessage(failureReason))
-            }
+            // Air quality is fetched here, after the forecast budget (#1921).
+            is LiveFetchResult.Current -> buildCurrentWeather(freshResult.fetch, startedAtNanos)?.let { return it }
+                ?: WeatherLookupFailureReason.API_UNAVAILABLE
+            is LiveFetchResult.Failed -> freshResult.reason
         }
+
+        if (failureReason == WeatherLookupFailureReason.LOCATION_PERMISSION_DENIED) {
+            Log.i(TAG, "GetWeatherSkill: returning CapabilityRequired(WeatherCurrentLocation)")
+            return SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.WeatherCurrentLocation,
+                skillName = name,
+                contextParams = emptyMap(),
+            )
+        }
+
+        // Stale fallback only for a named place whose service or geocoder is down. GPS keys have no
+        // place label to show, so they never serve stale data (#1921).
+        if (lookupMode == WeatherLookupMode.NAMED_LOCATION &&
+            (failureReason == WeatherLookupFailureReason.API_UNAVAILABLE ||
+                failureReason == WeatherLookupFailureReason.GEOCODE_UNAVAILABLE)
+        ) {
+            staleWeatherReply(cacheKey, failureReason, weekendRequest, dayParam, forecastDays)?.let { return it }
+        }
+
+        Log.i(TAG, "Weather cache miss after ${failureReason.name}")
+        if (failureReason == WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE) {
+            // TODO(#1164): Replace this interim current-location guidance with the
+            // contextual capability prompt + retry flow.
+            Log.i(TAG, "Returning interim current-location guidance pending #1164")
+        }
+        return SkillResult.DirectReply(weatherFailureMessage(failureReason))
     }
+
+    /**
+     * Cached forecast for a named place, labelled with when it was fetched (#1921). Null when there is no
+     * usable entry, the entry lacks a place label, or it cannot be re-parsed.
+     */
+    private suspend fun staleWeatherReply(
+        cacheKey: String,
+        failureReason: WeatherLookupFailureReason,
+        weekendRequest: Boolean,
+        dayParam: String?,
+        forecastDays: Int,
+    ): SkillResult? {
+        val now = weatherClockMillis()
+        val entry = readWeatherEntry(cacheKey)
+            ?.takeIf { isCacheEntryUsable(it.cachedAtMillis, now, STALE_CACHE_MAX_AGE_MS) }
+            ?.takeIf { !it.displayName.isNullOrBlank() }
+            ?: return null
+        val today = java.time.Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate()
+        val reparsed = try {
+            val dailyBody = if (forecastDays > 0 || weekendRequest || dayParam == "tomorrow") {
+                keepDailyRowsFrom(entry.body, today) ?: return null
+            } else {
+                dropStaleCurrentDaily(entry.body, today)
+            }
+            when {
+                weekendRequest -> parseWeekendResponse(dailyBody, entry.displayName)
+                dayParam == "tomorrow" -> parseForecastDayResponse(dailyBody, entry.displayName, dayIndex = 1)
+                forecastDays > 0 -> parseForecastResponse(dailyBody, entry.displayName)
+                else -> parseWeatherResponse(dailyBody, entry.displayName, airQuality = null)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Cached weather re-parse failed (${e.javaClass.simpleName})")
+            return null
+        }
+        Log.i(TAG, "Serving stale weather cache after ${failureReason.name}")
+        val timeText = staleForecastTimeText(entry.cachedAtMillis, now, uses24HourClock(), ZoneId.systemDefault())
+        return markStaleWeather(reparsed, timeText)
+    }
+
+    /** Device 12/24-hour setting; falls back to 12-hour when the platform call is unavailable (unit tests). */
+    private fun uses24HourClock(): Boolean =
+        runCatching { android.text.format.DateFormat.is24HourFormat(context) }.getOrDefault(false)
 
     // ── Location ──────────────────────────────────────────────────────────────
 
@@ -600,57 +891,59 @@ class GetWeatherSkill @Inject constructor(
         targetWeekend: Boolean = false,
         cacheKey: String,
     ): LiveFetchResult {
-        val resolvedLocationName = resolveIndirectLocationReference(locationName) ?: locationName
-        val coordinates = geocodeLocation(resolvedLocationName)
-            ?: run {
-                Log.i(TAG, "Named-location weather geocode failed for '$resolvedLocationName'")
+        val query = resolveIndirectLocationReference(locationName) ?: locationName
+        val home = homeCountryCode()
+        val candidate = when (val outcome = geocodeLocation(query, home)) {
+            is GeocodeOutcome.Found -> outcome.candidate
+            GeocodeOutcome.NotFound -> {
+                Log.i(TAG, "Named-location weather geocode: no match")
                 return LiveFetchResult.Failed(WeatherLookupFailureReason.NAMED_LOCATION_NOT_FOUND)
             }
+            GeocodeOutcome.Unavailable -> {
+                Log.w(TAG, "Named-location weather geocode unavailable")
+                return LiveFetchResult.Failed(WeatherLookupFailureReason.GEOCODE_UNAVAILABLE)
+            }
+        }
+        val resolvedLocationName = weatherLocationLabel(query, candidate, home)
+        val coordinates = candidate.lat to candidate.lon
 
-        val result = when {
+        return when {
             targetWeekend -> fetchWeekendForecast(
                 lat = coordinates.first,
                 lon = coordinates.second,
                 displayName = resolvedLocationName,
                 cacheKey = cacheKey,
-            )
-            forecastDays > 0 -> {
-                if (targetDay) {
-                    fetchForecastForDay(
-                        lat = coordinates.first,
-                        lon = coordinates.second,
-                        displayName = resolvedLocationName,
-                        days = forecastDays,
-                        dayIndex = 1,
-                        cacheKey = cacheKey,
-                    )
-                } else {
-                    fetchForecast(
-                        lat = coordinates.first,
-                        lon = coordinates.second,
-                        displayName = resolvedLocationName,
-                        days = forecastDays,
-                        cacheKey = cacheKey,
-                    )
-                }
-            }
-            else -> {
-                fetchWeather(
-                    lat = coordinates.first,
-                    lon = coordinates.second,
-                    displayName = resolvedLocationName,
-                    cacheKey = cacheKey,
-                )
-            }
+            ).toLiveFetchResult()
+            forecastDays > 0 && targetDay -> fetchForecastForDay(
+                lat = coordinates.first,
+                lon = coordinates.second,
+                displayName = resolvedLocationName,
+                days = forecastDays,
+                dayIndex = 1,
+                cacheKey = cacheKey,
+            ).toLiveFetchResult()
+            forecastDays > 0 -> fetchForecast(
+                lat = coordinates.first,
+                lon = coordinates.second,
+                displayName = resolvedLocationName,
+                days = forecastDays,
+                cacheKey = cacheKey,
+            ).toLiveFetchResult()
+            else -> fetchWeather(
+                lat = coordinates.first,
+                lon = coordinates.second,
+                displayName = resolvedLocationName,
+                cacheKey = cacheKey,
+            )?.let { LiveFetchResult.Current(it) } ?: apiUnavailable()
         }
+    }
 
-        return if (result != null) {
-            Log.d(TAG, "Named-location weather lookup succeeded for '$resolvedLocationName'")
-            LiveFetchResult.Success(result)
-        } else {
-            Log.w(TAG, "Weather API unavailable after geocoding '$resolvedLocationName'")
-            LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
-        }
+    private fun SkillResult?.toLiveFetchResult(): LiveFetchResult =
+        this?.let { LiveFetchResult.Success(it) } ?: apiUnavailable()
+
+    private fun apiUnavailable(): LiveFetchResult.Failed {
+        Log.w(TAG, "Weather API unavailable after lookup")
+        return LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
     }
 
     private suspend fun resolveIndirectLocationReference(locationName: String): String? {
@@ -669,7 +962,7 @@ class GetWeatherSkill @Inject constructor(
                 .url(url)
                 .header("User-Agent", "KernelAI/1.0 (Android)")
                 .build()
-            httpClient.newCall(request).execute().use { response ->
+            executeWeatherCall(request) { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 val results = org.json.JSONArray(body)
@@ -679,36 +972,47 @@ class GetWeatherSkill @Inject constructor(
                 capitalArray.optString(0).takeIf { it.isNotBlank() }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Country capital lookup failed for: $countryName", e)
+            Log.w(TAG, "Country capital lookup failed (${e.javaClass.simpleName})")
             null
         }
     }
 
-    private suspend fun geocodeLocation(locationName: String): Pair<Double, Double>? = withContext(Dispatchers.IO) {
-        try {
+    private suspend fun geocodeLocation(locationName: String, homeCountryCode: String?): GeocodeOutcome =
+        withContext(Dispatchers.IO) {
             val url = "https://nominatim.openstreetmap.org/search" +
                 "?q=${java.net.URLEncoder.encode(locationName, "UTF-8")}" +
-                "&format=json&limit=1"
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "KernelAI/1.0 (Android)")
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val body = response.body?.string() ?: return@withContext null
-                val jsonArray = org.json.JSONArray(body)
-                if (jsonArray.length() == 0) return@withContext null
-                val firstResult = jsonArray.getJSONObject(0)
-                val lat = firstResult.optDouble("lat", Double.NaN)
-                val lon = firstResult.optDouble("lon", Double.NaN)
-                if (lat.isNaN() || lon.isNaN()) return@withContext null
-                Pair(lat, lon)
+                "&format=json&limit=5&addressdetails=1&accept-language=en"
+            val body = retryWithBackoff("Geocode", maxRetries = 1) {
+                val request = Request.Builder().url(url).header("User-Agent", "KernelAI/1.0 (Android)").build()
+                executeWeatherCall(request) { response ->
+                    if (!response.isSuccessful) throw HttpStatusException(response.code)
+                    response.body?.string() ?: throw IllegalStateException("Empty geocode response")
+                }
+            } ?: return@withContext GeocodeOutcome.Unavailable
+            try {
+                val array = org.json.JSONArray(body)
+                val candidates = (0 until array.length()).mapNotNull { parseGeocodeCandidate(array.optJSONObject(it)) }
+                rankGeocodeCandidates(candidates, homeCountryCode)
+                    ?.let { GeocodeOutcome.Found(it) } ?: GeocodeOutcome.NotFound
+            } catch (e: org.json.JSONException) {
+                Log.w(TAG, "Geocode response unparseable")
+                GeocodeOutcome.Unavailable
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Geocoding failed for: $locationName", e)
-            null
         }
+
+    /**
+     * Home country for geocoding bias, resolved on-device: network country, then SIM country, then
+     * the first app locale's region. No location is read and no network request is made (#1894).
+     */
+    private fun homeCountryCode(): String? {
+        val network = runCatching { telephonyManager()?.networkCountryIso }.getOrNull()
+        val sim = runCatching { telephonyManager()?.simCountryIso }.getOrNull()
+        val locale = runCatching { context.resources.configuration.locales[0].country }.getOrNull()
+        return listOf(network, sim, locale).firstOrNull { !it.isNullOrBlank() }?.lowercase()
     }
+
+    private fun telephonyManager(): TelephonyManager? =
+        runCatching { context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager }.getOrNull()
 
     // ── Location ──────────────────────────────────────────────────────────────
 
@@ -731,78 +1035,77 @@ class GetWeatherSkill @Inject constructor(
                 return LiveFetchResult.Failed(WeatherLookupFailureReason.CURRENT_LOCATION_UNAVAILABLE)
             }
 
-        val displayName = reverseGeocode(loc.latitude, loc.longitude)
-        val result = when {
+        val requestLatitude = roundDeviceLocationCoordinate(loc.latitude)
+        val requestLongitude = roundDeviceLocationCoordinate(loc.longitude)
+        val displayName = reverseGeocode(requestLatitude, requestLongitude)
+        return when {
             targetWeekend -> fetchWeekendForecast(
-                lat = loc.latitude,
-                lon = loc.longitude,
+                lat = requestLatitude,
+                lon = requestLongitude,
                 displayName = displayName,
                 cacheKey = cacheKey,
-            )
-            forecastDays > 0 -> {
-                if (targetDay) {
-                    fetchForecastForDay(
-                        lat = loc.latitude,
-                        lon = loc.longitude,
-                        displayName = displayName,
-                        days = forecastDays,
-                        dayIndex = 1,
-                        cacheKey = cacheKey,
-                    )
-                } else {
-                    fetchForecast(
-                        lat = loc.latitude,
-                        lon = loc.longitude,
-                        displayName = displayName,
-                        days = forecastDays,
-                        cacheKey = cacheKey,
-                    )
-                }
-            }
-            else -> {
-                fetchWeather(
-                    lat = loc.latitude,
-                    lon = loc.longitude,
-                    displayName = displayName,
-                    cacheKey = cacheKey,
-                )
-            }
-        }
-
-        return if (result != null) {
-            LiveFetchResult.Success(result)
-        } else {
-            Log.w(TAG, "Weather API unavailable for current-location weather request")
-            LiveFetchResult.Failed(WeatherLookupFailureReason.API_UNAVAILABLE)
+            ).toLiveFetchResult()
+            forecastDays > 0 && targetDay -> fetchForecastForDay(
+                lat = requestLatitude,
+                lon = requestLongitude,
+                displayName = displayName,
+                days = forecastDays,
+                dayIndex = 1,
+                cacheKey = cacheKey,
+            ).toLiveFetchResult()
+            forecastDays > 0 -> fetchForecast(
+                lat = requestLatitude,
+                lon = requestLongitude,
+                displayName = displayName,
+                days = forecastDays,
+                cacheKey = cacheKey,
+            ).toLiveFetchResult()
+            else -> fetchWeather(
+                lat = requestLatitude,
+                lon = requestLongitude,
+                displayName = displayName,
+                cacheKey = cacheKey,
+            )?.let { LiveFetchResult.Current(it) } ?: apiUnavailable()
         }
     }
 
     private suspend fun reverseGeocode(lat: Double, lon: Double): String? = withContext(Dispatchers.IO) {
         try {
             val url = "https://nominatim.openstreetmap.org/reverse" +
-                "?lat=$lat&lon=$lon&format=json"
+                "?${nominatimReverseCoordinateQuery(lat, lon)}&format=json"
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", "KernelAI/1.0 (Android)")
                 .build()
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val body = response.body?.string() ?: return@withContext null
+            executeWeatherCall(request) { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Reverse geocode failed: HTTP ${response.code}")
+                    return@withContext null
+                }
+                val body = response.body?.string()
+                if (body == null) {
+                    Log.w(TAG, "Reverse geocode failed: empty response body")
+                    return@withContext null
+                }
                 val json = JSONObject(body)
-                val address = json.optJSONObject("address") ?: return@withContext null
+                val address = json.optJSONObject("address")
+                if (address == null) {
+                    Log.w(TAG, "Reverse geocode failed: response has no address object")
+                    return@withContext null
+                }
                 val city = address.optString("city").takeIf { it.isNotBlank() }
                     ?: address.optString("town").takeIf { it.isNotBlank() }
                     ?: address.optString("village").takeIf { it.isNotBlank() }
                     ?: address.optString("suburb").takeIf { it.isNotBlank() }
-                val country = address.optString("country_code").uppercase().takeIf { it.isNotBlank() }
-                when {
-                    city != null && country != null -> "$city, $country"
-                    city != null -> city
-                    else -> null
+                if (city == null) {
+                    Log.w(TAG, "Reverse geocode failed: address has no city, town, village or suburb")
+                    return@withContext null
                 }
+                val country = address.optString("country_code").uppercase().takeIf { it.isNotBlank() }
+                if (country != null) "$city, $country" else city
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Reverse geocode failed", e)
+            Log.w(TAG, "Reverse geocode failed: ${e.javaClass.simpleName}")
             null
         }
     }
@@ -838,21 +1141,18 @@ class GetWeatherSkill @Inject constructor(
             }
 
             val url = "https://api.open-meteo.com/v1/forecast" +
-                "?latitude=$lat&longitude=$lon" +
+                "?${openMeteoCoordinateQuery(lat, lon)}" +
                 "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
                 "&timezone=auto&forecast_days=7&wind_speed_unit=ms"
 
-            val body = retryWithBackoff("Weekend Forecast API ($displayName)") {
-                httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        throw IllegalStateException("Forecast API returned ${response.code}")
-                    }
+            val body = retryWithBackoff("Weekend Forecast API") {
+                executeWeatherCall(Request.Builder().url(url).build()) { response ->
+                    if (!response.isSuccessful) throw HttpStatusException(response.code)
                     response.body?.string() ?: throw IllegalStateException("Empty forecast response")
                 }
             } ?: return@withContext null
 
-            cacheWeatherJson(cacheKey, body)
-            parseWeekendResponse(body, displayName)
+            cacheParsedForecast(cacheKey, displayName, body) { parseWeekendResponse(it, displayName) }
         }
 
     private suspend fun fetchForecast(
@@ -869,21 +1169,18 @@ class GetWeatherSkill @Inject constructor(
             }
 
             val url = "https://api.open-meteo.com/v1/forecast" +
-                "?latitude=$lat&longitude=$lon" +
+                "?${openMeteoCoordinateQuery(lat, lon)}" +
                 "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
                 "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
 
-            val body = retryWithBackoff("Forecast API ($displayName, $days days)") {
-                httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        throw IllegalStateException("Forecast API returned ${response.code}")
-                    }
+            val body = retryWithBackoff("Forecast API ($days days)") {
+                executeWeatherCall(Request.Builder().url(url).build()) { response ->
+                    if (!response.isSuccessful) throw HttpStatusException(response.code)
                     response.body?.string() ?: throw IllegalStateException("Empty forecast response")
                 }
             } ?: return@withContext null
 
-            cacheWeatherJson(cacheKey, body)
-            parseForecastResponse(body, displayName)
+            cacheParsedForecast(cacheKey, displayName, body) { parseForecastResponse(it, displayName) }
         }
 
     private fun parseForecastResponse(json: String, displayName: String?): SkillResult {
@@ -905,7 +1202,7 @@ class GetWeatherSkill @Inject constructor(
             return SkillResult.Failure(name, "Incomplete forecast data (mismatched array lengths).")
         }
 
-        val locationLabel = displayName ?: "GPS location"
+        val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val text = buildString {
             append("$locationLabel forecast:\n")
             for (i in 0 until len) {
@@ -969,7 +1266,7 @@ class GetWeatherSkill @Inject constructor(
             val low = minTemps.optDouble(i, Double.NaN)
             Triple(formattedDate, desc, Pair(high.takeUnless { it.isNaN() }, low.takeUnless { it.isNaN() }))
         }
-        Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast for $locationLabel")
+        Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast")
         val firstCode = codes.optInt(0, -1)
         val firstHigh = maxTemps.optDouble(0, Double.NaN)
         val firstLow = minTemps.optDouble(0, Double.NaN)
@@ -1041,21 +1338,18 @@ class GetWeatherSkill @Inject constructor(
         }
 
         val url = "https://api.open-meteo.com/v1/forecast" +
-            "?latitude=$lat&longitude=$lon" +
+            "?${openMeteoCoordinateQuery(lat, lon)}" +
             "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
             "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
 
-        val body = retryWithBackoff("Forecast API ($displayName, day $dayIndex)") {
-            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw IllegalStateException("Forecast API returned ${response.code}")
-                }
+        val body = retryWithBackoff("Forecast API (day $dayIndex)") {
+            executeWeatherCall(Request.Builder().url(url).build()) { response ->
+                if (!response.isSuccessful) throw HttpStatusException(response.code)
                 response.body?.string() ?: throw IllegalStateException("Empty forecast response")
             }
         } ?: return@withContext null
 
-        cacheWeatherJson(cacheKey, body)
-        parseForecastDayResponse(body, displayName, dayIndex)
+        cacheParsedForecast(cacheKey, displayName, body) { parseForecastDayResponse(it, displayName, dayIndex) }
     }
 
     private fun parseForecastDayResponse(json: String, displayName: String?, dayIndex: Int): SkillResult {
@@ -1096,10 +1390,10 @@ class GetWeatherSkill @Inject constructor(
             else -> ""
         }
 
-        val locationLabel = displayName ?: "GPS location"
+        val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val text = "$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr"
 
-        Log.d(TAG, "GetWeatherSkill: fetched forecast for day $dayIndex ($formattedDate) for $locationLabel")
+        Log.d(TAG, "GetWeatherSkill: fetched forecast for day $dayIndex ($formattedDate)")
 
         val temperatureText = buildString {
             if (!high.isNaN()) append("%.0f°C".format(high))
@@ -1151,25 +1445,31 @@ class GetWeatherSkill @Inject constructor(
 
     // ── Air quality fetch ─────────────────────────────────────────────────────
 
-    private data class AirQualityData(val usAqi: Int?, val pm25: Double?)
+    internal data class AirQualityData(val usAqi: Int?, val pm25: Double?)
 
+    /**
+     * Optional air quality for the current-weather card (#1921). One attempt, no retry, bounded by
+     * [AIR_QUALITY_BUDGET_MS] at the call site. Any failure returns null so the card omits air quality.
+     */
     private suspend fun fetchAirQuality(lat: Double, lon: Double): AirQualityData? =
         withContext(Dispatchers.IO) {
-            val body = retryWithBackoff("Air Quality API") {
+            try {
                 val url = "https://air-quality-api.open-meteo.com/v1/air-quality" +
-                    "?latitude=$lat&longitude=$lon&current=us_aqi,pm2_5&timezone=auto"
-                httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                    if (!response.isSuccessful) throw IllegalStateException("Air quality API returned ${response.code}")
-                    response.body?.string() ?: throw IllegalStateException("Empty air quality response")
+                    "?${openMeteoCoordinateQuery(lat, lon)}&current=us_aqi,pm2_5&timezone=auto"
+                val body = executeWeatherCall(Request.Builder().url(url).build()) { response ->
+                    if (!response.isSuccessful) return@withContext null
+                    response.body?.string() ?: return@withContext null
                 }
-            } ?: return@withContext null
-            val json = JSONObject(body)
-            val current = json.optJSONObject("current") ?: return@withContext null
-            val usAqi = if (current.has("us_aqi") && !current.isNull("us_aqi"))
-                current.getInt("us_aqi") else null
-            val pm25 = if (current.has("pm2_5") && !current.isNull("pm2_5"))
-                current.getDouble("pm2_5") else null
-            AirQualityData(usAqi, pm25)
+                val current = JSONObject(body).optJSONObject("current") ?: return@withContext null
+                val usAqi = if (current.has("us_aqi") && !current.isNull("us_aqi")) current.getInt("us_aqi") else null
+                val pm25 = if (current.has("pm2_5") && !current.isNull("pm2_5")) current.getDouble("pm2_5") else null
+                AirQualityData(usAqi, pm25)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Air quality unavailable (${e.javaClass.simpleName})")
+                null
+            }
         }
 
     // ── Weather fetch ─────────────────────────────────────────────────────────
@@ -1179,39 +1479,57 @@ class GetWeatherSkill @Inject constructor(
         lon: Double,
         displayName: String?,
         cacheKey: String,
-    ): SkillResult? =
+    ): CurrentWeatherFetch? =
         withContext(Dispatchers.IO) {
-            // Check cache first
             getCachedWeatherJson(cacheKey)?.let { cachedJson ->
-                return@withContext parseWeatherResponse(cachedJson, displayName, null)
+                return@withContext CurrentWeatherFetch(cachedJson, displayName, lat, lon, fromCache = true)
             }
 
-            // Build URL
             val url = "https://api.open-meteo.com/v1/forecast" +
-                "?latitude=$lat&longitude=$lon" +
+                "?${openMeteoCoordinateQuery(lat, lon)}" +
                 "&current=temperature_2m,apparent_temperature,relative_humidity_2m," +
                 "weather_code,wind_speed_10m,precipitation_probability,precipitation,uv_index" +
                 "&daily=uv_index_max,sunrise,sunset,temperature_2m_max,temperature_2m_min" +
                 "&forecast_days=1&timezone=auto&wind_speed_unit=ms"
 
-            // Fetch with retry
-            val weatherBody = retryWithBackoff("Weather API ($displayName)") {
-                httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        throw IllegalStateException("Weather API returned ${response.code}")
-                    }
+            val weatherBody = retryWithBackoff("Weather API") {
+                executeWeatherCall(Request.Builder().url(url).build()) { response ->
+                    if (!response.isSuccessful) throw HttpStatusException(response.code)
                     response.body?.string() ?: throw IllegalStateException("Empty weather response")
                 }
             } ?: return@withContext null
 
-            // Cache the raw JSON
-            cacheWeatherJson(cacheKey, weatherBody)
-
-            val airQuality = fetchAirQuality(lat, lon)
-            parseWeatherResponse(weatherBody, displayName, airQuality)
+            if (!parsesOrLogs("Weather API") { parseWeatherResponse(weatherBody, displayName, airQuality = null) }) {
+                return@withContext null
+            }
+            cacheWeatherJson(cacheKey, displayName, weatherBody)
+            CurrentWeatherFetch(weatherBody, displayName, lat, lon, fromCache = false)
         }
 
-    private fun parseWeatherResponse(json: String, displayName: String?, airQuality: AirQualityData?): SkillResult {
+    /**
+     * Builds the current-conditions answer. Air quality is fetched only for a live body, with its own
+     * [AIR_QUALITY_BUDGET_MS]; the forecast budget no longer covers it, so a stalled AQ call cannot turn a
+     * fresh forecast into a stale one (#1921). Returns null when the body cannot be parsed.
+     */
+    private suspend fun buildCurrentWeather(fetch: CurrentWeatherFetch, startedAtNanos: Long): SkillResult? {
+        val airQuality = if (fetch.fromCache) {
+            null
+        } else {
+            // Air quality gets only what is left of the live budget; under 3 s it is skipped so a fresh
+            // answer stays within ~10 s (#1921 N1).
+            val remainingMs = WEATHER_LIVE_BUDGET_MS - (System.nanoTime() - startedAtNanos) / 1_000_000L
+            if (remainingMs < AIR_QUALITY_BUDGET_MS) null
+            else withTimeoutOrNull(minOf(AIR_QUALITY_BUDGET_MS, remainingMs)) { fetchAirQuality(fetch.lat, fetch.lon) }
+        }
+        return try {
+            parseWeatherResponse(fetch.body, fetch.displayName, airQuality)
+        } catch (e: Exception) {
+            Log.w(TAG, "Current weather response unparseable (${e.javaClass.simpleName})")
+            null
+        }
+    }
+
+    internal fun parseWeatherResponse(json: String, displayName: String?, airQuality: AirQualityData?): SkillResult {
         val obj = JSONObject(json)
         val current = obj.getJSONObject("current")
 
@@ -1245,8 +1563,7 @@ class GetWeatherSkill @Inject constructor(
         val sunriseTime = sunriseRaw?.substringAfterLast("T")
         val sunsetTime = sunsetRaw?.substringAfterLast("T")
 
-        val locationLabel = displayName
-            ?: "%.4f, %.4f".format(obj.optDouble("latitude"), obj.optDouble("longitude"))
+        val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val emoji = wmoEmoji(weatherCode)
         val description = wmoDescription(weatherCode)
 
@@ -1310,7 +1627,7 @@ class GetWeatherSkill @Inject constructor(
             }
         }.trimEnd()
 
-        Log.d(TAG, "GetWeatherSkill: fetched weather for $locationLabel")
+        Log.d(TAG, "GetWeatherSkill: fetched current weather")
         // DirectReply: structured data — numeric temperature/humidity/wind values
         val precipText = buildString {
             if (precipChance >= 0) append("Rain chance $precipChance%")
@@ -1382,77 +1699,127 @@ class GetWeatherSkill @Inject constructor(
 
     // ── Weather caching (DataStore) ────────────────────────────────────────────
 
-    /** Store raw Open-Meteo JSON response in DataStore with current timestamp. */
-    private suspend fun cacheWeatherJson(cacheKey: String, jsonBody: String) {
-        val now = System.currentTimeMillis()
+    /** True when [parse] accepts the body. Logs only the exception type; bodies are never logged (#1921). */
+    private fun <T> parsesOrLogs(label: String, parse: () -> T): Boolean = try {
+        parse()
+        true
+    } catch (e: Exception) {
+        Log.w(TAG, "$label response unparseable (${e.javaClass.simpleName})")
+        false
+    }
+
+    /**
+     * Parse [body] and cache it only when it is a forecast (#1921). A malformed body or a failure result is
+     * not cached, so it cannot overwrite a good entry. A parsed failure result is still returned to the caller.
+     */
+    private suspend fun cacheParsedForecast(
+        cacheKey: String,
+        displayName: String?,
+        body: String,
+        parse: (String) -> SkillResult,
+    ): SkillResult? {
+        val parsed = try {
+            parse(body)
+        } catch (e: Exception) {
+            Log.w(TAG, "Forecast response unparseable (${e.javaClass.simpleName})")
+            return null
+        }
+        if (parsed is SkillResult.DirectReply) cacheWeatherJson(cacheKey, displayName, body)
+        return parsed
+    }
+
+
+    /**
+     * Store raw Open-Meteo JSON for [cacheKey] with its time and place label (#1921). Entries older than the
+     * stale window are pruned in the same edit, so per-place keys cannot accumulate without bound.
+     */
+    private suspend fun cacheWeatherJson(cacheKey: String, displayName: String?, jsonBody: String) {
+        val now = weatherClockMillis()
+        val encoded = encodeWeatherCacheEntry(WeatherCacheEntry(now, displayName, jsonBody))
         weatherStore.edit { prefs ->
-            prefs[WEATHER_CACHE_JSON_KEY] = jsonBody
-            prefs[WEATHER_CACHE_TIMESTAMP_KEY] = now
-            prefs[WEATHER_CACHE_LOCATION_KEY] = cacheKey
+            // Legacy single-slot keys (pre-#1921) are dropped so only per-place entries remain.
+            prefs.remove(stringPreferencesKey("weather_cache_json"))
+            prefs.remove(longPreferencesKey("weather_cache_timestamp"))
+            prefs.remove(stringPreferencesKey("weather_cache_location"))
+            prefs.asMap()
+                .filter { (key, value) -> key.name.startsWith(WEATHER_CACHE_ENTRY_PREFIX) && isWeatherEntryPrunable(value, now) }
+                .forEach { (key, _) -> prefs.remove(stringPreferencesKey(key.name)) }
+            prefs[weatherEntryKey(cacheKey)] = encoded
         }
-        Log.d(TAG, "Weather cache stored: $cacheKey (${jsonBody.length} bytes)")
+        Log.d(TAG, "Weather cache stored (${jsonBody.length} bytes)")
     }
 
-    /** Retrieve cached weather JSON and timestamp. Returns null if cache miss or expired. */
-    private suspend fun getCachedWeatherJson(cacheKey: String): String? = withContext(Dispatchers.IO) {
-        try {
-            val prefs = weatherStore.data.first()
-            val storedKey: String? = prefs[WEATHER_CACHE_LOCATION_KEY]
-            val timestamp: Long? = prefs[WEATHER_CACHE_TIMESTAMP_KEY]
-            val json: String? = prefs[WEATHER_CACHE_JSON_KEY]
+    /** Cached JSON for [cacheKey] within the fresh window (CACHE_MAX_AGE_MS), or null. */
+    private suspend fun getCachedWeatherJson(cacheKey: String): String? =
+        readWeatherEntry(cacheKey)
+            ?.takeIf { isCacheEntryUsable(it.cachedAtMillis, weatherClockMillis(), CACHE_MAX_AGE_MS) }
+            ?.body
 
-            // Verify cache is for this location and not expired
-            if (storedKey != cacheKey) return@withContext null
-            if (timestamp == null) return@withContext null
-            if (System.currentTimeMillis() - timestamp > CACHE_MAX_AGE_MS) return@withContext null
-            json
+    /** Cached entry for [cacheKey] at any age; the caller applies the age window (#1921). */
+    private suspend fun readWeatherEntry(cacheKey: String): WeatherCacheEntry? = withContext(Dispatchers.IO) {
+        try {
+            weatherStore.data.first()[weatherEntryKey(cacheKey)]?.let(::decodeWeatherCacheEntry)
         } catch (e: Exception) {
-            Log.w(TAG, "Cache read failed for key: $cacheKey", e)
+            Log.w(TAG, "Cache read failed (${e.javaClass.simpleName})")
             null
         }
     }
-    /** Retrieve cached weather JSON regardless of TTL. Returns null if cache miss. Used for stale fallback. */
-    private suspend fun getRawCachedWeatherJson(cacheKey: String): String? = withContext(Dispatchers.IO) {
-        try {
-            val prefs = weatherStore.data.first()
-            val storedKey: String? = prefs[WEATHER_CACHE_LOCATION_KEY]
-            val json: String? = prefs[WEATHER_CACHE_JSON_KEY]
 
-            // Verify cache is for this location (no TTL check — stale data is better than nothing)
-            if (storedKey != cacheKey) return@withContext null
-            json
-        } catch (e: Exception) {
-            Log.w(TAG, "Raw cache read failed for key: $cacheKey", e)
-            null
+    private fun weatherEntryKey(cacheKey: String) = stringPreferencesKey(WEATHER_CACHE_ENTRY_PREFIX + cacheKey)
+
+    /**
+     * Runs [request] and hands the open response to [read], so the body read happens inside the call.
+     * Cancelling the coroutine cancels the call (#1921 N2); the client's callTimeout bounds the body read.
+     */
+    private suspend inline fun <T> executeWeatherCall(request: Request, read: (okhttp3.Response) -> T): T =
+        awaitWeatherResponse(request).use(read)
+
+    /**
+     * Suspends until response headers arrive. Cancelling the coroutine cancels the call; a response that
+     * arrives after cancellation is closed.
+     */
+    private suspend fun awaitWeatherResponse(request: Request): okhttp3.Response =
+        suspendCancellableCoroutine { cont ->
+            val call = httpClient.newCall(request)
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                    cont.resumeWith(Result.failure(e))
+                }
+
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    cont.resume(response) { response.close() }
+                }
+            })
         }
-    }
 
     // ── Retry with exponential backoff ─────────────────────────────────────────
 
-    /**
-     * Execute an HTTP call with retry on transient failures (timeout, 5xx).
-     * Retries up to [RETRY_MAX_ATTEMPTS] times with exponential backoff.
-     */
     private suspend fun <T> retryWithBackoff(
         label: String,
+        maxRetries: Int = RETRY_MAX_ATTEMPTS,
         body: suspend () -> T,
     ): T? {
         var lastException: Exception? = null
-        repeat(RETRY_MAX_ATTEMPTS + 1) { attempt ->
+        for (attempt in 0..maxRetries) {
             try {
                 return body()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 lastException = e
-                if (attempt < RETRY_MAX_ATTEMPTS) {
-                    val delayMs = RETRY_BASE_DELAY_MS * (1L shl attempt) // 1s, 2s
-                    Log.w(TAG, "$label failed (attempt $attempt/${RETRY_MAX_ATTEMPTS}), retrying in ${delayMs}ms", e)
+                // Only transport failures and 5xx are transient. 4xx and non-IO errors (bad body,
+                // parse failure) are not retried: retrying only adds latency (#1894, #1921).
+                if (e !is java.io.IOException) break
+                if (e is HttpStatusException && e.code in 400..499) break
+                if (attempt < maxRetries) {
+                    val delayMs = RETRY_BASE_DELAY_MS * (1L shl attempt)
+                    Log.w(TAG, "$label failed (attempt $attempt/$maxRetries), retrying in ${delayMs}ms", e)
                     delay(delayMs)
                 }
             }
         }
-        Log.w(TAG, "$label failed after $RETRY_MAX_ATTEMPTS retries", lastException)
+        Log.w(TAG, "$label failed; giving up", lastException)
         return null
     }
 }

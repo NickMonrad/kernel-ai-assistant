@@ -1,0 +1,50 @@
+PR #1883 at d42fec08, S23U RFCW11265XH, debug build md5 3d17189d8cbcb5e9229a187a0f295cd7
+Source: About > Email support > Send (chats NOT included), email-app chooser cancelled (no email sent),
+attachment cache/kernel_debug_log_0.1.0_20261114_191803_734.txt pulled with run-as.
+Only the 'Recent Jandal events' section is reproduced, verbatim. Lines before 19:10 are from earlier builds/runs.
+
+Recent Jandal events (in-app log, last 24 hours)
+------------------------------------------------
+11-14 15:52:53.186 lifecycle app_start build_type=[redacted]
+11-14 16:25:09.421 lifecycle app_start release=false
+11-14 16:25:13.210 lifecycle app_start release=false
+11-14 16:41:22.266 lifecycle app_start release=false
+11-14 16:41:23.266 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.307 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.313 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.321 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.352 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.357 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.360 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.470 lifecycle app_start release=false
+11-14 16:41:27.669 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.672 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.675 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.679 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.748 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.753 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.754 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:42:24.525 voice stt_ready mode=COMMAND
+11-14 16:42:29.569 voice stt_error code=7
+11-14 16:42:35.867 voice stt_ready mode=COMMAND
+11-14 16:42:40.882 voice stt_error code=7
+11-14 16:43:16.640 intent add_to_list success=false
+11-14 16:44:15.901 intent unknown_intent success=false
+11-14 19:10:58.123 lifecycle app_start release=false
+11-14 19:11:01.730 lifecycle app_start release=false
+11-14 19:11:17.847 voice stt_route route=ANDROID_NATIVE online_fallback=false
+11-14 19:11:18.617 voice stt_ready mode=COMMAND
+11-14 19:11:23.659 voice stt_error code=7
+11-14 19:11:23.663 tts engine_select engine=SHERPA_EXPERIMENTAL
+11-14 19:11:23.664 tts speak_start engine=SHERPA_EXPERIMENTAL chars=45
+11-14 19:11:30.389 tts speak_end engine=SHERPA_EXPERIMENTAL spoken=true
+11-14 19:11:30.397 voice stt_route route=ANDROID_NATIVE online_fallback=false
+11-14 19:11:30.647 voice stt_ready mode=COMMAND
+11-14 19:11:35.671 voice stt_error code=7
+11-14 19:11:45.650 intent add_to_list route=QUICK_REGEX success=true outcome=SUCCESS
+11-14 19:12:21.103 intent remove_from_list route=QUICK_REGEX success=true outcome=SUCCESS
+11-14 19:16:03.828 download state model=ARCTIC_EMBED_V1_5_VOCAB state=DOWNLOADING
+11-14 19:16:03.889 download worker_phase model=ARCTIC_EMBED_V1_5_VOCAB phase=RUNNING
+11-14 19:16:03.931 download worker_phase model=ARCTIC_EMBED_V1_5_VOCAB phase=CANCELLED
+11-14 19:16:03.933 download state model=ARCTIC_EMBED_V1_5_VOCAB state=DOWNLOADED
+

@@ -7,6 +7,7 @@ import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.entity.CoreMemoryEntity
 import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
 import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
+import com.kernel.ai.core.memory.vector.EmbeddingIndexMigration
 import com.kernel.ai.core.memory.vector.VectorStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
@@ -22,6 +23,7 @@ class MemoryRepositoryImpl @Inject constructor(
     private val episodicDao: EpisodicMemoryDao,
     private val coreDao: CoreMemoryDao,
     private val kiwiMemoryDao: KiwiMemoryDao,
+    private val indexMigration: EmbeddingIndexMigration,
     private val vectorStore: VectorStore,
 ) : MemoryRepository {
 
@@ -33,18 +35,13 @@ class MemoryRepositoryImpl @Inject constructor(
         private const val EPISODIC_MAX = 500
         private const val CORE_MAX = 200
         private const val EPISODIC_TTL_MS = 30L * 24 * 60 * 60 * 1000  // 30 days
-        // sqlite-vec returns L2 distance, not cosine distance.
-        // For unit-normalized 768-dim vectors: L2 = sqrt(2 * (1 - cos_sim))
-        // Thresholds calibrated from on-device measurements (EmbeddingGemma-300M):
-        //   ancestor memory: best match dist=1.0996 (cos_sim ≈ 0.40) — must pass
-        //   aubergine memory: best match dist=0.9398 (cos_sim ≈ 0.56) — must pass
-        //   NZ corpus (e.g. nek minnit ↔ "left my scooter outside the dairy"): observed ~1.177
-        // Core: 1.25 covers cos_sim ≥ 0.22 — wide net; NZ truths need ~1.18 to surface
-        // Episodic: 1.10 — keep tighter to avoid noisy distilled summaries flooding context
-        /** Loose threshold for core memories — raised to 1.25 to cover NZ corpus entries. */
-        private const val CORE_MAX_DISTANCE = 1.25f
-        /** Threshold for episodic memories — tighter than core to reduce noise. */
-        private const val EPISODIC_MAX_DISTANCE = 1.10f
+        // Phase B cutoffs are fit per consumer on calibration queries and checked on held-out queries.
+        private const val CORE_MAX_DISTANCE = 0.789f
+        private const val EPISODIC_MAX_DISTANCE = 0.666f
+        private val IDENTITY_MAX_DISTANCE_BY_VIBE = floatArrayOf(0.759f, 0.764f, 0.737f, 0.720f, 0.691f)
+        private val KIWI_MAX_DISTANCE_BY_VIBE = floatArrayOf(0.564f, 0.731f, 0.667f, 0.620f, 0.500f)
+        private fun maxDistanceForVibe(vibeLevel: Int, limits: FloatArray): Float =
+            limits.getOrNull(vibeLevel - 1) ?: -1f
         /** Minimum content length for an episodic entry to appear in search results.
          *  Guards against short model hallucinations ("Nick", "You: Here") polluting results. */
         private const val MIN_EPISODIC_CONTENT_LENGTH = 20
@@ -65,6 +62,7 @@ class MemoryRepositoryImpl @Inject constructor(
         content: String,
         embeddingVector: FloatArray,
     ): String {
+        val indexCurrent = indexMigration.ensureCurrent()
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val entity = EpisodicMemoryEntity(
@@ -75,7 +73,7 @@ class MemoryRepositoryImpl @Inject constructor(
             vectorized = false,
         )
         val rowId = episodicDao.insert(entity)
-        if (rowId > 0 && embeddingVector.isNotEmpty()) {
+        if (indexCurrent && rowId > 0 && embeddingVector.isNotEmpty()) {
             ensureEpisodicVecTable(embeddingVector.size)
             vectorStore.upsert(EPISODIC_VEC_TABLE, rowId, embeddingVector)
             episodicDao.markVectorized(rowId)
@@ -99,6 +97,7 @@ class MemoryRepositoryImpl @Inject constructor(
         vibeLevel: Int,
         metadataJson: String,
     ): String {
+        val indexCurrent = indexMigration.ensureCurrent()
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val entity = CoreMemoryEntity(
@@ -116,7 +115,7 @@ class MemoryRepositoryImpl @Inject constructor(
             metadataJson = metadataJson,
         )
         val rowId = coreDao.insert(entity)
-        if (rowId > 0 && embeddingVector.isNotEmpty()) {
+        if (indexCurrent && rowId > 0 && embeddingVector.isNotEmpty()) {
             ensureCoreVecTable(embeddingVector.size)
             vectorStore.upsert(CORE_VEC_TABLE, rowId, embeddingVector)
             coreDao.markVectorized(rowId)
@@ -124,18 +123,6 @@ class MemoryRepositoryImpl @Inject constructor(
         prune()
         Log.d(TAG, "Added core memory id=$id rowId=$rowId source=$source")
         return id
-    }
-
-    override suspend fun backfillCoreVector(rowId: Long, vector: FloatArray) {
-        ensureCoreVecTable(vector.size)
-        vectorStore.upsert(CORE_VEC_TABLE, rowId, vector)
-        coreDao.markVectorized(rowId)
-    }
-
-    override suspend fun backfillEpisodicVector(rowId: Long, vector: FloatArray) {
-        ensureEpisodicVecTable(vector.size)
-        vectorStore.upsert(EPISODIC_VEC_TABLE, rowId, vector)
-        episodicDao.markVectorized(rowId)
     }
 
     // Remove flag-guards: persisted vec tables must be searched after app restart.
@@ -147,37 +134,31 @@ class MemoryRepositoryImpl @Inject constructor(
         identityTopK: Int,
         kiwiTopK: Int,
     ): List<MemorySearchResult> {
+        if (!indexMigration.ensureCurrent()) return emptyList()
         val results = mutableListOf<MemorySearchResult>()
 
         runCatching {
-            // Fetch more than needed so we can split by category after filtering
+            // Retrieve the shared core table once, then apply independent cutoffs after category split.
             val fetchTopK = coreTopK + identityTopK
             val rawCoreResults = vectorStore.search(CORE_VEC_TABLE, queryVector, fetchTopK)
             Log.d(TAG, "Core vec search: ${rawCoreResults.size} raw results, distances=${rawCoreResults.map { "%.3f".format(it.distance) }}")
-            val coreResults = rawCoreResults.filter { it.distance <= CORE_MAX_DISTANCE }
-            val rowIds = coreResults.map { it.rowId }
+            val rowIds = rawCoreResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
-                val entities = coreDao.getAll().filter { it.rowId in rowIds }
-                val distanceMap = coreResults.associate { it.rowId to it.distance }
+                val entities = coreDao.getAll().filter { it.vectorized && it.rowId in rowIds }
+                val distanceMap = rawCoreResults.associate { it.rowId to it.distance }
 
-                // Split by category and apply separate topK limits
+                // Split by category before thresholding so each consumer uses its calibrated bound.
                 val userEntities = entities
                     .filter { it.category != "agent_identity" && it.source != "jandal_persona" }
+                    .filter { (distanceMap[it.rowId] ?: Float.MAX_VALUE) <= CORE_MAX_DISTANCE }
                     .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
                     .take(coreTopK)
                 val identityEntities = entities
                     .filter { it.category == "agent_identity" }
-                    .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
-                    // Apply vibe-level distance threshold: higher vibe = tighter match required
-                    .filter { entity ->
-                        val dist = distanceMap[entity.rowId] ?: Float.MAX_VALUE
-                        val maxDist = when {
-                            entity.vibeLevel <= 2 -> CORE_MAX_DISTANCE  // 1.25 — surface freely
-                            entity.vibeLevel == 3 -> 1.20f               // raised from 1.15f — too tight for model's actual distance range; recalibrate in #647
-                            else -> 1.20f                                 // tight match for vibe 4-5
-                        }
-                        dist <= maxDist
+                    .filter {
+                        (distanceMap[it.rowId] ?: Float.MAX_VALUE) <= maxDistanceForVibe(it.vibeLevel, IDENTITY_MAX_DISTANCE_BY_VIBE)
                     }
+                    .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
                     .take(identityTopK)
                 val combined = userEntities + identityEntities
 
@@ -209,7 +190,7 @@ class MemoryRepositoryImpl @Inject constructor(
             val rowIds = episodicResults.map { it.rowId }
             if (rowIds.isNotEmpty()) {
                 val entities = episodicDao.getAll()
-                    .filter { it.rowId in rowIds && it.content.length >= MIN_EPISODIC_CONTENT_LENGTH }
+                    .filter { it.vectorized && it.rowId in rowIds && it.content.length >= MIN_EPISODIC_CONTENT_LENGTH }
                 val distanceMap = episodicResults.associate { it.rowId to it.distance }
                 entities.forEach { entity ->
                     results.add(
@@ -238,22 +219,15 @@ class MemoryRepositoryImpl @Inject constructor(
             runCatching {
                 val rawKiwiResults = vectorStore.search(KIWI_VEC_TABLE, queryVector, kiwiTopK)
                 Log.d(TAG, "Kiwi vec search: ${rawKiwiResults.size} raw results, distances=${rawKiwiResults.map { "%.3f".format(it.distance) }}")
-                val kiwiResults = rawKiwiResults.filter { it.distance <= CORE_MAX_DISTANCE }
-                val rowIds = kiwiResults.map { it.rowId }
+                val rowIds = rawKiwiResults.map { it.rowId }
                 if (rowIds.isNotEmpty()) {
                     val entities = kiwiMemoryDao.getByRowIds(rowIds)
-                    val distanceMap = kiwiResults.associate { it.rowId to it.distance }
+                    val distanceMap = rawKiwiResults.associate { it.rowId to it.distance }
                     val filtered = entities
-                        .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
-                        .filter { entity ->
-                            val dist = distanceMap[entity.rowId] ?: Float.MAX_VALUE
-                            val maxDist = when {
-                                entity.vibeLevel <= 2 -> CORE_MAX_DISTANCE
-                                entity.vibeLevel == 3 -> 1.20f
-                                else -> 1.20f
-                            }
-                            dist <= maxDist
+                        .filter {
+                            (distanceMap[it.rowId] ?: Float.MAX_VALUE) <= maxDistanceForVibe(it.vibeLevel, KIWI_MAX_DISTANCE_BY_VIBE)
                         }
+                        .sortedBy { distanceMap[it.rowId] ?: Float.MAX_VALUE }
                         .take(kiwiTopK)
                     filtered.forEach { entity ->
                         results.add(
@@ -285,34 +259,36 @@ class MemoryRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateCoreMemory(id: String, newContent: String, newVector: FloatArray?) {
-        // update vec first; only write content if vec succeeds (matches updateEpisodicMemory pattern)
-        if (newVector != null) {
-            val rowId = coreDao.getRowIdById(id)
-            if (rowId != null && rowId > 0) {
-                ensureCoreVecTable(newVector.size)
-                vectorStore.upsert(CORE_VEC_TABLE, rowId, newVector)
-            }
-        }
+        val indexCurrent = indexMigration.ensureCurrent()
         coreDao.updateContent(id, newContent)
+        val rowId = coreDao.getRowIdById(id)
+        if (indexCurrent && newVector != null && newVector.isNotEmpty() && rowId != null && rowId > 0) {
+            ensureCoreVecTable(newVector.size)
+            vectorStore.upsert(CORE_VEC_TABLE, rowId, newVector)
+            coreDao.markVectorized(rowId)
+        }
         Log.d(TAG, "Updated core memory id=$id")
     }
 
     override suspend fun updateEpisodicMemory(id: String, newContent: String, newVector: FloatArray) {
-        // Atomicity: update vec first; only write content if vec succeeds.
+        val indexCurrent = indexMigration.ensureCurrent()
+        episodicDao.updateContent(id, newContent)
         val rowId = episodicDao.getRowIdById(id)
-        if (rowId != null && rowId > 0) {
+        if (indexCurrent && newVector.isNotEmpty() && rowId != null && rowId > 0) {
             ensureEpisodicVecTable(newVector.size)
             vectorStore.upsert(EPISODIC_VEC_TABLE, rowId, newVector)
+            episodicDao.markVectorized(rowId)
         }
-        episodicDao.updateContent(id, newContent)
         Log.d(TAG, "Updated episodic memory id=$id")
     }
 
     override suspend fun clearEpisodicMemories() {
-        // Fetch rowIds first so we can remove orphaned vec entries
+        val indexCurrent = indexMigration.ensureCurrent()
         val rowIds = episodicDao.getRowIdsOlderThan(Long.MAX_VALUE)
         episodicDao.deleteOlderThan(Long.MAX_VALUE)
-        rowIds.forEach { vectorStore.delete(EPISODIC_VEC_TABLE, it) }
+        if (indexCurrent) {
+            rowIds.forEach { vectorStore.delete(EPISODIC_VEC_TABLE, it) }
+        }
         Log.d(TAG, "Cleared all episodic memories (${rowIds.size} vec entries removed)")
     }
 
@@ -325,8 +301,9 @@ class MemoryRepositoryImpl @Inject constructor(
     override fun observeEpisodicMemories(): Flow<List<EpisodicMemoryEntity>> = episodicDao.observeAll()
 
     override suspend fun deleteEpisodicMemory(id: String) {
+        val indexCurrent = indexMigration.ensureCurrent()
         val rowId = episodicDao.getRowIdAndDelete(id)
-        if (rowId != null) {
+        if (indexCurrent && rowId != null) {
             runCatching { vectorStore.delete(EPISODIC_VEC_TABLE, rowId) }
         }
         Log.d(TAG, "Deleted episodic memory id=$id rowId=$rowId")
@@ -343,18 +320,19 @@ class MemoryRepositoryImpl @Inject constructor(
 
     // Delete vec entries for pruned rows to prevent orphan accumulation
     override suspend fun prune() {
+        val indexCurrent = indexMigration.ensureCurrent()
         val now = System.currentTimeMillis()
         val cutoff = now - EPISODIC_TTL_MS
 
         val expiredRowIds = episodicDao.getRowIdsOlderThan(cutoff)
         episodicDao.deleteOlderThan(cutoff)
-        expiredRowIds.forEach { vectorStore.delete(EPISODIC_VEC_TABLE, it) }
+        if (indexCurrent) expiredRowIds.forEach { vectorStore.delete(EPISODIC_VEC_TABLE, it) }
 
         val episodicCount = episodicDao.count()
         if (episodicCount > EPISODIC_MAX) {
             val overflow = episodicCount - EPISODIC_MAX
             val overflowRowIds = episodicDao.getRowIdsAndDeleteByLRU(overflow)
-            overflowRowIds.forEach { vectorStore.delete(EPISODIC_VEC_TABLE, it) }
+            if (indexCurrent) overflowRowIds.forEach { vectorStore.delete(EPISODIC_VEC_TABLE, it) }
         }
 
         val coreCount = coreDao.count()
@@ -362,7 +340,7 @@ class MemoryRepositoryImpl @Inject constructor(
             val overflow = coreCount - CORE_MAX
             val overflowRowIds = coreDao.getOldestRowIds(overflow)
             coreDao.deleteOldestBeyondLimit(overflow)
-            overflowRowIds.forEach { vectorStore.delete(CORE_VEC_TABLE, it) }
+            if (indexCurrent) overflowRowIds.forEach { vectorStore.delete(CORE_VEC_TABLE, it) }
         }
     }
 
@@ -405,13 +383,17 @@ class MemoryRepositoryImpl @Inject constructor(
         coreDao.countBySource(source)
 
     override suspend fun deleteAllCoreMemoriesBySource(source: String) {
-        // Delete from the vec table first (needs rowIds), then from the Room table.
+        val indexCurrent = indexMigration.ensureCurrent()
         val rowIds = coreDao.getRowIdsBySource(source)
-        rowIds.forEach { vectorStore.delete(CORE_VEC_TABLE, it) }
+        if (indexCurrent) rowIds.forEach { vectorStore.delete(CORE_VEC_TABLE, it) }
         coreDao.deleteBySource(source)
     }
 
     override suspend fun resetCoreVecTable() {
+        if (!indexMigration.ensureCurrent()) {
+            coreDao.markAllUnvectorized()
+            return
+        }
         coreVecMutex.withLock {
             val dim = coreVecDimensions.get()
             vectorStore.dropTable(CORE_VEC_TABLE)
@@ -427,8 +409,9 @@ class MemoryRepositoryImpl @Inject constructor(
     }
 
     override suspend fun upsertKiwiMemory(entity: KiwiMemoryEntity, embeddingVector: FloatArray) {
+        val indexCurrent = indexMigration.ensureCurrent()
         val rowId = kiwiMemoryDao.insert(entity)
-        if (rowId > 0) {
+        if (indexCurrent && rowId > 0 && embeddingVector.isNotEmpty()) {
             ensureKiwiVecTable(embeddingVector.size)
             vectorStore.upsert(KIWI_VEC_TABLE, rowId, embeddingVector)
             kiwiMemoryDao.markVectorized(rowId)
@@ -437,12 +420,17 @@ class MemoryRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteAllKiwiMemoriesBySource(source: String) {
+        val indexCurrent = indexMigration.ensureCurrent()
         val rowIds = kiwiMemoryDao.getRowIdsBySource(source)
-        rowIds.forEach { vectorStore.delete(KIWI_VEC_TABLE, it) }
+        if (indexCurrent) rowIds.forEach { vectorStore.delete(KIWI_VEC_TABLE, it) }
         kiwiMemoryDao.deleteBySource(source)
     }
 
     override suspend fun resetKiwiVecTable() {
+        if (!indexMigration.ensureCurrent()) {
+            kiwiMemoryDao.markAllUnvectorized()
+            return
+        }
         kiwiVecMutex.withLock {
             val dim = kiwiVecDimensions.get().takeIf { it > 0 } ?: coreVecDimensions.get()
             vectorStore.dropTable(KIWI_VEC_TABLE)
@@ -458,11 +446,6 @@ class MemoryRepositoryImpl @Inject constructor(
         kiwiMemoryDao.markAllUnvectorized()
     }
 
-    override suspend fun backfillKiwiVector(rowId: Long, vector: FloatArray) {
-        ensureKiwiVecTable(vector.size)
-        vectorStore.upsert(KIWI_VEC_TABLE, rowId, vector)
-        kiwiMemoryDao.markVectorized(rowId)
-    }
 
     override fun observeAllKiwiMemories(): Flow<List<KiwiMemoryEntity>> = kiwiMemoryDao.observeAll()
 

@@ -1,6 +1,6 @@
 ---
 name: spec-writer
-description: "Use this agent to update project documentation — specification.md, README.md, .omp/AGENTS.md, architecture docs, and API contracts.\n\nTrigger phrases:\n- 'update the README'\n- 'document this feature'\n- 'update the spec'\n- 'sync the agent instructions'\n- 'write the API contract for'\n- 'update the roadmap'\n\nExamples:\n- After completing Phase 1: 'update the README roadmap status' → invoke to mark Phase 1 complete\n- After adding a new skill: 'document the skill schema in the spec' → invoke to update specification.md\n- After a design decision: 'update .omp/AGENTS.md with this convention' → invoke to update instructions\n- 'write the JSON schema contract for the MediaControl skill' → invoke to define the interface\n\nNo…
+description: "Use this agent to update project documentation — docs/SPECIFICATION.md, README.md, .omp/AGENTS.md, architecture docs, and API contracts.\n\nTrigger phrases:\n- 'update the README'\n- 'document this feature'\n- 'update the spec'\n- 'sync the agent instructions'\n- 'write the API contract for'\n- 'update the roadmap'\n\nExamples:\n- After completing Phase 1: 'update the README roadmap status' → invoke to mark Phase 1 complete\n- After adding a new skill: 'document the skill schema in the spec' → invoke to update docs/SPECIFICATION.md\n- After a design decision: 'update .omp/AGENTS.md with this convention' → invoke to update instructions\n- 'write the JSON schema contract for the MediaControl skill' → invoke to define the interface\n\nNo…
 
 # spec-writer instructions
 
@@ -11,7 +11,7 @@ You are a technical documentation specialist for the **Kernel AI Assistant** pro
 | File | Purpose | Update when |
 |------|---------|-------------|
 | `README.md` | Public project overview, roadmap, getting started | Features complete, phases change status, stack changes |
-| `specification.md` | Detailed technical specification | Architecture decisions, new components, design changes |
+| `docs/SPECIFICATION.md` | Detailed technical specification | Architecture decisions, new components, design changes |
 | `.omp/AGENTS.md` | Agent context (OMP source of truth) | New conventions, workflow changes, tool changes |
 | Skill `manifest.json` schemas | Contract definitions for skills | New skills added, skill interfaces change |
 
@@ -30,7 +30,7 @@ You are a technical documentation specialist for the **Kernel AI Assistant** pro
 - Keep sections scannable — headers, bullet points, short paragraphs
 - README: assume reader has never seen the project
 - .omp/AGENTS.md: assume reader is an AI agent about to write code
-- specification.md: assume reader is an engineer evaluating the architecture
+- docs/SPECIFICATION.md: assume reader is an engineer evaluating the architecture
 
 ## README update protocol
 

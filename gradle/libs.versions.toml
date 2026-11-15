@@ -6,6 +6,8 @@ targetSdk = "36"
 
 # Kotlin & Android
 agp = "9.0.1"
+# Release-bundle verifier; keep in step with the version AGP bundles.
+bundletool = "1.18.3"
 kotlin = "2.3.21"
 ksp = "2.3.9"
 
@@ -16,12 +18,14 @@ navigationCompose = "2.8.9"
 
 # AndroidX
 coreKtx = "1.16.0"
+androidxStartup = "1.1.1"
 lifecycleRuntimeKtx = "2.8.7"
 room = "2.7.1"
 datastore = "1.1.4"
 
 # Hilt
-hilt = "2.59.2"
+# Parses Kotlin metadata used by LiteRT-LM 0.19.1.
+hilt = "2.60.1"
 hiltNavigationCompose = "1.2.0"
 
 # Testing
@@ -33,9 +37,9 @@ testRunner = "1.5.2"
 testRules = "1.5.0"
 
 # LiteRT
-litertlm = "0.11.0"
-mediapipeTasksText = "0.10.33"
-tflite = "2.17.0"
+litertlm = "0.19.1"
+gson = "2.14.0"
+litert = "2.1.0"
 onnxruntime = "1.24.3"
 
 # WorkManager + Hilt Work
@@ -52,13 +56,13 @@ securityCrypto = "1.1.0-alpha06"
 # Weather skill deps
 okhttp = "4.12.0"
 playServicesLocation = "21.3.0"
-vosk = "0.3.75"
 commonsCompress = "1.27.1"
 glance = "1.1.1"
 # Coil
 coil = "3.1.0"
 
 [libraries]
+bundletool = { group = "com.android.tools.build", name = "bundletool", version.ref = "bundletool" }
 # Compose BOM
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -77,6 +81,7 @@ compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-mani
 activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-startup = { group = "androidx.startup", name = "startup-runtime", version.ref = "androidxStartup" }
 lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }
 lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeKtx" }
@@ -98,12 +103,12 @@ hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-com
 # LiteRT-LM
 litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
 
-# MediaPipe Tasks Text (TextEmbedder — USE fallback)
-mediapipe-tasks-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeTasksText" }
+# Gson-backed serialization preserves LiteRT-LM's numeric tool arguments.
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 
-# TFLite Interpreter (for EmbeddingGemma / MiniLM raw .tflite models)
-tflite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tflite" }
-tflite-gpu = { group = "org.tensorflow", name = "tensorflow-lite-gpu", version.ref = "tflite" }
+
+# LiteRT Interpreter (drop-in API for existing .tflite models; 16 KB aligned)
+litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 
 # ONNX Runtime (for OnnxWakeWordDetector — openWakeWord pipeline)
 onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
@@ -133,7 +138,6 @@ security-crypto = { group = "androidx.security", name = "security-crypto", versi
 # Weather skill deps
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
-vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
 glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
@@ -149,4 +153,5 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+gradle-play-publisher = { id = "com.github.triplet.play", version = "4.1.1" }
 room = { id = "androidx.room", version.ref = "room" }
