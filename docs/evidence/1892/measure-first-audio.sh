@@ -1,5 +1,5 @@
 #!/bin/bash
-# usage: measure-1892.sh <label>   (device-side harness token; never leaves the phone)
+# usage: measure-first-audio.sh <label>   (device-side harness token; never leaves the phone)
 S=R5CR605B71K
 PKG=ai.jandal.assistant.debug
 Q="What is the capital of Samoa? Answer in two short sentences."
