@@ -263,15 +263,17 @@ jobs:
           name: tester-apk
           path: tester-release
 
-      - name: Create full GitHub release with the APK
+      - name: Create GitHub release with the APK
         env:
           GH_TOKEN: ${{ github.token }}
           TRACK: ${{ inputs.track }}
         run: |
           set -euo pipefail
           case "$TRACK" in
-            alpha) TRACK_LABEL="closed testing (alpha)" ;;
-            internal) TRACK_LABEL="internal testing" ;;
+            # Internal builds wait for the owner's smoke test, so they go up as pre-releases,
+            # which Obtainium ignores; the owner's promote step turns them into full releases.
+            alpha) TRACK_LABEL="closed testing (alpha)"; RELEASE_FLAGS=(--latest) ;;
+            internal) TRACK_LABEL="internal testing"; RELEASE_FLAGS=(--prerelease --latest=false) ;;
             *) echo "::error::Unsupported track '$TRACK'"; exit 1 ;;
           esac
           cd tester-release
@@ -318,4 +320,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Jandal AI $VERSION_NAME" \
             --notes-file release-body.md \
-            --latest
+            "${RELEASE_FLAGS[@]}"

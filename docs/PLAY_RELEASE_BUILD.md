@@ -148,7 +148,7 @@ To publish to the closed test instead, add `-PplayTrack=alpha`. In this repo's m
 
 Update `app/src/main/play/release-notes/en-AU/default.txt` before each upload (Play allows 500 characters).
 
-This uploads the signed release AAB to the **internal** track. `-PplayTrack` accepts only `internal`, `alpha` (closed testing), or `beta`; production and promotion tasks are disabled. GPP's `AUTO` version resolution chooses one more than the highest Play version for an upload, while explicit `-PversionCode` remains effective for non-publish builds such as CI. Release notes come from `app/src/main/play/release-notes/en-AU/default.txt`. Store listing text and images remain console-managed and are not part of bundle publishing.
+This uploads the signed release AAB to the **internal** track. `-PplayTrack` accepts only `internal`, `alpha` (closed testing), or `beta`; GPP's production and promote tasks are disabled; promotion is done by hand in Play Console (see [Release steps](#release-steps)). GPP's `AUTO` version resolution chooses one more than the highest Play version for an upload, while explicit `-PversionCode` remains effective for non-publish builds such as CI. Release notes come from `app/src/main/play/release-notes/en-AU/default.txt`. Store listing text and images remain console-managed and are not part of bundle publishing.
 
 The local command above remains the alternative to publishing from GitHub.
 
@@ -188,20 +188,37 @@ Type the three short secrets in **Settings › Environments › play-release ›
 
 #### Release steps
 
+Every build goes to **internal testing** first. The owner smoke tests it there, then promotes the same build to **closed testing** (`alpha`), which is where the testers' Google Group is.
+
+| Track | Google review | Testers |
+|---|---|---|
+| Internal testing (`internal`) | Normally none; installable within minutes | Up to 100, by email list in Play Console. The owner's account must be on the list. |
+| Closed testing (`alpha`) | Every release; usually hours, sometimes days | Email lists or the testers' Google Group |
+
 1. Update `app/src/main/play/release-notes/en-AU/default.txt` and merge it to `main`. The run builds the `main` commit current when it is started, so the notes must be merged first.
-2. **Actions › Play release › Run workflow**: leave **Use workflow from** on `main`, choose the track (`internal` or `alpha`), then **Run workflow**. Any other branch fails in the `Require main` job without requesting approval.
+2. **Actions › Play release › Run workflow**: leave **Use workflow from** on `main`, keep the track on `internal`, tick **github_release**, then **Run workflow**. Any other branch fails in the `Require main` job without requesting approval.
 3. Open the run. `Publish to Play` waits for review; choose **Review deployments**, tick `play-release`, then **Approve and deploy**. The job receives the secrets only after this approval.
-4. The job builds and signs the AAB, rejects it if unsigned (`verifyReleaseBundleForPlayUpload`), uploads it to the chosen track with the next Play `versionCode`, and removes the credentials. Check the release under the track in Play Console.
-5. For an `alpha` run, or an `internal` run with **github_release** ticked, the same Gradle run also builds the signed release APK (`:app:assembleRelease`, ordered before the upload) and publishes it as a full GitHub release (see below). If the APK build fails, nothing is uploaded to Play.
+4. The job builds and signs the AAB, rejects it if unsigned (`verifyReleaseBundleForPlayUpload`), uploads it to internal testing with the next Play `versionCode`, and removes the credentials. With **github_release** ticked, the same Gradle run also builds the signed release APK (`:app:assembleRelease`, ordered before the upload) and publishes it as a GitHub **pre-release** (see below), which Obtainium and the Latest badge ignore. If the APK build fails, nothing is uploaded to Play.
+5. **Smoke test:** the owner updates from the Play internal-testing link and checks the build on a real phone. The GitHub pre-release is public and downloadable, but Obtainium doesn't offer it, so non-Play testers don't get it unless someone points them at it.
+6. **Promote:** in Play Console, open **Test and release › Testing › Internal testing**, choose **Promote release › Closed testing**, check the release notes, select **Next**, then **Save** and **Send for review** (on **Publishing overview** if managed publishing is on). Testers get the exact build that was smoke tested, with the same `versionCode`, so it matches the GitHub APK. It then waits for Google's review.
+7. **Publish the GitHub APK:** turn the pre-release into the full, Latest release so GitHub and Obtainium testers get it:
+
+   ```bash
+   gh release edit v0.1.<versionCode> --prerelease=false --latest
+   ```
+
+8. If the smoke test fails, don't promote. Delete the pre-release and its tag (`gh release delete v0.1.<versionCode> --cleanup-tag`), fix it on `main`, and start again from step 1; the next upload gets a new `versionCode`.
+
+Choosing `alpha` in the workflow uploads straight to closed testing, skipping the smoke test, and always publishes the GitHub APK as a full, Latest release. Testers who opted into internal testing, including the owner, only receive internal-track builds, so they won't get a build uploaded straight to `alpha`. Keep that for when the owner explicitly wants to skip internal testing. Build 6 (0.1.6) went this way, before this process was written down.
 
 The workflow decodes the keystore and writes the signing properties file and service-account JSON under `$RUNNER_TEMP` (outside the checkout) with `umask 077`, passes only their paths to Gradle, and deletes them in an always-run step. Passwords never appear as `-P` arguments.
 
 #### GitHub APK for testers without Play
 
-Testers who don't use the Play Store get the same build as the Play test track as a single signed APK on [GitHub Releases](https://github.com/NickMonrad/kernel-ai-assistant/releases). The `publish` job runs one Gradle command, `:app:publishReleaseBundle -PgithubTesterApk=true`, for alpha runs and for internal runs with **github_release** ticked. `publishReleaseBundle` depends on `:app:verifyTesterApkForPlayPublish` (in `app/build.gradle.kts`), which depends on `assembleRelease`, `bundleRelease` and GPP's `processReleaseVersionCodes`. So the APK is built and checked after GPP has fixed the versionCode, and before GPP uploads anything. The `github-release` job has `contents: write` and no secrets; it only downloads the staged APK (artifact retention 1 day) and creates the release. The signing job keeps `contents: read`.
+Testers who don't use the Play Store get the same build as the Play test track as a single signed APK on [GitHub Releases](https://github.com/NickMonrad/kernel-ai-assistant/releases). The `publish` job runs one Gradle command, `:app:publishReleaseBundle -PgithubTesterApk=true`, for internal runs with **github_release** ticked (the normal process) and for alpha runs. `publishReleaseBundle` depends on `:app:verifyTesterApkForPlayPublish` (in `app/build.gradle.kts`), which depends on `assembleRelease`, `bundleRelease` and GPP's `processReleaseVersionCodes`. So the APK is built and checked after GPP has fixed the versionCode, and before GPP uploads anything. The `github-release` job has `contents: write` and no secrets; it only downloads the staged APK (artifact retention 1 day) and creates the release. The signing job keeps `contents: read`.
 
 - **Version:** release builds (Play bundle and APK) report `versionName` `0.1.<versionCode>`. The prefix comes from `defaultConfig.versionName` in `app/build.gradle.kts`, so a version bump changes both. Debug builds keep `defaultConfig.versionName`. Because Play and GitHub report the same versionName, About, diagnostics and report emails match across channels.
-- **Tag and title:** `v0.1.<versionCode>` and `Jandal AI 0.1.<versionCode>`, for example `v0.1.5`. Full releases, not pre-releases. The release body names the track (closed testing or internal testing) it was built for.
+- **Tag and title:** `v0.1.<versionCode>` and `Jandal AI 0.1.<versionCode>`, for example `v0.1.5`. Internal runs create a pre-release that becomes a full release after promotion (see [Release steps](#release-steps)); alpha runs create a full release straight away. The release body names the track (closed testing or internal testing) it was uploaded to. After a build is promoted from internal testing it still says internal testing; edit the release text on GitHub if that matters.
 - **Asset:** exactly one, `jandal-ai-0.1.<versionCode>.apk`, signed with the upload certificate. The APK SHA-256 and the signer certificate SHA-256 are in the release body, not as extra assets.
 - **Checks before upload** (`scripts/release/verify_tester_apk.sh`, run by `verifyTesterApkForPlayPublish`): `aapt2 dump badging` must show `ai.jandal.assistant`; the versionName must equal `0.1.<versionCode>`; the APK versionCode must equal the single Play-assigned code in `app/build/intermediates/gpp/release/available-version-codes.txt`; the APK must have exactly one distinct `apksigner` signer certificate and the AAB exactly one `keytool` signer; and the APK signer's certificate digest must equal the AAB signer's own certificate (the first certificate of that signer, not the rest of its chain, so an upload key with a certificate chain still passes and an APK signed by a CA in that chain does not). A failure stops the run before `publishReleaseBundle` uploads, so Play gets no build whose APK failed these checks.
 - **After upload:** staging and the `github-release` job still run after Play has the build. If either fails, Play has a build with no GitHub APK; see Re-running below.
@@ -223,9 +240,9 @@ Testers who don't use the Play Store get the same build as the Play test track a
 Obtainium (ImranR98/Obtainium) tracks the GitHub releases directly:
 
 1. Add app, source **GitHub**, URL `https://github.com/NickMonrad/kernel-ai-assistant`.
-2. Leave **Include prereleases** off. Tester builds are full releases, so they are candidates. Debug and PR builds are pre-releases and are ignored.
+2. Leave **Include prereleases** off. Promoted and alpha tester builds are full releases, so they are candidates. Internal builds waiting for the smoke test, debug builds and PR builds are pre-releases and are ignored.
 3. Optional: set the APK filter regex to `^jandal-ai-.*\.apk$` so only the tester APK is considered.
-4. Leave **Verify latest tag** off. By default Obtainium takes the newest full release by date. Turning on **Verify latest tag** would make it use the release marked Latest, which the workflow also sets (`--latest`), so either setting works.
+4. Leave **Verify latest tag** off. By default Obtainium takes the newest full release by date. Turning on **Verify latest tag** would make it use the release marked Latest, which the workflow sets on alpha runs and the promote step sets on internal builds, so either setting works.
 5. Obtainium compares the release tag (`v0.1.<versionCode>`, with the `v` stripped) with the installed app's versionName. Both are `0.1.<n>` in standard `x.y.z` form, so version detection stays enabled and each build is distinct.
 
 Obtainium cannot install over a Play-installed copy (different signature), so use one channel per device.
