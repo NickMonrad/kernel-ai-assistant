@@ -228,6 +228,7 @@ The **"Build & Test"** GitHub Actions workflow runs on every PR and push to `mai
 ### NDK note
 
 The NDK (`libkernelvec.so`) is compiled as part of `:core:memory`. If you change `CMakeLists.txt` or the NDK sources, allow extra build time.
+CI explicitly installs NDK 28.2.13676358 and verifies its `source.properties` before Gradle tasks.
 
 ---
 

@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "com.kernel.ai.core.memory"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()
@@ -52,6 +53,8 @@ room {
 
 dependencies {
     implementation(project(":core:inference"))
+    // Note title startup builds the same LiteRT-LM ModelConfig used by chat.
+    implementation(libs.litertlm.android)
     implementation(libs.core.ktx)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
@@ -63,6 +66,8 @@ dependencies {
 
     // DataStore (for verbose logging preference)
     implementation(libs.datastore.preferences)
+    implementation(libs.okhttp)
+    implementation(libs.security.crypto)
 
     implementation(libs.work.runtime.ktx)
     implementation(libs.hilt.work)
@@ -78,4 +83,5 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

@@ -10,6 +10,8 @@ import com.kernel.ai.core.inference.download.KernelModel
 
 sealed interface ChatUiState {
     data object Loading : ChatUiState
+    /** Model files are present, but LiteRT failed to initialize the conversation engine. */
+    data class ModelInitializationFailed(val message: String) : ChatUiState
 
     data class Ready(
         val conversationId: String,
@@ -18,8 +20,16 @@ sealed interface ChatUiState {
         val isGenerating: Boolean,
         val isSpeakingResponse: Boolean,
         val inputText: String,
+        /** Advances only for ViewModel-originated composer replacements, not typing echoes. */
+        val inputTextReplacementRevision: Long = 0L,
+        /** Text of the latest ViewModel-originated replacement (paired with the revision). */
+        val inputTextReplacementText: String = "",
         val error: String?,
         val isLoadingModel: Boolean = false,
+        /** True while a submitted message is being routed or prepared for generation. */
+        val isPreparingResponse: Boolean = false,
+        /** Debug-only GPU per-turn reset test switch; false preserves the shared KV cache. */
+        val debugForceGpuConversationReset: Boolean = false,
         /** Whether to show the model's thinking process tokens in the chat UI. */
         val showThinkingProcess: Boolean = true,
         val modelCapabilities: ModelCapabilities? = null,

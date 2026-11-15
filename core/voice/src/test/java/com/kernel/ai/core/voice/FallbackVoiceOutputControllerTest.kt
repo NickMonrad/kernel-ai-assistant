@@ -204,14 +204,50 @@ class FallbackVoiceOutputControllerTest {
             val request = VoiceSpeakRequest("Kia ora")
             val session = mockk<VoiceOutputStreamingSession>()
             coEvery { sherpa.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { session.append("Kia ora", true) } returns VoiceOutputResult.Spoken
             coEvery { sherpa.openStreamingSession(request) } returns session
 
             val controller = buildController()
             val result = controller.openStreamingSession(request)
 
-            assertEquals(session, result)
+            assertEquals(VoiceOutputResult.Spoken, result.append("Kia ora", isFinal = true))
             coVerify(exactly = 1) { sherpa.openStreamingSession(request) }
             coVerify(exactly = 0) { androidTts.openStreamingSession(any()) }
+        }
+
+    @Test
+    fun `Sherpa streaming session records speak start and end with the engine`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.SherpaExperimental
+            val request = VoiceSpeakRequest("Kia ora")
+            val session = mockk<VoiceOutputStreamingSession>()
+            coEvery { sherpa.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { sherpa.openStreamingSession(request) } returns session
+            coEvery { session.append("Kia ora", true) } returns VoiceOutputResult.Unavailable("generation failed")
+            com.kernel.ai.core.inference.diagnostics.JandalEvents.install(
+                java.io.File.createTempFile("jandal-tts-stream", ".log"),
+            )
+            val mark = System.nanoTime() % 999_999_999L
+            com.kernel.ai.core.inference.diagnostics.JandalEvents.record("test", "mark", "id" to mark)
+
+            val result = buildController().openStreamingSession(request).append("Kia ora", isFinal = true)
+            com.kernel.ai.core.inference.diagnostics.JandalEvents.awaitWritesForTest()
+
+            assertEquals(VoiceOutputResult.Unavailable("generation failed"), result)
+            val exported = com.kernel.ai.core.inference.diagnostics.JandalEvents.exportLines()
+            val lines = exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1)
+            org.junit.jupiter.api.Assertions.assertTrue(
+                lines.any { " tts speak_start " in it && "engine=SHERPA_EXPERIMENTAL" in it && "streaming=true" in it },
+                lines.toString(),
+            )
+            org.junit.jupiter.api.Assertions.assertTrue(
+                lines.any { " tts speak_failed " in it && "category=UNAVAILABLE" in it },
+                lines.toString(),
+            )
+            org.junit.jupiter.api.Assertions.assertTrue(
+                lines.any { " tts speak_end " in it && "spoken=false" in it },
+                lines.toString(),
+            )
         }
 
     @Test
@@ -248,6 +284,165 @@ class FallbackVoiceOutputControllerTest {
         coVerify(exactly = 1) { inflect.speak(request) }
         coVerify(exactly = 0) { androidTts.speak(any()) }
     }
+    @Test
+    fun `streaming Inflect success does not use Android TTS`() = runTest(dispatcher) {
+        selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+        val request = VoiceSpeakRequest("Inflect stream")
+        val inflectSession = mockk<VoiceOutputStreamingSession>()
+        coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { inflect.openStreamingSession(request) } returns inflectSession
+        coEvery { inflectSession.append("Inflect stream", true) } returns VoiceOutputResult.Spoken
+
+        val session = buildController().openStreamingSession(request)
+        val result = session.append("Inflect stream", isFinal = true)
+
+        assertEquals(VoiceOutputResult.Spoken, result)
+        coVerify(exactly = 1) { inflectSession.append("Inflect stream", true) }
+        coVerify(exactly = 0) { androidTts.warmUp() }
+        coVerify(exactly = 0) { androidTts.speak(any()) }
+    }
+
+    @Test
+    fun `cancelling an Inflect streaming session never starts Android TTS`() = runTest(dispatcher) {
+        selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+        val request = VoiceSpeakRequest("Inflect cancel")
+        val inflectSession = mockk<VoiceOutputStreamingSession>()
+        coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { inflect.openStreamingSession(request) } returns inflectSession
+        coEvery { inflectSession.append(any(), any()) } returns VoiceOutputResult.Spoken
+        coEvery { inflectSession.cancel() } just runs
+
+        val session = buildController().openStreamingSession(request)
+        session.append("partial reply ", isFinal = false)
+        session.cancel()
+
+        coVerify(exactly = 1) { inflectSession.cancel() }
+        coVerify(exactly = 0) { androidTts.warmUp() }
+        coVerify(exactly = 0) { androidTts.speak(any()) }
+    }
+
+    @Test
+    fun `streaming Inflect fallback separates buffered sentences with a single space`() = runTest(dispatcher) {
+        selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+        val request = VoiceSpeakRequest(text = "")
+        val inflectSession = mockk<VoiceOutputStreamingSession>()
+        val fullText = "It's 22 degrees. Today's high is 28."
+        coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { inflect.openStreamingSession(request) } returns inflectSession
+        coEvery { inflectSession.append("It's 22 degrees.", false) } returns VoiceOutputResult.Spoken
+        coEvery { inflectSession.append("Today's high is 28.", true) } returns
+            VoiceOutputResult.Unavailable("phonemizer failed")
+        coEvery { androidTts.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { androidTts.speak(request.copy(text = fullText)) } returns VoiceOutputResult.Spoken
+
+        val session = buildController().openStreamingSession(request)
+        session.append("It's 22 degrees.", isFinal = false)
+        session.append("Today's high is 28.", isFinal = true)
+
+        coVerify(exactly = 1) { androidTts.speak(request.copy(text = fullText)) }
+    }
+
+    @Test
+    fun `streaming Inflect final failure speaks the full buffered response with Android TTS`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+            val request = VoiceSpeakRequest(text = "")
+            val inflectSession = mockk<VoiceOutputStreamingSession>()
+            val fullText = "The sky appears blue due to Rayleigh scattering."
+            coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { inflect.openStreamingSession(request) } returns inflectSession
+            coEvery { inflectSession.append("The sky appears blue due to ", false) } returns
+                VoiceOutputResult.Spoken
+            coEvery { inflectSession.append("Rayleigh scattering.", true) } returns
+                VoiceOutputResult.Unavailable("phonemizer failed")
+            coEvery { androidTts.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { androidTts.speak(request.copy(text = fullText)) } returns VoiceOutputResult.Spoken
+
+            val session = buildController().openStreamingSession(request)
+            session.append("The sky appears blue due to ", isFinal = false)
+            val result = session.append("Rayleigh scattering.", isFinal = true)
+
+            assertEquals(VoiceOutputResult.Spoken, result)
+            coVerify(exactly = 1) { androidTts.warmUp() }
+            coVerify(exactly = 1) { androidTts.speak(request.copy(text = fullText)) }
+            coVerify(exactly = 1) { inflectSession.append("The sky appears blue due to ", false) }
+            coVerify(exactly = 1) { inflectSession.append("Rayleigh scattering.", true) }
+            assertEquals(VoiceOutputResult.Spoken, session.append("ignored", isFinal = true))
+            coVerify(exactly = 1) { androidTts.warmUp() }
+        }
+
+    @Test
+    fun `streaming Inflect warmUp failure still uses Android TTS session`() = runTest(dispatcher) {
+        selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+        val request = VoiceSpeakRequest("Fallback stream")
+        val androidSession = mockk<VoiceOutputStreamingSession>()
+        coEvery { inflect.warmUp() } returns VoiceOutputResult.Unavailable("models missing")
+        coEvery { androidTts.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { androidTts.openStreamingSession(request) } returns androidSession
+
+        val result = buildController().openStreamingSession(request)
+
+        assertEquals(androidSession, result)
+        coVerify(exactly = 1) { androidTts.warmUp() }
+        coVerify(exactly = 1) { androidTts.openStreamingSession(request) }
+        coVerify(exactly = 0) { inflect.openStreamingSession(any()) }
+    }
+
+    @Test
+    fun `streaming Inflect failure returns Android Unavailable when fallback warmUp fails`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+            val request = VoiceSpeakRequest(text = "")
+            val inflectSession = mockk<VoiceOutputStreamingSession>()
+            val androidUnavailable = VoiceOutputResult.Unavailable("Android TTS unavailable")
+            coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { inflect.openStreamingSession(request) } returns inflectSession
+            coEvery { inflectSession.append("Response text", true) } returns
+                VoiceOutputResult.Unavailable("phonemizer failed")
+            coEvery { androidTts.warmUp() } returns androidUnavailable
+
+            val session = buildController().openStreamingSession(request)
+            val result = session.append("Response text", isFinal = true)
+
+            assertEquals(androidUnavailable, result)
+            coVerify(exactly = 1) { androidTts.warmUp() }
+            coVerify(exactly = 0) { androidTts.speak(any()) }
+        }
+
+    @Test
+    fun `streaming Inflect failure does not change selected engine for the next turn`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+            val request = VoiceSpeakRequest(text = "")
+            val firstInflectSession = mockk<VoiceOutputStreamingSession>()
+            val secondInflectSession = mockk<VoiceOutputStreamingSession>()
+            coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { inflect.openStreamingSession(request) } returnsMany
+                listOf(firstInflectSession, secondInflectSession)
+            coEvery { firstInflectSession.append("First response", true) } returns
+                VoiceOutputResult.Unavailable("phonemizer failed")
+            coEvery { secondInflectSession.append("Second response", true) } returns
+                VoiceOutputResult.Spoken
+            coEvery { androidTts.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { androidTts.speak(request.copy(text = "First response")) } returns
+                VoiceOutputResult.Spoken
+
+            val controller = buildController()
+            val firstSession = controller.openStreamingSession(request)
+            assertEquals(
+                VoiceOutputResult.Spoken,
+                firstSession.append("First response", isFinal = true),
+            )
+            val secondSession = controller.openStreamingSession(request)
+            val secondResult = secondSession.append("Second response", isFinal = true)
+
+            assertEquals(VoiceOutputResult.Spoken, secondResult)
+            assertEquals(VoiceOutputEngine.InflectMicroExperimental, selectedEngine.value)
+            coVerify(exactly = 2) { inflect.warmUp() }
+            coVerify(exactly = 2) { inflect.openStreamingSession(request) }
+            coVerify(exactly = 1) { androidTts.speak(any()) }
+        }
+
     @Test
     fun `stop stops all controllers defensively`() = runTest(dispatcher) {
         every { sherpa.stop() } just runs

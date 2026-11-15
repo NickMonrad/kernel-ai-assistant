@@ -13,6 +13,7 @@ Coverage:
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -229,6 +230,18 @@ class OracleProbeNotIdenticalToWarmupTest(unittest.TestCase):
 
     def test_probe_list_not_excessive(self) -> None:
         self.assertLessEqual(len(_ORACLE_PROBES), self.MAX_PROBES)
+
+
+class HarnessCliStartupTest(unittest.TestCase):
+    def test_documented_dry_run_starts_without_device(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_DIR / "adb_skill_test.py"), "--dry-run"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

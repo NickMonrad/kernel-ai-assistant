@@ -75,7 +75,7 @@ interface CoreMemoryDao {
         updateAccessStatsBatch(ids, lastAccessedAt)
     }
 
-    @Query("UPDATE core_memories SET content = :content WHERE id = :id")
+    @Query("UPDATE core_memories SET content = :content, vectorized = 0 WHERE id = :id")
     suspend fun updateContent(id: String, content: String)
 
     @Query("SELECT rowId FROM core_memories WHERE id = :id LIMIT 1")

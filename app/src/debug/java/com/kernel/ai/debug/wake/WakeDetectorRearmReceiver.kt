@@ -27,7 +27,7 @@ import com.kernel.ai.assistant.WakeWordService
  * Invocation (explicit component only, never implicit):
  *
  * ```
- * adb shell am broadcast -n com.kernel.ai.debug/com.kernel.ai.debug.wake.WakeDetectorRearmReceiver \
+ * adb shell am broadcast -n ai.jandal.assistant.debug/com.kernel.ai.debug.wake.WakeDetectorRearmReceiver \
  *   -a com.kernel.ai.debug.action.REARM_WAKE_DETECTOR
  * ```
  *

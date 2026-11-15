@@ -6,6 +6,7 @@ import com.kernel.ai.core.skills.natives.GetSystemInfoSkill
 import com.kernel.ai.core.skills.natives.ConvertCurrencySkill
 import com.kernel.ai.core.skills.natives.GetWeatherSkill
 import com.kernel.ai.core.skills.natives.GetWeatherUnifiedSkill
+import com.kernel.ai.core.skills.natives.ReadCalendarEventsSkill
 import com.kernel.ai.core.skills.natives.SaveMemorySkill
 import com.kernel.ai.core.skills.natives.SearchMemorySkill
 import com.kernel.ai.core.skills.SkillRegistry
@@ -49,6 +50,10 @@ abstract class SkillsModule {
     @Binds
     @IntoSet
     abstract fun bindGetWeatherUnifiedSkill(skill: GetWeatherUnifiedSkill): Skill
+
+    @Binds
+    @IntoSet
+    abstract fun bindReadCalendarEventsSkill(skill: ReadCalendarEventsSkill): Skill
 
     @Binds
     @IntoSet

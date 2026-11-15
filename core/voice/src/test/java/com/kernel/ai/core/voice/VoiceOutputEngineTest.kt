@@ -1,11 +1,31 @@
 package com.kernel.ai.core.voice
 
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class VoiceOutputEngineTest {
+    @Test
+    fun `default engine is Piper on mid-range and flagship devices and Android TTS on low-power`() {
+        assertEquals(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.defaultForTier(HardwareTier.FLAGSHIP))
+        assertEquals(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.defaultForTier(HardwareTier.MID_RANGE))
+        assertEquals(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.defaultForTier(HardwareTier.LOW_POWER))
+    }
+
+    @Test
+    fun `an unset engine resolves to the tier default while a stored choice is kept`() {
+        assertEquals(
+            VoiceOutputEngine.SherpaExperimental,
+            VoiceOutputEngine.resolveForBuild(null, isRelease = true, inflectEligible = false, default = VoiceOutputEngine.SherpaExperimental),
+        )
+        assertEquals(
+            VoiceOutputEngine.AndroidTts,
+            VoiceOutputEngine.resolveForBuild("AndroidTts", isRelease = true, inflectEligible = false, default = VoiceOutputEngine.SherpaExperimental),
+        )
+    }
+
     @Test
     fun `release eligible high-memory catalogue includes Inflect`() {
         assertTrue(

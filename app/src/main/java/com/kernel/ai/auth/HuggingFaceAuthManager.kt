@@ -52,8 +52,8 @@ private const val KEY_USERNAME = "hf_username"
  *
  * HuggingFace OAuth app details:
  *   clientId   = [BuildConfig.HF_CLIENT_ID]  (public, no client secret)
- *   redirectUri = [BuildConfig.HF_REDIRECT_URI] (release: com.kernel.ai://oauth/callback,
- *                                                 debug:   com.kernel.ai.debug://oauth/callback)
+ *   redirectUri = [BuildConfig.HF_REDIRECT_URI] (release: ai.jandal.assistant://oauth/callback,
+ *                                                 debug:   ai.jandal.assistant.debug://oauth/callback)
  *   scopes     = openid profile gated-repos
  */
 @Singleton

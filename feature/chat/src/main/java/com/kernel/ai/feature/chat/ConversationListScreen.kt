@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -74,7 +75,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.memory.entity.ConversationEntity
+import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -86,10 +89,13 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 fun ConversationListScreen(
     onOpenConversation: (String) -> Unit,
     onNewConversation: () -> Unit,
+    onOpenSetupWizard: () -> Unit = {},
     onNavigateToActions: () -> Unit = {},
     onNavigateToVoiceActions: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onOpenExamplePrompt: (String) -> Unit = {},
+    onNavigateToGettingStarted: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
@@ -100,6 +106,32 @@ fun ConversationListScreen(
     val selectedConversationIds by viewModel.selectedConversationIds.collectAsStateWithLifecycle()
     val showBulkDeleteConfirmation by viewModel.showBulkDeleteConfirmation.collectAsStateWithLifecycle()
     val showArchived by viewModel.showArchived.collectAsStateWithLifecycle()
+    val chatsWelcomeDismissed by viewModel.chatsWelcomeDismissed.collectAsStateWithLifecycle()
+    val tabHintsDismissed by viewModel.tabHintsDismissed.collectAsStateWithLifecycle()
+    val assistantReadiness by viewModel.assistantReadiness.collectAsStateWithLifecycle()
+    val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
+    val waitingForWifi by viewModel.waitingForWifi.collectAsStateWithLifecycle()
+    val setupWizardPending by viewModel.setupWizardPending.collectAsStateWithLifecycle()
+    // Set once the wizard has been opened this session (#1855). Pending while it is set means it was left unfinished.
+    var setupWizardOpened by rememberSaveable { mutableStateOf(false) }
+    val welcomeState = chatsEmptyState(
+        chatsWelcomeDismissed,
+        assistantReadiness,
+        downloadStates,
+        waitingForWifi,
+        setupWizardPending,
+        setupWizardExited = setupWizardOpened,
+    )
+    val startAssistantDownload = rememberDownloadNotificationGate { id ->
+        id?.let { viewModel.downloadAssistantModel(KernelModel.valueOf(it)) }
+    }
+    // Show the setup wizard once per app session on first run (#1855). Skipping or finishing it clears pending.
+    LaunchedEffect(setupWizardPending) {
+        if (setupWizardPending == true && !setupWizardOpened) {
+            setupWizardOpened = true
+            onOpenSetupWizard()
+        }
+    }
 
     var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
     var pendingArchive by remember { mutableStateOf<ConversationEntity?>(null) }
@@ -107,6 +139,9 @@ fun ConversationListScreen(
     val pendingRename = pendingRenameId?.let { id -> conversations.find { it.id == id } }
     var contextMenuTarget by remember { mutableStateOf<ConversationEntity?>(null) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    val conversationCount by viewModel.conversationCount.collectAsStateWithLifecycle()
+    val debugShowWelcome by ChatsDebugOverrides.showWelcome.collectAsStateWithLifecycle()
+    val debugSimulateDownload by ChatsDebugOverrides.simulateDownload.collectAsStateWithLifecycle()
 
     // ── Drag-and-drop local state (optimistic UI) ──────────────────────────
     var localPinned by remember { mutableStateOf(pinnedConversations) }
@@ -192,6 +227,34 @@ fun ConversationListScreen(
                                 onDismissRequest = { showOverflowMenu = false },
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("Getting started") },
+                                    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onNavigateToGettingStarted()
+                                    },
+                                )
+                                if (BuildConfig.DEBUG) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(if (debugShowWelcome) "Debug: hide forced welcome" else "Debug: show first-run welcome")
+                                        },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            ChatsDebugOverrides.toggleWelcome()
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(if (debugSimulateDownload) "Debug: stop simulated download" else "Debug: simulate download")
+                                        },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            ChatsDebugOverrides.toggleDownload()
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
                                     text = {
                                         Text(
                                             if (showArchived) "Show active conversations"
@@ -219,24 +282,26 @@ fun ConversationListScreen(
             }
         },
         floatingActionButton = {
-            if (!isInSelectionMode && !showArchived) {
+            if (showChatsFab(welcomeState, isInSelectionMode, showArchived)) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    SmallFloatingActionButton(
-                        onClick = onNavigateToVoiceActions,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = "Voice action")
-                    }
-                    SmallFloatingActionButton(
-                        onClick = onNavigateToActions,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ) {
-                        Icon(Icons.Default.Bolt, contentDescription = "Quick action")
+                    if (welcomeState == ChatsEmptyState.Plain) {
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToVoiceActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Voice action")
+                        }
+                        SmallFloatingActionButton(
+                            onClick = onNavigateToActions,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = "Quick action")
+                        }
                     }
                     FloatingActionButton(
                         onClick = onNewConversation,
@@ -274,8 +339,21 @@ fun ConversationListScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
+            chatsDownloadBanner(assistantReadiness, welcomeState, isInSelectionMode, showArchived, waitingForWifi)?.let { banner ->
+                ChatsDownloadBanner(
+                    banner = banner,
+                    onClick = onNavigateToGettingStarted,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            if (showTryAskingChips(conversationCount, welcomeState, showArchived, isInSelectionMode, searchQuery)) {
+                TryAskingChips(
+                    prompts = welcomeExamplePromptsFor(welcomeDownloadFor(assistantReadiness, downloadStates)),
+                    onPrompt = onOpenExamplePrompt,
+                )
+            }
 
-            if (conversations.isEmpty()) {
+            if (conversations.isEmpty() || welcomeState is ChatsEmptyState.Welcome) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -298,7 +376,21 @@ fun ConversationListScreen(
                                 modifier = Modifier.padding(top = 8.dp),
                             )
                         }
-                    } else {
+                    } else if (welcomeState is ChatsEmptyState.Welcome) {
+                        ChatsWelcome(
+                            download = welcomeState.download,
+                            showTabHints = tabHintsDismissed == false,
+                            onStartChatting = onNewConversation,
+                            onExamplePrompt = onOpenExamplePrompt,
+                            onDownloadModel = { model -> startAssistantDownload(model.name) },
+                            onUseMobileData = viewModel::useMobileData,
+                            onDismissTabHints = viewModel::dismissTabHints,
+                            onHideWelcome = viewModel::hideWelcome,
+                            modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
+                        )
+                    } else if (welcomeState == ChatsEmptyState.SetupWizardResume) {
+                        SetupWizardResumeCard(onFinishSetup = onOpenSetupWizard)
+                    } else if (welcomeState == ChatsEmptyState.Plain) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("🧵", style = MaterialTheme.typography.displayMedium)
                             Text(
@@ -499,7 +591,7 @@ fun ConversationListScreen(
                         }
                     }
 
-                    item { Spacer(modifier = Modifier.height(88.dp)) }
+                    item { Spacer(modifier = Modifier.height(FabStackClearance)) }
                 }
             }
         } // end Column

@@ -54,10 +54,8 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Apache Commons Compress | `org.apache.commons:commons-compress` | Apache-2.0 | Include runtime notice if bundled; used for archive extraction. |
 | Google Play Services Location | `com.google.android.gms:play-services-location` | Google Play services / SDK terms, not normal OSS | Include privacy disclosure for location use; generated OSS notice may not apply. |
 | Coil | `io.coil-kt.coil3:coil-compose` | Apache-2.0 | Include runtime notice if bundled. |
-| Vosk Android | `com.alphacephei:vosk-android` | Apache-2.0 | Include runtime notice; model files still need their own source/licence if bundled/downloaded. |
 | ONNX Runtime Android | `com.microsoft.onnxruntime:onnxruntime-android` | MIT | Include MIT notice if bundled. |
-| TensorFlow Lite / GPU | `org.tensorflow:tensorflow-lite*` | Apache-2.0 plus bundled third-party notices | Include runtime notices from generated notice/SBOM. |
-| MediaPipe Tasks Text | `com.google.mediapipe:tasks-text` | Apache-2.0 | Include runtime notice if bundled. |
+| LiteRT Interpreter API | `com.google.ai.edge.litert:litert` | Apache-2.0 plus bundled third-party notices | Include runtime notices from generated notice/SBOM. |
 | UIAutomator / AndroidX Test | `androidx.test:*` | Apache-2.0 | Test-only; exclude unless bundled in release. |
 | JUnit / JUnit Platform | `org.junit.*` | Eclipse Public License 2.0 | Test-only; exclude from app notices unless bundled. |
 | MockK | `io.mockk:mockk` | Apache-2.0 | Test-only; exclude unless bundled. |
@@ -69,8 +67,8 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 |---|---|---|---|
 | sqlite-vec | Local vector search extension in `core/memory/src/main/cpp` | Dual MIT OR Apache-2.0 upstream | Include chosen licence text/notice if source/native library is bundled. |
 | SQLite amalgamation | SQLite C source referenced by native build | Public domain / blessing text upstream | Confirm bundling; include SQLite public-domain notice/blessing if bundled. |
-| Sherpa-ONNX AAR/runtime | Local STT/TTS runtime when AAR is packaged | Apache-2.0 | Confirm whether packaged in release; include notice if bundled. |
-| Wake-word ONNX model assets | Bundled wake-word detector/verifier assets | openWakeWord Apache-2.0 lineage for Stage 1/2; Stage 3 `hey_jandal.onnx` generated from local training data recorded in `training/wakeword/README.md` | Keep openWakeWord notice; before final release, maintainer should confirm real-recording ownership/consent for the generated Stage 3 model. |
+| Sherpa-ONNX AAR/runtime | Local STT/TTS runtime; release currently wires the custom v1.13.0 Inflect AAR described in `scripts/sherpa-onnx-v1.13.0-inflect-build.md` | Sherpa's project licence does not establish the complete custom AAR's component terms; the build reuses Piper/eSpeak functionality, and exact component revisions/terms remain tracked by #1474 | Do not present the complete runtime bundle as Apache-2.0-only; #1474 still requires source, notice/SBOM, and exact release-artifact reconciliation. |
+| Wake-word ONNX model assets | Bundled wake-word detector/verifier assets | openWakeWord Apache-2.0 lineage for Stage 1/2; Stage 3 `hey_jandal.onnx` generated from local training data recorded in `training/wakeword/README.md` | Nick (maintainer) confirmed in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577) that the real recordings are of him and his wife, made with consent for this use; additional synthetic audio was generated with Piper TTS, and no other human recordings were used. |
 | Local model binaries under `models/` | Dev/test local model cache | Not committed / not shipped from source | Keep gitignored; release artefact still needs audit. |
 
 ### Downloaded or bundled model assets
@@ -79,8 +77,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 |---|---|---|---|
 | Gemma-4 E-2B LiteRT-LM | Required launch-compatible chat tier | Hugging Face page lists `apache-2.0` | Document model card/source and include Apache-2.0 notice if redistributed. |
 | Gemma-4 E-4B LiteRT-LM | Optional flagship chat tier | Hugging Face page lists `apache-2.0` | Document model card/source and include Apache-2.0 notice if redistributed. |
-| EmbeddingGemma 300M generic | Embedding/RAG model | Hugging Face page lists `gemma`; gated terms must be accepted | Keep gated-model language; do not present as Apache-2.0. |
-| EmbeddingGemma 300M SM8550 | Qualcomm-optimised EmbeddingGemma variant | Hugging Face page lists `gemma`; gated terms must be accepted | Deprecated/hidden from generic model management; if exposed, document terms. |
+| Arctic Embed M v1.5 + WordPiece vocabulary | Required embedding/RAG model and tokenizer. | `Snowflake/snowflake-arctic-embed-m-v1.5` at pinned source revision `e58a8f756156a1293d763f17e3aae643474e9b8a`, Apache-2.0. | Temporarily hosted from the public rolling GitHub release `model-arctic-embed-m-v1.5-current`. The validated model SHA-256 is `17c2211fbd759e769b3030837d8259a86a2f7603a0f64222fde14474e4c3054d` (113,850,784 bytes); vocabulary SHA-256 is `07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3` (231,508 bytes). No Hugging Face auth or licence acceptance is required. GitHub release immutability is not a #1559 requirement; long-term community publication is tracked in #1563. |
 | FunctionGemma / mobile actions model | Optional/experimental mobile-actions model | Hugging Face page lists `gemma`; gated terms must be accepted | Keep optional/experimental; document terms if exposed. |
 | MiniLM-L6 intent classifier | Bundled/fallback intent classifier asset | `sentence-transformers/all-MiniLM-L6-v2` page lists `apache-2.0` | Confirm exact converted asset provenance and include Apache-2.0 notice if bundled. |
 
@@ -89,8 +86,6 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Engine/model | Role | Licence / terms | Launch treatment |
 |---|---|---|---|
 | Android native STT | Platform speech recognition path | Android platform/system service; offline behaviour device-dependent | Do not describe as guaranteed offline; include privacy/platform dependency wording. |
-| Vosk Android runtime | Offline STT library | Apache-2.0 | Runtime notice required if bundled. |
-| Vosk model files | Offline STT model data if bundled/downloaded | Must verify per model file | Add per-model source/licence once final Vosk model is confirmed. |
 | Sherpa Zipformer STT | Optional/default Sherpa STT model | Sherpa model source/licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa SenseVoice STT | Optional Sherpa STT model | Model licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa Whisper tiny.en STT | Optional Sherpa STT model | Code comments indicate Apache-2.0; verify upstream model page | Document source/licence before shipping/download exposure. |
@@ -101,10 +96,10 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Engine/voice asset | Role | Licence / terms | Launch treatment |
 |---|---|---|---|
 | Android TTS | Platform TTS fallback | Android platform/system service | Safe fallback; document platform dependency. |
-| Piper runtime/project | Source project for Piper voices | MIT | Include MIT notice if Piper runtime/code is bundled. |
-| rhasspy/piper-voices repository | Source for many Piper ONNX voice files | Hugging Face page lists `mit` for repository | Repository-level MIT is not enough for all dataset provenance; keep per-voice review. |
-| en_GB-cori-high Piper voice | Release-safe British English female voice | Sourced from `rhasspy/piper-voices` (MIT-licensed repo). Upstream model card: dataset = LibriVox (public domain). | Release-visible based on the documented upstream licence/provenance reviewed for #1268. |
-| Kokoro experimental voice pack | Experimental TTS path | Exact app asset is Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage is Apache-2.0 | Consider licence trace acceptable if release-exposed, but keep product wording experimental/conservative. |
+| Piper runtime/project | Source project for Piper voices | MIT | Include MIT notice if Piper runtime/code is bundled; the project licence does not establish per-voice dataset provenance. |
+| rhasspy/piper-voices repository | Source for many Piper ONNX voice files | Hugging Face page lists `mit` for repository | Repository-level MIT is not enough for all dataset provenance; only CoriHigh is release-visible for v0.1 pending per-voice review of the remaining catalogue. |
+| en_GB-cori-high Piper voice | Release-visible British English female voice | Sourced from `rhasspy/piper-voices` (MIT-licensed repo); upstream model card identifies LibriVox (public domain) as dataset | Sole release-visible Piper voice for v0.1, based on the documented source and provenance. |
+| Kokoro experimental voice pack | Debug-only/post-launch TTS path for v0.1 | Exact app asset is Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage is recorded as Apache-2.0 | Not release-visible for v0.1 under #1014; this trace is not release sign-off. |
 
 ## External services and data sources
 
@@ -146,12 +141,12 @@ Avoid promising that every feature is offline if a skill may call an external so
 - [x] `models/README.md` documents approximate model sizes and gated-model requirements.
 - [x] `NOTICE` includes source-code adaptation notices and points to this review for runtime/downloadable assets.
 - [x] Direct dependency licence classes are recorded in this document.
-- [x] #1268: Semaine hidden from release; CoriHigh promoted as release-safe British English alternative.
+- [x] #1268: Semaine is excluded from release. CoriHigh is the sole release-visible Piper voice for v0.1; this allowlist is not full #1263/#1474 release sign-off.
 - [x] #1263: release-attribution snapshot added in `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`.
 - [x] Wake-word training/provenance path is traceable through `training/wakeword/README.md` and `NOTICE`.
 - [x] Release runtime dependency evidence generated and compared against this table. Formal SBOM (CycloneDX/SPDX) not generated; Durable dependency review documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.
-- [ ] Confirm exact bundled/downloaded Vosk model provenance if Vosk model files are exposed in the release build.
-- [ ] Confirm maintainer ownership/consent for real recordings used in the generated Hey Jandal Stage 3 wake-word model.
-- [x] Decide whether an in-app open-source licences screen is required after the generated release notice/SBOM is reviewed — Deferred: no dependency licence found that requires in-app reproduction; NOTICE + docs + Play Store listing satisfy first-launch requirements.
+- [x] Vosk model provenance: no longer applicable. Vosk, its bundled model and its JNA dependency were removed under #1008.
+- [x] Nick confirmed ownership/consent for the real recordings used in the generated Hey Jandal Stage 3 wake-word model in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577).
+- [ ] #1263: Implement and validate both offline in-app disclosure views required for v0.1 through #1260 Legal & Privacy; this requirement is not conditional on SBOM findings.
 - [ ] Play Store privacy/data disclosures match the actual release build.
 - [ ] Confirm #868's closed state still reflects the final release scope after the SBOM/AAB audit.

@@ -243,4 +243,124 @@ class TranscriptNormaliserTest {
             assertEquals(once, twice, "Idempotence failed for input: $input")
         }
     }
+
+    // ── #1894 — Auckland mishears ─────────────────────────────────────────────
+
+    @Test
+    fun `weather an aukland becomes weather in Auckland`() {
+        assertEquals(
+            "how's the weather in Auckland",
+            TranscriptNormaliser.normalise("how's the weather an aukland"),
+        )
+    }
+
+    @Test
+    fun `weather an orkland becomes weather in Auckland not Oakland`() {
+        assertEquals(
+            "how's the weather in Auckland",
+            TranscriptNormaliser.normalise("how's the weather an orkland"),
+        )
+    }
+
+    @Test
+    fun `weather an ockland becomes weather in Auckland`() {
+        assertEquals(
+            "what's the weather in Auckland",
+            TranscriptNormaliser.normalise("what's the weather an ockland"),
+        )
+    }
+
+    @Test
+    fun `standalone aukland orkland ockland are corrected whole-word and case-insensitively`() {
+        assertEquals("Auckland", TranscriptNormaliser.normalise("Aukland"))
+        assertEquals("flights to Auckland", TranscriptNormaliser.normalise("flights to orkland"))
+        assertEquals("is Auckland far", TranscriptNormaliser.normalise("is ockland far"))
+    }
+
+    @Test
+    fun `weather in Auckland is unchanged`() {
+        assertEquals(
+            "what's the weather in Auckland",
+            TranscriptNormaliser.normalise("what's the weather in Auckland"),
+        )
+    }
+
+    @Test
+    fun `Oakland and other words containing the fragments are not touched`() {
+        assertEquals("weather in Oakland", TranscriptNormaliser.normalise("weather in Oakland"))
+        assertEquals("walkland", TranscriptNormaliser.normalise("walkland"))
+    }
+
+    @Test
+    fun `bare an before Auckland outside weather phrasing is left alone`() {
+        assertEquals("I was an Auckland local", TranscriptNormaliser.normalise("I was an Auckland local"))
+    }
+
+    @Test
+    fun `Auckland corrections are idempotent`() {
+        val once = TranscriptNormaliser.normalise("how's the weather an aukland")
+        assertEquals(once, TranscriptNormaliser.normalise(once))
+    }
+
+    // ── #1820 — "add" misheard as "I've" / "I'd" in list commands ───────────
+
+    @Test
+    fun `misheard add in a list command becomes add`() {
+        assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("i've milk to my shopping list"))
+        assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("i'd milk to my shopping list"))
+        assertEquals("add eggs and bread to the list.", TranscriptNormaliser.normalise("I've eggs and bread to the list."))
+        assertEquals("add apples to my weekend grocery list", TranscriptNormaliser.normalise("ad apples to my weekend grocery list"))
+    }
+
+    @Test
+    fun `ordinary sentences about lists are left alone`() {
+        listOf(
+            "I'd like to add milk to my shopping list",
+            "I've added milk to my shopping list",
+            "I've got milk to my shopping list",
+            "I'd love eggs on my list",
+            "I've been to the shops",
+            "i've milk in the fridge",
+            "add milk to my shopping list",
+            // independent review of #1810
+            "I'd stick to the list",
+            "I've decided to add milk to my list",
+            "I've come back to my list",
+            "I'd listen to the list",
+            "I'd add milk to my list",
+            "ID card to my wallet list",
+            "I've been meaning to get to my list",
+            "I've moved bread to the shopping list",
+            "I'd keep that to my reading list",
+        ).forEach { input ->
+            assertEquals(input, TranscriptNormaliser.normalise(input), "should be unchanged: $input")
+        }
+    }
+
+    @Test
+    fun `misheard add rule is idempotent`() {
+        val once = TranscriptNormaliser.normalise("i've milk to my shopping list")
+        assertEquals(once, TranscriptNormaliser.normalise(once))
+    }
+
+    // ── #1852 — Petone heard as "patroni" ─────────────────────────────────────
+
+    @Test
+    fun `patroni is corrected to Petone as a whole word`() {
+        assertEquals("Petone", TranscriptNormaliser.normalise("patroni"))
+        assertEquals("I drove to Petone.", TranscriptNormaliser.normalise("I drove to patroni."))
+        assertEquals("Petone's train", TranscriptNormaliser.normalise("patroni's train"))
+    }
+
+    @Test
+    fun `patroni match is case insensitive`() {
+        assertEquals("Petone", TranscriptNormaliser.normalise("Patroni"))
+        assertEquals("Petone", TranscriptNormaliser.normalise("PATRONI"))
+    }
+
+    @Test
+    fun `words containing patroni are left alone`() {
+        assertEquals("patronised", TranscriptNormaliser.normalise("patronised"))
+        assertEquals("patronisingly", TranscriptNormaliser.normalise("patronisingly"))
+    }
 }

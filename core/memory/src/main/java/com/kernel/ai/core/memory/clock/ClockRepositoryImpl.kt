@@ -222,7 +222,6 @@ class ClockRepositoryImpl @Inject constructor(
 
     override suspend fun createAlarm(draft: AlarmDraft): SchedulingResult<ClockAlarm> {
         val state = scheduler.getPlatformState()
-        if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
         if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
 
         val now = System.currentTimeMillis()
@@ -250,6 +249,7 @@ class ClockRepositoryImpl @Inject constructor(
         }
 
         val warnings = buildList {
+            if (!state.canScheduleExactAlarms) add(SchedulingWarning.EXACT_ALARM_UNAVAILABLE)
             if (!state.canUseFullScreenIntent) add(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)
             if (state.bootRestoreLimited) add(SchedulingWarning.BOOT_RESTORE_LIMITED)
         }
@@ -271,9 +271,7 @@ class ClockRepositoryImpl @Inject constructor(
             ?: return SchedulingResult.SchedulingFailed("Alarm not found")
         if (existing.entryType != ClockEventType.ALARM.name) return SchedulingResult.SchedulingFailed("Not an alarm")
 
-        // Check platform readiness before touching the existing schedule
         val state = scheduler.getPlatformState()
-        if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
         if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
 
         val now = System.currentTimeMillis()
@@ -310,6 +308,7 @@ class ClockRepositoryImpl @Inject constructor(
         }
 
         val warnings = buildList {
+            if (!state.canScheduleExactAlarms) add(SchedulingWarning.EXACT_ALARM_UNAVAILABLE)
             if (!state.canUseFullScreenIntent) add(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)
             if (state.bootRestoreLimited) add(SchedulingWarning.BOOT_RESTORE_LIMITED)
         }
@@ -348,7 +347,6 @@ class ClockRepositoryImpl @Inject constructor(
             }
         }
 
-        if (!scheduler.getPlatformState().canScheduleExactAlarms) return false
         val draft = existing.toAlarmDraft() ?: return false
         val nextTriggerAtMillis = draft.nextTriggerAtMillis(now) ?: return false
         val updated = existing.copy(
@@ -454,9 +452,7 @@ class ClockRepositoryImpl @Inject constructor(
 
     override suspend fun scheduleTimer(durationMs: Long, label: String?): SchedulingResult<ClockTimer> {
         val state = scheduler.getPlatformState()
-        if (!state.canScheduleExactAlarms) return SchedulingResult.ExactAlarmBlocked
         if (!state.notificationsEnabled) return SchedulingResult.NotificationBlocked
-
         val now = System.currentTimeMillis()
         val entity = ScheduledAlarmEntity(
             id = UUID.randomUUID().toString(),
@@ -476,6 +472,7 @@ class ClockRepositoryImpl @Inject constructor(
         }
 
         val warnings = buildList {
+            if (!state.canScheduleExactAlarms) add(SchedulingWarning.EXACT_ALARM_UNAVAILABLE)
             if (!state.canUseFullScreenIntent) add(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)
             if (state.bootRestoreLimited) add(SchedulingWarning.BOOT_RESTORE_LIMITED)
         }
@@ -586,26 +583,6 @@ class ClockRepositoryImpl @Inject constructor(
         val future = scheduledAlarmDao.getUnfiredFuture(nowMillis).map { it.withDefaultOwnerId() }
         val disabled = future.filterNot { it.enabled }
 
-        if (!platformState.canScheduleExactAlarms) {
-            expired.forEach { schedule ->
-                when (schedule.entryType) {
-                    ClockEventType.TIMER.name -> scheduledAlarmDao.markFired(schedule.id)
-                    ClockEventType.ALARM.name -> scheduledAlarmDao.insert(schedule.copy(enabled = false))
-                }
-            }
-            future.filter { it.enabled }.forEach { schedule ->
-                when (schedule.entryType) {
-                    ClockEventType.TIMER.name -> scheduledAlarmDao.markFired(schedule.id)
-                    ClockEventType.ALARM.name -> scheduledAlarmDao.insert(schedule.copy(enabled = false))
-                }
-            }
-            return ClockRestoreReport(
-                restoredCount = 0,
-                expiredCount = expired.size,
-                disabledCount = disabled.size + future.count { it.enabled && it.entryType == ClockEventType.ALARM.name },
-                blockedByExactAlarmCapability = true,
-            )
-        }
 
         var restoredCount = 0
         var expiredCount = 0

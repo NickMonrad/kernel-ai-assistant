@@ -37,8 +37,9 @@ class AlarmManagerClockScheduler @Inject constructor(
     }
 
     override fun schedule(event: ClockScheduledEvent): SchedulingResult<Unit> {
-        if (!alarmManager.canScheduleExactAlarms()) return SchedulingResult.ExactAlarmBlocked
-        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return SchedulingResult.NotificationBlocked
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            return SchedulingResult.NotificationBlocked
+        }
 
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -46,12 +47,29 @@ class AlarmManagerClockScheduler @Inject constructor(
             buildBroadcastIntent(event),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        alarmManager.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            event.triggerAtMillis,
-            pendingIntent,
-        )
-        return SchedulingResult.Success(Unit)
+        return try {
+            if (alarmManager.canScheduleExactAlarms()) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    event.triggerAtMillis,
+                    pendingIntent,
+                )
+            } else {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    event.triggerAtMillis,
+                    pendingIntent,
+                )
+            }
+            SchedulingResult.Success(Unit)
+        } catch (_: SecurityException) {
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                event.triggerAtMillis,
+                pendingIntent,
+            )
+            SchedulingResult.Success(Unit)
+        }
     }
 
     override fun cancel(event: ClockScheduledEvent) {

@@ -2,8 +2,15 @@ package com.kernel.ai.feature.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.repository.ConversationRepository
+import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.inference.setup.SetupWizardPreferences
+import com.kernel.ai.core.inference.setup.SetupWizardProgress
+import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -12,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -20,7 +28,77 @@ import javax.inject.Inject
 @HiltViewModel
 class ConversationListViewModel @Inject constructor(
     private val repository: ConversationRepository,
+    private val chatPreferences: ChatPreferences,
+    private val downloadManager: ModelDownloadManager,
+    private val setupWizardPreferences: SetupWizardPreferences,
 ) : ViewModel() {
+
+    /**
+     * Null until both the welcome preference and the total conversation count (archived included) have loaded.
+     * True when the welcome is hidden or any conversation exists, so a returning user never sees the welcome flash.
+     */
+    val chatsWelcomeDismissed: StateFlow<Boolean?> = combine(
+        chatPreferences.chatsWelcomeDismissed,
+        repository.observeConversationCount(),
+        ChatsDebugOverrides.showWelcome,
+    ) { dismissed, count, forced -> !forced && (dismissed || count > 0) }
+        .stateIn<Boolean?>(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Total conversations, archived included. Null until loaded, so "Try asking" never flashes for returning users. */
+    val conversationCount: StateFlow<Int?> = repository.observeConversationCount()
+        .stateIn<Int?>(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val downloadStates = downloadManager.downloadStates
+
+    val tabHintsDismissed: StateFlow<Boolean?> = chatPreferences.tabHintsDismissed
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** True while the first-run setup wizard is not finished or skipped. Null until loaded (#1855). */
+    val setupWizardPending: StateFlow<Boolean?> = setupWizardPreferences.progress
+        .map<SetupWizardProgress, Boolean?> { setupWizardPendingOf(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val waitingForWifi: StateFlow<Set<KernelModel>> = downloadManager.waitingForWifi
+
+    val assistantReadiness: StateFlow<ConversationModelReadiness> = combine(
+        downloadManager.downloadStates,
+        ChatsDebugOverrides.simulateDownload,
+    ) { states, simulate ->
+        if (simulate) {
+            ChatsDebugOverrides.SimulatedDownload
+        } else {
+            ConversationModelReadiness.compute(downloadManager.deviceTier, states)
+        }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        ConversationModelReadiness.compute(downloadManager.deviceTier, downloadManager.downloadStates.value),
+    )
+
+    init {
+        // The welcome is one-time: once any conversation exists (archived included), it never returns.
+        // First-run decision for the setup wizard (#1855). Existing installs are marked complete.
+        viewModelScope.launch {
+            val alreadyDecided = setupWizardPreferences.progress.first().decided
+            val existingInstall = downloadManager.isExistingInstall()
+            downloadManager.adoptLegacyChoice(alreadyDecided, existingInstall)
+            setupWizardPreferences.decideFirstRun(existingInstall)
+        }
+        viewModelScope.launch {
+            repository.observeConversationCount().first { it > 0 }
+            chatPreferences.setChatsWelcomeDismissed(true)
+        }
+    }
+
+    /** Starts (or retries) the download of [model] from the welcome, same path as the chat recovery card. */
+    fun downloadAssistantModel(model: KernelModel) {
+        downloadManager.startDownload(model, force = false)
+    }
+
+    /** Chooses mobile data for downloads waiting on Wi-Fi, from the welcome (#1855). */
+    fun useMobileData() {
+        downloadManager.setDownloadNetworkChoice(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
+    }
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -62,6 +140,14 @@ class ConversationListViewModel @Inject constructor(
 
     private fun String.escapeLikeWildcards(): String =
         replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    fun hideWelcome() {
+        viewModelScope.launch { chatPreferences.setChatsWelcomeDismissed(true) }
+    }
+
+    fun dismissTabHints() {
+        viewModelScope.launch { chatPreferences.setTabHintsDismissed(true) }
+    }
 
     fun deleteConversation(conversation: ConversationEntity) {
         viewModelScope.launch {
@@ -182,3 +268,10 @@ class ConversationListViewModel @Inject constructor(
         }
     }
 }
+
+/**
+ * Pending state of the first-run setup wizard. Null until the first-run decision is recorded, so a fresh install
+ * shows neither the welcome nor the wizard resume card before the wizard state is known (#1855).
+ */
+internal fun setupWizardPendingOf(progress: SetupWizardProgress): Boolean? =
+    if (progress.decided) !progress.completed else null

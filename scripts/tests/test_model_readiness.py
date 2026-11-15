@@ -226,9 +226,9 @@ class FindMarkersTest(unittest.TestCase):
         result = _find_markers(text, _MARKERS)
         self.assertTrue(result.get("download_failed"))
 
-    def test_matches_actual_markers_gated_no_token(self) -> None:
-        """_MARKERS[hf_token_missing] matches the app's actual log output."""
-        text = "EmbeddingGemma 300M is gated but no HF token available"
+    def test_matches_gated_model_log_shape_no_token(self) -> None:
+        """The generic gated-model log shape is recognized."""
+        text = "Example model is gated but no HF token available"
         result = _find_markers(text, _MARKERS)
         self.assertTrue(result.get("hf_token_missing"))
 
@@ -395,8 +395,8 @@ class PreflightStateMachineTest(unittest.TestCase):
     def test_hf_signin_needed_but_not_in_ui(
         self, mock_read: MagicMock,
     ) -> None:
-        """hf_token_missing detected → ActionRequired state."""
-        mock_read.return_value = "EmbeddingGemma 300M is gated but no HF token available"
+        """A generic gated-model marker maps to ActionRequired."""
+        mock_read.return_value = "Example model is gated but no HF token available"
         evidence = preflight_model_readiness(
             verbose=False, timeout_download=1.0, timeout_engine=1.0,
         )

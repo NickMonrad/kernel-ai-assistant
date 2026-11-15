@@ -90,6 +90,8 @@ For each skill, these are phrases a real person would plausibly say to a voice/c
 | 8 | "start a one hour timer" | written-out number |
 | 9 | "timer for an hour and fifteen" | compound duration |
 | 10 | "set a timer for one and a half hours" | verbose compound |
+| 11 | "set a sixty minute timer" | written-out tens (60 min, not 6) |
+| 12 | "set a forty five minute timer" | written-out tens compound (45 min) |
 
 **Duration format coverage:**
 

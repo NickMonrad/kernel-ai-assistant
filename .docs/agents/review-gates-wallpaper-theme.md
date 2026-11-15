@@ -33,8 +33,8 @@ This gate applies when the PR touches:
 
 | Device | When |
 |--------|------|
-| S21 (Exynos) | Default — wallpaper behaviour is consistent across Samsung devices |
-| S23U (SD 8 Gen 2) | Only if testing different screen resolution or One UI version |
+| S23U (SD 8 Gen 2) | Primary — wallpaper behaviour is consistent across Samsung devices |
+| S21 (Exynos) | Second test device: use it freely for parallel runs, overflow when the S23U is busy, and second-SoC (Exynos) comparison; see `.docs/agents/risk-based-evidence-policy.md` |
 
 ## Common Regressions to Check
 
@@ -51,7 +51,8 @@ This gate applies when the PR touches:
 
 ```bash
 # Build for device testing
-./gradlew :app:installDebug
+./gradlew :app:assembleDebug
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 
 # Check wallpaper files in app storage
 adb shell ls /sdcard/Android/data/<package>/files/wallpapers/

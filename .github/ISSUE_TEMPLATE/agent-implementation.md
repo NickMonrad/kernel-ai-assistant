@@ -45,7 +45,7 @@ assignees: ''
 <!-- Evidence JSON path, screenshot path, or log file -->
 
 ## Device Requirement
-<!-- None / S21 / Focused S23U / Both -->
+<!-- None / S23U / S21 (extra capacity) / Both -->
 
 ## Manual UX Checks Required
 <!-- What to check by hand (e.g. rotation, font scale, TalkBack, audio focus) -->

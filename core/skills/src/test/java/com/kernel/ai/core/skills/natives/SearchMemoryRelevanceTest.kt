@@ -66,6 +66,172 @@ class SearchMemoryRelevanceTest {
     }
 
     @Test
+    fun `filter drops weak semantic neighbours without lexical overlap`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite coffee?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "unrelated",
+                    content = "The user's preferred cleaner is Star Dry Cleaning.",
+                    source = "core",
+                    score = 0.25f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
+    fun `preference recall keeps exact topic with realistic moderate embedding score`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite coffee?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "coffee",
+                    content = "my favourite coffee is a flat white",
+                    source = "core",
+                    score = 0.445f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertEquals(1, filtered.memoryResults.size)
+        assertEquals("coffee", filtered.memoryResults.single().id)
+    }
+
+    @Test
+    fun `preference recall excludes weakly similar different preferences`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite tea?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "coffee",
+                    content = "my favourite coffee is a flat white",
+                    source = "core",
+                    score = 0.445f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
+    fun `three letter preference topic retains exact fact at moderate score`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite tea?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "tea",
+                    content = "my favourite tea is earl grey",
+                    source = "core",
+                    score = 0.445f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertEquals(1, filtered.memoryResults.size)
+        assertEquals("tea", filtered.memoryResults.single().id)
+    }
+
+    @Test
+    fun `whats token does not create lexical overlap for unrelated memory`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite coffee?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "unrelated",
+                    content = "I remember what's happening this afternoon",
+                    source = "core",
+                    score = 0.25f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
+    fun `tea does not lexically overlap steak`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What's my favourite tea?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "steak",
+                    content = "My favourite steak is medium rare",
+                    source = "core",
+                    score = 0.25f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    private fun keeps(query: String, content: String): Boolean = filterSearchMemoryResults(
+        query = query,
+        memoryResults = listOf(MemorySearchResult(id = "m", content = content, source = "core", score = 0.25f)),
+        messageResults = emptyList(),
+    ).memoryResults.isNotEmpty()
+
+    @Test
+    fun `singular query matches plural or possessive stored words at a weak score`() {
+        assertTrue(keeps("What's my favourite movie?", "My favourite movies are Alien and Heat"))
+        assertTrue(keeps("What's my favourite story?", "My favourite stories are by Katherine Mansfield"))
+        assertTrue(keeps("What's my dog called?", "My dog's name is Rua"))
+        assertTrue(keeps("What are my favourite movies?", "My favourite movie is Heat"))
+        assertTrue(keeps("What are my favourite stories?", "My favourite story is The Garden Party"))
+        assertTrue(keeps("What do my dogs eat?", "My dog eats biscuits"))
+        assertTrue(keeps("What's in my lunch boxes?", "My lunch box has sushi"))
+    }
+
+    @Test
+    fun `plural endings do not reopen substring matches`() {
+        assertTrue(!keeps("What's my favourite tea?", "My favourite steaks are rare"))
+        assertTrue(!keeps("What's my favourite tea?", "I teased my brother"))
+        assertTrue(!keeps("What's my favourite car?", "My favourite cards are aces"))
+        // "-es" only after s/x/z/ch/sh/o stems; singular forms are re-checked against stopwords.
+        assertTrue(!keeps("What's my favourite car?", "Nobody cares about traffic"))
+        assertTrue(!keeps("Which hat do I wear?", "She hates rain"))
+        assertTrue(!keeps("What's my plan?", "The planes were late"))
+        assertTrue(!keeps("What's my news?", "A new kettle"))
+        assertTrue(keeps("What's in my lunch box?", "My lunch boxes are blue"))
+        assertTrue(keeps("When does my bus come?", "The buses leave at 7"))
+        for ((q, stored) in listOf(
+            "What are my dogs called?" to "My dog named Rex", "Do my cats eat fish?" to "My cat likes fish",
+            "How do I like my eggs?" to "I like my egg runny", "What are my kids' names?" to "My kid is Aroha",
+            "Which cars do I own?" to "My car is a Corolla", "Where are my hats?" to "My hat is on the hook",
+        )) {
+            assertTrue(keeps(q, stored), q)
+        }
+    }
+
+    @Test
+    fun `our does not lexically overlap favourite`() {
+        val filtered = filterSearchMemoryResults(
+            query = "What did we discuss about our holiday?",
+            memoryResults = listOf(
+                MemorySearchResult(
+                    id = "coffee",
+                    content = "My favourite coffee is a flat white",
+                    source = "core",
+                    score = 0.25f,
+                ),
+            ),
+            messageResults = emptyList(),
+        )
+
+        assertTrue(filtered.memoryResults.isEmpty())
+    }
+
+    @Test
     fun `filter drops results when query is anaphoric save`() {
         val filtered = filterSearchMemoryResults(
             query = "remember that",

@@ -67,7 +67,7 @@ class ListsWidgetLaunchCallbackTest {
     @Test
     fun `onAction launches MainActivity once for an existing configured widget`() = runTest {
         val context = mockk<Context>(relaxed = true)
-        every { context.packageName } returns "com.kernel.ai"
+        every { context.packageName } returns "ai.jandal.assistant"
         every { context.applicationContext } returns context
         val prefs = mockk<SharedPreferences>()
         every { prefs.getLong(any(), any()) } returns 42L

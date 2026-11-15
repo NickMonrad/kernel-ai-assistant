@@ -31,7 +31,7 @@ Load this when navigating unfamiliar modules.
 | `app/` | Entry point, Hilt DI, navigation, splash |
 | `core/inference/` | LiteRT-LM engine wrapper, model manager |
 | `core/voice/` | STT, TTS, voice mode, push-to-talk |
-| `core/memory/` | sqlite-vec JNI, EmbeddingGemma, RAG pipeline |
+| `core/memory/` | Room-canonical memory, sqlite-vec cosine, Arctic Embed M v1.5 RAG pipeline |
 | `core/wasm/` | Chicory Wasm host, bridge functions |
 | `core/ui/` | Shared Compose components, Material 3 |
 | `core/skills/` | SkillInterface, SkillRegistry, schema generation |

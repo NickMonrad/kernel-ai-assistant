@@ -18,7 +18,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 
 from battery_telemetry_harness import (  # noqa: E402
-    PER_USER_RANGE,
+    DEFAULT_PACKAGE,
     FIRST_APPLICATION_UID,
     uid_to_android_uid,
     parse_android_uid,
@@ -209,8 +209,8 @@ class UidConversionTest(unittest.TestCase):
 
     def test_parse_package_metadata_accepts_android15_app_id(self) -> None:
         parsed = parse_package_metadata(
-            "com.kernel.ai.debug\nappId=10775\nversionCode=1 versionName=1",
-            "com.kernel.ai.debug",
+            f"{DEFAULT_PACKAGE}\nappId=10775\nversionCode=1 versionName=1",
+            DEFAULT_PACKAGE,
         )
         self.assertEqual(parsed["uid"].value, 10775)
 
@@ -510,15 +510,15 @@ class PackageMetadataTest(unittest.TestCase):
 
     def test_uid_resolution(self) -> None:
         p = parse_package_metadata(
-            "Packages:\n  com.kernel.ai.debug\n  versionCode=9 versionName=1.2.3\n  userId=10123",
-            "com.kernel.ai.debug",
+            f"Packages:\n  {DEFAULT_PACKAGE}\n  versionCode=9 versionName=1.2.3\n  userId=10123",
+            DEFAULT_PACKAGE,
         )
         self.assertEqual(p["uid"].value, 10123)
         self.assertEqual(p["version_name"].value, "1.2.3")
         self.assertEqual(p["version_code"].value, 9)
 
     def test_package_absent(self) -> None:
-        p = parse_package_metadata("Packages:\n  com.other.app\n  userId=9999", "com.kernel.ai.debug")
+        p = parse_package_metadata("Packages:\n  com.other.app\n  userId=9999", DEFAULT_PACKAGE)
         self.assertEqual(p["package"].state, Availability.NOT_REPORTED)
 
 
@@ -742,27 +742,27 @@ class ProcstatsTest(unittest.TestCase):
     """Procstats evidence."""
 
     def test_service_active(self) -> None:
-        text = "Service com.kernel.ai.debug:WakeWordService\n  Service com.kernel.ai.debug:Another"
-        self.assertTrue(parse_procstats_attribution(text, "com.kernel.ai.debug")["service_active"].value)
+        text = f"Service {DEFAULT_PACKAGE}:WakeWordService\n  Service {DEFAULT_PACKAGE}:Another"
+        self.assertTrue(parse_procstats_attribution(text, DEFAULT_PACKAGE)["service_active"].value)
 
 
 class PairedHarnessInitTest(unittest.TestCase):
     """Harness initialisation."""
 
     def test_enabled_true(self) -> None:
-        self.assertTrue(PairedHarness("enabled", "com.kernel.ai.debug", 60, Path("/tmp")).enabled)
+        self.assertTrue(PairedHarness("enabled", DEFAULT_PACKAGE, 60, Path("/tmp")).enabled)
 
     def test_smoke_enabled_true(self) -> None:
-        self.assertTrue(PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path("/tmp")).enabled)
+        self.assertTrue(PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 60, Path("/tmp")).enabled)
 
     def test_disabled_false(self) -> None:
-        self.assertFalse(PairedHarness("baseline-disabled", "com.kernel.ai.debug", 60, Path("/tmp")).enabled)
+        self.assertFalse(PairedHarness("baseline-disabled", DEFAULT_PACKAGE, 60, Path("/tmp")).enabled)
 
     def test_smoke_disabled_false(self) -> None:
-        self.assertFalse(PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path("/tmp")).enabled)
+        self.assertFalse(PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path("/tmp")).enabled)
 
     def test_smoke_maps_to_disabled(self) -> None:
-        h = PairedHarness("smoke", "com.kernel.ai.debug", 60, Path("/tmp"))
+        h = PairedHarness("smoke", DEFAULT_PACKAGE, 60, Path("/tmp"))
         self.assertEqual(h.mode, "smoke-disabled")
         self.assertFalse(h.enabled)
 
@@ -781,11 +781,11 @@ class CleanupTest(unittest.TestCase):
     """Diagnostic cleanup behaviour."""
 
     def test_no_client(self) -> None:
-        h = PairedHarness("enabled", "com.kernel.ai.debug", 60, Path("/tmp"))
+        h = PairedHarness("enabled", DEFAULT_PACKAGE, 60, Path("/tmp"))
         self.assertIn("no ADB client", h.try_cleanup_diagnostics("s21"))
 
     def test_abort_summary(self) -> None:
-        h = PairedHarness("baseline-disabled", "com.kernel.ai.debug", 120, Path("/x-nonexistent-test-path"))
+        h = PairedHarness("baseline-disabled", DEFAULT_PACKAGE, 120, Path("/x-nonexistent-test-path"))
         h.run_id = "test-baseline-disabled-abort"
         h.abort_reason = "test failure"
         s = h.abort_summary({}, {}, {})
@@ -928,9 +928,9 @@ class FakePhysicalAdb:
                 raise HarnessError("injected setprop failure")
             self._diagnostic = args[2]
             return ""
-        if args[:3] == ("dumpsys", "package", "com.kernel.ai.debug"):
+        if args[:3] == ("dumpsys", "package", DEFAULT_PACKAGE):
             uid = 10123 if self.alias == "s21" else 10124
-            return f"  Package [com.kernel.ai.debug]\n    userId={uid}\n    versionCode=1 versionName=1\n"
+            return f"  Package [{DEFAULT_PACKAGE}]\n    userId={uid}\n    versionCode=1 versionName=1\n"
         if args[:3] == ("dumpsys", "activity", "services"):
             if self.fail_service_check:
                 self.journal.mark_failure(rec)
@@ -1092,7 +1092,7 @@ class FixtureCoherenceTest(unittest.TestCase):
         """S21 human-readable has u0a123 detail block."""
         block = extract_uid_block(self.s21_human, 10123)
         self.assertIn("Fg Service for:", block)
-        self.assertIn("Proc com.kernel.ai.debug:", block)
+        self.assertIn(f"Proc {DEFAULT_PACKAGE}:", block)
 
     def test_s21_checkin_uid_matches_human(self) -> None:
         """S21 check-in records use decimal 10123 matching human u0a123."""
@@ -1121,7 +1121,7 @@ class FixtureCoherenceTest(unittest.TestCase):
         """S23U human-readable has u0a124 detail block."""
         block = extract_uid_block(self.s23u_human, 10124)
         self.assertIn("Fg Service for:", block)
-        self.assertIn("Proc com.kernel.ai.debug:", block)
+        self.assertIn(f"Proc {DEFAULT_PACKAGE}:", block)
 
     def test_s23u_checkin_uid_matches_human(self) -> None:
         """S23U check-in records use decimal 10124 matching human u0a124."""
@@ -1144,7 +1144,7 @@ class CleanupDetailedTest(unittest.TestCase):
     """Detailed cleanup scenarios with command assertion."""
 
     def _enabled_harness(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> PairedHarness:
-        return PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
+        return PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
 
     def test_both_normal_restore(self) -> None:
         """1. Both devices mutate and restore normally."""
@@ -1342,7 +1342,7 @@ class PhysicalWorkflowTest(unittest.TestCase):
 
     def _run(self, mode: str, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> RunResult:
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            return PairedHarness(mode, "com.kernel.ai.debug", 1, Path(root), {"s21": s21, "s23u": s23u}).run_physical(True)
+            return PairedHarness(mode, DEFAULT_PACKAGE, 1, Path(root), {"s21": s21, "s23u": s23u}).run_physical(True)
 
     def test_disabled_smoke_full_workflow(self) -> None:
         """Complete successful disabled smoke workflow."""
@@ -1552,7 +1552,7 @@ class AbortReportTest(unittest.TestCase):
         s21 = FakePhysicalAdb("s21")
         s23u = FakePhysicalAdb("s23u")
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertTrue(result.success)
         self.assertEqual(result.summary["classification"], "NON_EVIDENTIARY_SMOKE")
@@ -1568,7 +1568,7 @@ class AbortReportTest(unittest.TestCase):
         s21 = FakePhysicalAdb("s21", active=True, diagnostic="INFO")
         s23u = FakePhysicalAdb("s23u", active=True, diagnostic="INFO")
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertTrue(result.success)
         with tempfile.TemporaryDirectory() as tmp:
@@ -1580,7 +1580,7 @@ class AbortReportTest(unittest.TestCase):
         s21 = FakePhysicalAdb("s21")
         s23u = FakePhysicalAdb("s23u")
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("baseline-disabled", "com.kernel.ai.debug", 3600, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("baseline-disabled", DEFAULT_PACKAGE, 3600, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertTrue(result.success)
         with tempfile.TemporaryDirectory() as tmp:
@@ -1625,7 +1625,7 @@ class AbortReportTest(unittest.TestCase):
         s21 = FakePhysicalAdb("s21")
         s23u = FakePhysicalAdb("s23u")
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         with tempfile.TemporaryDirectory() as tmp:
             json_path, markdown_path = write_sanitized_summary(Path(tmp), result.summary, ("FAKE-S21", "FAKE-S23U"))
@@ -1638,7 +1638,7 @@ class ExactRestorationTest(unittest.TestCase):
 
     def _run_enabled(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> RunResult:
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            return PairedHarness("smoke-enabled", "com.kernel.ai.debug", 1, Path(root), {"s21": s21, "s23u": s23u}).run_physical(True)
+            return PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 1, Path(root), {"s21": s21, "s23u": s23u}).run_physical(True)
 
     def test_unset_restores_empty(self) -> None:
         """Original unset — restore must issue setprop with empty string."""
@@ -1778,7 +1778,7 @@ class ExactRestorationTest(unittest.TestCase):
             return original_s23u(*args, timeout=timeout)
         s23u.shell = wrong_restore
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 1, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 1, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertEqual(result.exit_code, 3)
         with tempfile.TemporaryDirectory() as tmp:
@@ -1797,7 +1797,7 @@ class EOFHandlingTest(unittest.TestCase):
         s21 = FakePhysicalAdb("s21")
         s23u = FakePhysicalAdb("s23u")
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", side_effect=EOFError()), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
@@ -1819,7 +1819,7 @@ class EOFHandlingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", side_effect=input_sequence), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
@@ -1836,7 +1836,7 @@ class LateSummaryFailureTest(unittest.TestCase):
         # monotonic_ns returns same value for all calls -> elapsed = 0
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), \
              patch("time.monotonic_ns", return_value=1_000_000_000):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
@@ -1857,7 +1857,7 @@ class LateSummaryFailureTest(unittest.TestCase):
                 FakePhysicalAdb.shell(s23u, *args, timeout=timeout))
         s23u.shell = decreasing_uptime
         with tempfile.TemporaryDirectory() as root, patch("builtins.input", return_value="START"), patch("time.sleep"), patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
@@ -1874,7 +1874,7 @@ class LateSummaryFailureTest(unittest.TestCase):
              patch("builtins.input", return_value="START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
@@ -1888,7 +1888,7 @@ class LateSummaryFailureTest(unittest.TestCase):
              patch("builtins.input", return_value="START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
@@ -1900,7 +1900,7 @@ class AbortPreservationTest(unittest.TestCase):
     def _run_with_journal(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb,
                           mode: str = "smoke-disabled") -> RunResult:
         """Run physical with shared journal and phase-tracking patches."""
-        h = PairedHarness(mode, "com.kernel.ai.debug", 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
+        h = PairedHarness(mode, DEFAULT_PACKAGE, 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
 
         # Patch harness methods to set phase on fake clients before delegating
         PHASE_MAP = {
@@ -2182,7 +2182,7 @@ class CombinedFailureTest(unittest.TestCase):
              patch("builtins.input", side_effect=lambda _: "START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 1)
@@ -2201,7 +2201,7 @@ class CombinedFailureTest(unittest.TestCase):
              patch("builtins.input", side_effect=lambda _: "START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 3)
@@ -2222,7 +2222,7 @@ class CombinedFailureTest(unittest.TestCase):
              patch("builtins.input", side_effect=lambda _: "START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.exit_code, 3)
@@ -2241,7 +2241,7 @@ class CombinedFailureTest(unittest.TestCase):
              patch("builtins.input", side_effect=lambda _: "START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
@@ -2269,7 +2269,7 @@ class CommitSafetyFallbackTest(unittest.TestCase):
              patch("builtins.input", side_effect=lambda _: "START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
@@ -2338,7 +2338,7 @@ class FallbackSummaryTest(unittest.TestCase):
         s21 = FakePhysicalAdb("s21")
         s23u = FakePhysicalAdb("s23u")
         with tempfile.TemporaryDirectory() as root:
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             fallback = h._fallback_abort_summary()
         self.assertEqual(fallback["classification"], "ABORTED_NON_EVIDENTIARY")
         self.assertEqual(fallback["devices"], {})
@@ -2359,7 +2359,7 @@ class FallbackSummaryTest(unittest.TestCase):
              patch("builtins.input", side_effect=lambda _: "START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertFalse(result.success)
         self.assertEqual(result.summary["classification"], "ABORTED_NON_EVIDENTIARY")
@@ -2380,7 +2380,7 @@ class FallbackSummaryTest(unittest.TestCase):
              patch("builtins.input", side_effect=lambda _: "START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             # HarnessError from fallback propagates to run_physical's except clause
             with self.assertRaises(HarnessError):
                 h.run_physical(True)
@@ -2414,7 +2414,7 @@ class IsolatedUidTest(unittest.TestCase):
              patch("builtins.input", return_value="START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         summary_text = json.dumps(result.summary)
         self.assertNotIn("u0i123", summary_text)
@@ -2510,7 +2510,7 @@ class MalformedTargetPowerTest(unittest.TestCase):
              patch("builtins.input", return_value="START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertEqual(result.summary["classification"], "NON_EVIDENTIARY_SMOKE")
         s23u_attr = result.summary.get("devices", {}).get("s23u", {}).get("app_attribution", {})
@@ -2527,7 +2527,7 @@ class MalformedTargetPowerTest(unittest.TestCase):
              patch("builtins.input", return_value="START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertEqual(result.summary["classification"], "NON_EVIDENTIARY_SMOKE")
         s23u_attr = result.summary.get("devices", {}).get("s23u", {}).get("app_attribution", {})
@@ -2545,7 +2545,7 @@ class MalformedTargetPowerTest(unittest.TestCase):
              patch("builtins.input", return_value="START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertEqual(result.summary["classification"], "NON_EVIDENTIARY_SMOKE")
         s23u_attr = result.summary.get("devices", {}).get("s23u", {}).get("app_attribution", {})
@@ -2570,7 +2570,7 @@ class MalformedTargetPowerTest(unittest.TestCase):
              patch("builtins.input", return_value="START"), \
              patch("time.sleep"), \
              patch("time.monotonic_ns", side_effect=range(1_000_000_000, 2_000_000_000, 10_000_000)):
-            h = PairedHarness("smoke-disabled", "com.kernel.ai.debug", 60, Path(root), {"s21": s21, "s23u": s23u})
+            h = PairedHarness("smoke-disabled", DEFAULT_PACKAGE, 60, Path(root), {"s21": s21, "s23u": s23u})
             result = h.run_physical(True)
         self.assertEqual(result.summary["classification"], "NON_EVIDENTIARY_SMOKE")
         s23u_attr = result.summary.get("devices", {}).get("s23u", {}).get("app_attribution", {})
@@ -2732,7 +2732,7 @@ class CLIPersistentLossTest(unittest.TestCase):
                              f"forbidden command after failure: {rec}")
     def _with_sticky_journal(self, s21: FakePhysicalAdb, s23u: FakePhysicalAdb) -> RunResult:
         """Run physical with phase-tracking patches and sticky failure for CLI test."""
-        h = PairedHarness("smoke-enabled", "com.kernel.ai.debug", 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
+        h = PairedHarness("smoke-enabled", DEFAULT_PACKAGE, 60, Path("/tmp"), {"s21": s21, "s23u": s23u})
         PHASE_MAP = {
             "pre_reset": "pre_reset_boundary",
             "start": "start_boundary",
