@@ -1459,6 +1459,7 @@ class ChatViewModelVoiceTest {
     private fun createViewModel(
         savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
     ): ChatViewModel = ChatViewModel(savedStateHandle = savedStateHandle, chatPreferences = chatPreferences, authRepository = authRepository,
+    speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
     inferenceEngine = inferenceEngine,
     downloadManager = downloadManager,
     conversationRepository = conversationRepository,

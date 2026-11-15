@@ -273,7 +273,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 if (closed) return VoiceOutputResult.Spoken
                 val normalized = text.trim()
                 if (normalized.isNotBlank()) {
-                    chunks.send(StreamingChunk(text = normalized, isFinal = isFinal))
+                    // trySend: a stop() closes the channel; send() would throw ClosedSendChannelException.
+                    if (chunks.trySend(StreamingChunk(text = normalized, isFinal = isFinal)).isClosed) {
+                        return VoiceOutputResult.Spoken
+                    }
                 } else if (isFinal) {
                     chunks.close()
                 }
@@ -489,10 +492,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 }
             }
         } finally {
+            // Runs exactly once per worker, including when stop() cancels it. Keyed on
+            // emittedStarted, not on activeStreamingPlayback, which stop() clears first.
             releaseAudioFocus()
-            if (finishStreamingPlayback(playbackToken)) {
-                _events.emit(VoiceOutputEvent.SpeakingStopped)
-            }
+            finishStreamingPlayback(playbackToken)
+            if (emittedStarted) _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
         }
     }
 
@@ -505,11 +509,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         activeStreamingPlayback?.token == playbackToken
     }
 
-    private fun finishStreamingPlayback(playbackToken: Long): Boolean = synchronized(playbackLock) {
-        val active = activeStreamingPlayback ?: return@synchronized false
-        if (active.token != playbackToken) return@synchronized false
-        activeStreamingPlayback = null
-        true
+    private fun finishStreamingPlayback(playbackToken: Long) = synchronized(playbackLock) {
+        if (activeStreamingPlayback?.token == playbackToken) activeStreamingPlayback = null
     }
 
     private fun clearStreamingPlayback(): Boolean = synchronized(playbackLock) {

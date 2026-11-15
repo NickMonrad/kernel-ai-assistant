@@ -254,6 +254,7 @@ class ChatViewModelRetryStateMachineTest {
 
     private fun createViewModel(): ChatViewModel = ChatViewModel(
         savedStateHandle = SavedStateHandle(),
+        speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
         chatPreferences = chatPreferences,
         authRepository = authRepository,
         inferenceEngine = inferenceEngine,

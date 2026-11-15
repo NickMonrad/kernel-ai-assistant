@@ -1,20 +1,13 @@
 package com.kernel.ai.speech
 
-import android.Manifest
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.drawable.Icon
-import android.media.VolumeProvider
+import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
+import com.kernel.ai.R
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -24,15 +17,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-private const val TAG = "KernelAI"
-
 /**
- * Exposes Stop controls only while Jandal is speaking (#1873).
+ * Exposes system media Stop controls only while Jandal is speaking (#1873).
  *
- * While [SpeechStopCoordinator.isSpeaking] is true this opens a [MediaSession] that routes
- * volume-key presses to the coordinator through a remote [VolumeProvider], and posts an ongoing
- * media-style notification with a Stop action. Both are torn down when speech ends, so volume
- * keys behave normally otherwise.
+ * While [SpeechStopCoordinator.isSpeaking] is true a [MediaSession] is active. Its PlaybackState
+ * advertises ACTION_STOP plus a "Stop" custom action, and its callbacks route Stop, Pause and the
+ * custom action to [SpeechStopCoordinator.requestStop]. The system media controls (shade, lock
+ * screen) draw those controls from the session, so no app notification or permission is needed.
+ * The session is released when speech ends.
  */
 @Singleton
 class SpeechStopSessionManager @Inject constructor(
@@ -41,103 +33,79 @@ class SpeechStopSessionManager @Inject constructor(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var session: MediaSession? = null
+    private val lifecycle = SpeechStopSessionLifecycle(open = ::open, close = ::close)
 
     fun start(scope: CoroutineScope): Job {
         coordinator.observe(scope)
         return scope.launch(Dispatchers.Main) {
-            coordinator.isSpeaking.collect { speaking ->
-                if (speaking) open() else close()
-            }
+            coordinator.isSpeaking.collect { speaking -> lifecycle.onSpeakingChanged(speaking) }
         }
     }
 
     private fun open() {
-        if (session != null) return
-        val newSession = MediaSession(context, SESSION_TAG).apply {
+        session = MediaSession(context, SESSION_TAG).apply {
+            setCallback(
+                object : MediaSession.Callback() {
+                    override fun onStop() {
+                        coordinator.requestStop()
+                    }
+
+                    override fun onPause() {
+                        coordinator.requestStop()
+                    }
+
+                    override fun onCustomAction(action: String, extras: Bundle?) {
+                        if (action == ACTION_STOP_CUSTOM) coordinator.requestStop()
+                    }
+                },
+                mainHandler,
+            )
+            setMetadata(
+                MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, context.getString(R.string.speech_stop_title))
+                    .build(),
+            )
             setPlaybackState(
                 PlaybackState.Builder()
                     .setState(PlaybackState.STATE_PLAYING, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
-                    .setActions(0L)
+                    .setActions(PlaybackState.ACTION_STOP or PlaybackState.ACTION_PAUSE)
+                    .addCustomAction(
+                        PlaybackState.CustomAction.Builder(
+                            ACTION_STOP_CUSTOM,
+                            context.getString(R.string.speech_stop_action),
+                            R.drawable.ic_speech_stop,
+                        ).build(),
+                    )
                     .build(),
-            )
-            setPlaybackToRemote(
-                object : VolumeProvider(VolumeProvider.VOLUME_CONTROL_RELATIVE, VOLUME_MAX, VOLUME_START) {
-                    override fun onAdjustVolume(direction: Int) {
-                        // Any volume-key press while speaking stops speech. Hop to main so the
-                        // stop runs on the same thread as the rest of the voice UI state.
-                        mainHandler.post { coordinator.requestStop() }
-                    }
-                },
             )
             isActive = true
         }
-        session = newSession
-        postNotification(newSession)
     }
 
     private fun close() {
-        session?.let {
-            it.isActive = false
-            it.release()
+        session?.run {
+            isActive = false
+            release()
         }
         session = null
-        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            context.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
-        }
-    }
-
-    private fun postNotification(mediaSession: MediaSession) {
-        val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
-        notificationManager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Speech playback", NotificationManager.IMPORTANCE_LOW),
-        )
-        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            // Volume keys still work without the notification; log so the gap is visible.
-            Log.i(TAG, "SpeechStop: POST_NOTIFICATIONS not granted; Stop action not shown")
-            return
-        }
-        val stopIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            Intent(context, SpeechStopReceiver::class.java).setAction(ACTION_STOP_SPEECH),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val notification = Notification.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("Jandal is speaking")
-            .setContentText("Press a volume key or tap Stop to interrupt")
-            .setCategory(Notification.CATEGORY_TRANSPORT)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setStyle(
-                Notification.MediaStyle()
-                    .setMediaSession(mediaSession.sessionToken)
-                    .setShowActionsInCompactView(0),
-            )
-            .addAction(
-                Notification.Action.Builder(
-                    Icon.createWithResource(context, android.R.drawable.ic_menu_close_clear_cancel),
-                    "Stop",
-                    stopIntent,
-                ).build(),
-            )
-            .build()
-        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
     private companion object {
         const val SESSION_TAG = "JandalSpeech"
-        const val CHANNEL_ID = "speech_playback"
-        const val NOTIFICATION_ID = 1873
-        const val VOLUME_MAX = 100
-        const val VOLUME_START = 50
+        const val ACTION_STOP_CUSTOM = "com.kernel.ai.speech.STOP_SPEECH"
     }
 }
 
-/** Action used by the speaking notification's Stop button. Not exported. */
-const val ACTION_STOP_SPEECH = "com.kernel.ai.STOP_SPEECH"
+/** Opens the session once when speech starts and closes it once when speech stops. */
+internal class SpeechStopSessionLifecycle(
+    private val open: () -> Unit,
+    private val close: () -> Unit,
+) {
+    private var isOpen = false
+
+    fun onSpeakingChanged(speaking: Boolean) {
+        if (speaking == isOpen) return
+        isOpen = speaking
+        if (speaking) open() else close()
+    }
+}

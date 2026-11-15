@@ -874,6 +874,7 @@ class ChatViewModelQuickIntentRouterTest {
 
     private fun createViewModel(router: QuickIntentRouter = realRouter): ChatViewModel = ChatViewModel(
         savedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
         chatPreferences = chatPreferences,
         authRepository = authRepository,
         inferenceEngine = inferenceEngine,

@@ -159,6 +159,7 @@ class ChatViewModelToolUsePromptTest {
     private fun createViewModel(): ChatViewModel {
         return ChatViewModel(
             savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
             chatPreferences = chatPreferences,
             authRepository = authRepository,
             inferenceEngine = inferenceEngine,

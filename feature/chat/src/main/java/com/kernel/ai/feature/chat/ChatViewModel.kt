@@ -78,6 +78,7 @@ import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.SpeechStopCoordinator
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
@@ -218,6 +219,7 @@ class ChatViewModel @Inject constructor(
     private val embeddingEngine: EmbeddingEngine,
     private val voiceInputController: VoiceInputController,
     private val voiceOutputController: VoiceOutputController,
+    private val speechStopCoordinator: SpeechStopCoordinator,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val jandalPersona: JandalPersona,
     private val nzTruthSeedingService: NzTruthSeedingService,
@@ -870,6 +872,18 @@ class ChatViewModel @Inject constructor(
                             _voiceMode.value = null
                         }
                     }
+                }
+            }
+        }
+        viewModelScope.launch {
+            // Volume key or media Stop (#1873). Stop exactly as the chat stop path does, then resume
+            // listening in back-and-forth mode: stopVoicePlayback() clears awaitingVoicePlaybackCompletion,
+            // so the SpeakingStopped handler above will not rearm on its own.
+            speechStopCoordinator.stopRequests.collect {
+                stopVoicePlayback()
+                if (_voiceMode.value == VoiceMode.BackAndForth) {
+                    _voiceCaptureState.value = VoiceCaptureState.Idle
+                    rearmVoiceInput()
                 }
             }
         }

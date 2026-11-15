@@ -89,9 +89,10 @@ class KernelAIApplication : Application(), Configuration.Provider {
         // can resolve OrtGetApiBase at dlopen time. Must happen before any Sherpa TTS or
         // wake word ONNX session init, otherwise OfflineTts.<clinit> fails with UnsatisfiedLinkError.
         try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
-        // Volume-key and notification Stop for speech (#1873). Observes speech events only.
-        speechStopSessionManager.start(GlobalScope)
         if (!shouldStartNormalBackgroundWork) return
+
+        // Volume-key and media Stop for speech (#1873). Observes speech events only.
+        speechStopSessionManager.start(GlobalScope)
 
         clockTimerNotificationCoordinator.start()
         clockStopwatchNotificationCoordinator.start()

@@ -96,18 +96,17 @@ class InflectMicroVoiceOutputController @Inject constructor(
                         )
                     },
                 )
-                releaseAudioFocus()
-                if (started && !stopped) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
                 VoiceOutputResult.Spoken
             } catch (error: kotlinx.coroutines.CancellationException) {
-                releaseAudioFocus()
-                if (started) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
                 throw error
             } catch (error: Exception) {
                 Log.e(TAG, "Inflect synthesis failed", error)
+                VoiceOutputResult.Unavailable("Inflect synthesis failed: ${error.message}")
+            } finally {
+                // Once per speak(), on every exit path including stop(). Playback started means
+                // SpeakingStarted was emitted, so a matching SpeakingStopped must follow.
                 releaseAudioFocus()
                 if (started) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
-                VoiceOutputResult.Unavailable("Inflect synthesis failed: ${error.message}")
             }
         }
     }

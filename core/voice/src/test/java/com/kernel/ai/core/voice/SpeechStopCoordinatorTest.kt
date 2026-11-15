@@ -6,18 +6,20 @@ import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SpeechStopCoordinatorTest {
-
     private val events = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
     private val controller: VoiceOutputController = mockk()
     private lateinit var coordinator: SpeechStopCoordinator
@@ -82,5 +84,28 @@ class SpeechStopCoordinatorTest {
         assertFalse(coordinator.isSpeaking.value)
 
         job.cancel()
+    }
+
+    @Test
+    fun `requestStop with no screen collecting stops the controller directly`() {
+        coordinator.onEvent(VoiceOutputEvent.SpeakingStarted("reply"))
+
+        assertTrue(coordinator.requestStop())
+
+        verify(exactly = 1) { controller.stop() }
+    }
+
+    @Test
+    fun `requestStop with a screen collecting emits one stop request and leaves stopping to the screen`() = runTest(StandardTestDispatcher()) {
+        var received = 0
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { coordinator.stopRequests.collect { received++ } }
+        advanceUntilIdle()
+        coordinator.onEvent(VoiceOutputEvent.SpeakingStarted("reply"))
+
+        assertTrue(coordinator.requestStop())
+        advanceUntilIdle()
+
+        assertEquals(1, received)
+        verify(exactly = 0) { controller.stop() }
     }
 }
