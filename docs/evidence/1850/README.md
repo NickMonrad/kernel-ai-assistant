@@ -29,6 +29,6 @@ Conditions: media volume 0 during capture (restored to 11), font_scale 1.15 and 
 
 ## Not done / owner checks
 - Three "speak immediately" Brisbane transcript tries: owner to run by hand; not performed by the agent.
-- Stop-during-model-load path: unit tests added at `4ea9a473` (mid-load stop releases the mic and abandons focus with no second ListeningStarted; second start releases the previous capture). Device capture of the stop-during-load logcat is pending: the S23U is held by #1892's timing run. See `s23u-r4/README.md`.
+- Stop-during-model-load: PASS on S23U at code head `4ea9a473` (installed 16:22:33). Logs in `s23u-r4/logcat-stop-during-load.txt` (`start abandoned: stopped while the recognizer was loading`) and `s23u-r4/logcat-stop-during-load-audio-tags.txt` (requestAudioFocus 16:23:48.761, abandonAudioFocus 16:23:49.763). Indicator cleared by 4 s (`s23u-r4/stop-during-load-after-stop-4s.png`). Unit tests for the same path at `4ea9a473`. Details: `s23u-r4/README.md`.
 - Native (non-Sherpa) route has no pre-roll; not run on device.
 - S21 items above.
