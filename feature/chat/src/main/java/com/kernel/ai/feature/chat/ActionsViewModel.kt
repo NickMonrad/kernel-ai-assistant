@@ -89,7 +89,7 @@ class ActionsViewModel @Inject constructor(
     private val speechStopCoordinator: SpeechStopCoordinator,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val startListeningCuePlayer: StartListeningCuePlayer,
-    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences? = null,
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -2200,7 +2200,7 @@ class ActionsViewModel @Inject constructor(
         }
         // #1850: one hint use per user tap; retries do not come through here.
         viewModelScope.launch {
-            val uses = voiceInputPreferences?.recordMicUseStarted() ?: 0
+            val uses = voiceInputPreferences.recordMicUseStarted()
             _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
         }
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)

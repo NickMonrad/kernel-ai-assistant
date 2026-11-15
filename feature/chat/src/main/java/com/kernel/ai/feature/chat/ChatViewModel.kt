@@ -231,7 +231,7 @@ class ChatViewModel @Inject constructor(
     private val authRepository: HuggingFaceAuthRepository,
     private val startListeningCuePlayer: StartListeningCuePlayer,
     private val chatPreferences: ChatPreferences,
-    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences? = null,
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences,
 ) : ViewModel() {
     private enum class SubmitMode { Text, Voice }
 
@@ -1718,7 +1718,7 @@ class ChatViewModel @Inject constructor(
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
         // #1850: one hint use per user tap; retries and re-arms do not come through here.
         viewModelScope.launch {
-            val uses = voiceInputPreferences?.recordMicUseStarted() ?: 0
+            val uses = voiceInputPreferences.recordMicUseStarted()
             _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
         }
         // #790: Fresh mic press resets the retry budget.

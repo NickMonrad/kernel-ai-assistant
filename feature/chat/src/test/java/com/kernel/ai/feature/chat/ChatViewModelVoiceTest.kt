@@ -127,6 +127,7 @@ class ChatViewModelVoiceTest {
     private val gatedModelStatusRepository: GatedModelStatusRepository = mockk(relaxed = true)
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val chatPreferences: ChatPreferences = mockk(relaxed = true)
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator = mockk(relaxed = true)
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
 
@@ -1563,6 +1564,7 @@ class ChatViewModelVoiceTest {
     verboseLoggingPreferenceUseCase = verboseLoggingPreferenceUseCase,
     gatedModelStatusRepository = gatedModelStatusRepository,
     startListeningCuePlayer = startListeningCuePlayer,
+    voiceInputPreferences = voiceInputPreferences,
     mealPlanSessionRepository = mealPlanSessionRepository,
     mealPlannerCoordinator = mealPlannerCoordinator,
 )

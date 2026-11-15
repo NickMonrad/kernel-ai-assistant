@@ -72,6 +72,7 @@ class ActionsViewModelVoiceTest {
     private val speechStopCoordinator = SpeechStopCoordinator(voiceOutputController)
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
     private val voiceInputNotices = MutableSharedFlow<VoiceNotice>(replay = 1)
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
@@ -140,6 +141,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
     }
 
@@ -270,6 +272,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("at bridge to my last", InputMode.Voice)
@@ -305,6 +308,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("and bred to my last", InputMode.Voice)
@@ -333,6 +337,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("and ice cream to my last", InputMode.Voice)
@@ -361,6 +366,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("create a new lust", InputMode.Voice)
@@ -389,6 +395,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("add a bridge to my list", InputMode.Voice)
@@ -441,6 +448,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -491,6 +499,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -521,6 +530,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -552,6 +562,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -624,6 +635,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)

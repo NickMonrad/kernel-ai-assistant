@@ -52,6 +52,7 @@ class ActionsViewModelTest {
     private val voiceOutputController: VoiceOutputController = mockk()
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
     private val insertedActions = mutableListOf<QuickActionEntity>()
     private val spokenResponsesEnabled = MutableStateFlow(false)
 
@@ -87,6 +88,7 @@ class ActionsViewModelTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
     }
 

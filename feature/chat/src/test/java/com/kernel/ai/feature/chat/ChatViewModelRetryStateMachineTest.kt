@@ -120,6 +120,7 @@ class ChatViewModelRetryStateMachineTest {
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
     private val chatPreferences: ChatPreferences = mockk(relaxed = true)
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator = mockk(relaxed = true)
 
     // Real tool set backed by the mock SkillRegistry
@@ -256,6 +257,7 @@ class ChatViewModelRetryStateMachineTest {
         savedStateHandle = SavedStateHandle(),
         speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
         chatPreferences = chatPreferences,
+        voiceInputPreferences = voiceInputPreferences,
         authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
