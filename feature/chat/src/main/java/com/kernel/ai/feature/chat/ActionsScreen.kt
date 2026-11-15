@@ -810,6 +810,15 @@ fun ActionsScreen(
             onDismiss = { viewModel.cancelSlotFill() },
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
             onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
+            // The sheet's safety net reads a composed (lifecycle-collected) armed flag that goes stale
+            // once the screen stops, so it re-checks the live ViewModel state before opening the mic.
+            onAutoVoiceReply = {
+                if (viewModel.slotReplyAutoRearmArmed.value) {
+                    requestVoiceCapture(VoiceCaptureMode.SlotReply)
+                } else {
+                    Log.d(ACTIONS_SCREEN_TAG, "ActionsScreen: slot voice fallback skipped, auto re-arm disarmed")
+                }
+            },
             onStopVoiceReply = viewModel::stopVoiceCapture,
             externalDraft = slotReplyDraft,
             onExternalDraftConsumed = { slotReplyDraft = null },
@@ -1252,6 +1261,7 @@ internal fun PendingSlotBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
+    onAutoVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
     externalDraft: String? = null,
     onExternalDraftConsumed: () -> Unit = {},
@@ -1273,6 +1283,7 @@ internal fun PendingSlotBottomSheet(
             onDismiss = onDismiss,
             onSubmit = onSubmit,
             onVoiceReply = onVoiceReply,
+            onAutoVoiceReply = onAutoVoiceReply,
             onStopVoiceReply = onStopVoiceReply,
             externalDraft = externalDraft,
             onExternalDraftConsumed = onExternalDraftConsumed,
@@ -1292,6 +1303,8 @@ private fun SlotFillBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
+    /** Safety-net mic start; unlike [onVoiceReply] (a user tap) it must honour the live re-arm state. */
+    onAutoVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
     externalDraft: String? = null,
     onExternalDraftConsumed: () -> Unit = {},
@@ -1343,7 +1356,7 @@ private fun SlotFillBottomSheet(
                     ACTIONS_SCREEN_TAG,
                     "ActionsScreen: TTS never started — forcing slot voice fallback prompt=\"$promptMessage\"",
                 )
-                onVoiceReply()
+                onAutoVoiceReply()
             }
             return@LaunchedEffect
         }
@@ -1359,7 +1372,7 @@ private fun SlotFillBottomSheet(
                 ACTIONS_SCREEN_TAG,
                 "ActionsScreen: slot voice fallback firing (playback safety net) prompt=\"$promptMessage\"",
             )
-            onVoiceReply()
+            onAutoVoiceReply()
         }
     }
 
