@@ -1,9 +1,8 @@
 package com.kernel.ai.feature.chat.setup
+import com.kernel.ai.core.ui.findActivity
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
-import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,10 +32,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -46,6 +45,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
@@ -60,8 +60,13 @@ import com.kernel.ai.core.permissions.exactAlarmSettingsIntents
 import com.kernel.ai.core.permissions.isSilentDenial
 import com.kernel.ai.core.permissions.launchFirstAvailable
 import com.kernel.ai.core.permissions.recordPermissionResult
+import com.kernel.ai.core.ui.findActivity
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
+import com.kernel.ai.feature.chat.R
+import com.kernel.ai.core.voice.HonorCameraCoexistence
+import androidx.compose.ui.res.stringResource
 import com.kernel.ai.core.voice.SherpaPiperVoice
+import com.kernel.ai.core.voice.HeyJandalBlock
 import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -85,6 +90,7 @@ data class MakeYoursActions(
     val onAllowMicrophone: () -> Unit = {},
     val onAllowNotifications: () -> Unit = {},
     val onOpenDefaultAssistant: () -> Unit = {},
+    val onOpenUsageAccess: () -> Unit = {},
     val onOpenExactAlarm: () -> Unit = {},
 )
 
@@ -101,7 +107,6 @@ fun SetupWizardScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     val requestWizardAction = rememberDownloadNotificationGate { id ->
         when (id) {
             FINISH_ID -> viewModel.onContinue(onDone)
@@ -113,13 +118,7 @@ fun SetupWizardScreen(
         }
     }
     // Every return from a system page or prompt re-reads the phone, so each row shows the state just set.
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshPlatform()
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
+    RefreshOnResume(onResume = viewModel::refreshPlatform)
 
     var requestedAt by rememberSaveable { mutableLongStateOf(0L) }
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -143,6 +142,9 @@ fun SetupWizardScreen(
         viewModel.refreshPlatform()
     }
 
+    val assistantMissing = stringResource(R.string.setup_wizard_assistant_page_missing)
+    val usageAccessMissing = stringResource(R.string.setup_wizard_usage_access_page_missing)
+    val exactAlarmMissing = stringResource(R.string.setup_wizard_exact_alarm_page_missing)
     val makeYours = MakeYoursActions(
         onWakeWordChoiceChanged = viewModel::onWakeWordChoiceChanged,
         onAllowMicrophone = {
@@ -166,13 +168,19 @@ fun SetupWizardScreen(
         },
         onOpenDefaultAssistant = {
             val opened = launchFirstAvailable(defaultAssistantSettingsIntents()) { context.startActivity(it) }
-            if (!opened) toast(context, "Couldn't open that page on this phone. In Settings, look for Default apps or Digital assistant app.")
+            if (!opened) toast(context, assistantMissing)
+        },
+        onOpenUsageAccess = {
+            val opened = launchFirstAvailable(listOf(HonorCameraCoexistence.usageAccessSettingsIntent(context))) {
+                context.startActivity(it)
+            }
+            if (!opened) toast(context, usageAccessMissing)
         },
         onOpenExactAlarm = {
             val opened = launchFirstAvailable(exactAlarmSettingsIntents(context.packageName)) {
                 context.startActivity(it)
             }
-            if (!opened) toast(context, "Couldn't open Alarms & reminders on this phone. Search Settings for it.")
+            if (!opened) toast(context, exactAlarmMissing)
         },
     )
 
@@ -196,7 +204,8 @@ fun SetupWizardScreen(
         },
         onBack = { viewModel.onBack(onExit) },
         onSkip = {
-            if (state.notificationsAsked) {
+            // Skipping the last step never shows the notification prompt: that row was not tapped (#1902).
+            if (state.step == SetupStep.MAKE_JANDAL_YOURS || state.notificationsAsked) {
                 viewModel.onSkip { choice ->
                     Toast.makeText(context, skipNote(choice), Toast.LENGTH_LONG).show()
                     onDone()
@@ -223,17 +232,11 @@ private fun openAppInfo(context: Context, permission: String) {
     val opened = launchFirstAvailable(listOf(RuntimePermissionRepair.intentFor(context.packageName, permission))) {
         context.startActivity(it)
     }
-    if (!opened) toast(context, "Couldn't open App info. Open Settings, then Apps, then Jandal AI.")
+    if (!opened) toast(context, context.getString(R.string.setup_wizard_app_info_missing))
 }
 
 private fun toast(context: Context, message: String) {
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-}
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }
 
 /**
@@ -355,7 +358,7 @@ internal fun downloadSizeLine(totalBytes: Long, choiceRecorded: Boolean): String
     totalBytes <= 0L -> "Nothing left to download. Jandal already has every model and voice it needs on this phone."
     choiceRecorded -> "About ${formatBytesShort(totalBytes)} still to download. " +
         "Your network choice applies to downloads in progress."
-    else -> "About ${formatBytesShort(totalBytes)} in total. Nothing downloads until you finish this step."
+    else -> "About ${formatBytesShort(totalBytes)} in total. Nothing downloads until you tap Finish or Skip on the last step."
 }
 
 private fun skipNote(choice: DownloadNetworkChoice): String = when (choice) {
@@ -398,7 +401,7 @@ private fun VoiceStep(
         modifier = Modifier.semantics { heading() },
     )
     Text(
-        text = "Pick both now. Nothing downloads until you finish the next step.",
+        text = "Pick both now. Nothing downloads until you tap Finish or Skip on the last step.",
         style = MaterialTheme.typography.bodyLarge,
     )
     Text(
@@ -529,8 +532,9 @@ private fun DownloadStep(
 @Composable
 private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) {
     val platform = state.platform
+    val wakeBlock = MakeYoursRows.heyJandalBlock(platform)
     val wakeStatus = MakeYoursRows.wakeWord(state.wakeWordStored, platform)
-    val wakeBlock = MakeYoursRows.wakeWordBlockReason(platform)
+    val wakePending = state.wakeWordChoice != state.wakeWordStored
     val assistantStatus = MakeYoursRows.defaultAssistant(platform)
     val notificationStatus = MakeYoursRows.notifications(platform)
     val exactStatus = MakeYoursRows.exactAlarm(platform)
@@ -545,14 +549,27 @@ private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) 
         style = MaterialTheme.typography.bodyLarge,
     )
 
-    val wakePending = state.wakeWordChoice != state.wakeWordStored
-    val wakeAction = when {
-        wakeStatus == MakeYoursStatus.NotAvailable -> null
-        !platform.micGranted -> "Allow microphone" to actions.onAllowMicrophone
-        !platform.assistantRoleHeld -> null
-        state.wakeWordChoice -> "Turn off" to { actions.onWakeWordChoiceChanged(false) }
-        else -> "Turn on" to { actions.onWakeWordChoiceChanged(true) }
+    // The blocker's own fix comes first. "Turn off" is offered whenever the stored choice is On.
+    val wakeActions = buildList<Pair<String, () -> Unit>> {
+        when (wakeBlock) {
+            HeyJandalBlock.MicrophoneNotGranted -> add("Allow microphone" to actions.onAllowMicrophone)
+            HeyJandalBlock.UsageAccessNeeded -> add("Open Usage Access" to actions.onOpenUsageAccess)
+            null -> if (!state.wakeWordChoice) add("Turn on" to { actions.onWakeWordChoiceChanged(true) })
+            HeyJandalBlock.NoMicrophone, HeyJandalBlock.ModelNotInstalled -> Unit
+        }
+        if (state.wakeWordChoice) add("Turn off" to { actions.onWakeWordChoiceChanged(false) })
     }
+    // Reason first, then what Finish will do. Never promise a turn-on that a blocker will stop.
+    val wakeNote = listOfNotNull(
+        MakeYoursRows.wakeWordBlockReason(platform),
+        when {
+            wakeBlock != null && state.wakeWordChoice -> "Stays off until this is fixed."
+            wakePending && state.wakeWordChoice -> "Turns on when you tap Finish."
+            wakePending -> "Turns off when you tap Finish."
+            else -> null
+        },
+    ).joinToString(" ").takeIf { it.isNotEmpty() }
+
     MakeYoursRow(
         id = "hey_jandal",
         title = "Hey Jandal",
@@ -560,31 +577,26 @@ private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) 
             "word, so it uses a little battery. It works most reliably once Jandal is your default assistant, " +
             "which is the next row.",
         status = wakeStatus,
-        note = when {
-            wakePending && state.wakeWordChoice -> "Turns on when you tap Finish."
-            wakePending -> "Turns off when you tap Finish."
-            wakeStatus != MakeYoursStatus.On && wakeStatus != MakeYoursStatus.NotAvailable -> wakeBlock
-            else -> null
-        },
-        action = wakeAction,
+        note = wakeNote,
+        actions = wakeActions,
     )
 
     MakeYoursRow(
         id = "default_assistant",
         title = "Default assistant",
-        reason = "Makes Jandal the app that answers when you hold the home button or say the assistant " +
-            "trigger. Hey Jandal needs this to listen reliably in the background. Pick Jandal AI on the " +
-            "system page, then come back. This row updates by itself.",
+        reason = "Makes Jandal the app that opens when you use your phone's assistant button or gesture. " +
+            "Hey Jandal listens most reliably with this set. Pick Jandal AI on the system page, then come back. " +
+            "This row updates by itself.",
         status = assistantStatus,
         note = if (assistantStatus == MakeYoursStatus.NotAvailable) {
             "This phone has no default assistant setting."
         } else {
             null
         },
-        action = if (assistantStatus == MakeYoursStatus.NotAvailable) {
-            null
+        actions = if (assistantStatus == MakeYoursStatus.NotAvailable) {
+            emptyList()
         } else {
-            "Open default assistant settings" to actions.onOpenDefaultAssistant
+            listOf("Open default assistant settings" to actions.onOpenDefaultAssistant)
         },
     )
 
@@ -598,10 +610,10 @@ private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) 
         } else {
             null
         },
-        action = if (notificationStatus == MakeYoursStatus.Off) {
-            "Allow notifications" to actions.onAllowNotifications
+        actions = if (notificationStatus == MakeYoursStatus.Off) {
+            listOf("Allow notifications" to actions.onAllowNotifications)
         } else {
-            null
+            emptyList()
         },
     )
 
@@ -615,10 +627,10 @@ private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) 
         } else {
             null
         },
-        action = if (exactStatus == MakeYoursStatus.Off) {
-            "Open Alarms & reminders" to actions.onOpenExactAlarm
+        actions = if (exactStatus == MakeYoursStatus.Off) {
+            listOf("Open Alarms & reminders" to actions.onOpenExactAlarm)
         } else {
-            null
+            emptyList()
         },
     )
 }
@@ -630,7 +642,7 @@ private fun MakeYoursRow(
     reason: String,
     status: MakeYoursStatus,
     note: String?,
-    action: Pair<String, () -> Unit>?,
+    actions: List<Pair<String, () -> Unit>>,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
         Text(
@@ -645,7 +657,7 @@ private fun MakeYoursRow(
             modifier = Modifier.testTag("make_yours_status_$id"),
         )
         note?.let { Text(text = it, style = MaterialTheme.typography.bodySmall) }
-        action?.let { (label, onClick) ->
+        actions.forEach { (label, onClick) ->
             Button(
                 onClick = onClick,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
@@ -671,5 +683,19 @@ private fun ChoiceOption(title: String, body: String, selected: Boolean, onSelec
                 Text(text = body, style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+}
+
+/** Calls [onResume] on every ON_RESUME, so the phone is re-read after each system page or prompt. */
+@Composable
+internal fun RefreshOnResume(onResume: () -> Unit) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val latestOnResume by rememberUpdatedState(onResume)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) latestOnResume()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 }

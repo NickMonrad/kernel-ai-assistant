@@ -1,8 +1,7 @@
 package com.kernel.ai.feature.settings
+import com.kernel.ai.core.ui.findActivity
 
-import android.app.Activity
 import android.content.Context
-import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -222,10 +221,4 @@ private fun PermissionRow(
             }
         },
     )
-}
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }

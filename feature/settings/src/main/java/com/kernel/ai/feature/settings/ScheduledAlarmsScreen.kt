@@ -2,9 +2,8 @@ package com.kernel.ai.feature.settings
 
 import android.app.AlarmManager
 
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
+import com.kernel.ai.core.permissions.exactAlarmSettingsIntents
+import com.kernel.ai.core.permissions.launchFirstAvailable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
@@ -296,11 +295,7 @@ fun ScheduledAlarmsScreen(
             dismissButton = if (message.contains("Exact-alarm access is off")) {
                 {
                     TextButton(onClick = {
-                        context.startActivity(
-                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                data = Uri.parse("package:${context.packageName}")
-                            },
-                        )
+                        launchFirstAvailable(exactAlarmSettingsIntents(context.packageName)) { context.startActivity(it) }
                         schedulingWarning = null
                     }) { Text("Alarms & reminders settings") }
                 }

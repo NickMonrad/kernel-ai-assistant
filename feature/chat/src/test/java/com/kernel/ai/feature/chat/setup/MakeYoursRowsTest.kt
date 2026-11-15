@@ -11,6 +11,8 @@ class MakeYoursRowsTest {
     private val ready = MakeYoursPlatform(
         hasMicrophone = true,
         micGranted = true,
+        wakeModelAvailable = true,
+        usageAccessRequired = false,
         assistantRoleAvailable = true,
         assistantRoleHeld = true,
         notificationsGranted = true,
@@ -25,15 +27,27 @@ class MakeYoursRowsTest {
     }
 
     @Test
-    fun `hey Jandal is not available when the phone has no assistant role`() {
-        val noRole = ready.copy(assistantRoleAvailable = false, assistantRoleHeld = false)
-        assertEquals(MakeYoursStatus.NotAvailable, MakeYoursRows.wakeWord(storedEnabled = true, platform = noRole))
+    fun `hey Jandal is not available when the wake word model is not installed`() {
+        val noModel = ready.copy(wakeModelAvailable = false)
+        assertEquals(MakeYoursStatus.NotAvailable, MakeYoursRows.wakeWord(storedEnabled = true, platform = noModel))
     }
 
     @Test
-    fun `hey Jandal shows On or Off from the stored choice`() {
+    fun `hey Jandal is On only when stored on and nothing blocks it`() {
         assertEquals(MakeYoursStatus.On, MakeYoursRows.wakeWord(storedEnabled = true, platform = ready))
         assertEquals(MakeYoursStatus.Off, MakeYoursRows.wakeWord(storedEnabled = false, platform = ready))
+    }
+
+    @Test
+    fun `a stored On reads Off while the microphone is revoked, so the row never claims it is listening`() {
+        val revoked = ready.copy(micGranted = false)
+        assertEquals(MakeYoursStatus.Off, MakeYoursRows.wakeWord(storedEnabled = true, platform = revoked))
+    }
+
+    @Test
+    fun `a stored On reads Off while Honor Usage Access is missing`() {
+        val noUsage = ready.copy(usageAccessRequired = true)
+        assertEquals(MakeYoursStatus.Off, MakeYoursRows.wakeWord(storedEnabled = true, platform = noUsage))
     }
 
     @Test
@@ -65,8 +79,16 @@ class MakeYoursRowsTest {
     fun `wake word block reason names the first missing prerequisite`() {
         assertTrue(MakeYoursRows.wakeWordBlockReason(ready.copy(hasMicrophone = false))!!.contains("no microphone"))
         assertTrue(MakeYoursRows.wakeWordBlockReason(ready.copy(micGranted = false))!!.contains("microphone"))
-        assertTrue(MakeYoursRows.wakeWordBlockReason(ready.copy(assistantRoleHeld = false))!!.contains("default assistant"))
+        assertTrue(MakeYoursRows.wakeWordBlockReason(ready.copy(wakeModelAvailable = false))!!.contains("model"))
+        assertTrue(MakeYoursRows.wakeWordBlockReason(ready.copy(usageAccessRequired = true))!!.contains("Usage Access"))
         assertNull(MakeYoursRows.wakeWordBlockReason(ready))
+    }
+
+    @Test
+    fun `the default assistant never blocks Hey Jandal`() {
+        val noRole = ready.copy(assistantRoleAvailable = false, assistantRoleHeld = false)
+        assertNull(MakeYoursRows.wakeWordBlockReason(noRole))
+        assertEquals(MakeYoursStatus.On, MakeYoursRows.wakeWord(storedEnabled = true, platform = noRole))
     }
 
     @Test

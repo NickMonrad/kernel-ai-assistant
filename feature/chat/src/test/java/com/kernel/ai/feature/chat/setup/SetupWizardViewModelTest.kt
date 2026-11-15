@@ -67,9 +67,11 @@ class SetupWizardViewModelTest {
         coEvery { voiceInputPreferences.hasStoredEngine() } returns false
         coEvery { voiceOutputPreferences.hasStoredEngine() } returns false
         every { wakeWordPreferences.heyJandalEnabled } returns flowOf(false)
+        every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
         every { platformReader.read() } returns MakeYoursPlatform(
             hasMicrophone = true,
             micGranted = true,
+            wakeModelAvailable = true,
             assistantRoleAvailable = true,
             assistantRoleHeld = true,
         )
@@ -579,12 +581,28 @@ class SetupWizardViewModelTest {
     }
 
     @Test
-    fun `finish does not turn Hey Jandal on without the default assistant`() {
+    fun `finish turns Hey Jandal on without the default assistant, which does not block it`() {
         every { platformReader.read() } returns MakeYoursPlatform(
             hasMicrophone = true,
             micGranted = true,
+            wakeModelAvailable = true,
             assistantRoleAvailable = true,
             assistantRoleHeld = false,
+        )
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        vm.onWakeWordChoiceChanged(true)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { wakeWordPreferences.setHeyJandalEnabled(true) }
+    }
+
+    @Test
+    fun `finish does not write a blocked Hey Jandal On and keeps the stored value`() {
+        every { platformReader.read() } returns MakeYoursPlatform(
+            hasMicrophone = true,
+            micGranted = false,
+            wakeModelAvailable = true,
         )
         val vm = viewModel()
         vm.atMakeYoursStep()

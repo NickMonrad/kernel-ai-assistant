@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.voice.AndroidNativeWarning
+import com.kernel.ai.core.voice.HeyJandalGate
 import com.kernel.ai.core.voice.HonorCameraCoexistence
 import com.kernel.ai.core.voice.androidNativeWarning
 import com.kernel.ai.core.voice.VoiceCapabilities
@@ -133,10 +134,7 @@ fun VoiceScreen(
      * on ON_RESUME and on every enable attempt.
      */
     var needsUsageAccess by remember { mutableStateOf(false) }
-    val requiresUsageAccess = {
-        HonorCameraCoexistence.isAffectedDevice(context) &&
-            !HonorCameraCoexistence.hasUsageAccess(context)
-    }
+    val requiresUsageAccess = { HeyJandalGate.usageAccessRequired(context) }
     val enableHeyJandal = {
         needsUsageAccess = requiresUsageAccess()
         if (needsUsageAccess) showUsageAccessDialog = true else viewModel.setHeyJandalEnabled(true)

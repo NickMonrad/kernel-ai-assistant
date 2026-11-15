@@ -2,7 +2,8 @@ package com.kernel.ai.feature.settings
 
 import android.app.AlarmManager
 
-import android.provider.Settings
+import com.kernel.ai.core.permissions.exactAlarmSettingsIntents
+import com.kernel.ai.core.permissions.launchFirstAvailable
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
@@ -512,11 +513,7 @@ fun SidePanelScreen(
             dismissButton = if (message.contains("Exact-alarm access is off")) {
                 {
                     TextButton(onClick = {
-                        context.startActivity(
-                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                data = Uri.parse("package:${context.packageName}")
-                            },
-                        )
+                        launchFirstAvailable(exactAlarmSettingsIntents(context.packageName)) { context.startActivity(it) }
                         schedulingWarning = null
                     }) { Text("Alarms & reminders settings") }
                 }

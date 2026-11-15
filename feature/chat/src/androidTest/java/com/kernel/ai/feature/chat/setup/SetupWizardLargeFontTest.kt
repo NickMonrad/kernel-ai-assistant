@@ -128,14 +128,20 @@ class SetupWizardLargeFontTest {
         assertInside(row.unclippedBounds(), contentBounds())
     }
 
-    private fun setWizard(step: SetupStep, size: DpSize) {
+    @Test
+    fun makeJandalYoursTallestStateButtonsReachableAtLargeFontPortrait() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, PORTRAIT, tallMakeYours = true)
+        assertButtonsReachable(primary = "Finish", size = PORTRAIT, compact = false)
+    }
+
+    private fun setWizard(step: SetupStep, size: DpSize, tallMakeYours: Boolean = false) {
         composeRule.setContent {
             DeviceConfigurationOverride(
                 DeviceConfigurationOverride.ForcedSize(size).then(
                     DeviceConfigurationOverride.FontScale(LARGE_FONT_SCALE),
                 ),
             ) {
-                WizardUnderTest(step)
+                WizardUnderTest(step, tallMakeYours)
             }
         }
     }
@@ -198,7 +204,7 @@ class SetupWizardLargeFontTest {
     }
 
     @Composable
-    private fun WizardUnderTest(step: SetupStep) {
+    private fun WizardUnderTest(step: SetupStep, tallMakeYours: Boolean) {
         layoutDensity = LocalDensity.current.density
         SetupWizardContent(
             state = SetupWizardUiState(
@@ -212,6 +218,8 @@ class SetupWizardLargeFontTest {
                 choiceRecorded = true,
                 plannedModels = emptyList(),
                 plannedVoices = emptyList(),
+                platform = if (tallMakeYours) TALLEST_PLATFORM else MakeYoursPlatform(),
+                wakeWordChoice = tallMakeYours,
             ),
             onInputSelected = {},
             onOutputSelected = {},
@@ -229,5 +237,14 @@ class SetupWizardLargeFontTest {
         const val TOLERANCE_PX = 1f
         val PORTRAIT = DpSize(360.dp, 640.dp)
         val LANDSCAPE = DpSize(915.dp, 412.dp)
+        /** Microphone blocked, so Hey Jandal shows its fix plus Turn off, and every other row has its action. */
+        val TALLEST_PLATFORM = MakeYoursPlatform(
+            hasMicrophone = true,
+            micGranted = false,
+            wakeModelAvailable = true,
+            assistantRoleAvailable = true,
+            notificationsGranted = false,
+            exactAlarmAllowed = false,
+        )
     }
 }

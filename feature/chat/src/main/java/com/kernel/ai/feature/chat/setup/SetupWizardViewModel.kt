@@ -20,6 +20,7 @@ import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.WakeWordPreferences
+import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -249,6 +250,8 @@ class SetupWizardViewModel @Inject constructor(
      */
     fun onContinue(onDone: () -> Unit) {
         val state = _uiState.value
+        // Saved on every Continue so the choice shown on the download step survives process death.
+        savedStateHandle[KEY_SELECTED_CHOICE] = state.choice.name
         val next = SetupWizardFlow.next(state.step)
         if (next != null) {
             _uiState.value = state.copy(step = next)
@@ -342,15 +345,17 @@ class SetupWizardViewModel @Inject constructor(
     }
 
     /**
-     * Writes the Hey Jandal choice only when the user changed it in this run. Turning it on also needs the
-     * microphone and default assistant (see [MakeYoursRows.wakeWordBlockReason]); if those are missing the
-     * stored value stands. Turning it off is always allowed.
+     * Writes the Hey Jandal choice only when the user changed it in this run and the effective value differs from
+     * the stored one. Turning it on needs the same gate Settings uses ([MakeYoursRows.heyJandalBlock]); a blocked
+     * On is not written, so the stored value stands. Turning it off is always allowed.
      */
     private suspend fun applyWakeWordChoice(state: SetupWizardUiState) {
         if (!touched(KEY_SELECTED_WAKE_WORD)) return
-        if (state.wakeWordChoice == state.wakeWordStored) return
-        if (state.wakeWordChoice && MakeYoursRows.wakeWordBlockReason(state.platform) != null) return
-        wakeWordPreferences.setHeyJandalEnabled(state.wakeWordChoice)
+        // Off is always written. On is written only when the gate passes, so a blocked choice keeps the stored value.
+        val effective = state.wakeWordChoice && MakeYoursRows.heyJandalBlock(state.platform) == null
+        if (effective == state.wakeWordStored) return
+        if (effective) queueHeyJandalSttModel(voiceInputPreferences, downloadManager)
+        wakeWordPreferences.setHeyJandalEnabled(effective)
     }
 
     companion object {
