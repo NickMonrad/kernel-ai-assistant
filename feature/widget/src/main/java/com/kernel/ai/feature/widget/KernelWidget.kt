@@ -8,13 +8,13 @@ import com.kernel.ai.core.ui.theme.FernGreen
 import com.kernel.ai.core.ui.theme.FernGreenLight
 import com.kernel.ai.core.ui.theme.SandLight
 import androidx.compose.ui.unit.dp
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
-import com.kernel.ai.feature.widget.R
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
-import androidx.glance.ColorFilter
+import androidx.glance.LocalContext
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -101,7 +101,7 @@ private fun KernelWidgetContent(packageName: String) {
             ) {
                 Image(
                     provider = ImageProvider(R.drawable.ic_widget_mic),
-                    contentDescription = "Voice input",
+                    contentDescription = LocalContext.current.getString(R.string.widget_mic_content_description),
                     colorFilter = ColorFilter.tint(
                         DayNightColorProvider(
                             day = Color.White,
