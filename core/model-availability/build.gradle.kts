@@ -52,8 +52,6 @@ dependencies {
 
     debugImplementation(libs.compose.ui.tooling)
 
-    compileOnly(libs.compose.ui.test.manifest)
-
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
