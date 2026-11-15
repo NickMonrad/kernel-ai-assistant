@@ -14,6 +14,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private const val TAG = "VoiceInputPrefs"
@@ -40,6 +41,10 @@ class VoiceInputPreferences @Inject constructor(
             }
         }
         .map { prefs -> VoiceInputEngine.fromStorage(prefs[selectedEngineKey]) }
+
+    /** True once an input engine has been stored, by the user or an earlier build (#1855 part 2). */
+    suspend fun hasStoredEngine(): Boolean =
+        context.voiceInputPrefsDataStore.data.first()[selectedEngineKey] != null
 
     val autoStartAlertVoiceCommandsEnabled: Flow<Boolean> = context.voiceInputPrefsDataStore.data
         .catch { e ->
