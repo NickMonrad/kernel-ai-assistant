@@ -13,6 +13,8 @@ import com.kernel.ai.core.voice.HeyJandalGate
 import com.kernel.ai.core.voice.WakeWordDetector
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Live state shown on each "Make Jandal yours" row (#1855 part 3). */
 enum class MakeYoursStatus { On, Off, NotAvailable }
@@ -35,7 +37,7 @@ data class MakeYoursPlatform(
 /** Pure mapping from platform and stored state to row statuses. No Android calls, so it is unit-tested. */
 internal object MakeYoursRows {
 
-    /** First prerequisite Hey Jandal is missing, from the same gate Settings uses. Null when it can run. */
+    /** First prerequisite Hey Jandal is missing, from [HeyJandalGate.block]. Null when the wizard can turn it on. */
     fun heyJandalBlock(platform: MakeYoursPlatform): HeyJandalBlock? = HeyJandalGate.block(
         hasMicrophone = platform.hasMicrophone,
         micGranted = platform.micGranted,
@@ -96,9 +98,10 @@ open class MakeYoursPlatformReader @Inject constructor(
     @ApplicationContext private val context: Context,
     private val wakeWordDetector: WakeWordDetector,
 ) {
-    open fun read(): MakeYoursPlatform {
+    /** Reads on [Dispatchers.IO]: the wake-word check and permission queries are not main-thread work. */
+    open suspend fun read(): MakeYoursPlatform = withContext(Dispatchers.IO) {
         val roleManager = context.getSystemService(RoleManager::class.java)
-        return MakeYoursPlatform(
+        MakeYoursPlatform(
             hasMicrophone = context.packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE),
             micGranted = MicrophonePermissionReadiness.evaluate(context) == MicrophoneReadiness.Granted,
             wakeModelAvailable = wakeWordDetector.isAvailable,

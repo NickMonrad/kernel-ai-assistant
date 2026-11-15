@@ -229,7 +229,10 @@ class SetupWizardViewModel @Inject constructor(
 
     /** Re-reads the phone's state for the Make Jandal yours rows. Reads only; never writes or requests. */
     fun refreshPlatform() {
-        _uiState.value = _uiState.value.copy(platform = platformReader.read())
+        viewModelScope.launch {
+            val platform = platformReader.read()
+            _uiState.value = _uiState.value.copy(platform = platform)
+        }
     }
 
     /** Hey Jandal choice on its row. Written only by Finish (see [applyWakeWordChoice]). */
@@ -345,17 +348,19 @@ class SetupWizardViewModel @Inject constructor(
     }
 
     /**
-     * Writes the Hey Jandal choice only when the user changed it in this run and the effective value differs from
-     * the stored one. Turning it on needs the same gate Settings uses ([MakeYoursRows.heyJandalBlock]); a blocked
-     * On is not written, so the stored value stands. Turning it off is always allowed.
+     * Applies the Hey Jandal choice from its row, only when the user changed it in this run. Off is written when
+     * Hey Jandal was stored On. On is written only when the wizard gate ([MakeYoursRows.heyJandalBlock]) passes; a
+     * blocked On writes nothing, so a stored value stands. The wake-word model is queued before On is saved.
      */
     private suspend fun applyWakeWordChoice(state: SetupWizardUiState) {
         if (!touched(KEY_SELECTED_WAKE_WORD)) return
-        // Off is always written. On is written only when the gate passes, so a blocked choice keeps the stored value.
-        val effective = state.wakeWordChoice && MakeYoursRows.heyJandalBlock(state.platform) == null
-        if (effective == state.wakeWordStored) return
-        if (effective) queueHeyJandalSttModel(voiceInputPreferences, downloadManager)
-        wakeWordPreferences.setHeyJandalEnabled(effective)
+        if (!state.wakeWordChoice) {
+            if (state.wakeWordStored) wakeWordPreferences.setHeyJandalEnabled(false)
+            return
+        }
+        if (state.wakeWordStored || MakeYoursRows.heyJandalBlock(state.platform) != null) return
+        queueHeyJandalSttModel(voiceInputPreferences, downloadManager)
+        wakeWordPreferences.setHeyJandalEnabled(true)
     }
 
     companion object {

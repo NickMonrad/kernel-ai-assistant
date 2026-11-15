@@ -131,7 +131,17 @@ class SetupWizardLargeFontTest {
     @Test
     fun makeJandalYoursTallestStateButtonsReachableAtLargeFontPortrait() {
         setWizard(SetupStep.MAKE_JANDAL_YOURS, PORTRAIT, tallMakeYours = true)
+        composeRule.onNodeWithTag(SETUP_WIZARD_CONTENT_TAG)
+            .performScrollToNode(hasText("Alarms and timers"))
         assertButtonsReachable(primary = "Finish", size = PORTRAIT, compact = false)
+    }
+
+    @Test
+    fun makeJandalYoursTallestStateButtonsReachableAtLargeFontLandscape() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, LANDSCAPE, tallMakeYours = true)
+        composeRule.onNodeWithTag(SETUP_WIZARD_CONTENT_TAG)
+            .performScrollToNode(hasText("Alarms and timers"))
+        assertButtonsReachable(primary = "Finish", size = LANDSCAPE, compact = true)
     }
 
     private fun setWizard(step: SetupStep, size: DpSize, tallMakeYours: Boolean = false) {
@@ -237,11 +247,12 @@ class SetupWizardLargeFontTest {
         const val TOLERANCE_PX = 1f
         val PORTRAIT = DpSize(360.dp, 640.dp)
         val LANDSCAPE = DpSize(915.dp, 412.dp)
-        /** Microphone blocked, so Hey Jandal shows its fix plus Turn off, and every other row has its action. */
+        /** Usage Access is the longest block text, and Hey Jandal is on, so Open Usage Access and Turn off both show. */
         val TALLEST_PLATFORM = MakeYoursPlatform(
             hasMicrophone = true,
-            micGranted = false,
+            micGranted = true,
             wakeModelAvailable = true,
+            usageAccessRequired = true,
             assistantRoleAvailable = true,
             notificationsGranted = false,
             exactAlarmAllowed = false,

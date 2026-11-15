@@ -68,7 +68,7 @@ class SetupWizardViewModelTest {
         coEvery { voiceOutputPreferences.hasStoredEngine() } returns false
         every { wakeWordPreferences.heyJandalEnabled } returns flowOf(false)
         every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
-        every { platformReader.read() } returns MakeYoursPlatform(
+        coEvery { platformReader.read() } returns MakeYoursPlatform(
             hasMicrophone = true,
             micGranted = true,
             wakeModelAvailable = true,
@@ -582,7 +582,7 @@ class SetupWizardViewModelTest {
 
     @Test
     fun `finish turns Hey Jandal on without the default assistant, which does not block it`() {
-        every { platformReader.read() } returns MakeYoursPlatform(
+        coEvery { platformReader.read() } returns MakeYoursPlatform(
             hasMicrophone = true,
             micGranted = true,
             wakeModelAvailable = true,
@@ -599,7 +599,37 @@ class SetupWizardViewModelTest {
 
     @Test
     fun `finish does not write a blocked Hey Jandal On and keeps the stored value`() {
-        every { platformReader.read() } returns MakeYoursPlatform(
+        coEvery { platformReader.read() } returns MakeYoursPlatform(
+            hasMicrophone = true,
+            micGranted = false,
+            wakeModelAvailable = true,
+        )
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        vm.onWakeWordChoiceChanged(true)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { wakeWordPreferences.setHeyJandalEnabled(any()) }
+    }
+
+    @Test
+    fun `finish with Hey Jandal on queues its wake model after the network choice is saved`() {
+        val vm = viewModel()
+        vm.atMakeYoursStep()
+        vm.onWakeWordChoiceChanged(true)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerifyOrder {
+            downloadNetworkPreferences.setChoice(any())
+            downloadManager.startDownload(any())
+        }
+        coVerify(exactly = 1) { wakeWordPreferences.setHeyJandalEnabled(true) }
+    }
+
+    @Test
+    fun `finish keeps a stored Hey Jandal On when a new On is blocked`() {
+        every { wakeWordPreferences.heyJandalEnabled } returns flowOf(true)
+        coEvery { platformReader.read() } returns MakeYoursPlatform(
             hasMicrophone = true,
             micGranted = false,
             wakeModelAvailable = true,
@@ -631,8 +661,9 @@ class SetupWizardViewModelTest {
     fun `refreshing the phone state reads it and writes nothing`() {
         val vm = viewModel()
         vm.atMakeYoursStep()
-        every { platformReader.read() } returns MakeYoursPlatform(notificationsGranted = true)
+        coEvery { platformReader.read() } returns MakeYoursPlatform(notificationsGranted = true)
         vm.refreshPlatform()
+        dispatcher.scheduler.advanceUntilIdle()
         assertTrue(vm.uiState.value.platform.notificationsGranted)
         coVerify(exactly = 0) { wakeWordPreferences.setHeyJandalEnabled(any()) }
     }

@@ -575,7 +575,13 @@ private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) 
         title = "Hey Jandal",
         reason = "Say \"Hey Jandal\" and Jandal starts listening, hands-free. The mic stays on for the wake " +
             "word, so it uses a little battery. It works most reliably once Jandal is your default assistant, " +
-            "which is the next row.",
+            "which is the next row." +
+            if (state.inputEngine == VoiceInputEngine.AndroidNative) {
+                " Hey Jandal also needs the Zipformer speech model, about 72 MB, even though Android's listener " +
+                    "is your speech input."
+            } else {
+                ""
+            },
         status = wakeStatus,
         note = wakeNote,
         actions = wakeActions,

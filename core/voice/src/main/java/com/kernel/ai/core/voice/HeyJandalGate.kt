@@ -5,7 +5,11 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import kotlinx.coroutines.flow.first
 
-/** Why Hey Jandal cannot listen on this phone right now. Shared by Settings and the setup wizard. */
+/**
+ * Why Hey Jandal cannot listen on this phone right now. The setup wizard's Make Jandal yours row uses all four
+ * checks. Settings uses the microphone and Usage Access checks only: it enables Hey Jandal first and queues the
+ * wake-word model afterwards ([queueHeyJandalSttModel]), so requiring the model there would block the download.
+ */
 enum class HeyJandalBlock { NoMicrophone, MicrophoneNotGranted, ModelNotInstalled, UsageAccessNeeded }
 
 object HeyJandalGate {
