@@ -5,8 +5,8 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.PowerManager
- import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
