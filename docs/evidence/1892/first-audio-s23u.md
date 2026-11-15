@@ -105,3 +105,26 @@ Speech now starts only after generation completes, from the final reply text, sp
 The finalize-path numbers in "Finalize-path result" are the current evidence: median 3.8 s from generation complete to speech on the branch (range 3.4–4.7 s) vs 15.7 s on main (range 12.7–17.3 s), S23U, router-classified prompt.
 
 Tradeoff: a native tool turn speaks the tool result text (`toolCall.resultText`), not the model's wording after the call. Live speech during generation is tracked as #1923 (build 7).
+
+## Round 6: plain-chat finalize timing (009c88d1)
+
+S23U (`RFCW11265XH`), kiwi prompt (non-router, plain chat), `lastToken epochMs` (generation end) to `SpeakingStarted epochMs`. One warm-up and 3 measured runs per build, alternating installs. Script: `measure-first-audio.sh` (this directory). Device awake and unlocked; no sleep or power keys.
+
+| Build | Run | lastToken→SpeakingStarted (ms) |
+|---|---|---|
+| MAIN (timing-instrumented main, `/tmp/apk-main-timing.apk`) | warm-up | 7313 |
+| MAIN | 1 | 3016 |
+| MAIN | 2 | 8368 |
+| MAIN | 3 | 8798 |
+| HEAD (009c88d1) | warm-up | 4371 |
+| HEAD | 1 | 3441 |
+| HEAD | 2 | 5627 |
+| HEAD | 3 | 8503 |
+
+Measured medians (n=3): MAIN 8368 ms (range 3016–8798); HEAD 5627 ms (range 3441–8503). The ranges overlap, so this is directional only. HEAD was not slower in this session. An earlier HEAD-only session on the same build gave 4276, 6024, 4010, 3440 ms.
+
+Caveats:
+- The MAIN build is the timing-instrumented main from before round 5 (`/tmp/apk-main-timing.apk`). Its base commit was not re-verified against current origin/main (`7d36a777`). The plain `apk-main-6e0c34cd.apk` has no `lastToken` log, so it cannot be measured on this anchor.
+- Intent delivery warned "Activity not started, delivered to running instance" on each run. A SpeakingStarted was logged on every run, so speech ran in each case.
+- The `Finalize-path result` section above (3.8 s vs 15.7 s) is from an earlier HEAD build and is not re-measured here.
+- The round 5 native-tool tradeoff (speaks the tool result, not the answer) is superseded: native tool turns now speak the model's answer after the terminal tool call, as the bubble shows. Tool chips and evidence are never spoken; the spoken summary is the fallback when that text is blank.

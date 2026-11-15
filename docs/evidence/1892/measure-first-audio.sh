@@ -1,16 +1,18 @@
 #!/bin/bash
-# usage: measure-first-audio.sh   (writes results to /tmp/s23u-results-1892.txt)
+# usage: [ONLY=MAIN|HEAD] [OUT=path] [MAIN_APK=path] [HEAD_APK=path] measure-first-audio.sh
 # Alternates MAIN and HEAD debug APKs on the S23U (RFCW11265XH): 3 install cycles per build,
 # one unrecorded warm-up run per build, then 3 measured kiwi (non-router) prompt runs per build.
 # Metric: lastToken epochMs (generation end, VoiceTiming) -> SpeakingStarted epochMs (KernelAI).
+# MAIN must be a build that logs "lastToken epochMs" (timing-instrumented main).
 # Debug build only (ai.jandal.assistant.debug). The harness token is read on-device via run-as and never leaves the phone.
 # Device must be awake and unlocked with the screen kept on. This script sends no sleep/power keys and changes no svc power.
 set -u
 S=RFCW11265XH
 PKG=ai.jandal.assistant.debug
-MAIN_APK=${MAIN_APK:-/tmp/apk-main-6e0c34cd.apk}
+MAIN_APK=${MAIN_APK:-/tmp/apk-main-timing.apk}
 HEAD_APK=${HEAD_APK:-/tmp/apk-round6-head.apk}
-OUT=/tmp/s23u-results-1892.txt
+OUT=${OUT:-/tmp/s23u-results-1892.txt}
+ONLY=${ONLY:-}
 LOCK=/tmp/jandal-s23u.lock
 Q="Tell me three short facts about kiwi birds, one sentence each."
 
@@ -44,11 +46,15 @@ prep() {  # $1 label  $2 apk  $3 cycle  (install, then idle 60 s with the app fo
 
 adb -s $S shell "run-as $PKG sh -c 'cat /proc/sys/kernel/random/uuid | tr -d - > files/adb_harness_token'"
 for c in 1 2 3; do
-  prep MAIN "$MAIN_APK" $c
-  if [ $c -eq 1 ]; then run "MAIN warmup"; sleep 20; fi
-  run "MAIN cycle$c"; sleep 20
-  prep HEAD "$HEAD_APK" $c
-  if [ $c -eq 1 ]; then run "HEAD warmup"; sleep 20; fi
-  run "HEAD cycle$c"; sleep 20
+  if [ -z "$ONLY" ] || [ "$ONLY" = MAIN ]; then
+    prep MAIN "$MAIN_APK" $c
+    if [ $c -eq 1 ]; then run "MAIN warmup"; sleep 20; fi
+    run "MAIN cycle$c"; sleep 20
+  fi
+  if [ -z "$ONLY" ] || [ "$ONLY" = HEAD ]; then
+    prep HEAD "$HEAD_APK" $c
+    if [ $c -eq 1 ]; then run "HEAD warmup"; sleep 20; fi
+    run "HEAD cycle$c"; sleep 20
+  fi
 done
 echo DONE >> "$OUT"
