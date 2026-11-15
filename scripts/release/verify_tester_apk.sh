@@ -47,7 +47,7 @@ play_code=$(tr -d '[:space:]' < "$CODES")
 # imported with a certificate chain makes keytool also list the issuer, which must not match.
 echo "Build tools: $BUILD_TOOLS_DIR"
 apk_certs=$("$BUILD_TOOLS_DIR/apksigner" verify --print-certs "$APK" \
-  | sed -nE 's/^(.* )?Signer[^:]*:? certificate SHA-256 digest: *//p' | tr -d ':[:blank:]' | tr 'A-F' 'a-f' | sort -u)
+  | sed -nE 's/^(V[0-9.]+ )?Signer[^:]*:?( \([^)]*\))? certificate SHA-256 digest: *//p' | tr -d ':[:blank:]' | tr 'A-F' 'a-f' | sort -u)
 keytool_out=$(keytool -printcert -jarfile "$AAB")
 aab_signers=$(grep -c '^Signer #' <<<"$keytool_out" || true)
 aab_leaf_certs=$(awk '
