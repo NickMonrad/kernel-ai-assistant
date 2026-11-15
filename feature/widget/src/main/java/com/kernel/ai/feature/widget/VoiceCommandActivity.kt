@@ -44,6 +44,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.collectAsState
+import android.view.HapticFeedbackConstants
+import com.kernel.ai.core.voice.MicHintPolicy
+import com.kernel.ai.core.voice.VoiceInputPreferences
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
@@ -97,6 +104,7 @@ class VoiceCommandActivity : ComponentActivity() {
 
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var navigator: WidgetNavigator
+    @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
 
     /** Cancellable job for the 400 ms prefilled-transcript navigation delay. */
     private var prefilledNavJob: Job? = null
@@ -248,6 +256,8 @@ class VoiceCommandActivity : ComponentActivity() {
 
         var dismissEnabled by mutableStateOf(false)
         var partialText by mutableStateOf("")
+        var phase by mutableStateOf(VoiceCommandPhase.Starting)
+        var hintVisible by mutableStateOf(false)
 
         setContent {
             KernelAITheme {
@@ -258,6 +268,7 @@ class VoiceCommandActivity : ComponentActivity() {
                     delay(800)
                     dismissEnabled = true
                 }
+                val inputLevel by voiceInputController.inputLevel.collectAsState()
 
                 Box(
                     modifier = Modifier
@@ -280,10 +291,8 @@ class VoiceCommandActivity : ComponentActivity() {
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                         tonalElevation = 8.dp,
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        ) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
                             val pulse by infiniteTransition.animateFloat(
                                 initialValue = 1f,
@@ -294,17 +303,41 @@ class VoiceCommandActivity : ComponentActivity() {
                                 ),
                                 label = "mic_scale",
                             )
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Listening",
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .scale(pulse),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
+                            val ringColor = MaterialTheme.colorScheme.primary
+                            Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                                // #1850: accent ring driven by the live capture level.
+                                Canvas(modifier = Modifier.matchParentSize()) {
+                                    drawCircle(
+                                        color = ringColor.copy(alpha = 0.35f),
+                                        radius = size.minDimension / 2f * (0.6f + 0.4f * inputLevel),
+                                    )
+                                }
+                                if (phase == VoiceCommandPhase.Starting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp,
+                                        color = ringColor,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = "Listening",
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .scale(if (phase == VoiceCommandPhase.Listening) pulse else 1f),
+                                        tint = ringColor,
+                                    )
+                                }
+                            }
                             Spacer(Modifier.width(12.dp))
                             Text(
-                                text = partialText.ifEmpty { "Listening…" },
+                                text = partialText.ifEmpty {
+                                    when (phase) {
+                                        VoiceCommandPhase.Starting -> "Starting…"
+                                        VoiceCommandPhase.Listening -> "Listening…"
+                                        VoiceCommandPhase.Processing -> "Processing…"
+                                    }
+                                },
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f),
@@ -317,11 +350,23 @@ class VoiceCommandActivity : ComponentActivity() {
                                 )
                             }
                         }
+                        if (hintVisible) {
+                            Text(
+                                text = "Your words are being captured.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        }
                     }
                 }
             }
         }
 
+        lifecycleScope.launch {
+            // #1850: shared first-use counter with chat; the hint stops after MicHintPolicy.MAX_HINT_USES taps.
+            hintVisible = MicHintPolicy.shouldShowHint(voiceInputPreferences.recordMicUseStarted())
+        }
         var retryAttempted = false
         var captureSessionId: Long? = null
         var noticeJob: Job? = null
@@ -375,6 +420,12 @@ class VoiceCommandActivity : ComponentActivity() {
                                 finish()
                             }
                         }
+                        is VoiceInputEvent.ListeningStarted -> {
+                            phase = phaseAfter(phase, event)
+                            // #1850: haptic once per recognizer Listening event, not on recomposition.
+                            window.decorView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                        }
+                        is VoiceInputEvent.SpeechEnded -> phase = phaseAfter(phase, event)
                         is VoiceInputEvent.Error -> {
                             Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
                             if (mayRetry()) {
