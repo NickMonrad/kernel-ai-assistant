@@ -2,9 +2,11 @@ package com.kernel.ai.core.voice
 
 import android.content.Context
 import android.media.AudioManager
+import android.media.AudioRecord
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +16,9 @@ import io.mockk.Called
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -21,6 +26,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -297,6 +303,58 @@ class SherpaOnnxVoiceInputControllerTest {
         assertInstanceOf(VoiceInputStartResult.Started::class.java, result)
         verify(exactly = 0) { audioManager.requestAudioFocus(any(), any(), any()) }
         assertNull(privateField("currentCapture"))
+    }
+
+    @Test
+    fun `stop during model load after the mic opens releases the mic and focus`() = runTest {
+        createAllStubModelFiles()
+        val recorder = micRecorder()
+        controller.audioRecordForTest = { recorder }
+        val events = mutableListOf<String>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.events.collect { events.add(it.javaClass.simpleName) }
+        }
+        val loading = holdRecognizerLoad()
+        val start = async { controller.startListening(VoiceCaptureMode.Command) }
+        awaitCaptureOpen()
+        assertNotNull(privateField("currentCapture"))
+
+        controller.stopListening()
+        loading.finish()
+
+        assertInstanceOf(VoiceInputStartResult.Started::class.java, start.await())
+        (privateField("lastReaderJob") as Job).join()
+        verify(exactly = 1) { recorder.release() }
+        verify(exactly = 1) { audioManager.abandonAudioFocus(null) }
+        assertEquals(listOf("ListeningStarted", "ListeningStopped"), events)
+        assertNull(privateField("currentCapture"))
+    }
+
+    @Test
+    fun `a second start releases the previous capture before opening the microphone`() = runTest {
+        createAllStubModelFiles()
+        setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))
+        setPrivateField("recognizer", Any())
+        val first = micRecorder()
+        val second = micRecorder()
+        val recorders = ArrayDeque(listOf(first, second))
+        controller.audioRecordForTest = { recorders.removeFirst() }
+
+        assertInstanceOf(VoiceInputStartResult.Started::class.java, controller.startListening(VoiceCaptureMode.Command))
+        assertInstanceOf(VoiceInputStartResult.Started::class.java, controller.startListening(VoiceCaptureMode.Command))
+
+        verify(exactly = 1) { first.release() }
+        verify(exactly = 2) { audioManager.requestAudioFocus(any(), any(), any()) }
+        assertTrue(recorders.isEmpty())
+    }
+
+    private fun micRecorder(): AudioRecord = mockk(relaxed = true) {
+        every { read(any<ShortArray>(), any(), any()) } answers { Thread.sleep(1); 0 }
+    }
+
+    /** The start runs on a real dispatcher; poll (bounded) until its microphone capture opens. */
+    private suspend fun awaitCaptureOpen() = withContext(Dispatchers.IO) {
+        withTimeout(5_000) { while (privateField("currentCapture") == null) delay(5) }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

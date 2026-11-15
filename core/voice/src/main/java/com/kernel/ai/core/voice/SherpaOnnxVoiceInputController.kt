@@ -375,6 +375,9 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     /** Test seam: runs after the model check and before the stop check that guards the mic open. */
     internal var beforeMicOpenForTest: (() -> Unit)? = null
 
+    /** Test seam: supplies the microphone recorder in place of the platform [AudioRecord]. */
+    internal var audioRecordForTest: (() -> AudioRecord?)? = null
+
     /**
      * #1850: loads the selected Sherpa recognizer before the first tap. Holds no mic; does nothing
      * when a non-Sherpa engine (Android native) is selected, so no Sherpa model is loaded for it.
@@ -425,7 +428,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     @SuppressLint("MissingPermission")
     private fun openPreRollCapture(): PreRollAudioBuffer? {
         requestAudioFocus()
-        val ar = createAudioRecord() ?: run {
+        val ar = (audioRecordForTest?.invoke() ?: createAudioRecord()) ?: run {
             JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
             releaseAudioFocus()
             return null

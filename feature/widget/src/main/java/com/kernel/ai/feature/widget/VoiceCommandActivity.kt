@@ -277,6 +277,7 @@ class VoiceCommandActivity : ComponentActivity() {
         var partialText by mutableStateOf("")
         var phase by mutableStateOf(VoiceCommandPhase.Starting)
         var hintVisible by mutableStateOf(false)
+        var failed by mutableStateOf(false)
 
         setContent {
             KernelAITheme {
@@ -333,7 +334,7 @@ class VoiceCommandActivity : ComponentActivity() {
                                             )
                                         }
                                     }
-                                    if (phase == VoiceCommandPhase.Starting) {
+                                    if (phase == VoiceCommandPhase.Starting && !failed) {
                                         CircularProgressIndicator(
                                             modifier = Modifier.size(24.dp),
                                             strokeWidth = 2.dp,
@@ -395,6 +396,7 @@ class VoiceCommandActivity : ComponentActivity() {
             suspend fun showUnavailableAndFinish(message: String) {
                 val errorText = message.ifBlank { "Voice commands are unavailable right now." }
                 Log.w(TAG, "VoiceCommandActivity: voice unavailable — $errorText")
+                failed = true
                 partialText = errorText
                 delay(2_000)
                 if (!isFinishing) finish()
