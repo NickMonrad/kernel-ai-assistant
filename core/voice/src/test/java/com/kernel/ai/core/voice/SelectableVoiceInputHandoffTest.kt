@@ -61,7 +61,7 @@ class SelectableVoiceInputHandoffTest {
         every { sherpa.stopListening() } just runs
         coEvery { sherpa.isSpecAvailable(any()) } returns true
         coEvery { native.startListening(any(), any()) } returns VoiceInputStartResult.Started(1L)
-        coEvery { sherpa.startListening(any()) } returns VoiceInputStartResult.Started(2L)
+        coEvery { sherpa.startListening(any(), any()) } returns VoiceInputStartResult.Started(2L)
     }
 
     @AfterEach
@@ -90,7 +90,7 @@ class SelectableVoiceInputHandoffTest {
 
     /** Zipformer start that emits readiness while starting, as the real controller does. */
     private fun zipformerStartsAs(id: Long) {
-        coEvery { sherpa.startListening(any()) } coAnswers {
+        coEvery { sherpa.startListening(any(), any()) } coAnswers {
             sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, id))
             VoiceInputStartResult.Started(id)
         }
@@ -99,7 +99,7 @@ class SelectableVoiceInputHandoffTest {
     /** Zipformer start that never finishes loading; records whether it was cancelled. */
     private fun zipformerLoadHangs(): CompletableDeferred<Boolean> {
         val cancelled = CompletableDeferred<Boolean>()
-        coEvery { sherpa.startListening(any()) } coAnswers {
+        coEvery { sherpa.startListening(any(), any()) } coAnswers {
             try {
                 awaitCancellation()
             } catch (e: CancellationException) {
@@ -169,12 +169,12 @@ class SelectableVoiceInputHandoffTest {
         advanceUntilIdle()
 
         assertTrue(seen.contains(stalled(1L)))
-        coVerify(exactly = 0) { sherpa.startListening(any()) }
+        coVerify(exactly = 0) { sherpa.startListening(any(), any()) }
     }
 
     @Test
     fun `failed hand-off surfaces the native error and stop, and leaves native active`() = runTest(dispatcher) {
-        coEvery { sherpa.startListening(any()) } returns VoiceInputStartResult.Unavailable("no model")
+        coEvery { sherpa.startListening(any(), any()) } returns VoiceInputStartResult.Unavailable("no model")
         val c = controller()
         val seen = eventsOf(c)
         val notices = noticesOf(c)
@@ -213,7 +213,7 @@ class SelectableVoiceInputHandoffTest {
         advanceUntilIdle()
 
         assertEquals(listOf(stalled(1L)), seen)
-        coVerify(exactly = 0) { sherpa.startListening(any()) }
+        coVerify(exactly = 0) { sherpa.startListening(any(), any()) }
     }
 
     @Test
@@ -228,7 +228,7 @@ class SelectableVoiceInputHandoffTest {
         c.stopListening()
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { sherpa.startListening(any()) }
+        coVerify(exactly = 0) { sherpa.startListening(any(), any()) }
         assertTrue(seen.none { it is VoiceInputEvent.Error })
         assertTrue(notices.isEmpty())
     }
@@ -260,7 +260,7 @@ class SelectableVoiceInputHandoffTest {
     fun `stop after zipformer started but before the hand-off commits stops zipformer`() = runTest(dispatcher) {
         val c = controller()
         val notices = noticesOf(c)
-        coEvery { sherpa.startListening(any()) } coAnswers {
+        coEvery { sherpa.startListening(any(), any()) } coAnswers {
             c.stopListening() // lands after Zipformer opened the microphone
             VoiceInputStartResult.Started(2L)
         }
@@ -305,7 +305,7 @@ class SelectableVoiceInputHandoffTest {
         advanceUntilIdle()
 
         assertEquals(listOf(stalled(1L)), seen)
-        coVerify(exactly = 0) { sherpa.startListening(any()) }
+        coVerify(exactly = 0) { sherpa.startListening(any(), any()) }
         verify(exactly = 0) { native.stopListening() }
     }
 

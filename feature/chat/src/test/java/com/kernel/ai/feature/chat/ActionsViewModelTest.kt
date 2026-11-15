@@ -52,6 +52,7 @@ class ActionsViewModelTest {
     private val voiceOutputController: VoiceOutputController = mockk()
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
     private val insertedActions = mutableListOf<QuickActionEntity>()
     private val spokenResponsesEnabled = MutableStateFlow(false)
 
@@ -68,6 +69,7 @@ class ActionsViewModelTest {
         coEvery { quickActionDao.insert(capture(insertedActions)) } just Runs
         every { voiceInputController.events } returns emptyFlow()
         every { voiceInputController.stopListening() } just Runs
+        coEvery { voiceInputController.prewarm() } just Runs
         every { voiceOutputController.events } returns emptyFlow()
         every { voiceOutputController.stop() } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
@@ -86,6 +88,7 @@ class ActionsViewModelTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
     }
 
