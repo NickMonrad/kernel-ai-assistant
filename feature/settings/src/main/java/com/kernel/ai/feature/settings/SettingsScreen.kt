@@ -103,7 +103,6 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            // ── Models ────────────────────────────────────────────────────────
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -113,6 +112,7 @@ fun SettingsScreen(
                 leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
             )
             HorizontalDivider()
+            // ── Models ────────────────────────────────────────────────────────
             Text(
                 text = "Models",
                 style = MaterialTheme.typography.labelMedium,

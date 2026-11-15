@@ -337,7 +337,7 @@ private fun ModelRoleRowItem(
                     )
                     if (waitingForWifi) {
                         Text(
-                            text = "Waiting for Wi-Fi",
+                            text = ModelRoleCopy.WAITING_FOR_WIFI,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -358,7 +358,7 @@ private fun ModelRoleRowItem(
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                StateBadge(state = state)
+                StateBadge(state = state, waitingForWifi = waitingForWifi)
             }
 
             if (state is ModelAvailabilityState.Preparing) {
@@ -399,7 +399,14 @@ private fun ModelRoleRowItem(
                     }
                     if (showShortcut) {
                         onMobileDataShortcut?.let { onShortcut ->
-                            TextButton(onClick = onShortcut) { Text("Mobile data setting") }
+                            TextButton(
+                                onClick = onShortcut,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "${ModelRoleCopy.MOBILE_DATA_SHORTCUT} ${model.displayName}"
+                                },
+                            ) {
+                                Text(ModelRoleCopy.MOBILE_DATA_SHORTCUT)
+                            }
                         }
                     }
                 }
