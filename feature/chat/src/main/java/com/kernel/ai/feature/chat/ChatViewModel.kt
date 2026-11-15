@@ -82,8 +82,6 @@ import com.kernel.ai.core.voice.SpeechStopCoordinator
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
-import com.kernel.ai.core.voice.VoiceOutputStreamingSession
-import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.google.ai.edge.litertlm.ToolProvider
@@ -145,8 +143,6 @@ internal fun shouldForceGpuConversationResetEachTurn(
 ): Boolean = backend == BackendType.GPU && (!isDebugBuild || debugForceReset)
 // Covers the 60s GPU attempt, CPU fallback, and cleanup; foreground and lock waits are excluded.
 internal const val MODEL_INITIALIZATION_WATCHDOG_MS = 150_000L
-private const val CHAT_VOICE_MIN_CHUNK_LENGTH = VOICE_MIN_CHUNK_LENGTH
-private const val CHAT_VOICE_PREFERRED_CHUNK_LENGTH = VOICE_PREFERRED_CHUNK_LENGTH
 private const val SAFE_RUN_INTENT_TEST_PREFIX = "__orchtest:safe_run_intent:"
 private const val LOAD_SKILL_ABORT_REPLAY_PROBE_COMMAND = "__orchtest:load_skill_abort_replay"
 private const val LOAD_SKILL_NATIVE_CONTINUATION_PROBE_COMMAND = "__orchtest:load_skill_native_continuation"
@@ -392,9 +388,7 @@ class ChatViewModel @Inject constructor(
     private var activeStreamingMsgId: String? = null
     private var activeStreamingContent = StringBuilder()
     private var activeStreamingThinking = StringBuilder()
-    private var activeVoiceStreamingSession: VoiceOutputStreamingSession? = null
-    private var activeVoiceStreamingBuffer = StringBuilder()
-    private var isVoiceStreamingEnabledForTurn = false
+    private var assistantSpeechJob: Job? = null
     private var suppressVoiceOutputForCurrentResponse = false
     private var spokenResponsesEnabled = true
     private var autoSpeakEnabled = true
@@ -1726,8 +1720,9 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = mode
         viewModelScope.launch {
-            if (_voicePlaybackState.value != VoicePlaybackState.Idle) {
-                voiceOutputController.stop()
+            // Synthesis of the first chunk has no playback state yet; a mic tap must cancel it too.
+            if (_voicePlaybackState.value != VoicePlaybackState.Idle || assistantSpeechJob?.isActive == true) {
+                stopChatSpeech()
             }
             _error.value = null
             _voiceCaptureState.value = VoiceCaptureState.Preparing
@@ -1974,7 +1969,7 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
-        voiceOutputController.stop()
+        stopChatSpeech()
         _voicePlaybackState.value = VoicePlaybackState.Idle
         _speakingMessageId.value = null
     }
@@ -1992,7 +1987,7 @@ class ChatViewModel @Inject constructor(
             speakMessageJob = null
             awaitingVoicePlaybackCompletion = false
             pendingVoiceReply = false
-            voiceOutputController.stop()
+            stopChatSpeech()
             _speakingMessageId.value = null
             _isSpeakingResponse.value = false
             _voicePlaybackState.value = VoicePlaybackState.Idle
@@ -2003,7 +1998,7 @@ class ChatViewModel @Inject constructor(
         // Prevent the SpeakingStopped handler from rearming the voice loop.
         awaitingVoicePlaybackCompletion = false
         pendingVoiceReply = false
-        voiceOutputController.stop()
+        stopChatSpeech()
         _speakingMessageId.value = messageId
         val normalizedText = normalizeChatTextForSpeech(text)
         speakMessageJob = viewModelScope.launch {
@@ -2038,7 +2033,7 @@ class ChatViewModel @Inject constructor(
     fun stopSpeaking() {
         speakMessageJob?.cancel()
         speakMessageJob = null
-        voiceOutputController.stop()
+        stopChatSpeech()
     }
 
     fun submitInitialQueryIfNeeded(initialQuery: String, speakResponse: Boolean = false) {
@@ -2198,6 +2193,7 @@ class ChatViewModel @Inject constructor(
             var assistantMsgId = ""
             var accumulatedContent = StringBuilder()
             var accumulatedThinking = StringBuilder()
+            var terminalToolStartOffset = -1  // accumulatedContent length when the terminal tool first ran this attempt
             var prompt = ""
             var effectiveRagTokenCost = 0
             var systemPromptForPrefill = ""
@@ -3424,11 +3420,6 @@ class ChatViewModel @Inject constructor(
                 }
                 append(text)
             }
-            prepareVoicePlaybackForTurn(
-                streamingEnabled = autoSpeakEnabled &&
-                    !isToolQueryForTurn &&
-                    !isLoadSkillAbortProbeFollowUp,
-            )
 
             } finally {
                 // Reset the loading spinner on every exit path from the pre-inference block —
@@ -3485,6 +3476,7 @@ class ChatViewModel @Inject constructor(
                         needsHallucinationRetry = true
                         currentPrompt = INCOMPLETE_CHAIN_CORRECTION + "\n\n" + prompt
                         accumulatedContent = StringBuilder()
+                        terminalToolStartOffset = -1
                         accumulatedThinking = StringBuilder()
                         activeStreamingContent = accumulatedContent
                         activeStreamingThinking = accumulatedThinking
@@ -3569,8 +3561,10 @@ class ChatViewModel @Inject constructor(
                     when (result) {
                         is GenerationResult.Token -> {
                             if (!firstTokenLogged) logTurnStage("first_token")
+                            if (terminalToolStartOffset < 0 && kernelAIToolSet.terminalToolCalledInCurrentAttempt()) {
+                                terminalToolStartOffset = accumulatedContent.length
+                            }
                             accumulatedContent.append(result.text)
-                            streamVoiceToken(result.text)
                             _messages.update { msgs ->
                                 msgs.map { msg ->
                                     if (msg.id == assistantMsgId) {
@@ -3673,6 +3667,7 @@ class ChatViewModel @Inject constructor(
                                         append(text)
                                     }
                                     accumulatedContent = StringBuilder()
+                                    terminalToolStartOffset = -1
                                     accumulatedThinking = StringBuilder()
                                     activeStreamingContent = accumulatedContent
                                     activeStreamingThinking = accumulatedThinking
@@ -3775,6 +3770,7 @@ class ChatViewModel @Inject constructor(
                                         needsHallucinationRetry = true
                                         currentPrompt = SYSTEM_ONLY_TOOL_RETRY_CORRECTION + "\n\n" + prompt
                                         accumulatedContent = StringBuilder()
+                                        terminalToolStartOffset = -1
                                         accumulatedThinking = StringBuilder()
                                         activeStreamingContent = accumulatedContent
                                         activeStreamingThinking = accumulatedThinking
@@ -3824,6 +3820,20 @@ class ChatViewModel @Inject constructor(
                                     }
                                 }
 
+                                // Model-answer path only: the native reply is the model's text after the terminal
+                                // tool call, which is what the bubble shows. The spoken summary is the fallback when
+                                // that text is blank. Every other path speaks what the bubble shows, as main did.
+                                val spokenToolReply = if (nativeToolCall != null && resultContent == fullContent) {
+                                    val postToolText = if (terminalToolStartOffset in 0..fullContent.length) {
+                                        fullContent.substring(terminalToolStartOffset)
+                                    } else {
+                                        ""
+                                    }
+                                    postToolText.trim().ifBlank { toolCall.spokenSummary.orEmpty() }
+                                } else {
+                                    toolSpokenOverrideFor(resultContent, toolCall.resultText, toolCall.spokenSummary) ?: resultContent
+                                }
+                                finalizeVoicePlaybackForResponse(spokenToolReply)
                                 // Persist only normal turns; safe model probes retain an ephemeral UI chip.
                                 val savedId = if (safeRunIntentTest) {
                                     null
@@ -3858,12 +3868,6 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(resultContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
-                                val toolSpokenOverride = toolSpokenOverrideFor(
-                                    resultContent,
-                                    toolCall.resultText,
-                                    toolCall.spokenSummary,
-                                )
-                                finalizeVoicePlaybackForResponse(resultContent, toolSpokenOverride)
                                 // Do NOT set needsHistoryReplay here — KV cache remains valid after
                                 // native tool calls and forcing a replay drops prior turns from the
                                 // tight history budget, causing context amnesia (#446).
@@ -3900,6 +3904,7 @@ class ChatViewModel @Inject constructor(
                                         }
                                         // Reset streaming state for the retry pass
                                         accumulatedContent = StringBuilder()
+                                        terminalToolStartOffset = -1
                                         accumulatedThinking = StringBuilder()
                                         activeStreamingContent = accumulatedContent
                                         activeStreamingThinking = accumulatedThinking
@@ -3965,6 +3970,8 @@ class ChatViewModel @Inject constructor(
                                 _messages.update { msgs ->
                                     msgs.map { if (it.id == assistantMsgId) it.copy(content = displayContent, isStreaming = false) else it }
                                 }
+                                // Speak before persisting: displayContent is final here, so speech does not wait on the database write.
+                                finalizeVoicePlaybackForResponse(displayContent)
                                 val savedAssistantMsgId = if (safeRunIntentTest) {
                                     null
                                 } else {
@@ -3990,7 +3997,6 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(displayContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
-                                finalizeVoicePlaybackForResponse(displayContent)
                             }
 
                             // Clear streaming tracking now that the message is fully persisted.
@@ -4222,13 +4228,17 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         pendingVoiceReply = false
         suppressVoiceOutputForCurrentResponse = true
-        isVoiceStreamingEnabledForTurn = false
-        activeVoiceStreamingBuffer = StringBuilder()
-        activeVoiceStreamingSession = null
-        voiceOutputController.stop()
+        stopChatSpeech()
         _isSpeakingResponse.value = false
         _voicePlaybackState.value = VoicePlaybackState.Idle
         _speakingMessageId.value = null
+    }
+
+    /** Stops speech output and cancels an in-flight chunked reply so no later chunk is queued. */
+    private fun stopChatSpeech() {
+        assistantSpeechJob?.cancel()
+        assistantSpeechJob = null
+        voiceOutputController.stop()
     }
 
     fun getConversationAsText(): String {
@@ -4424,91 +4434,20 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun prepareVoicePlaybackForTurn(
-        streamingEnabled: Boolean,
-    ) {
-        activeVoiceStreamingBuffer = StringBuilder()
-        activeVoiceStreamingSession = null
-        isVoiceStreamingEnabledForTurn = streamingEnabled
-        val shouldSpeak = pendingVoiceReply
-        pendingVoiceReply = false
-        awaitingVoicePlaybackCompletion = false
-        if (!shouldSpeak || !autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) return
-        // autoSpeakEnabled already reflects voiceOutputPreferences.autoSpeak via the cached field
-        awaitingVoicePlaybackCompletion = true
-        activeVoiceStreamingSession = voiceOutputController.openStreamingSession(
-            VoiceSpeakRequest(text = "", locale = Locale.getDefault()),
-        )
-    }
-
-    private suspend fun streamVoiceToken(token: String) {
-        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn) {
-            return
-        }
-        activeVoiceStreamingBuffer.append(token)
-        // After a tool with a spoken summary ran this turn, hold the text: the final reply is either
-        // that summary or the model's own words, decided in finalizeVoicePlaybackForResponse.
-        val summaryToolRan = kernelAIToolSet.terminalToolSpokenSummary() != null ||
-            kernelAIToolSet.terminalToolPresentation()?.toSpokenSummary() != null
-        if (!summaryToolRan) drainVoiceStreamingBuffer(force = false)
-    }
-
-    private suspend fun drainVoiceStreamingBuffer(force: Boolean) {
-        val session = activeVoiceStreamingSession ?: return
-        while (true) {
-            val chunk = popNextStreamingSpeechChunk(
-                buffer = activeVoiceStreamingBuffer,
-                minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
-                preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
-                force = force,
-            ) ?: break
-            speakVoiceChunk(
-                session = session,
-                chunk = chunk,
-                isFinal = false,
-            )
-        }
-    }
-
-    private suspend fun finalizeVoicePlaybackForResponse(finalContent: String, spokenOverride: String? = null) {
+    /**
+     * Speaks the final reply once, when the turn is complete (#1892). Speech starts only here: speaking
+     * during generation is removed, because a tool call or a retry can change the reply after a sentence
+     * was queued. Live speech is tracked as #1923.
+     */
+    private fun finalizeVoicePlaybackForResponse(spokenText: String) {
         if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) {
             stopVoicePlayback()
             return
         }
-        val session = activeVoiceStreamingSession ?: return
-        val finalChunk = if (spokenOverride != null) {
-            // A tool's spoken summary replaces the streamed text; the unspoken buffer is dropped.
-            finalizeChatTextForSpeech(spokenOverride)
-        } else if (isVoiceStreamingEnabledForTurn) {
-            val bufferedChunks = mutableListOf<String>()
-            while (true) {
-                val chunk = popNextStreamingSpeechChunk(
-                    buffer = activeVoiceStreamingBuffer,
-                    minChunkLength = CHAT_VOICE_MIN_CHUNK_LENGTH,
-                    preferredChunkLength = CHAT_VOICE_PREFERRED_CHUNK_LENGTH,
-                    force = true,
-                ) ?: break
-                bufferedChunks += chunk
-            }
-            finalizeChatTextForSpeech(bufferedChunks.joinToString(" ").trim())
-        } else {
-            finalizeChatTextForSpeech(finalContent)
-        }
-        val result = session.append(finalChunk, isFinal = true)
-        handleVoiceOutputResult(result)
-        activeVoiceStreamingSession = null
-        activeVoiceStreamingBuffer = StringBuilder()
-        isVoiceStreamingEnabledForTurn = false
-    }
-
-    private suspend fun speakVoiceChunk(
-        session: VoiceOutputStreamingSession,
-        chunk: String,
-        isFinal: Boolean,
-    ) {
-        if (chunk.isBlank()) return
-        val result = session.append(chunk, isFinal = isFinal)
-        handleVoiceOutputResult(result)
+        if (!pendingVoiceReply) return
+        // Raw tool-call text is never spoken. An empty reply takes the blank path, which resets voice state
+        // and lets back-and-forth end cleanly.
+        speakAssistantReplyIfNeeded(if (looksLikeRawToolCall(spokenText)) "" else spokenText)
     }
 
     private fun handleVoiceOutputResult(result: VoiceOutputResult) {
@@ -4586,8 +4525,8 @@ class ChatViewModel @Inject constructor(
     private fun isStopCommand(transcript: String): Boolean =
         transcript.trim().lowercase() in STOP_PHRASES
 
-    /** Speaks the assistant reply if this was a voice-originated turn. */
-    private suspend fun speakAssistantReplyIfNeeded(content: String, spokenOverride: String? = null) {
+    /** Speaks the assistant reply if this was a voice-originated turn, one sentence chunk at a time. */
+    private fun speakAssistantReplyIfNeeded(content: String, spokenOverride: String? = null) {
         val shouldSpeak = pendingVoiceReply
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -4597,18 +4536,27 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        val spokenText = spokenOverride?.trim()?.takeIf { it.isNotBlank() }
-            ?: stripMarkdownForClipboard(content).trim()
-        if (spokenText.isBlank()) {
+        // The chunker normalises the whole text once before splitting it; the blank check uses the same
+        // normalised form, so a reply that normalises to nothing is never sent to the chunker.
+        val spokenText = spokenOverride?.trim()?.takeIf { it.isNotBlank() } ?: content.trim()
+        if (normalizeChatTextForSpeech(spokenText).isBlank()) {
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             return
         }
 
         awaitingVoicePlaybackCompletion = true
-        when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = spokenText))) {
-            VoiceOutputResult.Spoken -> Unit
-            is VoiceOutputResult.Unavailable -> {
+        assistantSpeechJob?.cancel()
+        assistantSpeechJob = viewModelScope.launch {
+            val result = try {
+                speakInSentenceChunks(voiceOutputController, spokenText)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start chat voice reply", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            }
+            if (result is VoiceOutputResult.Unavailable) {
                 awaitingVoicePlaybackCompletion = false
                 _voiceMode.value = null
                 _error.value = withVoiceSettingsHint(result.message)

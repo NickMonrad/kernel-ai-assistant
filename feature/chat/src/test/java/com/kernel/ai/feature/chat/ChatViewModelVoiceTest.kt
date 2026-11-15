@@ -35,6 +35,7 @@ import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
@@ -64,6 +65,7 @@ import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.feature.chat.model.ChatUiState
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -88,6 +90,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -199,12 +202,16 @@ class ChatViewModelVoiceTest {
         every { voiceOutputController.events } returns voiceOutputEvents
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
         streamedChunks.clear()
+        every { kernelAIToolSet.terminalToolName() } returns null
+        every { kernelAIToolSet.terminalToolSpokenSummary() } returns null
+        every { kernelAIToolSet.terminalToolPresentation() } returns null
+        every { kernelAIToolSet.terminalToolResult() } returns null
+        coEvery { voiceStreamingSession.cancel() } just runs
         coEvery { voiceOutputController.openStreamingSession(any()) } returns voiceStreamingSession
         coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
             streamedChunks += firstArg<String>() to secondArg<Boolean>()
             VoiceOutputResult.Spoken
         }
-        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
         every { voiceOutputController.stop() } just runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.autoSpeak } returns MutableStateFlow(true)
@@ -324,7 +331,7 @@ class ChatViewModelVoiceTest {
         val state = viewModel.uiState.first { it is ChatUiState.Ready } as ChatUiState.Ready
         assertEquals("", state.inputText)
         assertEquals(1L, state.inputTextReplacementRevision)
-        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
     }
 
     @Test
@@ -340,7 +347,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
     }
 
     @Test
@@ -395,11 +402,388 @@ class ChatViewModelVoiceTest {
             "You: Convert 1 gallon to litres\nJandal: 1 gallon is 3.785411784 liters.",
             viewModel.getConversationAsText(),
         )
-        coVerify {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "1 gallon is 3.79 liters." })
-        }
+        assertEquals(listOf("1 gallon is 3.79 liters." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
+
+    @Test
+    fun `streamed reply shorter than 20 chars is spoken once as the final chunk`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Say hi") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Say hi")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("Hi there, all good. "),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Say hi"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("Hi there, all good." to true), streamedChunks)
+    }
+
+    @Test
+    fun `stop during a chunked direct reply cancels the job so no later chunk is queued`() = runTest(dispatcher) {
+        val runIntentSkill = object : Skill {
+            override val name = "run_intent"
+            override val description = "Run intent"
+            override val schema = SkillSchema(required = listOf("intent_name", "value", "from_unit", "to_unit"))
+
+            override suspend fun execute(call: com.kernel.ai.core.skills.SkillCall): SkillResult =
+                SkillResult.DirectReply(
+                    content = "Long reply.",
+                    spokenSummary = "The first sentence here is long enough to stand alone. " +
+                        "The second sentence follows after it and is spoken last.",
+                )
+        }
+        every {
+            quickIntentRouter.route("Convert 2 cups to millilitres")
+        } returns QuickIntentRouter.RouteResult.RegexMatch(
+            QuickIntentRouter.MatchedIntent(
+                intentName = "convert_units",
+                params = mapOf("value" to "2", "from_unit" to "cups", "to_unit" to "millilitres"),
+            ),
+        )
+        every { skillRegistry.get("convert_units") } returns null
+        every { skillRegistry.get("run_intent") } returns runIntentSkill
+        val gate = CompletableDeferred<Unit>()
+        coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
+            streamedChunks += firstArg<String>() to secondArg<Boolean>()
+            gate.await()
+            VoiceOutputResult.Spoken
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Convert 2 cups to millilitres"))
+        runCurrent()
+
+        viewModel.stopVoiceOutput()
+        advanceUntilIdle()
+
+        assertEquals(1, streamedChunks.size, "no chunk after the stop may be queued")
+        coVerify(atLeast = 1) { voiceStreamingSession.cancel() }
+    }
+
+    @Test
+    fun `tool-call syntax in the streamed reply is never spoken`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Weather in Apia") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Weather in Apia")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("<|tool_call>"),
+            GenerationResult.Token("call:get_weather{location:<|\"|>Apia<|\"|>}"),
+            GenerationResult.Token("<tool_call|>"),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia"))
+        advanceUntilIdle()
+
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("call:") || chunk.contains("get_weather") },
+            "tool-call text was spoken: $streamedChunks",
+        )
+    }
+
+    @Test
+    fun `reply retried after an empty first pass is spoken in full`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me about kiwi birds") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flowOf(GenerationResult.Complete(durationMs = 1L)),
+            flowOf(
+                GenerationResult.Token("Kiwi birds are flightless and nocturnal."),
+                GenerationResult.Complete(durationMs = 1L),
+            ),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about kiwi birds"))
+        advanceUntilIdle()
+
+        assertTrue(
+            streamedChunks.any { (chunk, _) -> chunk.contains("flightless and nocturnal") },
+            "retried reply was not spoken: $streamedChunks",
+        )
+    }
+
+    @Test
+    fun `retried turn speaks only the final message`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me about kiwi birds") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flowOf(GenerationResult.Token("I've saved that to memory."), GenerationResult.Complete(durationMs = 1L)),
+            flowOf(
+                GenerationResult.Token("Your keys are in the blue bowl by the door."),
+                GenerationResult.Complete(durationMs = 1L),
+            ),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about kiwi birds"))
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("Your keys are in the blue bowl by the door." to true),
+            streamedChunks,
+            "the discarded pass must not be spoken, and the final reply must be spoken once",
+        )
+    }
+
+    @Test
+    fun `native tool reply speaks the answer after the call, never the text before it or the tool detail`() = runTest(dispatcher) {
+        var nativeToolRan = false
+        every { quickIntentRouter.route("Weather in Apia") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Weather in Apia")
+        every { kernelAIToolSet.terminalToolCalledInCurrentAttempt() } answers { nativeToolRan }
+        every { kernelAIToolSet.terminalToolName() } answers { if (nativeToolRan) "get_weather" else null }
+        every { kernelAIToolSet.terminalToolRequest() } returns "{}"
+        every { kernelAIToolSet.terminalToolDetail() } returns "Apia: 28 C"
+        every { kernelAIToolSet.terminalToolSucceeded() } returns true
+        every { inferenceEngine.generate(any()) } returns kotlinx.coroutines.flow.flow {
+            emit(GenerationResult.Token("It is sunny and warm in Apia today."))
+            nativeToolRan = true
+            emit(GenerationResult.Token("Take an umbrella, it may rain later."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia"))
+        advanceUntilIdle()
+
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("sunny") },
+            "pre-tool text was spoken: $streamedChunks",
+        )
+        assertTrue(
+            streamedChunks.any { (chunk, _) -> chunk.contains("umbrella") },
+            "the answer after the tool call was not spoken: $streamedChunks",
+        )
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("Apia: 28 C") },
+            "tool detail was spoken: $streamedChunks",
+        )
+        assertTrue(streamedChunks.last().second, "tool reply is not final: $streamedChunks")
+    }
+
+    @Test
+    fun `raw tool-call reply ends voice mode instead of stalling`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Weather in Apia") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Weather in Apia")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("<|tool_call>call:get_weather{location:<|\"|>Apia<|\"|>}<tool_call|>"),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia"))
+        advanceUntilIdle()
+
+        assertTrue(streamedChunks.isEmpty(), "raw tool-call text was spoken: $streamedChunks")
+        assertNull(viewModel.voiceMode.value, "voice mode stayed armed after a raw tool-call reply")
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    private fun stubNativeToolTurn(query: String, postToolText: String?) {
+        var nativeToolRan = false
+        every { quickIntentRouter.route(query) } returns QuickIntentRouter.RouteResult.FallThrough(input = query)
+        every { kernelAIToolSet.terminalToolCalledInCurrentAttempt() } answers { nativeToolRan }
+        every { kernelAIToolSet.terminalToolName() } answers { if (nativeToolRan) "get_weather" else null }
+        every { kernelAIToolSet.terminalToolRequest() } returns "{}"
+        every { inferenceEngine.generate(any()) } returns kotlinx.coroutines.flow.flow {
+            nativeToolRan = true
+            postToolText?.let { emit(GenerationResult.Token(it)) }
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+    }
+
+    private fun stubDirectReply(detail: String, summary: String?) {
+        every { kernelAIToolSet.terminalToolDetail() } returns detail
+        every { kernelAIToolSet.terminalToolResult() } returns detail
+        every { kernelAIToolSet.terminalToolSucceeded() } returns true
+        every { kernelAIToolSet.terminalToolSucceededInCurrentAttempt() } returns true
+        every { kernelAIToolSet.terminalToolWasDirectReply() } returns true
+        every { kernelAIToolSet.terminalToolSpokenSummary() } returns summary
+    }
+
+    private suspend fun TestScope.speakVoiceQuery(viewModel: ChatViewModel, query: String) {
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, query))
+        advanceUntilIdle()
+    }
+
+    private fun spokenText(): String = streamedChunks.joinToString(" ") { (chunk, _) -> chunk.trim() }
+
+    @Test
+    fun `direct reply with post-tool text speaks the tool summary, not the model text after the call`() = runTest(dispatcher) {
+        val detail = "Reminder set for 9 am tomorrow."
+        val summary = "Reminder set for nine tomorrow morning."
+        stubNativeToolTurn("Remind me at nine", postToolText = "Done, your reminder is set.")
+        stubDirectReply(detail, summary)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        speakVoiceQuery(viewModel, "Remind me at nine")
+
+        assertEquals(summary, spokenText(), "direct reply must speak the tool summary, as the bubble's card does")
+        coVerify { conversationRepository.addMessage(any(), "assistant", detail, any(), any()) }
+    }
+
+    @Test
+    fun `direct reply without post-tool text speaks the tool summary`() = runTest(dispatcher) {
+        val detail = "Reminder set for 9 am tomorrow."
+        val summary = "Reminder set for nine tomorrow morning."
+        stubNativeToolTurn("Remind me at nine", postToolText = null)
+        stubDirectReply(detail, summary)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        speakVoiceQuery(viewModel, "Remind me at nine")
+
+        assertEquals(summary, spokenText())
+        coVerify { conversationRepository.addMessage(any(), "assistant", detail, any(), any()) }
+    }
+
+    @Test
+    fun `failed tool with post-tool text speaks the failure the bubble shows, not the model text`() = runTest(dispatcher) {
+        val failure = "Weather service unreachable."
+        stubNativeToolTurn("Weather in Apia", postToolText = "Sorry, I could not check that.")
+        every { kernelAIToolSet.terminalToolDetail() } returns ""
+        every { kernelAIToolSet.terminalToolResult() } returns failure
+        every { kernelAIToolSet.terminalToolSucceeded() } returns false
+        every { kernelAIToolSet.terminalToolFailed() } returns true
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        speakVoiceQuery(viewModel, "Weather in Apia")
+
+        assertEquals(failure, spokenText(), "failure must speak what the bubble shows")
+        coVerify { conversationRepository.addMessage(any(), "assistant", failure, any(), any()) }
+    }
+
+    @Test
+    fun `card reply with post-tool text speaks the card summary, not the model text after the call`() = runTest(dispatcher) {
+        val card = "Apia: 22 C, drizzle"
+        val summary = "Apia is 22 degrees and drizzling."
+        stubNativeToolTurn("Weather in Apia", postToolText = "It's 22 degrees in Apia.")
+        every { kernelAIToolSet.terminalToolDetail() } returns card
+        every { kernelAIToolSet.terminalToolSucceeded() } returns true
+        every { kernelAIToolSet.terminalToolPresentation() } returns mockk<ToolPresentation>(relaxed = true)
+        every { kernelAIToolSet.terminalToolSpokenSummary() } returns summary
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        speakVoiceQuery(viewModel, "Weather in Apia")
+
+        assertEquals(summary, spokenText(), "card reply must speak the card summary")
+        coVerify { conversationRepository.addMessage(any(), "assistant", card, any(), any()) }
+    }
+
+    @Test
+    fun `mic tap during first-chunk synthesis cancels the reply speech`() = runTest(dispatcher) {
+        val firstChunkSynthesis = CompletableDeferred<VoiceOutputResult>()
+        coEvery { voiceStreamingSession.append(any(), any()) } coAnswers { firstChunkSynthesis.await() }
+        every { quickIntentRouter.route("Tell me about kiwi birds") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("Kiwi birds are flightless. They nest on the ground."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        speakVoiceQuery(viewModel, "Tell me about kiwi birds")
+        assertEquals(
+            ChatViewModel.VoicePlaybackState.Idle,
+            viewModel.voicePlaybackState.value,
+            "precondition: speech has not started, so only the speech job is in flight",
+        )
+
+        clearMocks(voiceOutputController, answers = false)
+        viewModel.startVoiceInput()
+        advanceUntilIdle()
+
+        verify(exactly = 1) { voiceOutputController.stop() }
+        firstChunkSynthesis.complete(VoiceOutputResult.Spoken)
+    }
+
+    @Test
+    fun `final reply is spoken once, chunked by sentence`() = runTest(dispatcher) {
+        val reply = "In Brisbane, it's 22 degrees, drizzle, feeling like 25 degrees. " +
+            "Today's high is 28 degrees, low is 21 degrees. " +
+            "Rain chance is 87 percent, so take an umbrella if you're heading out this afternoon."
+        every { quickIntentRouter.route("Tell me about Brisbane") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about Brisbane")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token(reply),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about Brisbane"))
+        advanceUntilIdle()
+
+        assertTrue(streamedChunks.size > 1, "reply was not split by sentence: $streamedChunks")
+        assertEquals(1, streamedChunks.count { (_, isFinal) -> isFinal }, "final chunks: $streamedChunks")
+        assertTrue(streamedChunks.last().second, "last chunk is not final: $streamedChunks")
+        assertEquals(1, streamedChunks.count { (chunk, _) -> chunk.contains("umbrella") }, "reply spoken more than once")
+    }
+
+    @Test
+    fun `stop during the final reply cancels the remaining chunks`() = runTest(dispatcher) {
+        val reply = "In Brisbane, it's 22 degrees, drizzle, feeling like 25 degrees. " +
+            "Today's high is 28 degrees, low is 21 degrees. " +
+            "Rain chance is 87 percent, so take an umbrella if you're heading out this afternoon."
+        val gate = CompletableDeferred<Unit>()
+        coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
+            streamedChunks += firstArg<String>() to secondArg<Boolean>()
+            gate.await()
+            VoiceOutputResult.Spoken
+        }
+        every { quickIntentRouter.route("Tell me about Brisbane") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about Brisbane")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token(reply),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about Brisbane"))
+        advanceUntilIdle()
+        viewModel.stopVoiceOutput()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(1, streamedChunks.size, "a chunk was queued after stop: $streamedChunks")
+        coVerify(atLeast = 1) { voiceStreamingSession.cancel() }
+    }
+
     @Test
     fun `save memory router match bypasses llm wrapper`() = runTest(dispatcher) {
         val saveMemorySkill = object : Skill {
@@ -485,9 +869,7 @@ class ChatViewModelVoiceTest {
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "I'll remember your birthday is 15 March." })
-        }
+        assertEquals(listOf("I'll remember your birthday is 15 March." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
@@ -541,9 +923,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "I'll remember your birthday is 15 March." })
-        }
+        assertEquals(listOf("I'll remember your birthday is 15 March." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
@@ -604,9 +984,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "I'll remember your birthday is 15 March." })
-        }
+        assertEquals(listOf("I'll remember your birthday is 15 March." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
@@ -654,9 +1032,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: Could not save memory right now."))
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "Could not save memory right now." })
-        }
+        assertEquals(listOf("Could not save memory right now." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
@@ -693,14 +1069,12 @@ class ChatViewModelVoiceTest {
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: Could not complete the confirmed action."))
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == "Could not complete the confirmed action." })
-        }
+        assertEquals(listOf("Could not complete the confirmed action." to true), streamedChunks)
         verify(exactly = 0) { inferenceEngine.generate(any()) }
     }
 
     @Test
-    fun `streaming voice unavailable resets capture state`() = runTest(dispatcher) {
+    fun `voice reply unavailable resets capture state`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Hello there") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Hello there")
         coEvery { voiceStreamingSession.append(any(), any()) } returns VoiceOutputResult.Unavailable("Voice streaming unavailable.")
@@ -721,7 +1095,6 @@ class ChatViewModelVoiceTest {
     fun `one-shot voice stays idle after spoken reply playback stops`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Hello one shot") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Hello one shot")
-        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
 
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -744,7 +1117,6 @@ class ChatViewModelVoiceTest {
     fun `back-and-forth voice re-arms listening after spoken reply playback stops`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Hello loop") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Hello loop")
-        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
 
         val viewModel = createViewModel()
         advanceUntilIdle()
