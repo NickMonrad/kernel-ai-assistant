@@ -21,6 +21,8 @@ import androidx.compose.ui.test.then
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.inference.setup.SetupStep
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -90,6 +92,18 @@ class SetupWizardLargeFontTest {
             "About 0 B must never be shown",
             composeRule.onAllNodesWithText("About 0 B", substring = true).fetchSemanticsNodes().isEmpty(),
         )
+    }
+
+    @Test
+    fun voiceStepButtonsReachableAtLargeFontPortrait() {
+        setWizard(SetupStep.VOICE, PORTRAIT)
+        assertButtonsReachable(primary = "Continue", size = PORTRAIT, compact = false)
+    }
+
+    @Test
+    fun voiceStepButtonsReachableAtLargeFontLandscape() {
+        setWizard(SetupStep.VOICE, LANDSCAPE)
+        assertButtonsReachable(primary = "Continue", size = LANDSCAPE, compact = true)
     }
 
     private fun setWizard(step: SetupStep, size: DpSize) {
@@ -168,11 +182,17 @@ class SetupWizardLargeFontTest {
             state = SetupWizardUiState(
                 loaded = true,
                 step = step,
+                inputOptions = listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative),
+                inputEngine = VoiceInputEngine.Auto,
+                outputOptions = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
+                outputEngine = VoiceOutputEngine.SherpaExperimental,
                 choice = DownloadNetworkChoice.WIFI_ONLY,
                 choiceRecorded = true,
                 plannedModels = emptyList(),
                 plannedVoices = emptyList(),
             ),
+            onInputSelected = {},
+            onOutputSelected = {},
             onChoiceSelected = {},
             onPrimary = {},
             onBack = {},
