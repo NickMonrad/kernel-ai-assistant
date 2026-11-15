@@ -19,11 +19,6 @@ internal fun logFirstChunkQueued(chars: Int) {
     if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "firstChunkQueued epochMs=${System.currentTimeMillis()} chars=$chars")
 }
 
-/** Debug-only marker at generation end. The S23U first-audio measurement runs from here to SpeakingStarted. */
-internal fun logGenerationComplete() {
-    if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "lastToken epochMs=${System.currentTimeMillis()}")
-}
-
 /**
  * Speaks [text] through a streaming session, one sentence-sized chunk at a time, so the first
  * chunk starts playing while the next is synthesised. Slow local voices (Piper/Cori) otherwise

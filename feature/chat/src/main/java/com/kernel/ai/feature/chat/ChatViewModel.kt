@@ -3820,9 +3820,10 @@ class ChatViewModel @Inject constructor(
                                     }
                                 }
 
-                                // Speak the model's answer after the terminal tool call: the same text the bubble shows.
-                                // Tool chips and evidence are never spoken; the spoken summary is the fallback when that text is blank.
-                                val spokenToolReply = if (nativeToolCall != null) {
+                                // Model-answer path only: the native reply is the model's text after the terminal
+                                // tool call, which is what the bubble shows. The spoken summary is the fallback when
+                                // that text is blank. Every other path speaks what the bubble shows, as main did.
+                                val spokenToolReply = if (nativeToolCall != null && resultContent == fullContent) {
                                     val postToolText = if (terminalToolStartOffset in 0..fullContent.length) {
                                         fullContent.substring(terminalToolStartOffset)
                                     } else {
@@ -4439,7 +4440,6 @@ class ChatViewModel @Inject constructor(
      * was queued. Live speech is tracked as #1923.
      */
     private fun finalizeVoicePlaybackForResponse(spokenText: String) {
-        logGenerationComplete()
         if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) {
             stopVoicePlayback()
             return
@@ -4536,8 +4536,8 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // The raw reply goes to the chunker, which cleans each chunk once; only the blank check
-        // looks at the cleaned form.
+        // The chunker normalises the whole text once before splitting it; the blank check uses the same
+        // normalised form, so a reply that normalises to nothing is never sent to the chunker.
         val spokenText = spokenOverride?.trim()?.takeIf { it.isNotBlank() } ?: content.trim()
         if (normalizeChatTextForSpeech(spokenText).isBlank()) {
             awaitingVoicePlaybackCompletion = false

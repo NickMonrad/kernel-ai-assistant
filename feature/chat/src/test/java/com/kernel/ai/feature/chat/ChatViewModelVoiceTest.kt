@@ -35,6 +35,7 @@ import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
@@ -64,6 +65,7 @@ import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.feature.chat.model.ChatUiState
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -88,6 +90,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -600,6 +603,128 @@ class ChatViewModelVoiceTest {
         assertTrue(streamedChunks.isEmpty(), "raw tool-call text was spoken: $streamedChunks")
         assertNull(viewModel.voiceMode.value, "voice mode stayed armed after a raw tool-call reply")
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    private fun stubNativeToolTurn(query: String, postToolText: String?) {
+        var nativeToolRan = false
+        every { quickIntentRouter.route(query) } returns QuickIntentRouter.RouteResult.FallThrough(input = query)
+        every { kernelAIToolSet.terminalToolCalledInCurrentAttempt() } answers { nativeToolRan }
+        every { kernelAIToolSet.terminalToolName() } answers { if (nativeToolRan) "get_weather" else null }
+        every { kernelAIToolSet.terminalToolRequest() } returns "{}"
+        every { inferenceEngine.generate(any()) } returns kotlinx.coroutines.flow.flow {
+            nativeToolRan = true
+            postToolText?.let { emit(GenerationResult.Token(it)) }
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+    }
+
+    private fun stubDirectReply(detail: String, summary: String?) {
+        every { kernelAIToolSet.terminalToolDetail() } returns detail
+        every { kernelAIToolSet.terminalToolResult() } returns detail
+        every { kernelAIToolSet.terminalToolSucceeded() } returns true
+        every { kernelAIToolSet.terminalToolSucceededInCurrentAttempt() } returns true
+        every { kernelAIToolSet.terminalToolWasDirectReply() } returns true
+        every { kernelAIToolSet.terminalToolSpokenSummary() } returns summary
+    }
+
+    private suspend fun TestScope.speakVoiceQuery(viewModel: ChatViewModel, query: String) {
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, query))
+        advanceUntilIdle()
+    }
+
+    private fun spokenText(): String = streamedChunks.joinToString(" ") { (chunk, _) -> chunk.trim() }
+
+    @Test
+    fun `direct reply with post-tool text speaks the tool summary, not the model text after the call`() = runTest(dispatcher) {
+        val detail = "Reminder set for 9 am tomorrow."
+        val summary = "Reminder set for nine tomorrow morning."
+        stubNativeToolTurn("Remind me at nine", postToolText = "Done, your reminder is set.")
+        stubDirectReply(detail, summary)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        speakVoiceQuery(viewModel, "Remind me at nine")
+
+        assertEquals(summary, spokenText(), "direct reply must speak the tool summary, as the bubble's card does")
+        coVerify { conversationRepository.addMessage(any(), "assistant", detail, any(), any()) }
+    }
+
+    @Test
+    fun `direct reply without post-tool text speaks the tool summary`() = runTest(dispatcher) {
+        val detail = "Reminder set for 9 am tomorrow."
+        val summary = "Reminder set for nine tomorrow morning."
+        stubNativeToolTurn("Remind me at nine", postToolText = null)
+        stubDirectReply(detail, summary)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        speakVoiceQuery(viewModel, "Remind me at nine")
+
+        assertEquals(summary, spokenText())
+        coVerify { conversationRepository.addMessage(any(), "assistant", detail, any(), any()) }
+    }
+
+    @Test
+    fun `failed tool with post-tool text speaks the failure the bubble shows, not the model text`() = runTest(dispatcher) {
+        val failure = "Weather service unreachable."
+        stubNativeToolTurn("Weather in Apia", postToolText = "Sorry, I could not check that.")
+        every { kernelAIToolSet.terminalToolDetail() } returns ""
+        every { kernelAIToolSet.terminalToolResult() } returns failure
+        every { kernelAIToolSet.terminalToolSucceeded() } returns false
+        every { kernelAIToolSet.terminalToolFailed() } returns true
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        speakVoiceQuery(viewModel, "Weather in Apia")
+
+        assertEquals(failure, spokenText(), "failure must speak what the bubble shows")
+        coVerify { conversationRepository.addMessage(any(), "assistant", failure, any(), any()) }
+    }
+
+    @Test
+    fun `card reply with post-tool text speaks the card summary, not the model text after the call`() = runTest(dispatcher) {
+        val card = "Apia: 22 C, drizzle"
+        val summary = "Apia is 22 degrees and drizzling."
+        stubNativeToolTurn("Weather in Apia", postToolText = "It's 22 degrees in Apia.")
+        every { kernelAIToolSet.terminalToolDetail() } returns card
+        every { kernelAIToolSet.terminalToolSucceeded() } returns true
+        every { kernelAIToolSet.terminalToolPresentation() } returns mockk<ToolPresentation>(relaxed = true)
+        every { kernelAIToolSet.terminalToolSpokenSummary() } returns summary
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        speakVoiceQuery(viewModel, "Weather in Apia")
+
+        assertEquals(summary, spokenText(), "card reply must speak the card summary")
+        coVerify { conversationRepository.addMessage(any(), "assistant", card, any(), any()) }
+    }
+
+    @Test
+    fun `mic tap during first-chunk synthesis cancels the reply speech`() = runTest(dispatcher) {
+        val firstChunkSynthesis = CompletableDeferred<VoiceOutputResult>()
+        coEvery { voiceStreamingSession.append(any(), any()) } coAnswers { firstChunkSynthesis.await() }
+        every { quickIntentRouter.route("Tell me about kiwi birds") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("Kiwi birds are flightless. They nest on the ground."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        speakVoiceQuery(viewModel, "Tell me about kiwi birds")
+        assertEquals(
+            ChatViewModel.VoicePlaybackState.Idle,
+            viewModel.voicePlaybackState.value,
+            "precondition: speech has not started, so only the speech job is in flight",
+        )
+
+        clearMocks(voiceOutputController, answers = false)
+        viewModel.startVoiceInput()
+        advanceUntilIdle()
+
+        verify(exactly = 1) { voiceOutputController.stop() }
+        firstChunkSynthesis.complete(VoiceOutputResult.Spoken)
     }
 
     @Test
