@@ -389,6 +389,8 @@ class ChatViewModel @Inject constructor(
     private var activeVoiceStreamingSession: VoiceOutputStreamingSession? = null
     private var activeVoiceStreamingBuffer = StringBuilder()
     private var activeVoiceChunksSent = 0
+    /** Set once the model starts a tool call this turn; text from there on is never spoken. */
+    private var activeVoiceToolCallStarted = false
     private var assistantSpeechJob: Job? = null
     private var isVoiceStreamingEnabledForTurn = false
     private var suppressVoiceOutputForCurrentResponse = false
@@ -4408,6 +4410,7 @@ class ChatViewModel @Inject constructor(
     ) {
         activeVoiceStreamingBuffer = StringBuilder()
         activeVoiceChunksSent = 0
+        activeVoiceToolCallStarted = false
         activeVoiceStreamingSession = null
         isVoiceStreamingEnabledForTurn = streamingEnabled
         val shouldSpeak = pendingVoiceReply
@@ -4422,10 +4425,19 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun streamVoiceToken(token: String) {
-        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn) {
+        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn ||
+            activeVoiceToolCallStarted
+        ) {
             return
         }
         activeVoiceStreamingBuffer.append(token)
+        val toolCallAt = activeVoiceStreamingBuffer.indexOf(TOOL_CALL_START_TAG)
+        if (toolCallAt >= 0) {
+            // Tool-call syntax is not speech: drop it and anything after it from the buffer.
+            activeVoiceStreamingBuffer.setLength(toolCallAt)
+            activeVoiceToolCallStarted = true
+            return
+        }
         // After a tool with a spoken summary ran this turn, hold the text: the final reply is either
         // that summary or the model's own words, decided in finalizeVoicePlaybackForResponse.
         val summaryToolRan = kernelAIToolSet.terminalToolSpokenSummary() != null ||
@@ -4436,7 +4448,8 @@ class ChatViewModel @Inject constructor(
     /**
      * Queues complete sentences from the streamed buffer. Only sentence-ending boundaries are used
      * (no mid-sentence comma or whitespace cut), so a partial sentence is never spoken. The first
-     * chunk may end at a full stop from 40 characters (#1890). The unfinished tail is flushed on finalize.
+     * chunk may end at a full stop from 20 characters (#1892); shorter sentences merge forward.
+     * The unfinished tail is flushed on finalize.
      */
     private suspend fun drainVoiceStreamingBuffer() {
         val session = activeVoiceStreamingSession ?: return
@@ -4982,6 +4995,8 @@ private const val HALLUCINATION_RETRY_CORRECTION =
     "[System: Your previous response was blocked. It appeared to describe performing an action " +
         "without actually calling the required tool function. You MUST call the appropriate tool — " +
         "do not narrate results. If the tool is unavailable, say so honestly.]"
+
+private const val TOOL_CALL_START_TAG = "<|tool_call>"
 
 private const val RAW_TOOL_CALL_RETRY_CORRECTION =
     "[System: Your previous response was blocked. It emitted raw tool-call syntax into chat " +

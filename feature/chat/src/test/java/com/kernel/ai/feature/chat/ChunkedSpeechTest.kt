@@ -233,4 +233,14 @@ class ChunkedSpeechTest {
         assertTrue(chunk != null && chunk.contains("24 degrees"), "greeting must not be spoken alone: $chunk")
         assertEquals("", buffer.toString())
     }
+
+    @Test
+    fun `number ranges keep their dash so Sherpa reads them as a range`() {
+        assertEquals("Open days 1–7 this week.", normalizeChatTextForSpeech("Open days 1–7 this week."))
+    }
+
+    @Test
+    fun `a spaced dash between words becomes a comma pause`() {
+        assertEquals("Yes, no.", normalizeChatTextForSpeech("Yes – no."))
+    }
 }

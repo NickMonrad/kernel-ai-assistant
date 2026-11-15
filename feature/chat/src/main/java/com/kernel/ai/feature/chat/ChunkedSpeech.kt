@@ -13,7 +13,6 @@ internal const val VOICE_FIRST_CHUNK_MIN_LENGTH = 40
 /** Streamed first chunk ends at its first full stop from this length (#1892); shorter sentences merge forward. */
 internal const val VOICE_STREAM_FIRST_CHUNK_MIN_LENGTH = 20
 internal const val VOICE_MIN_CHUNK_LENGTH = 72
-internal const val VOICE_PREFERRED_CHUNK_LENGTH = 180
 internal const val VOICE_MIN_FINAL_CHUNK_LENGTH = 20
 
 /**
@@ -36,6 +35,8 @@ internal suspend fun speakInSentenceChunks(
  * Queues [text] on [session] as sentence-sized chunks; the last chunk is final. Shared by the
  * Actions/speaker-button path and the chat voice reply path so both use the same first-chunk and
  * tail rules.
+ *
+ * Splits at sentence ends only (never at a comma or word boundary), so a chunk is never cut mid-sentence.
  */
 internal suspend fun appendSentenceChunks(
     session: VoiceOutputStreamingSession,
@@ -50,7 +51,7 @@ internal suspend fun appendSentenceChunks(
             var chunk = popNextStreamingSpeechChunk(
                 buffer = buffer,
                 minChunkLength = minLength,
-                preferredChunkLength = VOICE_PREFERRED_CHUNK_LENGTH,
+                preferredChunkLength = Int.MAX_VALUE,
                 force = buffer.length < minLength,
             ) ?: break
             // A tail under ~20 characters ("Thanks.") would be a separate, barely audible chunk;
