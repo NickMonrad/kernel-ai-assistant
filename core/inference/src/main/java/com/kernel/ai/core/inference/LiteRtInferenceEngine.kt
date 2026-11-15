@@ -1744,6 +1744,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                             "event_seq: $generationId seq=${eventSeq.incrementAndGet()} type=complete " +
                                                 "callbacks=$visibleChunkCount thinkingChars=$thinkingCharCount",
                                         )
+                                        Log.d(TAG, "VoiceTiming lastToken epochMs=${System.currentTimeMillis()}")
                                         trySend(
                                             GenerationResult.Complete(
                                                 durationMs = durationMs,

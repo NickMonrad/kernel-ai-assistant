@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.chat
 
+import android.util.Log
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceOutputStreamingSession
@@ -14,6 +15,13 @@ internal const val VOICE_FIRST_CHUNK_MIN_LENGTH = 40
 internal const val VOICE_STREAM_FIRST_CHUNK_MIN_LENGTH = 20
 internal const val VOICE_MIN_CHUNK_LENGTH = 72
 internal const val VOICE_MIN_FINAL_CHUNK_LENGTH = 20
+
+internal const val VOICE_TIMING_TAG = "VoiceTiming"
+
+/** Debug-only timing line for the #1892 first-audio measurement: the turn's first chunk being queued. */
+internal fun logFirstChunkQueued(chars: Int) {
+    if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "firstChunkQueued epochMs=${System.currentTimeMillis()} chars=$chars")
+}
 
 /**
  * Speaks [text] through a streaming session, one sentence-sized chunk at a time, so the first
@@ -61,6 +69,7 @@ internal suspend fun appendSentenceChunks(
                 buffer.setLength(0)
                 chunk = "$chunk ${finalizeChatTextForSpeech(tail)}"
             }
+            if (isFirst) logFirstChunkQueued(chunk.length)
             isFirst = false
             val isLast = buffer.isBlank()
             val result = session.append(chunk, isFinal = isLast)
@@ -73,6 +82,7 @@ internal suspend fun appendSentenceChunks(
             if (isLast) return VoiceOutputResult.Spoken
         }
         // Residual text that didn't form a clean chunk boundary.
+        if (isFirst) logFirstChunkQueued(buffer.length)
         return session.append(finalizeChatTextForSpeech(buffer.toString()), isFinal = true)
     } catch (e: CancellationException) {
         // Close the streaming session so the controller doesn't wait forever for a final

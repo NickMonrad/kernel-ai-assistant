@@ -4480,6 +4480,7 @@ class ChatViewModel @Inject constructor(
                 // Complete sentences were queued while streaming; only the unfinished tail is left.
                 drainVoiceStreamingBuffer()
                 val tail = finalizeChatTextForSpeech(activeVoiceStreamingBuffer.toString())
+                if (activeVoiceChunksSent == 0) logFirstChunkQueued(tail.length)
                 session.append(tail, isFinal = true)
             }
             else -> appendSentenceChunks(session, finalContent)
@@ -4496,6 +4497,7 @@ class ChatViewModel @Inject constructor(
         isFinal: Boolean,
     ) {
         if (chunk.isBlank()) return
+        if (activeVoiceChunksSent == 0) logFirstChunkQueued(chunk.length)
         activeVoiceChunksSent++
         val result = session.append(chunk, isFinal = isFinal)
         handleVoiceOutputResult(result)
