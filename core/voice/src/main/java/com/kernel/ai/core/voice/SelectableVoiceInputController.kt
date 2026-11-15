@@ -251,7 +251,7 @@ class SelectableVoiceInputController @Inject constructor(
                 val result = when (engine) {
                     VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen)
                     VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen)
-                    else -> startSherpa(mode) // All Sherpa families.
+                    else -> startSherpa(mode, gen) // All Sherpa families.
                 }
                 if (result is VoiceInputStartResult.Started) openGeneration = gen
                 result
@@ -269,7 +269,7 @@ class SelectableVoiceInputController @Inject constructor(
             // Zipformer wins regardless of native support; skip the native availability check.
             Log.i(TAG, "Auto STT route=${AutoSttRoute.Zipformer} mode=$mode allowOnlineFallback=false")
             JandalEvents.record("voice", "stt_route", "route" to AutoSttRoute.Zipformer, "online_fallback" to false)
-            return startSherpa(mode)
+            return startSherpa(mode, gen)
         }
         // Use the cached locale check when there is one; only run the slower live check for
         // interactive captures that have no cached answer yet.
@@ -309,7 +309,7 @@ class SelectableVoiceInputController @Inject constructor(
                 if (ranLiveCheck) delay(LIVE_CHECK_SETTLE_MS)
                 startNative(mode, allowOnlineFallback, gen)
             }
-            AutoSttRoute.Zipformer -> startSherpa(mode)
+            AutoSttRoute.Zipformer -> startSherpa(mode, gen)
             AutoSttRoute.Unavailable -> VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE)
         }
     }
@@ -338,7 +338,7 @@ class SelectableVoiceInputController @Inject constructor(
         // Zipformer emits ListeningStarted while it starts, so route its events from now on.
         activeController.value = sherpaOnnxVoiceInputController
         val zipformer = runZipformerStart(gen) {
-            val started = sherpaOnnxVoiceInputController.startListening(mode) as? VoiceInputStartResult.Started
+            val started = sherpaOnnxVoiceInputController.startListening(mode) { gen == generation.get() } as? VoiceInputStartResult.Started
             when {
                 started == null -> null
                 gen != generation.get() -> {
@@ -369,9 +369,18 @@ class SelectableVoiceInputController @Inject constructor(
         return nativeResult
     }
 
-    private suspend fun startSherpa(mode: VoiceCaptureMode): VoiceInputStartResult {
+    /**
+     * Starts Sherpa for the capture with generation [gen]. Sherpa's mic open is gated on
+     * [gen] (a stop during this suspension must not open the mic); afterwards a stop that
+     * raced the start is closed here too.
+     */
+    private suspend fun startSherpa(mode: VoiceCaptureMode, gen: Long): VoiceInputStartResult {
         activate(sherpaOnnxVoiceInputController)
-        return sherpaOnnxVoiceInputController.startListening(mode)
+        val result = sherpaOnnxVoiceInputController.startListening(mode) { gen == generation.get() }
+        if (result is VoiceInputStartResult.Started && gen != generation.get()) {
+            sherpaOnnxVoiceInputController.stopListening()
+        }
+        return result
     }
 
     private fun activate(controller: VoiceInputController) {
@@ -513,7 +522,7 @@ class SelectableVoiceInputController @Inject constructor(
             startMutex.withLock {
                 if (gen != generation.get() || !zipformerDownloaded()) return@withLock null
                 Log.w(TAG, "Android native failed ($reason); handing capture to Zipformer for this session")
-                val started = sherpaOnnxVoiceInputController.startListening(error.mode)
+                val started = sherpaOnnxVoiceInputController.startListening(error.mode) { gen == generation.get() }
                     as? VoiceInputStartResult.Started
                     ?: return@withLock null
                 if (gen != generation.get()) {

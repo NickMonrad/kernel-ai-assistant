@@ -1818,9 +1818,8 @@ private fun InputBar(
                                             .graphicsLayer {
                                                 scaleX = pulseScale
                                                 scaleY = pulseScale
-                                                alpha = 0.35f
                                             }
-                                            .background(contentColor.copy(alpha = 0.35f), CircleShape),
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape),
                                     )
                                 }
                                 Icon(

@@ -1791,9 +1791,11 @@ private fun VoiceCaptureCard(
                             .graphicsLayer {
                                 scaleX = pulseScale
                                 scaleY = pulseScale
-                                alpha = 0.35f
                             }
-                            .background(contentColor.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape),
+                            .background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                androidx.compose.foundation.shape.CircleShape,
+                            ),
                     )
                     Icon(
                         imageVector = androidx.compose.material.icons.Icons.Default.Mic,

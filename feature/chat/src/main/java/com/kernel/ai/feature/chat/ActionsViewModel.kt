@@ -403,6 +403,8 @@ class ActionsViewModel @Inject constructor(
     private var commandVoiceRetryCount = 0
 
     init {
+        // #1850: warm the selected recognizer off the main thread as Actions opens. Holds no mic.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { voiceInputController.prewarm() }
         viewModelScope.launch {
             voiceOutputPreferences.spokenResponsesEnabled.collect { enabled ->
                 spokenResponsesEnabled = enabled

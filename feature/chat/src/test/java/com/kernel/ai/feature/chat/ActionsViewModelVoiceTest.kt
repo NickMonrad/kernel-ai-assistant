@@ -110,6 +110,7 @@ class ActionsViewModelVoiceTest {
         every { voiceInputController.events } returns voiceInputEvents
         every { voiceInputController.notices } returns voiceInputNotices
         every { voiceInputController.stopListening() } just Runs
+        coEvery { voiceInputController.prewarm() } just Runs
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.openStreamingSession(any()) } answers {
@@ -4573,5 +4574,35 @@ class ActionsViewModelVoiceTest {
 
         assertNull(viewModel.speakingActionId.value)
         assertEquals("No voice installed.", viewModel.error.value)
+    }
+
+    @Test
+    fun `voice capture runs Preparing to Listening to Processing and stop returns to Idle`() = runTest(dispatcher) {
+        coEvery { voiceInputController.startListening(any()) } returns VoiceInputStartResult.Started(1L)
+
+        viewModel.startVoiceCommand()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Preparing(VoiceCaptureMode.Command),
+            viewModel.voiceCaptureState.value,
+        )
+
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Listening(VoiceCaptureMode.Command),
+            viewModel.voiceCaptureState.value,
+        )
+
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "turn on"))
+        voiceInputEvents.emit(VoiceInputEvent.SpeechEnded(VoiceCaptureMode.Command, captureSessionId = 1L))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Processing(mode = VoiceCaptureMode.Command, transcript = "turn on"),
+            viewModel.voiceCaptureState.value,
+        )
+
+        viewModel.stopVoiceCapture()
+        advanceUntilIdle()
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 }

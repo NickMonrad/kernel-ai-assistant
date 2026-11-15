@@ -18,4 +18,25 @@ class MicHintPolicyTest {
     fun `no hint before the first use is recorded`() {
         assertEquals(false, MicHintPolicy.shouldShowHint(0))
     }
+
+    @Test
+    fun `five taps show the hint on the fifth and the sixth tap hides it`() {
+        var stored = 0
+        val shownPerTap = (1..5).map { _ ->
+            stored = MicHintPolicy.nextUseCount(stored)
+            MicHintPolicy.shouldShowHint(stored)
+        }
+        assertEquals(listOf(true, true, true, true, true), shownPerTap)
+
+        stored = MicHintPolicy.nextUseCount(stored)
+        assertEquals(6, stored)
+        assertEquals(false, MicHintPolicy.shouldShowHint(stored))
+    }
+
+    @Test
+    fun `count stops rising once the hint is retired`() {
+        var stored = 0
+        repeat(10) { stored = MicHintPolicy.nextUseCount(stored) }
+        assertEquals(6, stored)
+    }
 }

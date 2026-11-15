@@ -68,6 +68,7 @@ class ActionsViewModelTest {
         coEvery { quickActionDao.insert(capture(insertedActions)) } just Runs
         every { voiceInputController.events } returns emptyFlow()
         every { voiceInputController.stopListening() } just Runs
+        coEvery { voiceInputController.prewarm() } just Runs
         every { voiceOutputController.events } returns emptyFlow()
         every { voiceOutputController.stop() } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled

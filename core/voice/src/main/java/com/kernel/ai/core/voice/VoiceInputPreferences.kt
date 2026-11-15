@@ -91,15 +91,15 @@ class VoiceInputPreferences @Inject constructor(
     }
 
     /**
-     * Increments and returns the persisted count of mic uses (#1850), once per user tap. Stops
-     * writing at [MicHintPolicy.MAX_HINT_USES]; the first-use hint is shown while
-     * [MicHintPolicy.shouldShowHint] holds for the returned count.
+     * Increments and returns the persisted count of mic uses (#1850), once per user tap. The
+     * count saturates at [MicHintPolicy.MAX_HINT_USES] + 1, so the hint is shown for uses
+     * 1..[MicHintPolicy.MAX_HINT_USES] and hidden from then on; no writes after that.
      */
     suspend fun recordMicUseStarted(): Int {
         var count = 0
         context.voiceInputPrefsDataStore.edit { prefs ->
             val stored = prefs[micUseCountKey] ?: 0
-            count = if (stored >= MicHintPolicy.MAX_HINT_USES) stored else stored + 1
+            count = MicHintPolicy.nextUseCount(stored)
             if (count != stored) prefs[micUseCountKey] = count
         }
         return count

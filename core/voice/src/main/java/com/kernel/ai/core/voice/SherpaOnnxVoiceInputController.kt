@@ -239,11 +239,28 @@ class SherpaOnnxVoiceInputController @Inject constructor(
      * session through the normal path. Cancelling the caller while the recognizer loads throws
      * [kotlinx.coroutines.CancellationException] and releases the microphone and audio focus.
      */
-    override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
+    override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
+        startListening(mode) { true }
+
+    /**
+     * [isWanted] is checked together with the stop count under [captureLock], right before the
+     * microphone opens and again after the recognizer loads. [VoiceInputController] callers that
+     * supersede this start (Selectable's generation) return false, so no mic opens for it.
+     */
+    internal suspend fun startListening(
+        mode: VoiceCaptureMode,
+        isWanted: () -> Boolean,
+    ): VoiceInputStartResult {
         val stopsAtCall = synchronized(captureLock) { stopCount }
         return sessionMutex.withLock {
             val previousJob = activeJob
             activeJob = null
+            // SF1: close the previous capture's microphone now; cancelling its job alone does not.
+            synchronized(captureLock) {
+                currentCapture?.close()
+                currentCapture = null
+                isRecording = false
+            }
             previousJob?.cancel()
             previousJob?.join()
             // The previous reader releases the microphone and audio focus asynchronously.
@@ -263,7 +280,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             // either wins (no mic, no ListeningStarted) or sees the open capture and closes it.
             var stoppedEarly = false
             val capture = synchronized(captureLock) {
-                if (stopCount != stopsAtCall) {
+                if (stopCount != stopsAtCall || !isWanted()) {
                     stoppedEarly = true
                     null
                 } else {
@@ -304,7 +321,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                     _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                     throw e
                 }
-                if (stopCount != stopsAtCall) {
+                if (stopCount != stopsAtCall || !isWanted()) {
                     abandonCapture(capture)
                     Log.i(TAG, "Sherpa STT start abandoned: stopped while the recognizer was loading (sessionId=$captureSessionId)")
                     _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
@@ -459,10 +476,11 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         // string passed to createStream exits the process.
         val stream = streamMethods.createStream!!.invoke(rec, "") // createStream(hotwords: String)
 
+        val preRoll = ArrayDeque(buffer.attach())
         buffer.trimmedSamples.takeIf { it > 0L }?.let {
             Log.w(TAG, "Pre-roll trimmed $it samples: recognizer load outlasted the ${PreRollAudioBuffer.PRE_ROLL_SAMPLES}-sample window")
         }
-        val preRoll = ArrayDeque(buffer.attach())
+        val floatBuf = FloatArray(CHUNK_SAMPLES)
         var lastPartial = ""
         val started = System.currentTimeMillis()
         var exitedFromLoop = false
@@ -470,8 +488,9 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         try {
             while (isRecording) {
                 val chunk = nextCaptureChunk(preRoll, buffer) ?: break
-                val exactFloat = FloatArray(chunk.size) { chunk[it] / 32768f }
-                _inputLevel.value = chunkRms(exactFloat)
+                val exactFloat = if (chunk.size == floatBuf.size) floatBuf else FloatArray(chunk.size)
+                for (i in chunk.indices) exactFloat[i] = chunk[i] / 32768f
+                _inputLevel.value = levelFromRms(chunkRms(exactFloat))
                 streamMethods.acceptWaveform!!.invoke(stream, exactFloat, SAMPLE_RATE)
 
                 // Drain — Sherpa may buffer multiple decodable chunks per feed.
@@ -580,10 +599,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     ) {
         val stream = streamMethods.createStream!!.invoke(rec)
 
+        val preRoll = ArrayDeque(buffer.attach())
         buffer.trimmedSamples.takeIf { it > 0L }?.let {
             Log.w(TAG, "Pre-roll trimmed $it samples: recognizer load outlasted the ${PreRollAudioBuffer.PRE_ROLL_SAMPLES}-sample window")
         }
-        val preRoll = ArrayDeque(buffer.attach())
         var recorded = FloatArray(SAMPLE_RATE * 2)
         var recordedCount = 0
         val started = System.currentTimeMillis()
@@ -604,7 +623,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 }
                 recordedCount += chunk.size
                 val rms = if (chunk.isEmpty()) 0f else sqrt((sumSq / chunk.size).toFloat())
-                _inputLevel.value = rms
+                _inputLevel.value = levelFromRms(rms)
                 if (rms >= OFFLINE_SPEECH_RMS_THRESHOLD) {
                     speechDetected = true
                     trailingSilenceFrames = 0
@@ -671,6 +690,12 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         var sum = 0.0
         for (v in chunk) sum += (v * v).toDouble()
         return kotlin.math.sqrt(sum / chunk.size).toFloat()
+    }
+
+    /** Maps raw chunk RMS to 0..1 for the level ring: -50 dBFS is 0, -10 dBFS is 1 (native is scaled alike). */
+    private fun levelFromRms(rms: Float): Float {
+        val db = 20f * kotlin.math.log10(kotlin.math.max(rms, 1e-6f))
+        return ((db + 50f) / 40f).coerceIn(0f, 1f)
     }
 
     override suspend fun transcribeBlocking(pcm: ShortArray): String? {
