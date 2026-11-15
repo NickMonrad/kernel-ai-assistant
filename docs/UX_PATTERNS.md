@@ -620,7 +620,6 @@ label (e.g. "Generating meal plan", "Generating recipe 2 of 5"). Two tones: `WOR
 - Getting started is reachable from the Chats menu, the download banner, and Settings → About. Its **Start chatting** clears the Getting started entry from the back stack.
 - Scrollable Chats and Actions content clears the three-FAB stack with the shared `FabStackClearance`, so the two lists do not drift apart.
 
-
 ---
 
 ## 6. Touch Targets and Spacing

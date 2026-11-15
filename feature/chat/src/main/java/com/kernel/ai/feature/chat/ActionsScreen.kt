@@ -119,8 +119,6 @@ private const val ACTIONS_SCREEN_TAG = "KernelAI"
 /** #1604: shown next to text supplied by another app until the user sends or discards it. */
 internal const val EXTERNAL_DRAFT_HINT = "Text from another app — review or edit it. Nothing runs until you send it."
 
-
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActionsScreen(

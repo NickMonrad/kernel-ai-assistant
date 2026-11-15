@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.chat
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -230,7 +228,7 @@ internal fun ChatsWelcome(
                     DownloadCard(
                         title = "Waiting for Wi-Fi",
                         body = "Jandal can chat now. A better version (about ${formatBytesShort(download.model.approxSizeBytes)}) " +
-                            "downloads when Wi-Fi is available.",
+                            "downloads when Wi-Fi is available. Use mobile data changes the setting for all downloads.",
                         progress = null,
                         actionLabel = "Use mobile data",
                         onAction = onUseMobileData,
@@ -354,18 +352,21 @@ internal fun ChatsWelcome(
 internal fun SetupWizardResumeCard(onFinishSetup: () -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
-            .fillMaxWidth()
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 16.dp)
             .testTag("chats_setup_resume"),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         Text(
             text = "Setup isn't finished",
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() },
         )
         Text(
-            text = "Finish setup to choose how Jandal gets its files.",
+            text = "Finish setup to choose your voice and how Jandal gets its files.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
