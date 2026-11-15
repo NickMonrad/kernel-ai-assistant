@@ -62,6 +62,36 @@ object TranscriptNormaliser {
         Regex("""\bockland\b""", RegexOption.IGNORE_CASE) to "Auckland",
     )
 
+    /**
+     * Weather-keyword mishears from STT: #1940. Context-gated so ordinary uses of the same
+     * words survive: a correction only fires in a weather-shaped phrase ("what's the … in/for/
+     * tomorrow", "how's the … tomorrow", "the … in Auckland"). "whether or not" never matches
+     * because it has no weather-shaped follower.
+     */
+    private val WEATHER_MISHEAR_REPLACEMENTS: List<Pair<Regex, (MatchResult) -> String>> = listOf(
+        // "what the whither in Auckland", "how's the wether tomorrow", "what's the whether" (end of utterance)
+        Regex(
+            """\b(what(?:'s|\s+is)?|how(?:'s|\s+is)?)\s+(?:the\s+)?(?:whither|wither|wether|whether|wayther)\b(?=\s+(?:in|for|at|like|today|tonight|tomorrow|this|next|outside|here|now|forecast|looking|over)\b|\s*[.!?]*$)""",
+            RegexOption.IGNORE_CASE,
+        ) to { mr -> "${weatherQuestionHead(mr.groupValues[1])} the weather" },
+        // "what's the way tomorrow" / "how's the way in…" — "way" alone is too common (nav: "the way to"), so require a weather follower
+        Regex(
+            """\b(what(?:'s|\s+is)?|how(?:'s|\s+is)?)\s+the\s+way\b(?=\s+(?:today|tonight|tomorrow|this|next|outside|forecast|like|looking)\b)""",
+            RegexOption.IGNORE_CASE,
+        ) to { mr -> "${weatherQuestionHead(mr.groupValues[1])} the weather" },
+        // bare noun before a weather follower: "the whither in Auckland", "the wether tomorrow"
+        Regex(
+            """\bthe\s+(?:whither|wither|wether|whether|wayther)\b(?=\s+(?:in|for|at|tomorrow|today|tonight|this\s+week|next)\b)""",
+            RegexOption.IGNORE_CASE,
+        ) to { _ -> "the weather" },
+    )
+
+    private fun weatherQuestionHead(lead: String): String = when (lead.lowercase()) {
+        "what" -> "what's"
+        "how" -> "how's"
+        else -> lead
+    }
+
     /** Unit/abbreviation normalisations: #1017. */
     private val STT_UNIT_ALIAS_REPLACEMENTS: List<Pair<Regex, String>> = listOf(
         // #1017 — mls / Mills / mils / ml's -> ml
@@ -112,6 +142,9 @@ object TranscriptNormaliser {
     fun normalise(text: String): String {
         if (text.isBlank()) return text
         var out = text
+        for ((re, replacement) in WEATHER_MISHEAR_REPLACEMENTS) {
+            out = re.replace(out, replacement)
+        }
         for ((re, replacement) in AUCKLAND_REPLACEMENTS) {
             out = re.replace(out, replacement)
         }

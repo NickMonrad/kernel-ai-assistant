@@ -1237,6 +1237,12 @@ Each phrase contains two or more intents. The system should ideally handle all o
 | 6 | "brighness up" | set_brightness |
 | 7 | "flashlgiht on" | toggle_flashlight_on |
 | 8 | "cancle the timer" | cancel_timer |
+| 9 | "what the whither in Auckland" (#1940) | get_weather |
+| 10 | "what the wither in Auckland" (#1940) | get_weather |
+| 11 | "what's the wether tomorrow" (#1940) | get_weather |
+| 12 | "what's the whether tomorrow" (#1940) | get_weather |
+| 13 | "what's the way tomorrow" (#1940) | get_weather |
+| 14 | "whether or not I need a jacket" (negative: must not route to get_weather via STT correction) | not get_weather |
 
 ---
 

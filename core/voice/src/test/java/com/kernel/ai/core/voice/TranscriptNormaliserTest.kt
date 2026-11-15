@@ -302,6 +302,44 @@ class TranscriptNormaliserTest {
         assertEquals(once, TranscriptNormaliser.normalise(once))
     }
 
+    // ── #1940 — "weather" misheard as whither/wither/wether/whether/"the way" ──
+
+    @Test
+    fun `issue 1940 weather transcripts are corrected to weather`() {
+        assertEquals("what's the weather in Auckland", TranscriptNormaliser.normalise("what the whither in Auckland"))
+        assertEquals("what's the weather in Auckland", TranscriptNormaliser.normalise("what the wither in Auckland"))
+        assertEquals("what's the weather tomorrow", TranscriptNormaliser.normalise("what's the whether tomorrow"))
+        assertEquals("what's the weather tomorrow", TranscriptNormaliser.normalise("what's the wether tomorrow"))
+        assertEquals("what's the weather tomorrow", TranscriptNormaliser.normalise("what's the way tomorrow"))
+        assertEquals("how's the weather in Wellington", TranscriptNormaliser.normalise("how's the wether in Wellington"))
+    }
+
+    @Test
+    fun `weather mishears before a weather follower are corrected`() {
+        assertEquals("the weather in Auckland", TranscriptNormaliser.normalise("the whither in Auckland"))
+        assertEquals("is the weather tomorrow", TranscriptNormaliser.normalise("is the wether tomorrow"))
+        assertEquals("what's the weather", TranscriptNormaliser.normalise("what's the wether"))
+    }
+
+    @Test
+    fun `whether or not is untouched`() {
+        assertEquals("I'll go whether or not it rains", TranscriptNormaliser.normalise("I'll go whether or not it rains"))
+        assertEquals("whether or not to go", TranscriptNormaliser.normalise("whether or not to go"))
+        assertEquals("what's whether or not tomorrow", TranscriptNormaliser.normalise("what's whether or not tomorrow"))
+    }
+
+    @Test
+    fun `navigation the way to is untouched`() {
+        assertEquals("what's the way to the airport", TranscriptNormaliser.normalise("what's the way to the airport"))
+        assertEquals("show me the way to Auckland", TranscriptNormaliser.normalise("show me the way to Auckland"))
+    }
+
+    @Test
+    fun `weather corrections are idempotent`() {
+        val once = TranscriptNormaliser.normalise("what the whither in Auckland")
+        assertEquals(once, TranscriptNormaliser.normalise(once))
+    }
+
     // ── #1820 — "add" misheard as "I've" / "I'd" in list commands ───────────
 
     @Test
