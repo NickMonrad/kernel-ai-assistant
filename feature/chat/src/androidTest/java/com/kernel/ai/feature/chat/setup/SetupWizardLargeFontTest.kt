@@ -73,14 +73,14 @@ class SetupWizardLargeFontTest {
         val option = composeRule.onNodeWithText("Allow mobile data")
         option.assertIsDisplayed()
         assertInside(option.unclippedBounds(), contentBounds())
-        assertButtonsReachable(primary = "Finish", size = PORTRAIT, compact = false)
+        assertButtonsReachable(primary = "Continue", size = PORTRAIT, compact = false)
     }
 
     @Test
     fun step2ButtonsReachableAtLargeFontLandscape() {
         setWizard(step = SetupStep.DOWNLOAD, size = LANDSCAPE)
 
-        assertButtonsReachable(primary = "Finish", size = LANDSCAPE, compact = true)
+        assertButtonsReachable(primary = "Continue", size = LANDSCAPE, compact = true)
     }
 
     @Test
@@ -106,14 +106,52 @@ class SetupWizardLargeFontTest {
         assertButtonsReachable(primary = "Continue", size = LANDSCAPE, compact = true)
     }
 
-    private fun setWizard(step: SetupStep, size: DpSize) {
+    @Test
+    fun makeJandalYoursButtonsReachableAtLargeFontPortrait() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, PORTRAIT)
+        assertButtonsReachable(primary = "Finish", size = PORTRAIT, compact = false)
+    }
+
+    @Test
+    fun makeJandalYoursButtonsReachableAtLargeFontLandscape() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, LANDSCAPE)
+        assertButtonsReachable(primary = "Finish", size = LANDSCAPE, compact = true)
+    }
+
+    @Test
+    fun makeJandalYoursLastRowScrollsIntoViewAtLargeFont() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, PORTRAIT)
+        composeRule.onNodeWithTag(SETUP_WIZARD_CONTENT_TAG)
+            .performScrollToNode(hasText("Alarms and timers"))
+        val row = composeRule.onNodeWithText("Alarms and timers")
+        row.assertIsDisplayed()
+        assertInside(row.unclippedBounds(), contentBounds())
+    }
+
+    @Test
+    fun makeJandalYoursTallestStateButtonsReachableAtLargeFontPortrait() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, PORTRAIT, tallMakeYours = true)
+        composeRule.onNodeWithTag(SETUP_WIZARD_CONTENT_TAG)
+            .performScrollToNode(hasText("Alarms and timers"))
+        assertButtonsReachable(primary = "Finish", size = PORTRAIT, compact = false)
+    }
+
+    @Test
+    fun makeJandalYoursTallestStateButtonsReachableAtLargeFontLandscape() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, LANDSCAPE, tallMakeYours = true)
+        composeRule.onNodeWithTag(SETUP_WIZARD_CONTENT_TAG)
+            .performScrollToNode(hasText("Alarms and timers"))
+        assertButtonsReachable(primary = "Finish", size = LANDSCAPE, compact = true)
+    }
+
+    private fun setWizard(step: SetupStep, size: DpSize, tallMakeYours: Boolean = false) {
         composeRule.setContent {
             DeviceConfigurationOverride(
                 DeviceConfigurationOverride.ForcedSize(size).then(
                     DeviceConfigurationOverride.FontScale(LARGE_FONT_SCALE),
                 ),
             ) {
-                WizardUnderTest(step)
+                WizardUnderTest(step, tallMakeYours)
             }
         }
     }
@@ -176,7 +214,7 @@ class SetupWizardLargeFontTest {
     }
 
     @Composable
-    private fun WizardUnderTest(step: SetupStep) {
+    private fun WizardUnderTest(step: SetupStep, tallMakeYours: Boolean) {
         layoutDensity = LocalDensity.current.density
         SetupWizardContent(
             state = SetupWizardUiState(
@@ -190,10 +228,13 @@ class SetupWizardLargeFontTest {
                 choiceRecorded = true,
                 plannedModels = emptyList(),
                 plannedVoices = emptyList(),
+                platform = if (tallMakeYours) TALLEST_PLATFORM else MakeYoursPlatform(),
+                wakeWordChoice = tallMakeYours,
             ),
             onInputSelected = {},
             onOutputSelected = {},
             onChoiceSelected = {},
+            makeYours = MakeYoursActions(),
             onPrimary = {},
             onBack = {},
             onSkip = {},
@@ -206,5 +247,15 @@ class SetupWizardLargeFontTest {
         const val TOLERANCE_PX = 1f
         val PORTRAIT = DpSize(360.dp, 640.dp)
         val LANDSCAPE = DpSize(915.dp, 412.dp)
+        /** Usage Access is the longest block text, and Hey Jandal is on, so Open Usage Access and Turn off both show. */
+        val TALLEST_PLATFORM = MakeYoursPlatform(
+            hasMicrophone = true,
+            micGranted = true,
+            wakeModelAvailable = true,
+            usageAccessRequired = true,
+            assistantRoleAvailable = true,
+            notificationsGranted = false,
+            exactAlarmAllowed = false,
+        )
     }
 }

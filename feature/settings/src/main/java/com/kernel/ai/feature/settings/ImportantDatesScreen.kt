@@ -1,9 +1,8 @@
 package com.kernel.ai.feature.settings
+import com.kernel.ai.core.ui.findActivity
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import com.kernel.ai.core.permissions.PermissionRequestStore
@@ -851,10 +850,4 @@ private fun Context.openAppPermissionSettings() {
         Uri.fromParts("package", packageName, null),
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     startActivity(intent)
-}
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }
