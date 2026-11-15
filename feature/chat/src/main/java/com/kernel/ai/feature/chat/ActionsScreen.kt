@@ -107,6 +107,13 @@ import com.kernel.ai.core.permissions.VoicePermissionPromptFactory
 import com.kernel.ai.core.permissions.VoicePermissionPromptState
 import com.kernel.ai.core.ui.permissions.VoicePermissionPrompt
 import com.kernel.ai.core.voice.VoiceCaptureMode
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.State
 import com.kernel.ai.feature.chat.InputMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -151,6 +158,8 @@ fun ActionsScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
+    val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
+    val voiceInputLevel = viewModel.voiceInputLevel.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
     val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
@@ -173,6 +182,14 @@ fun ActionsScreen(
         is ActionsViewModel.VoiceCaptureState.Listening -> currentVoiceCaptureState.transcript
         is ActionsViewModel.VoiceCaptureState.Processing -> currentVoiceCaptureState.transcript
         else -> ""
+    }
+
+    val actionsView = androidx.compose.ui.platform.LocalView.current
+    // #1850: start haptic is emitted once per mic start by the view model.
+    LaunchedEffect(viewModel) {
+        viewModel.listeningHaptics.collect {
+            actionsView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        }
     }
 
     val context = LocalContext.current
@@ -647,6 +664,8 @@ fun ActionsScreen(
             if (voiceCaptureState != ActionsViewModel.VoiceCaptureState.Idle) {
                 VoiceCaptureCard(
                     state = voiceCaptureState,
+                    micHintVisible = micHintVisible,
+                    voiceInputLevel = voiceInputLevel,
                     onStop = viewModel::stopVoiceCapture,
                 )
             }
@@ -1720,26 +1739,31 @@ private fun VoiceTranscriptOverlay(
 private fun VoiceCaptureCard(
     state: ActionsViewModel.VoiceCaptureState,
     onStop: () -> Unit,
+    micHintVisible: Boolean,
+    voiceInputLevel: State<Float>,
 ) {
     val title = when (state) {
-        is ActionsViewModel.VoiceCaptureState.Preparing -> "Preparing offline voice input…"
+        is ActionsViewModel.VoiceCaptureState.Preparing -> "Getting ready…"
         is ActionsViewModel.VoiceCaptureState.Listening -> when (state.mode) {
-            VoiceCaptureMode.Command -> "Ready — speak your quick action"
-            VoiceCaptureMode.SlotReply -> "Ready — speak your reply"
             VoiceCaptureMode.AlertCommand -> "Listening for alert command…"
+            VoiceCaptureMode.Command, VoiceCaptureMode.SlotReply -> "Listening, speak now"
         }
-        is ActionsViewModel.VoiceCaptureState.Processing -> "Processing speech…"
+        is ActionsViewModel.VoiceCaptureState.Processing -> "Processing voice input"
         ActionsViewModel.VoiceCaptureState.Idle -> return
     }
     val detail = when (state) {
-        is ActionsViewModel.VoiceCaptureState.Listening -> state.transcript.ifBlank { "" }
+        is ActionsViewModel.VoiceCaptureState.Listening -> state.transcript.ifBlank {
+            if (micHintVisible) "Your words are being captured." else ""
+        }
         is ActionsViewModel.VoiceCaptureState.Processing -> state.transcript
         else -> ""
     }
+    val contentColor = MaterialTheme.colorScheme.onSecondaryContainer
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
         ),
@@ -1750,21 +1774,44 @@ private fun VoiceCaptureCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp))
+            if (state is ActionsViewModel.VoiceCaptureState.Listening) {
+                // #1850: ring scales with the live input level while the mic is live.
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(24.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .graphicsLayer {
+                                scaleX = 1f + voiceInputLevel.value.coerceIn(0f, 1f)
+                                scaleY = scaleX
+                            }
+                            .background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                androidx.compose.foundation.shape.CircleShape,
+                            ),
+                    )
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.Mic,
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            } else {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+            }
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = contentColor,
                 )
                 if (detail.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = detail,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        maxLines = 2,
+                        color = contentColor,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

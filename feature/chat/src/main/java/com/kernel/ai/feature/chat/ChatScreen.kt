@@ -5,6 +5,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.State
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -271,6 +273,15 @@ fun ChatScreen(
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
     val microphoneState by viewModel.microphoneState.collectAsStateWithLifecycle()
+    val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
+    val voiceInputLevel = viewModel.voiceInputLevel.collectAsStateWithLifecycle()
+    // #1850: short haptic when the mic goes live, emitted once per start by the view model.
+    val chatView = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.LaunchedEffect(viewModel) {
+        viewModel.listeningHaptics.collect {
+            chatView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        }
+    }
     val weatherLocationState by viewModel.weatherLocationState.collectAsStateWithLifecycle()
     val settingsActionState by viewModel.settingsActionState.collectAsStateWithLifecycle()
     val mealPlannerActivity by viewModel.mealPlannerActivity.collectAsStateWithLifecycle()
@@ -554,6 +565,8 @@ fun ChatScreen(
                 },
                 onRenameConversation = viewModel::renameConversation,
                 voiceCaptureState = voiceCaptureState,
+                voiceInputLevel = voiceInputLevel,
+                micHintVisible = micHintVisible,
                 voicePlaybackState = voicePlaybackState,
                 voiceMode = voiceMode,
                 mealPlannerActivity = mealPlannerActivity,
@@ -846,6 +859,8 @@ private fun ChatContent(
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
+    voiceInputLevel: State<Float>,
+    micHintVisible: Boolean,
     mealPlannerActivity: MealPlannerActivity?,
     onPlannerSmartReplySelected: (MealPlannerSuggestion) -> Unit,
     onStartVoiceInput: () -> Unit,
@@ -1168,6 +1183,8 @@ private fun ChatContent(
                     replacementText = state.inputTextReplacementText,
                     isGenerating = state.isGenerating,
                     voiceCaptureState = voiceCaptureState,
+                    voiceInputLevel = voiceInputLevel,
+                    micHintVisible = micHintVisible,
                     voicePlaybackState = voicePlaybackState,
                     voiceMode = voiceMode,
                     mealPlannerActivity = mealPlannerActivity,
@@ -1601,6 +1618,8 @@ private fun InputBar(
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
+    voiceInputLevel: State<Float>,
+    micHintVisible: Boolean,
     mealPlannerActivity: MealPlannerActivity?,
     onTextChanged: (String) -> Unit,
     onSmartReplySelected: (MealPlannerSuggestion) -> Unit,
@@ -1669,7 +1688,7 @@ private fun InputBar(
             onShowAttachmentPickerChange(false)
         },
     )
-    val status = remember(voiceCaptureState, voicePlaybackState, voiceMode, mealPlannerActivity) {
+    val status = remember(voiceCaptureState, voicePlaybackState, voiceMode, mealPlannerActivity, micHintVisible) {
         when (voiceCaptureState) {
             ChatViewModel.VoiceCaptureState.Idle -> when (voicePlaybackState) {
                 ChatViewModel.VoicePlaybackState.Idle -> mealPlannerActivity?.let { activity ->
@@ -1700,7 +1719,7 @@ private fun InputBar(
                 )
             }
             ChatViewModel.VoiceCaptureState.Preparing -> InputBarStatusUiModel(
-                title = "Starting voice input",
+                title = "Getting ready…",
                 subtitle = if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
                     "Back-and-forth mode"
                 } else {
@@ -1710,9 +1729,11 @@ private fun InputBar(
                 tone = InputBarStatusTone.VOICE,
             )
             is ChatViewModel.VoiceCaptureState.Listening -> InputBarStatusUiModel(
-                title = "Listening",
+                title = "Listening, speak now",
                 subtitle = voiceCaptureState.transcript.ifBlank {
-                    if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
+                    if (micHintVisible) {
+                        "Your words are being captured."
+                    } else if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
                         "Back-and-forth mode"
                     } else {
                         "One-shot push-to-talk"
@@ -1720,6 +1741,7 @@ private fun InputBar(
                 },
                 icon = Icons.Default.Mic,
                 tone = InputBarStatusTone.VOICE,
+                pulse = true,
             )
             is ChatViewModel.VoiceCaptureState.Processing -> InputBarStatusUiModel(
                 title = "Processing voice input",
@@ -1779,11 +1801,25 @@ private fun InputBar(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Icon(
-                                imageVector = currentStatus.icon,
-                                contentDescription = null,
-                                tint = contentColor,
-                            )
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(24.dp)) {
+                                if (currentStatus.pulse) {
+                                    // #1850: ring scales with the live input level while Listening.
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .graphicsLayer {
+                                                scaleX = 1f + voiceInputLevel.value.coerceIn(0f, 1f)
+                                                scaleY = scaleX
+                                            }
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape),
+                                    )
+                                }
+                                Icon(
+                                    imageVector = currentStatus.icon,
+                                    contentDescription = null,
+                                    tint = contentColor,
+                                )
+                            }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = currentStatus.title,
@@ -1794,7 +1830,6 @@ private fun InputBar(
                                     text = currentStatus.subtitle,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = contentColor.copy(alpha = 0.9f),
-                                    maxLines = 2,
                                 )
                             }
                         }
@@ -2147,6 +2182,7 @@ internal fun PlannerSmartReplyChips(
 private data class InputBarStatusUiModel(
     val title: String,
     val subtitle: String,
+    val pulse: Boolean = false,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val tone: InputBarStatusTone,
 )

@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -20,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -46,7 +48,7 @@ class SelectableVoiceInputControllerTest {
         every { sherpaOnnxVoiceInputController.stopListening() } just runs
         coEvery { nativeAndroidVoiceInputController.startListening(any(), any()) } returns
             VoiceInputStartResult.Started(1L)
-        coEvery { sherpaOnnxVoiceInputController.startListening(any()) } returns
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any()) } returns
             VoiceInputStartResult.Started(2L)
     }
 
@@ -128,7 +130,7 @@ class SelectableVoiceInputControllerTest {
 
         assertEquals(VoiceInputStartResult.Started(2L), controller().startListening(VoiceCaptureMode.Command))
 
-        coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command, any()) }
         coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any()) }
         verify(exactly = 0) { recognitionSupport.getCaptureAvailability() }
     }
@@ -165,7 +167,7 @@ class SelectableVoiceInputControllerTest {
 
         assertEquals(VoiceInputStartResult.Started(2L), controller().startListening(VoiceCaptureMode.Command))
 
-        coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command, any()) }
         coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any()) }
     }
 
@@ -212,7 +214,7 @@ class SelectableVoiceInputControllerTest {
             controller().startListening(VoiceCaptureMode.Command)
         }
         val sherpaCount = VoiceInputEngine.entries.count { it.isSherpaFamily }
-        coVerify(exactly = sherpaCount) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = sherpaCount) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command, any()) }
         coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any()) }
     }
 
@@ -295,7 +297,7 @@ class SelectableVoiceInputControllerTest {
         controller().transcribeBlocking(pcm)
 
         coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any()) }
-        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any()) }
+        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any()) }
         verify(exactly = 0) { nativeAndroidVoiceInputController.stopListening() }
         verify(exactly = 0) { sherpaOnnxVoiceInputController.stopListening() }
     }
@@ -315,4 +317,49 @@ class SelectableVoiceInputControllerTest {
             lines.toString(),
         )
     }
+
+    @Test
+    fun `stop during the selectable suspension keeps the microphone closed and sends no ListeningStarted`() =
+        runTest(dispatcher) {
+            val controller = controller()
+            every { voiceInputPreferences.selectedEngine } returns flow {
+                controller.stopListening() // the stop lands while Selectable is still reading settings
+                emit(VoiceInputEngine.Auto)
+            }
+            coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+            var micOpened = false
+            coEvery { sherpaOnnxVoiceInputController.startListening(any(), any()) } coAnswers {
+                if (secondArg<() -> Boolean>().invoke()) {
+                    micOpened = true
+                    sherpaEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L))
+                }
+                VoiceInputStartResult.Started(2L)
+            }
+            val received = mutableListOf<VoiceInputEvent>()
+            val collectJob = launch { controller.events.collect { received += it } }
+
+            controller.startListening(VoiceCaptureMode.Command)
+            advanceUntilIdle()
+            collectJob.cancel()
+
+            assertFalse(micOpened)
+            assertTrue(received.none { it is VoiceInputEvent.ListeningStarted })
+        }
+
+    @Test
+    fun `sherpa start without a stop opens the microphone and sends ListeningStarted`() =
+        runTest(dispatcher) {
+            val controller = controller()
+            selectEngine(VoiceInputEngine.Auto)
+            coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+            var micOpened = false
+            coEvery { sherpaOnnxVoiceInputController.startListening(any(), any()) } coAnswers {
+                if (secondArg<() -> Boolean>().invoke()) micOpened = true
+                VoiceInputStartResult.Started(2L)
+            }
+
+            controller.startListening(VoiceCaptureMode.Command)
+
+            assertTrue(micOpened)
+        }
 }

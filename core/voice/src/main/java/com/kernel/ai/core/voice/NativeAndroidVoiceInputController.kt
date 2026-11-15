@@ -16,6 +16,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -207,6 +210,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private val _events = voiceEventFlow()
     override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
 
+    private val _inputLevel = MutableStateFlow(0f)
+    override val inputLevel: StateFlow<Float> = _inputLevel.asStateFlow()
+
 
     private val audioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -378,6 +384,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         inPlaceRefreshJob = null
         speechRecognizer = null
         currentMode = null
+        _inputLevel.value = 0f
         activeSessionId = 0L
         readinessEmittedForSession = false
 
@@ -691,11 +698,18 @@ class NativeAndroidVoiceInputController @Inject constructor(
             _events.tryEmit(VoiceInputEvent.SpeechDetected(mode, sessionId))
         }
 
-        override fun onRmsChanged(rmsdB: Float) = Unit
+        override fun onRmsChanged(rmsdB: Float) {
+            if (sessionCompleted || activeSessionId != sessionId) return
+            // Android reports roughly -2..10 dB; normalise to 0..1 for the level meter (#1850).
+            _inputLevel.value = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
+        }
 
         override fun onBufferReceived(buffer: ByteArray?) = Unit
 
-        override fun onEndOfSpeech() = Unit
+        override fun onEndOfSpeech() {
+            if (sessionCompleted || activeSessionId != sessionId) return
+            _events.tryEmit(VoiceInputEvent.SpeechEnded(mode, sessionId))
+        }
 
         override fun onError(error: Int) {
             if (sessionCompleted || activeSessionId != sessionId) return

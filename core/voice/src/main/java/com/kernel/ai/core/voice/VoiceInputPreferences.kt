@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
@@ -24,6 +25,7 @@ class VoiceInputPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val selectedEngineKey = stringPreferencesKey("selected_voice_input_engine")
+    private val micUseCountKey = intPreferencesKey("mic_use_count")
     private val autoStartAlertVoiceCommandsEnabledKey =
         booleanPreferencesKey("auto_start_alert_voice_commands_enabled")
     private val allowOnlineSpeechFallbackKey =
@@ -86,5 +88,20 @@ class VoiceInputPreferences @Inject constructor(
         context.voiceInputPrefsDataStore.edit { prefs ->
             prefs[autoStartAlertVoiceCommandsEnabledKey] = enabled
         }
+    }
+
+    /**
+     * Increments and returns the persisted count of mic uses (#1850), once per user tap. The
+     * count saturates at [MicHintPolicy.MAX_HINT_USES] + 1, so the hint is shown for uses
+     * 1..[MicHintPolicy.MAX_HINT_USES] and hidden from then on; no writes after that.
+     */
+    suspend fun recordMicUseStarted(): Int {
+        var count = 0
+        context.voiceInputPrefsDataStore.edit { prefs ->
+            val stored = prefs[micUseCountKey] ?: 0
+            count = MicHintPolicy.nextUseCount(stored)
+            if (count != stored) prefs[micUseCountKey] = count
+        }
+        return count
     }
 }
