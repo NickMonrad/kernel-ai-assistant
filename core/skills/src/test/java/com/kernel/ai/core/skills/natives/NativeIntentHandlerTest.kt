@@ -37,6 +37,10 @@ import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
 import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.SkillResult
 import io.mockk.Runs
+import com.google.ai.edge.litertlm.ToolParam
+import com.kernel.ai.core.skills.KernelAIToolSet
+import com.kernel.ai.core.skills.MealPlannerSkill
+import com.kernel.ai.core.skills.RunIntentSkill
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -781,6 +785,82 @@ class NativeIntentHandlerTest {
             listNameDao.insert(match { it.name == "golden journey item to the" })
         }
     }
+
+    @Test
+    fun `bulk_add_to_list adds every item to the named list`() {
+        val shoppingList = com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 1L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
+        )
+        coEvery { listNameDao.getByName("shopping list") } returns shoppingList
+        coEvery { listItemDao.getByList(1L) } returns listOf(
+            ListItemEntity(listId = 1L, text = "milk", createdAt = 0L, updatedAt = 0L),
+            ListItemEntity(listId = 1L, text = "eggs", createdAt = 0L, updatedAt = 0L),
+        )
+
+        val result = handleIntent(
+            "bulk_add_to_list",
+            mapOf("items" to "[\"milk\",\"eggs\"]", "list_name" to "shopping"),
+        )
+
+        assertEquals(
+            "Added 2 items to your shopping list:\nmilk, eggs",
+            (result as SkillResult.DirectReply).content,
+        )
+        coVerify(exactly = 1) {
+            listItemDao.insert(match { it.listId == 1L && it.text == "milk" })
+        }
+        coVerify(exactly = 1) {
+            listItemDao.insert(match { it.listId == 1L && it.text == "eggs" })
+        }
+    }
+
+    @Test
+    fun `unknown intent reply suggests the closest real list intents`() {
+        val result = handleIntent("add_add_to_list", mapOf("item" to "milk"))
+
+        val message = assertInstanceOf(SkillResult.Failure::class.java, result).error
+        assertTrue(message.startsWith("Unknown intent: add_add_to_list."), message)
+        assertTrue(message.contains("add_to_list"), message)
+        assertTrue(message.contains("bulk_add_to_list"), message)
+    }
+
+    @Test
+    fun `every advertised run_intent name is registered and dispatchable`() {
+        val advertised = mutableMapOf<String, String>()
+        fun advertise(source: String, names: Iterable<String>) {
+            names.forEach { advertised.putIfAbsent(it, source) }
+        }
+
+        val runIntent = RunIntentSkill(handler)
+        advertise("RunIntentSkill.schema", runIntent.schema.parameters.getValue("intent_name").enum.orEmpty())
+        advertise("RunIntentSkill.examples", intentNamesIn(runIntent.examples.joinToString("\n")))
+        advertise("RunIntentSkill.fullInstructions", intentNamesIn(runIntent.fullInstructions))
+        advertise("MealPlannerSkill.fullInstructions", intentNamesIn(MealPlannerSkill().fullInstructions))
+        val toolParamDescriptions = KernelAIToolSet::class.java
+            .getMethod("runIntent", String::class.java, String::class.java)
+            .parameterAnnotations
+            .flatMap { annotations -> annotations.filterIsInstance<ToolParam>().map { it.description } }
+        advertise("KernelAIToolSet.runIntent", toolParamDescriptions.flatMap { quotedIdentifiersIn(it) })
+
+        assertTrue(advertised.isNotEmpty())
+        val unregistered = advertised.filterKeys { it !in NativeIntentHandler.KNOWN_INTENTS }
+        assertTrue(unregistered.isEmpty(), "Advertised but not registered: $unregistered")
+
+        val notDispatchable = advertised.keys.filter { name ->
+            val result = handleIntent(name, emptyMap())
+            result is SkillResult.Failure && result.error.startsWith("Unknown intent:")
+        }
+        assertTrue(notDispatchable.isEmpty(), "Advertised but not dispatchable: $notDispatchable")
+    }
+
+    private fun intentNamesIn(text: String): List<String> =
+        Regex("""intentName[=:]"?([a-z][a-z0-9_]*)""").findAll(text).map { it.groupValues[1] }.toList() +
+            Regex("""(?m)^  ([a-z][a-z0-9_]*(?:, [a-z][a-z0-9_]*)*) —""").findAll(text)
+                .flatMap { it.groupValues[1].split(", ") }
+                .toList()
+
+    private fun quotedIdentifiersIn(text: String): List<String> =
+        Regex("""'([a-z][a-z0-9_]*)'""").findAll(text).map { it.groupValues[1] }.toList()
 
     @Test
     fun `shopping list aliases resolve to the same stored list`() {

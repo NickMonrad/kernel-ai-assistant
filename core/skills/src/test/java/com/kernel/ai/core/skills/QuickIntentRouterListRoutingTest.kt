@@ -138,4 +138,27 @@ class QuickIntentRouterListRoutingTest {
         val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
         assertEquals("create_list", match.intent.intentName)
     }
+
+    @Test
+    fun `routes ad milk to my shopping lest as add_to_list via stt correction`() {
+        val result = router.route("ad milk to my shopping lest")
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+        assertEquals("add_to_list", match.intent.intentName)
+        assertEquals("milk", match.intent.params["item"])
+        assertEquals("shopping", match.intent.params["list_name"])
+    }
+
+    @Test
+    fun `routes add milk to my shopping last as add_to_list via stt correction`() {
+        val result = router.route("add milk to my shopping last")
+        val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
+        assertEquals("add_to_list", match.intent.intentName)
+        assertEquals("shopping", match.intent.params["list_name"])
+    }
+
+    @Test
+    fun `does not rewrite ad or last outside list-shaped phrases`() {
+        assertInstanceOf(QuickIntentRouter.RouteResult.FallThrough::class.java, router.route("ad campaign ideas"))
+        assertInstanceOf(QuickIntentRouter.RouteResult.FallThrough::class.java, router.route("I'm at the last stop"))
+    }
 }

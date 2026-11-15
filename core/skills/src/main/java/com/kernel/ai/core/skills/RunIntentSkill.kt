@@ -89,6 +89,7 @@ class RunIntentSkill @Inject constructor(
                     // Lists
                     "create_list",
                     "add_to_list",
+                    "bulk_add_to_list",
                 ),
             ),
         ),
@@ -147,6 +148,7 @@ class RunIntentSkill @Inject constructor(
         "Add a list called shopping → runIntent(intentName=\"create_list\", parameters='{\"list_name\":\"shopping\"}')",
         "Create a groceries list → runIntent(intentName=\"create_list\", parameters='{\"list_name\":\"groceries\"}')",
         "Add milk to my shopping list → runIntent(intentName=\"add_to_list\", parameters='{\"item\":\"milk\",\"list_name\":\"shopping\"}')",
+        "Add milk, eggs and bread to my shopping list → runIntent(intentName=\"bulk_add_to_list\", parameters='{\"items\":[\"milk\",\"eggs\",\"bread\"],\"list_name\":\"shopping\"}')",
     )
 
     override val fullInstructions: String = buildString {
@@ -217,6 +219,7 @@ class RunIntentSkill @Inject constructor(
         appendLine("LISTS:")
         appendLine("  create_list — params: list_name (required)")
         appendLine("  add_to_list — params: item (required), list_name (required)")
+        appendLine("  bulk_add_to_list — params: items (required, JSON array of strings or comma-separated), list_name (optional, default shopping list)")
         appendLine()
         appendLine("Rules:")
         appendLine("Alarm rule: whenever the user says 'set alarm', 'set an alarm', 'alarm for', 'alarm at',")

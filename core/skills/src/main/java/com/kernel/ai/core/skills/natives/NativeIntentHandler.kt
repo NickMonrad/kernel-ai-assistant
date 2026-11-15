@@ -232,7 +232,7 @@ class NativeIntentHandler @Inject constructor(
                 "create_note" -> createNote(params)
                 "list_notes" -> listNotes()
                 "set_brightness" -> setBrightness(params)
-                else -> SkillResult.Failure("run_intent", "Unknown intent: $intentName")
+                else -> SkillResult.Failure("run_intent", unknownIntentMessage(intentName))
             }
         } catch (e: CancellationException) {
             throw e
@@ -261,7 +261,28 @@ class NativeIntentHandler @Inject constructor(
         return KNOWN_INTENTS.firstOrNull { it.replace("_", "") == stripped } ?: trimmed
     }
 
-    companion object {
+    /**
+     * Builds the reply for an intent name that [handle] cannot dispatch. Suggests known intents
+     * sharing at least two underscore-separated tokens (e.g. "add_add_to_list" → add_to_list,
+     * bulk_add_to_list) so the model can retry with a real name instead of guessing again.
+     */
+    internal fun unknownIntentMessage(intentName: String): String {
+        val tokens = intentName.lowercase().split('_').filter { it.isNotBlank() }.toSet()
+        val suggestions = KNOWN_INTENTS
+            .map { known -> known to known.split('_').toSet().intersect(tokens).size }
+            .filter { (_, overlap) -> overlap >= 2 }
+            .sortedByDescending { (_, overlap) -> overlap }
+            .take(3)
+            .map { (known, _) -> known }
+        return if (suggestions.isEmpty()) {
+            "Unknown intent: $intentName. Call load_skill(\"run_intent\") to see the supported intent names."
+        } else {
+            "Unknown intent: $intentName. Did you mean ${suggestions.joinToString(" or ")}? " +
+                "Retry run_intent with one of those names."
+        }
+    }
+
+     companion object {
         private val INTENT_ALIASES = mapOf(
             "get_list" to "get_list_items",
         )
@@ -276,7 +297,8 @@ class NativeIntentHandler @Inject constructor(
             "freeways" to "motorways",
         )
 
-        private val KNOWN_INTENTS = setOf(
+        /** Every intent name [handle] can dispatch. Advertised names must be a subset (see RunIntentCatalogueTest). */
+        internal val KNOWN_INTENTS = setOf(
             "toggle_flashlight_on", "toggle_flashlight_off",
             "send_email", "send_sms", "make_call",
             "set_alarm", "cancel_alarm",

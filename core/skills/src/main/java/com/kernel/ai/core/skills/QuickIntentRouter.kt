@@ -144,6 +144,18 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    // #1941 — STT mishears "add" as "ad" and "list" as "lest"/"last" in list commands. Both
+    // rewrites require a list-shaped phrase ("… to … <list-word>") so ordinary sentences such as
+    // "I'm at the last stop" or "ad campaign" are never touched.
+    private val STT_LIST_VERB_MISHEAR_RE = Regex(
+        """^ad\s+(?=.+\bto\b.+\b(?:list|lest|last)\s*$)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val STT_LIST_NOUN_MISHEAR_RE = Regex(
+        """^(add\s+.+\bto\b.+?)\s+(?:lest|last)\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+
 
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
         "make_call" to mapOf(
@@ -4585,7 +4597,11 @@ class QuickIntentRouter(
 
         // #982 — trailing "lost"/"lust"/"last" → "list" for list-command detection.
         // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
-        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(aliasNormalized, "list")
+        val listCommandFixed = STT_LIST_NOUN_MISHEAR_RE.replace(
+            STT_LIST_VERB_MISHEAR_RE.replace(aliasNormalized, "add "),
+            "\$1 list",
+        )
+        val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(listCommandFixed, "list")
 
 
         // Written-out fractional cooking quantities are rewritten to decimals (regex-only, like
