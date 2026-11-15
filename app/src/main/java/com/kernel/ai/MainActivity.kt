@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.collectAsState
@@ -38,6 +39,9 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var authRepository: HuggingFaceAuthRepository
+
+    /** Stops speech on a volume key while Jandal is speaking (#1873); otherwise keys are untouched. */
+    @Inject lateinit var speechStopCoordinator: com.kernel.ai.core.voice.SpeechStopCoordinator
 
     /** Injected for ADB `--es profile_text` test support — triggers profile parse + logcat output. */
     @Inject lateinit var wakeWordPreferences: WakeWordPreferences
@@ -86,6 +90,15 @@ class MainActivity : ComponentActivity() {
         val serial: Int,
     )
     private val externalDraft = mutableStateOf<ExternalDraftRequest?>(null)
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val isVolumeKey = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+            event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+        if (isVolumeKey && event.action == KeyEvent.ACTION_DOWN && speechStopCoordinator.requestStop()) {
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
