@@ -1,5 +1,8 @@
 package com.kernel.ai.speech
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -22,9 +25,10 @@ import kotlinx.coroutines.launch
  *
  * While [SpeechStopCoordinator.isSpeaking] is true a [MediaSession] is active. Its PlaybackState
  * advertises ACTION_STOP plus a "Stop" custom action, and its callbacks route Stop, Pause and the
- * custom action to [SpeechStopCoordinator.requestStop]. The system media controls (shade, lock
- * screen) draw those controls from the session, so no app notification or permission is needed.
- * The session is released when speech ends.
+ * custom action to [SpeechStopCoordinator.requestStop]. A MediaStyle notification bound to the
+ * session lets System UI draw the media card in the shade and on the lock screen; its Stop routes
+ * through the same session callbacks, so no receiver is needed. The notification and session are
+ * released when speech ends.
  */
 @Singleton
 class SpeechStopSessionManager @Inject constructor(
@@ -43,7 +47,7 @@ class SpeechStopSessionManager @Inject constructor(
     }
 
     private fun open() {
-        session = MediaSession(context, SESSION_TAG).apply {
+        val mediaSession = MediaSession(context, SESSION_TAG).apply {
             setCallback(
                 object : MediaSession.Callback() {
                     override fun onStop() {
@@ -63,6 +67,7 @@ class SpeechStopSessionManager @Inject constructor(
             setMetadata(
                 MediaMetadata.Builder()
                     .putString(MediaMetadata.METADATA_KEY_TITLE, context.getString(R.string.speech_stop_title))
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, context.getString(R.string.app_name))
                     .build(),
             )
             setPlaybackState(
@@ -80,6 +85,8 @@ class SpeechStopSessionManager @Inject constructor(
             )
             isActive = true
         }
+        session = mediaSession
+        postCard(mediaSession.sessionToken)
     }
 
     private fun close() {
@@ -88,11 +95,35 @@ class SpeechStopSessionManager @Inject constructor(
             release()
         }
         session = null
+        context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+    }
+
+    private fun postCard(token: MediaSession.Token) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    context.getString(R.string.speech_stop_channel_name),
+                    NotificationManager.IMPORTANCE_LOW,
+                ),
+            )
+        }
+        val notification = Notification.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_speech_stop)
+            .setContentTitle(context.getString(R.string.speech_stop_title))
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setStyle(Notification.MediaStyle().setMediaSession(token))
+            .build()
+        manager.notify(NOTIFICATION_ID, notification)
     }
 
     private companion object {
         const val SESSION_TAG = "JandalSpeech"
         const val ACTION_STOP_CUSTOM = "com.kernel.ai.speech.STOP_SPEECH"
+        const val CHANNEL_ID = "speech_playback"
+        const val NOTIFICATION_ID = 1873
     }
 }
 

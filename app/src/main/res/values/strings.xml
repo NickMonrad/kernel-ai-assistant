@@ -3,4 +3,5 @@
     <string name="app_name">Jandal AI</string>
     <string name="speech_stop_title">Jandal is speaking</string>
     <string name="speech_stop_action">Stop</string>
+    <string name="speech_stop_channel_name">Speech playback</string>
 </resources>

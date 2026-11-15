@@ -455,6 +455,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                             }
                             if (verboseLoggingEnabled.value) Log.d(TAG, "Sherpa streaming chunk: ${System.currentTimeMillis() - synthStart}ms " +
                                 "for ${spokenText.length} chars, sid=$effectiveSid")
+                            if (!isStreamingPlaybackActive(playbackToken)) break
                             audioQueue.send(
                                 SynthesizedChunk(spokenText, reflectGetSamples(audioResult), reflectGetSampleRate(audioResult)),
                             )
@@ -484,7 +485,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                             requestAudioFocus()
                             requestedAudioFocus = true
                         }
-                        playOnAudioTrack(chunk.samples, chunk.sampleRate)
+                        playOnAudioTrack(chunk.samples, chunk.sampleRate, playbackToken = playbackToken)
                     }
                     // Playback finished (or stopped early) — cancel synthesis so it doesn't
                     // keep producing chunks that will never be consumed.
@@ -649,14 +650,21 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
      * [generation] is the value of [nonStreamingPlaybackGeneration] at the time this invocation
      * was started. Pass the default (-1) from the streaming path, which uses its own token guard.
      */
-    private fun playOnAudioTrack(samples: FloatArray, sampleRate: Int, generation: Long = -1L) {
+    private fun playOnAudioTrack(
+        samples: FloatArray,
+        sampleRate: Int,
+        generation: Long = -1L,
+        playbackToken: Long = -1L,
+    ) {
         playVoicePcmOnAudioTrack(
             samples = samples,
             sampleRate = sampleRate,
             gain = sherpaGain.value,
             pitch = sherpaPitch.value,
             shouldContinue = {
-                !stopped && (generation < 0L || nonStreamingPlaybackGeneration.get() == generation)
+                !stopped &&
+                    (generation < 0L || nonStreamingPlaybackGeneration.get() == generation) &&
+                    (playbackToken < 0L || isStreamingPlaybackActive(playbackToken))
             },
         )
     }
