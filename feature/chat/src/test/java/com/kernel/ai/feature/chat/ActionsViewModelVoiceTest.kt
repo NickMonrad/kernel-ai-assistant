@@ -37,6 +37,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -46,6 +47,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -699,6 +701,281 @@ class ActionsViewModelVoiceTest {
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
         verify(atLeast = 1) { voiceInputController.stopListening() }
         verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `screen-off lifecycle stop keeps speech running and stops the mic`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
+        )
+        runCurrent()
+        clearMocks(voiceOutputController, answers = false)
+
+        viewModel.onScreenStopped(screenOff = true)
+        runCurrent()
+
+        verify(exactly = 0) { voiceOutputController.stop() }
+        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Speaking("What would you like to say to your wife?"),
+            viewModel.voicePlaybackState.value,
+        )
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+
+        // Speech finishes in the background: slot-reply mic must not be re-armed.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
+    fun `home lifecycle stop still stops speech and the mic`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
+        )
+        runCurrent()
+
+        viewModel.onScreenStopped(screenOff = false)
+        runCurrent()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
+    fun `returning after speech finished in the background shows idle`() = runTest(dispatcher) {
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(
+            VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
+        )
+        runCurrent()
+        viewModel.onScreenStopped(screenOff = true)
+        runCurrent()
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        runCurrent()
+
+        // ON_RESUME: no speech left, so the screen state is idle and nothing is restarted.
+        viewModel.onScreenResumed()
+        advanceUntilIdle()
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        assertNull(viewModel.speakingActionId.value)
+        coVerify(exactly = 0) { voiceInputController.startListening(any()) }
+    }
+
+    @Test
+    fun `automatic command retry and slot re-arm do not count as mic uses for the hint`() = runTest(dispatcher) {
+        coEvery { voiceInputPreferences.recordMicUseStarted() } returns 1
+        // User tap, then a voice error: the automatic retry reopens the mic.
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything."))
+        advanceUntilIdle()
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputPreferences.recordMicUseStarted() }
+
+        // Slot prompt ends: the automatic re-arm opens the slot-reply mic.
+        stubWifeSmsSlot()
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"))
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351)
+        runCurrent()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        coVerify(exactly = 1) { voiceInputPreferences.recordMicUseStarted() }
+    }
+
+    // ── #1918: background pause keeps every automatic mic path closed ───────
+
+    private fun stubWifeSmsSlot() {
+        every { quickIntentRouter.route("send a text message to my wife") } returns
+            QuickIntentRouter.RouteResult.NeedsSlot(
+                intent = QuickIntentRouter.MatchedIntent(
+                    intentName = "send_sms",
+                    params = mapOf("contact" to "my wife"),
+                ),
+                missingSlot = SlotSpec(
+                    name = "message",
+                    promptTemplate = "What would you like to say to {contact}?",
+                ),
+            )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+    }
+
+    /** Command capture fails once; the retry prompt's speak() suspends until [playbackEnds] completes. */
+    private suspend fun TestScope.startCommandRetryPrompt(playbackEnds: CompletableDeferred<Unit>) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        // Sherpa/Inflect speak() suspends until playback ends; stop() makes it return early.
+        coEvery { voiceOutputController.speak(any()) } coAnswers {
+            playbackEnds.await()
+            VoiceOutputResult.Spoken
+        }
+        viewModel.startVoiceCommand()
+        runCurrent()
+        // Opening the mic stops output too; only stops after the first capture end the retry prompt.
+        clearMocks(voiceOutputController, answers = false)
+        every { voiceOutputController.stop() } answers { playbackEnds.complete(Unit) }
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything."))
+        runCurrent()
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+        }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
+    fun `command retry prompt that ends after a screen-off stop does not open the mic`() = runTest(dispatcher) {
+        val playbackEnds = CompletableDeferred<Unit>()
+        startCommandRetryPrompt(playbackEnds)
+
+        viewModel.onScreenStopped(screenOff = true)
+        runCurrent()
+        verify(exactly = 0) { voiceOutputController.stop() }
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        playbackEnds.complete(Unit)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `media Stop of a command retry prompt after a screen-off stop does not open the mic`() = runTest(dispatcher) {
+        speechStopCoordinator.observe(backgroundScope)
+        val playbackEnds = CompletableDeferred<Unit>()
+        startCommandRetryPrompt(playbackEnds)
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. Please try again."))
+        runCurrent()
+
+        viewModel.onScreenStopped(screenOff = true)
+        runCurrent()
+        assertTrue(speechStopCoordinator.requestStop())
+        advanceUntilIdle()
+
+        assertTrue(playbackEnds.isCompleted)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `media Stop during a foreground command retry prompt cancels the retry`() = runTest(dispatcher) {
+        speechStopCoordinator.observe(backgroundScope)
+        val playbackEnds = CompletableDeferred<Unit>()
+        startCommandRetryPrompt(playbackEnds)
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Sorry, I didn't catch that. Please try again."))
+        runCurrent()
+
+        assertTrue(speechStopCoordinator.requestStop())
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `slot primed after a screen-off stop opens no mic from the re-arm or the safety net`() = runTest(dispatcher) {
+        stubWifeSmsSlot()
+        viewModel.onScreenStopped(screenOff = true)
+        runCurrent()
+
+        // Action still running at ON_STOP, then needs a slot: priming arms the re-arm.
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        assertTrue(viewModel.slotReplyAutoRearmArmed.value)
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"))
+        runCurrent()
+
+        // Safety net fires while the re-arm is genuinely armed.
+        viewModel.startAutoVoiceSlotReply()
+        runCurrent()
+        // Prompt ends in the background.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351)
+        runCurrent()
+        viewModel.startAutoVoiceSlotReply()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceInputController.startListening(any()) }
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `resume after a background stop restores the slot-reply re-arm`() = runTest(dispatcher) {
+        stubWifeSmsSlot()
+        viewModel.onScreenStopped(screenOff = true)
+        viewModel.onScreenResumed()
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"))
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(351)
+        runCurrent()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
+    fun `resume after a background stop restores the command retry`() = runTest(dispatcher) {
+        viewModel.onScreenStopped(screenOff = false)
+        viewModel.onScreenResumed()
+        val playbackEnds = CompletableDeferred<Unit>()
+        startCommandRetryPrompt(playbackEnds)
+
+        playbackEnds.complete(Unit)
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
+    fun `slot safety net opens the mic only while the re-arm is armed`() = runTest(dispatcher) {
+        stubWifeSmsSlot()
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        assertTrue(viewModel.slotReplyAutoRearmArmed.value)
+
+        // Armed and in the foreground: the safety net opens the mic, which disarms the re-arm.
+        viewModel.startAutoVoiceSlotReply()
+        runCurrent()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        assertEquals(false, viewModel.slotReplyAutoRearmArmed.value)
+
+        // A later (stale) safety-net firing must not open it again.
+        viewModel.stopVoiceCapture()
+        viewModel.startAutoVoiceSlotReply()
+        runCurrent()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
 
     @Test

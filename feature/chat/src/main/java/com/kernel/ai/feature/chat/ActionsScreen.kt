@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.PowerManager
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
@@ -472,6 +473,8 @@ fun ActionsScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                // Back in the foreground: automatic mic paths may run again (#1918).
+                viewModel.onScreenResumed()
                 val hasDndAccess = (context.getSystemService(Context.NOTIFICATION_SERVICE)
                     as? NotificationManager)?.isNotificationPolicyAccessGranted == true
                 viewModel.onDndResumeCheck(hasDndAccess)
@@ -516,7 +519,11 @@ fun ActionsScreen(
                         "showBottomSheet=$showBottomSheet voiceCaptureState=$voiceCaptureState " +
                         "voicePlaybackState=$voicePlaybackState",
                 )
-                viewModel.pauseTransientVoiceUi(reason = "lifecycleOnStop")
+                // Screen off keeps speech running (#1918); Home/navigation still stops it. Both set the
+                // background pause that keeps every automatic mic path closed until ON_RESUME.
+                val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
+                    ?.isInteractive == false
+                viewModel.onScreenStopped(screenOff = screenOff)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -825,6 +832,8 @@ fun ActionsScreen(
             onDismiss = { viewModel.cancelSlotFill() },
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
             onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
+            // Automatic start: the ViewModel re-checks the live re-arm and the background pause (#1918).
+            onAutoVoiceReply = viewModel::startAutoVoiceSlotReply,
             onStopVoiceReply = viewModel::stopVoiceCapture,
             externalDraft = slotReplyDraft,
             onExternalDraftConsumed = { slotReplyDraft = null },
@@ -1267,6 +1276,7 @@ internal fun PendingSlotBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
+    onAutoVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
     externalDraft: String? = null,
     onExternalDraftConsumed: () -> Unit = {},
@@ -1288,6 +1298,7 @@ internal fun PendingSlotBottomSheet(
             onDismiss = onDismiss,
             onSubmit = onSubmit,
             onVoiceReply = onVoiceReply,
+            onAutoVoiceReply = onAutoVoiceReply,
             onStopVoiceReply = onStopVoiceReply,
             externalDraft = externalDraft,
             onExternalDraftConsumed = onExternalDraftConsumed,
@@ -1307,6 +1318,8 @@ private fun SlotFillBottomSheet(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
+    /** Safety-net mic start; unlike [onVoiceReply] (a user tap) it must honour the live re-arm state. */
+    onAutoVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
     externalDraft: String? = null,
     onExternalDraftConsumed: () -> Unit = {},
@@ -1358,7 +1371,7 @@ private fun SlotFillBottomSheet(
                     ACTIONS_SCREEN_TAG,
                     "ActionsScreen: TTS never started — forcing slot voice fallback prompt=\"$promptMessage\"",
                 )
-                onVoiceReply()
+                onAutoVoiceReply()
             }
             return@LaunchedEffect
         }
@@ -1374,7 +1387,7 @@ private fun SlotFillBottomSheet(
                 ACTIONS_SCREEN_TAG,
                 "ActionsScreen: slot voice fallback firing (playback safety net) prompt=\"$promptMessage\"",
             )
-            onVoiceReply()
+            onAutoVoiceReply()
         }
     }
 
