@@ -1,0 +1,7 @@
+Issue #1928 device evidence
+Device: Samsung S23U (RFCW11265XH), package ai.jandal.assistant.debug (KernelWidgetReceiver), night theme
+Capture: adb exec-out screencap, cropped to Jandal widget bounds only
+Mic glyph pixel (dominant, 60x60 region at mic): #111111 (CharcoalDark)
+Button background pixel: #7AAD6A (FernGreenLight, night)
+Contrast (WCAG): 7.21:1 (threshold 3:1)
+Before (grey system icon ic_btn_speak_now #737373 on #4F7942 day palette): 1.07:1
