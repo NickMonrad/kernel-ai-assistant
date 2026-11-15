@@ -97,6 +97,22 @@ class VoiceCommandActivity : ComponentActivity() {
 
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var navigator: WidgetNavigator
+    /** Volume key stops Jandal's speech while the voice overlay is open (#1873). */
+    @Inject lateinit var speechStopCoordinator: com.kernel.ai.core.voice.SpeechStopCoordinator
+
+    private val speechStopKeys by lazy {
+        com.kernel.ai.core.voice.SpeechStopKeyTracker(speechStopCoordinator::requestStop)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if (speechStopKeys.onKeyDown(keyCode, event.repeatCount)) return true
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if (speechStopKeys.onKeyUp(keyCode)) return true
+        return super.onKeyUp(keyCode, event)
+    }
 
     /** Cancellable job for the 400 ms prefilled-transcript navigation delay. */
     private var prefilledNavJob: Job? = null

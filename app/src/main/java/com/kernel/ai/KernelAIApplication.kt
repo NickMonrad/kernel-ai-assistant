@@ -48,6 +48,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
     @Inject lateinit var nextcloudSyncScheduler: Provider<NextcloudSyncScheduler>
     @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
+    @Inject lateinit var speechStopSessionManager: com.kernel.ai.speech.SpeechStopSessionManager
     @Inject lateinit var voiceDefaultsProvisioner: Provider<com.kernel.ai.core.voice.VoiceDefaultsProvisioner>
 
     /**
@@ -89,6 +90,9 @@ class KernelAIApplication : Application(), Configuration.Provider {
         // wake word ONNX session init, otherwise OfflineTts.<clinit> fails with UnsatisfiedLinkError.
         try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
         if (!shouldStartNormalBackgroundWork) return
+
+        // Volume-key and media Stop for speech (#1873). Observes speech events only.
+        speechStopSessionManager.start(GlobalScope)
 
         clockTimerNotificationCoordinator.start()
         clockStopwatchNotificationCoordinator.start()

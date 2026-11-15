@@ -445,6 +445,7 @@ class ChatViewModelSettingsApplyTest {
         savedStateHandle: SavedStateHandle = SavedStateHandle(),
     ): ChatViewModel = ChatViewModel(
         savedStateHandle = savedStateHandle,
+        speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
         chatPreferences = chatPreferences,
         authRepository = authRepository,
         inferenceEngine = inferenceEngine,
