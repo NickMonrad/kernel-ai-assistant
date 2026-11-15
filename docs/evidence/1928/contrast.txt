@@ -5,3 +5,12 @@ Mic glyph pixel (dominant, 60x60 region at mic): #111111 (CharcoalDark)
 Button background pixel: #7AAD6A (FernGreenLight, night)
 Contrast (WCAG): 7.21:1 (threshold 3:1)
 Before (grey system icon ic_btn_speak_now #737373 on #4F7942 day palette): 1.07:1
+
+Light mode (S21 R5CR605B71K, device light: cmd uimode night = no, unchanged)
+Capture: adb exec-out screencap, cropped to the top Jandal widget bar (s21-widget-after-fix-light.png)
+Widget mapping: top bar = ai.jandal.assistant.debug KernelWidget (id 36) [INFERENCE: only debug build with new tint installed; dumpsys has no bounds]
+Glyph pixel (40x40 at mic): #FFFFFF (white, new tint)
+Button background pixel: #4F7942 (FernGreen, light)
+Contrast (WCAG): 5.07:1 (threshold 3:1)
+Other bar on same page (grey #737373 glyph, 1.07:1) = not the debug build; not moved or removed.
+Note: force-stop of ai.jandal.assistant.debug did not change the top bar; the grey bar was left as-is.
