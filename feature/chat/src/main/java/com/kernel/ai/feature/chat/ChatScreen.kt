@@ -277,12 +277,11 @@ fun ChatScreen(
     val voiceMode by viewModel.voiceMode.collectAsStateWithLifecycle()
     val microphoneState by viewModel.microphoneState.collectAsStateWithLifecycle()
     val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
-    // #1850: short haptic when the mic goes live. Keyed on the boolean so partial transcripts
-    // do not re-fire it; CONFIRM follows the system haptic setting.
+    val voiceInputLevel by viewModel.voiceInputLevel.collectAsStateWithLifecycle()
+    // #1850: short haptic when the mic goes live, emitted once per start by the view model.
     val chatView = androidx.compose.ui.platform.LocalView.current
-    val isVoiceListening = voiceCaptureState is ChatViewModel.VoiceCaptureState.Listening
-    androidx.compose.runtime.LaunchedEffect(isVoiceListening) {
-        if (isVoiceListening) {
+    androidx.compose.runtime.LaunchedEffect(viewModel) {
+        viewModel.listeningHaptics.collect {
             chatView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
         }
     }
@@ -569,6 +568,7 @@ fun ChatScreen(
                 },
                 onRenameConversation = viewModel::renameConversation,
                 voiceCaptureState = voiceCaptureState,
+                voiceInputLevel = voiceInputLevel,
                 micHintVisible = micHintVisible,
                 voicePlaybackState = voicePlaybackState,
                 voiceMode = voiceMode,
@@ -862,7 +862,8 @@ private fun ChatContent(
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
-    micHintVisible: Boolean = false,
+    voiceInputLevel: Float,
+    micHintVisible: Boolean,
     mealPlannerActivity: MealPlannerActivity?,
     onPlannerSmartReplySelected: (MealPlannerSuggestion) -> Unit,
     onStartVoiceInput: () -> Unit,
@@ -1185,6 +1186,7 @@ private fun ChatContent(
                     replacementText = state.inputTextReplacementText,
                     isGenerating = state.isGenerating,
                     voiceCaptureState = voiceCaptureState,
+                    voiceInputLevel = voiceInputLevel,
                     micHintVisible = micHintVisible,
                     voicePlaybackState = voicePlaybackState,
                     voiceMode = voiceMode,
@@ -1619,7 +1621,8 @@ private fun InputBar(
     voiceCaptureState: ChatViewModel.VoiceCaptureState,
     voicePlaybackState: ChatViewModel.VoicePlaybackState,
     voiceMode: ChatViewModel.VoiceMode?,
-    micHintVisible: Boolean = false,
+    voiceInputLevel: Float,
+    micHintVisible: Boolean,
     mealPlannerActivity: MealPlannerActivity?,
     onTextChanged: (String) -> Unit,
     onSmartReplySelected: (MealPlannerSuggestion) -> Unit,
@@ -1732,7 +1735,7 @@ private fun InputBar(
                 title = "Listening, speak now",
                 subtitle = voiceCaptureState.transcript.ifBlank {
                     if (micHintVisible) {
-                        "Speak now: your words are being captured."
+                        "Your words are being captured."
                     } else if (voiceMode == ChatViewModel.VoiceMode.BackAndForth) {
                         "Back-and-forth mode"
                     } else {
@@ -1803,21 +1806,19 @@ private fun InputBar(
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.size(24.dp)) {
                                 if (currentStatus.pulse) {
-                                    // #1850: pulsing ring while the mic is live (Listening).
-                                    val pulseScale by rememberInfiniteTransition(label = "voice-listening-pulse")
-                                        .animateFloat(
-                                            initialValue = 1f,
-                                            targetValue = 2f,
-                                            animationSpec = infiniteRepeatable(tween(durationMillis = 1000), RepeatMode.Restart),
-                                            label = "voice-listening-pulse-scale",
-                                        )
+                                    // #1850: ring scales with the live input level while Listening.
+                                    val pulseScale by androidx.compose.animation.core.animateFloatAsState(
+                                        targetValue = 1f + voiceInputLevel.coerceIn(0f, 1f),
+                                        animationSpec = tween(durationMillis = 100),
+                                        label = "voice-listening-level-scale",
+                                    )
                                     Box(
                                         modifier = Modifier
                                             .size(24.dp)
                                             .graphicsLayer {
                                                 scaleX = pulseScale
                                                 scaleY = pulseScale
-                                                alpha = 1f - (pulseScale - 1f)
+                                                alpha = 0.35f
                                             }
                                             .background(contentColor.copy(alpha = 0.35f), CircleShape),
                                     )
@@ -1838,7 +1839,6 @@ private fun InputBar(
                                     text = currentStatus.subtitle,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = contentColor.copy(alpha = 0.9f),
-                                    maxLines = 2,
                                 )
                             }
                         }

@@ -275,18 +275,28 @@ class SherpaOnnxVoiceInputControllerTest {
     // ── #1853: stop while the recognizer loads ─────────────────────────────────
 
     @Test
-    fun `unavailable microphone at request time fails fast without loading the recognizer`() = runTest {
+    fun `missing model fails before the microphone opens`() = runTest {
         val loading = holdRecognizerLoad()
         val result = controller.startListening(VoiceCaptureMode.Command)
 
-        // Unit tests have no AudioRecord: the mic opens at request time (#1850), so the start
-        // fails before the recognizer load is ever attempted, and focus is released.
+        // SF7: the model is checked before the mic opens, so no focus request, no cue, no haptic.
         assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
-        assertEquals(VoiceInputState.Idle, controller.state.value)
-        verify(atLeast = 1) { audioManager.requestAudioFocus(any(), any(), any()) }
-        verify(atLeast = 1) { audioManager.abandonAudioFocus(any()) }
+        verify(exactly = 0) { audioManager.requestAudioFocus(any(), any(), any()) }
         assertNull(privateField("recognizer"))
         loading.finish()
+    }
+
+    @Test
+    fun `stop before the microphone opens starts no capture`() = runTest {
+        createAllStubModelFiles()
+        // B2: a stop that lands after the model check but before the mic open must win.
+        controller.beforeMicOpenForTest = { controller.stopListening() }
+
+        val result = controller.startListening(VoiceCaptureMode.Command)
+
+        assertInstanceOf(VoiceInputStartResult.Started::class.java, result)
+        verify(exactly = 0) { audioManager.requestAudioFocus(any(), any(), any()) }
+        assertNull(privateField("currentCapture"))
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

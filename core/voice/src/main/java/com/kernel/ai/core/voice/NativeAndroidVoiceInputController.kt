@@ -210,13 +210,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private val _events = voiceEventFlow()
     override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
 
-    private val _state = MutableStateFlow(VoiceInputState.Idle)
-
-    /**
-     * Native mic state (#1850). Android native cannot pre-roll: the platform recognizer owns the
-     * microphone, so Listening is set only when onReadyForSpeech fires, never at request time.
-     */
-    override val state: StateFlow<VoiceInputState> = _state.asStateFlow()
+    private val _inputLevel = MutableStateFlow(0f)
+    override val inputLevel: StateFlow<Float> = _inputLevel.asStateFlow()
 
 
     private val audioManager by lazy {
@@ -322,7 +317,6 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 requestAudioFocus()
                 val sessionId = VoiceCaptureSessionIds.allocate()
                 currentMode = mode
-                _state.value = VoiceInputState.Starting
                 activeSessionId = sessionId
                 noSpeechRefreshCount = 0
                 readinessEmittedForSession = false
@@ -390,7 +384,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         inPlaceRefreshJob = null
         speechRecognizer = null
         currentMode = null
-        _state.value = VoiceInputState.Idle
+        _inputLevel.value = 0f
         activeSessionId = 0L
         readinessEmittedForSession = false
 
@@ -692,7 +686,6 @@ class NativeAndroidVoiceInputController @Inject constructor(
             // failed before ever becoming ready.
             if (!readinessEmittedForSession) {
                 readinessEmittedForSession = true
-                _state.value = VoiceInputState.Listening
                 _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
             }
         }
@@ -705,13 +698,17 @@ class NativeAndroidVoiceInputController @Inject constructor(
             _events.tryEmit(VoiceInputEvent.SpeechDetected(mode, sessionId))
         }
 
-        override fun onRmsChanged(rmsdB: Float) = Unit
+        override fun onRmsChanged(rmsdB: Float) {
+            if (sessionCompleted || activeSessionId != sessionId) return
+            // Android reports roughly -2..10 dB; normalise to 0..1 for the level meter (#1850).
+            _inputLevel.value = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
+        }
 
         override fun onBufferReceived(buffer: ByteArray?) = Unit
 
         override fun onEndOfSpeech() {
             if (sessionCompleted || activeSessionId != sessionId) return
-            _state.value = VoiceInputState.Processing
+            _events.tryEmit(VoiceInputEvent.SpeechEnded(mode, sessionId))
         }
 
         override fun onError(error: Int) {

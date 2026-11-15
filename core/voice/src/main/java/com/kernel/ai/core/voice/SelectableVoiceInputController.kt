@@ -134,6 +134,7 @@ private fun VoiceInputEvent.withCaptureSessionId(id: Long): VoiceInputEvent = wh
     is VoiceInputEvent.Transcript -> copy(captureSessionId = id)
     is VoiceInputEvent.Error -> copy(captureSessionId = id)
     is VoiceInputEvent.ListeningStopped -> copy(captureSessionId = id)
+    is VoiceInputEvent.SpeechEnded -> copy(captureSessionId = id)
 }
 
 /**
@@ -190,18 +191,38 @@ class SelectableVoiceInputController @Inject constructor(
     override val events: Flow<VoiceInputEvent> = outbound.asSharedFlow()
     override val notices: SharedFlow<VoiceNotice> = noticeFlow.asSharedFlow()
 
-    /**
-     * Mic state of whichever engine is running (#1850). The native and Sherpa states are merged
-     * lazily so unit tests that mock the delegates never touch them.
-     */
-    override val state: StateFlow<VoiceInputState> by lazy {
-        combine(nativeAndroidVoiceInputController.state, sherpaOnnxVoiceInputController.state) { native, sherpa ->
-            if (sherpa != VoiceInputState.Idle) sherpa else native
-        }.stateIn(pipelineScope, SharingStarted.Eagerly, VoiceInputState.Idle)
+    /** Live mic level of whichever engine is capturing (#1850). Both delegates reset to 0 at rest. */
+    override val inputLevel: StateFlow<Float> by lazy {
+        combine(nativeAndroidVoiceInputController.inputLevel, sherpaOnnxVoiceInputController.inputLevel) { native, sherpa ->
+            maxOf(native, sherpa)
+        }.stateIn(pipelineScope, SharingStarted.Eagerly, 0f)
     }
 
-    /** #1850: forwards pre-warm to Sherpa; native has nothing to preload. */
-    override suspend fun prewarm() = sherpaOnnxVoiceInputController.prewarm()
+    /**
+     * #1850: warms the recognizer the next start will use, so the first tap does not wait for the
+     * model load. Auto warms Zipformer only when [resolveAutoSttRoute] would pick it from the
+     * cached native availability; it never runs the live check. Native has nothing to preload.
+     */
+    override suspend fun prewarm() {
+        when (voiceInputPreferences.selectedEngine.first()) {
+            VoiceInputEngine.Auto -> {
+                val allowOnlineFallback = voiceInputPreferences.allowOnlineSpeechFallback.first()
+                val cached = androidNativeRecognitionSupport.getCaptureAvailability()
+                val nativeOnDeviceReady = cached.blockingReason == null &&
+                    cached.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
+                val route = resolveAutoSttRoute(
+                    nativeOnDeviceReady = nativeOnDeviceReady,
+                    zipformerReady = zipformerDownloaded(),
+                    allowOnlineFallback = allowOnlineFallback,
+                )
+                if (route == AutoSttRoute.Zipformer) {
+                    sherpaOnnxVoiceInputController.prewarmSpec(SherpaSttModelSpec.ZIPFORMER)
+                }
+            }
+            VoiceInputEngine.AndroidNative -> Unit
+            else -> sherpaOnnxVoiceInputController.prewarm()
+        }
+    }
 
     init {
         pipelineScope.launch {

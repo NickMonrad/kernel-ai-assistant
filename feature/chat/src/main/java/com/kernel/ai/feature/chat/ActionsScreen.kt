@@ -111,6 +111,9 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Mic
@@ -160,6 +163,7 @@ fun ActionsScreen(
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
+    val voiceInputLevel by viewModel.voiceInputLevel.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
     val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
@@ -186,9 +190,9 @@ fun ActionsScreen(
 
     // #1850: short haptic when the mic goes live, same as the chat input bar.
     val actionsView = androidx.compose.ui.platform.LocalView.current
-    val isVoiceListening = currentVoiceCaptureState is ActionsViewModel.VoiceCaptureState.Listening
-    LaunchedEffect(isVoiceListening) {
-        if (isVoiceListening) {
+    // #1850: start haptic is emitted once per mic start by the view model.
+    LaunchedEffect(viewModel) {
+        viewModel.listeningHaptics.collect {
             actionsView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
         }
     }
@@ -666,6 +670,7 @@ fun ActionsScreen(
                 VoiceCaptureCard(
                     state = voiceCaptureState,
                     micHintVisible = micHintVisible,
+                    voiceInputLevel = voiceInputLevel,
                     onStop = viewModel::stopVoiceCapture,
                 )
             }
@@ -1737,7 +1742,8 @@ private fun VoiceTranscriptOverlay(
 private fun VoiceCaptureCard(
     state: ActionsViewModel.VoiceCaptureState,
     onStop: () -> Unit,
-    micHintVisible: Boolean = false,
+    micHintVisible: Boolean,
+    voiceInputLevel: Float,
 ) {
     val title = when (state) {
         is ActionsViewModel.VoiceCaptureState.Preparing -> "Getting ready…"
@@ -1750,7 +1756,7 @@ private fun VoiceCaptureCard(
     }
     val detail = when (state) {
         is ActionsViewModel.VoiceCaptureState.Listening -> state.transcript.ifBlank {
-            if (micHintVisible) "Speak now: your words are being captured." else ""
+            if (micHintVisible) "Your words are being captured." else ""
         }
         is ActionsViewModel.VoiceCaptureState.Processing -> state.transcript
         else -> ""
@@ -1759,7 +1765,8 @@ private fun VoiceCaptureCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
         ),
@@ -1771,17 +1778,11 @@ private fun VoiceCaptureCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (state is ActionsViewModel.VoiceCaptureState.Listening) {
-                // #1850: pulsing ring while the mic is live, same as the chat input bar.
-                val pulseScale by androidx.compose.animation.core.rememberInfiniteTransition(
-                    label = "actions-listening-pulse",
-                ).animateFloat(
-                    initialValue = 1f,
-                    targetValue = 2f,
-                    animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-                        androidx.compose.animation.core.tween(durationMillis = 1000),
-                        androidx.compose.animation.core.RepeatMode.Restart,
-                    ),
-                    label = "actions-listening-pulse-scale",
+                // #1850: ring scales with the live input level while the mic is live.
+                val pulseScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = 1f + voiceInputLevel.coerceIn(0f, 1f),
+                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 100),
+                    label = "actions-listening-level-scale",
                 )
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(24.dp)) {
                     Box(
@@ -1790,7 +1791,7 @@ private fun VoiceCaptureCard(
                             .graphicsLayer {
                                 scaleX = pulseScale
                                 scaleY = pulseScale
-                                alpha = 1f - (pulseScale - 1f)
+                                alpha = 0.35f
                             }
                             .background(contentColor.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape),
                     )
@@ -1817,7 +1818,6 @@ private fun VoiceCaptureCard(
                         text = detail,
                         style = MaterialTheme.typography.bodySmall,
                         color = contentColor,
-                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

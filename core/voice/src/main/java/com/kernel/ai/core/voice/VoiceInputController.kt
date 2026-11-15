@@ -59,14 +59,17 @@ sealed interface VoiceInputEvent {
         override val mode: VoiceCaptureMode,
         override val captureSessionId: Long = 0L,
     ) : VoiceInputEvent
+    /** End of user speech; the engine is now transcribing (#1850). */
+    data class SpeechEnded(
+        override val mode: VoiceCaptureMode,
+        override val captureSessionId: Long = 0L,
+    ) : VoiceInputEvent
 }
 
 data class VoiceNotice(val captureSessionId: Long, val message: String)
 
-/** Mic state a voice surface shows; emitted by [VoiceInputController.state] (#1850). */
-enum class VoiceInputState { Idle, Starting, Listening, Processing }
 
-private val NO_STATE: StateFlow<VoiceInputState> = MutableStateFlow(VoiceInputState.Idle)
+private val NO_LEVEL: StateFlow<Float> = MutableStateFlow(0f)
 
 interface VoiceInputController {
     val events: Flow<VoiceInputEvent> get() = emptyFlow()
@@ -82,13 +85,10 @@ interface VoiceInputController {
     val notices: SharedFlow<VoiceNotice> get() = NO_NOTICES
 
     /**
-     * Mic state for the UI (#1850). The UI renders this rather than inferring it from events:
-     * [VoiceInputState.Starting] from the request until the microphone is live,
-     * [VoiceInputState.Listening] once the microphone is live (Sherpa: at capture open, with
-     * pre-roll; native: on onReadyForSpeech), [VoiceInputState.Processing] after the end of
-     * speech, and [VoiceInputState.Idle] when the session ends.
+     * Live mic level in 0..1 while a capture is open (#1850). Engines without a level meter
+     * keep the default 0, so the UI must not infer activity from it.
      */
-    val state: StateFlow<VoiceInputState> get() = NO_STATE
+    val inputLevel: StateFlow<Float> get() = NO_LEVEL
 
     suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult
 

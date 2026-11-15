@@ -22,6 +22,10 @@ internal class PreRollAudioBuffer(private val maxPreRollSamples: Int) {
     private var queuedSamples = 0
     private var attached = false
     private var closed = false
+    private var droppedSamples = 0L
+
+    /** Samples discarded from the pre-roll window before [attach]; 0 when it never overflowed. */
+    val trimmedSamples: Long get() = synchronized(lock) { droppedSamples }
 
     /** Appends the first [count] samples of [pcm]. Chunks after [close] are ignored. */
     fun append(pcm: ShortArray, count: Int) {
@@ -33,7 +37,9 @@ internal class PreRollAudioBuffer(private val maxPreRollSamples: Int) {
             if (!attached) {
                 // Pre-roll only: drop the oldest chunks, keeping the newest maxPreRollSamples.
                 while (queuedSamples > maxPreRollSamples && chunks.size > 1) {
-                    queuedSamples -= chunks.removeFirst().size
+                    val dropped = chunks.removeFirst().size
+                    queuedSamples -= dropped
+                    droppedSamples += dropped
                 }
             }
             lock.notifyAll()
@@ -72,8 +78,8 @@ internal class PreRollAudioBuffer(private val maxPreRollSamples: Int) {
     val isClosed: Boolean get() = synchronized(lock) { closed }
 
     companion object {
-        /** 2 s at 16 kHz, the pre-roll window for #1850. */
-        const val PRE_ROLL_SAMPLES = 32_000
+        /** 15 s at 16 kHz (480 KB as 16-bit PCM): covers the worst-case recognizer load so speech at mic-open is never dropped (#1850). */
+        const val PRE_ROLL_SAMPLES = 15 * 16_000
     }
 }
 

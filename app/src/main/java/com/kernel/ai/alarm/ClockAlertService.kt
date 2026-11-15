@@ -783,6 +783,7 @@ class ClockAlertService : Service() {
                 }
             }
             is VoiceInputEvent.SpeechDetected -> Unit
+            is VoiceInputEvent.SpeechEnded -> Unit
             is VoiceInputEvent.PartialTranscript -> Unit
             is VoiceInputEvent.Transcript -> {
                 captureSessionId = null

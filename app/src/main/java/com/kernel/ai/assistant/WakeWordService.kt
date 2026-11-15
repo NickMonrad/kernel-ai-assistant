@@ -791,6 +791,7 @@ class WakeWordService : Service() {
                     is VoiceInputEvent.PartialTranscript,
                     is VoiceInputEvent.Transcript,
                     is VoiceInputEvent.Error,
+                    is VoiceInputEvent.SpeechEnded,
                     -> Unit
                 }
             }
