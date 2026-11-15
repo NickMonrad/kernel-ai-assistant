@@ -19,6 +19,7 @@ rootProject.name = "KernelAI"
 include(":app")
 include(":acceptance:boot-restore")
 include(":acceptance:timer-cancel")
+include(":acceptance:model-bakeoff")
 include(":core:inference")
 include(":core:memory")
 include(":core:voice")
