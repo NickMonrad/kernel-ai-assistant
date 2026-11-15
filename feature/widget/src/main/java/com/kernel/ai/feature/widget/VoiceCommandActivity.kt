@@ -44,6 +44,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.collectAsState
+import android.view.HapticFeedbackConstants
+import com.kernel.ai.core.voice.MicHintPolicy
+import com.kernel.ai.core.voice.VoiceInputPreferences
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
@@ -97,6 +104,7 @@ class VoiceCommandActivity : ComponentActivity() {
 
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var navigator: WidgetNavigator
+    @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
     /** Volume key stops Jandal's speech while the voice overlay is open (#1873). */
     @Inject lateinit var speechStopCoordinator: com.kernel.ai.core.voice.SpeechStopCoordinator
 
@@ -252,18 +260,24 @@ class VoiceCommandActivity : ComponentActivity() {
 
     }
 
-    private fun startVoiceSession() {
-        // Brief boop to indicate listening started
+    /** Start cue, played when the recognizer reports Listening (#1850), not when the overlay opens. */
+    private fun playStartCue() {
         try {
+            toneGenerator?.release()
             toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 80).also {
                 it.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
             }
         } catch (e: Exception) {
             Log.w(TAG, "VoiceCommandActivity: could not play boop", e)
         }
+    }
 
+    private fun startVoiceSession() {
         var dismissEnabled by mutableStateOf(false)
         var partialText by mutableStateOf("")
+        var phase by mutableStateOf(VoiceCommandPhase.Starting)
+        var hintVisible by mutableStateOf(false)
+        var failed by mutableStateOf(false)
 
         setContent {
             KernelAITheme {
@@ -274,6 +288,7 @@ class VoiceCommandActivity : ComponentActivity() {
                     delay(800)
                     dismissEnabled = true
                 }
+                val inputLevel = voiceInputController.inputLevel.collectAsState()
 
                 Box(
                     modifier = Modifier
@@ -296,40 +311,72 @@ class VoiceCommandActivity : ComponentActivity() {
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                         tonalElevation = 8.dp,
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        ) {
-                            val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
-                            val pulse by infiniteTransition.animateFloat(
-                                initialValue = 1f,
-                                targetValue = 1.25f,
-                                animationSpec = infiniteRepeatable(
-                                    animation = tween(600, easing = LinearEasing),
-                                    repeatMode = RepeatMode.Reverse,
-                                ),
-                                label = "mic_scale",
-                            )
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Listening",
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .scale(pulse),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = partialText.ifEmpty { "Listening…" },
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                            )
-                            IconButton(onClick = { finish() }) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Cancel",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
+                                val pulse by infiniteTransition.animateFloat(
+                                    initialValue = 1f,
+                                    targetValue = 1.25f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(600, easing = LinearEasing),
+                                        repeatMode = RepeatMode.Reverse,
+                                    ),
+                                    label = "mic_scale",
+                                )
+                                val ringColor = MaterialTheme.colorScheme.primary
+                                Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                                    // #1850: accent ring driven by the live capture level; drawn only while Listening.
+                                    if (phase == VoiceCommandPhase.Listening) {
+                                        Canvas(modifier = Modifier.matchParentSize()) {
+                                            drawCircle(
+                                                color = ringColor.copy(alpha = 0.35f),
+                                                radius = size.minDimension / 2f * (0.6f + 0.4f * inputLevel.value),
+                                            )
+                                        }
+                                    }
+                                    if (phase == VoiceCommandPhase.Starting && !failed) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp,
+                                            color = ringColor,
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Mic,
+                                            contentDescription = "Listening",
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .scale(if (phase == VoiceCommandPhase.Listening) pulse else 1f),
+                                            tint = ringColor,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    text = partialText.ifEmpty {
+                                        when (phase) {
+                                            VoiceCommandPhase.Starting -> "Starting…"
+                                            VoiceCommandPhase.Listening -> "Listening…"
+                                            VoiceCommandPhase.Processing -> "Processing…"
+                                        }
+                                    },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                IconButton(onClick = { finish() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Cancel",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            if (hintVisible && phase == VoiceCommandPhase.Listening) {
+                                Text(
+                                    text = "Your words are being captured.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
@@ -338,6 +385,10 @@ class VoiceCommandActivity : ComponentActivity() {
             }
         }
 
+        lifecycleScope.launch {
+            // #1850: shared first-use counter with chat; the hint stops after MicHintPolicy.MAX_HINT_USES taps.
+            hintVisible = MicHintPolicy.shouldShowHint(voiceInputPreferences.recordMicUseStarted())
+        }
         var retryAttempted = false
         var captureSessionId: Long? = null
         var noticeJob: Job? = null
@@ -345,6 +396,7 @@ class VoiceCommandActivity : ComponentActivity() {
             suspend fun showUnavailableAndFinish(message: String) {
                 val errorText = message.ifBlank { "Voice commands are unavailable right now." }
                 Log.w(TAG, "VoiceCommandActivity: voice unavailable — $errorText")
+                failed = true
                 partialText = errorText
                 delay(2_000)
                 if (!isFinishing) finish()
@@ -369,6 +421,7 @@ class VoiceCommandActivity : ComponentActivity() {
 
             val eventCollectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
                 voiceInputController.events.collect { event ->
+                    if (captureSessionId != null && event.captureSessionId != captureSessionId) return@collect
                     when (event) {
                         is VoiceInputEvent.PartialTranscript -> {
                             partialText = event.text
@@ -382,6 +435,8 @@ class VoiceCommandActivity : ComponentActivity() {
                             } else if (mayRetry()) {
                                 retryAttempted = true
                                 partialText = ""
+                                captureSessionId = null
+                                phase = VoiceCommandPhase.Starting
                                 Log.d(TAG, "VoiceCommandActivity: blank transcript — retrying")
                                 when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
                                     is VoiceInputStartResult.Started -> bindCapture(result)
@@ -391,11 +446,20 @@ class VoiceCommandActivity : ComponentActivity() {
                                 finish()
                             }
                         }
+                        is VoiceInputEvent.ListeningStarted -> {
+                            phase = phaseAfter(phase, event)
+                            // #1850: haptic once per recognizer Listening event, not on recomposition.
+                            playStartCue()
+                            window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        }
+                        is VoiceInputEvent.SpeechEnded -> phase = phaseAfter(phase, event)
                         is VoiceInputEvent.Error -> {
+                            phase = phaseAfter(phase, event)
                             Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
                             if (mayRetry()) {
                                 retryAttempted = true
                                 partialText = ""
+                                captureSessionId = null
                                 Log.d(TAG, "VoiceCommandActivity: retrying after error")
                                 when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
                                     is VoiceInputStartResult.Started -> bindCapture(result)

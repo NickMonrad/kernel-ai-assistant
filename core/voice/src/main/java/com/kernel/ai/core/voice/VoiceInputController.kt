@@ -2,6 +2,8 @@ package com.kernel.ai.core.voice
 
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -57,9 +59,17 @@ sealed interface VoiceInputEvent {
         override val mode: VoiceCaptureMode,
         override val captureSessionId: Long = 0L,
     ) : VoiceInputEvent
+    /** End of user speech; the engine is now transcribing (#1850). */
+    data class SpeechEnded(
+        override val mode: VoiceCaptureMode,
+        override val captureSessionId: Long = 0L,
+    ) : VoiceInputEvent
 }
 
 data class VoiceNotice(val captureSessionId: Long, val message: String)
+
+
+private val NO_LEVEL: StateFlow<Float> = MutableStateFlow(0f)
 
 interface VoiceInputController {
     val events: Flow<VoiceInputEvent> get() = emptyFlow()
@@ -74,9 +84,21 @@ interface VoiceInputController {
      */
     val notices: SharedFlow<VoiceNotice> get() = NO_NOTICES
 
+    /**
+     * Live mic level in 0..1 while a capture is open (#1850). Engines without a level meter
+     * keep the default 0, so the UI must not infer activity from it.
+     */
+    val inputLevel: StateFlow<Float> get() = NO_LEVEL
+
     suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult
 
     fun stopListening()
+
+    /**
+     * Pre-loads the selected recognizer off the main thread (#1850) so the first tap is quicker.
+     * Never opens the microphone. The default is a no-op for engines with nothing to preload.
+     */
+    suspend fun prewarm() {}
 
     /**
      * Transcribes [pcm] audio data synchronously and returns the transcript,

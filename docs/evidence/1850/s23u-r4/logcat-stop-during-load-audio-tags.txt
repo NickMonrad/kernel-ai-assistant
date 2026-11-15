@@ -1,0 +1,15 @@
+--------- beginning of main
+11-15 16:23:38.955  7182  7223 I KernelAI: Worker failed but pack present — treating as Downloaded: Cori
+11-15 16:23:48.581  7182  7239 I KernelAI: Using downloaded voice pack at /data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-cori-high
+11-15 16:23:48.761  3013  5810 I MediaFocusControl: requestAudioFocus() from uid/pid 10959/7182 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@15f7com.kernel.ai.core.voice.SherpaOnnxVoiceInputController$$ExternalSyntheticLambda1@ac4cc64 callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-15 16:23:48.762  3013  5810 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@15f7com.kernel.ai.core.voice.SherpaOnnxVoiceInputController$$ExternalSyntheticLambda1@ac4cc64
+11-15 16:23:48.763  3013  5810 I MediaFocusControl: propagateFocusLossFromGain_syncAf gain:4
+11-15 16:23:48.763  3013  5810 I MediaFocusControl: propagateFocusLossFromGain_syncAf empty stack
+11-15 16:23:48.841  2272  7374 I AudioFlinger: AudioFlinger's thread 0xb4000078e33e5ac8 tid=7374 ready to run
+11-15 16:23:48.863  2272  8667 I AudioFlinger: nonSecFlag 4, secFlag 200000, outputFlags 4
+11-15 16:23:48.926  2272  8667 I AudioFlinger: monoMixMode[0] for haptic playback
+11-15 16:23:49.763  3013  8495 I MediaFocusControl: abandonAudioFocus() from uid/pid 10959/7182 clientId=android.media.AudioManager@15f7com.kernel.ai.core.voice.SherpaOnnxVoiceInputController$$ExternalSyntheticLambda1@ac4cc64 callingPack=ai.jandal.assistant.debug
+11-15 16:23:49.763  3013  8495 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@15f7com.kernel.ai.core.voice.SherpaOnnxVoiceInputController$$ExternalSyntheticLambda1@ac4cc64
+11-15 16:23:49.983  7182  7182 I SherpaSTT: Sherpa STT start abandoned: stopped while the recognizer was loading (sessionId=1)
+11-15 16:23:50.190  7182  7239 I KernelAI: Sherpa-ONNX TTS initialised — voice: en_GB-cori-high at /data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-cori-high
+11-15 16:23:50.190  7182  7182 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.

@@ -88,6 +88,7 @@ class ChatViewModelToolUsePromptTest {
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
     private val chatPreferences: ChatPreferences = mockk(relaxed = true)
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator = mockk(relaxed = true)
 
     @BeforeEach
@@ -161,6 +162,7 @@ class ChatViewModelToolUsePromptTest {
             savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
             chatPreferences = chatPreferences,
+            voiceInputPreferences = voiceInputPreferences,
             authRepository = authRepository,
             inferenceEngine = inferenceEngine,
             downloadManager = downloadManager,
