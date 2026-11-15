@@ -44,6 +44,7 @@ These documents define one behaviour area in more detail than the global specs.
 | `docs/specs/permissions-ux.md` | Android permissions, microphone, wake word, repair flows | Canonical source for permission UX and lifecycle behaviour. |
 | `docs/specs/shared-lists-sync.md` | Shared Lists identity, conflict, hierarchy, ordering, deletion/restore and package contract | Authoritative transport-independent Lists contract; provider-specific sync contracts layer on it. |
 | `docs/specs/nextcloud-tasks-sync.md` | Nextcloud Tasks account, binding, lifecycle and CalDAV/VTODO sync behaviour | Authoritative provider-specific contract for shipped #1539/#1551 behaviour, layered on `shared-lists-sync.md`. |
+| `docs/specs/setup-visual-pass/README.md` | First-run setup guide and Settings › Voice speech-recognition layout, copy, status chips and footer | Authoritative look-and-content spec for Build 7 (#1936, #1937, #1938), with mockup screenshots; permission behaviour stays in `permissions-ux.md`. |
 
 Create new subsystem specs under `docs/specs/` when a behaviour area is too detailed for `docs/SPECIFICATION.md` or `docs/UX_PATTERNS.md`.
 
