@@ -107,6 +107,14 @@ import com.kernel.ai.core.permissions.VoicePermissionPromptFactory
 import com.kernel.ai.core.permissions.VoicePermissionPromptState
 import com.kernel.ai.core.ui.permissions.VoicePermissionPrompt
 import com.kernel.ai.core.voice.VoiceCaptureMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.ui.graphics.graphicsLayer
 import com.kernel.ai.feature.chat.InputMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -151,6 +159,7 @@ fun ActionsScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
+    val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
     val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
     val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
@@ -173,6 +182,15 @@ fun ActionsScreen(
         is ActionsViewModel.VoiceCaptureState.Listening -> currentVoiceCaptureState.transcript
         is ActionsViewModel.VoiceCaptureState.Processing -> currentVoiceCaptureState.transcript
         else -> ""
+    }
+
+    // #1850: short haptic when the mic goes live, same as the chat input bar.
+    val actionsView = androidx.compose.ui.platform.LocalView.current
+    val isVoiceListening = currentVoiceCaptureState is ActionsViewModel.VoiceCaptureState.Listening
+    LaunchedEffect(isVoiceListening) {
+        if (isVoiceListening) {
+            actionsView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        }
     }
 
     val context = LocalContext.current
@@ -647,6 +665,7 @@ fun ActionsScreen(
             if (voiceCaptureState != ActionsViewModel.VoiceCaptureState.Idle) {
                 VoiceCaptureCard(
                     state = voiceCaptureState,
+                    micHintVisible = micHintVisible,
                     onStop = viewModel::stopVoiceCapture,
                 )
             }
@@ -1718,22 +1737,25 @@ private fun VoiceTranscriptOverlay(
 private fun VoiceCaptureCard(
     state: ActionsViewModel.VoiceCaptureState,
     onStop: () -> Unit,
+    micHintVisible: Boolean = false,
 ) {
     val title = when (state) {
-        is ActionsViewModel.VoiceCaptureState.Preparing -> "Preparing offline voice input…"
+        is ActionsViewModel.VoiceCaptureState.Preparing -> "Getting ready…"
         is ActionsViewModel.VoiceCaptureState.Listening -> when (state.mode) {
-            VoiceCaptureMode.Command -> "Ready — speak your quick action"
-            VoiceCaptureMode.SlotReply -> "Ready — speak your reply"
             VoiceCaptureMode.AlertCommand -> "Listening for alert command…"
+            VoiceCaptureMode.Command, VoiceCaptureMode.SlotReply -> "Listening, speak now"
         }
-        is ActionsViewModel.VoiceCaptureState.Processing -> "Processing speech…"
+        is ActionsViewModel.VoiceCaptureState.Processing -> "Processing voice input"
         ActionsViewModel.VoiceCaptureState.Idle -> return
     }
     val detail = when (state) {
-        is ActionsViewModel.VoiceCaptureState.Listening -> state.transcript.ifBlank { "" }
+        is ActionsViewModel.VoiceCaptureState.Listening -> state.transcript.ifBlank {
+            if (micHintVisible) "Speak now: your words are being captured." else ""
+        }
         is ActionsViewModel.VoiceCaptureState.Processing -> state.transcript
         else -> ""
     }
+    val contentColor = MaterialTheme.colorScheme.onSecondaryContainer
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1748,20 +1770,53 @@ private fun VoiceCaptureCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp))
+            if (state is ActionsViewModel.VoiceCaptureState.Listening) {
+                // #1850: pulsing ring while the mic is live, same as the chat input bar.
+                val pulseScale by androidx.compose.animation.core.rememberInfiniteTransition(
+                    label = "actions-listening-pulse",
+                ).animateFloat(
+                    initialValue = 1f,
+                    targetValue = 2f,
+                    animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                        androidx.compose.animation.core.tween(durationMillis = 1000),
+                        androidx.compose.animation.core.RepeatMode.Restart,
+                    ),
+                    label = "actions-listening-pulse-scale",
+                )
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(24.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .graphicsLayer {
+                                scaleX = pulseScale
+                                scaleY = pulseScale
+                                alpha = 1f - (pulseScale - 1f)
+                            }
+                            .background(contentColor.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape),
+                    )
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.Mic,
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            } else {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+            }
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = contentColor,
                 )
                 if (detail.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = detail,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        color = contentColor,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )

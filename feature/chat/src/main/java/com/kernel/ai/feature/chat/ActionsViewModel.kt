@@ -84,6 +84,7 @@ class ActionsViewModel @Inject constructor(
     private val voiceOutputController: VoiceOutputController,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val startListeningCuePlayer: StartListeningCuePlayer,
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences? = null,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -315,6 +316,10 @@ class ActionsViewModel @Inject constructor(
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
 
+    /** #1850 first-use hint, same policy as the chat input bar. */
+    private val _micHintVisible = MutableStateFlow(false)
+    val micHintVisible: StateFlow<Boolean> = _micHintVisible.asStateFlow()
+
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
 
@@ -413,6 +418,10 @@ class ActionsViewModel @Inject constructor(
                             .orEmpty()
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, currentTranscript)
                         startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
+                        viewModelScope.launch {
+                            val uses = voiceInputPreferences?.recordMicUseStarted() ?: 0
+                            _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
+                        }
                     }
                     is VoiceInputEvent.SpeechDetected -> Unit
                     is VoiceInputEvent.PartialTranscript -> {
