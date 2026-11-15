@@ -356,6 +356,15 @@ class ActionsViewModel @Inject constructor(
     private var chunkedVoiceSpeechJob: Job? = null
     /** Set by [cancelPendingVoiceSpeech]; cleared when the next reply starts speaking. */
     private var voiceSpeechCancelled = false
+
+    /**
+     * True from the Actions screen's ON_STOP (screen off or Home) until its next ON_RESUME (#1918).
+     * While set, no automatic path may open the mic: the command retry after a voice error, the
+     * slot-reply re-arm after SpeakingStopped, and the slot sheet's safety net all check it through
+     * [startVoiceCapture]. Speech may keep playing. Only a user tap, which needs a resumed screen,
+     * opens the mic.
+     */
+    private var backgroundPaused = false
     private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
@@ -531,7 +540,9 @@ class ActionsViewModel @Inject constructor(
                                                 VoiceSpeakRequest("Sorry, I didn't catch that. Please try again.")
                                             )
                                         }
-                                        startVoiceCapture(VoiceCaptureMode.Command)
+                                        // speak() returns when playback ends or is stopped, which may be
+                                        // after ON_STOP: the background-paused gate keeps the mic closed.
+                                        startVoiceCapture(VoiceCaptureMode.Command, userInitiated = false)
                                     }
                                 } else {
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -568,6 +579,8 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             // Volume key or media Stop (#1873) while a quick-action card is speaking (#1026).
             speechStopCoordinator.stopRequests.collect {
+                // Also drop a pending command retry, whose job opens the mic once its prompt ends.
+                cancelPendingVoiceSpeech()
                 stopAllVoiceOutput()
                 _voicePlaybackState.value = VoicePlaybackState.Idle
             }
@@ -623,6 +636,7 @@ class ActionsViewModel @Inject constructor(
                                 ) {
                                     startVoiceCapture(
                                         mode = VoiceCaptureMode.SlotReply,
+                                        userInitiated = false,
                                         interruptPlayback = false,
                                     )
                                 }
@@ -645,19 +659,40 @@ class ActionsViewModel @Inject constructor(
     fun startVoiceCommand() {
         // #790: Reset command retry budget on fresh user-initiated press.
         commandVoiceRetryCount = 0
-        startVoiceCapture(VoiceCaptureMode.Command)
+        startVoiceCapture(VoiceCaptureMode.Command, userInitiated = true)
     }
 
     fun startVoiceSlotReply() {
+        openSlotReplyMic(userInitiated = true)
+    }
+
+    /**
+     * Slot sheet safety net (#1918): opens the slot-reply mic only while the re-arm is still live and
+     * the screen is not background-paused. The sheet's composed armed flag stops updating once the
+     * screen stops, so the live state is checked here rather than in the composable.
+     */
+    fun startAutoVoiceSlotReply() {
+        if (!shouldAutoStartVoiceSlotReply) {
+            Log.d(TAG, "ActionsViewModel: slot voice fallback skipped, auto re-arm disarmed")
+            return
+        }
+        openSlotReplyMic(userInitiated = false)
+    }
+
+    private fun openSlotReplyMic(userInitiated: Boolean) {
         if (_pendingSlot.value == null) return
+        if (!userInitiated && backgroundPaused) {
+            Log.d(TAG, "ActionsViewModel: automatic slot-reply mic skipped, screen background-paused")
+            return
+        }
         // #825: Reset slot retry budget on manual mic re-tap, mirroring what startVoiceCommand()
         // does for commandVoiceRetryCount. This ensures the user gets a fresh set of retries
         // if they tap the mic again after the budget was exhausted.
         slotReplyVoiceRetryCount = 0
-        Log.d(TAG, "ActionsViewModel: startVoiceSlotReply pendingSlot=true")
+        Log.d(TAG, "ActionsViewModel: startVoiceSlotReply pendingSlot=true userInitiated=$userInitiated")
         setSlotReplyAutoRearmArmed(false, "startVoiceSlotReply")
         clearExpectedSlotPromptSpeech()
-        startVoiceCapture(VoiceCaptureMode.SlotReply)
+        startVoiceCapture(VoiceCaptureMode.SlotReply, userInitiated = userInitiated)
     }
 
     fun stopVoiceCapture() {
@@ -757,20 +792,50 @@ class ActionsViewModel @Inject constructor(
         _speakingActionId.value = null
     }
 
-    fun pauseTransientVoiceUi(reason: String = "unspecified") {
+    /**
+     * Actions screen ON_STOP (#1918): screen off ([screenOff] = true) or Home/navigation. Sets the
+     * background-paused state so no automatic path can open the mic until [onScreenResumed], then
+     * pauses transient voice UI; screen off keeps speech playing.
+     */
+    fun onScreenStopped(screenOff: Boolean) {
+        backgroundPaused = true
+        pauseTransientVoiceUi(reason = "lifecycleOnStop", keepSpeech = screenOff)
+    }
+
+    /** Actions screen ON_RESUME: automatic mic paths (retry, re-arm, safety net) may run again. */
+    fun onScreenResumed() {
+        if (backgroundPaused) Log.d(TAG, "ActionsViewModel: screen resumed, background pause cleared")
+        backgroundPaused = false
+    }
+
+    /**
+     * Pauses transient voice UI when the Actions screen stops.
+     *
+     * [keepSpeech] = true (screen turned off, #1918): stops the mic and the slot-reply re-arm for
+     * privacy, but leaves spoken output running so the reply finishes in the background. It also
+     * skips cancelPendingVoiceSpeech(), so a pending command retry still speaks its prompt; its
+     * mic start is blocked by [backgroundPaused]. It skips clearExpectedSlotPromptSpeech() because
+     * the slot prompt may still be playing: its expected text and [slotPromptPlaybackStarted] stay
+     * accurate for the sheet if the user returns mid-prompt, and with the re-arm disarmed and
+     * [backgroundPaused] set they cannot open the mic.
+     * [keepSpeech] = false (e.g. Home/navigation): stops listening and all speech, resets to idle.
+     */
+    fun pauseTransientVoiceUi(reason: String = "unspecified", keepSpeech: Boolean = false) {
         Log.d(
             TAG,
-            "ActionsViewModel: pauseTransientVoiceUi reason=$reason pendingSlot=${_pendingSlot.value != null} " +
+            "ActionsViewModel: pauseTransientVoiceUi reason=$reason keepSpeech=$keepSpeech " +
+                "pendingSlot=${_pendingSlot.value != null} " +
                 "voiceCaptureState=${_voiceCaptureState.value} voicePlaybackState=${_voicePlaybackState.value}",
         )
         setSlotReplyAutoRearmArmed(false, "pauseTransientVoiceUi:$reason")
-        clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
-        cancelPendingVoiceSpeech()
-        stopActionSpeech()
         unbindActionsVoiceSession()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
+        if (keepSpeech) return
+        clearExpectedSlotPromptSpeech()
+        cancelPendingVoiceSpeech()
+        stopActionSpeech()
         stopAllVoiceOutput()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
@@ -2183,14 +2248,23 @@ class ActionsViewModel @Inject constructor(
         }
 
 
+    /**
+     * Opens the mic for [mode]. [userInitiated] = false marks an automatic start (command retry,
+     * slot-reply re-arm, slot sheet safety net), which is refused while [backgroundPaused] (#1918).
+     */
     private fun startVoiceCapture(
         mode: VoiceCaptureMode,
+        userInitiated: Boolean,
         interruptPlayback: Boolean = true,
     ) {
+        if (!userInitiated && backgroundPaused) {
+            Log.d(TAG, "ActionsViewModel: automatic startVoiceCapture mode=$mode skipped, screen background-paused")
+            return
+        }
         Log.d(
             TAG,
-            "ActionsViewModel: startVoiceCapture mode=$mode interruptPlayback=$interruptPlayback " +
-                "pendingSlot=${_pendingSlot.value != null}",
+            "ActionsViewModel: startVoiceCapture mode=$mode userInitiated=$userInitiated " +
+                "interruptPlayback=$interruptPlayback pendingSlot=${_pendingSlot.value != null}",
         )
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
@@ -2198,10 +2272,13 @@ class ActionsViewModel @Inject constructor(
         if (interruptPlayback) {
             stopAllVoiceOutput()
         }
-        // #1850: one hint use per user tap; retries do not come through here.
-        viewModelScope.launch {
-            val uses = voiceInputPreferences.recordMicUseStarted()
-            _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
+        // #1850: one hint use per user tap. Automatic starts (command retry, slot re-arm, safety
+        // net) reuse the tap's capture flow and must not count as a new use.
+        if (userInitiated) {
+            viewModelScope.launch {
+                val uses = voiceInputPreferences.recordMicUseStarted()
+                _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
+            }
         }
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
         viewModelScope.launch {

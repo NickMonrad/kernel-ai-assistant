@@ -57,6 +57,7 @@ class ActionsSlotFillBottomSheetTest {
                             }
                         },
                         onVoiceReply = {},
+                        onAutoVoiceReply = {},
                         slotPromptPlaybackStarted = false,
                         onStopVoiceReply = {},
                     )
