@@ -23,6 +23,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -185,6 +189,19 @@ class SelectableVoiceInputController @Inject constructor(
      */
     override val events: Flow<VoiceInputEvent> = outbound.asSharedFlow()
     override val notices: SharedFlow<VoiceNotice> = noticeFlow.asSharedFlow()
+
+    /**
+     * Mic state of whichever engine is running (#1850). The native and Sherpa states are merged
+     * lazily so unit tests that mock the delegates never touch them.
+     */
+    override val state: StateFlow<VoiceInputState> by lazy {
+        combine(nativeAndroidVoiceInputController.state, sherpaOnnxVoiceInputController.state) { native, sherpa ->
+            if (sherpa != VoiceInputState.Idle) sherpa else native
+        }.stateIn(pipelineScope, SharingStarted.Eagerly, VoiceInputState.Idle)
+    }
+
+    /** #1850: forwards pre-warm to Sherpa; native has nothing to preload. */
+    override suspend fun prewarm() = sherpaOnnxVoiceInputController.prewarm()
 
     init {
         pipelineScope.launch {

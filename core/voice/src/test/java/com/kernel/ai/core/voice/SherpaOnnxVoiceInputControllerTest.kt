@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -274,33 +275,18 @@ class SherpaOnnxVoiceInputControllerTest {
     // ── #1853: stop while the recognizer loads ─────────────────────────────────
 
     @Test
-    fun `stop while the recognizer loads never takes audio focus or opens the microphone`() = runTest {
+    fun `unavailable microphone at request time fails fast without loading the recognizer`() = runTest {
         val loading = holdRecognizerLoad()
-        val events = mutableListOf<VoiceInputEvent>()
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { controller.events.collect { events += it } }
-        val start = async { controller.startListening(VoiceCaptureMode.Command) }
-        runCurrent() // the start is now waiting for the recognizer
+        val result = controller.startListening(VoiceCaptureMode.Command)
 
-        controller.stopListening()
-        loading.finish()
-        val result = start.await()
-
-        val sessionId = (result as VoiceInputStartResult.Started).captureSessionId
-        verify { audioManager wasNot Called }
-        assertEquals(listOf(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, sessionId)), events)
-    }
-
-    @Test
-    fun `without a stop the loaded start goes on to request audio focus`() = runTest {
-        val loading = holdRecognizerLoad()
-        val start = async { controller.startListening(VoiceCaptureMode.Command) }
-        runCurrent()
-
-        loading.finish()
-        start.await()
-
-        // Unit tests have no AudioRecord, so the start ends Unavailable after taking focus.
+        // Unit tests have no AudioRecord: the mic opens at request time (#1850), so the start
+        // fails before the recognizer load is ever attempted, and focus is released.
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
+        assertEquals(VoiceInputState.Idle, controller.state.value)
         verify(atLeast = 1) { audioManager.requestAudioFocus(any(), any(), any()) }
+        verify(atLeast = 1) { audioManager.abandonAudioFocus(any()) }
+        assertNull(privateField("recognizer"))
+        loading.finish()
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -16,6 +16,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -207,6 +210,14 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private val _events = voiceEventFlow()
     override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
 
+    private val _state = MutableStateFlow(VoiceInputState.Idle)
+
+    /**
+     * Native mic state (#1850). Android native cannot pre-roll: the platform recognizer owns the
+     * microphone, so Listening is set only when onReadyForSpeech fires, never at request time.
+     */
+    override val state: StateFlow<VoiceInputState> = _state.asStateFlow()
+
 
     private val audioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -311,6 +322,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 requestAudioFocus()
                 val sessionId = VoiceCaptureSessionIds.allocate()
                 currentMode = mode
+                _state.value = VoiceInputState.Starting
                 activeSessionId = sessionId
                 noSpeechRefreshCount = 0
                 readinessEmittedForSession = false
@@ -378,6 +390,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         inPlaceRefreshJob = null
         speechRecognizer = null
         currentMode = null
+        _state.value = VoiceInputState.Idle
         activeSessionId = 0L
         readinessEmittedForSession = false
 
@@ -679,6 +692,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             // failed before ever becoming ready.
             if (!readinessEmittedForSession) {
                 readinessEmittedForSession = true
+                _state.value = VoiceInputState.Listening
                 _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
             }
         }
@@ -695,7 +709,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
         override fun onBufferReceived(buffer: ByteArray?) = Unit
 
-        override fun onEndOfSpeech() = Unit
+        override fun onEndOfSpeech() {
+            if (sessionCompleted || activeSessionId != sessionId) return
+            _state.value = VoiceInputState.Processing
+        }
 
         override fun onError(error: Int) {
             if (sessionCompleted || activeSessionId != sessionId) return

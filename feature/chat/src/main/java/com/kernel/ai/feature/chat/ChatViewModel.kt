@@ -226,6 +226,7 @@ class ChatViewModel @Inject constructor(
     private val authRepository: HuggingFaceAuthRepository,
     private val startListeningCuePlayer: StartListeningCuePlayer,
     private val chatPreferences: ChatPreferences,
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences? = null,
 ) : ViewModel() {
     private enum class SubmitMode { Text, Voice }
 
@@ -439,6 +440,10 @@ class ChatViewModel @Inject constructor(
 
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
+
+    /** #1850 first-use hint: true for the first [com.kernel.ai.core.voice.MicHintPolicy.MAX_HINT_USES] mic starts. */
+    private val _micHintVisible = MutableStateFlow(false)
+    val micHintVisible: StateFlow<Boolean> = _micHintVisible.asStateFlow()
 
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
@@ -766,12 +771,18 @@ class ChatViewModel @Inject constructor(
                 autoSpeakEnabled = enabled
             }
         }
+        // #1850: warm the selected recognizer off the main thread as the chat opens. Holds no mic.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { voiceInputController.prewarm() }
         viewModelScope.launch {
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
+                        viewModelScope.launch {
+                            val uses = voiceInputPreferences?.recordMicUseStarted() ?: 0
+                            _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
+                        }
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
                             ?.transcript
                             .orEmpty()

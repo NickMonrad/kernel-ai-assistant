@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
@@ -23,6 +24,7 @@ class VoiceInputPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val selectedEngineKey = stringPreferencesKey("selected_voice_input_engine")
+    private val micUseCountKey = intPreferencesKey("mic_use_count")
     private val autoStartAlertVoiceCommandsEnabledKey =
         booleanPreferencesKey("auto_start_alert_voice_commands_enabled")
     private val allowOnlineSpeechFallbackKey =
@@ -81,5 +83,18 @@ class VoiceInputPreferences @Inject constructor(
         context.voiceInputPrefsDataStore.edit { prefs ->
             prefs[autoStartAlertVoiceCommandsEnabledKey] = enabled
         }
+    }
+
+    /**
+     * Increments and returns the persisted count of mic uses (#1850). Call once per listening start;
+     * the first-use hint is shown while [MicHintPolicy.shouldShowHint] holds for the returned count.
+     */
+    suspend fun recordMicUseStarted(): Int {
+        var count = 0
+        context.voiceInputPrefsDataStore.edit { prefs ->
+            count = (prefs[micUseCountKey] ?: 0) + 1
+            prefs[micUseCountKey] = count
+        }
+        return count
     }
 }

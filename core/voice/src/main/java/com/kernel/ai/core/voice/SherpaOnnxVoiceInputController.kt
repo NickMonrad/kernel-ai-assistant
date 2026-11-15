@@ -20,6 +20,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
@@ -196,6 +200,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
     /** Incremented by every [stopListening]; a start abandons itself if it changed meanwhile. */
     private var stopCount = 0L
+    /** The microphone capture opened by [startListening], until its recognizer loop ends. */
+    @Volatile private var currentCapture: PreRollAudioBuffer? = null
+    /** The pre-roll reader of the most recent capture; a new start waits for it to release the mic. */
+    @Volatile private var lastReaderJob: Job? = null
+
+    private val _state = MutableStateFlow(VoiceInputState.Idle)
+    override val state: StateFlow<VoiceInputState> = _state.asStateFlow()
 
     // ── Audio focus ────────────────────────────────────────────────────────────
 
@@ -212,12 +223,12 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     // ── VoiceInputController ───────────────────────────────────────────────────
 
     /**
-     * Starts a capture. Cancelling the calling coroutine while the recognizer is still loading
-     * throws [kotlinx.coroutines.CancellationException] before audio focus is requested or the
-     * microphone opens. A [stopListening] call in that window has the same effect on the audio
-     * path; the start then reports a session that started and stopped at once (a `Started`
-     * result plus a `ListeningStopped` event, no `ListeningStarted`), which is what consumers
-     * already see when a stop lands just after a start.
+     * Starts a capture. The microphone opens at request time, before the recognizer loads, and
+     * the audio is held in a [PreRollAudioBuffer] until the recognizer stream exists, so speech
+     * during the load is kept (#1850). Cancelling the calling coroutine while the recognizer is
+     * loading throws [kotlinx.coroutines.CancellationException] and releases the microphone and
+     * audio focus. A [stopListening] call in that window ends the session at once (a `Started`
+     * result plus a `ListeningStopped` event, no `ListeningStarted`).
      */
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
         val stopsAtCall = synchronized(captureLock) { stopCount }
@@ -226,46 +237,66 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             activeJob = null
             previousJob?.cancel()
             previousJob?.join()
+            // The previous reader releases the microphone and audio focus asynchronously.
+            lastReaderJob?.join()
+            lastReaderJob = null
+            _state.value = VoiceInputState.Starting
 
             val spec = resolveSpec()
-            val rec = ensureRecognizer(spec) ?: return@withLock run {
+            val capture = openPreRollCapture() ?: run {
+                _state.value = VoiceInputState.Idle
+                return@withLock VoiceInputStartResult.Unavailable(
+                    "Microphone unavailable — check RECORD_AUDIO permission."
+                )
+            }
+            synchronized(captureLock) { currentCapture = capture }
+            _state.value = VoiceInputState.Listening
+            // #1850: cue and haptic fire at capture open, the same moment the UI shows Listening.
+            val captureSessionId = VoiceCaptureSessionIds.allocate()
+            _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, captureSessionId))
+
+            val rec = try {
+                ensureRecognizer(spec)
+            } catch (e: Throwable) {
+                abandonCapture(capture)
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
+                throw e
+            }
+            if (rec == null) {
+                abandonCapture(capture)
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                 JandalEvents.record("voice", "stt_error", "category" to SttFailure.MODEL_UNAVAILABLE)
-                VoiceInputStartResult.Unavailable(
+                return@withLock VoiceInputStartResult.Unavailable(
                     "Sherpa-ONNX STT model not available — download it from Settings → Voice."
                 )
             }
             val callerContext = currentCoroutineContext()
 
             synchronized(captureLock) {
-                callerContext.ensureActive()
+                try {
+                    callerContext.ensureActive()
+                } catch (e: CancellationException) {
+                    abandonCapture(capture)
+                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
+                    throw e
+                }
                 if (stopCount != stopsAtCall) {
-                    val stoppedSessionId = VoiceCaptureSessionIds.allocate()
-                    Log.i(TAG, "Sherpa STT start abandoned: stopped while the recognizer was loading (sessionId=$stoppedSessionId)")
-                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, stoppedSessionId))
-                    return@withLock VoiceInputStartResult.Started(stoppedSessionId)
+                    abandonCapture(capture)
+                    Log.i(TAG, "Sherpa STT start abandoned: stopped while the recognizer was loading (sessionId=$captureSessionId)")
+                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
+                    return@withLock VoiceInputStartResult.Started(captureSessionId)
                 }
 
-                requestAudioFocus()
-                val ar = createAudioRecord() ?: run {
-                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
-                    releaseAudioFocus()
-                    return@withLock VoiceInputStartResult.Unavailable(
-                        "Microphone unavailable — check RECORD_AUDIO permission."
-                    )
-                }
                 JandalEvents.record("voice", "stt_ready", "mode" to mode, "zipformer" to (spec == SherpaSttModelSpec.ZIPFORMER))
-
-                val captureSessionId = VoiceCaptureSessionIds.allocate()
                 isRecording = true
-                _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, captureSessionId))
 
                 activeJob = recordingScope.launch {
                     try {
                         when (spec.recognizerKind) {
                             SherpaSttModelSpec.RecognizerKind.Online ->
-                                onlineAudioLoop(ar, mode, captureSessionId, rec, spec)
+                                onlineAudioLoop(capture, mode, captureSessionId, rec, spec)
                             SherpaSttModelSpec.RecognizerKind.Offline ->
-                                offlineAudioLoop(ar, mode, captureSessionId, rec, spec)
+                                offlineAudioLoop(capture, mode, captureSessionId, rec, spec)
                         }
                     } catch (e: Exception) {
                         JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
@@ -279,9 +310,9 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                         )
                         _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                     } finally {
-                        stopAudioRecord(ar)
-                        releaseAudioFocus()
+                        capture.close()
                         isRecording = false
+                        _state.value = VoiceInputState.Idle
                     }
                 }
 
@@ -290,13 +321,74 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         }
     }
 
+    /**
+     * #1850: loads the selected Sherpa recognizer before the first tap. Holds no mic; does nothing
+     * when a non-Sherpa engine (Android native) is selected, so no Sherpa model is loaded for it.
+     */
+    override suspend fun prewarm() {
+        val spec = SherpaSttModelSpec.forEngine(voiceInputPreferences.selectedEngine.first()) ?: return
+        try {
+            ensureRecognizer(spec)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Sherpa recognizer pre-warm failed; first tap will retry", e)
+        }
+    }
+
     override fun stopListening() {
         synchronized(captureLock) {
             stopCount++
             isRecording = false
+            currentCapture?.close()
+            currentCapture = null
             activeJob?.cancel()
             activeJob = null
+            _state.value = VoiceInputState.Idle
         }
+    }
+
+    /** Ends a capture that never reached a recognizer loop. The reader releases the mic and focus. */
+    private fun abandonCapture(capture: PreRollAudioBuffer) {
+        capture.close()
+        synchronized(captureLock) {
+            if (currentCapture === capture) currentCapture = null
+        }
+        _state.value = VoiceInputState.Idle
+    }
+
+    /**
+     * Opens the microphone, requests audio focus, and starts a reader that keeps the newest
+     * [PreRollAudioBuffer.PRE_ROLL_SAMPLES] samples until a recognizer loop attaches (#1850).
+     * Returns null, with focus released, when the microphone cannot be opened.
+     */
+    @SuppressLint("MissingPermission")
+    private fun openPreRollCapture(): PreRollAudioBuffer? {
+        requestAudioFocus()
+        val ar = createAudioRecord() ?: run {
+            JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
+            releaseAudioFocus()
+            return null
+        }
+        val buffer = PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES)
+        lastReaderJob = recordingScope.launch {
+            val buf = ShortArray(CHUNK_SAMPLES)
+            try {
+                ar.startRecording()
+                while (isActive && !buffer.isClosed) {
+                    val n = ar.read(buf, 0, buf.size)
+                    if (n < 0) break
+                    if (n > 0) buffer.append(buf, n)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Pre-roll reader error", e)
+            } finally {
+                buffer.close()
+                stopAudioRecord(ar)
+                releaseAudioFocus()
+            }
+        }
+        return buffer
     }
 
     // ── Online audio loop (Zipformer / Paraformer) ─────────────────────────────
@@ -309,7 +401,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
      * and emits partial results.  On endpoint or timeout, flushes and emits final text.
      */
     private fun onlineAudioLoop(
-        ar: AudioRecord,
+        buffer: PreRollAudioBuffer,
         mode: VoiceCaptureMode,
         captureSessionId: Long,
         rec: Any,
@@ -324,20 +416,15 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         // string passed to createStream exits the process.
         val stream = streamMethods.createStream!!.invoke(rec, "") // createStream(hotwords: String)
 
-        val pcmBuf = ShortArray(CHUNK_SAMPLES)
-        val floatBuf = FloatArray(CHUNK_SAMPLES)
+        val preRoll = ArrayDeque(buffer.attach())
         var lastPartial = ""
         val started = System.currentTimeMillis()
         var exitedFromLoop = false
 
         try {
-            ar.startRecording()
             while (isRecording) {
-                val n = ar.read(pcmBuf, 0, pcmBuf.size)
-                if (n <= 0) continue
-
-                for (i in 0 until n) floatBuf[i] = pcmBuf[i] / 32768f
-                val exactFloat = if (n == floatBuf.size) floatBuf else floatBuf.copyOf(n)
+                val chunk = nextCaptureChunk(preRoll, buffer) ?: break
+                val exactFloat = FloatArray(chunk.size) { chunk[it] / 32768f }
                 streamMethods.acceptWaveform!!.invoke(stream, exactFloat, SAMPLE_RATE)
 
                 // Drain — Sherpa may buffer multiple decodable chunks per feed.
@@ -349,6 +436,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 if (onlineMethods.isEndpoint!!.invoke(rec, stream) as Boolean) {
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
+                        _state.value = VoiceInputState.Processing
                         JandalEvents.record("voice", "stt_result", "chars" to text.length)
                         _events.tryEmit(VoiceInputEvent.Transcript(mode, text, captureSessionId))
                         lastPartial = ""
@@ -365,6 +453,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
                 // ── Timeout ────────────────────────────────────────────────
                 if (System.currentTimeMillis() - started > LISTEN_TIMEOUT_MS) {
+                    _state.value = VoiceInputState.Processing
                     val text = signalEndAndDrainOnline(rec, stream)
                     if (text.isNotEmpty()) {
                         JandalEvents.record("voice", "stt_result", "chars" to text.length)
@@ -394,6 +483,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             }
 
             if (!exitedFromLoop) {
+                _state.value = VoiceInputState.Processing
                 val text = signalEndAndDrainOnline(rec, stream)
                 if (text.isNotEmpty()) {
                     JandalEvents.record("voice", "stt_result", "chars" to text.length)
@@ -435,7 +525,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
      * Does not emit partial results.
      */
     private fun offlineAudioLoop(
-        ar: AudioRecord,
+        buffer: PreRollAudioBuffer,
         mode: VoiceCaptureMode,
         captureSessionId: Long,
         rec: Any,
@@ -443,19 +533,16 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     ) {
         val stream = streamMethods.createStream!!.invoke(rec)
 
-        val pcmBuf = ShortArray(CHUNK_SAMPLES)
+        val preRoll = ArrayDeque(buffer.attach())
         val allFloats = mutableListOf<FloatArray>()
         val started = System.currentTimeMillis()
         var speechDetected = false
         var trailingSilenceFrames = 0
 
         try {
-            ar.startRecording()
             while (isRecording) {
-                val n = ar.read(pcmBuf, 0, pcmBuf.size)
-                if (n <= 0) continue
-
-                val floatChunk = FloatArray(n) { pcmBuf[it] / 32768f }
+                val chunk = nextCaptureChunk(preRoll, buffer) ?: break
+                val floatChunk = FloatArray(chunk.size) { chunk[it] / 32768f }
                 allFloats.add(floatChunk)
 
                 val rms = chunkRms(floatChunk)
@@ -471,6 +558,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             }
 
             // Concatenate all recorded chunks and decode once.
+            _state.value = VoiceInputState.Processing
             val totalSamples = allFloats.sumOf { it.size }
             if (totalSamples > 0) {
                 val fullPcm = FloatArray(totalSamples)
