@@ -39,10 +39,31 @@ play_code=$(tr -d '[:space:]' < "$CODES")
 [[ "$play_code" == "$version_code" ]] \
   || fail "APK versionCode $version_code differs from Play-assigned versionCode $play_code"
 
-apk_cert=$("$BUILD_TOOLS_DIR/apksigner" verify --print-certs "$APK" \
-  | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f')
-aab_cert=$(keytool -printcert -jarfile "$AAB" | sed -n 's/^.*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
-[[ -n "$apk_cert" && "$apk_cert" == "$aab_cert" ]] \
+# Certificate digests are public; print them so a mismatch can be diagnosed from the CI log.
+# The APK must have exactly one signer. The bundle must have exactly one signer, and only that
+# signer's own certificate (keytool's "Certificate #1" under "Signer #1") counts: an upload key
+# imported with a certificate chain makes keytool also list the issuer, which must not match.
+echo "Build tools: $BUILD_TOOLS_DIR"
+apk_certs=$("$BUILD_TOOLS_DIR/apksigner" verify --print-certs "$APK" \
+  | sed -n 's/^Signer.* certificate SHA-256 digest: *//p' | tr -d ':[:blank:]' | tr 'A-F' 'a-f' | sort -u)
+keytool_out=$(keytool -printcert -jarfile "$AAB")
+aab_signers=$(grep -c '^Signer #' <<<"$keytool_out" || true)
+aab_leaf_certs=$(awk '
+  /^Signer #/      { in_leaf = 0; taken = 0 }
+  /^Certificate #/ { in_leaf = ($0 ~ /^Certificate #1:/) }
+  in_leaf && !taken && /^[[:space:]]*SHA256:/ {
+    sub(/^[[:space:]]*SHA256:[[:space:]]*/, ""); gsub(/[:[:blank:]]/, ""); print tolower($0); taken = 1
+  }' <<<"$keytool_out" | sort -u)
+echo "APK signer SHA-256: ${apk_certs:-<none>}"
+echo "Bundle signers: $aab_signers; signer certificate SHA-256: ${aab_leaf_certs:-<none>}"
+echo "Bundle certificates listed by keytool: $(grep -c '^Certificate #' <<<"$keytool_out" || true)"
+[[ -n "$apk_certs" ]] || fail "apksigner printed no signer certificate for $APK"
+[[ "$(wc -l <<<"$apk_certs")" -eq 1 ]] || fail "APK has more than one signer certificate"
+[[ "$aab_signers" -eq 1 ]] || fail "bundle has $aab_signers signers, expected exactly 1"
+[[ -n "$aab_leaf_certs" && "$(wc -l <<<"$aab_leaf_certs")" -eq 1 ]] \
+  || fail "could not read the bundle signer's certificate"
+[[ "$apk_certs" == "$aab_leaf_certs" ]] \
   || fail "APK signer does not match the bundle's upload certificate"
+apk_cert=$apk_certs
 
 echo "Tester APK ok: $package $version_name (versionCode $version_code), signer SHA-256 $apk_cert."
