@@ -32,7 +32,7 @@ Optional expanded brief for genuinely independent delegated work. For one cohere
 <!-- If applicable: evidence JSON path, screenshot path, or log file -->
 
 ## Device Requirement
-<!-- If applicable: None / S23U / S21 (extra capacity) / Both -->
+<!-- If applicable: None / S23U / S21 (second test device) / Both -->
 
 ## Manual UX Checks Required
 <!-- As needed: rotation, font scale, TalkBack, audio focus, permission flows -->

@@ -25,6 +25,8 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import com.kernel.ai.core.voice.VoiceSpeakRequest
+import com.kernel.ai.core.voice.SpeechStopCoordinator
+import org.junit.jupiter.api.Assertions.assertTrue
 import io.mockk.Runs
 import io.mockk.clearMocks
 import io.mockk.coEvery
@@ -67,6 +69,7 @@ class ActionsViewModelVoiceTest {
     private val quickActionDao: QuickActionDao = mockk()
     private val voiceInputController: VoiceInputController = mockk()
     private val voiceOutputController: VoiceOutputController = mockk()
+    private val speechStopCoordinator = SpeechStopCoordinator(voiceOutputController)
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
@@ -131,6 +134,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = quickIntentRouter,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -260,6 +264,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -294,6 +299,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -321,6 +327,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -348,6 +355,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -375,6 +383,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -426,6 +435,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -475,6 +485,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -504,6 +515,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -534,6 +546,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -605,6 +618,7 @@ class ActionsViewModelVoiceTest {
             quickIntentRouter = router,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
@@ -4396,7 +4410,7 @@ class ActionsViewModelVoiceTest {
 
     @Test
     fun `stopping an in-flight chunked reply resets speaking state to idle without SpeakingStopped`() = runTest(dispatcher) {
-        // Inflect's stop() emits no SpeakingStopped, so the VM itself must leave the Speaking state.
+        // Inflect's stop() does not emit SpeakingStopped synchronously; the VM must leave Speaking itself.
         coEvery { voiceOutputController.openStreamingSession(any()) } coAnswers {
             object : VoiceOutputStreamingSession {
                 override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
@@ -4433,6 +4447,24 @@ class ActionsViewModelVoiceTest {
         )
 
         viewModel.executeAction("what's the time", InputMode.Voice)
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
+    fun `volume-key stop while an Actions reply plays stops output and resets speaking state`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        speechStopCoordinator.observe(backgroundScope)
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Reply in progress"))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoicePlaybackState.Speaking("Reply in progress"),
+            viewModel.voicePlaybackState.value,
+        )
+
+        assertTrue(speechStopCoordinator.requestStop())
         advanceUntilIdle()
 
         verify(atLeast = 1) { voiceOutputController.stop() }

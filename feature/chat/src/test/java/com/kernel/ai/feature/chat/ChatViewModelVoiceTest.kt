@@ -45,6 +45,7 @@ import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.mealplan.MealPlannerReply
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestion
 import com.kernel.ai.core.skills.mealplan.MealPlannerSuggestionComposeMode
+import com.kernel.ai.core.voice.SpeechStopCoordinator
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -730,6 +731,81 @@ class ChatViewModelVoiceTest {
         assertEquals("You: Hello silent loop\nJandal: Hi back", viewModel.getConversationAsText())
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
+    fun `back-and-forth stop during playback resumes listening`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Hello stop") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Hello stop")
+        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
+        val coordinator = SpeechStopCoordinator(voiceOutputController)
+        coordinator.observe(backgroundScope)
+
+        val viewModel = createViewModel(speechStopCoordinator = coordinator)
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello stop"))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+        advanceUntilIdle()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        assertTrue(coordinator.requestStop())
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `stop during generation re-arms only after generation completes`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Hello generating") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Hello generating")
+        coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
+        val generating = MutableStateFlow(false)
+        every { inferenceEngine.isGenerating } returns generating
+        val coordinator = SpeechStopCoordinator(voiceOutputController)
+        coordinator.observe(backgroundScope)
+
+        val viewModel = createViewModel(speechStopCoordinator = coordinator)
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello generating"))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+        advanceUntilIdle()
+
+        generating.value = true
+        assertTrue(coordinator.requestStop())
+        advanceUntilIdle()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        generating.value = false
+        advanceUntilIdle()
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
+    fun `stop for another screen's playback does not re-arm listening here`() = runTest(dispatcher) {
+        val coordinator = SpeechStopCoordinator(voiceOutputController)
+        coordinator.observe(backgroundScope)
+
+        val viewModel = createViewModel(speechStopCoordinator = coordinator)
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Other screen reply"))
+        advanceUntilIdle()
+
+        assertTrue(coordinator.requestStop())
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
     }
 
     @Test
@@ -1443,7 +1519,9 @@ class ChatViewModelVoiceTest {
     }
     private fun createViewModel(
         savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
+        speechStopCoordinator: SpeechStopCoordinator = SpeechStopCoordinator(voiceOutputController),
     ): ChatViewModel = ChatViewModel(savedStateHandle = savedStateHandle, chatPreferences = chatPreferences, authRepository = authRepository,
+    speechStopCoordinator = speechStopCoordinator,
     inferenceEngine = inferenceEngine,
     downloadManager = downloadManager,
     conversationRepository = conversationRepository,
