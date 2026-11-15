@@ -19,6 +19,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import java.time.ZoneId
 import java.net.ServerSocket
 import java.net.SocketTimeoutException
 import java.util.UUID
@@ -47,6 +49,9 @@ class GetWeatherStaleFallbackTest {
     /** Open-Meteo forecast status; null throws a timeout, as an unanswered read would. */
     private var forecastStatus: Int? = 200
     private var silentPort: Int? = null
+    private var geocodeBody = GEOCODE_JSON
+    private var forecastBody = FORECAST_JSON
+    private var airQualityFails = false
     private val sockets = mutableListOf<ServerSocket>()
     private lateinit var skill: GetWeatherSkill
 
@@ -84,7 +89,7 @@ class GetWeatherStaleFallbackTest {
         forecastStatus = null
 
         val stale = assertInstanceOf(SkillResult.DirectReply::class.java, ask("Wellington"))
-        val time = staleForecastTimeText(cachedAt)
+        val time = staleForecastTimeText(cachedAt, now, is24Hour = false, zone = ZoneId.systemDefault())
 
         assertTrue(
             stale.content.startsWith("The weather service isn't answering, so here's the forecast from $time:"),
@@ -118,7 +123,7 @@ class GetWeatherStaleFallbackTest {
         forecastStatus = null
 
         assertTrue(
-            direct(ask("Wellington")).content.contains(staleForecastTimeText(cachedAt)),
+            direct(ask("Wellington")).content.contains(staleForecastTimeText(cachedAt, now, false, ZoneId.systemDefault())),
         )
     }
 
@@ -163,6 +168,42 @@ class GetWeatherStaleFallbackTest {
         assertEquals(2, forecastRequests() - before, "one retry after the first read timeout")
     }
 
+    @Test
+    fun `malformed 200 forecast is not cached and does not replace the good entry`() {
+        val cachedAt = now
+        ask("Wellington")
+        now += 3 * HOUR_MS
+        forecastBody = "{}" // HTTP 200 without a current block: fails to parse
+        val stale = direct(ask("Wellington"))
+        forecastBody = FORECAST_JSON
+        forecastStatus = null
+
+        val time = staleForecastTimeText(cachedAt, now, is24Hour = false, zone = ZoneId.systemDefault())
+        assertTrue(stale.content.contains(time), "content=${stale.content}")
+        assertTrue(direct(ask("Wellington")).content.contains(time))
+    }
+
+    @Test
+    fun `failed air quality keeps the live forecast and omits air quality`() {
+        airQualityFails = true
+
+        val result = weather(ask("Palmerston North"))
+
+        assertNull(result.airQualityText)
+        assertNull(result.staleNoteText)
+    }
+
+    @Test
+    fun `named place that does not geocode does not serve stale cache`() {
+        ask("Wellington")
+        now += 3 * HOUR_MS
+        geocodeBody = "[]"
+
+        val content = direct(ask("Wellington")).content
+
+        assertFalse(content.contains("isn't answering"), "content=$content")
+    }
+
     private fun forecastRequests(): Int = urls.count { it.startsWith(FORECAST_PREFIX) }
 
     private fun ask(location: String): SkillResult =
@@ -187,11 +228,13 @@ class GetWeatherStaleFallbackTest {
                     val redirected = request.url.newBuilder().scheme("http").host("127.0.0.1").port(port).build()
                     chain.proceed(request.newBuilder().url(redirected).build())
                 }
-                url.startsWith(GEOCODE_PREFIX) -> respond(chain, 200, GEOCODE_JSON)
+                url.startsWith(GEOCODE_PREFIX) -> respond(chain, 200, geocodeBody)
                 url.startsWith(FORECAST_PREFIX) -> {
                     val status = forecastStatus ?: throw SocketTimeoutException("read timed out")
-                    respond(chain, status, if (status == 200) FORECAST_JSON else "")
+                    respond(chain, status, if (status == 200) forecastBody else "")
                 }
+                url.startsWith(AIR_QUALITY_PREFIX) && airQualityFails ->
+                    throw SocketTimeoutException("air quality read timed out")
                 else -> respond(chain, 404, "")
             }
         }
@@ -210,6 +253,7 @@ class GetWeatherStaleFallbackTest {
         const val HOUR_MS = 60 * 60 * 1000L
         const val GEOCODE_PREFIX = "https://nominatim.openstreetmap.org/search?"
         const val FORECAST_PREFIX = "https://api.open-meteo.com/v1/forecast"
+        const val AIR_QUALITY_PREFIX = "https://air-quality-api.open-meteo.com/v1/air-quality"
         const val GEOCODE_JSON = """[{"lat":"-41.29","lon":"174.78","importance":0.9,"address":{"country_code":"nz"}}]"""
         const val FORECAST_JSON = """
             {"latitude":-41.29,"longitude":174.78,
