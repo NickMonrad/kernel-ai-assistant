@@ -9,6 +9,7 @@ enum class CapabilityKey {
     ContactLookup,
     HandsFreeCalling,
     CalendarLookup,
+    CalendarWrite,
     DoNotDisturbControl,
     ModifySystemSettings,
     DefaultAssistant,
@@ -165,6 +166,16 @@ object CapabilityRegistry {
                     label = "Add important dates manually",
                     description = "Let the user save birthdays and important dates directly in Jandal.",
                 ),
+            ),
+        ),
+        CapabilityDefinition(
+            key = CapabilityKey.CalendarWrite,
+            label = "Calendar events",
+            description = "Add events to your default calendar when you ask Jandal to schedule something. " +
+                "Needs both calendar read and write, because the default calendar is chosen from the calendars on the phone.",
+            requirements = listOf(
+                CapabilityRequirement.RuntimePermission(Manifest.permission.READ_CALENDAR),
+                CapabilityRequirement.RuntimePermission(Manifest.permission.WRITE_CALENDAR),
             ),
         ),
         CapabilityDefinition(

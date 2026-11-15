@@ -90,7 +90,7 @@ class MemoryViewModelTest {
 
     @Test
     fun `addCoreMemory calls repository with trimmed text`() = runTest {
-        coEvery { embeddingEngine.embed(any()) } returns floatArrayOf(0.1f, 0.2f)
+        coEvery { embeddingEngine.embedDocument(any()) } returns floatArrayOf(0.1f, 0.2f)
         coEvery { memoryRepository.addCoreMemory(any(), any(), any()) } returns "id-1"
 
         viewModel.openAddDialog()
@@ -100,7 +100,7 @@ class MemoryViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify(timeout = 2_000, exactly = 1) {
-            embeddingEngine.embed("remember this")
+            embeddingEngine.embedDocument("remember this")
         }
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -133,7 +133,7 @@ class MemoryViewModelTest {
 
     @Test
     fun `addCoreMemory does not call repository when embedding engine returns empty`() = runTest {
-        coEvery { embeddingEngine.embed(any()) } returns floatArrayOf()
+        coEvery { embeddingEngine.embedDocument(any()) } returns floatArrayOf()
 
         viewModel.openAddDialog()
         viewModel.onAddDialogTextChange("some text")
@@ -142,7 +142,7 @@ class MemoryViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify(timeout = 2_000, exactly = 1) {
-            embeddingEngine.embed("some text")
+            embeddingEngine.embedDocument("some text")
         }
 
         testDispatcher.scheduler.advanceUntilIdle()

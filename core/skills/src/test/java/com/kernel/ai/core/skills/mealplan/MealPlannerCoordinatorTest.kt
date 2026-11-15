@@ -87,7 +87,7 @@ class MealPlannerCoordinatorTest {
         coEvery { sessionRepository.getPendingCompletedSummarySessions(any()) } returns listOf(completedWithoutSummary)
         coEvery { sessionRepository.startOrResume("conv") } returns collectingSnapshot()
         coEvery { sessionRepository.buildFinalSummary("session-1") } returns "Created a 2-day meal plan."
-        coEvery { embeddingEngine.embed("Created a 2-day meal plan.") } returns floatArrayOf(1f, 2f)
+        coEvery { embeddingEngine.embedDocument("Created a 2-day meal plan.") } returns floatArrayOf(1f, 2f)
         coEvery { sessionRepository.markFinalSummaryWritten("session-1") } returns Unit
 
         coordinator.startOrResume("conv")
@@ -112,7 +112,7 @@ class MealPlannerCoordinatorTest {
 
         coordinator.startOrResume("conv")
 
-        coVerify(exactly = 0) { embeddingEngine.embed(any()) }
+        coVerify(exactly = 0) { embeddingEngine.embedDocument(any()) }
         coVerify(exactly = 0) { memoryRepository.addEpisodicMemory(any(), any(), any()) }
         coVerify { sessionRepository.markFinalSummaryWritten("session-1") }
     }
@@ -1619,7 +1619,7 @@ class MealPlannerCoordinatorTest {
         coEvery { sessionRepository.getActiveSession("conv") } returns active
         coEvery { sessionRepository.completeSession("session-1") } returns completed
         coEvery { sessionRepository.buildFinalSummary("session-1") } returns "Created a 2-day meal plan."
-        coEvery { embeddingEngine.embed("Created a 2-day meal plan.") } returns floatArrayOf(1f, 2f)
+        coEvery { embeddingEngine.embedDocument("Created a 2-day meal plan.") } returns floatArrayOf(1f, 2f)
         coEvery { sessionRepository.markFinalSummaryWritten("session-1") } returns Unit
 
         val reply = coordinator.ingestUserMessage("conv", "done meal planning")
@@ -1638,7 +1638,7 @@ class MealPlannerCoordinatorTest {
         coEvery { sessionRepository.getActiveSession("conv") } returns active
         coEvery { sessionRepository.completeSession("session-1") } returns completed
         coEvery { sessionRepository.buildFinalSummary("session-1") } returns "Created a 2-day meal plan."
-        coEvery { embeddingEngine.embed("Created a 2-day meal plan.") } returns floatArrayOf(1f, 2f)
+        coEvery { embeddingEngine.embedDocument("Created a 2-day meal plan.") } returns floatArrayOf(1f, 2f)
         coEvery { sessionRepository.markFinalSummaryWritten("session-1") } returns Unit
 
         val reply = coordinator.ingestUserMessage("conv", "finalise")

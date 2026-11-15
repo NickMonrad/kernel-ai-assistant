@@ -82,7 +82,7 @@ class NzTruthSeedingService @Inject constructor(
 
                 var seeded = 0
                 jandalPersona.nzTruths.forEach { truth ->
-                    val vector = embeddingEngine.embed(truth.vectorText).takeIf { it.isNotEmpty() }
+                    val vector = embeddingEngine.embedDocument(truth.vectorText).takeIf { it.isNotEmpty() }
                         ?: return@forEach // skip if engine not ready
                     val now = System.currentTimeMillis()
                     val entity = KiwiMemoryEntity(

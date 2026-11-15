@@ -46,8 +46,8 @@ Use `type:feature`, `type:bug`, `type:chore`, or `type:performance` when the app
 
 Use the lightest validation that can prove the change safely:
 
-- S21 is the default device for permission, QIR, navigation, test-harness, and model-readiness work.
-- S23U should be used only for high-risk model/runtime/voice comparison or where explicitly required.
+- S23U is the primary device for permission, QIR, navigation, test-harness, and model-readiness work.
+- S21 should be used only when more test capacity is needed — parallel runs, or a second-SoC comparison for device-sensitive changes (see `.docs/agents/risk-based-evidence-policy.md`).
 - Manual device evidence remains important for STT/TTS quality, wake-word behaviour, model availability, UI alignment, and flows that automated tests cannot prove reliably.
 - Routine docs/process-only changes do not need physical device validation; state this explicitly in the issue or PR.
 - Every PR with device evidence should state the device used, Android version when relevant, commands run, and evidence artifact paths.

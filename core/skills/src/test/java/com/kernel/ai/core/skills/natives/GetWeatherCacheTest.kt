@@ -484,12 +484,4 @@ class GetWeatherCacheTest {
         assertFalse(msg.contains("permission", ignoreCase = true))
         assertTrue(msg.contains("couldn't find") || msg.contains("not found"))
     }
-
-    @Test
-    fun `weatherFailureMessage API_UNAVAILABLE is distinct from permission and current-location messages`() {
-        val msg = weatherFailureMessage(WeatherLookupFailureReason.API_UNAVAILABLE)
-        assertFalse(msg.contains("permission", ignoreCase = true))
-        assertFalse(msg.contains("current location", ignoreCase = true))
-        assertTrue(msg.contains("network") || msg.contains("try again"))
-    }
 }

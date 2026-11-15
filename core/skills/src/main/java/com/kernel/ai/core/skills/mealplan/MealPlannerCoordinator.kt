@@ -1304,7 +1304,7 @@ class MealPlannerCoordinator @Inject constructor(
             sessionRepository.markFinalSummaryWritten(snapshot.sessionId)
             return
         }
-        val embedding = embeddingEngine.embed(summary)
+        val embedding = embeddingEngine.embedDocument(summary)
         memoryRepository.addEpisodicMemory(snapshot.conversationId, summary, embedding)
         sessionRepository.markFinalSummaryWritten(snapshot.sessionId)
         runCatching {

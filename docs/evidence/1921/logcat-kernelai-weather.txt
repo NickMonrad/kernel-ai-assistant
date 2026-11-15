@@ -1,0 +1,18 @@
+11-15 16:23:02.654 I/KernelAI(17897): Using downloaded voice pack at /data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-cori-high
+11-15 16:23:05.613 I/KernelAI(17897): Sherpa-ONNX TTS initialised — voice: en_GB-cori-high at /data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-cori-high
+11-15 16:23:05.614 I/KernelAI(17897): Sherpa-ONNX TTS selected as active voice output backend.
+11-15 16:23:35.602 D/KernelAI(17897): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-15 16:23:35.638 W/KernelAI(17897): Geocode failed (attempt 0/1), retrying in 500ms
+11-15 16:23:36.152 W/KernelAI(17897): Geocode failed; giving up
+11-15 16:23:36.153 W/KernelAI(17897): Named-location weather geocode unavailable
+11-15 16:23:36.165 I/KernelAI(17897): Serving stale weather cache after GEOCODE_UNAVAILABLE
+11-15 16:23:36.168 D/KernelAI(17897): GetWeatherSkill: fetched current weather
+11-15 16:24:15.886 D/KernelAI(17897): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-15 16:24:15.907 W/KernelAI(17897): Geocode failed (attempt 0/1), retrying in 500ms
+11-15 16:24:16.420 W/KernelAI(17897): Geocode failed; giving up
+11-15 16:24:16.421 W/KernelAI(17897): Named-location weather geocode unavailable
+11-15 16:24:16.425 I/KernelAI(17897): Weather cache miss after GEOCODE_UNAVAILABLE
+11-15 16:24:38.586 D/ConnectivityManager(18847): StackLog: [android.net.ConnectivityManager.sendRequestForNetwork(ConnectivityManager.java:4744)] [android.net.ConnectivityManager.registerDefaultNetworkCallbackForUid(ConnectivityManager.java:5469)] [android.net.ConnectivityManager.registerDefaultNetw
+11-15 16:24:38.662 D/KernelAI(18847): JandalVoiceInteractionService: ready
+11-15 16:24:38.709 D/KernelAI(18847): HuggingFaceAuthManager: restored auth=false, user=null
+11-15 16:24:38.912 I/KernelAI(18847): Worker failed but pack present — treating as Downloaded: Cori

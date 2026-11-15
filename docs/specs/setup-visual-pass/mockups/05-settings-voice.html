@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=390">
+<!-- Static mockup for docs/specs/setup-visual-pass/README.md. Not production code. -->
+<title>Settings: Voice, speech recognition</title>
+</head>
+<body>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#9FCB8F}a:hover{color:#C3E5B6}
+</style>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #1A1A1A; color: #E8E8E8; font-family: Roboto, system-ui, sans-serif; position: relative; overflow: hidden; display: flex; flex-direction: column">
+  <div style="height: 64px; padding: 0 8px; display: flex; align-items: center; gap: 4px; background: #151515">
+    <button type="button" aria-label="Back" style="width: 48px; height: 48px; border: none; background: none; display: flex; align-items: center; justify-content: center">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#E8E8E8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+    </button>
+    <div style="font-size: 22px">Voice</div>
+  </div>
+
+  <div style="padding: 16px 16px 0; display: flex; flex-direction: column; gap: 10px">
+    <div style="padding: 0 8px; font-size: 13px; font-weight: 500; color: #9FCB8F; letter-spacing: 0.4px">SPEECH RECOGNITION</div>
+
+    <div style="border-radius: 20px; background: #1F2A1B; border: 2px solid #9FCB8F; overflow: hidden">
+      <label style="display: flex; gap: 14px; align-items: flex-start; padding: 16px">
+        <input type="radio" name="engine" checked style="margin: 3px 0 0; width: 20px; height: 20px; accent-color: #9FCB8F">
+        <span style="display: flex; flex-direction: column; gap: 4px">
+          <span style="display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500">Automatic <span style="font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 10px; background: #2D5023; color: #C3E5B6">Recommended</span></span>
+          <span style="font-size: 14px; line-height: 20px; color: #B0B0B0">Picks the best recognizer on this phone. Works offline.</span>
+        </span>
+      </label>
+      <div style="margin: 0 16px; border-top: 1px solid #34452E"></div>
+      <div style="display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px 16px 50px">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
+          <label for="online" style="font-size: 15px; font-weight: 500">Use online speech recognition</label>
+          <div style="font-size: 13px; line-height: 18px; color: #B0B0B0">Sends your voice to your phone&#39;s speech service (usually Google).</div>
+          <button type="button" style="align-self: flex-start; min-height: 48px; margin-left: -12px; padding: 0 12px; border: none; background: none; color: #9FCB8F; font: 500 14px Roboto, system-ui, sans-serif">More</button>
+        </div>
+        <span style="position: relative; flex: none; width: 52px; height: 32px; margin-top: 2px">
+          <input id="online" type="checkbox" role="switch" aria-checked="false" style="position: absolute; inset: 0; margin: 0; width: 52px; height: 32px; opacity: 0">
+          <span aria-hidden="true" style="position: absolute; inset: 0; border-radius: 16px; background: #2A2A2A; border: 2px solid #8A8A8A; box-sizing: border-box"></span>
+          <span aria-hidden="true" style="position: absolute; left: 8px; top: 8px; width: 16px; height: 16px; border-radius: 8px; background: #8A8A8A"></span>
+        </span>
+      </div>
+    </div>
+
+    <label style="display: flex; gap: 14px; align-items: flex-start; padding: 16px; border-radius: 20px; background: #202020; border: 2px solid #202020">
+      <input type="radio" name="engine" style="margin: 3px 0 0; width: 20px; height: 20px; accent-color: #9FCB8F">
+      <span style="display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 16px; font-weight: 500">Android native</span>
+        <span style="font-size: 14px; line-height: 20px; color: #B0B0B0">Your phone's own recognizer. Can suit some accents better.</span>
+        <span style="font-size: 12px; color: #9A9A9A">English (Australia)</span>
+      </span>
+    </label>
+
+    <label style="display: flex; gap: 14px; align-items: flex-start; padding: 16px; border-radius: 20px; background: #202020; border: 2px solid #202020">
+      <input type="radio" name="engine" style="margin: 3px 0 0; width: 20px; height: 20px; accent-color: #9FCB8F">
+      <span style="display: flex; flex-direction: column; gap: 4px">
+        <span style="display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500">Sherpa-ONNX Zipformer
+          <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 10px; background: #23361D; color: #A9D99A">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#A9D99A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+            Downloaded
+          </span>
+        </span>
+        <span style="font-size: 14px; line-height: 20px; color: #B0B0B0">Fully offline, shows words as you speak.</span>
+      </span>
+    </label>
+
+    <label style="display: flex; gap: 14px; align-items: flex-start; padding: 16px; border-radius: 20px; background: #202020; border: 2px solid #202020">
+      <input type="radio" name="engine" disabled style="margin: 3px 0 0; width: 20px; height: 20px">
+      <span style="display: flex; flex-direction: column; gap: 4px">
+        <span style="display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500">Sherpa-ONNX SenseVoice
+          <span style="font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 10px; background: #2E2E2E; color: #CFCFCF; white-space: nowrap">Not downloaded</span>
+        </span>
+        <span style="font-size: 14px; line-height: 20px; color: #B0B0B0">Offline, multilingual.</span>
+        <button type="button" style="align-self: flex-start; margin-top: 6px; min-height: 40px; padding: 0 14px 0 10px; border-radius: 20px; border: 1px solid #4F7942; background: none; color: #C3E5B6; font: 500 14px Roboto, system-ui, sans-serif; display: flex; align-items: center; gap: 6px">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C3E5B6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>
+          Download
+        </button>
+      </span>
+    </label>
+  </div>
+</div>
+</body>
+</html>

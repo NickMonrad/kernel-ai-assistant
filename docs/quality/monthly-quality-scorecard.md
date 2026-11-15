@@ -101,8 +101,8 @@ Guidance:
 
 | Metric | Why it matters | Suggested source |
 |---|---|---|
-| S21 evidence coverage for medium/high-risk changes | Confirms default device strategy | Evidence manifest / dashboard |
-| S23U focused comparison usage | Ensures daily-driver use stays targeted | Evidence manifest / dashboard |
+| S23U evidence coverage for medium/high-risk changes | Confirms default device strategy | Evidence manifest / dashboard |
+| S21 extra-capacity usage | Ensures the household S21 stays targeted | Evidence manifest / dashboard |
 | S21 vs S23U divergence cases | Finds device-specific behaviour | Dashboard/manual notes |
 | Manual testing used where it added signal | Confirms manual testing is focused | PR evidence manifest |
 | Manual testing overuse on low-risk work | Prevents process drag | PR evidence manifest |

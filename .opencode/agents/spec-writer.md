@@ -1,5 +1,5 @@
 ---
-description: Writes and maintains README, specification.md, .omp/AGENTS.md, and skill schemas
+description: Writes and maintains README, docs/SPECIFICATION.md, .omp/AGENTS.md, and skill schemas
 mode: subagent
 model: llama.cpp/Qwen3.6-35B-A3B-UD-Q4_K_M
 temperature: 0.4
@@ -18,7 +18,7 @@ You are the **spec-writer** for the Kernel AI Assistant project.
 
 - `.omp/AGENTS.md` — single source of truth for agent context; keep in sync with actual architecture
 - `README.md` — project overview, setup instructions, architecture summary
-- `specification.md` — detailed technical spec, module breakdown, API contracts
+- `docs/SPECIFICATION.md` — detailed technical spec, module breakdown, API contracts
 - Skill schemas — JSON schema definitions for native and Wasm skills
 - Architecture decision records (ADRs) if introduced
 - Release notes and changelog entries

@@ -5,6 +5,11 @@ import com.kernel.ai.core.memory.dao.EpisodicMemoryDao
 import com.kernel.ai.core.memory.dao.KiwiMemoryDao
 import com.kernel.ai.core.memory.repository.MemoryRepositoryImpl
 import com.kernel.ai.core.memory.vector.VectorStore
+import com.kernel.ai.core.memory.vector.EmbeddingIndexMigration
+import com.kernel.ai.core.memory.entity.CoreMemoryEntity
+import com.kernel.ai.core.memory.entity.EpisodicMemoryEntity
+import com.kernel.ai.core.memory.entity.KiwiMemoryEntity
+import com.kernel.ai.core.memory.vector.VectorSearchResult
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -15,6 +20,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -27,12 +33,14 @@ class MemoryRepositoryImplTest {
     private val coreDao: CoreMemoryDao = mockk()
     private val kiwiMemoryDao: KiwiMemoryDao = mockk()
     private val vectorStore: VectorStore = mockk()
+    private val indexMigration: EmbeddingIndexMigration = mockk()
 
     private lateinit var repository: MemoryRepositoryImpl
 
     @BeforeEach
     fun setUp() {
-        repository = MemoryRepositoryImpl(episodicDao, coreDao, kiwiMemoryDao, vectorStore)
+        coEvery { indexMigration.ensureCurrent() } returns true
+        repository = MemoryRepositoryImpl(episodicDao, coreDao, kiwiMemoryDao, indexMigration, vectorStore)
     }
 
     /**
@@ -117,6 +125,93 @@ class MemoryRepositoryImplTest {
         val result = repository.searchMemories(floatArrayOf(0.1f, 0.2f, 0.3f))
 
         assertTrue(result.isEmpty(), "Expected empty result when vec search fails")
+    }
+
+    @Test
+    fun `searchMemories does not query stale vectors when index migration is unavailable`() = runTest {
+        coEvery { indexMigration.ensureCurrent() } returns false
+
+        val result = repository.searchMemories(FloatArray(768) { 1f })
+
+        assertTrue(result.isEmpty())
+        verify(exactly = 0) { vectorStore.search(any(), any(), any()) }
+    }
+    @Test
+    fun `searchMemories applies independent calibrated cutoffs to all memory consumers`() = runTest {
+        val query = FloatArray(768) { 1f }
+        val coreRows = listOf(
+            CoreMemoryEntity(1, "core-pass", "user fact", 0, 0, source = "user", vectorized = true),
+            CoreMemoryEntity(2, "core-fail", "user fact", 0, 0, source = "user", vectorized = true),
+            CoreMemoryEntity(6, "core-near-duplicate", "user fact", 0, 0, source = "user", vectorized = true),
+            CoreMemoryEntity(
+                3, "identity-pass", "identity fact", 0, 0, source = "jandal_persona",
+                vectorized = true, category = "agent_identity", vibeLevel = 1,
+            ),
+            CoreMemoryEntity(
+                4, "identity-fail", "identity fact", 0, 0, source = "jandal_persona",
+                vectorized = true, category = "agent_identity", vibeLevel = 2,
+            ),
+            CoreMemoryEntity(
+                5, "identity-invalid-vibe", "identity fact", 0, 0, source = "jandal_persona",
+                vectorized = true, category = "agent_identity", vibeLevel = 6,
+            ),
+        )
+        val episodicRows = listOf(
+            EpisodicMemoryEntity(
+                7, "episodic-pass", "conversation", "A sufficiently long episodic memory for retrieval.",
+                0, vectorized = true,
+            ),
+            EpisodicMemoryEntity(
+                8, "episodic-fail", "conversation", "Another sufficiently long episodic memory.",
+                0, vectorized = true,
+            ),
+        )
+        val kiwiRows = listOf(
+            KiwiMemoryEntity(
+                10, "kiwi-pass", "truth", 0, 0, source = "jandal_persona", vectorized = true, vibeLevel = 1,
+            ),
+            KiwiMemoryEntity(
+                11, "kiwi-fail", "truth", 0, 0, source = "jandal_persona", vectorized = true, vibeLevel = 2,
+            ),
+            KiwiMemoryEntity(
+                12, "kiwi-vibe5-pass", "truth", 0, 0, source = "jandal_persona", vectorized = true, vibeLevel = 5,
+            ),
+        )
+
+        every { vectorStore.search("core_memories_vec", query, 6) } returns listOf(
+            VectorSearchResult(1, 0.789f),
+            VectorSearchResult(6, 0.700f),
+            VectorSearchResult(2, 0.790f),
+            VectorSearchResult(3, 0.759f),
+            VectorSearchResult(4, 0.765f),
+            VectorSearchResult(5, 0.001f),
+        )
+        every { vectorStore.search("episodic_memories_vec", query, 2) } returns listOf(
+            VectorSearchResult(7, 0.666f),
+            VectorSearchResult(8, 0.667f),
+        )
+        every { vectorStore.search("kiwi_memories_vec", query, 3) } returns listOf(
+            VectorSearchResult(10, 0.564f),
+            VectorSearchResult(11, 0.732f),
+            VectorSearchResult(12, 0.500f),
+        )
+        coEvery { coreDao.getAll() } returns coreRows
+        coEvery { episodicDao.getAll() } returns episodicRows
+        coEvery { kiwiMemoryDao.getByRowIds(any()) } returns kiwiRows
+
+        val results = repository.searchMemories(
+            queryVector = query,
+            coreTopK = 2,
+            episodicTopK = 2,
+            identityTopK = 4,
+            kiwiTopK = 3,
+        )
+
+        assertEquals(
+            setOf("core-pass", "core-near-duplicate", "identity-pass", "episodic-pass", "kiwi-pass", "kiwi-vibe5-pass"),
+            results.map { it.id }.toSet(),
+        )
+        assertEquals(results.size, results.map { it.id }.toSet().size, "A core memory must not also be returned as identity")
     }
 
     // ─────────────────────────────── deleteCoreMemory ────────────────────────────────

@@ -410,3 +410,26 @@ A user should always be able to answer:
 8. Are there licensing or access restrictions?
 
 If these questions cannot be answered immediately from the UI, the design should be reconsidered.
+
+## Models Screen Role Sections (#1857)
+
+The Models screen groups models by what they do for the user, not by file: a **Chat brain**
+section, a **Memory search** section, and a **Quick commands** section. Each section has a title, a
+one-line summary, and rows for its models.
+
+- Chat brain choices are limited to `ConversationModelRules.selectableConversationModels(tier)`.
+  Below flagship, E-4B stays listed (under Optional or Not needed on this phone) with a disabled
+  radio and the "Not available on this phone" reason. A saved E-4B preference on those tiers is
+  ignored and E-2B answers; the section shows "Your choice isn't available on this phone right now".
+  Deleting that saved choice resets it to automatic first, so its file can be removed.
+- "Still needed" card lists only the downloads that make the app ready. Progress shows only for
+  models the tier can select.
+- Disabled choices stay in the list with a reason ("Not available on this phone"). Radios expose
+  disabled state to screen readers. Section titles and group labels are headings.
+- The model in use for chat cannot be deleted; the row has no Delete action.
+- Voice rows are read-only status. Voice output follows the selected engine: built-in Android TTS
+  shows "Using Android's built-in voice"; Cori shows its download state only when Sherpa is
+  selected; other engines show "Another voice is selected in Voice settings". Changes happen in
+  Voice settings.
+- Copy lives in `ModelRoleCopy`. Readiness logic lives in `ModelRoles` and
+  `ConversationModelRules`. Welcome and chat readiness copy is tracked in #1888.

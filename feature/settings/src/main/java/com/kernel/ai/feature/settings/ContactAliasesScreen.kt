@@ -1,6 +1,9 @@
 package com.kernel.ai.feature.settings
 
 import android.content.ContentUris
+import android.content.Intent
+import android.net.Uri
+import androidx.core.net.toUri
 import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,9 +36,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -48,10 +53,22 @@ import com.kernel.ai.core.memory.entity.ContactAliasEntity
 @Composable
 fun ContactAliasesScreen(
     onBack: () -> Unit = {},
+    prefill: ContactAliasPrefill? = null,
     viewModel: ContactAliasesViewModel = hiltViewModel(),
 ) {
     val aliases by viewModel.aliases.collectAsStateWithLifecycle()
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showAddDialog by rememberSaveable { mutableStateOf(prefill?.openAdd == true) }
+    // One-shot prefill from a failed contact lookup. Copied into saveable state on first composition and
+    // cleared on dismiss, on save, or once the picker has been launched, so recomposition, rotation and
+    // process death never reuse it.
+    var pendingPrefill by rememberSaveable(stateSaver = ContactAliasPrefillSaver) { mutableStateOf(prefill) }
+    // Saved so the "Call now?" offer survives rotation; it only opens the dialer when the user taps.
+    var callOffer by rememberSaveable(
+        stateSaver = listSaver<Pair<String, String>?, String>(
+            save = { it?.let { pair -> listOf(pair.first, pair.second) } ?: emptyList() },
+            restore = { if (it.size == 2) it[0] to it[1] else null },
+        ),
+    ) { mutableStateOf<Pair<String, String>?>(null) }
 
     Scaffold(
         topBar = {
@@ -65,7 +82,7 @@ fun ContactAliasesScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
+            FloatingActionButton(onClick = { pendingPrefill = null; showAddDialog = true }) {
                 Icon(Icons.Default.Add, contentDescription = "Add alias")
             }
         },
@@ -89,6 +106,12 @@ fun ContactAliasesScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = SPELLING_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         } else {
             LazyColumn(
@@ -96,6 +119,15 @@ fun ContactAliasesScreen(
                     .fillMaxSize()
                     .padding(innerPadding),
             ) {
+                item {
+                    Text(
+                        text = SPELLING_HINT,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                    HorizontalDivider()
+                }
                 items(aliases, key = { it.alias }) { entity ->
                     AliasRow(entity = entity, onDelete = { viewModel.deleteAlias(entity.alias) })
                     HorizontalDivider()
@@ -106,14 +138,35 @@ fun ContactAliasesScreen(
 
     if (showAddDialog) {
         AddAliasDialog(
-            onDismiss = { showAddDialog = false },
+            initialAlias = pendingPrefill?.alias.orEmpty(),
+            autoPick = pendingPrefill?.openPicker == true,
+            suggestedName = pendingPrefill?.suggestedName,
+            onAutoPickLaunched = { pendingPrefill = pendingPrefill?.copy(openPicker = false) },
+            onDismiss = {
+                showAddDialog = false
+                pendingPrefill = null
+            },
             onSave = { alias, displayName, contactId, phoneNumber ->
                 viewModel.addAlias(alias, displayName, contactId, phoneNumber)
                 showAddDialog = false
+                if (pendingPrefill?.callRequested == true) callOffer = displayName to phoneNumber
+                pendingPrefill = null
             },
         )
     }
+
+    callOffer?.let { (name, number) ->
+        CallOfferDialog(
+            name = name,
+            phoneNumber = number,
+            onDismiss = { callOffer = null },
+        )
+    }
 }
+
+private const val SPELLING_HINT =
+    "Add nicknames like \"wife\" or \"Mum\" so you can say \"call Mum\".\n" +
+        "Tip: add sound-alike spellings, like \"laurel\" for Laurelle, so Jandal understands how you say names."
 
 @Composable
 private fun AliasRow(
@@ -135,16 +188,54 @@ private fun AliasRow(
     )
 }
 
+/**
+ * "Call <name> now?" after saving. Confirm opens the dialer with the number; the user still taps
+ * call. Jandal never places the call from here.
+ */
+@Composable
+private fun CallOfferDialog(
+    name: String,
+    phoneNumber: String,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Call $name now?") },
+        text = { Text("Opens the dialer with $name's number. You still tap call.") },
+        confirmButton = {
+            Button(
+                onClick = {
+                    // No dialer installed or launch refused: the alias is already saved, so ignore.
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_DIAL, "tel:${Uri.encode(phoneNumber)}".toUri()),
+                        )
+                    }
+                    onDismiss()
+                },
+            ) { Text("Open dialer") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Not now") }
+        },
+    )
+}
+
 @Composable
 private fun AddAliasDialog(
+    initialAlias: String,
+    autoPick: Boolean,
+    onAutoPickLaunched: () -> Unit,
+    suggestedName: String?,
     onDismiss: () -> Unit,
     onSave: (alias: String, displayName: String, contactId: String, phoneNumber: String) -> Unit,
 ) {
     val context = LocalContext.current
-    var aliasText by remember { mutableStateOf("") }
-    var selectedDisplayName by remember { mutableStateOf<String?>(null) }
-    var selectedContactId by remember { mutableStateOf<String?>(null) }
-    var selectedPhoneNumber by remember { mutableStateOf<String?>(null) }
+    var aliasText by rememberSaveable { mutableStateOf(initialAlias) }
+    var selectedDisplayName by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedContactId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedPhoneNumber by rememberSaveable { mutableStateOf<String?>(null) }
 
     val contactPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickContact(),
@@ -188,6 +279,14 @@ private fun AddAliasDialog(
         }
     }
 
+    // Deep link from a failed lookup: open the picker straight away so the user only confirms.
+    LaunchedEffect(autoPick) {
+        if (autoPick) {
+            contactPickerLauncher.launch(null)
+            onAutoPickLaunched()
+        }
+    }
+
     val canSave = aliasText.isNotBlank() && selectedContactId != null && selectedPhoneNumber != null
 
     AlertDialog(
@@ -203,6 +302,13 @@ private fun AddAliasDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (suggestedName != null && selectedDisplayName == null) {
+                    Text(
+                        text = "Pick $suggestedName from your contacts to save this alias.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Button(
                     onClick = { contactPickerLauncher.launch(null) },
                     modifier = Modifier.fillMaxWidth(),

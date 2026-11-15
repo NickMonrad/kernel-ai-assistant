@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -62,12 +63,15 @@ fun SettingsScreen(
     onNavigateToModelSettings: () -> Unit = {},
     onNavigateToModelManagement: (preferred: Boolean) -> Unit = {},
     onNavigateToChatPreferences: () -> Unit = {},
+    onNavigateToSetupWizard: () -> Unit = {},
     onNavigateToAbout: () -> Unit = {},
     onNavigateToAppPermissions: () -> Unit = {},
+    onNavigateToNextcloud: () -> Unit = {},
     onNavigateToClockSettings: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val mobileDataAllowed by viewModel.mobileDataAllowed.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     LaunchedEffect(Unit) {
@@ -194,6 +198,15 @@ fun SettingsScreen(
                 leadingContent = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToNextcloud() },
+                headlineContent = { Text("Nextcloud Tasks") },
+                supportingContent = { Text("Import or publish selected Lists with CalDAV") },
+                leadingContent = { Icon(Icons.Default.AccountCircle, contentDescription = null) },
+                trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
             HorizontalDivider()
 
             ListItem(
@@ -249,6 +262,29 @@ fun SettingsScreen(
             )
             HorizontalDivider()
 
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToSetupWizard() },
+                headlineContent = { Text("Set up Jandal again") },
+                supportingContent = { Text("How Jandal works and download options") },
+                leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+            )
+            HorizontalDivider()
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text("Download on mobile data") },
+                supportingContent = {
+                    Text(if (mobileDataAllowed) "Models may use your mobile data plan" else "Models download on Wi-Fi only")
+                },
+                trailingContent = {
+                    Switch(
+                        checked = mobileDataAllowed,
+                        onCheckedChange = { viewModel.setMobileDataAllowed(it) },
+                    )
+                },
+            )
+            HorizontalDivider()
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()

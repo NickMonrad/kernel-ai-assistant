@@ -4,12 +4,18 @@
 
 Jandal AI is a local-first Android assistant. It combines on-device chat, long-term memory, deterministic Android actions, voice input/output, and native tool calling while keeping user data on the device by default.
 
+## Watch the intro
+
+<a href="https://www.youtube.com/shorts/JgdP_gZtUBU"><img src="docs/demo/intro-thumbnail.jpg" alt="Jandal AI intro video on YouTube: Hey Jandal, Kiwi lists, timers, memory, local chat, weather and Nextcloud sync" width="200"></a>
+
+A two-minute tour on [YouTube](https://www.youtube.com/shorts/JgdP_gZtUBU), recorded on a real phone with the AI running on-device (how it was made: [`docs/demo/shot-script.md`](docs/demo/shot-script.md)).
+
 ## How it works
 
 Jandal is built around a **Brain-Memory-Action** model:
 
 - **Brain** - Gemma-4 E-2B / E-4B runs locally through Google AI Edge LiteRT / LiteRT-LM. A lightweight `QuickIntentRouter` handles deterministic fast paths for common device actions.
-- **Memory** - local Room storage plus sqlite-vec / EmbeddingGemma support semantic recall, conversation history, core memories, and episodic summaries.
+- **Memory** - local Room storage plus sqlite-vec / Arctic Embed M v1.5 support semantic recall, conversation history, core memories, and episodic summaries.
 - **Action** - native Kotlin skills execute Android actions such as alarms, timers, lists, notes, weather, media controls, messages, email, calendar, navigation, Wikipedia, and unit/currency conversion.
 
 ## Current launch status
@@ -36,12 +42,24 @@ Jandal currently includes:
 - local chat with markdown rendering, multi-conversation management, streaming generation, and model/runtime status;
 - local memory with core memories, episodic summaries, semantic search, and memory management screens;
 - deterministic Android skills for lists, notes, alarms, timers, date arithmetic, media controls, unit/currency conversion, weather, messaging/email flows, navigation, and Wikipedia;
+- local-first Lists with two-level parent/child groups and device-local expand/collapse state, plus
+  optional bidirectional sync for explicitly selected Lists to a user-configured Nextcloud Tasks server over CalDAV/VTODO; Room-backed local state remains authoritative and usable offline;
 - drawer-accessible tools such as Lists, Alarms, Notes, Meal plans, and Settings;
 - deterministic meal-planning sessions with plan approval, recipe persistence, favourites, replacement/regeneration, and ingredient export to lists;
 - push-to-talk voice input, optional spoken chat replies, per-message speaker playback, configurable TTS voices, and wake-word/default-assistant infrastructure;
 - local model management and model availability states for required, optional, preparing, gated, and unavailable model paths.
 
-Future roadmap work includes Lists home-screen visibility and local-first shared-list foundations, Dreaming Engine background consolidation, Wasm skill extensibility, broader device optimisation, and richer multimodal/vision workflows. These are intentionally separated from the launch plan unless explicitly promoted.
+Future roadmap work includes Dreaming Engine background consolidation, Wasm skill extensibility, broader device optimisation, and richer multimodal/vision workflows. These are intentionally separated from the launch plan unless explicitly promoted.
+
+## Screenshots
+
+Current S23U screenshots from a debug build, using synthetic data; these are not final Play Store listing assets. The raw captures and provenance are documented in [`docs/play-store/screenshots/README.md`](docs/play-store/screenshots/README.md). This set is available for [#1262](https://github.com/NickMonrad/kernel-ai-assistant/issues/1262).
+
+| Chat | Quick action | Lists |
+|---|---|---|
+| <img src="docs/play-store/screenshots/08-chat-complete.png" alt="Completed on-device chat answer to a synthetic kiwi bird prompt in Jandal." width="200"> | <img src="docs/play-store/screenshots/09-timer-action.png" alt="Jandal Actions history confirming a synthetic 60-minute timer quick action." width="200"> | <img src="docs/play-store/screenshots/10-lists.png" alt="Jandal showing a synthetic Picnic list with a Water item." width="200"> |
+| Model management | Legal & privacy | |
+| <img src="docs/play-store/screenshots/11-model-management.png" alt="Model Management showing Gemma 4 E-4B ready alongside local model storage details." width="200"> | <img src="docs/play-store/screenshots/12-legal-privacy.png" alt="Jandal's Legal and privacy screen with Privacy Policy, Terms of Use, and Open-source licences." width="200"> | |
 
 ## Tech stack
 
@@ -54,10 +72,10 @@ Future roadmap work includes Lists home-screen visibility and local-first shared
 | Background work | WorkManager |
 | Local inference | Google AI Edge LiteRT / LiteRT-LM |
 | Chat models | Gemma-4 E-2B / E-4B LiteRT-LM packages |
-| Embeddings / RAG | EmbeddingGemma-300M, sqlite-vec |
+| Embeddings / RAG | Arctic Embed M v1.5 (768-dim), sqlite-vec cosine indexes |
 | Quick actions | Kotlin `QuickIntentRouter` with deterministic routing and slot filling |
 | Tool calling | LiteRT-LM native `@Tool` annotations and app-owned native skills |
-| STT | Android native STT, Vosk, Sherpa-ONNX Zipformer / SenseVoice / Whisper tiny.en / Paraformer |
+| STT | Automatic (offline Sherpa-ONNX Zipformer; Android speech recognition when online recognition is allowed), Android native, plus Sherpa-ONNX SenseVoice / Whisper tiny.en / Paraformer |
 | TTS | Sherpa-ONNX Piper/VITS voice packs, Android TTS fallback, Kokoro research path |
 | Wake word | Sherpa-ONNX verification and ONNX Runtime wake-word pipeline |
 | Auth for gated downloads | Hugging Face OAuth via AppAuth |
@@ -65,7 +83,7 @@ Future roadmap work includes Lists home-screen visibility and local-first shared
 
 ## Models and downloads
 
-Model files are **not committed to this repository**. Some model downloads are gated and require a Hugging Face account plus acceptance of the upstream model licence/terms before the app can download or use them.
+Model files are **not committed to this repository**. Some model downloads are gated and require a Hugging Face account plus acceptance of upstream terms. Arctic Embed M v1.5 is ungated and temporarily hosted at a public rolling GitHub release; the validated artifact's SHA-256 provenance is recorded in [`docs/research/1559-arctic-phase-b-calibration.md`](docs/research/1559-arctic-phase-b-calibration.md). Long-term publication to `litert-community` is tracked separately in [#1563](https://github.com/NickMonrad/kernel-ai-assistant/issues/1563); GitHub release immutability is not a #1559 gate.
 
 See [`models/README.md`](models/README.md) for the current model file reference, approximate sizes, ADB setup notes, and device-specific guidance.
 
@@ -75,7 +93,7 @@ Key launch-relevant examples:
 |---------------|--------------|-------|
 | Gemma-4 E-2B LiteRT-LM | ~2.4 GB | Required launch-compatible chat model tier |
 | Gemma-4 E-4B LiteRT-LM | ~3.4 GB | Optional flagship-tier chat model |
-| EmbeddingGemma 300M | varies by file | Required for local embedding/RAG paths where enabled |
+| Arctic Embed M v1.5 + WordPiece vocabulary | 114,082,292 bytes | Required local embedding/RAG assets; downloaded from a public rolling release |
 | Sherpa STT models | ~72-220 MB each | Downloaded per selected STT engine |
 | Sherpa Piper/VITS voice packs | ~64-116 MB each | Downloaded per selected voice; Semaine launch decision tracked in #1258 |
 
@@ -85,8 +103,10 @@ Jandal is designed as a local-first assistant:
 
 - chat, memories, notes, lists, and model execution are local by default;
 - production builds should not include telemetry;
-- external network calls are limited to explicit web-backed skills or model/voice downloads where configured;
-- Hugging Face sign-in is used only for gated model access.
+- external network exchange occurs only for explicit web-backed skills, configured model/voice downloads, or user-enabled integrations, and is limited to the data needed for that integration;
+- explicitly selected Lists may synchronise with a user-configured Nextcloud server while unsynchronised Lists remain local-only;
+- Hugging Face sign-in is used only for gated model access;
+- when a user chooses **Report response**, Jandal opens a pre-filled email composer containing only that assistant reply, the app version, the active model, and an editable reason prompt. The user reviews and sends the email; Jandal does not transmit reports itself. If the user sends it, the email and included reply are handled by their chosen email provider and delivered to the dedicated support address.
 
 ## Documentation
 

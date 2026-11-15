@@ -10,11 +10,14 @@ import com.kernel.ai.core.memory.dao.QuickActionDao
 import com.kernel.ai.core.memory.entity.QuickActionEntity
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
+import com.kernel.ai.core.skills.SkillOutcomeEvents
+import com.kernel.ai.core.inference.diagnostics.IntentRoute
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
@@ -31,8 +34,13 @@ import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
+import com.kernel.ai.core.voice.latestNoticeFor
+import com.kernel.ai.core.voice.noticesFor
+import com.kernel.ai.core.voice.SpeechStopCoordinator
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +51,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
@@ -75,8 +86,10 @@ class ActionsViewModel @Inject constructor(
     private val quickActionDao: QuickActionDao,
     private val voiceInputController: VoiceInputController,
     private val voiceOutputController: VoiceOutputController,
+    private val speechStopCoordinator: SpeechStopCoordinator,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val startListeningCuePlayer: StartListeningCuePlayer,
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -125,6 +138,8 @@ class ActionsViewModel @Inject constructor(
         object RepairCalendarPermission : UiEvent
         /** Navigate to app settings to repair microphone permission. */
         object RepairMicrophonePermission : UiEvent
+        /** Open an in-app destination for a failed lookup's recovery action (#1859). Never dials. */
+        data class OpenSettingsDeepLink(val link: SettingsDeepLink) : UiEvent
         /** Open Android DND special-access settings for notification policy grant. */
         object OpenDndSettings : UiEvent
         /** Open Android write-settings special-access panel for the user to grant. */
@@ -187,6 +202,7 @@ class ActionsViewModel @Inject constructor(
     private data class ExecutedAction(
         val entity: QuickActionEntity,
         val spokenSummary: String?,
+        val fallThroughToModel: Boolean = false,
     )
 
     /**
@@ -265,6 +281,12 @@ class ActionsViewModel @Inject constructor(
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
 
+    /** #1850: one signal per mic start, consumed by the screen to fire the start haptic. */
+    private val _listeningHaptics = Channel<Unit>(Channel.CONFLATED)
+    val listeningHaptics: Flow<Unit> = _listeningHaptics.receiveAsFlow()
+    /** #1850: live capture level (0..1) driving the Listening ring. */
+    val voiceInputLevel: StateFlow<Float> get() = voiceInputController.inputLevel
+
     /** Non-null while waiting for the user to supply a missing slot value. */
     private val _pendingSlot = MutableStateFlow<PendingSlotState?>(null)
     val pendingSlot: StateFlow<PendingSlotState?> = _pendingSlot.asStateFlow()
@@ -283,6 +305,8 @@ class ActionsViewModel @Inject constructor(
     /** Non-null while the write-settings special-access contextual surface should be shown. */
     private val _writeSettingsState = MutableStateFlow<WriteSettingsState?>(null)
     val writeSettingsState: StateFlow<WriteSettingsState?> = _writeSettingsState.asStateFlow()
+    private val _settingsActionState = MutableStateFlow<SettingsActionState?>(null)
+    val settingsActionState: StateFlow<SettingsActionState?> = _settingsActionState.asStateFlow()
 
     /** Non-null while the contextual weather-location permission dialog should be shown. */
     private val _weatherLocationState = MutableStateFlow<WeatherLocationState?>(null)
@@ -303,8 +327,24 @@ class ActionsViewModel @Inject constructor(
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
 
+    /** #1850 first-use hint, same policy as the chat input bar. */
+    private val _micHintVisible = MutableStateFlow(false)
+    val micHintVisible: StateFlow<Boolean> = _micHintVisible.asStateFlow()
+
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
+
+    private val _speakingActionId = MutableStateFlow<String?>(null)
+
+    /** Id of the quick-action card whose reply is being read aloud (#1026), or null. */
+    val speakingActionId: StateFlow<String?> = _speakingActionId.asStateFlow()
+    private var speakActionJob: Job? = null
+
+    /** Set once speech for the card in [_speakingActionId] has started; gates its SpeakingStopped reset. */
+    private var actionSpeechAudible = false
+
+    /** Set when a card starts while another card was playing: that card's stop may still arrive late. */
+    private var actionStaleStopPending = false
     private val _slotReplyAutoRearmArmed = MutableStateFlow(false)
     val slotReplyAutoRearmArmed: StateFlow<Boolean> = _slotReplyAutoRearmArmed.asStateFlow()
     private val _slotPromptPlaybackStarted = MutableStateFlow(false)
@@ -313,6 +353,18 @@ class ActionsViewModel @Inject constructor(
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
+    private var chunkedVoiceSpeechJob: Job? = null
+    /** Set by [cancelPendingVoiceSpeech]; cleared when the next reply starts speaking. */
+    private var voiceSpeechCancelled = false
+
+    /**
+     * True from the Actions screen's ON_STOP (screen off or Home) until its next ON_RESUME (#1918).
+     * While set, no automatic path may open the mic: the command retry after a voice error, the
+     * slot-reply re-arm after SpeakingStopped, and the slot sheet's safety net all check it through
+     * [startVoiceCapture]. Speech may keep playing. Only a user tap, which needs a resumed screen,
+     * opens the mic.
+     */
+    private var backgroundPaused = false
     private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
@@ -344,6 +396,9 @@ class ActionsViewModel @Inject constructor(
     private var recentVoiceCommand: String? = null
     private var recentVoiceCommandAtMs: Long = 0L
     private var spokenResponsesEnabled = true
+    /** Capture session this screen started; errors and notes are shown only for it (#1853). */
+    private var actionsVoiceSessionId: Long? = null
+    private var actionsVoiceNoticeJob: Job? = null
 
     /**
      * Tracks how many automatic voice retries have been attempted for the current
@@ -359,6 +414,8 @@ class ActionsViewModel @Inject constructor(
     private var commandVoiceRetryCount = 0
 
     init {
+        // #1850: warm the selected recognizer off the main thread as Actions opens. Holds no mic.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { voiceInputController.prewarm() }
         viewModelScope.launch {
             voiceOutputPreferences.spokenResponsesEnabled.collect { enabled ->
                 spokenResponsesEnabled = enabled
@@ -368,7 +425,7 @@ class ActionsViewModel @Inject constructor(
                     setSlotReplyAutoRearmArmed(false, "spokenResponsesDisabled")
                     cancelPendingVoiceSlotReplyRestart()
                     cancelPendingVoiceSpeech()
-                    voiceOutputController.stop()
+                    stopAllVoiceOutput()
                 }
             }
         }
@@ -383,8 +440,15 @@ class ActionsViewModel @Inject constructor(
                             .orEmpty()
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, currentTranscript)
                         startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
+                        _listeningHaptics.trySend(Unit)
                     }
                     is VoiceInputEvent.SpeechDetected -> Unit
+                    is VoiceInputEvent.SpeechEnded -> {
+                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        (_voiceCaptureState.value as? VoiceCaptureState.Listening)?.let { listening ->
+                            _voiceCaptureState.value = VoiceCaptureState.Processing(event.mode, listening.transcript)
+                        }
+                    }
                     is VoiceInputEvent.PartialTranscript -> {
                         if (!ownsVoiceCapture(event.mode)) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, event.text)
@@ -408,13 +472,24 @@ class ActionsViewModel @Inject constructor(
                         }
                     }
                     is VoiceInputEvent.Error -> {
-                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        if (!ownsVoiceCapture(event.mode)) {
+                            // Other surfaces' captures (wake, chat, widget) are not ours. Show only the
+                            // session this screen started; stopping clears the binding.
+                            if (event.captureSessionId != 0L && event.captureSessionId == actionsVoiceSessionId) {
+                                _error.value = event.message
+                            }
+                            return@collect
+                        }
                         // #790: Auto-retry with reprompt on voice errors during slot-fill or idle command.
+                        // #1853: a capture that already moved to Zipformer is not retried; a retry
+                        // would start the failing Android native recognizer again.
+                        val handedOff = actionsVoiceSessionId
+                            ?.let { voiceInputController.latestNoticeFor(it) } != null
                         when (event.mode) {
                             VoiceCaptureMode.SlotReply -> {
                                 val pending = _pendingSlot.value
                                 if (pending != null && pending.inputMode == InputMode.Voice &&
-                                    slotReplyVoiceRetryCount < SLOT_REPLY_MAX_VOICE_RETRIES
+                                    slotReplyVoiceRetryCount < SLOT_REPLY_MAX_VOICE_RETRIES && !handedOff
                                 ) {
                                     slotReplyVoiceRetryCount++
                                     Log.d(
@@ -437,18 +512,19 @@ class ActionsViewModel @Inject constructor(
                                     _slotPromptPlaybackStarted.value = false
                                     speakForVoice(InputMode.Voice, retryPrompt, spokenOverride = spokenRetry)
                                 } else {
-                                    // Budget exhausted or no slot active — keep slot visible, let user type.
+                                    // Budget exhausted, no slot active, or handed off: keep slot visible, let user type.
                                     Log.d(
                                         TAG,
-                                        "ActionsViewModel: slot-reply voice error — retry budget exhausted, " +
+                                        "ActionsViewModel: slot-reply voice error — no retry (handedOff=$handedOff), " +
                                             "waiting for manual input",
                                     )
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
+                                    if (handedOff) _error.value = event.message
                                     setSlotReplyAutoRearmArmed(false, "slotReplyVoiceRetryExhausted")
                                 }
                             }
                             VoiceCaptureMode.Command -> {
-                                if (commandVoiceRetryCount < COMMAND_MAX_VOICE_RETRIES) {
+                                if (commandVoiceRetryCount < COMMAND_MAX_VOICE_RETRIES && !handedOff) {
                                     commandVoiceRetryCount++
                                     Log.d(
                                         TAG,
@@ -464,7 +540,9 @@ class ActionsViewModel @Inject constructor(
                                                 VoiceSpeakRequest("Sorry, I didn't catch that. Please try again.")
                                             )
                                         }
-                                        startVoiceCapture(VoiceCaptureMode.Command)
+                                        // speak() returns when playback ends or is stopped, which may be
+                                        // after ON_STOP: the background-paused gate keeps the mic closed.
+                                        startVoiceCapture(VoiceCaptureMode.Command, userInitiated = false)
                                     }
                                 } else {
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -499,11 +577,33 @@ class ActionsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            // Volume key or media Stop (#1873) while a quick-action card is speaking (#1026).
+            speechStopCoordinator.stopRequests.collect {
+                // Also drop a pending command retry, whose job opens the mic once its prompt ends.
+                cancelPendingVoiceSpeech()
+                stopAllVoiceOutput()
+                _voicePlaybackState.value = VoicePlaybackState.Idle
+            }
+        }
+        viewModelScope.launch {
             voiceOutputController.events.collect { event ->
                 when (event) {
                     is VoiceOutputEvent.SpeakingStarted -> {
+                        // Recorded before the cancel check below: card speech must not be lost to it.
+                        if (_speakingActionId.value != null) {
+                            actionSpeechAudible = true
+                            actionStaleStopPending = false
+                        }
+                        if (voiceSpeechCancelled) {
+                            // Speech the user abandoned can still report a start; no SpeakingStopped
+                            // follows it on Inflect, so accepting it would leave the card on Speaking.
+                            Log.d(TAG, "ActionsViewModel: ignoring SpeakingStarted after cancelled speech")
+                            return@collect
+                        }
                         cancelPendingVoiceSlotReplyRestart()
-                        _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                        if (_speakingActionId.value == null) {
+                            _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
+                        }
                         if (event.text == expectedSlotPromptSpeech) {
                             _slotPromptPlaybackStarted.value = true
                             Log.d(TAG, "ActionsViewModel: slot prompt playback started")
@@ -511,6 +611,14 @@ class ActionsViewModel @Inject constructor(
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
                         _voicePlaybackState.value = VoicePlaybackState.Idle
+                        // Card speech shows only the card's icon, not the banner (#1026 review S4).
+                        // While a stale stop from the previous card may still arrive, only an audible start clears the card.
+                        if (
+                            _speakingActionId.value != null &&
+                            (actionSpeechAudible || (!actionStaleStopPending && speakActionJob?.isActive != true))
+                        ) {
+                            clearActionSpeechState()
+                        }
                         if (
                             shouldAutoStartVoiceSlotReply &&
                             _pendingSlot.value?.inputMode == InputMode.Voice &&
@@ -528,6 +636,7 @@ class ActionsViewModel @Inject constructor(
                                 ) {
                                     startVoiceCapture(
                                         mode = VoiceCaptureMode.SlotReply,
+                                        userInitiated = false,
                                         interruptPlayback = false,
                                     )
                                 }
@@ -550,24 +659,61 @@ class ActionsViewModel @Inject constructor(
     fun startVoiceCommand() {
         // #790: Reset command retry budget on fresh user-initiated press.
         commandVoiceRetryCount = 0
-        startVoiceCapture(VoiceCaptureMode.Command)
+        startVoiceCapture(VoiceCaptureMode.Command, userInitiated = true)
     }
 
     fun startVoiceSlotReply() {
+        openSlotReplyMic(userInitiated = true)
+    }
+
+    /**
+     * Slot sheet safety net (#1918): opens the slot-reply mic only while the re-arm is still live and
+     * the screen is not background-paused. The sheet's composed armed flag stops updating once the
+     * screen stops, so the live state is checked here rather than in the composable.
+     */
+    fun startAutoVoiceSlotReply() {
+        if (!shouldAutoStartVoiceSlotReply) {
+            Log.d(TAG, "ActionsViewModel: slot voice fallback skipped, auto re-arm disarmed")
+            return
+        }
+        openSlotReplyMic(userInitiated = false)
+    }
+
+    private fun openSlotReplyMic(userInitiated: Boolean) {
         if (_pendingSlot.value == null) return
+        if (!userInitiated && backgroundPaused) {
+            Log.d(TAG, "ActionsViewModel: automatic slot-reply mic skipped, screen background-paused")
+            return
+        }
         // #825: Reset slot retry budget on manual mic re-tap, mirroring what startVoiceCommand()
         // does for commandVoiceRetryCount. This ensures the user gets a fresh set of retries
         // if they tap the mic again after the budget was exhausted.
         slotReplyVoiceRetryCount = 0
-        Log.d(TAG, "ActionsViewModel: startVoiceSlotReply pendingSlot=true")
+        Log.d(TAG, "ActionsViewModel: startVoiceSlotReply pendingSlot=true userInitiated=$userInitiated")
         setSlotReplyAutoRearmArmed(false, "startVoiceSlotReply")
         clearExpectedSlotPromptSpeech()
-        startVoiceCapture(VoiceCaptureMode.SlotReply)
+        startVoiceCapture(VoiceCaptureMode.SlotReply, userInitiated = userInitiated)
     }
 
     fun stopVoiceCapture() {
+        unbindActionsVoiceSession()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    /** Shows this screen's capture notes (#1853 Zipformer hand-off, #1866) until unbound. */
+    private fun bindActionsVoiceSession(captureSessionId: Long) {
+        actionsVoiceNoticeJob?.cancel()
+        actionsVoiceSessionId = captureSessionId
+        actionsVoiceNoticeJob = viewModelScope.launch {
+            voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
+        }
+    }
+
+    private fun unbindActionsVoiceSession() {
+        actionsVoiceNoticeJob?.cancel()
+        actionsVoiceNoticeJob = null
+        actionsVoiceSessionId = null
     }
 
     fun stopVoiceOutput(reason: String = "manual") {
@@ -576,23 +722,121 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
-        voiceOutputController.stop()
+        stopAllVoiceOutput()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
-    fun pauseTransientVoiceUi(reason: String = "unspecified") {
+    // ── Quick-action card speaker (#1026) ───────────────────────────────────
+
+    /**
+     * Reads a card's reply aloud, or stops it when that card is already speaking. Mirrors chat's
+     * per-message speaker (#785) and reuses sentence-chunked playback (#1842). Only one card plays
+     * at a time; tapping another card stops the previous one.
+     */
+    fun toggleSpeakAction(actionId: String, text: String) {
+        val previouslySpeaking = _speakingActionId.value
+        val wasSpeakingThisCard = previouslySpeaking == actionId
+        cancelPendingVoiceSpeech()
+        stopAllVoiceOutput()
+        _voicePlaybackState.value = VoicePlaybackState.Idle
+        setSlotReplyAutoRearmArmed(false, "speakAction")
+        if (wasSpeakingThisCard) return
+        // The previous card's stop may still report SpeakingStopped after this card starts.
+        actionStaleStopPending = previouslySpeaking != null
+        _speakingActionId.value = actionId
+        speakActionJob = viewModelScope.launch {
+            val maxSentences = voiceOutputPreferences.maxSpokenSentences.first()
+            val spoken = truncateForSpeech(normalizeChatTextForSpeech(text), maxSentences)
+            if (spoken.isBlank()) {
+                clearActionSpeechState()
+                return@launch
+            }
+            val result = try {
+                speakInSentenceChunks(voiceOutputController, spoken)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: card speech failed to start", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            }
+            if (result is VoiceOutputResult.Unavailable && _speakingActionId.value == actionId) {
+                _error.value = result.message
+                clearActionSpeechState()
+            }
+        }
+    }
+
+    /** Stops playback if [actionId] is the card speaking, e.g. when it leaves the screen or is deleted. */
+    fun releaseActionSpeech(actionId: String) {
+        if (_speakingActionId.value == actionId) stopAllVoiceOutput()
+    }
+
+    /** Resets card speech state and cancels its job; does not touch audio. */
+    private fun stopActionSpeech() {
+        val wasActive = _speakingActionId.value != null || speakActionJob != null
+        speakActionJob?.cancel()
+        clearActionSpeechState()
+        if (wasActive) _voicePlaybackState.value = VoicePlaybackState.Idle
+    }
+
+    /** Stops every Actions voice output path, including a playing quick-action card (#1026). */
+    private fun stopAllVoiceOutput() {
+        stopActionSpeech()
+        voiceOutputController.stop()
+    }
+
+    private fun clearActionSpeechState() {
+        speakActionJob = null
+        actionSpeechAudible = false
+        actionStaleStopPending = false
+        _speakingActionId.value = null
+    }
+
+    /**
+     * Actions screen ON_STOP (#1918): screen off ([screenOff] = true) or Home/navigation. Sets the
+     * background-paused state so no automatic path can open the mic until [onScreenResumed], then
+     * pauses transient voice UI; screen off keeps speech playing.
+     */
+    fun onScreenStopped(screenOff: Boolean) {
+        backgroundPaused = true
+        pauseTransientVoiceUi(reason = "lifecycleOnStop", keepSpeech = screenOff)
+    }
+
+    /** Actions screen ON_RESUME: automatic mic paths (retry, re-arm, safety net) may run again. */
+    fun onScreenResumed() {
+        if (backgroundPaused) Log.d(TAG, "ActionsViewModel: screen resumed, background pause cleared")
+        backgroundPaused = false
+    }
+
+    /**
+     * Pauses transient voice UI when the Actions screen stops.
+     *
+     * [keepSpeech] = true (screen turned off, #1918): stops the mic and the slot-reply re-arm for
+     * privacy, but leaves spoken output running so the reply finishes in the background. It also
+     * skips cancelPendingVoiceSpeech(), so a pending command retry still speaks its prompt; its
+     * mic start is blocked by [backgroundPaused]. It skips clearExpectedSlotPromptSpeech() because
+     * the slot prompt may still be playing: its expected text and [slotPromptPlaybackStarted] stay
+     * accurate for the sheet if the user returns mid-prompt, and with the re-arm disarmed and
+     * [backgroundPaused] set they cannot open the mic.
+     * [keepSpeech] = false (e.g. Home/navigation): stops listening and all speech, resets to idle.
+     */
+    fun pauseTransientVoiceUi(reason: String = "unspecified", keepSpeech: Boolean = false) {
         Log.d(
             TAG,
-            "ActionsViewModel: pauseTransientVoiceUi reason=$reason pendingSlot=${_pendingSlot.value != null} " +
+            "ActionsViewModel: pauseTransientVoiceUi reason=$reason keepSpeech=$keepSpeech " +
+                "pendingSlot=${_pendingSlot.value != null} " +
                 "voiceCaptureState=${_voiceCaptureState.value} voicePlaybackState=${_voicePlaybackState.value}",
         )
         setSlotReplyAutoRearmArmed(false, "pauseTransientVoiceUi:$reason")
-        clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
-        cancelPendingVoiceSpeech()
+        unbindActionsVoiceSession()
         voiceInputController.stopListening()
         _voiceCaptureState.value = VoiceCaptureState.Idle
-        voiceOutputController.stop()
+        if (keepSpeech) return
+        clearExpectedSlotPromptSpeech()
+        cancelPendingVoiceSpeech()
+        stopActionSpeech()
+        stopAllVoiceOutput()
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
@@ -609,7 +853,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onPhonePermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -785,7 +1029,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onWeatherLocationPermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -897,7 +1141,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onContactPermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -990,7 +1234,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onCalendarPermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -1247,7 +1491,7 @@ class ActionsViewModel @Inject constructor(
                 try {
                     setSlotReplyAutoRearmArmed(false, "onDndResumeCheck")
                     clearExpectedSlotPromptSpeech()
-                    voiceOutputController.stop()
+                    stopAllVoiceOutput()
                     val result = executeIntent(
                         query = pending.query,
                         intentName = pending.intentName,
@@ -1300,6 +1544,17 @@ class ActionsViewModel @Inject constructor(
         _error.value = null
     }
 
+    /** Dismiss the settings-action chooser without opening anything. */
+    fun dismissSettingsActionDialog() {
+        _settingsActionState.value = null
+    }
+
+    /** The user chose a recovery action: hand its in-app destination to the screen. */
+    fun onSettingsActionSelected(link: SettingsDeepLink) {
+        _settingsActionState.value = null
+        viewModelScope.launch { _events.emit(UiEvent.OpenSettingsDeepLink(link)) }
+    }
+
     /**
      * Called when the app resumes after the user returns from write-settings panel.
      * Re-checks access and either retries the original brightness action or shows a blocked result.
@@ -1324,7 +1579,7 @@ class ActionsViewModel @Inject constructor(
                 try {
                     setSlotReplyAutoRearmArmed(false, "onWriteSettingsResumeCheck")
                     clearExpectedSlotPromptSpeech()
-                    voiceOutputController.stop()
+                    stopAllVoiceOutput()
                     val result = executeIntent(
                         query = pending.query,
                         intentName = pending.intentName,
@@ -1388,22 +1643,14 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "executeAction")
                 clearExpectedSlotPromptSpeech()
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 _uiState.value = UiState.Executing
 
                 val routeResult = quickIntentRouter.route(normalizedQuery)
                 when (routeResult) {
                     is QuickIntentRouter.RouteResult.FallThrough -> {
                         Log.d(TAG, "ActionsViewModel: FallThrough for \"$normalizedQuery\" → navigating to chat")
-                        val entity = QuickActionEntity(
-                            userQuery = normalizedQuery,
-                            skillName = "llm_fallthrough",
-                            resultText = "Sending to Jandal for processing…",
-                            isSuccess = true,
-                        )
-                        quickActionDao.insert(entity)
-                        speakForVoice(inputMode, entity.resultText)
-                        _events.emit(UiEvent.NavigateToChat(normalizedQuery, speakResponse = inputMode == InputMode.Voice))
+                        handoffToChatForModel(normalizedQuery, inputMode)
                     }
                     is QuickIntentRouter.RouteResult.NeedsSlot -> {
                         // Pause execution — show slot prompt in a ModalBottomSheet.
@@ -1421,28 +1668,14 @@ class ActionsViewModel @Inject constructor(
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
                         } else {
-                            val result = executeIntent(
-                                query = normalizedQuery,
-                                intentName = routeResult.intent.intentName,
-                                params = routeResult.intent.params,
-                                inputMode = inputMode,
-                            )
-                            quickActionDao.insert(result.entity)
-                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary, userValues = routeResult.intent.params.values)
+                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode, IntentRoute.QUICK_REGEX)
                         }
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
                         } else {
-                            val result = executeIntent(
-                                query = normalizedQuery,
-                                intentName = routeResult.intent.intentName,
-                                params = routeResult.intent.params,
-                                inputMode = inputMode,
-                            )
-                            quickActionDao.insert(result.entity)
-                            speakForVoice(inputMode, result.entity.resultText, spokenOverride = result.spokenSummary, userValues = routeResult.intent.params.values)
+                            executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode, IntentRoute.QUICK_CLASSIFIER)
                         }
                     }
                 }
@@ -1535,12 +1768,13 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = UiState.Executing
             try {
-                voiceOutputController.stop()
+                stopAllVoiceOutput()
                 val result = executeIntent(
                     query = pending.originalQuery,
                     intentName = pending.request.intentName,
                     params = mergedParams,
                     inputMode = pending.inputMode,
+                    route = IntentRoute.SLOT_FILL,
                 )
                 quickActionDao.insert(result.entity)
                 speakForVoice(
@@ -1580,7 +1814,7 @@ class ActionsViewModel @Inject constructor(
         cancelPendingVoiceSpeech()
         _pendingSlot.value = null
         stopVoiceCapture()
-        voiceOutputController.stop()
+        stopAllVoiceOutput()
     }
 
     private fun primePendingSlot(
@@ -1673,6 +1907,7 @@ class ActionsViewModel @Inject constructor(
         intentName: String,
         params: Map<String, String>,
         inputMode: InputMode,
+        route: IntentRoute = IntentRoute.ACTION_UI,
     ): ExecutedAction {
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
@@ -1680,7 +1915,7 @@ class ActionsViewModel @Inject constructor(
             else -> skillRegistry.get("run_intent") to (mapOf("intent_name" to intentName) + params)
         }
         return if (skill != null) {
-            val skillResult = skill.execute(SkillCall(skill.name, callParams))
+            val skillResult = SkillOutcomeEvents.execute(skill, callParams, route)
             if (shouldRequestPhonePermission(skillResult)) {
                 // Clear stale weather/contact/calendar states
                 pendingWeatherLocationAction = null
@@ -1820,9 +2055,16 @@ class ActionsViewModel @Inject constructor(
                 _microphoneState.value = MicrophoneState()
             }
 
+            val spokenSummary = spokenSummaryFrom(skillResult, params.values)
+            if (skillResult is SkillResult.Failure && skillResult.actions.isNotEmpty()) {
+                _settingsActionState.value = SettingsActionState(skillResult.error, skillResult.actions)
+            }
+
             ExecutedAction(
-                entity = buildEntityFromSkillResult(query, intentName, skillResult),
-                spokenSummary = spokenSummaryFrom(skillResult),
+                entity = buildEntityFromSkillResult(query, intentName, skillResult)
+                    .copy(spokenSummary = spokenSummary.takeUnless { skillResult is SkillResult.Failure }),
+                spokenSummary = spokenSummary,
+                fallThroughToModel = (skillResult as? SkillResult.Failure)?.fallThroughToModel == true,
             )
         } else {
             Log.w(TAG, "ActionsViewModel: intent '$intentName' has no registered skill")
@@ -1838,6 +2080,38 @@ class ActionsViewModel @Inject constructor(
         }
     }
 
+    private suspend fun executeRoutedIntent(
+        query: String,
+        intent: QuickIntentRouter.MatchedIntent,
+        inputMode: InputMode,
+        route: IntentRoute,
+    ) {
+        val result = executeIntent(query, intent.intentName, intent.params, inputMode, route)
+        if (result.fallThroughToModel) {
+            handoffToChatForModel(query, inputMode)
+            return
+        }
+        quickActionDao.insert(result.entity)
+        speakForVoice(
+            inputMode,
+            result.entity.resultText,
+            spokenOverride = result.spokenSummary,
+            userValues = intent.params.values,
+        )
+    }
+
+    private suspend fun handoffToChatForModel(query: String, inputMode: InputMode) {
+        val entity = QuickActionEntity(
+            userQuery = query,
+            skillName = "llm_fallthrough",
+            resultText = "Sending to Jandal for processing…",
+            isSuccess = true,
+        )
+        quickActionDao.insert(entity)
+        speakForVoice(inputMode, entity.resultText)
+        _events.emit(UiEvent.NavigateToChat(query, speakResponse = inputMode == InputMode.Voice))
+    }
+
     private suspend fun handoffMealPlannerToChat(query: String, inputMode: InputMode) {
         val entity = QuickActionEntity(
             userQuery = query,
@@ -1850,9 +2124,10 @@ class ActionsViewModel @Inject constructor(
         _events.emit(UiEvent.NavigateToChat(query, speakResponse = inputMode == InputMode.Voice))
     }
 
-    private fun spokenSummaryFrom(result: SkillResult): String? = when (result) {
+    private fun spokenSummaryFrom(result: SkillResult, userValues: Collection<String> = emptyList()): String? = when (result) {
         is SkillResult.DirectReply -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
         is SkillResult.Success -> result.spokenSummary ?: result.presentation?.toSpokenSummary()
+        is SkillResult.Failure -> if (result.actions.isNotEmpty()) spokenRecoveryText(result.error, userValues) else null
         else -> null
     }
 
@@ -1878,7 +2153,7 @@ class ActionsViewModel @Inject constructor(
         is SkillResult.Failure -> QuickActionEntity(
             userQuery = query,
             skillName = skillName,
-            resultText = "Action failed: ${result.error}",
+            resultText = failureCardText(result),
             isSuccess = false,
         )
         is SkillResult.CapabilityRequired -> {
@@ -1896,7 +2171,13 @@ class ActionsViewModel @Inject constructor(
                 val contact = result.contextParams["contact"] ?: ""
                 "Jandal needs contact access to find $contact."
             } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
-                "Jandal needs calendar access to find important dates and birthdays."
+                if (result.skillName == "read_calendar_events") {
+                    "Jandal needs calendar access to read your events."
+                } else {
+                    "Jandal needs calendar access to find important dates and birthdays."
+                }
+            } else if (result.capabilityKey == CapabilityKey.CalendarWrite) {
+                "Jandal needs calendar read and write access to add events. Allow it in app permissions, then ask again."
             } else if (result.capabilityKey == CapabilityKey.VoiceInput) {
                 "Jandal needs microphone access for voice input."
             } else {
@@ -1967,26 +2248,44 @@ class ActionsViewModel @Inject constructor(
         }
 
 
+    /**
+     * Opens the mic for [mode]. [userInitiated] = false marks an automatic start (command retry,
+     * slot-reply re-arm, slot sheet safety net), which is refused while [backgroundPaused] (#1918).
+     */
     private fun startVoiceCapture(
         mode: VoiceCaptureMode,
+        userInitiated: Boolean,
         interruptPlayback: Boolean = true,
     ) {
+        if (!userInitiated && backgroundPaused) {
+            Log.d(TAG, "ActionsViewModel: automatic startVoiceCapture mode=$mode skipped, screen background-paused")
+            return
+        }
         Log.d(
             TAG,
-            "ActionsViewModel: startVoiceCapture mode=$mode interruptPlayback=$interruptPlayback " +
-                "pendingSlot=${_pendingSlot.value != null}",
+            "ActionsViewModel: startVoiceCapture mode=$mode userInitiated=$userInitiated " +
+                "interruptPlayback=$interruptPlayback pendingSlot=${_pendingSlot.value != null}",
         )
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         _error.value = null
         if (interruptPlayback) {
-            voiceOutputController.stop()
+            stopAllVoiceOutput()
+        }
+        // #1850: one hint use per user tap. Automatic starts (command retry, slot re-arm, safety
+        // net) reuse the tap's capture flow and must not count as a new use.
+        if (userInitiated) {
+            viewModelScope.launch {
+                val uses = voiceInputPreferences.recordMicUseStarted()
+                _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
+            }
         }
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
         viewModelScope.launch {
             when (val result = voiceInputController.startListening(mode)) {
                 is VoiceInputStartResult.Started -> {
                     Log.d(TAG, "ActionsViewModel: voiceInputController.startListening started mode=$mode")
+                    bindActionsVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value is VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
                     }
@@ -2013,11 +2312,38 @@ class ActionsViewModel @Inject constructor(
             ?: normaliseUserValuesForTts(toSpokenSummary(text), userValues)
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
+        if (_speakingActionId.value != null) stopAllVoiceOutput()
         cancelPendingVoiceSpeech()
+        // A new reply supersedes the cancellation, so its SpeakingStarted events count again.
+        voiceSpeechCancelled = false
+        // A slot prompt must be spoken as one utterance: the slot-reply mic re-arm only trusts a
+        // SpeakingStarted whose text equals expectedSlotPromptSpeech, and Android TTS streaming
+        // reports the first (re-normalised) chunk instead. Slot prompts are one short question,
+        // so chunking would gain nothing.
+        val isSlotPrompt = summary == expectedSlotPromptSpeech
         pendingVoiceSpeechJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
             if (!spokenResponsesEnabled) return@launch
-            when (val result = voiceOutputController.speak(VoiceSpeakRequest(text = summary))) {
+            // Other replies go sentence by sentence, so long ones (e.g. weather) start sooner.
+            val speechJob = currentCoroutineContext()[Job]
+            val result = try {
+                if (!isSlotPrompt) chunkedVoiceSpeechJob = speechJob
+                if (isSlotPrompt) {
+                    voiceOutputController.speak(VoiceSpeakRequest(text = summary))
+                } else {
+                    speakInSentenceChunks(voiceOutputController, summary)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "ActionsViewModel: chunked speech failed to start", e)
+                VoiceOutputResult.Unavailable("Voice playback failed to start.")
+            } finally {
+                // Identity check: a cancelled reply's finally must not clear the flag that
+                // now belongs to the reply that replaced it.
+                if (chunkedVoiceSpeechJob === speechJob) chunkedVoiceSpeechJob = null
+            }
+            when (result) {
                 is VoiceOutputResult.Spoken -> Unit
                 is VoiceOutputResult.Unavailable -> _error.value = result.message
             }
@@ -2043,6 +2369,15 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSpeech() {
         pendingVoiceSpeechJob?.cancel()
         pendingVoiceSpeechJob = null
+        voiceSpeechCancelled = true
+        if (chunkedVoiceSpeechJob != null) {
+            chunkedVoiceSpeechJob = null
+            // The user moved on mid-reply, so sentence chunks would keep speaking over the new
+            // interaction while still queuing (Inflect: while playing). stop() halts them; Inflect
+            // emits no SpeakingStopped after stop(), so the playback state is reset here as well.
+            stopAllVoiceOutput()
+            _voicePlaybackState.value = VoicePlaybackState.Idle
+        }
     }
 
     private fun shouldSuppressDuplicateVoiceCommand(query: String, nowMs: Long = System.nanoTime() / 1_000_000L): Boolean {
@@ -2087,6 +2422,16 @@ class ActionsViewModel @Inject constructor(
         userValues.fold(text) { acc, value ->
             if (value.isBlank()) acc else acc.replace(value, normalisePronounsForTts(value))
         }
+
+    /**
+     * Speech for a recovery failure that offers in-app actions. The in-app path is spoken as words
+     * ("Settings, People and Contacts"), not as a symbol, and user-supplied values get the same
+     * first→second person flip as slot prompts.
+     */
+    private fun spokenRecoveryText(text: String, userValues: Collection<String>): String =
+        normaliseUserValuesForTts(text, userValues)
+            .replace(" → ", ", ")
+            .replace(" & ", " and ")
 
     private fun toSpokenSummary(text: String): String {
         val normalized = text.lineSequence()
@@ -2454,4 +2799,15 @@ class ActionsViewModel @Inject constructor(
             TENS_SPOKEN_NUMBERS.keys +
             setOf("hundred", "thousand", "oh", "o")
     }
+}
+
+/**
+ * Quick Actions card text for a failed skill. A set [SkillResult.Failure.technicalDetail] means
+ * [SkillResult.Failure.error] is already a complete reply, so no "Action failed:" prefix is added.
+ */
+internal fun failureCardText(result: SkillResult.Failure): String = when {
+    // Recovery failures name the contact in `error`; history keeps a name-free line, never the diagnostic.
+    result.actions.isNotEmpty() -> "Tap below to sort it."
+    result.technicalDetail != null -> result.error
+    else -> "Action failed: ${result.error}"
 }

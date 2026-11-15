@@ -1,9 +1,11 @@
 package com.kernel.ai.feature.settings
 
+import android.app.AlarmManager
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,6 +55,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -71,6 +74,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -85,6 +89,8 @@ import com.kernel.ai.core.memory.clock.StopwatchStatus
 import com.kernel.ai.core.memory.clock.WorldClock
 import com.kernel.ai.core.memory.clock.WorldClockCandidate
 import com.kernel.ai.core.memory.clock.WorldClockCatalog
+import com.kernel.ai.core.permissions.exactAlarmSettingsIntents
+import com.kernel.ai.core.permissions.launchFirstAvailable
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import java.time.DayOfWeek
@@ -103,7 +109,9 @@ fun SidePanelScreen(
     initialTab: String? = null,
     viewModel: SidePanelViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
+    val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.exact_alarm_no_settings_page)
     val timers by viewModel.timers.collectAsStateWithLifecycle()
     val recentCompletedTimers by viewModel.recentCompletedTimers.collectAsStateWithLifecycle()
     val stopwatch by viewModel.stopwatch.collectAsStateWithLifecycle()
@@ -256,7 +264,11 @@ fun SidePanelScreen(
             onDismissAlarm = { alarm -> pendingDismiss = alarm },
             onToggleAlarm = { alarm ->
                 viewModel.toggleEnabled(alarm) { success ->
-                    if (!success) schedulingError = "Couldn't update the alarm."
+                    if (!success) {
+                        schedulingError = "Couldn't update the alarm."
+                    } else if (!context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
+                        schedulingWarning = "Alarm enabled. Exact-alarm access is off, so timing may be less exact. Enable Alarms & reminders in Settings for more precise timing."
+                    }
                 }
             },
             onStartStopwatch = {
@@ -499,6 +511,23 @@ fun SidePanelScreen(
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { schedulingWarning = null }) { Text("OK") }
+            },
+            dismissButton = if (message.contains("Exact-alarm access is off")) {
+                {
+                    TextButton(onClick = {
+                        val opened = launchFirstAvailable(exactAlarmSettingsIntents(context.packageName)) { context.startActivity(it) }
+                        if (!opened) {
+                            Toast.makeText(
+                                context,
+                                noSettingsPageMessage,
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        schedulingWarning = null
+                    }) { Text("Alarms & reminders settings") }
+                }
+            } else {
+                null
             },
         )
     }

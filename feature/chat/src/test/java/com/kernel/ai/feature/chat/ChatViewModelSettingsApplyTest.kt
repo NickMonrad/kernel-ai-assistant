@@ -109,6 +109,7 @@ class ChatViewModelSettingsApplyTest {
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
     private val chatPreferences: ChatPreferences = mockk(relaxed = true)
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator = mockk(relaxed = true)
 
     @BeforeEach
@@ -184,6 +185,13 @@ class ChatViewModelSettingsApplyTest {
 
     /** Set up mocks so engine init can complete. */
     private fun setupInitPrerequisites() {
+        // Settings-application tests model a warm engine. Eager initialisation is intentionally
+        // foreground-gated in production, so these tests should hydrate from the already-loaded
+        // model rather than depend on a JVM process lifecycle transition.
+        isReadyFlow.value = true
+        every { inferenceEngine.loadedModelPath } returns
+            "/path/to/${KernelModel.GEMMA_4_E4B.fileName}"
+
         every { downloadManager.areRequiredModelsDownloaded() } returns true
         downloadStatesFlow.value = mapOf(
             KernelModel.GEMMA_4_E4B to DownloadState.Downloaded("/path/to/model"),
@@ -203,10 +211,9 @@ class ChatViewModelSettingsApplyTest {
     }
 
     private fun clearViewModel(viewModel: ChatViewModel) {
-        val method = androidx.lifecycle.ViewModel::class.java
-            .getDeclaredMethod("clear\$lifecycle_viewmodel_release")
-        method.isAccessible = true
-        method.invoke(viewModel)
+        androidx.lifecycle.ViewModelStore()
+            .apply { put("chat-view-model", viewModel) }
+            .clear()
     }
 
     /** Common draft used across tests. */
@@ -439,7 +446,9 @@ class ChatViewModelSettingsApplyTest {
         savedStateHandle: SavedStateHandle = SavedStateHandle(),
     ): ChatViewModel = ChatViewModel(
         savedStateHandle = savedStateHandle,
+        speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
         chatPreferences = chatPreferences,
+        voiceInputPreferences = voiceInputPreferences,
         authRepository = authRepository,
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,

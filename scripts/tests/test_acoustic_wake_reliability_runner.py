@@ -235,10 +235,10 @@ class ProviderContractTests(unittest.TestCase):
         wait_event = json.dumps(event(1, "STT_READY"), separators=(",", ":"))
         events = [event(1, "STT_READY")]
         snap = json.dumps(envelope([event(1, "STT_READY")]), separators=(",", ":"))
-        target.responses["shell content call --uri content://com.kernel.ai.debug.target-event-journal --method WAIT_FOR_JOURNAL_EVENT"] = (
+        target.responses[f"shell content call --uri {runner.TARGET_PROVIDER_URI} --method WAIT_FOR_JOURNAL_EVENT"] = (
             "Bundle[{result_code=0, result_data=" + wait_event + "}]"
         )
-        target.responses["shell content call --uri content://com.kernel.ai.debug.target-event-journal --method GET_JOURNAL_SNAPSHOT"] = (
+        target.responses[f"shell content call --uri {runner.TARGET_PROVIDER_URI} --method GET_JOURNAL_SNAPSHOT"] = (
             "Bundle[{result_code=0, result_data=" + snap + "}]"
         )
         harness = runner.AcousticWakeReliabilityRunner(
@@ -3598,7 +3598,7 @@ class EvidenceRetentionTests(unittest.TestCase):
     # ── Diagnostics property lifecycle ─────────────────────────────────
 
     REARM_BROADCAST_KEY = (
-        "shell am broadcast -n com.kernel.ai.debug/"
+        f"shell am broadcast -n {runner.DEFAULT_PACKAGE}/"
         "com.kernel.ai.debug.wake.WakeDetectorRearmReceiver "
         "-a com.kernel.ai.debug.action.REARM_WAKE_DETECTOR"
     )

@@ -1,0 +1,35 @@
+NOTE (#1870 round 4): superseded. This excerpt was captured at d604464a before the round-3/4 fixes
+(native tool-call outcomes, wake refusals, TTS fallback events). Kept for history; not current evidence.
+PR #1883 at d604464a, S23U RFCW11265XH, debug build md5 a103df0bc76a0b16e66dc74d1eb9c747
+Source: About > Email support > Send (chats NOT included), email-app chooser cancelled, attachment
+cache/kernel_debug_log_0.1.0_20261114_164841_641.txt pulled with run-as. No email sent.
+Only the 'Recent Jandal events' section is reproduced below, verbatim.
+
+Recent Jandal events (in-app log, last 24 hours)
+------------------------------------------------
+11-14 15:52:53.186 lifecycle app_start build_type=[redacted]
+11-14 16:25:09.421 lifecycle app_start release=false
+11-14 16:25:13.210 lifecycle app_start release=false
+11-14 16:41:22.266 lifecycle app_start release=false
+11-14 16:41:23.266 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.307 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.313 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.321 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.352 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.357 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:23.360 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.470 lifecycle app_start release=false
+11-14 16:41:27.669 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.672 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.675 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.679 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.748 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.753 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:41:27.754 download worker_phase model=[redacted] phase=SUCCEEDED
+11-14 16:42:24.525 voice stt_ready mode=COMMAND
+11-14 16:42:29.569 voice stt_error code=7
+11-14 16:42:35.867 voice stt_ready mode=COMMAND
+11-14 16:42:40.882 voice stt_error code=7
+11-14 16:43:16.640 intent add_to_list success=false
+11-14 16:44:15.901 intent unknown_intent success=false
+

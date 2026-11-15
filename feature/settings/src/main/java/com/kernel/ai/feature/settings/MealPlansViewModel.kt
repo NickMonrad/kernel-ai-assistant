@@ -201,7 +201,7 @@ class MealPlansViewModel @Inject constructor(
             try {
                 mealPlanSessionRepository.removeFavouriteRecipe(recipeKey)
             } catch (e: Exception) {
-                Log.w(TAG, "removeFavourite failed for $recipeKey", e)
+                Log.w(TAG, "removeFavourite failed", e)
                 _messages.tryEmit("Couldn't remove that favourite recipe.")
             } finally {
                 pendingRecipeKeys.update { it - recipeKey }

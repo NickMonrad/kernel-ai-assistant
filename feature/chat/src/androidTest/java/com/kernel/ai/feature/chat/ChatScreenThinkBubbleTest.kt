@@ -21,10 +21,14 @@ class ChatScreenThinkBubbleTest {
 
     private fun setContent(message: ChatMessage, showThinkingProcess: Boolean = true) {
         composeTestRule.setContent {
-            // MessageBubble is private; replicate the relevant composable tree
-            // by invoking the same composables from ChatScreen.kt.
-            // Use the shared fixture below to render the bubble standalone.
-            MessageBubbleFixture(message = message, showThinkingProcess = showThinkingProcess)
+            androidx.compose.material3.MaterialTheme {
+                MessageBubble(
+                    message = message,
+                    onCopy = {},
+                    onReport = {},
+                    showThinkingProcess = showThinkingProcess,
+                )
+            }
         }
     }
 
@@ -66,6 +70,21 @@ class ChatScreenThinkBubbleTest {
 
         composeTestRule.onNodeWithTag("think_bubble").assertDoesNotExist()
     }
+    @Test
+    fun thinkBubbleVisible_whileStreamingBeforeThinkingTextArrives() {
+        val message = ChatMessage(
+            id = "streaming",
+            role = ChatMessage.Role.ASSISTANT,
+            content = "",
+            isStreaming = true,
+        )
+        setContent(message)
+
+        composeTestRule.onNodeWithTag("think_bubble").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Thinking…").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("think_bubble_content").assertDoesNotExist()
+    }
+
 
     @Test
     fun tapBubble_expandsContent() {
@@ -81,8 +100,8 @@ class ChatScreenThinkBubbleTest {
         // Initially content is collapsed
         composeTestRule.onNodeWithTag("think_bubble_content").assertDoesNotExist()
 
-        // Tap the "Thinking…" label to expand
-        composeTestRule.onNodeWithText("Thinking…").performClick()
+        // Tap the completed "Thinking" label to expand
+        composeTestRule.onNodeWithText("Thinking").performClick()
 
         // Content should now be visible
         composeTestRule.onNodeWithTag("think_bubble_content").assertIsDisplayed()
@@ -100,11 +119,11 @@ class ChatScreenThinkBubbleTest {
         setContent(message)
 
         // Expand
-        composeTestRule.onNodeWithText("Thinking…").performClick()
+        composeTestRule.onNodeWithText("Thinking").performClick()
         composeTestRule.onNodeWithTag("think_bubble_content").assertIsDisplayed()
 
         // Collapse
-        composeTestRule.onNodeWithText("Thinking…").performClick()
+        composeTestRule.onNodeWithText("Thinking").performClick()
         composeTestRule.onNodeWithTag("think_bubble_content").assertDoesNotExist()
     }
 
@@ -120,7 +139,7 @@ class ChatScreenThinkBubbleTest {
         setContent(message)
 
         // Expand to reveal content
-        composeTestRule.onNodeWithText("Thinking…").performClick()
+        composeTestRule.onNodeWithText("Thinking").performClick()
 
         composeTestRule.onNodeWithTag("think_bubble_content")
             .assertIsDisplayed()

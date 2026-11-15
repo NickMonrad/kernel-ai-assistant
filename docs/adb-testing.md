@@ -2,10 +2,12 @@
 
 | Device | Chip | RAM | Backend | Tier | Role |
 |--------|------|-----|---------|------|------|
-| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP | Reference device — primary target |
+| Samsung Galaxy S23 Ultra | Snapdragon 8 Gen 2 (SM8550) | 12 GB | NPU | FLAGSHIP | Standard/default physical Android test device |
 | Google Pixel 10 | Tensor G5 | 12 GB | GPU | FLAGSHIP | Reference device — GPU-only |
-| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Tracked reliability signal — see #1089 / #684 |
-| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | FLAGSHIP | Experimental reference candidate (Android API 36) |
+| Samsung Galaxy S21 (Exynos) | Exynos 2100 | 8 GB | GPU | FLAGSHIP | Household member's phone — used only for the named S21-bound gates (release-gate `regression`, wake-word harness S21 role, `permission_flows`, S21 model-readiness) and targeted extra-capacity runs, at low volume and never in quiet hours 21:00–06:00 `Australia/Brisbane`; tracked reliability signal — see #1089 / #684 |
+| Honor Magic8 Pro | Snapdragon 8 Elite Gen 5 | 12 GB | NPU | FLAGSHIP | Owner's personal phone — not for agent testing |
+
+**Test-device roles:** The S23 Ultra (`RFCW11265XH`) is the primary test device for everything else, and the default for PR evidence and for any unnamed "test on device" task. The S21 (`R5CR605B71K`) is used only for the named S21-bound gates above and for targeted extra-capacity runs (parallel runs, second-SoC comparison for device-sensitive changes, lower-memory/degraded-device checks), at low volume and never between 21:00 and 06:00 `Australia/Brisbane`. It belongs to another household member, so keep runs targeted. The owner's personal Honor Magic8 Pro is not for agent testing. Canonical rules: `.docs/agents/risk-based-evidence-policy.md`. Explicit issue/acceptance device or tier requirements override. These testing roles do not change runtime `HardwareTier` or model-selection policy.
 
 ---
 
@@ -57,7 +59,7 @@ export ANDROID_HOME=~/Library/Android/sdk
 
 ./gradlew assembleDebug
 
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---
@@ -184,7 +186,7 @@ Add results to this table as you benchmark:
 
 ```bash
 # While a generation is in flight:
-adb shell dumpsys meminfo com.kernel.ai.debug | grep -E "TOTAL|Native|Java"
+adb shell dumpsys meminfo ai.jandal.assistant.debug | grep -E "TOTAL|Native|Java"
 ```
 
 **Expected on S23 Ultra (E-4B + 8192 tokens):**
@@ -234,24 +236,47 @@ adb devices  # confirm connected
 
 ```bash
 # Clear app data (simulates fresh install / first launch)
-adb shell pm clear com.kernel.ai.debug
+adb shell pm clear ai.jandal.assistant.debug
 
 # View downloaded model files (primary path — external storage)
-adb shell ls -lh /sdcard/Android/data/com.kernel.ai.debug/files/models/
+adb shell ls -lh /sdcard/Android/data/ai.jandal.assistant.debug/files/models/
 
 # Fallback (internal storage, if external unavailable):
-adb shell run-as com.kernel.ai.debug ls -lh files/models/
+adb shell run-as ai.jandal.assistant.debug ls -lh files/models/
 
 # Check available external storage
-adb shell df /sdcard/Android/data/com.kernel.ai.debug/
+adb shell df /sdcard/Android/data/ai.jandal.assistant.debug/
 
 # Force-stop and restart app
-adb shell am force-stop com.kernel.ai.debug
-adb shell monkey -p com.kernel.ai.debug 1
+adb shell am force-stop ai.jandal.assistant.debug
+adb shell monkey -p ai.jandal.assistant.debug 1
 
 # Pull a bugreport for CI/issue reporting
 adb bugreport ~/Desktop/kernel-ai-bugreport.zip
 ```
+
+### 8.1 Prompt extras and the debug harness token (#1604)
+
+`MainActivity` is exported, so its prompt extras (`chat_input`, `quick_action_input`,
+`quick_action_input_encoded`, `slot_reply_input`) only run directly for Jandal's own launches.
+From any other caller the text is pre-filled into the Chat composer, Quick Action sheet or pending
+slot field and waits for the user to send it. `profile_text` is ignored unless the launch is trusted
+in a debug build. Release builds never auto-run external text.
+
+`adb shell am start` cannot share its uid with the app, so debug builds recognise adb launches by a
+token that only `run-as` can place in the app's private files dir. The harness
+(`scripts/adb_harness/device.py` `harness_token_extras()`, `scripts/run_permission_scenarios.py`)
+does this automatically. Manual equivalent:
+
+```bash
+TOKEN=$(openssl rand -hex 16)
+adb shell "run-as ai.jandal.assistant.debug sh -c 'mkdir -p files && printf %s $TOKEN > files/adb_harness_token'"
+adb shell am start -n ai.jandal.assistant.debug/com.kernel.ai.MainActivity \
+  --es adb_harness_token "$TOKEN" --es chat_input "'what time is it'"
+```
+
+Without the token (or with a wrong one) the prompt is only pre-filled. Logcat tag `KernelAI` shows
+`external_prompt_trust callerUid=… trust=DIRECT|PREFILL` for each prompt delivery.
 
 ---
 
@@ -306,7 +331,7 @@ alerts:
   persists:
 
   ```bash
-  adb shell am force-stop com.kernel.ai.debug
+  adb shell am force-stop ai.jandal.assistant.debug
   ```
 
 See [`docs/automated-testing.md`](./automated-testing.md) for the full oracle semantics
@@ -318,7 +343,7 @@ The harness must not leave active timers/alarms on the device after any run. If 
 buzzing after a test completes:
 
 1. The post-run cleanup should have stopped it — check the exit code.
-2. If exit code was 46, run `adb shell am force-stop com.kernel.ai.debug` manually.
+2. If exit code was 46, run `adb shell am force-stop ai.jandal.assistant.debug` manually.
 3. File a bug for any persistent cleanup gaps (tracked in #1275).
 
 ---
@@ -333,26 +358,24 @@ Gemma downloads, or S23 Ultra-only behaviour.
 
 ### Device requirement
 
-- **Default device:** Samsung Galaxy S21 (`s21-exynos`, physical). Use this for
-  PR evidence unless the issue explicitly asks for another device.
-- **Optional secondary device:** S23 Ultra only for OEM/API-specific validation.
-- **If the S21 is unavailable:** stop and ask Nick for ADB access. Do not mark
-  device validation complete without S21 evidence.
+- **This suite's documented target:** Samsung Galaxy S21 (`s21-exynos`, physical); current `permission_flows` coverage is S21-specific.
+- This suite-specific target does not change the global default: unnamed physical-device tasks use S23 Ultra. Follow explicit issue/acceptance device or tier requirements.
+- If this S21-specific run is required but S21 is unavailable, stop and ask Nick for ADB access; do not mark validation complete without S21 evidence.
 
 ### Permission/appops reset
 
 The harness resets runtime permission state where Android allows shell control:
 
 ```bash
-adb shell pm clear-permission-flags com.kernel.ai.debug android.permission.CALL_PHONE user-set user-fixed
-adb shell pm revoke com.kernel.ai.debug android.permission.CALL_PHONE
+adb shell pm clear-permission-flags ai.jandal.assistant.debug android.permission.CALL_PHONE user-set user-fixed
+adb shell pm revoke ai.jandal.assistant.debug android.permission.CALL_PHONE
 ```
 
 DND notification-policy access is special access, not a normal runtime
 permission. The connected test makes a best-effort call:
 
 ```bash
-adb shell cmd notification disallow_dnd com.kernel.ai.debug
+adb shell cmd notification disallow_dnd ai.jandal.assistant.debug
 ```
 
 If Samsung One UI keeps DND access granted, revoke it manually in Android
@@ -363,7 +386,9 @@ of the DND Settings switch.
 ### Run locally on S21
 
 ```bash
-ANDROID_SERIAL=R5CR605B71K ./gradlew :app:installDebug :feature:settings:connectedDebugAndroidTest \
+./gradlew :app:assembleDebug
+adb -s R5CR605B71K install -r app/build/outputs/apk/debug/app-debug.apk
+ANDROID_SERIAL=R5CR605B71K ./gradlew :feature:settings:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=\
 com.kernel.ai.feature.settings.PermissionFlowContextualSmokeTest \
   -Pandroid.testInstrumentationRunnerArguments.unlock_pin=<PIN-if-locked>
