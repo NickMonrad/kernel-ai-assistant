@@ -222,21 +222,21 @@ class NavigationBackStackRegressionTest {
                         NavigationBar(modifier = Modifier.testTag("bottom_nav_bar")) {
                             NavigationBarItem(
                                 selected = currentBaseRoute == ROUTE_LIST,
-                                onClick = { navigateToPrimaryRoute(navController, ROUTE_LIST) },
+                                onClick = { navController.navigateToPrimaryRoute(ROUTE_LIST) },
                                 icon = { Icon(Icons.Default.Build, null) },
                                 label = { Text("Chats") },
                                 modifier = Modifier.testTag("bottom_nav_chats"),
                             )
                             NavigationBarItem(
                                 selected = currentBaseRoute == ROUTE_ACTIONS,
-                                onClick = { navigateToPrimaryRoute(navController, ROUTE_ACTIONS) },
+                                onClick = { navController.navigateToPrimaryRoute(ROUTE_ACTIONS) },
                                 icon = { Icon(Icons.Default.Build, null) },
                                 label = { Text("Actions") },
                                 modifier = Modifier.testTag("bottom_nav_actions"),
                             )
                             NavigationBarItem(
                                 selected = currentBaseRoute == ROUTE_TOOLS,
-                                onClick = { navigateToPrimaryRoute(navController, ROUTE_TOOLS) },
+                                onClick = { navController.navigateToPrimaryRoute(ROUTE_TOOLS) },
                                 icon = { Icon(Icons.Default.Build, null) },
                                 label = { Text("Tools") },
                                 modifier = Modifier.testTag("bottom_nav_tools"),
@@ -482,20 +482,6 @@ class NavigationBackStackRegressionTest {
         }
     }
 
-    private fun navigateToPrimaryRoute(navController: NavHostController, route: String) {
-        val currentRoute = navController.currentBackStackEntry?.destination?.route
-        val currentBaseRoute = currentRoute?.substringBefore('?')
-        if (currentBaseRoute == route) return
-        val hasTransientParams = currentRoute?.contains('?') == true
-        navController.navigate(route) {
-            popUpTo(navController.graph.findStartDestination().id) {
-                saveState = !hasTransientParams
-            }
-            launchSingleTop = true
-            restoreState = !hasTransientParams
-        }
-    }
-
     private fun navigateToToolsDestination(navController: NavHostController, route: String) {
         val currentBaseRoute = navController.currentBackStackEntry?.destination?.route?.substringBefore('?')
         val targetBaseRoute = route.substringBefore('?')
@@ -584,6 +570,18 @@ class NavigationBackStackRegressionTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
         assertBottomNavSelected("bottom_nav_tools")
+        composeTestRule.onNodeWithTag("bottom_nav_chats").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("chats_screen").assertIsDisplayed()
+        assertBottomNavSelected("bottom_nav_chats")
+        composeTestRule.onNodeWithTag("bottom_nav_tools").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("tools_screen").assertIsDisplayed()
+        assertBottomNavSelected("bottom_nav_tools")
+        composeTestRule.onNodeWithTag("bottom_nav_actions").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("actions_screen").assertIsDisplayed()
+        assertBottomNavSelected("bottom_nav_actions")
         composeTestRule.onNodeWithTag("bottom_nav_chats").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("chats_screen").assertIsDisplayed()

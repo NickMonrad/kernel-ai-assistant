@@ -92,6 +92,7 @@ class ChatViewModelRecoveryTest {
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
     private val chatPreferences: ChatPreferences = mockk(relaxed = true)
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
     private val gatedModelStatusRepository: GatedModelStatusRepository = mockk(relaxed = true)
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator = mockk(relaxed = true)
 
@@ -150,6 +151,7 @@ class ChatViewModelRecoveryTest {
 
     private fun createViewModel(): ChatViewModel = ChatViewModel(
         savedStateHandle = SavedStateHandle(),
+        speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
@@ -180,6 +182,7 @@ class ChatViewModelRecoveryTest {
         authRepository = authRepository,
         startListeningCuePlayer = startListeningCuePlayer,
         chatPreferences = chatPreferences,
+        voiceInputPreferences = voiceInputPreferences,
     )
 
     @Test

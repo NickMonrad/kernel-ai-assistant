@@ -40,9 +40,9 @@ class VoiceOutputPreferencesTest {
     }
 
     @Test
-    fun `resolveReleaseBuildVoice leaves Jenny unchanged in release build`() {
+    fun `resolveReleaseBuildVoice maps unreviewed voice to CoriHigh in release build`() {
         assertEquals(
-            SherpaPiperVoice.JennyDioco,
+            SherpaPiperVoice.CoriHigh,
             VoiceOutputPreferences.resolveReleaseBuildVoice(
                 SherpaPiperVoice.JennyDioco,
                 isReleaseBuild = true,

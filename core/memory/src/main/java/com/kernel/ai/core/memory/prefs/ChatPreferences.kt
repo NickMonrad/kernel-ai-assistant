@@ -37,6 +37,30 @@ private val Context.chatPrefsDataStore: DataStore<Preferences> by preferencesDat
 class ChatPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    // ---- First-run welcome (#1849) ----
+    private val chatsWelcomeDismissedKey = booleanPreferencesKey("chats_welcome_dismissed")
+    private val tabHintsDismissedKey = booleanPreferencesKey("tab_hints_dismissed")
+
+    /** True once the Chats welcome is hidden: after the first conversation, or when the user hides it. Default false. */
+    val chatsWelcomeDismissed: Flow<Boolean> = context.chatPrefsDataStore.data
+        .map { prefs -> prefs[chatsWelcomeDismissedKey] ?: false }
+
+    suspend fun setChatsWelcomeDismissed(dismissed: Boolean) {
+        context.chatPrefsDataStore.edit { prefs ->
+            prefs[chatsWelcomeDismissedKey] = dismissed
+        }
+    }
+
+    /** True once the user has dismissed the tab hints on the Chats welcome. Default false. */
+    val tabHintsDismissed: Flow<Boolean> = context.chatPrefsDataStore.data
+        .map { prefs -> prefs[tabHintsDismissedKey] ?: false }
+
+    suspend fun setTabHintsDismissed(dismissed: Boolean) {
+        context.chatPrefsDataStore.edit { prefs ->
+            prefs[tabHintsDismissedKey] = dismissed
+        }
+    }
+
     // ---- Archive ----
     private val archiveRetentionDaysKey = intPreferencesKey("archive_retention_days")
 

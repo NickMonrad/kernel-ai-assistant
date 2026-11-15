@@ -296,8 +296,8 @@ Notes:
 
 | Metric | Value | Notes |
 |---|---:|---|
-| Medium/high-risk PRs with S21 evidence where expected | {data.get('s21_expected_coverage', UNKNOWN)} | |
-| Focused S23U comparisons | {data.get('s23u_focused_comparisons', UNKNOWN)} | |
+| Medium/high-risk PRs with S23U evidence where expected | {data.get('s23u_expected_coverage', UNKNOWN)} | |
+| S21 extra-capacity runs (parallel / second-SoC comparison) | {data.get('s21_extra_capacity_runs', UNKNOWN)} | |
 | S21 vs S23U divergence cases | {data.get('device_divergence_cases', UNKNOWN)} | |
 | Manual testing used where it added signal | {manual_fit.get('appropriate', 0)} | |
 | Manual testing overused on low-risk work | {manual_fit.get('overused', 0)} | |

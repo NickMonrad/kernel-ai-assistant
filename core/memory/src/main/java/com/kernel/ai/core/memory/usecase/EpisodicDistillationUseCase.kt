@@ -162,7 +162,7 @@ Return only standalone memory sentences, one per line, with no bullets or number
             }
 
             sentences.forEach { sentence ->
-                val vector = embeddingEngine.embed(sentence)
+                val vector = embeddingEngine.embedDocument(sentence)
                 memoryRepository.addEpisodicMemory(conversationId, sentence, vector)
             }
 

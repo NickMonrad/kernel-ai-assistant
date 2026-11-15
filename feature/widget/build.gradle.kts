@@ -34,6 +34,7 @@ dependencies {
     implementation(project(":core:permissions"))
     implementation(project(":core:voice"))
     implementation(project(":core:memory"))
+    implementation(project(":core:inference"))
 
     // Glance
     implementation(libs.glance.appwidget)

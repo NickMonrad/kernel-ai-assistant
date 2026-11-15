@@ -1,11 +1,14 @@
 package com.kernel.ai.feature.settings
+import com.kernel.ai.core.ui.findActivity
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import com.kernel.ai.core.permissions.PermissionRequestStore
+import com.kernel.ai.core.permissions.PermissionRoute
+import com.kernel.ai.core.permissions.decidePermissionRoute
+import com.kernel.ai.core.permissions.recordPermissionResult
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -61,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,6 +90,7 @@ import kotlinx.coroutines.launch
 fun ImportantDatesScreen(
     onBack: () -> Unit,
     onNavigateToVoiceActions: () -> Unit = {},
+    deepLink: ImportantDatesDeepLink = ImportantDatesDeepLink(),
     viewModel: ImportantDatesViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -94,13 +100,21 @@ fun ImportantDatesScreen(
     val coroutineScope = rememberCoroutineScope()
     var editingDate by remember { mutableStateOf<ImportantDateListItem?>(null) }
     var pendingDelete by remember { mutableStateOf<ImportantDateListItem?>(null) }
-    var createRequested by remember { mutableStateOf(false) }
+    var createRequested by rememberSaveable { mutableStateOf(false) }
+    var createLabel by rememberSaveable { mutableStateOf("") }
     var showTimePicker by remember { mutableStateOf(false) }
     var showCalendarPermissionRationale by remember { mutableStateOf(false) }
     var showCalendarPermissionSettingsHint by remember { mutableStateOf(false) }
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        context.recordPermissionResult(
+            Manifest.permission.READ_CALENDAR,
+            granted,
+            shouldShowRationale = !granted && context.findActivity()?.let {
+                ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.READ_CALENDAR)
+            } == true,
+        )
         viewModel.refreshCalendarBirthdays()
         coroutineScope.launch {
             snackbarHostState.showSnackbar(
@@ -112,6 +126,36 @@ fun ImportantDatesScreen(
             )
         }
     }
+
+    fun onCalendarBirthdaysToggle(enabled: Boolean) {
+        if (enabled) {
+            if (uiState.calendarPermissionGranted) {
+                viewModel.refreshCalendarBirthdays()
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Calendar birthdays refreshed.")
+                }
+            } else {
+                val activity = context.findActivity()
+                val rationale = activity != null &&
+                    ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CALENDAR)
+                // Android will not show the prompt once permanently denied, so the request would do nothing.
+                val route = decidePermissionRoute(
+                    isGranted = false,
+                    isSpecialAccess = false,
+                    wasDeniedBefore = PermissionRequestStore.from(context).wasDenied(Manifest.permission.READ_CALENDAR),
+                    shouldShowRationale = rationale,
+                )
+                when {
+                    route == PermissionRoute.AppInfo -> context.openAppPermissionSettings()
+                    rationale -> showCalendarPermissionRationale = true
+                    else -> calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+                }
+            }
+        } else if (uiState.calendarPermissionGranted) {
+            showCalendarPermissionSettingsHint = true
+        }
+    }
+
     val visibleSyncedBirthdayCount = remember(uiState.upcomingDates, uiState.laterDates) {
         (uiState.upcomingDates + uiState.laterDates).count { it.source == ImportantDateSource.CALENDAR }
     }
@@ -119,6 +163,21 @@ fun ImportantDatesScreen(
     LaunchedEffect(Unit) {
         viewModel.messages.collect { message ->
             snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    // One-shot arrival request from a settings-action link. Copied into saveable state on first composition
+    // and cleared once applied, so recomposition, rotation and back navigation never replay it.
+    var pendingDeepLink by rememberSaveable(stateSaver = ImportantDatesDeepLinkSaver) {
+        mutableStateOf(deepLink.takeIf { it.syncRequested || it.addLabel != null })
+    }
+    LaunchedEffect(pendingDeepLink) {
+        val request = pendingDeepLink ?: return@LaunchedEffect
+        pendingDeepLink = null
+        if (request.syncRequested) onCalendarBirthdaysToggle(true)
+        request.addLabel?.let { label ->
+            createLabel = label
+            createRequested = true
         }
     }
 
@@ -155,7 +214,7 @@ fun ImportantDatesScreen(
                 ) {
                     Icon(Icons.Default.Mic, contentDescription = "Voice input")
                 }
-                FloatingActionButton(onClick = { createRequested = true }) {
+                FloatingActionButton(onClick = { createLabel = ""; createRequested = true }) {
                     Icon(Icons.Default.Add, contentDescription = "Add important date")
                 }
             }
@@ -173,27 +232,7 @@ fun ImportantDatesScreen(
                     enabled = uiState.calendarPermissionGranted,
                     syncedBirthdayCount = visibleSyncedBirthdayCount,
                     isRefreshing = uiState.isRefreshingCalendarBirthdays,
-                    onToggle = { enabled ->
-                        if (enabled) {
-                            if (uiState.calendarPermissionGranted) {
-                                viewModel.refreshCalendarBirthdays()
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Calendar birthdays refreshed.")
-                                }
-                            } else {
-                                val activity = context.findActivity()
-                                if (activity != null &&
-                                    ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CALENDAR)
-                                ) {
-                                    showCalendarPermissionRationale = true
-                                } else {
-                                    calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
-                                }
-                            }
-                        } else if (uiState.calendarPermissionGranted) {
-                            showCalendarPermissionSettingsHint = true
-                        }
-                    },
+                    onToggle = { enabled -> onCalendarBirthdaysToggle(enabled) },
                 )
                 HorizontalDivider()
             }
@@ -210,6 +249,8 @@ fun ImportantDatesScreen(
             if (!uiState.hasAnyDates) {
                 item {
                     EmptyImportantDatesState(
+                        calendarPermissionGranted = uiState.calendarPermissionGranted,
+                        onTurnOnCalendarSync = { onCalendarBirthdaysToggle(true) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
@@ -252,6 +293,7 @@ fun ImportantDatesScreen(
     if (createRequested) {
         ImportantDateEditorSheet(
             existingItem = null,
+            initialLabel = createLabel,
             onDismiss = { createRequested = false },
             onSave = { label, month, day, year, notifHour, notifMinute ->
                 coroutineScope.launch {
@@ -438,7 +480,11 @@ private fun ImportantDatesSectionHeader(title: String) {
 }
 
 @Composable
-private fun EmptyImportantDatesState(modifier: Modifier = Modifier) {
+private fun EmptyImportantDatesState(
+    calendarPermissionGranted: Boolean,
+    onTurnOnCalendarSync: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier = modifier) {
         Spacer(modifier = Modifier.height(24.dp))
         Text(
@@ -447,10 +493,19 @@ private fun EmptyImportantDatesState(modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Tap + to add one here, teach Jandal with something like 'remember mum's birthday is 15 March', or turn on Calendar birthdays above for read-only synced birthdays.",
+            text = "Dates come from three places: dates you add here, dates you teach me in chat, and birthdays in Android Calendar. Contact birthdays show up there when your accounts sync them.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (!calendarPermissionGranted) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = onTurnOnCalendarSync,
+                modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+            ) {
+                Text("Turn on calendar sync")
+            }
+        }
     }
 }
 
@@ -517,11 +572,12 @@ private fun ImportantDateRow(
 @Composable
 private fun ImportantDateEditorSheet(
     existingItem: ImportantDateListItem?,
+    initialLabel: String = "",
     onDismiss: () -> Unit,
     onSave: (label: String, month: Int, day: Int, year: Int?, notificationHour: Int?, notificationMinute: Int?) -> Unit,
 ) {
     val today = LocalDate.now()
-    var label by remember(existingItem) { mutableStateOf(existingItem?.label ?: "") }
+    var label by remember(existingItem, initialLabel) { mutableStateOf(existingItem?.label ?: initialLabel) }
     var selectedDate by remember(existingItem) {
         mutableStateOf(
             LocalDate.of(
@@ -794,10 +850,4 @@ private fun Context.openAppPermissionSettings() {
         Uri.fromParts("package", packageName, null),
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     startActivity(intent)
-}
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }

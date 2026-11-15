@@ -134,8 +134,8 @@ Notes:
 
 | Metric | Value | Notes |
 |---|---:|---|
-| Medium/high-risk PRs with S21 evidence where expected | TBD | |
-| Focused S23U comparisons | TBD | |
+| Medium/high-risk PRs with S23U evidence where expected | TBD | |
+| S21 extra-capacity runs (parallel / second-SoC comparison) | TBD | |
 | S21 vs S23U divergence cases | TBD | |
 | Manual testing used where it added signal | TBD | |
 | Manual testing overused on low-risk work | TBD | |

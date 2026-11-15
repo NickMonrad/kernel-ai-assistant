@@ -39,6 +39,7 @@ class InflectMicroVoiceOutputController @Inject constructor(
     @Volatile private var runnerDirectory: File? = null
     @Volatile private var frontendDataDirectory: File? = null
     @Volatile private var audioFocusRequest: AudioFocusRequest? = null
+    private val speakingStopGate = SpeakingStopGate()
 
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
         prepare()
@@ -61,7 +62,7 @@ class InflectMicroVoiceOutputController @Inject constructor(
             val pitch = voiceOutputPreferences.voicePitch.first()
             var started = false
             try {
-                val normalized = InflectMicroTextFrontend.normalize(request.text)
+                val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(request.text))
                 require(normalized.isNotBlank()) { "Inflect normalization produced empty text" }
                 val chunks = InflectMicroTextFrontend.phonemizeChunks(normalized) { chunkText ->
                     InflectMicroTextFrontend.applyPhonemeOverrides(
@@ -78,6 +79,9 @@ class InflectMicroVoiceOutputController @Inject constructor(
                     play = { synthesis ->
                         if (!started) {
                             requestAudioFocus()
+                            VoiceOutputTrace.speakingStarted("inflect", request.text)
+                            VoiceOutputTrace.logSpeakingStarted("inflect", request.text.length)
+                            speakingStopGate.markStarted(generation)
                             eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStarted(request.text))
                             started = true
                         }
@@ -94,18 +98,17 @@ class InflectMicroVoiceOutputController @Inject constructor(
                         )
                     },
                 )
-                releaseAudioFocus()
-                if (started && !stopped) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
                 VoiceOutputResult.Spoken
             } catch (error: kotlinx.coroutines.CancellationException) {
-                releaseAudioFocus()
-                if (started) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
                 throw error
             } catch (error: Exception) {
                 Log.e(TAG, "Inflect synthesis failed", error)
-                releaseAudioFocus()
-                if (started) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
                 VoiceOutputResult.Unavailable("Inflect synthesis failed: ${error.message}")
+            } finally {
+                // Once per speak(), on every exit path including stop(). The gate pairs the stop with
+                // this speak's SpeakingStarted, so a stale unwind cannot end a newer reply's speech.
+                releaseAudioFocus()
+                if (speakingStopGate.claimStopped(generation)) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
             }
         }
     }

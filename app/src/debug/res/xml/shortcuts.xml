@@ -8,7 +8,7 @@
         android:shortcutShortLabel="@string/shortcut_lists_label">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="com.kernel.ai.debug"
+            android:targetPackage="ai.jandal.assistant.debug"
             android:targetClass="com.kernel.ai.MainActivity">
             <extra
                 android:name="navigation_route"

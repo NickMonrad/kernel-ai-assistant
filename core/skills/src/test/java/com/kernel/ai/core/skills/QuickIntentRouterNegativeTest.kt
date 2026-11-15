@@ -34,6 +34,10 @@ class QuickIntentRouterNegativeTest {
             // General knowledge / chat — no structural intent
             Arguments.of("tell me about jazz music"),
             Arguments.of("what do you think about that"),
+
+            // Direct and discovery date-difference requests should fall through to Gemma.
+            Arguments.of("Use run_intent with the get_date_diff action to compare April 8, 2026 and April 11, 2026. State the day difference."),
+            Arguments.of("Read the RunIntent instructions first. Then use run_intent with the get_date_diff action to compare April 8, 2026 and April 11, 2026. State the day difference."),
         )
     }
 }

@@ -4,6 +4,8 @@ import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.feature.chat.model.ChatMessage
 import org.json.JSONObject
 
+private const val UNRESOLVED_LOCATION_LABEL = "your location"
+
 internal object WeatherConversationReferenceResolver {
     private val WEATHER_QUERY_REGEX = Regex(
         """\b(weather|forecast|temperature|rain|raining|umbrella|uv|air quality|sunrise|sunset)\b""",
@@ -44,7 +46,9 @@ internal object WeatherConversationReferenceResolver {
     private fun extractLocation(message: ChatMessage): String? {
         val presentationLocation = (message.toolCall?.presentation as? ToolPresentation.Weather)
             ?.locationName
-            ?.takeIf { it.isNotBlank() }
+            ?.takeIf {
+                it.isNotBlank() && !it.equals(UNRESOLVED_LOCATION_LABEL, ignoreCase = true)
+            }
         if (presentationLocation != null) return presentationLocation
 
         val requestLocation = message.toolCall

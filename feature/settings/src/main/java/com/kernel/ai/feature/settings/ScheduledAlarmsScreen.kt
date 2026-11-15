@@ -1,5 +1,7 @@
 package com.kernel.ai.feature.settings
 
+import android.app.AlarmManager
+import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
@@ -49,11 +51,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalContext
 import com.kernel.ai.core.memory.clock.ClockAlarm
+import com.kernel.ai.core.permissions.exactAlarmSettingsIntents
+import com.kernel.ai.core.permissions.launchFirstAvailable
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -67,6 +73,8 @@ fun ScheduledAlarmsScreen(
     viewModel: ScheduledAlarmsViewModel = hiltViewModel(),
 ) {
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
+    val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.exact_alarm_no_settings_page)
+    val context = LocalContext.current
     var pendingCancel by remember { mutableStateOf<ClockAlarm?>(null) }
     var pendingCancelIds by remember { mutableStateOf<Set<String>?>(null) }
     var editingAlarm by remember { mutableStateOf<ClockAlarm?>(null) }
@@ -164,6 +172,8 @@ fun ScheduledAlarmsScreen(
                             viewModel.toggleEnabled(alarm) { success ->
                                 if (!success) {
                                     schedulingError = "Couldn't update the alarm."
+                                } else if (!context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
+                                    schedulingWarning = "Alarm enabled. Exact-alarm access is off, so timing may be less exact. Enable Alarms & reminders in Settings for more precise timing."
                                 }
                             }
                         },
@@ -283,6 +293,23 @@ fun ScheduledAlarmsScreen(
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { schedulingWarning = null }) { Text("OK") }
+            },
+            dismissButton = if (message.contains("Exact-alarm access is off")) {
+                {
+                    TextButton(onClick = {
+                        val opened = launchFirstAvailable(exactAlarmSettingsIntents(context.packageName)) { context.startActivity(it) }
+                        if (!opened) {
+                            Toast.makeText(
+                                context,
+                                noSettingsPageMessage,
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        schedulingWarning = null
+                    }) { Text("Alarms & reminders settings") }
+                }
+            } else {
+                null
             },
         )
     }

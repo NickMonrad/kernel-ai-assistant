@@ -264,7 +264,7 @@ class MemoryViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val vector = withContext(Dispatchers.Default) {
-                    embeddingEngine.embed(text)
+                    embeddingEngine.embedDocument(text)
                 }.takeIf { it.isNotEmpty() } ?: run {
                     Log.w("KernelAI", "addCoreMemory: embedding engine not ready, aborting")
                     _isSubmitting.value = false
@@ -457,7 +457,11 @@ class MemoryViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val newVector = withContext(Dispatchers.Default) {
-                    embeddingEngine.embed(newContent)
+                    embeddingEngine.embedDocument(newContent)
+                }
+                if (newVector.isEmpty()) {
+                    Log.w("KernelAI", "saveCoreMemoryEdit: embedding engine not ready, keeping existing content")
+                    return@launch
                 }
                 memoryRepository.updateCoreMemory(id, newContent, newVector)
                 _selectedCoreMemoryDetail.value = null
@@ -473,7 +477,11 @@ class MemoryViewModel @Inject constructor(
             _isSubmitting.value = true
             try {
                 val embedding = withContext(Dispatchers.Default) {
-                    embeddingEngine.embed(newContent)
+                    embeddingEngine.embedDocument(newContent)
+                }
+                if (embedding.isEmpty()) {
+                    Log.w("KernelAI", "saveEpisodicMemoryEdit: embedding engine not ready, keeping existing content")
+                    return@launch
                 }
                 memoryRepository.updateEpisodicMemory(id, newContent, embedding)
                 closeEpisodicMemoryDetail()

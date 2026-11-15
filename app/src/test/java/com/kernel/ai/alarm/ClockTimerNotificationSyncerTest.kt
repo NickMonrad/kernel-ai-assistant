@@ -3,6 +3,7 @@ package com.kernel.ai.alarm
 import com.kernel.ai.core.memory.clock.ClockTimer
 import io.mockk.mockk
 import io.mockk.verify
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class ClockTimerNotificationSyncerTest {
@@ -33,6 +34,11 @@ class ClockTimerNotificationSyncerTest {
 
         verify(exactly = 1) { transport.cancel(ClockAlertContract.timerNotificationId("tea")) }
         verify(exactly = 1) { transport.cancel(ClockAlertContract.timerNotificationId("pasta")) }
+    }
+
+    @Test
+    fun `notification text labels the configured duration without presenting it as remaining`() {
+        assertEquals("Duration: 24 minutes", timerNotificationText(24 * 60 * 1_000L))
     }
 
     private fun timer(id: String) = ClockTimer(

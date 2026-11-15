@@ -131,7 +131,7 @@ body:
       value: |
         - [ ] Unit tests: 
         - [ ] Instrumentation/UIAutomator tests: 
-        - [ ] Device validation: S21 default unless this is high-risk model/runtime work or explicitly requires S23U.
+        - [ ] Device validation: S23U default; S21 only when more test capacity is needed (parallel runs or second-SoC comparison — see `.docs/agents/risk-based-evidence-policy.md`).
         - [ ] Evidence to attach: 
     validations:
       required: true

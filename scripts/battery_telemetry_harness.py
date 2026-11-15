@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterable
+from adb_harness.config import PACKAGE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -55,7 +56,7 @@ def parse_float_metric(value: str, source: str) -> float:
     if result in (float("inf"), float("-inf")):
         raise HarnessError(f"invalid numeric value in {source}")
     return result
-DEFAULT_PACKAGE = "com.kernel.ai.debug"
+DEFAULT_PACKAGE = PACKAGE
 
 PER_USER_RANGE = 100000
 FIRST_APPLICATION_UID = 10000

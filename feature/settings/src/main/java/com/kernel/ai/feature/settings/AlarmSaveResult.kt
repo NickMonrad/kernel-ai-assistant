@@ -37,12 +37,19 @@ internal fun List<SchedulingWarning>.toWarningMessage(isTimer: Boolean): String?
     
     val savedPrefix = if (isTimer) "Timer set." else "Alarm saved."
     
-    if (contains(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)) {
-        messages.add("$savedPrefix It may appear as a notification instead of opening full-screen.")
+    if (contains(SchedulingWarning.EXACT_ALARM_UNAVAILABLE)) {
+        messages.add(
+            "$savedPrefix Exact-alarm access is off, so timing may be less exact. Enable Alarms & reminders in Settings for more precise timing.",
+        )
     }
-    
+    if (contains(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)) {
+        messages.add("$savedPrefix It may appear as a high-priority notification instead of opening full-screen.")
+    }
     if (contains(SchedulingWarning.BOOT_RESTORE_LIMITED)) {
-        if (!contains(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)) {
+        if (
+            !contains(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE) &&
+            !contains(SchedulingWarning.EXACT_ALARM_UNAVAILABLE)
+        ) {
             messages.add(savedPrefix)
         }
         messages.add("Scheduled events may need to be recreated after a device restart.")
