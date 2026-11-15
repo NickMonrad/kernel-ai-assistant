@@ -204,6 +204,54 @@ class GetWeatherStaleFallbackTest {
         assertFalse(content.contains("isn't answering"), "content=$content")
     }
 
+    @Test
+    fun `tomorrow entry cached just before midnight is not served just after it`() {
+        now = localMillis(2027, 1, 15, 23, 59)
+        forecastBody = multiDayBody(listOf("2027-01-16", "2027-01-17"))
+        direct(askWith("location" to "Wellington", "day" to "tomorrow"))
+        now = localMillis(2027, 1, 16, 0, 1)
+        forecastStatus = null
+
+        assertEquals(noCacheMessage, direct(askWith("location" to "Wellington", "day" to "tomorrow")).content)
+    }
+
+    @Test
+    fun `three day entry from yesterday drops the past day and keeps today onward`() {
+        now = localMillis(2027, 1, 15, 14, 0)
+        forecastBody = multiDayBody(listOf("2027-01-15", "2027-01-16", "2027-01-17"))
+        direct(askWith("location" to "Wellington", "forecast_days" to "3"))
+        now = localMillis(2027, 1, 16, 0, 30)
+        forecastStatus = null
+
+        val content = direct(askWith("location" to "Wellington", "forecast_days" to "3")).content
+
+        assertTrue(content.contains("isn't answering"), "content=$content")
+        assertFalse(content.contains("\n${formatForecastDate("2027-01-15")}:"), "content=$content")
+        assertTrue(content.contains("\n${formatForecastDate("2027-01-16")}:"), "content=$content")
+        assertTrue(content.contains("\n${formatForecastDate("2027-01-17")}:"), "content=$content")
+    }
+
+    private fun localMillis(y: Int, m: Int, d: Int, h: Int, min: Int): Long =
+        java.time.ZonedDateTime.of(y, m, d, h, min, 0, 0, ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+    private fun askWith(vararg args: Pair<String, String>): SkillResult =
+        runBlocking { skill.execute(SkillCall(skill.name, args.toMap())) }
+
+    private fun multiDayBody(dates: List<String>): String {
+        fun row(value: (String) -> String) = dates.joinToString(",", "[", "]", transform = value)
+        val daily = listOf(
+            "\"time\":" + row { "\"$it\"" },
+            "\"temperature_2m_max\":" + row { "15.0" },
+            "\"temperature_2m_min\":" + row { "9.0" },
+            "\"precipitation_sum\":" + row { "0.0" },
+            "\"weather_code\":" + row { "3" },
+            "\"uv_index_max\":" + row { "3.0" },
+            "\"sunrise\":" + row { "\"${it}T06:10\"" },
+            "\"sunset\":" + row { "\"${it}T20:40\"" },
+        ).joinToString(",")
+        return "{\"latitude\":-41.29,\"longitude\":174.78,\"daily\":{$daily}}"
+    }
+
     private fun forecastRequests(): Int = urls.count { it.startsWith(FORECAST_PREFIX) }
 
     private fun ask(location: String): SkillResult =

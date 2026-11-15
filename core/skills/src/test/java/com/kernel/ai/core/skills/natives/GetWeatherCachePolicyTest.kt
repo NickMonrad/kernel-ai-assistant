@@ -41,11 +41,15 @@ class GetWeatherCachePolicyTest {
     }
 
     @Test
-    fun `current and multi-day keys are not date-keyed`() {
+    fun `current and multi-day keys are not date-keyed, so stale replay filters past days instead`() {
         val first = weatherCacheKey(WeatherLookupMode.NAMED_LOCATION, "Wellington", false, null, 0, millis(2027, 1, 15, 23, 59), auckland)
         val second = weatherCacheKey(WeatherLookupMode.NAMED_LOCATION, "Wellington", false, null, 0, millis(2027, 1, 16, 0, 1), auckland)
         assertEquals(first, second)
         assertEquals("loc:Wellington:current", first)
+        val multiDayFirst = weatherCacheKey(WeatherLookupMode.NAMED_LOCATION, "Wellington", false, null, 3, millis(2027, 1, 15, 23, 59), auckland)
+        val multiDaySecond = weatherCacheKey(WeatherLookupMode.NAMED_LOCATION, "Wellington", false, null, 3, millis(2027, 1, 16, 0, 1), auckland)
+        assertEquals(multiDayFirst, multiDaySecond)
+        assertEquals("loc:Wellington:forecast:3", multiDayFirst)
     }
 
     @Test

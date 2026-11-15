@@ -16,10 +16,8 @@ import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.InternalCoroutinesApi
-import kotlinx.coroutines.Job
+import org.json.JSONArray
 import kotlinx.coroutines.Dispatchers
-import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -461,7 +459,42 @@ internal fun weatherCacheKey(
  */
 internal fun isWeatherEntryPrunable(raw: Any, nowMillis: Long): Boolean {
     val entry = (raw as? String)?.let(::decodeWeatherCacheEntry) ?: return true
-    return nowMillis - entry.cachedAtMillis > STALE_CACHE_MAX_AGE_MS
+    val age = nowMillis - entry.cachedAtMillis
+    return age > STALE_CACHE_MAX_AGE_MS || age < -FUTURE_CACHE_SLACK_MS
+}
+
+/**
+ * Drops daily rows dated before [today] from a cached multi-day body, so a stale replay never presents
+ * yesterday as the headline or first day (#1921). Returns null when no row remains. Uses the device date,
+ * not the place's date; adequate for NZ/AU but not for distant time zones.
+ */
+internal fun keepDailyRowsFrom(json: String, today: java.time.LocalDate): String? {
+    val obj = JSONObject(json)
+    val daily = obj.optJSONObject("daily") ?: return json
+    val times = daily.optJSONArray("time") ?: return json
+    val keep = (0 until times.length()).filter { !java.time.LocalDate.parse(times.getString(it)).isBefore(today) }
+    if (keep.isEmpty()) return null
+    if (keep.size == times.length()) return json
+    for (key in daily.keys().asSequence().toList()) {
+        val arr = daily.optJSONArray(key) ?: continue
+        val rebuilt = JSONArray()
+        keep.filter { it < arr.length() }.forEach { rebuilt.put(arr.get(it)) }
+        daily.put(key, rebuilt)
+    }
+    return obj.toString()
+}
+
+/**
+ * Current conditions keep the cached temperature but must not show a past day's high/low (#1921).
+ * Removes the `daily` block when its first row is not [today].
+ */
+internal fun dropStaleCurrentDaily(json: String, today: java.time.LocalDate): String {
+    val obj = JSONObject(json)
+    val first = obj.optJSONObject("daily")?.optJSONArray("time")?.optString(0)?.takeIf { it.isNotBlank() }
+        ?: return json
+    if (java.time.LocalDate.parse(first) == today) return json
+    obj.remove("daily")
+    return obj.toString()
 }
 
 // ── Weather cache constants ──────────────────────────────────────────────────
@@ -471,6 +504,9 @@ private const val CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000L // 2 hours
 
 /** Age (ms) up to which a cached forecast may replace a failed live fetch (#1921). */
 private const val STALE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000L // 12 hours
+
+/** Entries stamped more than this far in the future are treated as corrupt and pruned (#1921 N5). */
+private const val FUTURE_CACHE_SLACK_MS = 60_000L
 
 /** Budget (ms) for geocoding, forecast and current conditions; air quality has its own budget (#1921). */
 private const val WEATHER_LIVE_BUDGET_MS = 10_000L
@@ -734,6 +770,7 @@ class GetWeatherSkill @Inject constructor(
             zone = ZoneId.systemDefault(),
         )
 
+        val startedAtNanos = System.nanoTime()
         val freshResult = try {
             withContext(Dispatchers.IO) { withTimeoutOrNull(WEATHER_LIVE_BUDGET_MS) {
                 when {
@@ -771,7 +808,7 @@ class GetWeatherSkill @Inject constructor(
         val failureReason = when (freshResult) {
             is LiveFetchResult.Success -> return freshResult.result
             // Air quality is fetched here, after the forecast budget (#1921).
-            is LiveFetchResult.Current -> buildCurrentWeather(freshResult.fetch)?.let { return it }
+            is LiveFetchResult.Current -> buildCurrentWeather(freshResult.fetch, startedAtNanos)?.let { return it }
                 ?: WeatherLookupFailureReason.API_UNAVAILABLE
             is LiveFetchResult.Failed -> freshResult.reason
         }
@@ -819,12 +856,18 @@ class GetWeatherSkill @Inject constructor(
             ?.takeIf { isCacheEntryUsable(it.cachedAtMillis, now, STALE_CACHE_MAX_AGE_MS) }
             ?.takeIf { !it.displayName.isNullOrBlank() }
             ?: return null
+        val today = java.time.Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate()
         val reparsed = try {
+            val dailyBody = if (forecastDays > 0 || weekendRequest || dayParam == "tomorrow") {
+                keepDailyRowsFrom(entry.body, today) ?: return null
+            } else {
+                dropStaleCurrentDaily(entry.body, today)
+            }
             when {
-                weekendRequest -> parseWeekendResponse(entry.body, entry.displayName)
-                dayParam == "tomorrow" -> parseForecastDayResponse(entry.body, entry.displayName, dayIndex = 1)
-                forecastDays > 0 -> parseForecastResponse(entry.body, entry.displayName)
-                else -> parseWeatherResponse(entry.body, entry.displayName, airQuality = null)
+                weekendRequest -> parseWeekendResponse(dailyBody, entry.displayName)
+                dayParam == "tomorrow" -> parseForecastDayResponse(dailyBody, entry.displayName, dayIndex = 1)
+                forecastDays > 0 -> parseForecastResponse(dailyBody, entry.displayName)
+                else -> parseWeatherResponse(dailyBody, entry.displayName, airQuality = null)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Cached weather re-parse failed (${e.javaClass.simpleName})")
@@ -1468,11 +1511,15 @@ class GetWeatherSkill @Inject constructor(
      * [AIR_QUALITY_BUDGET_MS]; the forecast budget no longer covers it, so a stalled AQ call cannot turn a
      * fresh forecast into a stale one (#1921). Returns null when the body cannot be parsed.
      */
-    private suspend fun buildCurrentWeather(fetch: CurrentWeatherFetch): SkillResult? {
+    private suspend fun buildCurrentWeather(fetch: CurrentWeatherFetch, startedAtNanos: Long): SkillResult? {
         val airQuality = if (fetch.fromCache) {
             null
         } else {
-            withTimeoutOrNull(AIR_QUALITY_BUDGET_MS) { fetchAirQuality(fetch.lat, fetch.lon) }
+            // Air quality gets only what is left of the live budget; under 3 s it is skipped so a fresh
+            // answer stays within ~10 s (#1921 N1).
+            val remainingMs = WEATHER_LIVE_BUDGET_MS - (System.nanoTime() - startedAtNanos) / 1_000_000L
+            if (remainingMs < AIR_QUALITY_BUDGET_MS) null
+            else withTimeoutOrNull(minOf(AIR_QUALITY_BUDGET_MS, remainingMs)) { fetchAirQuality(fetch.lat, fetch.lon) }
         }
         return try {
             parseWeatherResponse(fetch.body, fetch.displayName, airQuality)
@@ -1722,19 +1769,29 @@ class GetWeatherSkill @Inject constructor(
 
     /**
      * Runs [request] and hands the open response to [read], so the body read happens inside the call.
-     * Cancelling the coroutine cancels the call, which aborts a blocking header or body read; the client's
-     * callTimeout bounds it too (#1921).
+     * Cancelling the coroutine cancels the call (#1921 N2); the client's callTimeout bounds the body read.
      */
-    @OptIn(InternalCoroutinesApi::class)
-    private suspend inline fun <T> executeWeatherCall(request: Request, read: (okhttp3.Response) -> T): T {
-        val call = httpClient.newCall(request)
-        val onCancel = coroutineContext[Job]?.invokeOnCompletion(onCancelling = true) { call.cancel() }
-        try {
-            return call.execute().use(read)
-        } finally {
-            onCancel?.dispose()
+    private suspend inline fun <T> executeWeatherCall(request: Request, read: (okhttp3.Response) -> T): T =
+        awaitWeatherResponse(request).use(read)
+
+    /**
+     * Suspends until response headers arrive. Cancelling the coroutine cancels the call; a response that
+     * arrives after cancellation is closed.
+     */
+    private suspend fun awaitWeatherResponse(request: Request): okhttp3.Response =
+        suspendCancellableCoroutine { cont ->
+            val call = httpClient.newCall(request)
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                    cont.resumeWith(Result.failure(e))
+                }
+
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    cont.resume(response) { response.close() }
+                }
+            })
         }
-    }
 
     // ── Retry with exponential backoff ─────────────────────────────────────────
 
