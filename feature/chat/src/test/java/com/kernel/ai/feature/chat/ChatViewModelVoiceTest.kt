@@ -62,6 +62,7 @@ import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.feature.chat.model.ChatUiState
 import io.mockk.coEvery
+import io.mockk.clearMocks
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
@@ -778,6 +779,37 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertNull(viewModel.speakingMessageId.value)
+    }
+
+    @Test
+    fun `home stop cancels read-aloud speech and clears the speaker state`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.speakMessage("assistant-1", "Hello there")
+        advanceUntilIdle()
+        assertEquals("assistant-1", viewModel.speakingMessageId.value)
+
+        viewModel.onScreenStopped(screenOff = false)
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        assertNull(viewModel.speakingMessageId.value)
+        assertEquals(ChatViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
+    fun `screen-off stop keeps read-aloud speech playing`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.speakMessage("assistant-1", "Hello there")
+        advanceUntilIdle()
+        clearMocks(voiceOutputController, answers = false)
+
+        viewModel.onScreenStopped(screenOff = true)
+        advanceUntilIdle()
+
+        verify(exactly = 0) { voiceOutputController.stop() }
+        assertEquals("assistant-1", viewModel.speakingMessageId.value)
     }
 
     @Test

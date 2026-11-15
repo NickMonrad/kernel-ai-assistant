@@ -307,6 +307,12 @@ class ChatViewModel @Inject constructor(
     private var chatCommandVoiceRetryCount = 0
     private var awaitingVoicePlaybackCompletion = false
 
+    /**
+     * True from the chat screen's ON_STOP until its next ON_RESUME (#1927). While set, no automatic
+     * path may reopen the mic (back-and-forth re-arm). Mirrors ActionsViewModel.backgroundPaused (#1918).
+     */
+    private var backgroundPaused = false
+
     /** Active voice interaction mode, or null when no voice session is running (#741). */
     private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
     val voiceMode: StateFlow<VoiceMode?> = _voiceMode.asStateFlow()
@@ -1297,6 +1303,7 @@ class ChatViewModel @Inject constructor(
     private fun rearmVoiceInput() {
         if (_voiceMode.value != VoiceMode.BackAndForth) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
+        if (backgroundPaused) return
         viewModelScope.launch {
             _error.value = null
             _voiceCaptureState.value = VoiceCaptureState.Preparing
@@ -3040,6 +3047,34 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             inferenceEngine.resetConversation()
         }
+    }
+
+    /**
+     * Chat screen ON_STOP (#1927). Lifecycle rule, shared with the Actions screen (#1918) and relied
+     * on by #1942 (calendar readout), keep it stable:
+     * - Home, app switch or navigation ([screenOff] = false): stop speech cleanly (per-message
+     *   read-aloud and streamed voice reply) and close the mic.
+     * - Screen off ([screenOff] = true): speech keeps playing to the end; the mic closes and the
+     *   back-and-forth loop does not re-arm while [backgroundPaused] is set.
+     * [backgroundPaused] clears on [onScreenResumed]; only a user tap, which needs a resumed screen,
+     * opens the mic.
+     */
+    fun onScreenStopped(screenOff: Boolean) {
+        backgroundPaused = true
+        awaitingVoicePlaybackCompletion = false
+        pendingVoiceReply = false
+        _voiceMode.value = null
+        voiceInputController.stopListening()
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+        if (screenOff) return
+        stopVoicePlayback()
+        stopSpeaking()
+        _speakingMessageId.value = null
+    }
+
+    /** Chat screen ON_RESUME (#1927): automatic mic paths may run again. */
+    fun onScreenResumed() {
+        backgroundPaused = false
     }
 
     fun stopVoicePlayback() {

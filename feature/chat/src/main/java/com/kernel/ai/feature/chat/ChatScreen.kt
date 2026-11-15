@@ -142,6 +142,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Context
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -357,6 +359,24 @@ fun ChatScreen(
                             Manifest.permission.RECORD_AUDIO,
                         ) == PackageManager.PERMISSION_GRANTED
                         viewModel.onChatMicRepairResumeCheck(micGranted)
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
+
+            // Home/app switch stops chat speech; screen off keeps it speaking (#1927). Same rule as
+            // ActionsScreen (#1918). Read the screen state on ON_STOP: Home with the screen on is not screen-off.
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        androidx.lifecycle.Lifecycle.Event.ON_RESUME -> viewModel.onScreenResumed()
+                        androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                            val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
+                                ?.isInteractive == false
+                            viewModel.onScreenStopped(screenOff = screenOff)
+                        }
+                        else -> Unit
                     }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
