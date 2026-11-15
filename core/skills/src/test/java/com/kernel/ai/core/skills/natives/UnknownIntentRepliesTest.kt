@@ -64,6 +64,13 @@ class UnknownIntentRepliesTest {
     }
 
     @Test
+    fun `a leading list verb does not make a name a list-noun reply`() {
+        listOf("list_alarms", "list_reminders", "list_contacts", "list").forEach { name ->
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, UnknownIntentReplies.replyFor(name), name)
+        }
+    }
+
+    @Test
     fun `loggableName keeps only lowercase letters digits and underscores`() {
         assertEquals("get_calendarnow", UnknownIntentReplies.loggableName("Get_Calendar Now!"))
         assertEquals("whatsonmycalendar", UnknownIntentReplies.loggableName("what's on my calendar?"))

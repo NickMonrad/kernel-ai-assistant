@@ -50,12 +50,14 @@ object UnknownIntentReplies {
         // ("check_schedule", "todays_schedule").
         val isWrite = words.any { it in WRITE_VERBS } || words.firstOrNull() == "schedule"
         val tokens = words.toSet()
+        // A leading "list" is a verb ("list_alarms"), so only a later "list"/"lists" counts as the noun.
+        val listNoun = words.drop(1).any { it in LIST_NOUNS }
         return when {
-            isWrite && tokens.any { it in LIST_NOUNS } -> LIST_REPLY
+            isWrite && listNoun -> LIST_REPLY
             isWrite -> GENERIC_REPLY
             tokens.any { it in CALENDAR_NOUNS } -> CALENDAR_READ_REPLY
             tokens.any { it in EMAIL_NOUNS } -> EMAIL_READ_REPLY
-            tokens.any { it in LIST_NOUNS } -> LIST_REPLY
+            listNoun -> LIST_REPLY
             else -> GENERIC_REPLY
         }
     }

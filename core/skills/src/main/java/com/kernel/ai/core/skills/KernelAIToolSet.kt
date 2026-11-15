@@ -205,10 +205,10 @@ class KernelAIToolSet @Inject constructor(
                 ?: intentName
         }
 
+        // Keeps only [a-z0-9]: model output can wrap a name in quotes, backticks or zero-width
+        // characters, which must not stop it matching a catalogue entry.
         private fun normalizeIntentName(intentName: String): String =
-            intentName.lowercase(Locale.ROOT).filterNot {
-                it == '_' || it == '-' || it.isWhitespace()
-            }
+            intentName.lowercase(Locale.ROOT).filter { it in 'a'..'z' || it in '0'..'9' }
     }
 
     // -------------------------------------------------------------------------
