@@ -82,6 +82,7 @@ class ActionsViewModelTest {
             quickIntentRouter = quickIntentRouter,
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
+            speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
             voiceInputController = voiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,

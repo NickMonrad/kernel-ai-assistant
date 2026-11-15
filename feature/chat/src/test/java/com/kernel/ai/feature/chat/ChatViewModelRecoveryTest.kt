@@ -150,6 +150,7 @@ class ChatViewModelRecoveryTest {
 
     private fun createViewModel(): ChatViewModel = ChatViewModel(
         savedStateHandle = SavedStateHandle(),
+        speechStopCoordinator = com.kernel.ai.core.voice.SpeechStopCoordinator(io.mockk.mockk(relaxed = true)),
         inferenceEngine = inferenceEngine,
         downloadManager = downloadManager,
         conversationRepository = conversationRepository,
