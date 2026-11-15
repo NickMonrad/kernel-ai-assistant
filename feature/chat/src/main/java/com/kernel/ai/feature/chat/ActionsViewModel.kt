@@ -51,6 +51,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import javax.inject.Inject
 
 private const val TAG = "KernelAI"
@@ -86,6 +89,7 @@ class ActionsViewModel @Inject constructor(
     private val speechStopCoordinator: SpeechStopCoordinator,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val startListeningCuePlayer: StartListeningCuePlayer,
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -277,6 +281,12 @@ class ActionsViewModel @Inject constructor(
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
 
+    /** #1850: one signal per mic start, consumed by the screen to fire the start haptic. */
+    private val _listeningHaptics = Channel<Unit>(Channel.CONFLATED)
+    val listeningHaptics: Flow<Unit> = _listeningHaptics.receiveAsFlow()
+    /** #1850: live capture level (0..1) driving the Listening ring. */
+    val voiceInputLevel: StateFlow<Float> get() = voiceInputController.inputLevel
+
     /** Non-null while waiting for the user to supply a missing slot value. */
     private val _pendingSlot = MutableStateFlow<PendingSlotState?>(null)
     val pendingSlot: StateFlow<PendingSlotState?> = _pendingSlot.asStateFlow()
@@ -316,6 +326,10 @@ class ActionsViewModel @Inject constructor(
 
     private val _voiceCaptureState = MutableStateFlow<VoiceCaptureState>(VoiceCaptureState.Idle)
     val voiceCaptureState: StateFlow<VoiceCaptureState> = _voiceCaptureState.asStateFlow()
+
+    /** #1850 first-use hint, same policy as the chat input bar. */
+    private val _micHintVisible = MutableStateFlow(false)
+    val micHintVisible: StateFlow<Boolean> = _micHintVisible.asStateFlow()
 
     private val _voicePlaybackState = MutableStateFlow<VoicePlaybackState>(VoicePlaybackState.Idle)
     val voicePlaybackState: StateFlow<VoicePlaybackState> = _voicePlaybackState.asStateFlow()
@@ -400,6 +414,8 @@ class ActionsViewModel @Inject constructor(
     private var commandVoiceRetryCount = 0
 
     init {
+        // #1850: warm the selected recognizer off the main thread as Actions opens. Holds no mic.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { voiceInputController.prewarm() }
         viewModelScope.launch {
             voiceOutputPreferences.spokenResponsesEnabled.collect { enabled ->
                 spokenResponsesEnabled = enabled
@@ -424,8 +440,15 @@ class ActionsViewModel @Inject constructor(
                             .orEmpty()
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, currentTranscript)
                         startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
+                        _listeningHaptics.trySend(Unit)
                     }
                     is VoiceInputEvent.SpeechDetected -> Unit
+                    is VoiceInputEvent.SpeechEnded -> {
+                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        (_voiceCaptureState.value as? VoiceCaptureState.Listening)?.let { listening ->
+                            _voiceCaptureState.value = VoiceCaptureState.Processing(event.mode, listening.transcript)
+                        }
+                    }
                     is VoiceInputEvent.PartialTranscript -> {
                         if (!ownsVoiceCapture(event.mode)) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, event.text)
@@ -2248,6 +2271,11 @@ class ActionsViewModel @Inject constructor(
         _error.value = null
         if (interruptPlayback) {
             stopAllVoiceOutput()
+        }
+        // #1850: one hint use per user tap; retries do not come through here.
+        viewModelScope.launch {
+            val uses = voiceInputPreferences.recordMicUseStarted()
+            _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
         }
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
         viewModelScope.launch {

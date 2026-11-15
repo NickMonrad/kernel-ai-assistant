@@ -74,6 +74,7 @@ class ActionsViewModelVoiceTest {
     private val speechStopCoordinator = SpeechStopCoordinator(voiceOutputController)
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
+    private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
     private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
     private val voiceInputNotices = MutableSharedFlow<VoiceNotice>(replay = 1)
     private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
@@ -115,6 +116,7 @@ class ActionsViewModelVoiceTest {
         every { voiceInputController.events } returns voiceInputEvents
         every { voiceInputController.notices } returns voiceInputNotices
         every { voiceInputController.stopListening() } just Runs
+        coEvery { voiceInputController.prewarm() } just Runs
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.openStreamingSession(any()) } answers {
@@ -141,6 +143,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
     }
 
@@ -271,6 +274,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("at bridge to my last", InputMode.Voice)
@@ -306,6 +310,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("and bred to my last", InputMode.Voice)
@@ -334,6 +339,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("and ice cream to my last", InputMode.Voice)
@@ -362,6 +368,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("create a new lust", InputMode.Voice)
@@ -390,6 +397,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("add a bridge to my list", InputMode.Voice)
@@ -442,6 +450,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -492,6 +501,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -522,6 +532,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -553,6 +564,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -625,6 +637,7 @@ class ActionsViewModelVoiceTest {
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
@@ -2769,6 +2782,47 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `ListeningStarted emits one start haptic signal`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        val haptics = mutableListOf<Unit>()
+        val collectJob = launch { viewModel.listeningHaptics.collect { haptics += it } }
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+
+        assertEquals(1, haptics.size)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `mic hint is visible on the first mic start`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        coEvery { voiceInputPreferences.recordMicUseStarted() } returns 1
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.micHintVisible.value)
+    }
+
+    @Test
+    fun `mic hint is hidden after the hint budget is spent`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        coEvery { voiceInputPreferences.recordMicUseStarted() } returns 6
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+
+        assertEquals(false, viewModel.micHintVisible.value)
+    }
+
+    @Test
     fun `ListeningStarted for unowned mode does not trigger cue player`() = runTest(dispatcher) {
         // ActionsViewModel is Idle — it owns nothing. An event from an AlertCommand
         // session started elsewhere should be silently ignored.
@@ -4851,5 +4905,35 @@ class ActionsViewModelVoiceTest {
 
         assertNull(viewModel.speakingActionId.value)
         assertEquals("No voice installed.", viewModel.error.value)
+    }
+
+    @Test
+    fun `voice capture runs Preparing to Listening to Processing and stop returns to Idle`() = runTest(dispatcher) {
+        coEvery { voiceInputController.startListening(any()) } returns VoiceInputStartResult.Started(1L)
+
+        viewModel.startVoiceCommand()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Preparing(VoiceCaptureMode.Command),
+            viewModel.voiceCaptureState.value,
+        )
+
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Listening(VoiceCaptureMode.Command),
+            viewModel.voiceCaptureState.value,
+        )
+
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "turn on"))
+        voiceInputEvents.emit(VoiceInputEvent.SpeechEnded(VoiceCaptureMode.Command, captureSessionId = 1L))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Processing(mode = VoiceCaptureMode.Command, transcript = "turn on"),
+            viewModel.voiceCaptureState.value,
+        )
+
+        viewModel.stopVoiceCapture()
+        advanceUntilIdle()
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 }
