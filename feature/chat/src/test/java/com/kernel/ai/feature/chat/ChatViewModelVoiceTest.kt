@@ -543,7 +543,7 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
-    fun `native tool reply speaks the tool result, never the text before the call`() = runTest(dispatcher) {
+    fun `native tool reply speaks the answer after the call, never the text before it or the tool detail`() = runTest(dispatcher) {
         var nativeToolRan = false
         every { quickIntentRouter.route("Weather in Apia") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Weather in Apia")
@@ -570,7 +570,36 @@ class ChatViewModelVoiceTest {
             streamedChunks.none { (chunk, _) -> chunk.contains("sunny") },
             "pre-tool text was spoken: $streamedChunks",
         )
+        assertTrue(
+            streamedChunks.any { (chunk, _) -> chunk.contains("umbrella") },
+            "the answer after the tool call was not spoken: $streamedChunks",
+        )
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("Apia: 28 C") },
+            "tool detail was spoken: $streamedChunks",
+        )
         assertTrue(streamedChunks.last().second, "tool reply is not final: $streamedChunks")
+    }
+
+    @Test
+    fun `raw tool-call reply ends voice mode instead of stalling`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Weather in Apia") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Weather in Apia")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("<|tool_call>call:get_weather{location:<|\"|>Apia<|\"|>}<tool_call|>"),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia"))
+        advanceUntilIdle()
+
+        assertTrue(streamedChunks.isEmpty(), "raw tool-call text was spoken: $streamedChunks")
+        assertNull(viewModel.voiceMode.value, "voice mode stayed armed after a raw tool-call reply")
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 
     @Test

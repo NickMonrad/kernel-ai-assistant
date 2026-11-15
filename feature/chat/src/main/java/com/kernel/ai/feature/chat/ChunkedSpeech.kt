@@ -3,7 +3,6 @@ package com.kernel.ai.feature.chat
 import android.util.Log
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
-import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -16,13 +15,13 @@ internal const val VOICE_MIN_FINAL_CHUNK_LENGTH = 20
 
 internal const val VOICE_TIMING_TAG = "VoiceTiming"
 
-/** Debug-only timing lines for the #1892 first-audio measurement. */
-internal fun logVoicePath() {
-    if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "path=final")
-}
-
 internal fun logFirstChunkQueued(chars: Int) {
     if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "firstChunkQueued epochMs=${System.currentTimeMillis()} chars=$chars")
+}
+
+/** Debug-only marker at generation end. The S23U first-audio measurement runs from here to SpeakingStarted. */
+internal fun logGenerationComplete() {
+    if (BuildConfig.DEBUG) Log.d(VOICE_TIMING_TAG, "lastToken epochMs=${System.currentTimeMillis()}")
 }
 
 /**
@@ -30,33 +29,24 @@ internal fun logFirstChunkQueued(chars: Int) {
  * chunk starts playing while the next is synthesised. Slow local voices (Piper/Cori) otherwise
  * synthesise a whole multi-sentence reply before any sound plays.
  *
- * Returns once the chunks are queued, not when playback ends; callers that need to know when
- * speech finishes listen for [com.kernel.ai.core.voice.VoiceOutputEvent.SpeakingStopped].
+ * The text is normalised before chunking, so a list marker such as "3." that a newline left behind
+ * does not end a chunk. Returns once the chunks are queued, not when playback ends; callers that
+ * need to know when speech finishes listen for [com.kernel.ai.core.voice.VoiceOutputEvent.SpeakingStopped].
+ *
+ * Splits at sentence ends only (never at a comma or word boundary), so a chunk is never cut mid-sentence.
+ * A short first chunk lets playback start while the rest is synthesised (#1872). A tail under ~20
+ * characters ("Thanks.") would be a separate, barely audible chunk, so it is folded into the previous chunk.
  */
 internal suspend fun speakInSentenceChunks(
     controller: VoiceOutputController,
     text: String,
 ): VoiceOutputResult {
-    val session = controller.openStreamingSession(VoiceSpeakRequest(text = text))
-    return appendSentenceChunks(session, text)
-}
-
-/**
- * Queues [text] on [session] as sentence-sized chunks; the last chunk is final. Shared by the
- * Actions/speaker-button path and the chat voice reply path so both use the same first-chunk and
- * tail rules.
- *
- * Splits at sentence ends only (never at a comma or word boundary), so a chunk is never cut mid-sentence.
- */
-internal suspend fun appendSentenceChunks(
-    session: VoiceOutputStreamingSession,
-    text: String,
-): VoiceOutputResult {
+    val spoken = normalizeChatTextForSpeech(text)
+    val session = controller.openStreamingSession(VoiceSpeakRequest(text = spoken))
     try {
-        val buffer = StringBuilder(text)
+        val buffer = StringBuilder(spoken)
         var isFirst = true
         while (buffer.isNotBlank()) {
-            // A short first chunk lets playback start while the rest is synthesised (#1872).
             val minLength = if (isFirst) VOICE_FIRST_CHUNK_MIN_LENGTH else VOICE_MIN_CHUNK_LENGTH
             var chunk = popNextStreamingSpeechChunk(
                 buffer = buffer,
@@ -64,8 +54,7 @@ internal suspend fun appendSentenceChunks(
                 preferredChunkLength = Int.MAX_VALUE,
                 force = buffer.length < minLength,
             ) ?: break
-            // A tail under ~20 characters ("Thanks.") would be a separate, barely audible chunk;
-            // fold it into this one. The whole reply is known here, so the tail is final.
+            // The whole reply is known here, so a short tail is final and is folded into this chunk.
             val tail = buffer.toString().trim()
             if (tail.isNotEmpty() && tail.length < VOICE_MIN_FINAL_CHUNK_LENGTH) {
                 buffer.setLength(0)

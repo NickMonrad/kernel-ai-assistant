@@ -1720,7 +1720,8 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = mode
         viewModelScope.launch {
-            if (_voicePlaybackState.value != VoicePlaybackState.Idle) {
+            // Synthesis of the first chunk has no playback state yet; a mic tap must cancel it too.
+            if (_voicePlaybackState.value != VoicePlaybackState.Idle || assistantSpeechJob?.isActive == true) {
                 stopChatSpeech()
             }
             _error.value = null
@@ -2192,6 +2193,7 @@ class ChatViewModel @Inject constructor(
             var assistantMsgId = ""
             var accumulatedContent = StringBuilder()
             var accumulatedThinking = StringBuilder()
+            var terminalToolStartOffset = -1  // accumulatedContent length when the terminal tool first ran this attempt
             var prompt = ""
             var effectiveRagTokenCost = 0
             var systemPromptForPrefill = ""
@@ -3474,6 +3476,7 @@ class ChatViewModel @Inject constructor(
                         needsHallucinationRetry = true
                         currentPrompt = INCOMPLETE_CHAIN_CORRECTION + "\n\n" + prompt
                         accumulatedContent = StringBuilder()
+                        terminalToolStartOffset = -1
                         accumulatedThinking = StringBuilder()
                         activeStreamingContent = accumulatedContent
                         activeStreamingThinking = accumulatedThinking
@@ -3558,6 +3561,9 @@ class ChatViewModel @Inject constructor(
                     when (result) {
                         is GenerationResult.Token -> {
                             if (!firstTokenLogged) logTurnStage("first_token")
+                            if (terminalToolStartOffset < 0 && kernelAIToolSet.terminalToolCalledInCurrentAttempt()) {
+                                terminalToolStartOffset = accumulatedContent.length
+                            }
                             accumulatedContent.append(result.text)
                             _messages.update { msgs ->
                                 msgs.map { msg ->
@@ -3661,6 +3667,7 @@ class ChatViewModel @Inject constructor(
                                         append(text)
                                     }
                                     accumulatedContent = StringBuilder()
+                                    terminalToolStartOffset = -1
                                     accumulatedThinking = StringBuilder()
                                     activeStreamingContent = accumulatedContent
                                     activeStreamingThinking = accumulatedThinking
@@ -3763,6 +3770,7 @@ class ChatViewModel @Inject constructor(
                                         needsHallucinationRetry = true
                                         currentPrompt = SYSTEM_ONLY_TOOL_RETRY_CORRECTION + "\n\n" + prompt
                                         accumulatedContent = StringBuilder()
+                                        terminalToolStartOffset = -1
                                         accumulatedThinking = StringBuilder()
                                         activeStreamingContent = accumulatedContent
                                         activeStreamingThinking = accumulatedThinking
@@ -3812,16 +3820,17 @@ class ChatViewModel @Inject constructor(
                                     }
                                 }
 
-                                // Speak only the reply the user is shown as the tool's result. A native tool's
-                                // reply text includes what the model wrote before the call, which is never spoken.
-                                val spokenToolReply = toolSpokenOverrideFor(
-                                    resultContent,
-                                    toolCall.resultText,
-                                    toolCall.spokenSummary,
-                                ) ?: if (nativeToolCall != null && resultContent == fullContent) {
-                                    toolCall.resultText.trim()
+                                // Speak the model's answer after the terminal tool call: the same text the bubble shows.
+                                // Tool chips and evidence are never spoken; the spoken summary is the fallback when that text is blank.
+                                val spokenToolReply = if (nativeToolCall != null) {
+                                    val postToolText = if (terminalToolStartOffset in 0..fullContent.length) {
+                                        fullContent.substring(terminalToolStartOffset)
+                                    } else {
+                                        ""
+                                    }
+                                    postToolText.trim().ifBlank { toolCall.spokenSummary.orEmpty() }
                                 } else {
-                                    resultContent
+                                    toolSpokenOverrideFor(resultContent, toolCall.resultText, toolCall.spokenSummary) ?: resultContent
                                 }
                                 finalizeVoicePlaybackForResponse(spokenToolReply)
                                 // Persist only normal turns; safe model probes retain an ephemeral UI chip.
@@ -3894,6 +3903,7 @@ class ChatViewModel @Inject constructor(
                                         }
                                         // Reset streaming state for the retry pass
                                         accumulatedContent = StringBuilder()
+                                        terminalToolStartOffset = -1
                                         accumulatedThinking = StringBuilder()
                                         activeStreamingContent = accumulatedContent
                                         activeStreamingThinking = accumulatedThinking
@@ -4429,14 +4439,15 @@ class ChatViewModel @Inject constructor(
      * was queued. Live speech is tracked as #1923.
      */
     private fun finalizeVoicePlaybackForResponse(spokenText: String) {
+        logGenerationComplete()
         if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse) {
             stopVoicePlayback()
             return
         }
         if (!pendingVoiceReply) return
-        if (looksLikeRawToolCall(spokenText)) return
-        logVoicePath()
-        speakAssistantReplyIfNeeded(spokenText)
+        // Raw tool-call text is never spoken. An empty reply takes the blank path, which resets voice state
+        // and lets back-and-forth end cleanly.
+        speakAssistantReplyIfNeeded(if (looksLikeRawToolCall(spokenText)) "" else spokenText)
     }
 
     private fun handleVoiceOutputResult(result: VoiceOutputResult) {
