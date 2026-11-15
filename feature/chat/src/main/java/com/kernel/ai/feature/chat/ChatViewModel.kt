@@ -390,6 +390,10 @@ class ChatViewModel @Inject constructor(
     private var activeVoiceStreamingBuffer = StringBuilder()
     private var activeVoiceChunksSent = 0
     private var activeVoiceSpokenText = StringBuilder()
+    /** Set once the engine ran a tool this attempt (native path: no tag reaches the stream). */
+    private var activeVoiceToolRanNatively = false
+    /** Text streamed after a native tool call; the only text spoken in that case. */
+    private var activeVoicePostToolText = StringBuilder()
     /** Set once the model starts a tool call this turn; text from there on is never spoken. */
     private var activeVoiceToolCallStarted = false
     private var assistantSpeechJob: Job? = null
@@ -3802,6 +3806,13 @@ class ChatViewModel @Inject constructor(
                                     }
                                 }
 
+                                // Speak before persisting: the reply is final here and speech should not wait on the database write.
+                                val toolSpokenOverride = toolSpokenOverrideFor(
+                                    resultContent,
+                                    toolCall.resultText,
+                                    toolCall.spokenSummary,
+                                )
+                                finalizeVoicePlaybackForResponse(resultContent, toolSpokenOverride)
                                 // Persist only normal turns; safe model probes retain an ephemeral UI chip.
                                 val savedId = if (safeRunIntentTest) {
                                     null
@@ -3836,12 +3847,6 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(resultContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
-                                val toolSpokenOverride = toolSpokenOverrideFor(
-                                    resultContent,
-                                    toolCall.resultText,
-                                    toolCall.spokenSummary,
-                                )
-                                finalizeVoicePlaybackForResponse(resultContent, toolSpokenOverride)
                                 // Do NOT set needsHistoryReplay here — KV cache remains valid after
                                 // native tool calls and forcing a replay drops prior turns from the
                                 // tight history budget, causing context amnesia (#446).
@@ -3944,6 +3949,8 @@ class ChatViewModel @Inject constructor(
                                 _messages.update { msgs ->
                                     msgs.map { if (it.id == assistantMsgId) it.copy(content = displayContent, isStreaming = false) else it }
                                 }
+                                // Speak before persisting: displayContent is final here, so speech does not wait on the database write.
+                                finalizeVoicePlaybackForResponse(displayContent)
                                 val savedAssistantMsgId = if (safeRunIntentTest) {
                                     null
                                 } else {
@@ -3969,7 +3976,6 @@ class ChatViewModel @Inject constructor(
                                     contextWindowManager.estimateTokens(displayContent) +
                                     contextWindowManager.estimateTokens(thinking ?: "")
                                 turnsSinceReset++
-                                finalizeVoicePlaybackForResponse(displayContent)
                             }
 
                             // Clear streaming tracking now that the message is fully persisted.
@@ -4410,16 +4416,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /** A retry pass starts a fresh reply: re-arm streaming and clear the tool-call cut from the failed pass. */
-    private fun resetVoiceStreamForRetry() {
+    /**
+     * A retry pass starts a fresh reply. Speech the failed pass already queued is cancelled here, so the
+     * failed pass is not heard after the retry, and the retried reply gets the first-sentence hold again.
+     */
+    private suspend fun resetVoiceStreamForRetry() {
         activeVoiceToolCallStarted = false
+        activeVoiceToolRanNatively = false
+        activeVoicePostToolText = StringBuilder()
         activeVoiceStreamingBuffer = StringBuilder()
+        activeVoiceChunksSent = 0
+        if (activeVoiceSpokenText.isNotEmpty()) {
+            activeVoiceStreamingSession?.cancel()
+            activeVoiceSpokenText.setLength(0)
+            activeVoiceStreamingSession = if (isVoiceStreamingEnabledForTurn) {
+                voiceOutputController.openStreamingSession(VoiceSpeakRequest(text = "", locale = Locale.getDefault()))
+            } else {
+                null
+            }
+        }
     }
 
     private suspend fun prepareVoicePlaybackForTurn(
         streamingEnabled: Boolean,
     ) {
         activeVoiceStreamingBuffer = StringBuilder()
+        activeVoiceToolRanNatively = false
+        activeVoicePostToolText = StringBuilder()
         activeVoiceChunksSent = 0
         activeVoiceSpokenText = StringBuilder()
         activeVoiceToolCallStarted = false
@@ -4438,11 +4461,21 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun streamVoiceToken(token: String) {
-        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn ||
-            activeVoiceToolCallStarted
-        ) {
+        if (!autoSpeakEnabled || suppressVoiceOutputForCurrentResponse || !isVoiceStreamingEnabledForTurn) {
             return
         }
+        // Native tool calls run inside the engine, so no tag reaches the stream. The text before the call is not
+        // the reply: drop the held sentence, stop queueing, and keep only the text streamed after the call.
+        if (kernelAIToolSet.terminalToolCalledInCurrentAttempt() || kernelAIToolSet.loadSkillCalledInCurrentAttempt()) {
+            if (!activeVoiceToolRanNatively) {
+                activeVoiceToolRanNatively = true
+                activeVoiceToolCallStarted = true
+                activeVoiceStreamingBuffer.setLength(0)
+            }
+            activeVoicePostToolText.append(token)
+            return
+        }
+        if (activeVoiceToolCallStarted) return
         activeVoiceStreamingBuffer.append(token)
         val toolCallAt = activeVoiceStreamingBuffer.indexOf(TOOL_CALL_START_TAG)
         if (toolCallAt >= 0) {
@@ -4468,18 +4501,27 @@ class ChatViewModel @Inject constructor(
         val session = activeVoiceStreamingSession ?: return
         while (true) {
             val minLength = if (activeVoiceChunksSent == 0) VOICE_STREAM_FIRST_CHUNK_MIN_LENGTH else VOICE_MIN_CHUNK_LENGTH
+            val raw = activeVoiceStreamingBuffer.toString()
             val chunk = popNextStreamingSpeechChunk(
                 buffer = activeVoiceStreamingBuffer,
                 minChunkLength = minLength,
                 preferredChunkLength = Int.MAX_VALUE,
             ) ?: break
             if (activeVoiceChunksSent == 0 && activeVoiceStreamingBuffer.isBlank()) {
-                // The only sentence so far is held: a tool call may follow it (#1892). It is queued once more text arrives.
-                activeVoiceStreamingBuffer.insert(0, chunk)
+                // The only sentence so far is held: a tool call may follow it (#1892). The raw text is put back,
+                // not the normalised chunk, so the next pass re-checks the same text.
+                activeVoiceStreamingBuffer.insert(0, raw.substring(0, raw.length - activeVoiceStreamingBuffer.length))
                 break
             }
             speakVoiceChunk(session = session, chunk = chunk, isFinal = false)
         }
+    }
+
+    /** The reply to speak when a tool call cut the stream: post-call text for native tools, never raw tool-call text. */
+    private fun replyTextToSpeak(finalContent: String): String = when {
+        activeVoiceToolRanNatively -> activeVoicePostToolText.toString().trim()
+        looksLikeRawToolCall(finalContent) -> ""
+        else -> finalContent
     }
 
     private suspend fun finalizeVoicePlaybackForResponse(finalContent: String, spokenOverride: String? = null) {
@@ -4494,8 +4536,8 @@ class ChatViewModel @Inject constructor(
             // Streamed speech that is not the reply (a tool-call cut, or a discarded pass that was replaced)
             // is stopped and the final content is spoken instead.
             activeVoiceToolCallStarted || streamedSpeechDiverges(finalContent) ->
-                // Raw tool-call text is never speech; a cut that produced no reply stays silent.
-                speakReplacingStreamedSpeech(if (looksLikeRawToolCall(finalContent)) "" else finalContent)
+                // Native tool: only the text after the call is speech. Raw tool-call text is never speech.
+                speakReplacingStreamedSpeech(replyTextToSpeak(finalContent))
             isVoiceStreamingEnabledForTurn -> {
                 // Complete sentences were queued while streaming; only the unfinished tail is left.
                 drainVoiceStreamingBuffer()

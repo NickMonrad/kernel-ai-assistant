@@ -583,7 +583,7 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
-    fun `speech queued from a discarded pass is stopped and the retried reply spoken`() = runTest(dispatcher) {
+    fun `discarded pass is cut at the retry and the final reply is spoken once`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Tell me about kiwi birds") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
         every { inferenceEngine.generate(any()) } returnsMany listOf(
@@ -606,10 +606,49 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         coVerify(atLeast = 1) { voiceStreamingSession.cancel() }
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("Anything else") },
+            "discarded pass was queued after the retry: $streamedChunks",
+        )
         assertEquals(
-            true to true,
-            streamedChunks.last().let { (chunk, isFinal) -> chunk.contains("blue bowl") to isFinal },
-            "final chunk is not the retried reply: $streamedChunks",
+            1,
+            streamedChunks.count { (chunk, _) -> chunk.contains("blue bowl") },
+            "final reply was not spoken exactly once: $streamedChunks",
+        )
+        assertEquals(true, streamedChunks.last().second, "final reply is not the last chunk: $streamedChunks")
+    }
+
+    @Test
+    fun `native tool call drops the pre-tool sentence and speaks only the text after the call`() = runTest(dispatcher) {
+        var nativeToolRan = false
+        every { quickIntentRouter.route("Weather in Apia") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Weather in Apia")
+        every { kernelAIToolSet.terminalToolCalledInCurrentAttempt() } answers { nativeToolRan }
+        every { kernelAIToolSet.terminalToolName() } answers { if (nativeToolRan) "get_weather" else null }
+        every { kernelAIToolSet.terminalToolRequest() } returns "{}"
+        every { kernelAIToolSet.terminalToolDetail() } returns "Apia: 28 C"
+        every { kernelAIToolSet.terminalToolSucceeded() } returns true
+        every { inferenceEngine.generate(any()) } returns kotlinx.coroutines.flow.flow {
+            emit(GenerationResult.Token("It is sunny and warm in Apia today."))
+            nativeToolRan = true
+            emit(GenerationResult.Token("Take an umbrella, it may rain later."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia"))
+        advanceUntilIdle()
+
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("sunny") },
+            "pre-tool sentence was spoken: $streamedChunks",
+        )
+        assertTrue(
+            streamedChunks.any { (chunk, isFinal) -> isFinal && chunk.contains("umbrella") },
+            "post-tool text was not spoken: $streamedChunks",
         )
     }
 
