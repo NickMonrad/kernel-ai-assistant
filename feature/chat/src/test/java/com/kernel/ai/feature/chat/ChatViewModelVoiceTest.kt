@@ -197,6 +197,11 @@ class ChatViewModelVoiceTest {
         every { voiceOutputController.events } returns voiceOutputEvents
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
         streamedChunks.clear()
+        every { kernelAIToolSet.terminalToolName() } returns null
+        every { kernelAIToolSet.terminalToolSpokenSummary() } returns null
+        every { kernelAIToolSet.terminalToolPresentation() } returns null
+        every { kernelAIToolSet.terminalToolResult() } returns null
+        coEvery { voiceStreamingSession.cancel() } just runs
         coEvery { voiceOutputController.openStreamingSession(any()) } returns voiceStreamingSession
         coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
             streamedChunks += firstArg<String>() to secondArg<Boolean>()
@@ -495,6 +500,116 @@ class ChatViewModelVoiceTest {
         assertTrue(
             streamedChunks.any { (chunk, _) -> chunk.contains("flightless and nocturnal") },
             "retried reply was not spoken: $streamedChunks",
+        )
+    }
+
+    @Test
+    fun `first sentence is queued while the reply is still streaming`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me about kiwi birds") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("Kiwi birds are flightless and nocturnal. "),
+            GenerationResult.Token("They forage for worms at night."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about kiwi birds"))
+        advanceUntilIdle()
+
+        val firstQueued = streamedChunks.indexOfFirst { (chunk, isFinal) -> !isFinal && chunk.contains("flightless") }
+        val finalIndex = streamedChunks.indexOfFirst { (_, isFinal) -> isFinal }
+        assertTrue(
+            firstQueued in 0 until finalIndex,
+            "first sentence was not queued before the final chunk: $streamedChunks",
+        )
+    }
+
+    @Test
+    fun `tool-call preamble before the cut is not spoken`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me about kiwi birds") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("It is sunny and warm in Apia today. "),
+            GenerationResult.Token("<|tool_call>"),
+            GenerationResult.Token("call:get_weather{location:<|\"|>Apia<|\"|>}"),
+            GenerationResult.Token("<tool_call|>"),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about kiwi birds"))
+        advanceUntilIdle()
+
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("sunny") },
+            "tool-call preamble was spoken: $streamedChunks",
+        )
+    }
+
+    @Test
+    fun `hallucinated pass is not spoken and only the retried reply is`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me about kiwi birds") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flowOf(GenerationResult.Token("I've saved that to memory."), GenerationResult.Complete(durationMs = 1L)),
+            flowOf(
+                GenerationResult.Token("Your keys are in the blue bowl by the door."),
+                GenerationResult.Complete(durationMs = 1L),
+            ),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about kiwi birds"))
+        advanceUntilIdle()
+
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("saved") },
+            "discarded pass was spoken: $streamedChunks",
+        )
+        assertTrue(
+            streamedChunks.any { (chunk, _) -> chunk.contains("blue bowl") },
+            "retried reply was not spoken: $streamedChunks",
+        )
+    }
+
+    @Test
+    fun `speech queued from a discarded pass is stopped and the retried reply spoken`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me about kiwi birds") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about kiwi birds")
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flowOf(
+                GenerationResult.Token("I've saved that to memory. "),
+                GenerationResult.Token("Anything else you need?"),
+                GenerationResult.Complete(durationMs = 1L),
+            ),
+            flowOf(
+                GenerationResult.Token("Your keys are in the blue bowl by the door."),
+                GenerationResult.Complete(durationMs = 1L),
+            ),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about kiwi birds"))
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { voiceStreamingSession.cancel() }
+        assertEquals(
+            true to true,
+            streamedChunks.last().let { (chunk, isFinal) -> chunk.contains("blue bowl") to isFinal },
+            "final chunk is not the retried reply: $streamedChunks",
         )
     }
 

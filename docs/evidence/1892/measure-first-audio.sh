@@ -18,13 +18,14 @@ run() {
   done
   sleep 15
   logs=$(adb -s $S logcat -d 2>/dev/null)
-  path=$(echo "$logs" | grep -o 'path=[a-z]*' | head -1 | cut -d= -f2)
+  path=$(echo "$logs" | grep 'VoiceTiming.*path=' | head -1 | grep -o 'path=\(stream\|final\)' | cut -d= -f2)
   last=$(echo "$logs" | grep 'VoiceTiming lastToken' | head -1 | grep -o 'epochMs=[0-9]*' | cut -d= -f2)
   fq=$(echo "$logs" | grep 'firstChunkQueued epochMs' | head -1 | grep -o 'epochMs=[0-9]*' | cut -d= -f2)
   fqc=$(echo "$logs" | grep 'firstChunkQueued epochMs' | head -1 | grep -o 'chars=[0-9]*' | cut -d= -f2)
   dec=$(echo "$logs" | grep -o 'decode=[0-9]* tokens @ [0-9.]* tokens/s' | tail -1)
   if [ -z "$ss" ]; then echo "$1 TIMEOUT no SpeakingStarted"; return; fi
-  echo "$1 path=$path t0=$t0 speakingStarted=$ss lastToken=$last firstChunkQueued=$fq fqChars=$fqc ss_minus_lastToken=$((ss - last)) ss_minus_firstChunk=$((ss - fq)) $dec"
+  d1=NA; d2=NA; [ -n "$last" ] && d1=$((ss - last)); [ -n "$fq" ] && d2=$((ss - fq))
+  echo "$1 path=$path t0=$t0 speakingStarted=$ss lastToken=$last firstChunkQueued=$fq fqChars=$fqc ss_minus_lastToken=$d1 ss_minus_firstChunk=$d2 $dec"
 }
 adb -s $S shell am start -n $PKG/com.kernel.ai.MainActivity >/dev/null
 sleep 45

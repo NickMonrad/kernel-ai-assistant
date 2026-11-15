@@ -149,7 +149,7 @@ internal fun normalizeChatTextForSpeech(text: String): String =
         .replace(Regex("""[•‣◦∙⋅]\s*"""), "")           // strip any remaining inline bullet chars
         .let(::normalizeFractionsForSpeech)               // expand fractions/units before pronunciation overrides
         .replace(Regex("""(?<!\d):(?!\d)(?!//)\s*"""), ". ")   // non-numeric colons → sentence break (preserves ://)
-        .replace(Regex("""(?<=\d)\s*–\s*(?=\d)"""), "–")    // number ranges (1–7) keep the dash for Sherpa's numberRange
+        .replace(Regex("""(?<=\d)\s*[–—]\s*(?=\d)"""), "–")    // number ranges (1–7, 1—7) keep an en dash for Sherpa's numberRange
         .replace(Regex("""\s*(?:(?<!\d)[—–]|[—–](?!\d))\s*"""), ", ")   // other em/en dashes → natural comma pause
         .replace(Regex("""\s*(?:\r?\n){2,}\s*"""), ". ")
         .replace(Regex("""\s*\r?\n\s*"""), ". ")

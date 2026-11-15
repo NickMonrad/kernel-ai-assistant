@@ -389,6 +389,7 @@ class ChatViewModel @Inject constructor(
     private var activeVoiceStreamingSession: VoiceOutputStreamingSession? = null
     private var activeVoiceStreamingBuffer = StringBuilder()
     private var activeVoiceChunksSent = 0
+    private var activeVoiceSpokenText = StringBuilder()
     /** Set once the model starts a tool call this turn; text from there on is never spoken. */
     private var activeVoiceToolCallStarted = false
     private var assistantSpeechJob: Job? = null
@@ -4420,6 +4421,7 @@ class ChatViewModel @Inject constructor(
     ) {
         activeVoiceStreamingBuffer = StringBuilder()
         activeVoiceChunksSent = 0
+        activeVoiceSpokenText = StringBuilder()
         activeVoiceToolCallStarted = false
         activeVoiceStreamingSession = null
         isVoiceStreamingEnabledForTurn = streamingEnabled
@@ -4471,6 +4473,11 @@ class ChatViewModel @Inject constructor(
                 minChunkLength = minLength,
                 preferredChunkLength = Int.MAX_VALUE,
             ) ?: break
+            if (activeVoiceChunksSent == 0 && activeVoiceStreamingBuffer.isBlank()) {
+                // The only sentence so far is held: a tool call may follow it (#1892). It is queued once more text arrives.
+                activeVoiceStreamingBuffer.insert(0, chunk)
+                break
+            }
             speakVoiceChunk(session = session, chunk = chunk, isFinal = false)
         }
     }
@@ -4483,16 +4490,12 @@ class ChatViewModel @Inject constructor(
         val session = activeVoiceStreamingSession ?: return
         val result = when {
             // A tool's spoken summary replaces the streamed text; the unspoken buffer is dropped.
-            spokenOverride != null -> {
-                activeVoiceStreamingBuffer.setLength(0)
-                appendSentenceChunks(session, spokenOverride)
-            }
-            // Streamed text was cut at a tool-call marker, so the streamed tail is not the reply: speak the final content.
-            activeVoiceToolCallStarted -> {
-                activeVoiceStreamingBuffer.setLength(0)
+            spokenOverride != null -> speakReplacingStreamedSpeech(spokenOverride)
+            // Streamed speech that is not the reply (a tool-call cut, or a discarded pass that was replaced)
+            // is stopped and the final content is spoken instead.
+            activeVoiceToolCallStarted || streamedSpeechDiverges(finalContent) ->
                 // Raw tool-call text is never speech; a cut that produced no reply stays silent.
-                appendSentenceChunks(session, if (looksLikeRawToolCall(finalContent)) "" else finalContent)
-            }
+                speakReplacingStreamedSpeech(if (looksLikeRawToolCall(finalContent)) "" else finalContent)
             isVoiceStreamingEnabledForTurn -> {
                 // Complete sentences were queued while streaming; only the unfinished tail is left.
                 drainVoiceStreamingBuffer()
@@ -4508,6 +4511,35 @@ class ChatViewModel @Inject constructor(
         isVoiceStreamingEnabledForTurn = false
     }
 
+    /**
+     * Replaces this turn's streamed speech with [text]. Queued speech is not the reply when it was a
+     * tool-call preamble or a discarded pass, so it is stopped and [text] is spoken on a fresh session.
+     * With nothing queued yet, [text] goes on the current session.
+     */
+    private suspend fun speakReplacingStreamedSpeech(text: String): VoiceOutputResult {
+        activeVoiceStreamingBuffer.setLength(0)
+        val current = activeVoiceStreamingSession ?: return VoiceOutputResult.Spoken
+        val target = if (activeVoiceSpokenText.isEmpty()) {
+            current
+        } else {
+            current.cancel()
+            activeVoiceSpokenText.setLength(0)
+            voiceOutputController.openStreamingSession(VoiceSpeakRequest(text = "", locale = Locale.getDefault()))
+                .also { activeVoiceStreamingSession = it }
+        }
+        if (text.isBlank()) return target.append("", isFinal = true)
+        return appendSentenceChunks(target, text)
+    }
+
+    /** True when the speech queued this turn is not a prefix of [finalContent] (compared on letters and digits). */
+    private fun streamedSpeechDiverges(finalContent: String): Boolean {
+        val spoken = activeVoiceSpokenText.toString().comparableSpeech()
+        if (spoken.isEmpty()) return false
+        return !finalizeChatTextForSpeech(finalContent).comparableSpeech().startsWith(spoken)
+    }
+
+    private fun String.comparableSpeech(): String = filter { it.isLetterOrDigit() }.lowercase()
+
     private suspend fun speakVoiceChunk(
         session: VoiceOutputStreamingSession,
         chunk: String,
@@ -4516,6 +4548,7 @@ class ChatViewModel @Inject constructor(
         if (chunk.isBlank()) return
         if (activeVoiceChunksSent == 0) logFirstChunkQueued(chunk.length)
         activeVoiceChunksSent++
+        activeVoiceSpokenText.append(chunk).append(' ')
         val result = session.append(chunk, isFinal = isFinal)
         handleVoiceOutputResult(result)
     }

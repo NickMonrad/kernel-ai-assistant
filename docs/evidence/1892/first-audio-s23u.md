@@ -2,18 +2,24 @@
 
 ## Conclusion
 
-Measured on the S23U with a 3–5 sentence reply, the branch starts speaking **3.4–4.7 s after generation completes**
-(median 3.8 s). Main starts **12.7–17.3 s after generation completes** (median 15.7 s). The branch's first chunk is
-queued (~1.1–1.2 s after generation completes) and is spoken about 2.2–3.5 s later. Main queues one whole-reply chunk
-about 1.1–1.2 s after completion, and it plays 11.5–16.2 s later.
+Streamed path (kiwi prompt, n=3 per build, `path=stream` on every run): branch median lastToken→SpeakingStarted
+is +2469 ms; main +5879 ms. The ranges overlap (MAIN 3211–7524 ms, BRANCH 1405–3258 ms), so this is directional
+only, not a significant difference. See "Streamed-path re-measurement" below.
+
+Caveat: these runs used cd619981, before the round-3 first-sentence hold (SF-A). The hold keeps the first sentence
+until a second sentence starts, so first audio on streamed turns will be later than measured here. Not re-measured
+on the final build; re-measure before quoting a number for it.
+
+## Finalize-path result (secondary; router-classified prompt, not streamed)
+
+The branch starts speaking 3.4–4.7 s after generation completes (median 3.8 s). Main starts 12.7–17.3 s after
+completion (median 15.7 s). The branch's first chunk is queued ~1.1–1.2 s after completion and is spoken about
+2.2–3.5 s later. Main queues one whole-reply chunk about 1.1–1.2 s after completion and plays it 11.5–16.2 s later.
 
 The branch did NOT speak before generation ended. Expected: `SpeakingStarted − lastToken` negative on the branch.
 Measured: positive on both builds. The first chunk is queued after `lastToken`, so the sentence-level overlap the
 change targets does not occur in these runs. Cause unverified [INFERENCE]: tokens reach `ChatViewModel` after the
 engine logs Complete (consumer lag), or the first sentence is not complete until late in the stream. Not confirmed.
-
-The win is real but smaller than a "speech before generation ends" design: the reply is spoken ~12 s sooner after
-completion, because the branch synthesises sentence-sized chunks instead of one whole-reply chunk.
 
 ## Setup
 
@@ -22,7 +28,7 @@ completion, because the branch synthesises sentence-sized chunks instead of one 
 - MAIN: `origin/main` 6e0c34cd + VoiceTiming logs applied to a `git archive` export (not committed).
 - BRANCH: `fix/chat-voice-chunking-1892` commit `ccd694b8` (VoiceTiming logs), on top of `6f6567c2`.
 - Logs (debug build only for the first-queue line, `BuildConfig.DEBUG`):
-  - `VoiceTiming lastToken epochMs=…`: engine Complete (`LiteRtInferenceEngine`). Not gated; one line per generation.
+  - `VoiceTiming lastToken epochMs=…`: engine Complete (`LiteRtInferenceEngine`). Gated by `BuildConfig.DEBUG`; one line per generation.
   - `VoiceTiming: firstChunkQueued epochMs=… chars=…`: first chat speech chunk queued. Branch: first `speakVoiceChunk`
     / finalize tail / sentence-loop chunk of the turn. Main: the single `finalChunk` at finalize.
   - `KernelAI: SpeakingStarted epochMs=…` (existing).
@@ -58,7 +64,7 @@ Warm-up runs were executed and excluded; their values are in `/tmp/s23u-timing-1
 - Sentence counts are terminators in the spoken text; "e.g.", numbered items, or merged chunks can shift them by one.
 - Three runs per build. Spread is ~3 s on the branch and ~3.5 s on main; the gap (~12 s) is much larger than the spread.
 - The first-queue line is logged for the first chunk only (branch via `activeVoiceChunksSent == 0`; main once).
-- `lastToken` is not gated behind debug (one line per generation in the engine).
+- `lastToken` is gated behind `BuildConfig.DEBUG` like the first-queue line; the measured runs used the debug build.
 - Earlier run (not used for this conclusion): with the wrong `firstChunkQueued` grep, the first measurement set
   (`lastToken` only) gave the same sign: `SpeakingStarted − lastToken` = +5.0 to +15.4 s on both builds.
 
