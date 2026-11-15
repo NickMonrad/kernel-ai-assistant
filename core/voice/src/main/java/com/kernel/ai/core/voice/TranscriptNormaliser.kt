@@ -74,29 +74,32 @@ object TranscriptNormaliser {
      * utterance. A bare "the wether" (the NZ farm word for a castrated sheep) is never rewritten.
      */
     private const val WEATHER_FOLLOWER =
-        """(?:in|for|at|like|looking|on|going\s+to|today|tonight|tomorrow|outside|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days))"""
+        """(?:in|for|at|like|looking|on|going\s+to|now|right\s+now|currently|out\s+there|here|over|today|tonight|tomorrow|outside|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days))"""
     private const val WEATHER_TIME_FOLLOWER =
         """(?:today|tonight|tomorrow|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days))"""
-    private const val WEATHER_QUESTION_HEAD = """(what(?:['’]?s|\s+is)?|how(?:['’]s|\s+is)?)"""
+    /** Optional spoken filler before the question ("hey jandal, what's the wether…"). Anchors the rule to utterance start. */
+    private const val WEATHER_LEAD_IN = """^(\s*(?:(?:hey|hi|ok|okay)(?:\s+jandal)?[,\s]+)?)"""
+    private const val WEATHER_QUESTION_HEAD = """(what(?:['’]?s|\s+is)?|how(?:['’]?s|\s+is)?)"""
     private const val WEATHER_MISHEAR = """(?:whither|wither|wether|whether|wayther)"""
 
     private val WEATHER_MISHEAR_REPLACEMENTS: List<Pair<Regex, (MatchResult) -> String>> = listOf(
         // "what the whither in Auckland", "how's the wether tomorrow", "what's the whether like today"
         Regex(
-            """\b$WEATHER_QUESTION_HEAD\s+the\s+$WEATHER_MISHEAR\b(?=\s+$WEATHER_FOLLOWER\b|\s*[.!?]*$)""",
+            """$WEATHER_LEAD_IN$WEATHER_QUESTION_HEAD\s+the\s+$WEATHER_MISHEAR\b(?=\s+$WEATHER_FOLLOWER\b|\s*[.!?]*$)""",
             RegexOption.IGNORE_CASE,
-        ) to { mr -> "${questionHead(mr.groupValues[1])} the weather" },
+        ) to { mr -> "${mr.groupValues[1]}${questionHead(mr.groupValues[2])} the weather" },
         // "what's the way tomorrow" — "the way" alone is navigation ("the way to"), so require a
         // time phrase that ends the utterance
         Regex(
-            """\b$WEATHER_QUESTION_HEAD\s+the\s+way(?=\s+$WEATHER_TIME_FOLLOWER\s*[.!?]*$)""",
+            """$WEATHER_LEAD_IN$WEATHER_QUESTION_HEAD\s+the\s+way(?=\s+$WEATHER_TIME_FOLLOWER\s*[.!?]*$)""",
             RegexOption.IGNORE_CASE,
-        ) to { mr -> "${questionHead(mr.groupValues[1])} the weather" },
+        ) to { mr -> "${mr.groupValues[1]}${questionHead(mr.groupValues[2])} the weather" },
     )
 
-    /** "what"/"whats" → "what's", "how" → "how's"; keeps the original first-letter casing and an existing "'s"/"is". */
+    /** "what"/"whats" → "what's", "how"/"hows" → "how's"; keeps original first-letter casing and an existing "'s"/"is". */
     private fun questionHead(lead: String): String = when {
         lead.equals("whats", ignoreCase = true) -> "${lead.take(4)}'s"
+        lead.equals("hows", ignoreCase = true) -> "${lead.take(3)}'s"
         Regex("""\s+is$|['’]s$""", RegexOption.IGNORE_CASE).containsMatchIn(lead) -> lead
         else -> "${lead}'s"
     }

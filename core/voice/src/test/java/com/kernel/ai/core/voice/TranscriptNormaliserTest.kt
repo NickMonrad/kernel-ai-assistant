@@ -339,6 +339,33 @@ class TranscriptNormaliserTest {
     }
 
     @Test
+    fun `now, right now, currently, out there, here, over are weather followers`() {
+        assertEquals("what's the weather now", TranscriptNormaliser.normalise("what's the whether now"))
+        assertEquals("what's the weather right now", TranscriptNormaliser.normalise("whats the whether right now"))
+        assertEquals("what's the weather currently", TranscriptNormaliser.normalise("what's the whether currently"))
+        assertEquals("what's the weather out there", TranscriptNormaliser.normalise("what's the whether out there"))
+        assertEquals("what's the weather here", TranscriptNormaliser.normalise("what's the whether here"))
+        assertEquals("what's the weather over the next three days", TranscriptNormaliser.normalise("what's the whether over the next three days"))
+    }
+
+    @Test
+    fun `hows is accepted like whats`() {
+        assertEquals("how's the weather tomorrow", TranscriptNormaliser.normalise("hows the wether tomorrow"))
+    }
+
+    @Test
+    fun `optional spoken filler before the question is allowed`() {
+        assertEquals("hey jandal, what's the weather tomorrow", TranscriptNormaliser.normalise("hey jandal, what's the whether tomorrow"))
+        assertEquals("ok what's the weather tomorrow", TranscriptNormaliser.normalise("ok what's the whether tomorrow"))
+    }
+
+    @Test
+    fun `mid-sentence dictation is not rewritten`() {
+        assertEquals("I don't know what the whether in Auckland means", TranscriptNormaliser.normalise("I don't know what the whether in Auckland means"))
+        assertEquals("show me what the wither on the vine looks like", TranscriptNormaliser.normalise("show me what the wither on the vine looks like"))
+    }
+
+    @Test
     fun `NZ farm wether (sheep) is never rewritten`() {
         assertEquals("sell the wether at the sale yards", TranscriptNormaliser.normalise("sell the wether at the sale yards"))
         assertEquals("check the wether for flystrike", TranscriptNormaliser.normalise("check the wether for flystrike"))
