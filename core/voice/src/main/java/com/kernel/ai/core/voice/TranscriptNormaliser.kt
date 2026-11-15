@@ -67,42 +67,39 @@ object TranscriptNormaliser {
 
     /**
      * Weather-keyword mishears from STT: #1940. Voice-transcript only (called from the STT
-     * controllers, never from typed input). Context-gated so ordinary uses survive:
-     * a correction fires only in a weather-shaped phrase, i.e. a question head ("what's",
-     * "how's", "what is") + "the" + mishear, followed by a weather follower (in/for/at,
-     * today/tonight/tomorrow/outside/forecast, "this morning|afternoon|evening|week|weekend",
-     * "next week|weekend|few days|N days") or end of utterance. Bare "the way" also needs a
-     * time follower. "whether or not", "the way to", "the way this works", "how whether this
-     * matters" and "what whether now" are deliberately left alone.
+     * controllers, never from typed input). A correction fires only in a weather-shaped
+     * question: question head ("what's", "whats", "how's", "what is") + "the" + mishear
+     * (whither/wither/wether/whether/wayther), followed by a weather follower or end of
+     * utterance. "the way" is accepted only as "the way" + a time phrase that ends the
+     * utterance. A bare "the wether" (the NZ farm word for a castrated sheep) is never rewritten.
      */
     private const val WEATHER_FOLLOWER =
-        """(?:in|for|at|today|tonight|tomorrow|outside|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|few\s+days|\d+\s+days))"""
+        """(?:in|for|at|like|looking|on|going\s+to|today|tonight|tomorrow|outside|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days))"""
     private const val WEATHER_TIME_FOLLOWER =
-        """(?:today|tonight|tomorrow|outside|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|few\s+days|\d+\s+days))"""
-    private const val WEATHER_QUESTION_HEAD = """(what(?:['’]s|\s+is)?|how(?:['’]s|\s+is)?)"""
+        """(?:today|tonight|tomorrow|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days))"""
+    private const val WEATHER_QUESTION_HEAD = """(what(?:['’]?s|\s+is)?|how(?:['’]s|\s+is)?)"""
     private const val WEATHER_MISHEAR = """(?:whither|wither|wether|whether|wayther)"""
 
     private val WEATHER_MISHEAR_REPLACEMENTS: List<Pair<Regex, (MatchResult) -> String>> = listOf(
-        // "what the whither in Auckland", "how's the wether tomorrow", "what's the whether" (end of utterance)
+        // "what the whither in Auckland", "how's the wether tomorrow", "what's the whether like today"
         Regex(
             """\b$WEATHER_QUESTION_HEAD\s+the\s+$WEATHER_MISHEAR\b(?=\s+$WEATHER_FOLLOWER\b|\s*[.!?]*$)""",
             RegexOption.IGNORE_CASE,
         ) to { mr -> "${questionHead(mr.groupValues[1])} the weather" },
-        // "what's the way tomorrow" — "the way" alone is navigation ("the way to"), so require a time follower
+        // "what's the way tomorrow" — "the way" alone is navigation ("the way to"), so require a
+        // time phrase that ends the utterance
         Regex(
-            """\b$WEATHER_QUESTION_HEAD\s+the\s+way\b(?=\s+$WEATHER_TIME_FOLLOWER\b)""",
+            """\b$WEATHER_QUESTION_HEAD\s+the\s+way(?=\s+$WEATHER_TIME_FOLLOWER\s*[.!?]*$)""",
             RegexOption.IGNORE_CASE,
         ) to { mr -> "${questionHead(mr.groupValues[1])} the weather" },
-        // bare noun before a weather follower: "the whither in Auckland", "the wether tomorrow"
-        Regex(
-            """\bthe\s+$WEATHER_MISHEAR\b(?=\s+$WEATHER_FOLLOWER\b)""",
-            RegexOption.IGNORE_CASE,
-        ) to { _ -> "the weather" },
     )
 
-    /** "what" → "what's", "how" → "how's"; keeps the original casing and any existing "'s"/"is". */
-    private fun questionHead(lead: String): String =
-        if (Regex("""\s+is$|['’]s$""", RegexOption.IGNORE_CASE).containsMatchIn(lead)) lead else "${lead}'s"
+    /** "what"/"whats" → "what's", "how" → "how's"; keeps the original first-letter casing and an existing "'s"/"is". */
+    private fun questionHead(lead: String): String = when {
+        lead.equals("whats", ignoreCase = true) -> "${lead.take(4)}'s"
+        Regex("""\s+is$|['’]s$""", RegexOption.IGNORE_CASE).containsMatchIn(lead) -> lead
+        else -> "${lead}'s"
+    }
 
     /** Unit/abbreviation normalisations: #1017. */
     private val STT_UNIT_ALIAS_REPLACEMENTS: List<Pair<Regex, String>> = listOf(

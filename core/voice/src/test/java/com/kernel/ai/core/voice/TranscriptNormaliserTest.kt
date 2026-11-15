@@ -327,12 +327,31 @@ class TranscriptNormaliserTest {
     }
 
     @Test
-    fun `bare weather mishear before a weather follower or at end is corrected`() {
-        assertEquals("the weather in Auckland", TranscriptNormaliser.normalise("the whither in Auckland"))
-        assertEquals("is the weather tomorrow", TranscriptNormaliser.normalise("is the wether tomorrow"))
-        assertEquals("what's the weather", TranscriptNormaliser.normalise("what's the wether"))
-        assertEquals("what's the weather this morning", TranscriptNormaliser.normalise("what's the wether this morning"))
-        assertEquals("what's the weather next week", TranscriptNormaliser.normalise("what's the wether next week"))
+    fun `question-shaped weather mishears with like, looking, on are corrected`() {
+        assertEquals("what's the weather like in Auckland", TranscriptNormaliser.normalise("what's the whither like in Auckland"))
+        assertEquals("what's the weather like today", TranscriptNormaliser.normalise("what's the wether like today"))
+        assertEquals("what's the weather like", TranscriptNormaliser.normalise("what's the whether like"))
+        assertEquals("how's the weather looking tomorrow", TranscriptNormaliser.normalise("how's the whether looking tomorrow"))
+        assertEquals("what's the weather on Saturday", TranscriptNormaliser.normalise("what's the whether on Saturday"))
+        assertEquals("what's the weather", TranscriptNormaliser.normalise("whats the wether"))
+        assertEquals("what's the weather tomorrow", TranscriptNormaliser.normalise("whats the whether tomorrow"))
+        assertEquals("what's the weather next three days", TranscriptNormaliser.normalise("what's the wether next three days"))
+    }
+
+    @Test
+    fun `NZ farm wether (sheep) is never rewritten`() {
+        assertEquals("sell the wether at the sale yards", TranscriptNormaliser.normalise("sell the wether at the sale yards"))
+        assertEquals("check the wether for flystrike", TranscriptNormaliser.normalise("check the wether for flystrike"))
+        assertEquals("the wether in the back paddock is lame", TranscriptNormaliser.normalise("the wether in the back paddock is lame"))
+        assertEquals("the whither in Auckland", TranscriptNormaliser.normalise("the whither in Auckland"))
+        assertEquals("is the wether tomorrow", TranscriptNormaliser.normalise("is the wether tomorrow"))
+    }
+
+    @Test
+    fun `the way rule needs a time phrase that ends the utterance`() {
+        assertEquals("what's the way today to the airport", TranscriptNormaliser.normalise("what's the way today to the airport"))
+        assertEquals("what's the way outside", TranscriptNormaliser.normalise("what's the way outside"))
+        assertEquals("what's the way like to X", TranscriptNormaliser.normalise("what's the way like to X"))
     }
 
     @Test
