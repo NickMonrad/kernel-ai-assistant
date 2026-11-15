@@ -12,7 +12,7 @@
 body{margin:0}
 a{color:#9FCB8F}a:hover{color:#C3E5B6}
 </style>
-<div style="width: 390px; height: 844px; box-sizing: border-box; background: #141414; color: #E8E8E8; font-family: Roboto, system-ui, sans-serif; position: relative; overflow: hidden; display: flex; flex-direction: column">
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #1A1A1A; color: #E8E8E8; font-family: Roboto, system-ui, sans-serif; position: relative; overflow: hidden; display: flex; flex-direction: column">
   <div style="height: 64px; padding: 0 8px; display: flex; align-items: center; gap: 4px; background: #151515">
     <button type="button" aria-label="Back" style="width: 48px; height: 48px; border: none; background: none; display: flex; align-items: center; justify-content: center">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#E8E8E8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
@@ -35,7 +35,8 @@ a{color:#9FCB8F}a:hover{color:#C3E5B6}
       <div style="display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px 16px 50px">
         <div style="flex: 1; display: flex; flex-direction: column; gap: 4px">
           <label for="online" style="font-size: 15px; font-weight: 500">Use online speech recognition</label>
-          <div style="font-size: 13px; line-height: 18px; color: #B0B0B0">Sends your voice to your phone&#39;s speech service (usually Google). <a href="#more">More</a></div>
+          <div style="font-size: 13px; line-height: 18px; color: #B0B0B0">Sends your voice to your phone&#39;s speech service (usually Google).</div>
+          <button type="button" style="align-self: flex-start; min-height: 48px; margin-left: -12px; padding: 0 12px; border: none; background: none; color: #9FCB8F; font: 500 14px Roboto, system-ui, sans-serif">More</button>
         </div>
         <span style="position: relative; flex: none; width: 52px; height: 32px; margin-top: 2px">
           <input id="online" type="checkbox" role="switch" aria-checked="false" style="position: absolute; inset: 0; margin: 0; width: 52px; height: 32px; opacity: 0">
@@ -71,7 +72,7 @@ a{color:#9FCB8F}a:hover{color:#C3E5B6}
       <input type="radio" name="engine" disabled style="margin: 3px 0 0; width: 20px; height: 20px">
       <span style="display: flex; flex-direction: column; gap: 4px">
         <span style="display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500">Sherpa-ONNX SenseVoice
-          <span style="font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 10px; background: #2E2E2E; color: #CFCFCF">Not downloaded</span>
+          <span style="font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 10px; background: #2E2E2E; color: #CFCFCF; white-space: nowrap">Not downloaded</span>
         </span>
         <span style="font-size: 14px; line-height: 20px; color: #B0B0B0">Offline, multilingual.</span>
         <button type="button" style="align-self: flex-start; margin-top: 6px; min-height: 40px; padding: 0 14px 0 10px; border-radius: 20px; border: 1px solid #4F7942; background: none; color: #C3E5B6; font: 500 14px Roboto, system-ui, sans-serif; display: flex; align-items: center; gap: 6px">

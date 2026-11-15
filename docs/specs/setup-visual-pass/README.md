@@ -64,7 +64,7 @@ Don't use `primary` for text: the dark `primary` is `#4F7942`, which is only 3.4
 
 | Mockup element | Role |
 |---|---|
-| Page background | `surface` |
+| Page background | `background` (dark `#1A1A1A`; light `SandLight`, so white cards keep an edge) |
 | Cards | `surfaceContainerHigh` |
 | Icon tiles | `surfaceContainerHighest` |
 | Selected choice card fill | `primaryContainer` at about 35% alpha over `surfaceContainerHigh` |
@@ -91,7 +91,7 @@ Don't use `primary` for text: the dark `primary` is `#4F7942`, which is only 3.4
      - Unselected: card colour only.
    - **Selectable part:** only the **header** (radio, title, tag, description) is the selectable row: `Modifier.selectable(role = Role.RadioButton)`, at least 56 dp tall. The radio itself has no separate click target.
    - **Group:** cards in one group sit in a `selectableGroup()`. Each header sets `collectionItemInfo`, and the group sets `collectionInfo`, so TalkBack says "1 of 2".
-   - **Tag chips** after the title, for "Recommended", a size or "Downloaded", using the colours in Theme.
+   - **Tag chips** after the title stay on one line (no wrapping); if they don't fit, move them below the title. They're used for "Recommended", a size or "Downloaded", with the colours in Theme.
    - **Sub-content** sits **inside** the card, below a divider, indented to the title's start. Examples are the online switch, Hear a sample and Download. It is not part of the selectable header, and each control is its own target of at least 48 dp. Switch rows use `Modifier.toggleable(role = Role.Switch)` on the whole row.
 3. **Status chip.** The status shows in three ways at once: colour, icon and text.
 
@@ -110,8 +110,8 @@ Don't use `primary` for text: the dark `primary` is `#4F7942`, which is only 3.4
    - **Buttons that open a system page** say so, for example **Open settings**, **Open Usage Access** or **Allow microphone** (the in-app permission dialog), per principle 5 of `permissions-ux.md`.
    - **Why?** opens a `ModalBottomSheet` with the longer explanation that today's row shows inline.
 5. **Fixed footer.** Primary button (Continue or Finish), with **Back** (left) and **Skip** (right) text buttons below it.
-   - It sits on `surface`, with a 1 dp `outlineVariant` top border.
-   - **Fade:** when content scrolls under it, show a 48 dp fade from transparent to `surface` above the footer. The fade is drawn only and doesn't intercept touches.
+   - It sits on `background`, with a 1 dp `outlineVariant` top border.
+   - **Fade:** when content scrolls under it, show a 48 dp fade from transparent to `background` above the footer. The fade is drawn only and doesn't intercept touches.
    - **"More below" hint:** a down chevron with "More below" while there's unseen content. A count such as "1 more below" is optional.
      - TalkBack doesn't announce it as a separate element. Content stays reachable by swiping.
      - It hides when the page can't scroll further (`ScrollState.canScrollForward`).
@@ -126,7 +126,7 @@ Don't use `primary` for text: the dark `primary` is `#4F7942`, which is only 3.4
 - **Step 3 rows:** come from `plannedFirstRunModels()` plus the voice chosen in step 2 (and Inflect Micro's files, if chosen).
 - **Welcome total:**
   - first run: the same plan for this phone's hardware tier, using the default choices;
-  - re-run from Settings: what is still to download.
+  - re-run from Settings: what is still to download. The state has no re-run flag today (`choiceRecorded` can be true on a first run), so add an explicit `isRerun` to `SetupWizardUiState`, set when the guide is opened from Settings.
   - Nothing left to download: drop the size from the third welcome row ("Chat is ready" instead).
 - **Hey Jandal size:** the wake-word model is bundled. What downloads is the Whisper tiny.en verifier (`WakeWordService.wakeVerifierKernelModels()`, about 117 MB today), plus Zipformer when the input engine is Android native (`queueHeyJandalSttModel`).
   - `wakeVerifierKernelModels()` is `internal` to `:app`, so move the list (or its size) to a shared module that `:feature:chat` can read.
@@ -161,14 +161,14 @@ Don't use `primary` for text: the dark `primary` is `#4F7942`, which is only 3.4
     - "Your current speech input stays as it is" when the stored engine isn't one of these.
   - **Behaviour change: online speech switch.** Inside the selected Automatic or Android's own listener card, show a switch row:
     - label **"Use online speech recognition"**;
-    - secondary line "Sends your voice to your phone's speech service (usually Google). More".
+    - secondary line "Sends your voice to your phone's speech service (usually Google)." and a separate **More** text button, its own 48 dp target (the mockups draw it as an inline link; follow this text).
     - The phone's service comes from `Settings.Secure` `voice_recognition_service` and isn't always Google, so the copy says "usually".
     - **More** opens a sheet with Settings' full explanation. With the switch on, voice commands retry online when on-device recognition fails, and Hey Jandal and alarm commands use the online service straight away.
     - **Stored value:** the switch starts at the stored `VoiceInputPreferences.allowOnlineSpeechFallback`, which is off on a new install.
     - **Saving:** like every other choice in the guide, it's saved on Finish or Skip, not when toggled.
 - **Speaking:** one choice card per voice this build and phone offers.
   - **Cori, natural voice** (tag: size, or "Downloaded"): "Sounds natural and works offline. Can be slower on older phones."
-  - **Inflect Micro** (tag: size, or "Downloaded"): "Higher-quality voice. Works offline." Shown only when eligible (see Data). **Behaviour change:** if it's chosen, the guide queues its two files (`duration.onnx`, `decode.onnx`, about 40 MB) on Finish or Skip, as Settings does, and they appear in step 3.
+  - **Inflect Micro** (tag: size, or "Downloaded"): "Higher-quality voice. Works offline." Shown only when eligible (see Data). **Behaviour change:** if it's chosen, the guide queues its two files (`duration.onnx`, `decode.onnx`, about 40 MB) on Finish or Skip, as Settings does (`VoiceViewModel.downloadInflectMicro()`). Inflect also needs the Cori pack, which that call starts too, so its size tag and step 3 count Cori as well when Cori isn't already downloaded (about 40 MB + 116 MB). In debug builds `entriesForBuild` also returns Kokoro; setup doesn't offer it.
   - **Phone's built-in voice** (Android TTS): "No download. Sounds more robotic."
   - **Default selection:** follows `VoiceOutputEngine.defaultForTier`, as today.
   - **Behaviour change: Hear a sample.** Bundle one short pre-recorded clip per downloadable voice in the APK, made from that voice. The guide plays it with no download.
@@ -235,7 +235,7 @@ Don't use `primary` for text: the dark `primary` is `#4F7942`, which is only 3.4
   - a **Downloaded** (success) or **Not downloaded** (neutral) tag;
   - when not downloaded, the radio is disabled and the card's sub-content holds the existing download card, or a **Download** button;
   - warnings for an engine move inside that engine's card.
-- **Online switch:** moves inside the selected Automatic or Android native card, using the same row as step 2: "Use online speech recognition", "Sends your voice to your phone's speech service (usually Google). More".
+- **Online switch:** moves inside the selected Automatic or Android native card, using the same row as step 2: "Use online speech recognition", "Sends your voice to your phone's speech service (usually Google).", and the **More** button.
   - Visibility stays `onlineSpeechToggleVisible`.
   - The full explanation moves to the **More** sheet.
   - Settings saves the switch straight away, as today.
