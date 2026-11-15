@@ -746,8 +746,10 @@ fun ActionsScreen(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 16.dp,
-                            vertical = 8.dp,
+                            start = 16.dp,
+                            top = 8.dp,
+                            end = 16.dp,
+                            bottom = 8.dp + FabStackClearance + 16.dp,
                         ),
                     ) {
                         items(actions, key = { it.id }) { action ->
