@@ -85,6 +85,8 @@ object ModelRoleCopy {
     const val DOWNLOAD_ACTION = "Download"
     const val CANCEL_ACTION = "Cancel"
     const val DELETE_ACTION = "Delete"
+    const val WAITING_FOR_WIFI = "Waiting for Wi-Fi"
+    const val MOBILE_DATA_SHORTCUT = "Mobile data setting"
 
     // ── Delete confirmation ─────────────────────────────────────────────────
     const val DELETE_WARNING_TITLE = "Delete a required model?"
