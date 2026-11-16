@@ -406,6 +406,21 @@ internal fun PrimaryBottomBar(
         )
     }
 }
+
+/**
+ * #1952: covers a chat destination with an opaque background while a widget/ADB quick action is queued
+ * but not yet navigated to Actions, so the outgoing chat composer cannot show during the handoff.
+ */
+@Composable
+private fun ChatHandoffCover(pending: Boolean, content: @Composable () -> Unit) {
+    Box {
+        content()
+        if (pending) {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+        }
+    }
+}
+
 @Composable
 fun KernelNavHost(
     initialChatQuery: String? = null,
@@ -437,8 +452,7 @@ fun KernelNavHost(
     val coroutineScope = rememberCoroutineScope()
 
     // #1952: the quick action is applied by the LaunchedEffect below, one composition after the
-    // intent updates state. Until it has navigated, the chat destination is covered with an opaque
-    // surface so the outgoing chat composer does not show during the handoff.
+    // intent updates state. Until it has navigated, the chat destinations are covered (see ChatHandoffCover).
     var handledQuickActionSerial by remember { mutableIntStateOf(0) }
     val quickActionHandoffPending = !initialQuickActionQuery.isNullOrBlank() &&
         quickActionSerial != handledQuickActionSerial
@@ -585,6 +599,7 @@ fun KernelNavHost(
                             null
                         }
                     },
+                    popEnterTransition = { null },
                     arguments = listOf(
                         navArgument("openSheet") {
                             type = NavType.BoolType
@@ -720,7 +735,7 @@ fun KernelNavHost(
                         backStackEntry.arguments?.getString(ARG_DRAFT_QUERY),
                         backStackEntry.savedStateHandle.get<Boolean>(STATE_ROUTE_DRAFT_CONSUMED) == true,
                     )
-                    Box {
+                    ChatHandoffCover(quickActionHandoffPending) {
                         ChatScreen(
                             conversationId = null,
                             initialQuery = initialQuery,
@@ -752,11 +767,6 @@ fun KernelNavHost(
                                 navController.navigate(ROUTE_MODEL_MANAGEMENT)
                             },
                         )
-                        // #1952: an ADB/widget quick action is queued but not yet navigated away from
-                        // chat. Cover the chat composer so it cannot flash before Actions replaces it.
-                        if (quickActionHandoffPending) {
-                            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
-                        }
                     }
                 }
 
@@ -765,25 +775,27 @@ fun KernelNavHost(
                     arguments = listOf(navArgument(ARG_CONVERSATION_ID) { type = NavType.StringType }),
                 ) { backStackEntry ->
                     val conversationId = backStackEntry.arguments?.getString(ARG_CONVERSATION_ID)
-                    ChatScreen(
-                        conversationId = conversationId,
-                        onBack = { navController.popBackOrNavigateHome() },
-                        onNewConversation = {
-                            navController.navigate(ROUTE_CHAT)
-                        },
-                        onNavigateToList = { navController.popBackOrNavigateHome() },
-                        onNavigateToSettings = {
-                            navController.navigate(ROUTE_SETTINGS)
-                        },
-                        onOpenSettingsDeepLink = { link ->
-                            settingsDeepLinkRoute(link)?.let { route ->
-                                navController.navigate(route) { launchSingleTop = true }
-                            }
-                        },
-                        onNavigateToModelManagement = {
-                            navController.navigate(ROUTE_MODEL_MANAGEMENT)
-                        },
-                    )
+                    ChatHandoffCover(quickActionHandoffPending) {
+                        ChatScreen(
+                            conversationId = conversationId,
+                            onBack = { navController.popBackOrNavigateHome() },
+                            onNewConversation = {
+                                navController.navigate(ROUTE_CHAT)
+                            },
+                            onNavigateToList = { navController.popBackOrNavigateHome() },
+                            onNavigateToSettings = {
+                                navController.navigate(ROUTE_SETTINGS)
+                            },
+                            onOpenSettingsDeepLink = { link ->
+                                settingsDeepLinkRoute(link)?.let { route ->
+                                    navController.navigate(route) { launchSingleTop = true }
+                                }
+                            },
+                            onNavigateToModelManagement = {
+                                navController.navigate(ROUTE_MODEL_MANAGEMENT)
+                            },
+                        )
+                    }
                 }
 
                 composable(ROUTE_SETUP_WIZARD) {
