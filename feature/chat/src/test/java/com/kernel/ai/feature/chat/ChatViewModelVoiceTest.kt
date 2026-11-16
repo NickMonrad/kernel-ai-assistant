@@ -507,6 +507,35 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `home before the reply finishes opens no speech for the rest of that turn`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        val generationGate = CompletableDeferred<Unit>()
+        every { inferenceEngine.generate(any()) } returns flow {
+            emit(GenerationResult.Token("The first sentence here is long enough to stand alone. "))
+            generationGate.await()
+            emit(GenerationResult.Token("The second sentence follows after it and is spoken last."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story"))
+        runCurrent()
+
+        viewModel.onScreenStopped(screenOff = false)
+        clearMocks(voiceOutputController, answers = false)
+        generationGate.complete(Unit)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
+        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+        assertEquals(emptyList<Pair<String, Boolean>>(), streamedChunks, "generation finishing after Home must not speak")
+    }
+
+    @Test
     fun `screen-off during generation still speaks the reply when generation completes`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Say hi later") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Say hi later")
