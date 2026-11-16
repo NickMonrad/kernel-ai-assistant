@@ -334,6 +334,8 @@ class ChatViewModel @Inject constructor(
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1)
     private var pendingWeatherLocationAction: PendingWeatherLocationAction? = null
     private var pendingCalendarPermissionAction: PendingCalendarPermissionAction? = null
+    private data class ModelTurnCalendarRequest(val capability: CapabilityKey, val voice: Boolean)
+    private var modelTurnCalendarRequest: ModelTurnCalendarRequest? = null
     private var awaitingWeatherLocationSettingsReturn = false
     private val denialClassifier = PermissionDenialClassifier()
     val microphoneState: StateFlow<MicrophoneState?> = _microphoneState.asStateFlow()
@@ -1611,19 +1613,14 @@ class ChatViewModel @Inject constructor(
                 shouldIndex = false,
                 spokenSummary = result.error,
             )
-            is SkillResult.CapabilityRequired -> {
-                if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
-                    pendingWeatherLocationAction = pending
-                    _weatherLocationState.value = WeatherLocationState()
-                } else {
-                    appendAssistantMessage(
-                        convId = convId,
-                        content = capabilityRequiredMessage(result),
-                        shouldIndex = false,
-                        spokenSummary = capabilityRequiredMessage(result),
-                    )
-                }
-            }
+            is SkillResult.CapabilityRequired -> presentCapabilityRequired(
+                convId = convId,
+                query = pending.query,
+                intentName = pending.intentName,
+                params = pending.params,
+                submitMode = pending.submitMode,
+                result = result,
+            )
             else -> appendAssistantMessage(
                 convId = convId,
                 content = "I couldn't complete that request.",
@@ -2176,6 +2173,7 @@ class ChatViewModel @Inject constructor(
             suppressCloseDistillationForSafeProbe = true
         }
         pendingVoiceReply = submitMode == SubmitMode.Voice
+        modelTurnCalendarRequest = null
 
         // Synchronous flag set — collapses the TOCTOU window before coroutine dispatch
         if (!inferenceEngine.isReady.value) {
@@ -2578,7 +2576,7 @@ class ChatViewModel @Inject constructor(
                 val previousUserMessage = _messages.value.dropLast(1)
                     .lastOrNull { it.role == ChatMessage.Role.USER }
                     ?.content
-                if (dispatchAnaphoricListAdd(text, previousUserMessage, convId)) return@launch
+                if (dispatchAnaphoricListAdd(text, previousUserMessage, convId, submitMode)) return@launch
             }
             val explicitWikipediaQuery = if (safeRunIntentTest) null else extractExplicitWikipediaQuery(text)
             val matchedIntent = explicitWikipediaQuery?.let {
@@ -2796,6 +2794,21 @@ class ChatViewModel @Inject constructor(
                                             skillResult.error,
                                             shouldIndex = false,
                                             spokenSummary = skillResult.error,
+                                        )
+                                        return@launch
+                                    }
+                                    is SkillResult.CapabilityRequired -> {
+                                        presentCapabilityRequired(
+                                            convId = convId,
+                                            query = text,
+                                            intentName = recovery.intentName,
+                                            params = recovery.params,
+                                            submitMode = submitMode,
+                                            result = skillResult,
+                                        )
+                                        Log.d(
+                                            "KernelAI",
+                                            "RecoveryOrchestrator.Execute: capability_required_no_llm intent=${UnknownIntentReplies.loggableName(recovery.intentName)}",
                                         )
                                         return@launch
                                     }
@@ -3022,45 +3035,18 @@ class ChatViewModel @Inject constructor(
                             }
                         }
                         is com.kernel.ai.core.skills.SkillResult.CapabilityRequired -> {
-                            if (skillResult.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
-                                pendingWeatherLocationAction = PendingWeatherLocationAction(
-                                    query = text,
-                                    intentName = matchedIntent.intentName,
-                                    params = callParams,
-                                    submitMode = submitMode,
-                                )
-                                _weatherLocationState.value = WeatherLocationState()
-                                _error.value = null
-                                Log.d(
-                                    "KernelAI",
-                                    "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} " +
-                                        "result=capability_required_weather_permission",
-                                )
-                            } else {
-                                val message = capabilityRequiredMessage(skillResult)
-                                if (skillResult.capabilityKey == CapabilityKey.CalendarLookup ||
-                                    skillResult.capabilityKey == CapabilityKey.CalendarWrite
-                                ) {
-                                    pendingCalendarPermissionAction = PendingCalendarPermissionAction(
-                                        conversationId = convId,
-                                        query = text,
-                                        intentName = matchedIntent.intentName,
-                                        params = callParams,
-                                        submitMode = submitMode,
-                                    )
-                                }
-                                requestCalendarPermissionIfNeeded(skillResult.capabilityKey)
-                                appendAssistantMessage(
-                                    convId = convId,
-                                    content = message,
-                                    shouldIndex = false,
-                                    spokenSummary = message,
-                                )
-                                Log.d(
-                                    "KernelAI",
-                                    "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=capability_required_no_llm",
-                                )
-                            }
+                            presentCapabilityRequired(
+                                convId = convId,
+                                query = text,
+                                intentName = matchedIntent.intentName,
+                                params = callParams,
+                                submitMode = submitMode,
+                                result = skillResult,
+                            )
+                            Log.d(
+                                "KernelAI",
+                                "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=${if (skillResult.capabilityKey == CapabilityKey.WeatherCurrentLocation) "capability_required_weather_permission" else "capability_required_no_llm"}",
+                            )
                             return@launch
                         }
                         else -> { /* UnknownSkill/ParseError — fall through to E4B unchanged */ }
@@ -3738,7 +3724,9 @@ class ChatViewModel @Inject constructor(
                                     "KernelAI",
                                     "llm_tools_native_tool: tool=${UnknownIntentReplies.loggableName(nativeToolCall.skillName)} requestLen=${nativeToolCall.requestJson.length}" + (if (DebugVerboseLog.active()) " request=${nativeToolCall.requestJson}" else ""),
                                 )
-                            requestCalendarPermissionIfNeeded(kernelAIToolSet.lastToolCapabilityRequired())
+                            kernelAIToolSet.lastToolCapabilityRequired()?.let {
+                                modelTurnCalendarRequest = ModelTurnCalendarRequest(it, pendingVoiceReply)
+                            }
                             // E2E marker: native SDK skill result
                             val nativeResultMode = when {
                                 !nativeToolCall.isSuccess -> "failure"
@@ -3843,7 +3831,7 @@ class ChatViewModel @Inject constructor(
                                 } else {
                                     toolSpokenOverrideFor(resultContent, toolCall.resultText, toolCall.spokenSummary) ?: resultContent
                                 }
-                                finalizeVoicePlaybackForResponse(spokenToolReply)
+                                finalizeVoicePlaybackForResponse(withModelCalendarReply(spokenToolReply))
                                 // Persist only normal turns; safe model probes retain an ephemeral UI chip.
                                 val savedId = if (safeRunIntentTest) {
                                     null
@@ -3981,7 +3969,7 @@ class ChatViewModel @Inject constructor(
                                     msgs.map { if (it.id == assistantMsgId) it.copy(content = displayContent, isStreaming = false) else it }
                                 }
                                 // Speak before persisting: displayContent is final here, so speech does not wait on the database write.
-                                finalizeVoicePlaybackForResponse(displayContent)
+                                finalizeVoicePlaybackForResponse(withModelCalendarReply(displayContent))
                                 val savedAssistantMsgId = if (safeRunIntentTest) {
                                     null
                                 } else {
@@ -4009,6 +3997,15 @@ class ChatViewModel @Inject constructor(
                                 turnsSinceReset++
                             }
 
+                            // Saved after the model turn it follows. Its spoken line is part of that turn's speech.
+                            modelTurnCalendarRequest?.let { request ->
+                                modelTurnCalendarRequest = null
+                                requestCalendarPermissionIfNeeded(
+                                    convId = convId,
+                                    capability = request.capability,
+                                    retryOnGrant = false,
+                                )
+                            }
                             // Clear streaming tracking now that the message is fully persisted.
                             activeStreamingMsgId = null
                             activeStreamingPersistenceDisabled = false
@@ -4428,7 +4425,9 @@ class ChatViewModel @Inject constructor(
         val extracted = ToolCallExtractor.extractNativeToolCall(raw)
             ?: ToolCallExtractor.extractToolCallJson(raw) ?: return null
         val result = skillExecutor.execute(extracted)
-        requestCalendarPermissionIfNeeded((result as? SkillResult.CapabilityRequired)?.capabilityKey)
+        (result as? SkillResult.CapabilityRequired)?.capabilityKey?.let {
+            modelTurnCalendarRequest = ModelTurnCalendarRequest(it, pendingVoiceReply)
+        }
         // E2E marker: skill execution result
         Log.d(
             "KernelAI",
@@ -4610,10 +4609,60 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Asks in-app for the calendar permissions a CapabilityRequired result needs: READ for lookup,
-     * READ + WRITE for create. The screen routes each permission (request, or app info when blocked).
+     * Routes a CapabilityRequired result to its permission flow, or appends a plain reply when no
+     * permission UI exists. Calendar results set the retryable pending action and show the prompt reply.
      */
-    private fun requestCalendarPermissionIfNeeded(capability: CapabilityKey?) {
+    private suspend fun presentCapabilityRequired(
+        convId: String,
+        query: String,
+        intentName: String,
+        params: Map<String, String>,
+        submitMode: SubmitMode,
+        result: com.kernel.ai.core.skills.SkillResult.CapabilityRequired,
+    ) {
+        when (result.capabilityKey) {
+            CapabilityKey.WeatherCurrentLocation -> {
+                pendingWeatherLocationAction = PendingWeatherLocationAction(
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    submitMode = submitMode,
+                )
+                _weatherLocationState.value = WeatherLocationState()
+                _error.value = null
+            }
+            CapabilityKey.CalendarLookup, CapabilityKey.CalendarWrite -> {
+                pendingCalendarPermissionAction = PendingCalendarPermissionAction(
+                    conversationId = convId,
+                    query = query,
+                    intentName = intentName,
+                    params = params,
+                    submitMode = submitMode,
+                )
+                requestCalendarPermissionIfNeeded(
+                    convId = convId,
+                    capability = result.capabilityKey,
+                    retryOnGrant = true,
+                )
+            }
+            else -> {
+                val message = capabilityRequiredMessage(result)
+                appendAssistantMessage(convId = convId, content = message, shouldIndex = false, spokenSummary = message)
+            }
+        }
+    }
+
+    /**
+     * Calendar permission flow for a CapabilityRequired result. The reply is saved to the conversation.
+     * Quick, recovery and pending routes ([retryOnGrant] = true) are spoken through [appendAssistantMessage],
+     * which also resets the voice state. Model routes are spoken with the turn's own reply instead
+     * (see [withModelCalendarReply]), so they are saved silently here.
+     */
+    private suspend fun requestCalendarPermissionIfNeeded(
+        convId: String,
+        capability: CapabilityKey,
+        retryOnGrant: Boolean,
+    ) {
         val permissions = when (capability) {
             CapabilityKey.CalendarWrite -> listOf(
                 android.Manifest.permission.READ_CALENDAR,
@@ -4622,16 +4671,47 @@ class ChatViewModel @Inject constructor(
             CapabilityKey.CalendarLookup -> listOf(android.Manifest.permission.READ_CALENDAR)
             else -> return
         }
-        viewModelScope.launch { _events.emit(UiEvent.RequestCalendarPermission(permissions)) }
+        val text = calendarPermissionReply(capability, retryOnGrant)
+        if (retryOnGrant) {
+            appendAssistantMessage(convId = convId, content = text, shouldIndex = false, spokenSummary = text)
+        } else {
+            // A model route does not wait for a retry, so a request left pending must not re-run on a later grant.
+            clearPendingCalendarPermission()
+            appendAssistantMessage(convId = convId, content = text, shouldIndex = false, speak = false)
+        }
+        _events.emit(UiEvent.RequestCalendarPermission(permissions))
+    }
+
+    /**
+     * Adds the calendar permission line to a voice model turn's spoken reply, so the turn is one speech.
+     * Uses the request's captured voice flag: [pendingVoiceReply] is consumed by the speech that follows.
+     */
+    private fun withModelCalendarReply(spoken: String): String {
+        val request = modelTurnCalendarRequest
+            ?.takeIf { it.voice && (it.capability == CapabilityKey.CalendarLookup || it.capability == CapabilityKey.CalendarWrite) }
+            ?: return spoken
+        val turnText = if (looksLikeRawToolCall(spoken)) "" else spoken
+        return listOf(turnText, calendarPermissionReply(request.capability, retryOnGrant = false))
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+    }
+
+    private fun calendarPermissionReply(capability: CapabilityKey, retryOnGrant: Boolean): String {
+        val (need, outcome) = when (capability) {
+            CapabilityKey.CalendarWrite ->
+                "Jandal needs Calendar read and write access to add events." to "add the event"
+            else -> "Jandal needs calendar access to read your events." to "answer"
+        }
+        return if (retryOnGrant) {
+            "$need Allow it when prompted and Jandal will $outcome. If Android doesn't ask, turn on Calendar in App info, then ask again."
+        } else {
+            "$need Allow it when prompted, or turn on Calendar in App info if Android won't ask. Then ask again."
+        }
     }
 
     private fun capabilityRequiredMessage(result: com.kernel.ai.core.skills.SkillResult.CapabilityRequired): String =
         if (result.capabilityKey == CapabilityKey.WeatherCurrentLocation) {
             "Jandal needs Location access for local weather. Turn on Location in app permissions, or ask for weather in a named city."
-        } else if (result.capabilityKey == CapabilityKey.CalendarWrite) {
-            "Jandal needs Calendar read and write access to add events. Allow it when prompted and Jandal will add the event."
-        } else if (result.capabilityKey == CapabilityKey.CalendarLookup) {
-            "Jandal needs calendar access to read your events. Allow it when prompted and Jandal will answer."
         } else {
             "Permission required for ${result.skillName}."
         }
@@ -4872,6 +4952,7 @@ class ChatViewModel @Inject constructor(
         userMessage: String,
         previousUserMessage: String?,
         convId: String,
+        submitMode: SubmitMode,
     ): Boolean {
         return when (
             val resolution = AnaphoricListAddResolver.resolve(userMessage, previousUserMessage)
@@ -4934,11 +5015,14 @@ class ChatViewModel @Inject constructor(
                         result.error,
                         shouldIndex = false,
                     )
-                    is SkillResult.CapabilityRequired -> {
-                        val message = capabilityRequiredMessage(result)
-                        requestCalendarPermissionIfNeeded((result as? SkillResult.CapabilityRequired)?.capabilityKey)
-                        appendAssistantMessage(convId, message, shouldIndex = false)
-                    }
+                    is SkillResult.CapabilityRequired -> presentCapabilityRequired(
+                        convId = convId,
+                        query = userMessage,
+                        intentName = intentName,
+                        params = intentParams,
+                        submitMode = submitMode,
+                        result = result,
+                    )
                     else -> appendAssistantMessage(
                         convId,
                         "I couldn't add that to your list just now.",

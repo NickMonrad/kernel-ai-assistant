@@ -1,6 +1,7 @@
 package com.kernel.ai.navigation
 
 import android.net.Uri
+import androidx.compose.animation.EnterTransition
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,8 @@ import com.kernel.ai.core.memory.entity.RecentShortcutEntity
 import com.kernel.ai.core.memory.shortcut.FavouriteShortcutRepository
 import com.kernel.ai.core.memory.shortcut.RecentShortcutTracker
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material.icons.Icons
@@ -50,6 +53,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -197,6 +202,18 @@ internal val ROUTE_CLOCK_STOPWATCH: String = buildSidePanelTabRoute("stopwatch")
  */
 internal fun isAllowedExternalNavigationRoute(route: String): Boolean =
     route == ROUTE_LISTS || route.matches(LISTS_WIDGET_DEEP_LINK) || route == ROUTE_CLOCK_STOPWATCH
+
+/**
+ * #1952: widget/ADB voice handoff from a chat back stack into Actions. The default crossfade let the
+ * outgoing chat composer show through Actions' first frames, so this one navigation enters without a
+ * transition: Actions has an opaque surface and replaces chat immediately. Any other route pair keeps
+ * the NavHost default (`null`).
+ */
+internal fun isChatToWidgetActionsHandoff(fromRoute: String?, widgetQuery: String?): Boolean {
+    val fromBase = fromRoute?.substringBefore('?')
+    val fromChat = fromBase == ROUTE_CHAT || fromBase?.startsWith("$ROUTE_CHAT/") == true
+    return fromChat && !widgetQuery.isNullOrBlank()
+}
 
 internal fun buildConvertTabRoute(tab: String): String =
     "$ROUTE_CONVERT?tab=$tab"
@@ -389,6 +406,21 @@ internal fun PrimaryBottomBar(
         )
     }
 }
+
+/**
+ * #1952: covers a chat destination with an opaque background while a widget/ADB quick action is queued
+ * but not yet navigated to Actions, so the outgoing chat composer cannot show during the handoff.
+ */
+@Composable
+private fun ChatHandoffCover(pending: Boolean, content: @Composable () -> Unit) {
+    Box {
+        content()
+        if (pending) {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+        }
+    }
+}
+
 @Composable
 fun KernelNavHost(
     initialChatQuery: String? = null,
@@ -419,6 +451,12 @@ fun KernelNavHost(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
+    // #1952: the quick action is applied by the LaunchedEffect below, one composition after the
+    // intent updates state. Until it has navigated, the chat destinations are covered (see ChatHandoffCover).
+    var handledQuickActionSerial by remember { mutableIntStateOf(0) }
+    val quickActionHandoffPending = !initialQuickActionQuery.isNullOrBlank() &&
+        quickActionSerial != handledQuickActionSerial
+
     // ADB test harness: navigate to chat from any screen when chat_input extra is delivered
     LaunchedEffect(initialChatQuery) {
         if (!initialChatQuery.isNullOrBlank()) {
@@ -440,6 +478,7 @@ fun KernelNavHost(
                 popUpTo(ROUTE_LIST)
             }
         }
+        handledQuickActionSerial = quickActionSerial
     }
     // #1604: untrusted external text opens the existing input pre-filled; the user must send it.
     LaunchedEffect(externalChatDraft, externalQuickActionDraft, externalSlotReplyDraft, externalDraftSerial) {
@@ -552,6 +591,15 @@ fun KernelNavHost(
 
                 composable(
                     route = "$ROUTE_ACTIONS?openSheet={openSheet}&$ARG_START_VOICE={$ARG_START_VOICE}&$ARG_WIDGET_QUERY={$ARG_WIDGET_QUERY}&$ARG_WIDGET_VOICE={$ARG_WIDGET_VOICE}&$ARG_DRAFT_QUERY={$ARG_DRAFT_QUERY}&$ARG_DRAFT_EXTERNAL={$ARG_DRAFT_EXTERNAL}",
+                    enterTransition = {
+                        val widgetQuery = targetState.arguments?.getString(ARG_WIDGET_QUERY)
+                        if (isChatToWidgetActionsHandoff(initialState.destination.route, widgetQuery)) {
+                            EnterTransition.None
+                        } else {
+                            null
+                        }
+                    },
+                    popEnterTransition = { null },
                     arguments = listOf(
                         navArgument("openSheet") {
                             type = NavType.BoolType
@@ -687,37 +735,39 @@ fun KernelNavHost(
                         backStackEntry.arguments?.getString(ARG_DRAFT_QUERY),
                         backStackEntry.savedStateHandle.get<Boolean>(STATE_ROUTE_DRAFT_CONSUMED) == true,
                     )
-                    ChatScreen(
-                        conversationId = null,
-                        initialQuery = initialQuery,
-                        speakInitialResponse = speakResponse,
-                        externalDraft = externalDraft,
-                        onExternalDraftConsumed = {
-                            backStackEntry.savedStateHandle[STATE_ROUTE_DRAFT_CONSUMED] = true
-                        },
-                        onBack = { navController.popBackOrNavigateHome() },
-                        onNewConversation = {
-                            navController.navigate(ROUTE_CHAT) {
-                                popUpTo(ROUTE_CHAT) { inclusive = true }
-                            }
-                        },
-                        onNavigateToList = {
-                            navController.navigate(ROUTE_LIST) {
-                                popUpTo(ROUTE_LIST) { inclusive = true }
-                            }
-                        },
-                        onNavigateToSettings = {
-                            navController.navigate(ROUTE_SETTINGS)
-                        },
-                        onOpenSettingsDeepLink = { link ->
-                            settingsDeepLinkRoute(link)?.let { route ->
-                                navController.navigate(route) { launchSingleTop = true }
-                            }
-                        },
-                        onNavigateToModelManagement = {
-                            navController.navigate(ROUTE_MODEL_MANAGEMENT)
-                        },
-                    )
+                    ChatHandoffCover(quickActionHandoffPending) {
+                        ChatScreen(
+                            conversationId = null,
+                            initialQuery = initialQuery,
+                            speakInitialResponse = speakResponse,
+                            externalDraft = externalDraft,
+                            onExternalDraftConsumed = {
+                                backStackEntry.savedStateHandle[STATE_ROUTE_DRAFT_CONSUMED] = true
+                            },
+                            onBack = { navController.popBackOrNavigateHome() },
+                            onNewConversation = {
+                                navController.navigate(ROUTE_CHAT) {
+                                    popUpTo(ROUTE_CHAT) { inclusive = true }
+                                }
+                            },
+                            onNavigateToList = {
+                                navController.navigate(ROUTE_LIST) {
+                                    popUpTo(ROUTE_LIST) { inclusive = true }
+                                }
+                            },
+                            onNavigateToSettings = {
+                                navController.navigate(ROUTE_SETTINGS)
+                            },
+                            onOpenSettingsDeepLink = { link ->
+                                settingsDeepLinkRoute(link)?.let { route ->
+                                    navController.navigate(route) { launchSingleTop = true }
+                                }
+                            },
+                            onNavigateToModelManagement = {
+                                navController.navigate(ROUTE_MODEL_MANAGEMENT)
+                            },
+                        )
+                    }
                 }
 
                 composable(
@@ -725,25 +775,27 @@ fun KernelNavHost(
                     arguments = listOf(navArgument(ARG_CONVERSATION_ID) { type = NavType.StringType }),
                 ) { backStackEntry ->
                     val conversationId = backStackEntry.arguments?.getString(ARG_CONVERSATION_ID)
-                    ChatScreen(
-                        conversationId = conversationId,
-                        onBack = { navController.popBackOrNavigateHome() },
-                        onNewConversation = {
-                            navController.navigate(ROUTE_CHAT)
-                        },
-                        onNavigateToList = { navController.popBackOrNavigateHome() },
-                        onNavigateToSettings = {
-                            navController.navigate(ROUTE_SETTINGS)
-                        },
-                        onOpenSettingsDeepLink = { link ->
-                            settingsDeepLinkRoute(link)?.let { route ->
-                                navController.navigate(route) { launchSingleTop = true }
-                            }
-                        },
-                        onNavigateToModelManagement = {
-                            navController.navigate(ROUTE_MODEL_MANAGEMENT)
-                        },
-                    )
+                    ChatHandoffCover(quickActionHandoffPending) {
+                        ChatScreen(
+                            conversationId = conversationId,
+                            onBack = { navController.popBackOrNavigateHome() },
+                            onNewConversation = {
+                                navController.navigate(ROUTE_CHAT)
+                            },
+                            onNavigateToList = { navController.popBackOrNavigateHome() },
+                            onNavigateToSettings = {
+                                navController.navigate(ROUTE_SETTINGS)
+                            },
+                            onOpenSettingsDeepLink = { link ->
+                                settingsDeepLinkRoute(link)?.let { route ->
+                                    navController.navigate(route) { launchSingleTop = true }
+                                }
+                            },
+                            onNavigateToModelManagement = {
+                                navController.navigate(ROUTE_MODEL_MANAGEMENT)
+                            },
+                        )
+                    }
                 }
 
                 composable(ROUTE_SETUP_WIZARD) {

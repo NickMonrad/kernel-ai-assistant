@@ -25,6 +25,7 @@ import com.kernel.ai.core.inference.diagnostics.DebugVerboseLog
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.memory.prefs.USE_SYSTEM_COLORS_DEFAULT
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.navigation.KernelNavHost
 import com.kernel.ai.feature.widget.ListsWidgetConfig
@@ -125,7 +126,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             val useSystemColorsState = chatPreferences.useSystemColors
-                .collectAsState(initial = true)
+                .collectAsState(initial = USE_SYSTEM_COLORS_DEFAULT)
             KernelAITheme(dynamicColor = useSystemColorsState.value) {
                 KernelNavHost(
                     initialChatQuery = adbChatInput.value,

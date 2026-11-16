@@ -28,6 +28,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,6 +41,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.ui.theme.KernelAITheme
+import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.memory.prefs.USE_SYSTEM_COLORS_DEFAULT
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -51,6 +54,7 @@ private const val TAG = "KernelAI"
 class WidgetTextInputActivity : ComponentActivity() {
 
     @Inject lateinit var navigator: WidgetNavigator
+    @Inject lateinit var chatPreferences: ChatPreferences
 
     private var submitJob: Job? = null
 
@@ -59,7 +63,9 @@ class WidgetTextInputActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
-            KernelAITheme {
+            val useSystemColors = chatPreferences.useSystemColors
+                .collectAsState(initial = USE_SYSTEM_COLORS_DEFAULT).value
+            KernelAITheme(dynamicColor = useSystemColors) {
                 val keyboardController = LocalSoftwareKeyboardController.current
                 val focusRequester = remember { FocusRequester() }
                 var text by remember { mutableStateOf("") }

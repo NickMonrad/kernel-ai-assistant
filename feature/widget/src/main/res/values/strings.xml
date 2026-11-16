@@ -1,5 +1,7 @@
 <resources>
     <string name="widget_description">Jandal quick actions widget</string>
+    <string name="kernel_widget_label">Jandal quick actions</string>
     <string name="lists_widget_label">Lists</string>
     <string name="lists_widget_description">Shows items from one of your lists</string>
+    <string name="widget_mic_content_description">Voice input</string>
 </resources>

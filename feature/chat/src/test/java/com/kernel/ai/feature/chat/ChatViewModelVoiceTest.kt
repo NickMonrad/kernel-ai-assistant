@@ -32,6 +32,7 @@ import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.Skill
+import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
@@ -64,6 +65,7 @@ import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
+import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.feature.chat.model.ChatUiState
 import io.mockk.clearMocks
 import io.mockk.coEvery
@@ -220,6 +222,7 @@ class ChatViewModelVoiceTest {
         every { nzTruthSeedingService.isSeeding } returns MutableStateFlow(false)
         every { nzTruthSeedingService.seedIfNeeded() } just runs
         coEvery { verboseLoggingPreferenceUseCase.loadAndApplyVerboseLoggingPreference() } just runs
+        every { kernelAIToolSet.lastToolCapabilityRequired() } returns null
     }
 
     @AfterEach
@@ -2098,6 +2101,128 @@ class ChatViewModelVoiceTest {
         androidx.lifecycle.ViewModelStore()
             .apply { put("chat-view-model", viewModel) }
             .clear()
+    }
+
+    @Test
+    fun `calendar permission reply is spoken on a voice-initiated turn`() = runTest(dispatcher) {
+        val input = "add dentist to my calendar tomorrow at 9am"
+        every { quickIntentRouter.route(input) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = input,
+            bestGuess = QuickIntentRouter.MatchedIntent(
+                intentName = "create_calendar_event",
+                params = emptyMap(),
+                source = "classifier",
+            ),
+            bestConfidence = 0.72f,
+        )
+        every { intentRecoveryOrchestrator.recover(any(), any(), any()) } returns RecoveryResult.Execute(
+            intentName = "create_calendar_event",
+            params = emptyMap(),
+        )
+        val calendarSkill = object : Skill {
+            override val name = "create_calendar_event"
+            override val description = "Create calendar event"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarWrite,
+                skillName = "create_calendar_event",
+            )
+        }
+        every { skillRegistry.get("create_calendar_event") } returns calendarSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input))
+        advanceUntilIdle()
+
+        coVerify {
+            voiceOutputController.openStreamingSession(
+                match<VoiceSpeakRequest> { it.text.contains("Allow it when prompted") },
+            )
+        }
+        coVerify {
+            conversationRepository.addMessage(
+                "conv-existing",
+                "assistant",
+                match { it.contains("Allow it when prompted") },
+                any(),
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `calendar line on a voice model turn is spoken once with the turn's spoken summary`() = runTest(dispatcher) {
+        var nativeToolRan = false
+        every { quickIntentRouter.route("Add dentist to my calendar") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Add dentist to my calendar")
+        every { kernelAIToolSet.terminalToolCalledInCurrentAttempt() } answers { nativeToolRan }
+        every { kernelAIToolSet.terminalToolName() } answers { if (nativeToolRan) "create_calendar_event" else null }
+        every { kernelAIToolSet.terminalToolRequest() } returns "{}"
+        every { kernelAIToolSet.terminalToolDetail() } returns ""
+        every { kernelAIToolSet.terminalToolResult() } returns "Calendar permission needed."
+        every { kernelAIToolSet.terminalToolSucceeded() } returns false
+        every { kernelAIToolSet.terminalToolFailed() } returns true
+        every { kernelAIToolSet.lastToolCapabilityRequired() } returns CapabilityKey.CalendarWrite
+        every { inferenceEngine.generate(any()) } returns kotlinx.coroutines.flow.flow {
+            emit(GenerationResult.Token("Sure, one moment. "))
+            nativeToolRan = true
+            emit(GenerationResult.Token("I can add that once calendar access is on."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Add dentist to my calendar"))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceOutputController.openStreamingSession(any()) }
+        val spoken = streamedChunks.joinToString(" ") { (chunk, _) -> chunk }
+        assertTrue(spoken.contains("Calendar permission needed."), "tool summary not spoken: $spoken")
+        assertTrue(
+            spoken.contains("Allow it when prompted, or turn on Calendar in App info"),
+            "calendar line not spoken: $spoken",
+        )
+    }
+
+    @Test
+    fun `calendar reply on a voice turn with auto-speak off does not leave voice processing`() = runTest(dispatcher) {
+        every { voiceOutputPreferences.autoSpeak } returns MutableStateFlow(false)
+        val input = "add dentist to my calendar tomorrow at 9am"
+        every { quickIntentRouter.route(input) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = input,
+            bestGuess = QuickIntentRouter.MatchedIntent(
+                intentName = "create_calendar_event",
+                params = emptyMap(),
+                source = "classifier",
+            ),
+            bestConfidence = 0.72f,
+        )
+        every { intentRecoveryOrchestrator.recover(any(), any(), any()) } returns RecoveryResult.Execute(
+            intentName = "create_calendar_event",
+            params = emptyMap(),
+        )
+        val calendarSkill = object : Skill {
+            override val name = "create_calendar_event"
+            override val description = "Create calendar event"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarWrite,
+                skillName = "create_calendar_event",
+            )
+        }
+        every { skillRegistry.get("create_calendar_event") } returns calendarSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input))
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
     }
     private fun createViewModel(
         savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
