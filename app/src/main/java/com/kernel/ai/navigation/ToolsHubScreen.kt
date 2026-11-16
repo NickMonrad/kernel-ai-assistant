@@ -107,7 +107,7 @@ private val allToolSearchEntries = listOf(
     ToolSearchEntry("settings", "Settings", "App preferences and configuration", "App setup",
         keywords = listOf("preferences", "configuration", "options")),
     ToolSearchEntry("models", "Models", "Downloads, availability, and inference preferences", "App setup",
-        keywords = listOf("ai", "llm", "download", "inference", "gemma")),
+        keywords = listOf("ai", "llm", "download", "inference", "gemma", "mobile data", "wi-fi", "wifi", "metered")),
     ToolSearchEntry("permissions", "Permissions", "Review Android permissions used by Jandal", "App setup",
         keywords = listOf("android", "privacy", "security", "access")),
     ToolSearchEntry("about", "About", "Build info and debug tools", "App setup",
