@@ -49,7 +49,7 @@ class SpeechStopCoordinator @Inject constructor(
     fun requestStop(): Boolean {
         if (!speaking.compareAndSet(expect = true, update = false)) return false
         if (stopEvents.subscriptionCount.value == 0) {
-            voiceOutputController.stop()
+            voiceOutputController.stopFor(SpeechStopReason.USER)
         } else {
             stopEvents.tryEmit(Unit)
         }

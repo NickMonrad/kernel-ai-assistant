@@ -125,6 +125,14 @@ class PronunciationLexiconTest {
     }
 
     @Test
+    fun `shipped asset respells Jandal so Cori says JAN-dl wherever it is spoken`() {
+        val json = File("src/lexicon/assets/${PronunciationLexicon.ASSET_NAME}").readText()
+        PronunciationLexicon.install(PronunciationLexicon.parse(json))
+        assertEquals("Hey Jandle, add milk.", SherpaSpeechText.prepare("Hey Jandal, add milk."))
+        assertEquals("Jandle's reply: two Jandles.", SherpaSpeechText.prepare("jandal's reply: two jandals."))
+    }
+
+    @Test
     fun `Sherpa speech preparation applies the lexicon before number handling`() {
         install("Petone" to "Pih-toe-nee")
         assertEquals(
