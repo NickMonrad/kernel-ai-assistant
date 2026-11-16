@@ -64,6 +64,10 @@ android {
         }
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
 }
 
 androidComponents {

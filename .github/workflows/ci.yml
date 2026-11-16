@@ -126,6 +126,10 @@ jobs:
         id: gradle-lint
         run: ./gradlew lint
 
+      # Compile every androidTest source set (instrumented tests are not run in CI).
+      - name: Compile androidTest sources
+        run: ./gradlew compileDebugAndroidTestKotlin -PversionCode=${{ github.run_number }}
+
       - name: Unit tests
         continue-on-error: true
         id: gradle-unit-tests
