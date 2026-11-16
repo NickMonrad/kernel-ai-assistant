@@ -1,0 +1,63 @@
+         1794815794.865 14732 14732 I KernelAI: external_prompt_trust callerUid=-1 trust=DIRECT
+         1794815795.148 14732 14732 D KernelAI: TTFT_STAGE commandId=afe84012-1 stage=accepted t_ms=0
+         1794815795.148 14732 14732 D KernelAI: TTFT_STAGE commandId=afe84012-1 stage=coroutine_started t_ms=0
+         1794815797.820 14732 15256 D LiteRtInferenceEngine: TTFT_STAGE engine conversation_reset lock_wait_ms=0 close_ms=105 create_ms=2492 backend=GPU
+         1794815797.860 14732 14732 D KernelAI: TTFT_STAGE commandId=afe84012-1 stage=first_feedback_visible t_ms=2712
+         1794815797.897 14732 14732 D KernelAI: TTFT_STAGE commandId=afe84012-1 stage=route_done t_ms=2749
+         1794815797.918 14732 14732 D KernelAI: llm_tools_route: result=fallthrough best_guess=null confidence=0.0
+         1794815797.918 14732 14732 D KernelAI: TTFT_STAGE commandId=afe84012-1 stage=model_ready t_ms=2769
+         1794815798.950 14732 14732 D KernelAI: TTFT_STAGE commandId=afe84012-1 stage=rag_done t_ms=3802
+         1794815798.954 14732 14732 D KernelAI: TTFT_STAGE commandId=afe84012-1 stage=generate_called t_ms=3806
+         1794815798.954 14732 15256 D LiteRtInferenceEngine: TTFT_STAGE engine generation_lock_wait_ms=0
+         1794815798.958 14732 15256 D LiteRtInferenceEngine: generation_diagnostic generation_id=afe84012-1-g1 send_attempt=1 stage=initial_prompt event=send_start
+         1794815799.129 14732 15759 I KernelAI: speech probe start chars=1277 path=/data/data/ai.jandal.assistant.debug/files/probe1923.txt
+         1794815799.142 14732 15759 D VoiceTiming: firstChunkQueued epochMs=1794815799142 chars=41
+         1794815799.185 14732 15759 I KernelAI: speech probe result=com.kernel.ai.core.voice.VoiceOutputResult$Spoken@b07da26
+         1794815800.969 14732 15245 I VoiceTiming: synth token=6 chunk=0 chars=41 sid=0 startEpochMs=1794815799142 endEpochMs=1794815800969 synthMs=1827 audioMs=2613 rtf=0.70
+         1794815800.970 14732 15248 I KernelAI: SpeakingStarted engine=sherpa chars=41 epochMs=1794815800970
+         1794815800.977 14732 15248 I VoiceTiming: playStart token=6 chunk=0 epochMs=1794815800977
+         1794815803.795 14732 15248 I VoiceTiming: playEnd token=6 chunk=0 epochMs=1794815803794
+         1794815804.683 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=1 type=callback channels=[] raw="Kia ora" toolCalls=
+         1794815804.686 14732 15359 I LiteRtInferenceEngine: TTFT (Time to First Token): 5732ms [backend=GPU]
+         1794815804.688 14732 14732 D KernelAI: TTFT_STAGE commandId=afe84012-1 stage=first_token t_ms=9540
+         1794815804.715 14732 14732 D KernelAI: TTFT_STAGE commandId=afe84012-1 stage=first_ui_update t_ms=9567
+         1794815804.869 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=2 type=callback channels=[] raw=".\n\nHere are" toolCalls=
+         1794815805.059 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=3 type=callback channels=[] raw=" some" toolCalls=
+         1794815805.222 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=4 type=callback channels=[] raw=" facts about the" toolCalls=
+         1794815805.391 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=5 type=callback channels=[] raw=" kiwi" toolCalls=
+         1794815805.565 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=6 type=callback channels=[] raw=" bird:\n\n1" toolCalls=
+         1794815805.687 14732 15245 I VoiceTiming: synth token=6 chunk=1 chars=110 sid=0 startEpochMs=1794815800969 endEpochMs=1794815805687 synthMs=4718 audioMs=6291 rtf=0.75
+         1794815805.689 14732 15248 I VoiceTiming: playStart token=6 chunk=1 epochMs=1794815805689 gapMs=1895
+         1794815805.778 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=7 type=callback channels=[] raw="." toolCalls=
+         1794815805.978 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=8 type=callback channels=[] raw=" The kiwi is a" toolCalls=
+         1794815806.157 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=9 type=callback channels=[] raw=" flightless," toolCalls=
+         1794815806.339 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=10 type=callback channels=[] raw=" nocturnal, ground-" toolCalls=
+         1794815806.510 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=11 type=callback channels=[] raw="dwelling bird native to" toolCalls=
+         1794815806.736 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=12 type=callback channels=[] raw=" New Zealand.\n" toolCalls=
+         1794815806.901 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=13 type=callback channels=[] raw="2." toolCalls=
+         1794815807.059 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=14 type=callback channels=[] raw=" It" toolCalls=
+         1794815807.219 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=15 type=callback channels=[] raw=" serves as the national" toolCalls=
+         1794815807.378 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=16 type=callback channels=[] raw=" symbol" toolCalls=
+         1794815807.587 14732 15359 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=17 type=callback channels=[] raw=" of New Zealand." toolCalls=
+         1794815807.594 14732 15402 D LiteRtInferenceEngine: generation_diagnostic generation_id=afe84012-1-g1 send_attempt=1 stage=initial_prompt event=on_done tool_response_pending=false
+         1794815807.597 14732 15402 I LiteRtInferenceEngine: LiteRT benchmark: init=12.832772954s, TTFT=5.3921229977500005s, prefill=2522 tokens @ 473.74114947091834 tokens/s, decode=48 tokens @ 14.589872727692104 tokens/s [backend=GPU]
+         1794815807.597 14732 15402 I LiteRtInferenceEngine: Generation complete: total=8641ms, TTFT=5732ms, visibleChunks=17 [backend=GPU]
+         1794815807.597 14732 15402 D LiteRtInferenceEngine: event_seq: afe84012-1-g1 seq=18 type=complete callbacks=17 thinkingChars=0
+         1794815807.597 14732 15402 D LiteRtInferenceEngine: VoiceTiming lastToken epochMs=1794815807597
+         1794815807.605 14732 14732 D KernelAI: llm_tools_tool_sequence: attempt=none turn=none terminal=none
+         1794815807.605 14732 14732 D KernelAI: thinking_save: thinkingLen=0, contentLen=187
+         1794815807.607 14732 14732 D KernelAI: llm_tools_assistant_reply: len=187
+         1794815808.213 14732 14732 D VoiceTiming: firstChunkQueued epochMs=1794815808213 chars=49
+         1794815808.280 14732 15248 I VoiceTiming: playEnd token=6 chunk=1 epochMs=1794815808280
+         1794815809.937 14732 15245 I VoiceTiming: synth token=6 chunk=2 chars=89 sid=0 startEpochMs=1794815805687 endEpochMs=1794815809937 synthMs=4250 audioMs=5204 rtf=0.82
+         1794815809.937 14732 15245 I VoiceTiming: discard token=6 chunk=2 reason=stale
+         1794815811.654 14732 15756 I VoiceTiming: synth token=7 chunk=0 chars=49 sid=0 startEpochMs=1794815808214 endEpochMs=1794815811654 synthMs=3440 audioMs=2721 rtf=1.26
+         1794815811.656 14732 15245 I KernelAI: SpeakingStarted engine=sherpa chars=49 epochMs=1794815811656
+         1794815811.665 14732 15245 I VoiceTiming: playStart token=7 chunk=0 epochMs=1794815811665
+         1794815814.587 14732 15245 I VoiceTiming: playEnd token=7 chunk=0 epochMs=1794815814587
+         1794815815.819 14732 15756 I VoiceTiming: synth token=7 chunk=1 chars=80 sid=0 startEpochMs=1794815811654 endEpochMs=1794815815818 synthMs=4164 audioMs=5116 rtf=0.81
+         1794815815.820 14732 15245 I VoiceTiming: playStart token=7 chunk=1 epochMs=1794815815820 gapMs=1233
+         1794815817.828 14732 15756 I VoiceTiming: synth token=7 chunk=2 chars=48 sid=0 startEpochMs=1794815815819 endEpochMs=1794815817827 synthMs=2008 audioMs=3053 rtf=0.66
+         1794815821.050 14732 15245 I VoiceTiming: playEnd token=7 chunk=1 epochMs=1794815821050
+         1794815821.055 14732 15245 I VoiceTiming: playStart token=7 chunk=2 epochMs=1794815821055 gapMs=5
+         1794815824.290 14732 15245 I VoiceTiming: playEnd token=7 chunk=2 epochMs=1794815824290

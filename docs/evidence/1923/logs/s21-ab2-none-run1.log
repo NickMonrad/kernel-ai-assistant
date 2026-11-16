@@ -1,0 +1,68 @@
+         1794815849.145 14732 14732 I KernelAI: external_prompt_trust callerUid=-1 trust=DIRECT
+         1794815849.432 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=accepted t_ms=0
+         1794815849.433 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=coroutine_started t_ms=0
+         1794815852.072 14732 15256 D LiteRtInferenceEngine: TTFT_STAGE engine conversation_reset lock_wait_ms=0 close_ms=194 create_ms=2382 backend=GPU
+         1794815852.125 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=route_done t_ms=2692
+         1794815852.146 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=first_feedback_visible t_ms=2713
+         1794815852.160 14732 14732 D KernelAI: llm_tools_route: result=fallthrough best_guess=null confidence=0.0
+         1794815852.160 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=model_ready t_ms=2727
+         1794815853.208 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=rag_done t_ms=3775
+         1794815853.212 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=generate_called t_ms=3779
+         1794815853.212 14732 15256 D LiteRtInferenceEngine: TTFT_STAGE engine generation_lock_wait_ms=0
+         1794815853.215 14732 15256 D LiteRtInferenceEngine: generation_diagnostic generation_id=b9e84298-1-g1 send_attempt=1 stage=initial_prompt event=send_start
+         1794815857.961 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=1 type=callback channels=[] raw="Kia ora" toolCalls=
+         1794815857.961 14732 15359 I LiteRtInferenceEngine: TTFT (Time to First Token): 4749ms [backend=GPU]
+         1794815857.962 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=first_token t_ms=8529
+         1794815857.974 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=first_ui_update t_ms=8541
+         1794815858.000 14732 14732 D KernelAI: TTFT_STAGE commandId=b9e84298-1 stage=first_answer_token_visible t_ms=8567
+         1794815858.096 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=2 type=callback channels=[] raw="." toolCalls=
+         1794815858.229 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=3 type=callback channels=[] raw=" Here are" toolCalls=
+         1794815858.362 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=4 type=callback channels=[] raw=" a" toolCalls=
+         1794815858.497 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=5 type=callback channels=[] raw=" couple of short facts" toolCalls=
+         1794815858.636 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=6 type=callback channels=[] raw=" about" toolCalls=
+         1794815858.776 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=7 type=callback channels=[] raw=" kiwi birds" toolCalls=
+         1794815858.913 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=8 type=callback channels=[] raw=" for you:\n\n" toolCalls=
+         1794815859.050 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=9 type=callback channels=[] raw="1." toolCalls=
+         1794815859.187 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=10 type=callback channels=[] raw=" The kiwi is a" toolCalls=
+         1794815859.319 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=11 type=callback channels=[] raw=" flightless, nocturnal" toolCalls=
+         1794815859.450 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=12 type=callback channels=[] raw=", ground-dwelling" toolCalls=
+         1794815859.587 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=13 type=callback channels=[] raw=" bird native to New" toolCalls=
+         1794815859.718 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=14 type=callback channels=[] raw=" Zealand" toolCalls=
+         1794815859.854 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=15 type=callback channels=[] raw=" and is the national" toolCalls=
+         1794815859.987 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=16 type=callback channels=[] raw=" symbol" toolCalls=
+         1794815860.119 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=17 type=callback channels=[] raw=" and" toolCalls=
+         1794815860.254 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=18 type=callback channels=[] raw=" strictly protected.\n" toolCalls=
+         1794815860.385 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=19 type=callback channels=[] raw="2. The" toolCalls=
+         1794815860.523 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=20 type=callback channels=[] raw=" Chur is" toolCalls=
+         1794815860.652 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=21 type=callback channels=[] raw=" the ultimate all-" toolCalls=
+         1794815860.789 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=22 type=callback channels=[] raw="purpose acknowledgement" toolCalls=
+         1794815860.925 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=23 type=callback channels=[] raw=", meaning" toolCalls=
+         1794815861.056 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=24 type=callback channels=[] raw=" it can" toolCalls=
+         1794815861.189 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=25 type=callback channels=[] raw=" mean cheers, thanks" toolCalls=
+         1794815861.322 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=26 type=callback channels=[] raw="," toolCalls=
+         1794815861.458 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=27 type=callback channels=[] raw=" sweet" toolCalls=
+         1794815861.589 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=28 type=callback channels=[] raw=" sounds good" toolCalls=
+         1794815861.726 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=29 type=callback channels=[] raw=", or I agree" toolCalls=
+         1794815861.861 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=30 type=callback channels=[] raw="," toolCalls=
+         1794815861.989 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=31 type=callback channels=[] raw=" and" toolCalls=
+         1794815862.129 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=32 type=callback channels=[] raw=" is often doubled for" toolCalls=
+         1794815862.266 14732 15359 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=33 type=callback channels=[] raw=" emphasis." toolCalls=
+         1794815862.268 14732 15402 D LiteRtInferenceEngine: generation_diagnostic generation_id=b9e84298-1-g1 send_attempt=1 stage=initial_prompt event=on_done tool_response_pending=false
+         1794815862.268 14732 15402 I LiteRtInferenceEngine: LiteRT benchmark: init=12.725033837s, TTFT=4.56932067975s, prefill=2522 tokens @ 558.7541370650923 tokens/s, decode=81 tokens @ 17.950882714933698 tokens/s [backend=GPU]
+         1794815862.268 14732 15402 I LiteRtInferenceEngine: Generation complete: total=9056ms, TTFT=4749ms, visibleChunks=33 [backend=GPU]
+         1794815862.268 14732 15402 D LiteRtInferenceEngine: event_seq: b9e84298-1-g1 seq=34 type=complete callbacks=33 thinkingChars=0
+         1794815862.268 14732 15402 D LiteRtInferenceEngine: VoiceTiming lastToken epochMs=1794815862268
+         1794815862.272 14732 14732 D KernelAI: llm_tools_tool_sequence: attempt=none turn=none terminal=none
+         1794815862.272 14732 14732 D KernelAI: thinking_save: thinkingLen=0, contentLen=361
+         1794815862.272 14732 14732 D KernelAI: llm_tools_assistant_reply: len=361
+         1794815862.367 14732 14732 D VoiceTiming: firstChunkQueued epochMs=1794815862367 chars=67
+         1794815865.411 14732 15759 I VoiceTiming: synth token=8 chunk=0 chars=67 sid=0 startEpochMs=1794815862368 endEpochMs=1794815865410 synthMs=3042 audioMs=3576 rtf=0.85
+         1794815865.412 14732 14851 I KernelAI: SpeakingStarted engine=sherpa chars=67 epochMs=1794815865412
+         1794815865.431 14732 14851 I VoiceTiming: playStart token=8 chunk=0 epochMs=1794815865431
+         1794815869.290 14732 14851 I VoiceTiming: playEnd token=8 chunk=0 epochMs=1794815869290
+         1794815870.983 14732 15759 I VoiceTiming: synth token=8 chunk=1 chars=130 sid=0 startEpochMs=1794815865411 endEpochMs=1794815870983 synthMs=5572 audioMs=8472 rtf=0.66
+         1794815870.986 14732 14846 I VoiceTiming: playStart token=8 chunk=1 epochMs=1794815870986 gapMs=1696
+         1794815877.909 14732 15759 I VoiceTiming: synth token=8 chunk=2 chars=155 sid=0 startEpochMs=1794815870983 endEpochMs=1794815877909 synthMs=6926 audioMs=10649 rtf=0.65
+         1794815879.589 14732 14846 I VoiceTiming: playEnd token=8 chunk=1 epochMs=1794815879589
+         1794815879.591 14732 14846 I VoiceTiming: playStart token=8 chunk=2 epochMs=1794815879591 gapMs=2
+         1794815890.426 14732 14846 I VoiceTiming: playEnd token=8 chunk=2 epochMs=1794815890425
