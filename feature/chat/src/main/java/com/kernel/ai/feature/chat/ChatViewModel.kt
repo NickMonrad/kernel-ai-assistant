@@ -2229,10 +2229,18 @@ class ChatViewModel @Inject constructor(
                     slotFillerManager.cancel()
                     pendingConfirmationIntent = null
                 }
-                needsHistoryReplay = safeRunIntentTest
+                // GPU turns replay history through updateSystemPrompt (a rebuild), so resetting here
+                // as well would rebuild twice per command. The replay below covers the reset (#1920).
+                val gpuReplayThisTurn = shouldForceGpuConversationResetEachTurn(
+                    backend = inferenceEngine.activeBackend.value,
+                    isDebugBuild = BuildConfig.DEBUG,
+                    debugForceReset = _debugForceGpuConversationReset.value,
+                )
+                needsHistoryReplay = safeRunIntentTest || gpuReplayThisTurn
                 estimatedTokensUsed = 0
                 turnsSinceReset = 0
-                if (inferenceEngine.isReady.value) {
+                if (inferenceEngine.isReady.value && !gpuReplayThisTurn) {
+                    Log.i("KernelAI", "CONV_REBUILD_TRIGGER reason=independentCommandReset")
                     if (!resetInferenceConversation("resetConversationBeforeIndependentCommand")) {
                         return@launch
                     }
@@ -3348,6 +3356,7 @@ class ChatViewModel @Inject constructor(
                 systemPromptForPrefill = systemPromptWithHistory
                 shouldMeasureToolDeclarations = true
                 logTurnStage("prompt_reset_start")
+                Log.i("KernelAI", "CONV_REBUILD_TRIGGER reason=historyReplay")
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
                 logTurnStage("prompt_reset_done")
                 if (isLoadSkillAbortProbeFollowUp) {

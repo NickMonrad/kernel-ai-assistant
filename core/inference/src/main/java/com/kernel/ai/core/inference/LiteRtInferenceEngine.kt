@@ -984,6 +984,10 @@ class LiteRtInferenceEngine @Inject constructor(
     private var engine: Engine? = null
     private var conversation: com.google.ai.edge.litertlm.Conversation? = null
     private var currentConfig: ModelConfig? = null
+    /** True once a message has been sent into [conversation]; cleared when it is rebuilt (#1920). */
+    private var conversationDirty = false
+    /** Native conversation rebuilds since engine init, logged with a reason (#1920). */
+    private var conversationRebuildCount = 0
 
     /** The model currently loaded by the engine, from the resolved [initialize] config. */
     override val loadedModelPath: String? get() = currentConfig?.modelPath
@@ -1200,6 +1204,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         }
                         engine = eng
                         conversation = createdConversation
+                        conversationDirty = false
                         currentConfig = resolvedConfig
                         _activeBackend.value = backendType
                         _resolvedMaxTokens.value = resolvedConfig.maxTokens
@@ -1307,6 +1312,10 @@ class LiteRtInferenceEngine @Inject constructor(
                 return@withContext
             }
             gpuResetCount = restartDecision.updatedCount
+            if (!conversationDirty && conversation != null) {
+                Log.d(TAG, "resetConversation: conversation clean, skipping rebuild")
+                return@withContext
+            }
 
             // Signal any active generation to stop so it releases generationMutex promptly.
             if (_isGenerating.value) {
@@ -1319,7 +1328,7 @@ class LiteRtInferenceEngine @Inject constructor(
             generationMutex.withLock {
                 safeClose(conversation, "conversation")
                 try {
-                    conversation = eng.createConversation(buildConversationConfig(backend, config))
+                    conversation = createConversationRebuild(eng, backend, config, "resetConversation")
                 } finally {
                     resetExperimentalFlags()
                 }
@@ -1395,7 +1404,7 @@ class LiteRtInferenceEngine @Inject constructor(
         gpuResetCount = restartDecision.updatedCount
 
         try {
-            conversation = eng.createConversation(buildConversationConfig(backend, config))
+            conversation = createConversationRebuild(eng, backend, config, "toolAbort")
         } catch (e: Exception) {
             _isReady.value = false
             throw e
@@ -1407,7 +1416,7 @@ class LiteRtInferenceEngine @Inject constructor(
     override suspend fun updateSystemPrompt(systemPrompt: String) {
         withContext(LlmDispatcher) {
             val config = currentConfig ?: return@withContext
-            resetConversationForConfig(config.copy(systemPrompt = systemPrompt))
+            resetConversationForConfig(config.copy(systemPrompt = systemPrompt), "updateSystemPrompt")
         }
     }
 
@@ -1416,7 +1425,7 @@ class LiteRtInferenceEngine @Inject constructor(
             val eng = engine ?: throw InferenceException(
                 "Engine not initialized — cannot reconfigure conversation. Call initialize() first."
             )
-            resetConversationForConfig(config)
+            resetConversationForConfig(config, "reconfigure")
             Log.i(TAG, "Conversation reconfigured with new settings")
         }
     }
@@ -1583,6 +1592,7 @@ class LiteRtInferenceEngine @Inject constructor(
             startEvent: String = "send_start",
             send: (MessageCallback) -> Unit,
         ) {
+            conversationDirty = true
             stream.whileActive {
                 val sendAttempt = sendAttemptCounter?.incrementAndGet() ?: 0
                 if (BuildConfig.DEBUG) {
@@ -1925,7 +1935,7 @@ class LiteRtInferenceEngine @Inject constructor(
             val timeoutMs = if (requestedSystemPrompt != null) 60_000L else 30_000L
             try {
                 if (shouldSwapConfig) {
-                    resetConversationForConfig(requestedConfig)
+                    resetConversationForConfig(requestedConfig, "generateOnceSwap")
                 }
                 val conv = conversation ?: return@withContext ""
                 var acquired = false
@@ -2043,6 +2053,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
 
                     currentCoroutineContext().ensureActive()
+                    conversationDirty = true
                     InferenceGenerationService.start(context)
                     serviceStarted = true
                     sendMessage { callback ->
@@ -2073,7 +2084,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 }
             } finally {
                 if (shouldSwapConfig) {
-                    resetConversationForConfig(config)
+                    resetConversationForConfig(config, "generateOnceRestore")
                 }
             }
         }
@@ -2140,6 +2151,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     if (shouldSwapConfig) {
                         currentConfig = requestedConfig
                         safeClose(conversation, "conversation")
+                        conversationDirty = true
                     }
                     val eng = engine ?: run {
                         Log.w(TAG, "generateStructuredOnce: engine is null — was it evicted?")
@@ -2304,7 +2316,7 @@ class LiteRtInferenceEngine @Inject constructor(
                         generationMutex.unlock()
                     }
                     if (shouldSwapConfig) {
-                        resetConversationForConfig(config)
+                        resetConversationForConfig(config, "generateStructuredRestore")
                     }
                 }
             } catch (ce: CancellationException) {
@@ -2316,9 +2328,13 @@ class LiteRtInferenceEngine @Inject constructor(
         }
     }
 
-    private suspend fun resetConversationForConfig(config: ModelConfig) {
+    private suspend fun resetConversationForConfig(config: ModelConfig, reason: String) {
         val eng = engine ?: return
         val backend = _activeBackend.value ?: BackendType.CPU
+        if (!conversationDirty && conversation != null && config == currentConfig) {
+            Log.d(TAG, "resetConversationForConfig reason=$reason: conversation clean, config unchanged; no rebuild")
+            return
+        }
         currentConfig = config
 
         if (_isGenerating.value) {
@@ -2332,7 +2348,7 @@ class LiteRtInferenceEngine @Inject constructor(
             safeClose(conversation, "conversation")
             val createStartedAt = System.currentTimeMillis()
             try {
-                conversation = eng.createConversation(buildConversationConfig(backend, config))
+                conversation = createConversationRebuild(eng, backend, config, reason)
             } finally {
                 resetExperimentalFlags()
             }
@@ -2533,6 +2549,18 @@ class LiteRtInferenceEngine @Inject constructor(
 
     private fun safeCancel(conv: com.google.ai.edge.litertlm.Conversation?) {
         try { conv?.cancelProcess() } catch (e: Exception) { Log.w(TAG, "cancelProcess: ${e.message}") }
+    }
+
+    private fun createConversationRebuild(
+        eng: Engine,
+        backend: BackendType,
+        config: ModelConfig,
+        reason: String,
+    ): com.google.ai.edge.litertlm.Conversation {
+        conversationRebuildCount++
+        conversationDirty = false
+        Log.i(TAG, "CONV_REBUILD count=$conversationRebuildCount reason=$reason backend=$backend")
+        return eng.createConversation(buildConversationConfig(backend, config))
     }
 
     private fun safeClose(closeable: AutoCloseable?, label: String) {

@@ -1022,6 +1022,8 @@ class ChatViewModelInitTest {
         every { slotValidationRegistry.validateParams(any(), any()) } returns null
         every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
         coEvery { inferenceEngine.resetConversation() } just runs
+        // CPU keeps the explicit reset path; on GPU the reset is folded into the history replay (#1920).
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.CPU)
         coEvery { slotFillerManager.cancel() } just runs
 
         // Command 2: "what time is it" — must also trigger conversation reset for independent command
@@ -1029,6 +1031,36 @@ class ChatViewModelInitTest {
         advanceUntilIdle()
         coVerify(atLeast = 1) { slotFillerManager.cancel() }
         coVerify(atLeast = 1) { inferenceEngine.resetConversation() }
+    }
+
+    @Test
+    fun `GPU independent command rebuilds the native conversation exactly once`() = runTest(dispatcher) {
+        // #1920: a voice command on GPU rebuilt twice (independent reset + per-turn history replay).
+        // updateSystemPrompt is the replay rebuild; resetConversation must not add a second one.
+        val query = "tell me a short story about a dog"
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.isGenerating } returns MutableStateFlow(false)
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Token("Once upon a time."), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } just runs
+        coEvery { inferenceEngine.resetConversation() } just runs
+        every { quickIntentRouter.route(query) } returns QuickIntentRouter.RouteResult.FallThrough(input = query)
+        every { slotValidationRegistry.validateParams(any(), any()) } returns null
+        every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg", "assistant-msg")
+
+        val viewModel = createViewModel()
+        viewModel.setDebugForceGpuConversationResetEachTurn(true)
+        advanceUntilIdle()
+        clearMocks(inferenceEngine, answers = false)
+
+        viewModel.submitInitialQueryIfNeeded(query)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { inferenceEngine.resetConversation() }
+        coVerify(exactly = 1) { inferenceEngine.updateSystemPrompt(any()) }
     }
 
     @Test
