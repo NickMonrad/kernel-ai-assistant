@@ -1,0 +1,9 @@
+
+com.kernel.ai.core.voice.PronunciationLexiconDeviceTest:.
+
+Time: 0.035
+
+OK (1 test)
+
+
+instrument_exit=0

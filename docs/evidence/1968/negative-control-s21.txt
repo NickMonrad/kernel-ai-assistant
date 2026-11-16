@@ -1,0 +1,8 @@
+# Negative control (old (?U:\s+) regex, same device test, Samsung SM-G991B Android 15):
+# Negative control: old (?U:\s+) regex, earlier version of the same device test (fails at static init, before the added asserts). Samsung SM-G991B Android 15.
+Caused by: java.util.regex.PatternSyntaxException: Syntax error in regexp pattern near index 3
+(?U:\s+)
+   ^
+	at com.android.icu.util.regex.PatternNative.compileImpl(Native Method)
+	at com.kernel.ai.core.voice.PronunciationLexicon.<clinit>(PronunciationLexicon.kt:108)
+Tests run: 1,  Failures: 1
