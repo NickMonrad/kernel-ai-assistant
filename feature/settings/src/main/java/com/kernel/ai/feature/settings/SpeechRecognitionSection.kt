@@ -142,15 +142,10 @@ internal fun SpeechRecognitionSection(
                             )
                         }
                         if (showDownloadCard) {
+                            val spec = SherpaSttModelSpec.forEngine(engine)
                             ModelCardCompact(
-                                title = engine.displayName,
-                                description = when (engine) {
-                                    VoiceInputEngine.SherpaZipformer -> SherpaSttModelSpec.ZIPFORMER.subtitle
-                                    VoiceInputEngine.SherpaSenseVoice -> SherpaSttModelSpec.SENSE_VOICE.subtitle
-                                    VoiceInputEngine.SherpaWhisper -> SherpaSttModelSpec.WHISPER.subtitle
-                                    VoiceInputEngine.SherpaParaformer -> SherpaSttModelSpec.PARAFORMER.subtitle
-                                    else -> ""
-                                },
+                                title = spec?.displayLabel ?: engine.displayName,
+                                description = spec?.subtitle.orEmpty(),
                                 state = sttState.toModelAvailability(),
                                 modifier = Modifier.padding(vertical = 4.dp),
                             )
@@ -209,7 +204,7 @@ internal fun SpeechRecognitionSection(
                     enabled = isReady,
                     tag = tag,
                     extraLine = if (engine == VoiceInputEngine.AndroidNative) {
-                        uiState.androidNativeLanguageSummary
+                        uiState.androidNativeLanguageName
                     } else {
                         null
                     },
@@ -232,7 +227,7 @@ private fun shortDescription(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.Auto -> "Picks the best recognizer on this phone. Works offline."
     VoiceInputEngine.AndroidNative -> "Your phone's own recognizer. Can suit some accents better."
     VoiceInputEngine.SherpaZipformer -> "Fully offline, shows words as you speak."
-    VoiceInputEngine.SherpaSenseVoice -> "Offline, multilingual."
+    VoiceInputEngine.SherpaSenseVoice -> "Offline, English. Final result only."
     VoiceInputEngine.SherpaWhisper -> "Offline, English only."
     VoiceInputEngine.SherpaParaformer -> "Offline, shows words as you speak."
 }
@@ -304,24 +299,29 @@ private fun VoiceWarningCard(
     }
 }
 
-private fun previewUiState(): VoiceUiState = VoiceUiState(
+private fun previewUiState(
+    selected: VoiceInputEngine = VoiceInputEngine.Auto,
+    zipformerDownloaded: Boolean = true,
+    senseVoiceDownloaded: Boolean = false,
+    nativeMessage: String? = null,
+): VoiceUiState = VoiceUiState(
     sherpaVoices = emptyList(),
-    selectedInputEngine = VoiceInputEngine.Auto,
+    selectedInputEngine = selected,
     allowOnlineSpeechFallback = true,
-    androidNativeLanguageSummary = "English (Australia)",
+    androidNativeAvailabilityMessage = nativeMessage,
+    androidNativeLanguageName = "English (Australia)",
     sherpaSttStates = mapOf(
-        VoiceInputEngine.SherpaZipformer to SherpaSttDownloadState(isDownloaded = true),
-        VoiceInputEngine.SherpaSenseVoice to SherpaSttDownloadState(),
+        VoiceInputEngine.SherpaZipformer to SherpaSttDownloadState(isDownloaded = zipformerDownloaded),
+        VoiceInputEngine.SherpaSenseVoice to SherpaSttDownloadState(isDownloaded = senseVoiceDownloaded),
     ),
 )
 
-@PreviewLightDark
 @Composable
-private fun SpeechRecognitionSectionPreview() {
+private fun SectionPreview(uiState: VoiceUiState) {
     KernelAITheme(darkTheme = isSystemInDarkTheme(), dynamicColor = false) {
         Surface(color = MaterialTheme.colorScheme.background) {
             SpeechRecognitionSection(
-                uiState = previewUiState(),
+                uiState = uiState,
                 onSelect = {},
                 onAllowOnline = {},
                 onDownload = {},
@@ -332,19 +332,28 @@ private fun SpeechRecognitionSectionPreview() {
     }
 }
 
+/** Android native selected with a blocking message and Zipformer not downloaded: warning card + Use Automatic. */
+@PreviewLightDark
+@Composable
+private fun SpeechRecognitionNativeWarningPreview() = SectionPreview(
+    previewUiState(
+        selected = VoiceInputEngine.AndroidNative,
+        zipformerDownloaded = false,
+        nativeMessage = "On-device Android speech recognition is unavailable for the current setup.",
+    ),
+)
+
+/** SenseVoice selected: its engine warning sits inside its own card. */
+@PreviewLightDark
+@Composable
+private fun SpeechRecognitionEngineWarningPreview() =
+    SectionPreview(previewUiState(selected = VoiceInputEngine.SherpaSenseVoice, senseVoiceDownloaded = true))
+
+/** Automatic selected, Zipformer downloaded, SenseVoice not (compose-notes §5). */
+@PreviewLightDark
+@Composable
+private fun SpeechRecognitionSectionPreview() = SectionPreview(previewUiState())
+
 @Preview(name = "Speech recognition, font 2.0", fontScale = 2f, widthDp = 360, heightDp = 640)
 @Composable
-private fun SpeechRecognitionSectionLargeFontPreview() {
-    KernelAITheme(darkTheme = isSystemInDarkTheme(), dynamicColor = false) {
-        Surface(color = MaterialTheme.colorScheme.background) {
-            SpeechRecognitionSection(
-                uiState = previewUiState(),
-                onSelect = {},
-                onAllowOnline = {},
-                onDownload = {},
-                onCancel = {},
-                onDelete = {},
-            )
-        }
-    }
-}
+private fun SpeechRecognitionSectionLargeFontPreview() = SectionPreview(previewUiState())
