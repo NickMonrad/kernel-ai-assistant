@@ -2,6 +2,7 @@ package com.kernel.ai.assistant
 
 import android.content.Context
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import io.mockk.every
 import io.mockk.mockk
 import org.junit.jupiter.api.AfterEach

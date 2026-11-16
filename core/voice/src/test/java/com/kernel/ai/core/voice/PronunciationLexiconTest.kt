@@ -133,6 +133,15 @@ class PronunciationLexiconTest {
     }
 
     @Test
+    fun `shipped asset respells Kia ora as Kee-ora in any case and inside sentences`() {
+        val json = File("src/lexicon/assets/${PronunciationLexicon.ASSET_NAME}").readText()
+        PronunciationLexicon.install(PronunciationLexicon.parse(json))
+        assertEquals("Kee-ora, I'm Jandle.", SherpaSpeechText.prepare("Kia ora, I'm Jandal."))
+        assertEquals("Well, Kee-ora to you!", SherpaSpeechText.prepare("Well, kia ora to you!"))
+        assertEquals("Kee-ora.", SherpaSpeechText.prepare("KIA ORA"))
+    }
+
+    @Test
     fun `Sherpa speech preparation applies the lexicon before number handling`() {
         install("Petone" to "Pih-toe-nee")
         assertEquals(
