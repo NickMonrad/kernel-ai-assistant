@@ -10,7 +10,9 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,6 +56,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -737,21 +740,18 @@ private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) 
         icon = Icons.Outlined.AutoAwesome,
         title = "Default assistant",
         description = "Opens Jandal from your phone's assistant button or gesture. Hey Jandal works best with this on.",
-        status = when (assistantStatus) {
-            MakeYoursStatus.On -> ChipStatus.On
-            MakeYoursStatus.Off -> ChipStatus.Off
-            MakeYoursStatus.NotAvailable -> ChipStatus.NotAvailable
-        },
+        status = assistantStatus.toChipStatus(),
         action = when (assistantStatus) {
-            MakeYoursStatus.On -> null
-            MakeYoursStatus.Off -> CardAction(
-                label = "Open settings",
-                onClick = actions.onOpenDefaultAssistant,
-                tonal = true,
-            )
-            MakeYoursStatus.NotAvailable -> null
+            MakeYoursStatus.Off -> CardAction("Open settings", actions.onOpenDefaultAssistant, tonal = true)
+            MakeYoursStatus.On, MakeYoursStatus.NotAvailable -> null
+        },
+        secondaryAction = if (assistantStatus == MakeYoursStatus.On) {
+            CardAction("Change", actions.onOpenDefaultAssistant, tonal = false)
+        } else {
+            null
         },
         id = "default_assistant",
+        why = defaultAssistantWhy(assistantStatus),
     )
     SettingCard(
         icon = Icons.Outlined.Notifications,
@@ -764,6 +764,7 @@ private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) 
             null
         },
         id = "notifications",
+        why = notificationsWhy(notificationStatus),
     )
     SettingCard(
         icon = Icons.Outlined.Alarm,
@@ -776,116 +777,78 @@ private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) 
             null
         },
         id = "exact_alarms",
+        why = exactAlarmWhy(exactStatus),
     )
 }
+
+private fun MakeYoursStatus.toChipStatus(): ChipStatus = when (this) {
+    MakeYoursStatus.On -> ChipStatus.On
+    MakeYoursStatus.Off -> ChipStatus.Off
+    MakeYoursStatus.NotAvailable -> ChipStatus.NotAvailable
+}
+
+/** Why? text for a card: today's inline reason, plus the status note that row showed. */
+private fun defaultAssistantWhy(status: MakeYoursStatus): String = listOfNotNull(
+    "Makes Jandal the app that opens when you use your phone's assistant button or gesture. " +
+        "Hey Jandal listens most reliably with this set. Pick Jandal AI on the system page, then come back. " +
+        "This row updates by itself.",
+    "This phone has no default assistant setting.".takeIf { status == MakeYoursStatus.NotAvailable },
+).joinToString(" ")
+
+private fun notificationsWhy(status: MakeYoursStatus): String = listOfNotNull(
+    "Lets Jandal show download progress, alarms and reminders. Downloads keep going either way.",
+    "If Android won't ask again, Jandal opens App info so you can turn it on there.".takeIf {
+        status == MakeYoursStatus.Off
+    },
+).joinToString(" ")
+
+private fun exactAlarmWhy(status: MakeYoursStatus): String = listOfNotNull(
+    "So timers ring on time. Without this, Android can delay them.",
+    "Open Alarms & reminders, find Jandal AI, and turn on Allow. Then come back. This row updates by itself."
+        .takeIf { status == MakeYoursStatus.Off },
+).joinToString(" ")
 
 /** Button on a setting card. [tonal] renders a tonal button; otherwise a text button in the accent colour. */
 private data class CardAction(val label: String, val onClick: () -> Unit, val tonal: Boolean)
 
 /**
- * Hey Jandal card (#1931 and the state table in docs/specs/setup-visual-pass/README.md). Its caveat names the
- * download size, plus the extra Zipformer or verifier files when they are not already in the plan.
+ * Hey Jandal card (#1931). The copy, chip and buttons come from [MakeYoursRows.heyJandalCard], which is unit-tested
+ * row by row against the state table in docs/specs/setup-visual-pass/README.md.
  */
 @Composable
 private fun HeyJandalCard(state: SetupWizardUiState, actions: MakeYoursActions) {
-    val platform = state.platform
-    val block = MakeYoursRows.heyJandalBlock(platform)
-    val choice = state.wakeWordChoice
-    val pending = choice != state.wakeWordStored
-    val sizeCaveat = if (state.heyJandalExtraBytes > 0L) {
-        "Adds a ${formatBytesShort(state.heyJandalExtraBytes)} download. Uses a little battery."
-    } else {
-        "Uses a little battery."
-    }
-    val base = "Say \"Hey Jandal\" to start talking, hands-free."
-
-    val status: ChipStatus
-    val description: String
-    val caveat: String?
-    val primary: CardAction?
-    var secondary: CardAction? = null
-    val turnOff = CardAction("Turn off", { actions.onWakeWordChoiceChanged(false) }, tonal = false)
-    val turnOn = CardAction("Turn on", { actions.onWakeWordChoiceChanged(true) }, tonal = false)
-
-    when (block) {
-        null -> {
-            when {
-                choice && pending -> {
-                    status = ChipStatus.OnAtFinish
-                    description = "$base Turns on when you tap Finish."
-                    caveat = sizeCaveat
-                    primary = null
-                    secondary = turnOff
-                }
-                choice -> {
-                    status = ChipStatus.On
-                    description = base
-                    caveat = sizeCaveat
-                    primary = null
-                    secondary = turnOff
-                }
-                pending -> {
-                    status = ChipStatus.Off
-                    description = "$base Turns off when you tap Finish."
-                    caveat = sizeCaveat
-                    primary = turnOn
-                }
-                else -> {
-                    status = ChipStatus.Off
-                    description = base
-                    caveat = sizeCaveat
-                    primary = turnOn
-                }
-            }
-        }
-        HeyJandalBlock.NoMicrophone, HeyJandalBlock.ModelNotInstalled -> {
-            status = ChipStatus.NotAvailable
-            description = MakeYoursRows.wakeWordBlockReason(platform) ?: base
-            caveat = if (choice) "Stays off until this is fixed." else null
-            primary = null
-            secondary = if (choice) turnOff else null
-        }
-        HeyJandalBlock.MicrophoneNotGranted -> {
-            status = if (choice) ChipStatus.NeedsAccess else ChipStatus.Off
-            description = base
-            caveat = if (choice) {
-                "Hey Jandal needs microphone access. Stays off until this is fixed."
-            } else {
-                MakeYoursRows.wakeWordBlockReason(platform)
-            }
-            primary = CardAction("Allow microphone", actions.onAllowMicrophone, tonal = true)
-            secondary = if (choice) turnOff else null
-        }
-        HeyJandalBlock.UsageAccessNeeded -> {
-            status = if (choice) ChipStatus.NeedsAccess else ChipStatus.Off
-            description = base
-            caveat = if (choice) {
-                "On this phone it needs Usage Access, so it can pause while the camera's in use. " +
-                    "Stays off until this is fixed."
-            } else {
-                MakeYoursRows.wakeWordBlockReason(platform)
-            }
-            primary = CardAction("Open Usage Access", actions.onOpenUsageAccess, tonal = true)
-            secondary = if (choice) turnOff else null
-        }
-    }
-
+    val card = MakeYoursRows.heyJandalCard(
+        stored = state.wakeWordStored,
+        choice = state.wakeWordChoice,
+        platform = state.platform,
+        extraBytes = state.heyJandalExtraBytes,
+        androidNativeInput = state.inputEngine == VoiceInputEngine.AndroidNative,
+    )
     SettingCard(
         icon = Icons.Outlined.Mic,
         title = "Hey Jandal",
-        description = description,
-        caveat = caveat,
-        status = status,
-        action = primary,
-        secondaryAction = secondary,
+        description = card.description,
+        status = card.status,
+        action = card.primary?.cardAction(actions),
+        secondaryAction = card.secondary?.cardAction(actions),
         id = "hey_jandal",
+        caveat = card.caveat,
+        why = card.why,
     )
 }
 
+private fun HeyJandalAction.cardAction(actions: MakeYoursActions): CardAction = when (this) {
+    HeyJandalAction.TurnOn -> CardAction("Turn on", { actions.onWakeWordChoiceChanged(true) }, tonal = true)
+    HeyJandalAction.TurnOff -> CardAction("Turn off", { actions.onWakeWordChoiceChanged(false) }, tonal = false)
+    HeyJandalAction.AllowMicrophone -> CardAction("Allow microphone", actions.onAllowMicrophone, tonal = true)
+    HeyJandalAction.OpenUsageAccess -> CardAction("Open Usage Access", actions.onOpenUsageAccess, tonal = true)
+}
+
 /**
- * One Make Jandal yours card: icon tile, title, status chip, description, optional caveat, then its actions.
- * The status chip carries the test tag `make_yours_status_<id>` so the status is readable by tests.
+ * One Make Jandal yours card: icon tile, title, status chip, description, optional caveat, then its actions, and
+ * **Why?** when [why] is set. The status chip carries the test tag `make_yours_status_<id>` for tests.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SettingCard(
     icon: ImageVector,
@@ -896,7 +859,9 @@ private fun SettingCard(
     id: String,
     caveat: String? = null,
     secondaryAction: CardAction? = null,
+    why: String? = null,
 ) {
+    var showWhy by rememberSaveable { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -918,15 +883,27 @@ private fun SettingCard(
             }
             Text(text = description, style = MaterialTheme.typography.bodyMedium)
             caveat?.let { Text(text = it, style = MaterialTheme.typography.bodySmall) }
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 action?.let { CardButton(it) }
                 secondaryAction?.let { CardButton(it) }
+                if (why != null) {
+                    TextButton(
+                        onClick = { showWhy = true },
+                        modifier = Modifier.heightIn(min = 48.dp).semantics {
+                            contentDescription = "Why? $title"
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent),
+                    ) { Text("Why?") }
+                }
             }
         }
+    }
+    if (showWhy && why != null) {
+        ExplanationSheet(title = title, body = why, onDismiss = { showWhy = false })
     }
 }
 
