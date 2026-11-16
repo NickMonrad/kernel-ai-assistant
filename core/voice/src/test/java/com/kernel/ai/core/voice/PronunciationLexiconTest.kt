@@ -99,6 +99,14 @@ class PronunciationLexiconTest {
     }
 
     @Test
+    fun `multi-word entry matches across any whitespace between its words`() {
+        install("Te Awamutu" to "Tay ah-wah-moo-too", "Lower Hutt" to "Lower Hut-uh")
+        assertEquals("Tay ah-wah-moo-too is north.", PronunciationLexicon.apply("Te  Awamutu is north."))
+        assertEquals("Off at Lower Hut-uh.", PronunciationLexicon.apply("Off at Lower\nHutt."))
+        assertEquals("Lower Hut-uh", PronunciationLexicon.apply("lower\t\u00A0hutt"))
+    }
+
+    @Test
     fun `longer entry wins over a shorter entry that starts the same way`() {
         install("Hutt" to "Hut", "Lower Hutt" to "Lower Hut-uh")
         assertEquals("Lower Hut-uh and Hut", PronunciationLexicon.apply("Lower Hutt and Hutt"))
@@ -139,6 +147,17 @@ class PronunciationLexiconTest {
         assertEquals("Kee-ora, I'm Jandle.", SherpaSpeechText.prepare("Kia ora, I'm Jandal."))
         assertEquals("Well, Kee-ora to you!", SherpaSpeechText.prepare("Well, kia ora to you!"))
         assertEquals("Kee-ora.", SherpaSpeechText.prepare("KIA ORA"))
+        // Speech prep turns a line break into a sentence break first, so the lexicon-level test covers \n.
+        assertEquals("Kee-ora, mate.", SherpaSpeechText.prepare("Kia  ora, mate."))
+        assertEquals("Kee-ora!", SherpaSpeechText.prepare("Kiaora!"))
+    }
+
+    @Test
+    fun `Kia ora inside a longer word or phrase is left alone`() {
+        val json = File("src/lexicon/assets/${PronunciationLexicon.ASSET_NAME}").readText()
+        PronunciationLexicon.install(PronunciationLexicon.parse(json))
+        assertEquals("Kia orana.", SherpaSpeechText.prepare("Kia orana."))
+        assertEquals("Akia ora.", SherpaSpeechText.prepare("Akia ora."))
     }
 
     @Test

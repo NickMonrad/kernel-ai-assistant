@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Lock
@@ -431,21 +432,26 @@ private fun WelcomeRow(icon: ImageVector, title: String, body: String?) {
     }
 }
 
-/** Title and optional body of the third welcome row. */
-internal data class WelcomeDownloadCopy(val title: String, val body: String?)
+/** Icon of the third welcome row: a download while anything is left, a check once chat is ready. */
+internal enum class WelcomeDownloadIcon { Download, Ready }
+
+/** Title, optional body and icon of the third welcome row. */
+internal data class WelcomeDownloadCopy(val title: String, val body: String?, val icon: WelcomeDownloadIcon)
 
 /**
  * The third welcome row for [totalBytes] still to download: the spec's "Chat needs a one-time download" with the
- * size while anything is left, otherwise just the title "Chat is ready" with no body (owner decision on #1957).
+ * size while anything is left, otherwise just the title "Chat is ready" with no body and a check icon (owner
+ * decision on #1957).
  */
 internal fun welcomeDownloadCopy(totalBytes: Long): WelcomeDownloadCopy =
     if (totalBytes > 0L) {
         WelcomeDownloadCopy(
             title = "Chat needs a one-time download",
             body = "About ${formatBytesShort(totalBytes)}. You choose Wi-Fi or mobile data in step 3.",
+            icon = WelcomeDownloadIcon.Download,
         )
     } else {
-        WelcomeDownloadCopy(title = "Chat is ready", body = null)
+        WelcomeDownloadCopy(title = "Chat is ready", body = null, icon = WelcomeDownloadIcon.Ready)
     }
 
 /**
@@ -483,7 +489,14 @@ private fun WelcomeStep(totalBytes: Long) {
         body = "No download needed for these.",
     )
     val download = welcomeDownloadCopy(totalBytes)
-    WelcomeRow(icon = Icons.Outlined.Download, title = download.title, body = download.body)
+    WelcomeRow(
+        icon = when (download.icon) {
+            WelcomeDownloadIcon.Download -> Icons.Outlined.Download
+            WelcomeDownloadIcon.Ready -> Icons.Outlined.CheckCircle
+        },
+        title = download.title,
+        body = download.body,
+    )
 }
 
 @Composable
