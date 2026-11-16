@@ -1389,12 +1389,34 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
         assertEquals("assistant-1", viewModel.speakingMessageId.value)
 
+        clearMocks(voiceOutputController, answers = false)
         viewModel.onScreenStopped(screenOff = false)
         advanceUntilIdle()
 
         verify(atLeast = 1) { voiceOutputController.stop() }
         assertNull(viewModel.speakingMessageId.value)
         assertEquals(ChatViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
+    fun `initial voice query submitted after Home is sent as text and not spoken`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("Once upon a time there was a dog. "),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onScreenStopped(screenOff = false)
+        clearMocks(voiceOutputController, answers = false)
+        viewModel.submitInitialQueryIfNeeded("Tell me a story", speakResponse = true)
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { inferenceEngine.generate(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
+        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
     }
 
     @Test

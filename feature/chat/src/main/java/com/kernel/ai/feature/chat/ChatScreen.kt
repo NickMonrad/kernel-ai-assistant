@@ -321,6 +321,31 @@ fun ChatScreen(
             }
         }
     }
+
+    // #1927: Home stops chat speech; screen-off keeps it speaking. Top-level so it also applies while
+    // the chat is Loading (before the model is ready), not only in ChatUiState.Ready.
+    val context = LocalContext.current
+    val stopLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(stopLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> viewModel.onScreenResumed()
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    // Rotation stops the activity with the screen on; it is not Home (MainActivity
+                    // handles no configChanges), so speech must not stop.
+                    val rotating = (context as? android.app.Activity)?.isChangingConfigurations == true
+                    if (!rotating) {
+                        val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
+                            ?.isInteractive == false
+                        viewModel.onScreenStopped(screenOff = screenOff)
+                    }
+                }
+                else -> Unit
+            }
+        }
+        stopLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { stopLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     // #1604: externally supplied text only fills the composer; the user must tap Send.
     // The notice above the composer stays until the text is sent, cleared or discarded.
     var showExternalDraftNotice by rememberSaveable { mutableStateOf(false) }
@@ -520,15 +545,13 @@ fun ChatScreen(
                 }
             }
             
-            // Lifecycle: ON_RESUME re-checks mic/location repair grants and clears the Home/screen-off
-            // pause (#1927). ON_STOP with a real stop (not rotation) applies the #1927 rule: Home stops
-            // chat speech, screen off keeps it speaking. Same rule as ActionsScreen (#1918).
+            // Lifecycle: ON_RESUME re-checks mic/location repair grants. Home/screen-off handling (#1927)
+            // lives in the top-level observer in ChatScreen so it also runs while Loading.
             val lifecycleOwner = LocalLifecycleOwner.current
             DisposableEffect(lifecycleOwner) {
                 val observer = LifecycleEventObserver { _, event ->
                     when (event) {
                         androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
-                            viewModel.onScreenResumed()
                             val micGranted = ContextCompat.checkSelfPermission(
                                 context,
                                 Manifest.permission.RECORD_AUDIO,
@@ -539,16 +562,6 @@ fun ChatScreen(
                                 Manifest.permission.ACCESS_COARSE_LOCATION,
                             ) == PackageManager.PERMISSION_GRANTED
                             viewModel.onChatWeatherLocationRepairResumeCheck(locationGranted)
-                        }
-                        androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
-                            // Rotation stops the activity with the screen on; it is not Home (MainActivity
-                            // handles no configChanges), so speech must not stop.
-                            val rotating = (context as? android.app.Activity)?.isChangingConfigurations == true
-                            if (!rotating) {
-                                val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
-                                    ?.isInteractive == false
-                                viewModel.onScreenStopped(screenOff = screenOff)
-                            }
                         }
                         else -> Unit
                     }

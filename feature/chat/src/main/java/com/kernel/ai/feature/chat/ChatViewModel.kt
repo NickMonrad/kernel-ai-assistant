@@ -474,6 +474,9 @@ class ChatViewModel @Inject constructor(
      */
     private var backgroundPaused = false
 
+    /** Set by Home (#1927) until the chat resumes: a voice initial query queued before Home is sent as text. */
+    private var stoppedByHome = false
+
     /** Active voice interaction mode, or null when no voice session is running (#741). */
     private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
     val voiceMode: StateFlow<VoiceMode?> = _voiceMode.asStateFlow()
@@ -2065,7 +2068,7 @@ class ChatViewModel @Inject constructor(
         // preventing stale KV-cache state from contaminating the new independent command (#1190)
         needsConversationReset = true
         replaceInputText(normalized)
-        sendMessage(if (speakResponse) SubmitMode.Voice else SubmitMode.Text)
+        sendMessage(if (speakResponse && !stoppedByHome) SubmitMode.Voice else SubmitMode.Text)
     }
 
     fun renameConversation(newTitle: String) {
@@ -4251,6 +4254,7 @@ class ChatViewModel @Inject constructor(
             _voiceCaptureState.value = VoiceCaptureState.Idle
             return
         }
+        stoppedByHome = true
         // Home: full voice-input cleanup (mic, loop, pending reply, hand-off notice) plus playback stop.
         // stopVoicePlayback() makes the single voiceOutputController.stop() call (via stopChatSpeech).
         stopVoiceInput()
@@ -4262,6 +4266,7 @@ class ChatViewModel @Inject constructor(
     /** Chat screen ON_RESUME (#1927): automatic mic paths may run again. */
     fun onScreenResumed() {
         backgroundPaused = false
+        stoppedByHome = false
     }
 
     fun stopVoicePlayback() {
