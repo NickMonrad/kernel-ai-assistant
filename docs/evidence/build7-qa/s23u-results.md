@@ -53,3 +53,27 @@
   - 13 Actions cards dated 21:30–22:23 (deletion stopped at the first older card, 6:20 pm);
   - the harness token and `/sdcard/b7.xml`.
 - DB check after cleanup: 0 conversations and 0 Actions rows created or updated after 21:20.
+
+## Re-run after #1969 (`origin/main` `e227d09d`, APK sha256 `65a2386b…eea3`)
+
+- Lock `b7qa-parent`, 22:53–23:12:37 AEST.
+- Installed 22:54:04 and left in place: the S23U now has the clean `e227d09d` debug build.
+- Recorded at 22:53:55: ringer 0, zen 1 (the "Sleeping" schedule), stay-on 2, media 11, alarm 1, ring 0, notification 0, font 1.15, night yes.
+- Silenced with media 0 and DND on. No `svc power`, sleep or power keys.
+- Restored: media 11; the rest was untouched.
+- **zen_mode now reads 0, not 1.** `set_dnd off` left the active Sleeping rule `OVERRIDE_DEACTIVATE` until it next ends and re-arms. A manual priority DND was not set in its place, because it wouldn't end in the morning. Ringer silent and notification volume 0 keep the phone silent.
+- Voice: Cori.
+
+| Check | Verdict | Evidence | Notes |
+|---|---|---|---|
+| Plain Cori chat reply | PASS | `s23u-rerun-chat-cori.log` | `speak_end … spoken=true reason=COMPLETED`; no crash. |
+| #1927 Home stops a Cori voice reply | PASS | `s23u-rerun-1927-home.log` | Home 23:03:26.95 → `INTERRUPTED_BACKGROUND` 23:03:27.40, then `playEnd`. No later `playStart` in 25 s; chunk 1 `discard … stale`. (Attempt 1 waited for a log tag this phone doesn't print, so Home came after the story had finished; it isn't counted.) |
+| #1942 Cori readout (`JandalTest` only, filter first) | PASS | `s23u-rerun-1942-readout.log` | `pause ms=400`, gap after the pause 2 ms, later gaps 0 ms and 0 ms, `COMPLETED`. Card rows showed only `Test …`. The spoken text isn't logged on this phone (no `KernelAI_TTS` lines); checked on the S21. |
+| #1942 Home mid-readout | PASS | `s23u-rerun-1942-readout-home.log` (+ `-run1.log`) | `INTERRUPTED_BACKGROUND` 0.42 s after Home; no `mCbf` line. Run 1: One UI delivered `ON_STOP` 3.07 s after Home, so one more chunk started before the stop. |
+| Observation | – | `s23u-rerun-1942-readout-stopped-once.log` | One readout, just after the app returned from the background while the engine re-initialised after an eviction, ended `STOPPED` after 157 ms. Not reproduced: a 90 s background idle and a forced eviction (`am send-trim-memory … BACKGROUND`) both ended `COMPLETED`. |
+
+Cleanup:
+- Calendar id 13 and its events deleted; the filter cleared.
+- `READ_CALENDAR` back to `granted=false` (no USER_SET, as recorded).
+- Chats (3) and Actions cards (8) from 22:53 on deleted; DB read-back 0.
+- Token and `/sdcard/b7.xml` removed.

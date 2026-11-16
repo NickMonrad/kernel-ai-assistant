@@ -64,4 +64,24 @@
 | Chats created tonight (14) | created | deleted in the UI |
 | Test list `shopping` (created by the first agent; none existed before) | created | deleted |
 | 2 chats + 2 Actions cards "tell me a short story about a dog" (22:13, 22:18) | created by the `fix-1968-lexicon` agent's runs, not by QA | deleted by me at 22:27 while cleaning up, before I knew whose they were; its harness token file was also removed (its run had finished and released the lock) |
-| Installed debug build | `8173f2dd` (21:28:57) | **not restored:** the S21 still has the #1968-fix agent's build `6910c1a7` (`lastUpdateTime=2026-11-16 22:12:34`). A clean `origin/main` debug build will be installed after the post-#1969 re-run. |
+| Installed debug build | `8173f2dd` (21:28:57) | Between 22:12:34 and 22:54:17 the S21 had the #1968-fix agent's build `6910c1a7`. Since 22:54:17 it has the clean `origin/main` `e227d09d` debug build (sha256 `65a2386b…eea3`), installed for the re-run and left in place. |
+
+## Re-run after #1969 (`origin/main` `e227d09d`, APK sha256 `65a2386b…eea3`)
+
+- Lock `b7qa-parent`, 22:54–23:11:43 AEST.
+- Recorded and silenced: ringer 2→SILENT, zen 0→DND on, media 2→0, notification 11→0, stay-on 0→usb.
+- All restored and verified: ringer 2, zen 0, media 2, alarm 11, ring 11, notification 11, stay-on 0, font 1.15, night no.
+- Voice: Cori (Piper `en_GB-cori-high`).
+
+| Check | Verdict | Evidence | Notes |
+|---|---|---|---|
+| Plain Cori chat reply | PASS | `s21-rerun-chat-cori.log` | `speaking_started engine=sherpa_stream`, then `speak_end … spoken=true reason=COMPLETED`; no crash. |
+| #1927 screen off keeps a Cori reply speaking | PASS | `s21-rerun-1927-screenoff.log` | Sleep key at 22:56:35.2. Chunks 1–3 then played with the screen off (gaps 7, 5, 283 ms), up to the wake key at 22:57:00.5. |
+| #1942 Cori readout (`JandalTest` only, filter first) | PASS | `s21-rerun-1942-readout.log` | Spoken: "You have five events today." / `pause ms=400` / "seven thirty to seven thirty five A-M, Test standup." / "ten o'clock to ten fifteen A-M, Test Jandle sync. one o'clock to one forty five P M, …". Gap after the pause 577 ms, later gaps 2 ms and 2 ms. `speak_end … reason=COMPLETED`. |
+| #1942 Home mid-readout | PASS | `s21-rerun-1942-readout-home.log` | `INTERRUPTED_BACKGROUND` 0.65 s after Home; chunk 2 `discard … stale`; no `mCbf` line. |
+
+Cleanup:
+- Calendar id 11 and its events deleted; the filter cleared.
+- `READ_CALENDAR` back to `granted=false, USER_SET`.
+- Chats (2) and Actions cards (4) from 22:53 on deleted; DB read-back 0. The #1968-fix agent's 22:29 rows were left.
+- Token removed.
