@@ -95,6 +95,12 @@ const val EXTRA_PREFILLED_TRANSCRIPT = "prefilled_transcript"
 
 /** Intent extra set by [WakeWordService] when it opens the overlay for a live Hey Jandal capture (#1930). */
 const val EXTRA_WAKE_OVERLAY = "wake_overlay"
+
+/** #1930: a wake intent shows the overlay only while its capture is live; otherwise it closes. */
+internal fun wakeOverlayShows(state: WakeOverlayState): Boolean = state is WakeOverlayState.Active
+
+/** #1930: delay before a routed wake overlay closes when its prefilled transcript never arrives. */
+internal const val WAKE_ROUTED_FINISH_TIMEOUT_MS = 2_000L
 /**
  * Validates a prefilled transcript extra against the in-process [WakeWordHandoff] token.
  *
@@ -138,6 +144,8 @@ class VoiceCommandActivity : ComponentActivity() {
     private var toneGenerator: ToneGenerator? = null
     /** Observer of [WakeOverlayChannel] while a Hey Jandal overlay is shown (#1930). */
     private var wakeOverlayJob: Job? = null
+    /** True when launched as a Hey Jandal wake overlay (#1930); decides cancel-on-destroy. */
+    private var wakeIntentSeen = false
 
     private val requestMicPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -221,7 +229,14 @@ class VoiceCommandActivity : ComponentActivity() {
      */
     internal fun handleWakeOverlayIntent(intent: Intent): Boolean {
         if (!intent.getBooleanExtra(EXTRA_WAKE_OVERLAY, false)) return false
-        if (WakeOverlayChannel.state.value is WakeOverlayState.Active) startWakeOverlay() else finish()
+        wakeIntentSeen = true
+        if (wakeOverlayShows(WakeOverlayChannel.state.value)) {
+            // #1930: a wake-launched overlay turns the screen on so it is visible with the screen off.
+            setTurnScreenOn(true)
+            startWakeOverlay()
+        } else {
+            finish()
+        }
         return true
     }
 
@@ -264,7 +279,16 @@ class VoiceCommandActivity : ComponentActivity() {
                         }
                         partialText = state.partialText
                     }
-                    is WakeOverlayState.Ended -> if (!state.routed && !isFinishing) finish()
+                    is WakeOverlayState.Ended -> when {
+                        isFinishing -> Unit
+                        !state.routed -> finish()
+                        // Routed: the prefilled transcript cancels this observer. If it never
+                        // arrives, close rather than leave the overlay hanging.
+                        else -> {
+                            delay(WAKE_ROUTED_FINISH_TIMEOUT_MS)
+                            finish()
+                        }
+                    }
                     WakeOverlayState.Idle -> Unit
                 }
             }
@@ -486,7 +510,14 @@ class VoiceCommandActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        voiceInputController.stopListening()
+        if (wakeIntentSeen) {
+            // #1930: closing the wake overlay (X, backdrop, Back and Home all finish the activity)
+            // cancels the live capture; the service's cancellation path stops the recognizer.
+            // A configuration change keeps the capture running.
+            if (!isChangingConfigurations) WakeOverlayChannel.requestCancel()
+        } else {
+            voiceInputController.stopListening()
+        }
         toneGenerator?.release()
         toneGenerator = null
     }

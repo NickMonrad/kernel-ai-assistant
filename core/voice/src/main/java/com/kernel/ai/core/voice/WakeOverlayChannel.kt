@@ -3,6 +3,7 @@ package com.kernel.ai.core.voice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 
 /** Phase of the Hey Jandal overlay (#1930). The UI maps this onto its own phase labels. */
@@ -35,7 +36,7 @@ sealed interface WakeOverlayState {
 internal fun WakeOverlayState.onWakeEvent(event: VoiceInputEvent): WakeOverlayState {
     if (this !is WakeOverlayState.Active) return this
     return when (event) {
-        is VoiceInputEvent.ListeningStarted -> copy(phase = WakeOverlayPhase.Listening)
+        is VoiceInputEvent.ListeningStarted -> copy(phase = WakeOverlayPhase.Listening, partialText = "")
         is VoiceInputEvent.PartialTranscript -> copy(partialText = event.text)
         is VoiceInputEvent.SpeechEnded -> copy(phase = WakeOverlayPhase.Processing)
         // The service retries once; the retry's ListeningStarted restores the Listening phase.
@@ -51,15 +52,33 @@ internal fun WakeOverlayState.onWakeEvent(event: VoiceInputEvent): WakeOverlaySt
 object WakeOverlayChannel {
     private val _state = MutableStateFlow<WakeOverlayState>(WakeOverlayState.Idle)
     val state: StateFlow<WakeOverlayState> = _state.asStateFlow()
+    private val _cancelRequested = MutableStateFlow(false)
 
     /** Called before the overlay is launched and the wake capture starts. */
     fun begin() {
+        _cancelRequested.value = false
         _state.value = WakeOverlayState.Active(WakeOverlayPhase.Listening, "")
     }
 
     fun onEvent(event: VoiceInputEvent) {
         _state.update { it.onWakeEvent(event) }
     }
+
+    /**
+     * The user closed the overlay (X, backdrop, Back, Home). Only meaningful while a wake capture
+     * is live; the service cancels the capture when it sees this.
+     */
+    fun requestCancel() {
+        if (_state.value is WakeOverlayState.Active) _cancelRequested.value = true
+    }
+
+    /** Suspends until [requestCancel] is called for the current wake capture. */
+    suspend fun awaitCancelRequest() {
+        _cancelRequested.first { it }
+    }
+
+    /** True once [requestCancel] has been honoured for the current wake capture. */
+    fun isCancelRequested(): Boolean = _cancelRequested.value
 
     /** A transcript was handed to the overlay activity, which owns the rest of the flow. */
     fun markRouted() {
@@ -71,3 +90,4 @@ object WakeOverlayChannel {
         _state.update { if (it is WakeOverlayState.Active) WakeOverlayState.Ended(routed = false) else it }
     }
 }
+

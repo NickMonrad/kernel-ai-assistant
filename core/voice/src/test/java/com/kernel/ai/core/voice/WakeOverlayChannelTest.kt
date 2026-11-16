@@ -2,6 +2,8 @@ package com.kernel.ai.core.voice
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 
 class WakeOverlayChannelTest {
 
@@ -55,5 +57,30 @@ class WakeOverlayChannelTest {
         channel.begin()
         channel.end()
         assertEquals(WakeOverlayState.Ended(routed = false), channel.state.value)
+    }
+
+    @Test
+    fun `a retry does not keep the previous attempt's partial text`() {
+        val withOldText = WakeOverlayState.Active(WakeOverlayPhase.Listening, "old words")
+        assertEquals(
+            WakeOverlayState.Active(WakeOverlayPhase.Listening, ""),
+            withOldText.onWakeEvent(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand)),
+        )
+    }
+
+    @Test
+    fun `cancel is honoured only for a live wake capture`() {
+        val channel = WakeOverlayChannel
+        channel.begin()
+        assertFalse(channel.isCancelRequested())
+        channel.requestCancel()
+        assertTrue(channel.isCancelRequested())
+
+        channel.end()
+        channel.begin()
+        assertFalse(channel.isCancelRequested(), "begin resets a previous cancel request")
+        channel.end()
+        channel.requestCancel()
+        assertFalse(channel.isCancelRequested(), "a request after the capture ended is ignored")
     }
 }

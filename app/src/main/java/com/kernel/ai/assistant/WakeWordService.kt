@@ -217,6 +217,7 @@ internal suspend fun runWakeAttempt(
     cuePlayer: StartListeningCuePlayer,
     attempt: Int,
     onError: (String) -> Unit = {},
+    onWakeEvent: (VoiceInputEvent) -> Unit = {},
 ): WakeAttemptOutcome = coroutineScope {
     val attemptEvents = Channel<VoiceInputEvent>(Channel.BUFFERED)
     val collectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -269,6 +270,7 @@ internal suspend fun runWakeAttempt(
                         )
                     }
                     if (!event.isWakeSessionEvent(captureSessionId)) continue
+                    onWakeEvent(event)
                     when (event) {
                         is VoiceInputEvent.SpeechDetected -> journal.record(
                             AcousticEventType.STT_SPEECH_DETECTED,
@@ -458,6 +460,8 @@ internal suspend fun runWakeCommandHandoff(
     onSessionTerminal: () -> Unit,
     journal: WakeSessionJournal? = null,
     capturePermitted: () -> Boolean = { true },
+    onWakeEvent: (VoiceInputEvent) -> Unit = {},
+    isCancelled: () -> Boolean = { false },
 ): WakeCommandHandoffResult {
     // #1433: a confirmed wake activation must not request live STT capture until the
     // wake detector has completed microphone-resource release.
@@ -485,13 +489,17 @@ internal suspend fun runWakeCommandHandoff(
                 cuePlayer = cuePlayer,
                 attempt = attempt,
                 onError = onError,
+                onWakeEvent = onWakeEvent,
             )
         }
 
         cancellationCategory = sessionResult.cancellationCategory
         val transcript = sessionResult.transcript
 
-        if (transcript != null) {
+        if (transcript != null && isCancelled()) {
+            // #1930: the user closed the overlay after capture; the command must not run.
+            cancellationCategory = "wake_overlay_cancelled"
+        } else if (transcript != null) {
             if (routeTranscript(transcript)) {
                 sessionJournal.record(
                     AcousticEventType.COMMAND_ROUTING_RESULT,
@@ -769,7 +777,6 @@ class WakeWordService : Service() {
         // Automatically yield the AudioRecord whenever another voice session is active.
         eventCollectorJob = serviceScope.launch {
             voiceInputController.events.collect { event ->
-                WakeOverlayChannel.onEvent(event)
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
                         isVoiceSessionActive = true
@@ -938,26 +945,39 @@ class WakeWordService : Service() {
             isHandlingDetection = true
             WakeOverlayChannel.begin()
             showWakeOverlay()
-            try {
-                runWakeCommandHandoff(
-                    wakeWordDetector = wakeWordDetector,
-                    voiceInputController = voiceInputController,
-                    cuePlayer = cuePlayer,
-                    generationId = generationId,
-                    sessionId = sessionId,
-                    onError = { msg -> if (msg.isNotBlank()) showWakeWordError(msg) },
-                    routeTranscript = ::routeTranscript,
-                    onSessionTerminal = {
+            coroutineScope {
+                val handoff = launch {
+                    try {
+                        runWakeCommandHandoff(
+                            wakeWordDetector = wakeWordDetector,
+                            voiceInputController = voiceInputController,
+                            cuePlayer = cuePlayer,
+                            generationId = generationId,
+                            sessionId = sessionId,
+                            onError = { msg -> if (msg.isNotBlank()) showWakeWordError(msg) },
+                            routeTranscript = ::routeTranscript,
+                            onSessionTerminal = {
+                                isHandlingDetection = false
+                                WakeOverlayChannel.end()
+                                rearmDetector()
+                            },
+                            // #1502: a camera-driven yield must not be undone by the session's retry.
+                            capturePermitted = { !isWakeCaptureSuspended },
+                            onWakeEvent = WakeOverlayChannel::onEvent,
+                            isCancelled = WakeOverlayChannel::isCancelRequested,
+                        )
+                    } catch (e: CancellationException) {
                         isHandlingDetection = false
-                        WakeOverlayChannel.end()
-                        rearmDetector()
-                    },
-                    // #1502: a camera-driven yield must not be undone by the session's retry.
-                    capturePermitted = { !isWakeCaptureSuspended },
-                )
-            } catch (e: CancellationException) {
-                isHandlingDetection = false
-                throw e
+                        throw e
+                    }
+                }
+                // #1930: closing the overlay cancels the live capture. The handoff's cancellation
+                // path stops the recognizer and re-arms the detector exactly once.
+                val cancelWatcher = launch {
+                    WakeOverlayChannel.awaitCancelRequest()
+                    handoff.cancel()
+                }
+                handoff.invokeOnCompletion { cancelWatcher.cancel() }
             }
         }
     }

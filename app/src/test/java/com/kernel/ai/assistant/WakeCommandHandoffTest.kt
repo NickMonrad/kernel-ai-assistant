@@ -456,6 +456,90 @@ class WakeCommandHandoffTest {
     }
 
     @Test
+    fun `closing the overlay during attempt 1 starts no retry and routes nothing`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(
+                VoiceInputStartResult.Started(1L),
+                VoiceInputStartResult.Started(2L),
+            ),
+            sharedOrder = order,
+        )
+        var routed = false
+        var rearmCount = 0
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(mutableListOf()),
+                routeTranscript = { routed = true; true },
+                onSessionTerminal = { rearmCount++ },
+            )
+        }
+        runCurrent()
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        runCurrent()
+
+        // The user closes the overlay mid-capture: the service cancels the handoff job.
+        job.cancel()
+        runCurrent()
+        // A stop from attempt 1 after cancellation would otherwise trigger the retry.
+        controller.emit(VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "recognition failed", captureSessionId = 1L))
+        runCurrent()
+
+        assertEquals(listOf(1L), controller.startCalls, "closing the overlay must not start attempt 2")
+        assertFalse(routed)
+        assertEquals(1, rearmCount, "re-arm happens exactly once")
+        assertEquals(1, controller.stopCalls, "the recognizer is stopped on cancel")
+    }
+
+    @Test
+    fun `a transcript captured after the overlay was closed is not routed`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(1L)),
+            sharedOrder = order,
+        )
+        var routed = false
+        var rearmCount = 0
+        var closed = false
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(mutableListOf()),
+                routeTranscript = { routed = true; true },
+                onSessionTerminal = { rearmCount++ },
+                isCancelled = { closed },
+            )
+        }
+        runCurrent()
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        runCurrent()
+
+        closed = true
+        controller.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "what time is it", captureSessionId = 1L))
+        runCurrent()
+        job.join()
+
+        assertEquals(listOf(1L), controller.startCalls)
+        assertFalse(routed, "a command must not run after the user closed the overlay")
+        assertEquals(1, rearmCount)
+    }
+
+    @Test
     fun `no-speech-exhausted first attempt skips the pointless retry`() = runTest {
         // #1433: when the first session's full no-speech window elapsed (in-place
         // refreshes spent, still no speech), the command window has closed — the
