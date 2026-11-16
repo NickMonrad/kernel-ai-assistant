@@ -2,9 +2,16 @@
 # usage: capture.sh SERIAL APK LABEL RUNS [PROMPT]
 # Installs APK (unless APK=-), idles 60 s, then runs RUNS voice prompts through the debug harness route
 # (first is a warm-up), saving the full logcat (-v epoch) per run under $OUTDIR (default /tmp/1923/logs; it
-# includes other apps, do not commit it; trim with trim.py first). The caller must hold the phone's lock.
+# includes other apps, do not commit it; trim with trim.py first).
+# The caller must hold the phone's lock (.docs/agents/risk-based-evidence-policy.md); the script exits otherwise.
 set -u
 S=$1; APK=$2; LABEL=$3; RUNS=$4
+case $S in
+  RFCW11265XH) LOCK=/tmp/jandal-s23u.lock ;;
+  R5CR605B71K) LOCK=/tmp/jandal-s21.lock ;;
+  *) echo "unknown serial $S: only the S23U and S21 test phones are allowed" >&2; exit 1 ;;
+esac
+[ -f "$LOCK/owner" ] || { echo "take $LOCK first (mkdir + owner file); not running" >&2; exit 1; }
 Q=${5:-"Tell me three short facts about kiwi birds, one sentence each."}
 PKG=ai.jandal.assistant.debug
 OUTDIR=${OUTDIR:-/tmp/1923/logs}; mkdir -p $OUTDIR

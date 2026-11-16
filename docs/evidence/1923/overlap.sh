@@ -3,11 +3,18 @@
 # MODE=probe: as soon as the turn logs generate_called, the debug SpeechProbeReceiver speaks probe.txt through
 # the production chunked path, so Sherpa synthesis and playback overlap the whole generation.
 # MODE=none: same voice prompt, no probe (speech only after generation, finalize path).
-# The app must already be installed, foregrounded and warm, and the caller must hold the phone's lock.
+# The app must already be installed, foregrounded and warm. The caller must hold the phone's lock
+# (.docs/agents/risk-based-evidence-policy.md); the script exits otherwise.
 # Full logcat (-v epoch) per run goes to $OUTDIR (default /tmp/1923/logs; it includes other apps, do not commit
 # it; trim with trim.py first).
 set -u
 S=$1; LABEL=$2; RUNS=$3; MODE=$4
+case $S in
+  RFCW11265XH) LOCK=/tmp/jandal-s23u.lock ;;
+  R5CR605B71K) LOCK=/tmp/jandal-s21.lock ;;
+  *) echo "unknown serial $S: only the S23U and S21 test phones are allowed" >&2; exit 1 ;;
+esac
+[ -f "$LOCK/owner" ] || { echo "take $LOCK first (mkdir + owner file); not running" >&2; exit 1; }
 Q=${5:-"Tell me three short facts about kiwi birds, one sentence each."}
 PKG=ai.jandal.assistant.debug
 OUTDIR=${OUTDIR:-/tmp/1923/logs}; mkdir -p $OUTDIR
@@ -18,7 +25,13 @@ adb -s $S shell "run-as $PKG sh -c 'cat /proc/sys/kernel/random/uuid | tr -d - >
 adb -s $S push "$HERE/probe.txt" /data/local/tmp/probe1923.txt >/dev/null
 adb -s $S shell "cat /data/local/tmp/probe1923.txt | run-as $PKG sh -c 'cat > files/probe1923.txt'"
 PROBE_PATH=/data/data/$PKG/files/probe1923.txt
-thermal() { adb -s $S shell dumpsys thermalservice | grep -m1 'Thermal Status' | grep -o '[0-9]*'; }
+# Thermal status 0-6 from dumpsys; 9 (and a warning) when it cannot be read, so the gate below does not spin silently.
+thermal() {
+  local t
+  t=$(adb -s $S shell dumpsys thermalservice | grep -m1 'Thermal Status' | grep -o '[0-9]*')
+  if [ -z "$t" ]; then echo "warning: could not read thermal status on $S; treating it as 9" >&2; t=9; fi
+  echo "$t"
+}
 for r in $(seq 1 $RUNS); do
   name=$LABEL-$MODE-run$r
   # Start each run below thermal status 3 (severe): at 3 decode and TTS are both throttled. At rest on USB power

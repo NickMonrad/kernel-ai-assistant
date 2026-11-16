@@ -4,6 +4,10 @@ Status: **timeline and design note only. Live speech is not shipped.** Under the
 ("speak only text confirmed not to precede a tool call"), speech cannot start before generation completes,
 because the model is allowed to call a tool after any text it has streamed. Details and options below.
 
+**Decision (owner, 2026-11-16):** #1923 moves to Build 8 with option A (synthesise ahead, play on confirmation).
+New Done-when bullet 2: "speech starts within about 0.5 s of the reply finishing". Option A alone does not meet it
+for long first chunks; Build 8 also needs a first-chunk length cap (see "Option A requirements for Build 8").
+
 ## Summary
 
 1. **No token lag.** `ChatViewModel` collects each token 0–5 ms after `LiteRtInferenceEngine` emits it. Tokens are
@@ -13,7 +17,8 @@ because the model is allowed to call a tool after any text it has streamed. Deta
 3. **The 1.1–1.2 s in the issue is gone on current main.** In the builds measured for #1892 (main 6e0c34cd,
    branch ccd694b8), the Complete handler persisted the reply and ran `ragRepository.indexMessage` for the user
    and assistant messages *before* `finalizeVoicePlaybackForResponse` (code order, both commits). #1915 round 4
-   moved speech before persistence. Current main (c93200bb) queues the first chunk 86–124 ms after `lastToken`.
+   moved speech before persistence. Current main (c93200bb) queues the first chunk 86–124 ms (S23U) and
+   110–182 ms (S21) after `lastToken`.
 4. **What is left after `lastToken` is first-chunk synthesis.** Cori high takes ~2.0 s (S23U) and 2.2–2.5 s
    (S21) to synthesise the first ~40–57-character chunk. `lastToken→SpeakingStarted` is +2.1–2.2 s (S23U)
    and +2.3–2.6 s (S21).
@@ -28,9 +33,10 @@ because the model is allowed to call a tool after any text it has streamed. Deta
    −10.1% (7 pairs, −32.3% to +12.3%; its two faster, likely unthrottled pairs were −19% and −32%). Live speech
    overlaps only the visible-answer phase (3–5 s), so this adds ~0.1 s (S23U) and ~0.35 s (S21) to generation.
    Details in "Decode overlap".
-8. **Recommendation: option A, synthesise ahead and play on confirmation.** Projected `lastToken→SpeakingStarted`
-   +0.22 to +0.38 s (S23U) and ~0 s (S21), against +2.1 to +2.6 s today, and no unconfirmed text is ever audible.
-   It cannot be negative, so it needs the owner to accept that change to Done-when bullet 2. See "Options".
+8. **Decision: option A, synthesise ahead and play on confirmation (Build 8).** Projected `lastToken→SpeakingStarted`
+   +0.22 to +0.38 s (S23U) and ~0 s (S21) for these replies, against +2.1 to +2.6 s today, and no unconfirmed text
+   is ever audible. A 104-character first chunk projects +3.13 s, so meeting the 0.5 s target also needs a cap on
+   first-chunk length. See "Options" and "Option A requirements for Build 8".
 
 ## Timeline: current main (c93200bb), S23U
 
@@ -107,10 +113,19 @@ starts (#1915 round 3) is a heuristic, not a confirmation: a multi-sentence prea
 
 ## Options
 
-**A. Synthesise ahead, play on confirmation (recommended).** During generation, open the speech session and queue
-the first sentence (and the following ones) for *synthesis*, with playback held. At Complete, if the final spoken
-text starts with the queued text, release playback and append the rest; otherwise cancel the session. Never audible
-before confirmation, so every scope-note case is covered by construction:
+**A. Synthesise ahead, play on confirmation (chosen for Build 8).** During generation, open the speech session and
+queue the first chunk for *synthesis* only, with playback held. The first chunk is cut from the streamed `Token` text
+with the same chunker as finalize (`popNextStreamingSpeechChunk`, 40-char minimum, sentence ends only). At Complete,
+finalize runs `speakInSentenceChunks`' normalisation and chunking on the final *spoken* text (which may be a
+`spokenOverride`, a tool's spoken summary or a calendar line rather than the reply) and compares its chunk 0 with the
+held chunk. Equal: release playback and append chunks 1… to the same session. Any difference: cancel the held
+session and speak the final text on a fresh one, as today. An exact chunk-0 match is needed because chunk 0's
+boundary and normalisation depend on the text after it (the 40-char minimum merges "Kia ora." into the next sentence;
+the short-tail fold and list-marker rules look ahead), so "the final text starts with the queued text" is not a
+sound check. Only chunk 0 is synthesised ahead, matching the owner's "first sentence": with synthesis ~30% slower
+during decode on the S23U, synthesising later chunks during generation would slow chunk 0 and the decode for no gain,
+because #1951's pipeline already synthesises chunk N+1 while chunk N plays. Never audible before confirmation, so
+every scope-note case is covered by construction:
 - pre-tool text: a native call (`tool_call_received` / terminal tool called) or a text `<|tool_call>` cancels the
   held session; nothing was audible;
 - native tool with no follow-up text: same cancel; finalize speaks the tool's spoken summary as today;
@@ -136,26 +151,41 @@ slowdown over the visible phase after the first sentence:
 (`lastToken→SpeakingStarted`. A and B are projections, not measurements.)
 
 On the S23U both options are bound by first-chunk synthesis, so A loses nothing against B for these replies. On the
-S21 A trails B by ~1.2–1.5 s. `lastToken→SpeakingStarted` is never negative under A, so Done-when bullet 2 would need
-to read "about zero, or synthesis-bound" instead. Android TTS (system engine) cannot synthesise without playing, so
-it gains nothing from A; it only needs the held-text path, which is today's behaviour.
+S21 A trails B by ~1.2–1.5 s. `lastToken→SpeakingStarted` is never negative under A; the owner replaced Done-when
+bullet 2 with "speech starts within about 0.5 s of the reply finishing". Android TTS (system engine) cannot
+synthesise without playing, so it gains nothing from A; it only needs the held-text path, which is today's behaviour.
 
-**B. Live speech, accepting speculative audio.** Speak the first sentence when it is complete. Gains over A in these
-runs: none on the S23U, 1.2–1.5 s on the S21. Cost: a sentence before a tool call or from a retried pass can be
-audible and cannot be recalled; the case #1915's review rounds removed live speech over.
+**B. Live speech, accepting speculative audio (not chosen).** Speak the first sentence when it is complete. Gains
+over A in these runs: none on the S23U, 1.2–1.5 s on the S21. Cost: a sentence before a tool call or from a retried
+pass can be audible and cannot be recalled; the case #1915's review rounds removed live speech over.
 
-**C. Change the rule for plain chat only.** Live speech when the router did not classify the turn as a tool query,
-A otherwise. Still speaks a pre-tool sentence when the model calls a tool in a plain-chat turn (one kiwi run here
-called `query_wikipedia`). Needs an owner decision on that risk.
+**C. Change the rule for plain chat only (not chosen).** Live speech when the router did not classify the turn as a
+tool query, A otherwise. Still speaks a pre-tool sentence when the model calls a tool in a plain-chat turn (one kiwi
+run here called `query_wikipedia`).
 
-A is the only option that satisfies the scope note. It needs a held-playback session API in `:core:voice` (Sherpa:
-hold the playback consumer on a release signal; Fallback/Inflect: pass through) and the ChatViewModel wiring above,
-with unit tests per edge case (tool call after partial text, native tool with no follow-up, retry, cancel without
-`SpeakingStopped`, Home mid-stream). Not started here, pending the owner's choice.
+A is the only option that satisfies the scope note, and the owner chose it for Build 8. It needs a held-playback
+session API in `:core:voice` (Sherpa: hold the playback consumer on a release signal; Fallback/Inflect: pass
+through) and the ChatViewModel wiring above, with unit tests per edge case (tool call after partial text, native
+tool with no follow-up, retry, cancel without `SpeakingStopped`, Home mid-stream).
 
-Cheaper levers that help today's path and any option: a shorter first chunk (the 40-char minimum merges "Kia ora."
-into the next sentence; the warm-up's 104-char first chunk took 4.9 s to synthesise) and Sherpa thread count while
-the LLM decodes (4 threads since #1951).
+### Option A requirements for Build 8
+
+Against the new target (about 0.5 s from `lastToken` to `SpeakingStarted`), option A alone is not enough:
+
+- **First-chunk length cap (required).** Playback starts at first-chunk-ready + its synthesis time. With
+  contention, Cori high on the S23U took 47–51 ms per character of first chunk (35–38 ms idle × 1.32) in runs 1–3
+  and 62 ms in the warm-up, and the first chunk was complete 2.3–3.3 s before (contention-adjusted) `lastToken`.
+  Solving for +0.5 s gives a cap of 56–63 characters (run 2: 56, run 1: 59, warm-up: 62, run 3: 63). A first chunk
+  of about **57 characters or fewer** keeps these replies under 0.5 s; run 1 (57 chars) projects +0.38 s, the
+  warm-up's 104-character chunk +3.13 s. A long first sentence then needs a split rule (for example at a clause
+  comma after the 40-char minimum), which relaxes #1915's "never cut mid-sentence" for the first chunk only; Build 8
+  must choose the rule.
+- **Known limit.** The cap helps only when the first chunk is complete well before the reply ends. When it ends at
+  or near `lastToken` (a one-sentence reply, or a first sentence that is most of the reply), playback still waits
+  for its synthesis: ~37 ms per character idle on the S23U, so 0.5 s covers only ~13 characters. Such replies will
+  not meet 0.5 s with Cori high under any of A, B or C.
+- **Thread count.** Sherpa uses 4 threads (#1951). Fewer threads during generation would cut the decode slowdown
+  but slow chunk 0; measure before changing.
 
 ## Decode overlap
 
