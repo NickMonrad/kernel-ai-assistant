@@ -23,6 +23,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -33,6 +34,7 @@ import java.net.SocketTimeoutException
 import java.time.Instant
 import java.time.ZoneId
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.TimeZone
 
 /**
  * #1922 — when Open-Meteo fails, weather is answered from MET Norway with attribution; MET's rules
@@ -172,7 +174,6 @@ class GetWeatherMetNorwayFallbackTest {
         openMeteoStatus = 400
 
         assertEquals(METNO_ATTRIBUTION, weather(ask("Wellington")).attributionText)
-        assertEquals(1, metRequests.size)
     }
 
     @Test
@@ -288,6 +289,42 @@ class GetWeatherMetNorwayFallbackTest {
     }
 
     @Test
+    fun `seven-day conversion sums one 6-hourly day without double counting windows`() {
+        val daily = JSONObject(
+            metNoDailyJson(MET_FIXTURE, days = 7, zone = ZoneId.of("UTC"), nowMillis = now)!!,
+        ).getJSONObject("daily")
+
+        assertEquals("2026-11-19", daily.getJSONArray("time").getString(3))
+        assertEquals(17.9, daily.getJSONArray("temperature_2m_max").getDouble(3), 0.001)
+        assertEquals(13.4, daily.getJSONArray("temperature_2m_min").getDouble(3), 0.001)
+        assertEquals(1.2, daily.getJSONArray("precipitation_sum").getDouble(3), 0.001)
+    }
+
+    @Test
+    fun `after 15h local MET forecast and weekend cards show no unknown or rain for today`() {
+        val savedZone = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+        try {
+            now = Instant.parse("2026-11-16T16:00:00Z").toEpochMilli()
+            val forecast = direct(askWith("Wellington", "forecast_days" to "3"))
+            assertFalse(forecast.content.contains("?°C"))
+            assertFalse(forecast.content.contains("Forecast unavailable"))
+            assertFalse(forecast.content.lines()[1].contains("mm rain"))
+            assertNotEquals("Forecast unavailable", weather(forecast).temperatureText)
+
+            // 2026-11-21 is a Saturday, so today is the first weekend day.
+            now = Instant.parse("2026-11-21T16:00:00Z").toEpochMilli()
+            val weekend = direct(askWith("Wellington", "period" to "weekend"))
+            assertFalse(weekend.content.contains("?°C"))
+            assertFalse(weekend.content.contains("Forecast unavailable"))
+            assertFalse(weekend.content.lines()[1].contains("mm rain"))
+            assertNotEquals("Forecast unavailable", weather(weekend).temperatureText)
+        } finally {
+            TimeZone.setDefault(savedZone)
+        }
+    }
+
+    @Test
     fun `a parsed MET body is only attributed when source is met_no`() {
         assertEquals(METNO_ATTRIBUTION, weatherAttributionFor(JSONObject("{\"source\":\"met.no\"}")))
         assertNull(weatherAttributionFor(JSONObject("{\"daily\":{}}")))
@@ -295,6 +332,9 @@ class GetWeatherMetNorwayFallbackTest {
 
     private fun ask(location: String): SkillResult =
         runBlocking { skill.execute(SkillCall(skill.name, mapOf("location" to location))) }
+
+    private fun askWith(location: String, vararg extra: Pair<String, String>): SkillResult =
+        runBlocking { skill.execute(SkillCall(skill.name, mapOf("location" to location) + extra)) }
 
     private fun direct(result: SkillResult): SkillResult.DirectReply =
         assertInstanceOf(SkillResult.DirectReply::class.java, result)

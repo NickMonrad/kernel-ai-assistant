@@ -596,10 +596,11 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
             val desc = wmoDescription(code)
             val high = maxTemps.optDouble(i, Double.NaN)
             val low = minTemps.optDouble(i, Double.NaN)
-            val rain = precip.optDouble(i, 0.0)
+            val rain = precip.optDouble(i, Double.NaN)  // NaN after the MET cutoff (#1922)
             val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
             val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
-            val rainStr = "%.0fmm rain".format(rain)
+            val tempsStr = if (high.isNaN() && low.isNaN()) "" else " $highStr / $lowStr"
+            val rainStr = if (rain.isNaN()) "" else ", %.0fmm rain".format(rain)
             val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
             val uvStr = uvMax?.let { " | UV max: %.0f (%s)".format(it, uvIndexLabel(it)) } ?: ""
             val sunrise = sunriseArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
@@ -610,7 +611,7 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
                 sunset != null -> " | 🌇 $sunset"
                 else -> ""
             }
-            append("$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr\n")
+            append("$formattedDate: $emoji $desc$tempsStr$rainStr$uvStr$sunStr\n")
         }
     }.trimEnd()
 
@@ -619,7 +620,7 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
         val code = codes.optInt(i, -1)
         val high = maxTemps.optDouble(i, Double.NaN)
         val low = minTemps.optDouble(i, Double.NaN)
-        val rain = precip.optDouble(i, 0.0)
+        val rain = precip.optDouble(i, Double.NaN)
         val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
         val sunrise = sunriseArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
         val sunset = sunsetArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
@@ -652,9 +653,13 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
     }
 
     val first = indices.first()
-    val firstCode = codes.optInt(first, -1)
-    val firstHigh = maxTemps.optDouble(first, Double.NaN)
-    val firstLow = minTemps.optDouble(first, Double.NaN)
+    // Headline: first day with temperatures. After the MET 15:00 cutoff, today has none (#1922).
+    val head = indices.firstOrNull {
+        !maxTemps.optDouble(it, Double.NaN).isNaN() || !minTemps.optDouble(it, Double.NaN).isNaN()
+    } ?: first
+    val firstCode = codes.optInt(head, -1)
+    val firstHigh = maxTemps.optDouble(head, Double.NaN)
+    val firstLow = minTemps.optDouble(head, Double.NaN)
     val firstRain = precip.optDouble(first, Double.NaN)
     val firstUv = uvMaxArr?.let {
         if (first < it.length() && !it.isNull(first)) it.getDouble(first) else null
@@ -671,7 +676,7 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
             if (isNotEmpty()) append(" / ")
             append("%.0f°C".format(firstLow))
         }
-    }.ifBlank { "Forecast unavailable" }
+    }.ifBlank { wmoDescription(firstCode) }
     val highLowText = buildString {
         if (!firstHigh.isNaN()) append("High %.0f°C".format(firstHigh))
         if (!firstLow.isNaN()) {
@@ -1267,7 +1272,7 @@ class GetWeatherSkill @Inject constructor(
             val code = codes.optInt(i, -1)
             val high = maxTemps.optDouble(i, Double.NaN)
             val low = minTemps.optDouble(i, Double.NaN)
-            val rain = precip.optDouble(i, 0.0)
+            val rain = precip.optDouble(i, Double.NaN)
             val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
             val sunrise = sunriseArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
             val sunset = sunsetArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
@@ -1296,9 +1301,13 @@ class GetWeatherSkill @Inject constructor(
             Triple(formattedDate, desc, Pair(high.takeUnless { it.isNaN() }, low.takeUnless { it.isNaN() }))
         }
         Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast")
-        val firstCode = codes.optInt(0, -1)
-        val firstHigh = maxTemps.optDouble(0, Double.NaN)
-        val firstLow = minTemps.optDouble(0, Double.NaN)
+        // Headline: first day with temperatures. After the MET 15:00 cutoff, today has none (#1922).
+        val head = (0 until len).firstOrNull {
+            !maxTemps.optDouble(it, Double.NaN).isNaN() || !minTemps.optDouble(it, Double.NaN).isNaN()
+        } ?: 0
+        val firstCode = codes.optInt(head, -1)
+        val firstHigh = maxTemps.optDouble(head, Double.NaN)
+        val firstLow = minTemps.optDouble(head, Double.NaN)
         val firstRain = precip.optDouble(0, Double.NaN)
         val firstUv = uvMaxArr?.let {
             if (it.length() > 0 && !it.isNull(0)) it.getDouble(0) else null
@@ -1315,7 +1324,7 @@ class GetWeatherSkill @Inject constructor(
                 if (isNotEmpty()) append(" / ")
                 append("%.0f°C".format(firstLow))
             }
-        }.ifBlank { "Forecast unavailable" }
+        }.ifBlank { wmoDescription(firstCode) }
         val highLowText = buildString {
             if (!firstHigh.isNaN()) append("High %.0f°C".format(firstHigh))
             if (!firstLow.isNaN()) {
@@ -1886,7 +1895,7 @@ class GetWeatherSkill @Inject constructor(
     ): WeatherBody? {
         val stored = readMetNoRaw(lat, lon)
         if (stored != null && weatherClockMillis() < stored.expiresMillis) {
-            return metNoBody(stored, toMetNoJson)
+            return metNoBodyOrNull(stored, toMetNoJson)
         }
         if (weatherClockMillis() < metNoBackoffUntilMillis) {
             Log.w(TAG, "MET Norway skipped: rate-limited")
@@ -1931,10 +1940,21 @@ class GetWeatherSkill @Inject constructor(
             Log.w(TAG, "MET Norway failed (${e.javaClass.simpleName})")
             null
         }) ?: return null
-        val body = metNoBody(entry, toMetNoJson) ?: return null
+        val body = metNoBodyOrNull(entry, toMetNoJson) ?: return null
         writeMetNoRaw(lat, lon, entry)
         return body
     }
+
+    /** Converts a stored MET body; a conversion failure is a MET failure, not a crash of the whole lookup (#1922). */
+    private fun metNoBodyOrNull(entry: MetNoRawEntry, toMetNoJson: (String) -> String?): WeatherBody? =
+        try {
+            metNoBody(entry, toMetNoJson)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "MET Norway failed (${e.javaClass.simpleName})")
+            null
+        }
 
     /** Raw MET body for one coordinate (#1922). [fetchedAtMillis] is when MET sent it, not when we replayed it. */
     private data class MetNoRawEntry(
