@@ -240,7 +240,7 @@ fun SettingsScreen(
             ListItem(
                 modifier = Modifier.fillMaxWidth(),
                 headlineContent = { Text("Use your phone's colours") },
-                supportingContent = { Text("Colours from your wallpaper (Android 12+). Off uses Jandal.") },
+                supportingContent = { Text("Colours from your wallpaper") },
                 leadingContent = { Icon(Icons.Default.Palette, contentDescription = null) },
                 trailingContent = {
                     Switch(
