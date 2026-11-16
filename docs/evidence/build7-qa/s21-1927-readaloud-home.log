@@ -1,0 +1,7 @@
+# S21 R5CR605B71K, main 8173f2dd debug, Android TTS (Sherpa crashes, #1968). 'Speak message' on the story reply in chat, then KEYCODE_HOME (sent right after the adbd marker line); 20 s observed.
+11-16 22:00:59.839 D/KernelAI_TTS(10677): speaking_started engine=android_tts chars=86 part=1/1
+11-16 22:00:59.839 I/KernelAI(10677): SpeakingStarted engine=android_tts chars=86 epochMs=1794830459839
+11-16 22:01:02.648 I/adbd    (25999): adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCEB7 MARKER home keyevent sent (read-aloud)'
+11-16 22:01:02.961 D/AudioTrack(11464): stop(527): called with 74656 frames delivered
+11-16 22:01:02.962 I/GoogleTTSServiceImpl(11464): Skipping Synthesiscallback.error() call for TextToSpeech.ERROR
+11-16 22:01:02.964 I/MediaFocusControl( 7908): abandonAudioFocus() from uid/pid 10300/10677 clientId=android.media.AudioManager@78ce676com.kernel.ai.core.voice.AndroidTextToSpeechController$$ExternalS

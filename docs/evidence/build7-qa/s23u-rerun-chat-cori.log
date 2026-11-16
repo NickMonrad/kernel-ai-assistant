@@ -1,0 +1,19 @@
+# Re-run after #1969 on origin/main e227d09d (debug APK sha256 65a2386b…eea3), Cori (Sherpa Piper en_GB-cori-high). Phones silenced; judged from logs.
+# S23U RFCW11265XH: quick_action_input_encoded 'Say hello to me in one short sentence', quick_action_is_voice=true (falls through to chat).
+
+## logcat (filtered)
+11-16 22:54:53.846 D/KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@24157f5 voicePlaybackState=com.kernel.ai.feature.ch
+11-16 22:54:54.336 D/KernelAI: ADB_ROUTE_DECISION commandId=42028ff0-1 result=fallthrough best_guess=null confidence=0.0
+11-16 22:55:32.195 I/LiteRtInferenceEngine: Generation complete: total=15459ms, TTFT=14728ms, visibleChunks=6 [backend=GPU]
+11-16 22:55:32.195 D/LiteRtInferenceEngine: VoiceTiming lastToken epochMs=1794833732195
+11-16 22:55:32.310 D/VoiceTiming: firstChunkQueued epochMs=1794833732310 chars=33
+11-16 22:55:34.294 I/VoiceTiming: synth token=1 chunk=0 chars=33 sid=0 startEpochMs=1794833732310 endEpochMs=1794833734293 synthMs=1983 audioMs=1678 rtf=1.18
+11-16 22:55:34.294 I/KernelAI: SpeakingStarted engine=sherpa chars=33 epochMs=1794833734294
+11-16 22:55:34.296 D/KernelAI: ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-16 22:55:34.314 I/VoiceTiming: playStart token=1 chunk=0 epochMs=1794833734314
+11-16 22:55:36.192 I/VoiceTiming: playEnd token=1 chunk=0 epochMs=1794833736192
+
+## in-app event log (files/jandal_events.log), tts events in this window
+22:55:32.266 tts|engine_select|engine=SHERPA_EXPERIMENTAL
+22:55:32.308 tts|speak_start|engine=SHERPA_EXPERIMENTAL|streaming=true
+22:55:36.197 tts|speak_end|engine=SHERPA_EXPERIMENTAL|spoken=true|reason=COMPLETED

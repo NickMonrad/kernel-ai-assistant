@@ -1,0 +1,23 @@
+# Re-run after #1969 on origin/main e227d09d (debug APK sha256 65a2386b…eea3), Cori (Sherpa Piper en_GB-cori-high). Phones silenced; judged from logs.
+# S23U: 'tell me a short story about a dog' (voice -> chat), KEYCODE_HOME about 3 s into speech (EVIDENCEB7 marker), 25 s observed. Spoken text omitted.
+
+## logcat (filtered)
+11-16 23:02:36.092 D/KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@24157f5 voicePlaybackState=com.kernel.ai.feature.ch
+11-16 23:02:37.765 D/KernelAI: ADB_ROUTE_DECISION commandId=a908009e-1 result=fallthrough best_guess=null confidence=0.0
+11-16 23:03:16.815 I/LiteRtInferenceEngine: Generation complete: total=38571ms, TTFT=15995ms, visibleChunks=155 [backend=GPU]
+11-16 23:03:16.815 D/LiteRtInferenceEngine: VoiceTiming lastToken epochMs=1794834196815
+11-16 23:03:16.917 D/VoiceTiming: firstChunkQueued epochMs=1794834196917 chars=187
+11-16 23:03:23.833 I/VoiceTiming: synth token=3 chunk=0 chars=187 sid=0 startEpochMs=1794834196917 endEpochMs=1794834203833 synthMs=6916 audioMs=10419 rtf=0.66
+11-16 23:03:23.833 I/KernelAI: SpeakingStarted engine=sherpa chars=187 epochMs=1794834203833
+11-16 23:03:23.834 D/KernelAI: ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-16 23:03:23.842 I/VoiceTiming: playStart token=3 chunk=0 epochMs=1794834203842
+11-16 23:03:26.889 I/adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCEB7 MARKER_home_keyevent_sent'
+11-16 23:03:26.954 I/EVIDENCEB7: MARKER_home_keyevent_sent
+11-16 23:03:27.581 I/VoiceTiming: playEnd token=3 chunk=0 epochMs=1794834207581
+11-16 23:03:57.059 I/VoiceTiming: synth token=3 chunk=1 chars=310 sid=0 startEpochMs=1794834203833 endEpochMs=1794834237059 synthMs=33226 audioMs=17710 rtf=1.88
+11-16 23:03:57.059 I/VoiceTiming: discard token=3 chunk=1 reason=stale
+
+## in-app event log (files/jandal_events.log), tts events in this window
+23:03:16.899 tts|engine_select|engine=SHERPA_EXPERIMENTAL
+23:03:16.914 tts|speak_start|engine=SHERPA_EXPERIMENTAL|streaming=true
+23:03:27.402 tts|speak_end|engine=SHERPA_EXPERIMENTAL|spoken=false|reason=INTERRUPTED_BACKGROUND

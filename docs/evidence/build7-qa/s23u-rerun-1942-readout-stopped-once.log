@@ -1,0 +1,14 @@
+# Re-run after #1969 on origin/main e227d09d (debug APK sha256 65a2386b…eea3), Cori (Sherpa Piper en_GB-cori-high). Phones silenced; judged from logs.
+# S23U observation: first readout after the app returned from background, while the engine was re-initialising after an eviction. speak_end STOPPED 157 ms after speak_start, chunk 0 discarded. Not reproduced: s23u-rerun-1942-readout.log (90 s background) and a forced eviction (am send-trim-memory BACKGROUND) both read out to COMPLETED.
+
+## logcat (filtered)
+11-16 23:05:21.298 I/ChatViewModel: App opened by user — re-initializing engine after eviction
+11-16 23:05:21.434 W/KernelAI: Debug test-calendar filter is on: calendar reads show one calendar only (#1942)
+11-16 23:05:21.611 D/VoiceTiming: firstChunkQueued epochMs=1794834321611 chars=24
+11-16 23:05:22.947 I/VoiceTiming: synth token=4 chunk=0 chars=27 sid=0 startEpochMs=1794834321611 endEpochMs=1794834322946 synthMs=1335 audioMs=1613 rtf=0.83
+11-16 23:05:22.947 I/VoiceTiming: discard token=4 chunk=0 reason=stale
+
+## in-app event log (files/jandal_events.log), tts events in this window
+23:05:21.542 tts|engine_select|engine=SHERPA_EXPERIMENTAL
+23:05:21.608 tts|speak_start|engine=SHERPA_EXPERIMENTAL|streaming=true
+23:05:21.765 tts|speak_end|engine=SHERPA_EXPERIMENTAL|spoken=false|reason=STOPPED

@@ -1,0 +1,25 @@
+# #1941 artefact: S23U Actions history UI dump (uiautomator text nodes), taken 22:10 by QA agent 2, before cleanup. Debug 8173f2dd.
+# The card under each query names the route: 'ad milk to my shopping lest' -> add_to_list with '• milk' in 'shopping list' (quick intent, no model);
+# compare the cards routed to the model, which read 'llm_fallthrough' / 'Sending to Jandal for processing…'.
+[158,434][243,500] T:Add
+[158,500][415,552] T:llm_fallthrough
+[638,467][689,518] T: D:Read aloud
+[773,467][824,518] T: D:Copy history item
+[908,467][959,518] T: D:Delete
+[79,571][700,623] T:Sending to Jandal for processing…
+[79,634][380,686] T:Nov 16, 10:08 pm
+[158,786][596,852] T:tell me a short story about a dog
+[158,852][415,904] T:llm_fallthrough
+[638,819][689,870] T: D:Read aloud
+[773,819][824,870] T: D:Copy history item
+[908,819][959,870] T: D:Delete
+[79,923][700,975] T:Sending to Jandal for processing…
+[79,986][359,1038] T:Nov 16, 9:38 pm
+[158,1138][596,1204] T:ad milk to my shopping lest
+[158,1204][346,1256] T:add_to_list
+[638,1171][689,1222] T: D:Read aloud
+[773,1171][824,1222] T: D:Copy history item
+[908,1171][959,1222] T: D:Delete
+[113,1309][384,1375] T:shopping list
+[113,1392][213,1444] T:• milk
+[79,1489][359,1541] T:Nov 16, 9:33 pm
