@@ -13,10 +13,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.ui.theme.JandalTheme
 
@@ -31,10 +29,7 @@ internal fun SetupStepHeader(step: Int, total: Int = 4, modifier: Modifier = Mod
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clearAndSetSemantics {
-                contentDescription = "Step $step of $total"
-                progressBarRangeInfo = ProgressBarRangeInfo(step.toFloat(), 0f..total.toFloat(), steps = total - 1)
-            },
+            .clearAndSetSemantics { contentDescription = "Step $step of $total" },
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(

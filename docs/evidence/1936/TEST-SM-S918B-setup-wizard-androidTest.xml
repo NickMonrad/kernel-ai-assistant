@@ -1,27 +1,29 @@
 <?xml version='1.0' encoding='UTF-8' ?>
-<testsuite name="com.kernel.ai.feature.chat.setup.MakeYoursResumeRefreshTest" tests="19" failures="0" errors="0" skipped="0" time="19.213" timestamp="2026-11-16T04:40:01" hostname="localhost">
+<testsuite name="com.kernel.ai.feature.chat.setup.EvidenceCaptureTest" tests="21" failures="0" errors="0" skipped="0" time="26.564" timestamp="2026-11-16T05:39:58" hostname="localhost">
   <properties>
     <property name="device" value="SM-S918B - 16" />
     <property name="flavor" value="" />
     <property name="project" value=":feature:chat" />
   </properties>
-  <testcase name="resumeRefreshesRowsOnceEachTimeAndTapsNothing" classname="com.kernel.ai.feature.chat.setup.MakeYoursResumeRefreshTest" time="0.983" />
-  <testcase name="step1ButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.523" />
-  <testcase name="eachStepOpensScrolledToTheTop" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="1.305" />
-  <testcase name="moreBelowHintShowsWhileContentOverflows" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.729" />
-  <testcase name="lastItemFullyVisibleAboveFooter_welcome" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="1.205" />
-  <testcase name="makeJandalYoursButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.754" />
-  <testcase name="makeJandalYoursLastRowScrollsIntoViewAtLargeFont" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.553" />
-  <testcase name="lastItemFullyVisibleAboveFooter_voice" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="1.055" />
-  <testcase name="step1LastParagraphScrollsIntoViewAtLargeFont" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.553" />
-  <testcase name="makeJandalYoursTallestStateButtonsReachableAtLargeFontLandscape" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="1.004" />
-  <testcase name="voiceStepButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.553" />
-  <testcase name="step2WithNothingLeftShowsAlreadyDownloaded" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.503" />
-  <testcase name="step2ButtonsReachableAtLargeFontLandscape" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.829" />
+  <testcase name="capture" classname="com.kernel.ai.feature.chat.setup.EvidenceCaptureTest" time="7.402" />
+  <testcase name="resumeRefreshesRowsOnceEachTimeAndTapsNothing" classname="com.kernel.ai.feature.chat.setup.MakeYoursResumeRefreshTest" time="0.478" />
+  <testcase name="step1ButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.478" />
+  <testcase name="eachStepOpensScrolledToTheTop" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="1.206" />
+  <testcase name="moreBelowHintShowsWhileContentOverflows" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.704" />
+  <testcase name="lastItemFullyVisibleAboveFooter_welcome" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.929" />
+  <testcase name="makeJandalYoursButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.779" />
+  <testcase name="makeJandalYoursLastRowScrollsIntoViewAtLargeFont" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.578" />
+  <testcase name="lastItemFullyVisibleAboveFooter_voice" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="1.305" />
+  <testcase name="step1LastParagraphScrollsIntoViewAtLargeFont" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.478" />
+  <testcase name="makeJandalYoursTallestStateButtonsReachableAtLargeFontLandscape" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.881" />
+  <testcase name="voiceStepButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.803" />
+  <testcase name="step2WithNothingLeftShowsAlreadyDownloaded" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.653" />
+  <testcase name="step2ButtonsReachableAtLargeFontLandscape" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.553" />
   <testcase name="makeJandalYoursButtonsReachableAtLargeFontLandscape" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.553" />
-  <testcase name="voiceStepButtonsReachableAtLargeFontLandscape" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.553" />
-  <testcase name="lastItemFullyVisibleAboveFooter_makeJandalYours" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.979" />
-  <testcase name="makeJandalYoursTallestStateButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.854" />
-  <testcase name="step2ScrollsToNetworkChoiceAndButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.879" />
-  <testcase name="lastItemFullyVisibleAboveFooter_download" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.878" />
+  <testcase name="voiceStepButtonsReachableAtLargeFontLandscape" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.803" />
+  <testcase name="lastItemFullyVisibleAboveFooter_makeJandalYours" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="1.004" />
+  <testcase name="makeJandalYoursTallestStateButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.805" />
+  <testcase name="step2ScrollsToNetworkChoiceAndButtonsReachableAtLargeFontPortrait" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.578" />
+  <testcase name="heyJandalTitleStaysOnOneLineWithNeedsAccessAtLargeFont" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="0.478" />
+  <testcase name="lastItemFullyVisibleAboveFooter_download" classname="com.kernel.ai.feature.chat.setup.SetupWizardLargeFontTest" time="1.129" />
 </testsuite>

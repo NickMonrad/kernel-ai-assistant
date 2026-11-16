@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -173,6 +175,17 @@ class SetupWizardLargeFontTest {
             hasClickAction() and hasText("Open settings"),
             tallMakeYours = true,
         )
+
+    /** Needs access is the widest chip; the title must stay on one line, with the chip moving under it if needed. */
+    @Test
+    fun heyJandalTitleStaysOnOneLineWithNeedsAccessAtLargeFont() {
+        setWizard(SetupStep.MAKE_JANDAL_YOURS, PORTRAIT, tallMakeYours = true)
+
+        val title = composeRule.onNode(hasText("Hey Jandal"), useUnmergedTree = true).fetchSemanticsNode()
+        val layouts = mutableListOf<TextLayoutResult>()
+        title.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
+        assertTrue("Hey Jandal must lay out on one line, got ${layouts.firstOrNull()?.lineCount}", layouts.single().lineCount == 1)
+    }
 
     @Test
     fun moreBelowHintShowsWhileContentOverflows() {
