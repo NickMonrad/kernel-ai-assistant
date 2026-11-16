@@ -2,3 +2,10 @@
 # Without this R8 renames the fields and every entry parses as null, so the lexicon silently empties.
 -keep class com.kernel.ai.core.voice.PronunciationLexicon$RawFile { *; }
 -keep class com.kernel.ai.core.voice.PronunciationLexicon$RawEntry { *; }
+
+# Sherpa's JNI looks up invoke([F)Ljava/lang/Integer; on the generateWithCallback callback object (#1942).
+# No Kotlin code calls that overload, so without this R8 may drop or rename it, and the JNI lookup then
+# aborts the process on every streamed Sherpa reply.
+-keep class com.kernel.ai.core.voice.SherpaContinueCallback {
+    public java.lang.Integer invoke(float[]);
+}

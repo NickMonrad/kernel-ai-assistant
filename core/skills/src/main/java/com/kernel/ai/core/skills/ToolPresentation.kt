@@ -47,6 +47,31 @@ sealed interface ToolPresentation {
         val emptyMessage: String? = null,
     ) : ToolPresentation
 
+    /**
+     * Calendar readout as rows: one [CalendarAgendaRow] per event, grouped by day when [CalendarAgendaDay.label]
+     * is set (multi-day windows). The card shows the first [totalCount]-capped rows and a "Show more" control.
+     */
+    data class CalendarAgenda(
+        val title: String,
+        val days: List<CalendarAgendaDay>,
+        val emptyMessage: String? = null,
+    ) : ToolPresentation {
+        val totalCount: Int get() = days.sumOf { it.rows.size }
+    }
+
+    /** One day of a [CalendarAgenda]; [label] is null when the agenda covers a single day (no header). */
+    data class CalendarAgendaDay(
+        val label: String?,
+        val rows: List<CalendarAgendaRow>,
+    )
+
+    /** One event row: [timeText] fills the fixed-width time column, [detail] is the optional calendar/location line. */
+    data class CalendarAgendaRow(
+        val timeText: String,
+        val title: String,
+        val detail: String? = null,
+    )
+
     data class ComputedResult(
         val primaryText: String,
         val contextText: String,
@@ -110,6 +135,24 @@ object ToolPresentationJson {
             put("emptyMessage", presentation.emptyMessage)
         }
 
+        is ToolPresentation.CalendarAgenda -> JSONObject().apply {
+            put(KEY_TYPE, "calendar_agenda")
+            put("title", presentation.title)
+            put("emptyMessage", presentation.emptyMessage)
+            put("days", JSONArray(presentation.days.map { day ->
+                JSONObject().apply {
+                    put("label", day.label)
+                    put("rows", JSONArray(day.rows.map { row ->
+                        JSONObject().apply {
+                            put("timeText", row.timeText)
+                            put("title", row.title)
+                            put("detail", row.detail)
+                        }
+                    }))
+                }
+            }))
+        }
+
         is ToolPresentation.ComputedResult -> JSONObject().apply {
             put(KEY_TYPE, "computed_result")
             put("primaryText", presentation.primaryText)
@@ -163,6 +206,29 @@ object ToolPresentationJson {
             } ?: emptyList(),
             totalCount = obj.optInt("totalCount"),
             emptyMessage = obj.optString("emptyMessage").takeIf { it.isNotBlank() },
+        )
+
+        "calendar_agenda" -> ToolPresentation.CalendarAgenda(
+            title = obj.optString("title"),
+            emptyMessage = obj.optString("emptyMessage").takeIf { it.isNotBlank() },
+            days = obj.optJSONArray("days")?.let { arr ->
+                MutableList(arr.length()) { index ->
+                    val day = arr.getJSONObject(index)
+                    ToolPresentation.CalendarAgendaDay(
+                        label = day.optString("label").takeIf { it.isNotBlank() },
+                        rows = day.optJSONArray("rows")?.let { rows ->
+                            MutableList(rows.length()) { r ->
+                                val row = rows.getJSONObject(r)
+                                ToolPresentation.CalendarAgendaRow(
+                                    timeText = row.optString("timeText"),
+                                    title = row.optString("title"),
+                                    detail = row.optString("detail").takeIf { it.isNotBlank() },
+                                )
+                            }
+                        } ?: emptyList(),
+                    )
+                }
+            } ?: emptyList(),
         )
 
         "computed_result" -> ToolPresentation.ComputedResult(

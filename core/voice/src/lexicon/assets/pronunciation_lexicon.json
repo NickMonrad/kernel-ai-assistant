@@ -77,6 +77,18 @@
       "say": "Why-kat-o",
       "verify": false,
       "source": "owner, by ear, 2026-11-14"
+    },
+    {
+      "word": "Jandal",
+      "say": "Jandle",
+      "verify": true,
+      "source": "#1942: owner heard Cori say jun-DALL; JAN-dl, rhymes with handle. eSpeak: Jandle /dʒˈandəl/ in every context"
+    },
+    {
+      "word": "Jandals",
+      "say": "Jandles",
+      "verify": true,
+      "source": "#1942: plural of Jandal"
     }
   ]
 }

@@ -9,6 +9,7 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillOutcomeEvents
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.SpeechPause
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.voice.VoiceOutputController
@@ -90,7 +91,8 @@ class VoiceCommandHandler @Inject constructor(
             spokenSummary = spokenSummaryFrom(skillResult),
         )
         quickActionDao.insert(entity)
-        val spokenText = entity.spokenSummary ?: entity.resultText
+        // The widget speaks in one call, so a calendar intro pause (SpeechPause) becomes a plain space.
+        val spokenText = SpeechPause.strip(entity.spokenSummary ?: entity.resultText)
         voiceOutputController.speak(VoiceSpeakRequest(spokenText))
     }
 

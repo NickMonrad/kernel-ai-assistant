@@ -4,11 +4,17 @@ import android.util.Log
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.TtsFailure
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,9 +37,10 @@ class FallbackVoiceOutputController @Inject constructor(
     private val sherpa: SherpaOnnxVoiceOutputController,
     private val inflect: InflectMicroVoiceOutputController,
     private val androidTts: AndroidTextToSpeechController,
-) : VoiceOutputController {
+) : VoiceOutputController, StopReasonAwareVoiceOutput {
     private val activeController = MutableStateFlow<VoiceOutputController>(androidTts)
     @Volatile private var liveStream: RecordedStreamingSession? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override val events: Flow<VoiceOutputEvent> = activeController.flatMapLatest { it.events }
 
@@ -45,6 +52,8 @@ class FallbackVoiceOutputController @Inject constructor(
     }
 
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult {
+        // A one-shot reply (slot prompt, widget) replaces a streamed one that is still playing.
+        endLiveStream(SpeakEndReason.REPLACED)
         val engine = voiceOutputPreferences.selectedEngine.first()
         JandalEvents.record("tts", "engine_select", "engine" to engine)
         return when (engine) {
@@ -92,9 +101,12 @@ class FallbackVoiceOutputController @Inject constructor(
         }
     }
 
-    override fun stop() {
-        liveStream?.abandon()
-        liveStream = null
+    override fun stop() = stopWith(SpeakEndReason.STOPPED)
+
+    override fun stop(reason: SpeechStopReason) = stopWith(reason.toEndReason())
+
+    private fun stopWith(reason: SpeakEndReason) {
+        endLiveStream(reason)
         sherpa.stop()
         inflect.stop()
         androidTts.stop()
@@ -197,7 +209,7 @@ class FallbackVoiceOutputController @Inject constructor(
         val warmUpResult = inflect.warmUp()
         if (warmUpResult !is VoiceOutputResult.Unavailable) {
             activate(inflect)
-            val inflectSession = recordedStreamSession(engine, inflect.openStreamingSession(request))
+            val inflectSession = recordedStreamSession(engine, inflect, inflect.openStreamingSession(request))
             return object : VoiceOutputStreamingSession {
                 private val bufferedText = StringBuilder()
                 private var isClosed = false
@@ -237,6 +249,10 @@ class FallbackVoiceOutputController @Inject constructor(
                     return androidTts.speak(request.copy(text = finalText))
                 }
 
+                override suspend fun appendPause(durationMs: Long) {
+                    if (!isClosed) inflectSession.appendPause(durationMs)
+                }
+
                 override suspend fun cancel() {
                     if (isClosed) return
                     isClosed = true
@@ -270,7 +286,7 @@ class FallbackVoiceOutputController @Inject constructor(
         val warmUpResult = sherpa.warmUp()
         if (warmUpResult !is VoiceOutputResult.Unavailable) {
             activate(sherpa)
-            return recordedStreamSession(engine, sherpa.openStreamingSession(request))
+            return recordedStreamSession(engine, sherpa, sherpa.openStreamingSession(request))
         }
 
         Log.i(
@@ -293,11 +309,12 @@ class FallbackVoiceOutputController @Inject constructor(
     /** Records streaming speak start, final append and cancel for a non-Android engine (#1870). */
     private fun recordedStreamSession(
         engine: VoiceOutputEngine,
+        controller: VoiceOutputController,
         delegate: VoiceOutputStreamingSession,
     ): VoiceOutputStreamingSession {
-        liveStream?.abandon()
+        liveStream?.abandon(SpeakEndReason.REPLACED)
         JandalEvents.record("tts", "speak_start", "engine" to engine, "streaming" to true)
-        return RecordedStreamingSession(engine, delegate).also { liveStream = it }
+        return RecordedStreamingSession(engine, delegate, controller.events, scope).also { liveStream = it }
     }
 
     /** Android TTS fallback, recorded so the export shows which engine failed and why (#1870). */
@@ -306,43 +323,108 @@ class FallbackVoiceOutputController @Inject constructor(
     }
 
     private fun activate(controller: VoiceOutputController) {
-        if (controller !== sherpa) {
-            liveStream?.abandon()
-            liveStream = null
-        }
+        if (controller !== sherpa) endLiveStream(SpeakEndReason.REPLACED)
         activeController.value = controller
         stopInactiveControllers(controller)
     }
 
-    /** Ends the streaming speak event exactly once: final append, cancel, or stop/engine switch (#1870). */
+    /** Ends the live streamed reply's `speak_end` with [reason] before its playback is torn down. */
+    private fun endLiveStream(reason: SpeakEndReason) {
+        liveStream?.abandon(reason)
+        liveStream = null
+    }
+
+    /**
+     * Ends the streaming speak event exactly once, when playback ends rather than when the last chunk is
+     * queued (#1942), with a [SpeakEndReason]:
+     * - an engine that reports its outcome ([ReportsStreamPlaybackOutcome], Sherpa) decides COMPLETED,
+     *   ERROR, or STOPPED (a stop that did not come through this controller, e.g. the Settings sample);
+     * - other engines end at their SpeakingStarted/SpeakingStopped pair;
+     * - a stop, a new reply or an engine switch through this controller ends it first, with its own reason.
+     */
     private class RecordedStreamingSession(
         private val engine: VoiceOutputEngine,
         private val delegate: VoiceOutputStreamingSession,
+        controllerEvents: Flow<VoiceOutputEvent>,
+        scope: CoroutineScope,
     ) : VoiceOutputStreamingSession {
         private val open = AtomicBoolean(true)
+        private val outcome = (delegate as? ReportsStreamPlaybackOutcome)?.playbackOutcome
+
+        /**
+         * Watches this session's playback; started before any chunk is queued so no event is missed.
+         * Nullable: an outcome that is already complete ends the event before the field is assigned.
+         */
+        private val playbackWatcher: Job? = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            if (outcome != null) {
+                when (outcome.await()) {
+                    StreamPlaybackOutcome.COMPLETED -> end(spoken = true, reason = SpeakEndReason.COMPLETED)
+                    StreamPlaybackOutcome.CANCELLED -> end(spoken = false, reason = SpeakEndReason.STOPPED)
+                    StreamPlaybackOutcome.FAILED -> fail()
+                }
+                return@launch
+            }
+            var started = false
+            controllerEvents.first { event ->
+                if (event is VoiceOutputEvent.SpeakingStarted) started = true
+                started && event is VoiceOutputEvent.SpeakingStopped
+            }
+            end(spoken = true, reason = SpeakEndReason.COMPLETED)
+        }
 
         override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
             val result = delegate.append(text, isFinal)
-            if (isFinal && open.compareAndSet(true, false)) {
-                val spoken = result is VoiceOutputResult.Spoken
-                if (!spoken) JandalEvents.record("tts", "speak_failed", "engine" to engine, "category" to TtsFailure.UNAVAILABLE)
-                JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to spoken)
-            }
+            if (isFinal && result !is VoiceOutputResult.Spoken) fail()
             return result
         }
 
+        override suspend fun appendPause(durationMs: Long) = delegate.appendPause(durationMs)
+
         override suspend fun cancel() {
             delegate.cancel()
-            if (open.compareAndSet(true, false)) {
-                JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to false, "cancelled" to true)
-            }
+            // An outcome-reporting engine keeps playing what was queued; its outcome ends the event.
+            if (outcome == null) abandon(SpeakEndReason.STOPPED)
         }
 
-        fun abandon() {
-            if (open.compareAndSet(true, false)) {
-                JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to false, "stopped" to true)
-            }
+        /** Playback is being torn down (stop, new reply, engine switch), so the event ends now. */
+        fun abandon(reason: SpeakEndReason) {
+            end(spoken = false, reason = reason)
         }
+
+        private fun fail() {
+            if (!open.get()) return
+            JandalEvents.record("tts", "speak_failed", "engine" to engine, "category" to TtsFailure.UNAVAILABLE)
+            end(spoken = false, reason = SpeakEndReason.ERROR)
+        }
+
+        private fun end(spoken: Boolean, reason: SpeakEndReason) {
+            if (open.compareAndSet(true, false)) {
+                JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to spoken, "reason" to reason)
+            }
+            playbackWatcher?.cancel()
+        }
+    }
+
+    /**
+     * Why a streamed speak ended; logged as `reason=` on `speak_end`. Passed as the enum itself: the event
+     * log keeps enum constants and redacts every string. `focus_loss` from #1942 is not a reason: no voice
+     * stops on audio-focus loss (Sherpa's focus listener is empty), so it cannot happen.
+     */
+    private enum class SpeakEndReason {
+        COMPLETED,
+        STOPPED_BY_USER,
+        INTERRUPTED_BACKGROUND,
+        /** A new reply, a one-shot speak() or an engine switch replaced it. */
+        REPLACED,
+        /** A stop with no recorded reason. */
+        STOPPED,
+        ERROR,
+    }
+
+    private fun SpeechStopReason.toEndReason(): SpeakEndReason = when (this) {
+        SpeechStopReason.USER -> SpeakEndReason.STOPPED_BY_USER
+        SpeechStopReason.BACKGROUND -> SpeakEndReason.INTERRUPTED_BACKGROUND
+        SpeechStopReason.NEW_REPLY -> SpeakEndReason.REPLACED
     }
 
     private fun stopInactiveControllers(active: VoiceOutputController) {
