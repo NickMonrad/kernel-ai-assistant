@@ -3,7 +3,6 @@ package com.kernel.ai.feature.settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,13 +56,6 @@ import com.kernel.ai.core.ui.permissions.DefaultAssistantPrompt
 import com.kernel.ai.core.ui.permissions.DefaultAssistantPromptSuccess
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
-import com.kernel.ai.core.ui.ChoiceCard
-import com.kernel.ai.core.ui.ChoiceGroup
-import com.kernel.ai.core.ui.ExplanationSheet
-import com.kernel.ai.core.ui.InfoTag
-import com.kernel.ai.core.ui.InfoTagStyle
-import com.kernel.ai.core.ui.SectionLabel
-import com.kernel.ai.core.ui.SwitchSubSetting
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -77,20 +69,14 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.HeyJandalGate
 import com.kernel.ai.core.voice.HonorCameraCoexistence
-import com.kernel.ai.core.voice.onlineSpeechToggleVisible
-import com.kernel.ai.core.voice.androidNativeWarning
-import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
-import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
-import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
@@ -674,149 +660,14 @@ private fun VoiceScreenContent(
                 }
             }
             HorizontalDivider()
-            var onlineSheetOpen by rememberSaveable { mutableStateOf(false) }
-            SectionLabel(
-                text = "Speech recognition",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            SpeechRecognitionSection(
+                uiState = uiState,
+                onSelect = onVoiceInputEngineSelected,
+                onAllowOnline = onAllowOnlineSpeechFallbackChanged,
+                onDownload = onDownloadSherpaStt,
+                onCancel = onCancelSherpaStt,
+                onDelete = onDeleteSherpaStt,
             )
-            ChoiceGroup(count = VoiceInputEngine.entries.size) {
-                VoiceInputEngine.entries.forEachIndexed { index, engine ->
-                    val selected = uiState.selectedInputEngine == engine
-                    val sttState = uiState.sherpaSttStates[engine]
-                    val zipformerDownloaded =
-                        uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
-                    val isReady = !engine.isSherpaFamily || sttState?.isDownloaded == true
-                    val nativeWarningText = if (engine == VoiceInputEngine.AndroidNative && selected) {
-                        androidNativeSettingsWarning(
-                            blockingMessage = uiState.androidNativeAvailabilityMessage,
-                            capabilities = uiState.androidNativeCapabilities,
-                            localeReady = uiState.androidNativeLocaleReady,
-                            onlineAllowed = uiState.allowOnlineSpeechFallback,
-                            zipformerDownloaded = zipformerDownloaded,
-                        )
-                    } else {
-                        null
-                    }
-                    val engineWarning = if (engine != VoiceInputEngine.AndroidNative && selected) engine.warning else null
-                    val languageSummary =
-                        if (engine == VoiceInputEngine.AndroidNative) uiState.androidNativeLanguageSummary else null
-                    val showOnline = onlineSpeechToggleVisible(selected = uiState.selectedInputEngine, row = engine)
-                    val showDownloadCard =
-                        engine.isSherpaFamily && sttState != null && (!sttState.isDownloaded || selected)
-                    val hasSub = nativeWarningText != null || engineWarning != null || showOnline || showDownloadCard
-                    val tag: (@Composable () -> Unit)? = if (engine == VoiceInputEngine.Auto) {
-                        { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
-                    } else if (sttState != null && engine.isSherpaFamily) {
-                        {
-                            if (sttState.isDownloaded) {
-                                InfoTag(text = "Downloaded", style = InfoTagStyle.Success)
-                            } else {
-                                InfoTag(text = "Not downloaded", style = InfoTagStyle.Neutral)
-                            }
-                        }
-                    } else {
-                        null
-                    }
-                    val subContent: (@Composable ColumnScope.() -> Unit)? = if (hasSub) {
-                        {
-                            if (nativeWarningText != null) {
-                                VoiceWarningCard(
-                                    message = nativeWarningText,
-                                    modifier = Modifier.padding(top = 8.dp),
-                                )
-                                TextButton(onClick = { onVoiceInputEngineSelected(VoiceInputEngine.Auto) }) {
-                                    Text("Use Automatic")
-                                }
-                            }
-                            if (engineWarning != null) {
-                                Text(
-                                    text = engineWarning,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(top = 8.dp),
-                                )
-                            }
-                            if (showOnline) {
-                                SwitchSubSetting(
-                                    title = OnlineSpeechCopy.TITLE,
-                                    description = OnlineSpeechCopy.LINE,
-                                    checked = uiState.allowOnlineSpeechFallback,
-                                    onCheckedChange = onAllowOnlineSpeechFallbackChanged,
-                                    onMore = { onlineSheetOpen = true },
-                                )
-                            }
-                            if (showDownloadCard && sttState != null) {
-                                ModelCardCompact(
-                                    title = engine.displayName,
-                                    description = when (engine) {
-                                        VoiceInputEngine.SherpaZipformer -> SherpaSttModelSpec.ZIPFORMER.subtitle
-                                        VoiceInputEngine.SherpaSenseVoice -> SherpaSttModelSpec.SENSE_VOICE.subtitle
-                                        VoiceInputEngine.SherpaWhisper -> SherpaSttModelSpec.WHISPER.subtitle
-                                        VoiceInputEngine.SherpaParaformer -> SherpaSttModelSpec.PARAFORMER.subtitle
-                                        else -> ""
-                                    },
-                                    state = sttState.toModelAvailability(),
-                                    modifier = Modifier.padding(vertical = 4.dp),
-                                )
-                                when {
-                                    sttState.isDownloading -> {
-                                        OutlinedButton(
-                                            modifier = Modifier.padding(vertical = 2.dp),
-                                            onClick = { onCancelSherpaStt(engine) },
-                                        ) {
-                                            Text("Cancel")
-                                        }
-                                    }
-                                    sttState.isDownloaded -> {
-                                        OutlinedButton(
-                                            modifier = Modifier.padding(vertical = 2.dp),
-                                            onClick = { onDeleteSherpaStt(engine) },
-                                        ) {
-                                            Text("Delete")
-                                        }
-                                    }
-                                    sttState.issue != null -> {
-                                        OutlinedButton(
-                                            modifier = Modifier.padding(vertical = 2.dp),
-                                            onClick = { onDownloadSherpaStt(engine) },
-                                        ) {
-                                            Text("Retry")
-                                        }
-                                    }
-                                    else -> {
-                                        Button(
-                                            modifier = Modifier.padding(vertical = 2.dp),
-                                            onClick = { onDownloadSherpaStt(engine) },
-                                        ) {
-                                            Text("Download")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        null
-                    }
-                    ChoiceCard(
-                        title = engine.displayName,
-                        description = engine.description,
-                        selected = selected,
-                        onSelect = { onVoiceInputEngineSelected(engine) },
-                        index = index,
-                        enabled = isReady,
-                        tag = tag,
-                        extraLine = languageSummary,
-                        subContent = subContent,
-                    )
-                }
-            }
-            if (onlineSheetOpen) {
-                ExplanationSheet(
-                    title = OnlineSpeechCopy.TITLE,
-                    body = OnlineSpeechCopy.EXPLANATION,
-                    onDismiss = { onlineSheetOpen = false },
-                )
-            }
 
             HorizontalDivider()
 
@@ -1725,73 +1576,6 @@ private fun KokoroSpeakerSelector(
                     )
                 }
             }
-        }
-    }
-}
-
-/**
- * Warning for the Android native engine row, shown only while that engine is selected. A blocking
- * availability message wins; otherwise the capability warning. Online-off is not a warning when
- * Zipformer is downloaded, because a stall then hands off to Zipformer.
- */
-private fun androidNativeSettingsWarning(
-    blockingMessage: String?,
-    capabilities: VoiceCapabilities?,
-    localeReady: Boolean,
-    onlineAllowed: Boolean,
-    zipformerDownloaded: Boolean,
-): String? {
-    val fallback = if (zipformerDownloaded) {
-        "Sherpa-ONNX Zipformer is downloaded and is used if Android speech fails to start or stalls."
-    } else {
-        "Download Sherpa-ONNX Zipformer below as an offline fallback."
-    }
-    val capabilityWarning = capabilities?.let {
-        androidNativeWarning(it, localeReady, onlineAllowed || zipformerDownloaded)
-    }
-    val message = blockingMessage ?: when (capabilityWarning) {
-        null -> return null
-        AndroidNativeWarning.NoRecognitionService ->
-            "Android speech recognition is not available on this device."
-        AndroidNativeWarning.NoOnDeviceRecognizer ->
-            "No on-device Android speech recognizer. Offline capture cannot work."
-        AndroidNativeWarning.LanguagePackMissing ->
-            "The on-device language pack for this device is missing."
-        AndroidNativeWarning.OnlineOff ->
-            "Online speech is off. If the on-device recognizer stays silent, voice input stalls."
-    }
-    return "$message $fallback"
-}
-
-@Composable
-private fun VoiceWarningCard(
-    message: String,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Warning",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
-            }
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
-            )
         }
     }
 }
