@@ -300,6 +300,13 @@ class ChatViewModel @Inject constructor(
     * system prompt and skip RAG retrieval, even when the transcript no longer looks tool-like.
     */
     private var forceMinimalContextForNextMessage: Boolean = savedStateHandle["minimalContext"] ?: false
+    /**
+     * A fresh chat opened to run an initial query (voice command, Actions fallthrough). That
+     * query's turn installs its own prompt, so the FULL prompt installs at chat open would only add
+     * native conversation rebuilds before it (#1920). Cleared once the turn installs the prompt.
+     */
+    private var deferPromptInstallToFirstTurn: Boolean =
+        navConversationId == null && !savedStateHandle.get<String>("initialQuery").isNullOrBlank()
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     // Saved with the replacement so a restored composer and the ViewModel agree after process
@@ -986,7 +993,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             jandalPersona.personaMode.collect {
                 if (inferenceEngine.isReady.value) {
-                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                    installFullSystemPrompt()
                 }
             }
         }
@@ -1126,6 +1133,20 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Installs the FULL system prompt now or, while [deferPromptInstallToFirstTurn] is set, leaves
+     * it to the next model turn: that turn replays, which installs the current prompt in one
+     * rebuild (#1920).
+     */
+    private suspend fun installFullSystemPrompt() {
+        if (deferPromptInstallToFirstTurn) {
+            needsHistoryReplay = true
+            Log.d(TAG, "CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true")
+            return
+        }
+        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+    }
+
     private suspend fun resetInferenceForFreshConversation(): Boolean {
         // A brand-new chat route must not inherit the singleton inference session's KV cache
         // or a stripped-down temporary prompt from the previous conversation.
@@ -1134,7 +1155,9 @@ class ChatViewModel @Inject constructor(
         needsHistoryReplay = false
         pendingConfirmationIntent = null
         return try {
-            if (inferenceEngine.isReady.value) {
+            if (deferPromptInstallToFirstTurn) {
+                installFullSystemPrompt()
+            } else if (inferenceEngine.isReady.value) {
                 inferenceEngine.updateSystemPrompt(buildSystemPrompt())
             } else {
                 inferenceEngine.resetConversation()
@@ -1296,7 +1319,7 @@ class ChatViewModel @Inject constructor(
                         inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                             activeContextWindowSize = it
                         }
-                        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                        installFullSystemPrompt()
                         return
                     }
                     Log.i(TAG, "Eager inference initialization waiting for app foreground")
@@ -1314,7 +1337,7 @@ class ChatViewModel @Inject constructor(
                         inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                             activeContextWindowSize = it
                         }
-                        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                        installFullSystemPrompt()
                         return
                     }
                     watchdogAttempt = startModelInitializationWatchdog("initEngineWhenReady")
@@ -1344,7 +1367,7 @@ class ChatViewModel @Inject constructor(
                     }
                     estimatedTokensUsed = 0
                     turnsSinceReset = 0
-                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                    installFullSystemPrompt()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -1384,7 +1407,7 @@ class ChatViewModel @Inject constructor(
                         inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                             activeContextWindowSize = it
                         }
-                        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                        installFullSystemPrompt()
                         return
                     }
                     watchdogAttempt = startModelInitializationWatchdog("initGemma4")
@@ -2231,13 +2254,28 @@ class ChatViewModel @Inject constructor(
                     slotFillerManager.cancel()
                     pendingConfirmationIntent = null
                 }
-                needsHistoryReplay = safeRunIntentTest
+                // GPU turns replay history through updateSystemPrompt (a rebuild), so resetting here
+                // as well would rebuild twice per command. The replay below covers the reset (#1920).
+                val gpuReplayThisTurn = shouldForceGpuConversationResetEachTurn(
+                    backend = inferenceEngine.activeBackend.value,
+                    isDebugBuild = BuildConfig.DEBUG,
+                    debugForceReset = _debugForceGpuConversationReset.value,
+                )
+                needsHistoryReplay = safeRunIntentTest || gpuReplayThisTurn
                 estimatedTokensUsed = 0
                 turnsSinceReset = 0
-                if (inferenceEngine.isReady.value) {
-                    if (!resetInferenceConversation("resetConversationBeforeIndependentCommand")) {
-                        return@launch
+                // A replay this turn rebuilds the conversation, so it is the reset. Otherwise a fresh
+                // chat's deferred FULL prompt install is the reset: one rebuild either way (#1920).
+                if (inferenceEngine.isReady.value && !needsHistoryReplay) {
+                    val resetSucceeded = if (deferPromptInstallToFirstTurn) {
+                        deferPromptInstallToFirstTurn = false
+                        Log.i("KernelAI", "CONV_REBUILD_TRIGGER reason=independentCommandPromptInstall")
+                        resetInferenceForFreshConversation()
+                    } else {
+                        Log.i("KernelAI", "CONV_REBUILD_TRIGGER reason=independentCommandReset")
+                        resetInferenceConversation("resetConversationBeforeIndependentCommand")
                     }
+                    if (!resetSucceeded) return@launch
                     Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId conversation_reset=true")
                 }
             }
@@ -3350,6 +3388,8 @@ class ChatViewModel @Inject constructor(
                 systemPromptForPrefill = systemPromptWithHistory
                 shouldMeasureToolDeclarations = true
                 logTurnStage("prompt_reset_start")
+                Log.i("KernelAI", "CONV_REBUILD_TRIGGER reason=historyReplay")
+                deferPromptInstallToFirstTurn = false
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
                 logTurnStage("prompt_reset_done")
                 if (isLoadSkillAbortProbeFollowUp) {
