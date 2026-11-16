@@ -20,10 +20,12 @@ Load this when deciding how to verify a change.
 | Skill logic | Unit test; manual device test for voice-driven skill interaction |
 | Build config / Gradle | Full `assembleDebug` |
 | Cross-module refactor | Full `assembleDebug` + `lint` |
+| Regex or text patterns (lexicons, normalisers, routers) | Unit tests **plus** an instrumented test that compiles and runs the pattern on a device. Android's regex engine is ICU-backed and rejects some constructs the desktop JVM accepts (for example the `(?U:…)` inline flag), so JVM unit tests alone can pass while the app crashes (#1968). |
 
 ## CI constraints
 
-- CI runs: lint, unit tests, debug build
+- CI runs: lint, unit tests, debug build, and an androidTest Kotlin compile (instrumented tests are not executed)
+- CI unit tests run on the desktop JVM, so they cannot catch Android-only runtime differences such as ICU regex syntax (#1968)
 - CI **cannot** run real model inference (no GPU/NPU, models too large)
 - Inference tests use mocked `InferenceEngine` — never download models in CI
 - Compose UI tests run via Android Emulator (API 35 system image)

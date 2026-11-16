@@ -23,6 +23,7 @@ For subsystem-specific guidance, see the individual review gates (`.docs/agents/
 - [ ] Existing tests still pass (regression)
 - [ ] Test evidence attached matches risk tier
 - [ ] Device model and Android version noted (if device-tested)
+- [ ] Regex changes use only Android ICU-compatible syntax (no `(?U:…)` or other JVM-only inline flags) and are exercised on a device by an instrumented test or a device run (#1968)
 
 ## Security & Memory Safety
 - [ ] No generic `fetch()` in Wasm skills
