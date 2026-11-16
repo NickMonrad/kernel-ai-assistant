@@ -1,0 +1,49 @@
+# S23U RFCW11265XH, debug build, adb harness-token quick_action route, query: tell me a short story about a dog
+# RESULT: FAIL. Home (KEYCODE_HOME) at MARKER_home_pressed_after_speech_started 11:16:25.2 stopped the first chunk (AudioTrack stop 11:16:28.0, 72309 frames).
+# Speech resumed: Sherpa chunk 11:16:48.089 started AudioTrack 11:16:48.117, stopped 11:16:56.124 (179743 frames), after Home and WindowStopped=true.
+11-16 11:16:21.250 D/KernelAI(15728): Thinking tokens: 1302 chars
+11-16 11:16:21.277 D/KernelAI(15728): llm_tools_tool_sequence: attempt=none turn=none terminal=none
+11-16 11:16:21.277 D/KernelAI(15728): thinking_save: thinkingLen=1302, contentLen=1165
+11-16 11:16:21.278 D/KernelAI(15728): llm_tools_legacy_tool: tool=unknown len=1165 raw=More.  There was a scruffy old dog named Braid. He wasn't the fanciest Golden Retriever in the neighbourhood; he was more of a bit of
+11-16 11:16:21.278 D/KernelAI(15728): llm_tools_assistant_reply: len=1165
+11-16 11:16:21.348 I/BLASTBufferQueue_Java(15728): update, w= 1080 h= 2316 mName = VRI[MainActivity]@1b5ac71 mNativeObject= 0xb40000737fa2e000 sc.mNativeObject= 0xb4000073873eb780 format= -1 caller= android.view.ViewRoot
+11-16 11:16:21.349 I/VRI[MainActivity]@1b5ac71(15728): Relayout returned: old=(0,0,1080,2316) new=(0,0,1080,2316) relayoutAsync=true req=(1080,2316)0 dur=0 res=0x0 s={true 0xb40000732e014700} ch=false seqId=0
+11-16 11:16:21.349 I/VRI[MainActivity]@1b5ac71(15728): registerCallbackForPendingTransactions
+11-16 11:16:21.358 I/VRI[MainActivity]@1b5ac71(15728): mWNT: t=0xb400007062899400 mBlastBufferQueue=0xb40000737fa2e000 fn= 5424 HdrRenderState mRenderHdrSdrRatio=1.0 caller= android.view.ViewRootImpl$10.onFrameDraw:6615 
+11-16 11:16:24.732 D/KernelAI(15728): Sherpa streaming chunk: 3362ms for 46 chars, sid=0
+11-16 11:16:24.732 I/KernelAI(15728): SpeakingStarted engine=sherpa chars=46 epochMs=1794791784732
+11-16 11:16:24.733 D/KernelAI(15728): ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-16 11:16:24.771 I/BLASTBufferQueue_Java(15728): update, w= 1080 h= 2316 mName = VRI[MainActivity]@1b5ac71 mNativeObject= 0xb40000737fa2e000 sc.mNativeObject= 0xb4000073873eb780 format= -1 caller= android.view.ViewRoot
+11-16 11:16:24.771 I/VRI[MainActivity]@1b5ac71(15728): Relayout returned: old=(0,0,1080,2316) new=(0,0,1080,2316) relayoutAsync=true req=(1080,2316)0 dur=1 res=0x0 s={true 0xb40000732e014700} ch=false seqId=0
+11-16 11:16:24.772 I/VRI[MainActivity]@1b5ac71(15728): registerCallbackForPendingTransactions
+11-16 11:16:24.789 I/VRI[MainActivity]@1b5ac71(15728): mWNT: t=0xb400007062e3b800 mBlastBufferQueue=0xb40000737fa2e000 fn= 5448 HdrRenderState mRenderHdrSdrRatio=1.0 caller= android.view.ViewRootImpl$10.onFrameDraw:6615 
+11-16 11:16:24.808 I/MediaSyncManager_27411_27411(27411): d: "Jandal is speaking"
+11-16 11:16:24.834 D/AudioPlayerStateMonitor( 3013): Found a new active media playback. AudioPlaybackConfiguration piid:19919 deviceIds:[] type:android.media.AudioTrack u/pid:10959/15728 state:started attr:AudioAttribute
+11-16 11:16:24.834 D/AudioPlayerStateMonitor( 3013): Found a new active media playback. AudioPlaybackConfiguration piid:19919 deviceIds:[] type:android.media.AudioTrack u/pid:10959/15728 state:started attr:AudioAttribute
+11-16 11:16:24.835 D/MediaSessionService( 3013): Audio playback is changed, config=AudioPlaybackConfiguration piid:19919 deviceIds:[] type:android.media.AudioTrack u/pid:10959/15728 state:started attr:AudioAttributes: us
+11-16 11:16:25.186 I/adbd    (24984): adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCE1927 MARKER_home_pressed_after_speech_started'
+11-16 11:16:25.228 D/FaceWidgetNotificationControllerWrapper( 5603): onMediaDataLoaded, 0|ai.jandal.assistant.debug|1873|null|10959, 0|ai.jandal.assistant.debug|1873|null|10959,  [ USERID : 0 ] [ INITIALIZED : true ] [ A
+11-16 11:16:25.247 I/EVIDENCE1927(21961): MARKER_home_pressed_after_speech_started
+11-16 11:16:25.257 D/FaceWidgetMusicViewModel( 5603): onChanged :: PluginFaceWidgetMediaData{packageName='ai.jandal.assistant.debug'isActive='true', playbackState=3', metaData=Jandal is speaking, Jandal AI (debug), null'
+11-16 11:16:25.293 D/NowBarItemManager( 5603): color = -13938688 title = Jandal is speaking album art = null
+11-16 11:16:25.298 I/NowBarUtils( 5603): isNewBriefCard nowBarItem NowBarItem{notiID=, nowBarKey='0|ai.jandal.assistant.debug|1873|null|10959, nowBarPackage='ai.jandal.assistant.debug, nowBarViewStyle=1, userId=-10000, p
+11-16 11:16:25.693 I/VRI[MainActivity]@1b5ac71(15728): handleAppVisibility mAppVisible = true visible = false
+11-16 11:16:25.693 D/VRI[MainActivity]@1b5ac71(15728): visibilityChanged oldVisibility=true newVisibility=false
+11-16 11:16:25.715 I/VRI[MainActivity]@1b5ac71(15728): Relayout returned: old=(0,0,1080,2316) new=(0,0,1080,2316) relayoutAsync=false req=(1080,2316)8 dur=6 res=0x2 s={false 0x0} ch=true seqId=0
+11-16 11:16:25.716 D/VRI[MainActivity]@1b5ac71(15728): Not drawing due to not visible. Reason=!mAppVisible && !mForceDecorViewVisibility
+11-16 11:16:25.723 I/VRI[MainActivity]@1b5ac71(15728): stopped(true) old = false
+11-16 11:16:25.723 D/VRI[MainActivity]@1b5ac71(15728): WindowStopped on ai.jandal.assistant.debug/com.kernel.ai.MainActivity set to true
+11-16 11:16:28.039 D/AudioTrack(15728): stop(3725): called with 72309 frames delivered
+11-16 11:16:28.043 D/MediaSessionService( 3013): Audio playback is changed, config=AudioPlaybackConfiguration piid:19919 deviceIds:[3] type:android.media.AudioTrack u/pid:10959/15728 state:stopped attr:AudioAttributes: u
+11-16 11:16:48.089 D/KernelAI(15728): Sherpa streaming chunk: 23357ms for 139 chars, sid=0
+11-16 11:16:48.117 D/AudioPlayerStateMonitor( 3013): Found a new active media playback. AudioPlaybackConfiguration piid:19927 deviceIds:[] type:android.media.AudioTrack u/pid:10959/15728 state:started attr:AudioAttribute
+11-16 11:16:48.117 D/AudioPlayerStateMonitor( 3013): Found a new active media playback. AudioPlaybackConfiguration piid:19927 deviceIds:[] type:android.media.AudioTrack u/pid:10959/15728 state:started attr:AudioAttribute
+11-16 11:16:48.118 D/MediaSessionService( 3013): Audio playback is changed, config=AudioPlaybackConfiguration piid:19927 deviceIds:[] type:android.media.AudioTrack u/pid:10959/15728 state:started attr:AudioAttributes: us
+11-16 11:16:50.390 I/adbd    (24984): adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCE1927 MARKER_25s_after_home'
+11-16 11:16:50.421 I/EVIDENCE1927(22040): MARKER_25s_after_home
+11-16 11:16:56.124 D/AudioTrack(15728): stop(3726): called with 179743 frames delivered
+11-16 11:16:56.128 D/MediaSessionService( 3013): Audio playback is changed, config=AudioPlaybackConfiguration piid:19927 deviceIds:[3] type:android.media.AudioTrack u/pid:10959/15728 state:stopped attr:AudioAttributes: u
+11-16 11:17:06.560 D/KernelAI(15728): Sherpa streaming chunk: 18470ms for 102 chars, sid=0
+11-16 11:17:06.579 D/AudioPlayerStateMonitor( 3013): Found a new active media playback. AudioPlaybackConfiguration piid:19935 deviceIds:[] type:android.media.AudioTrack u/pid:10959/15728 state:started attr:AudioAttribute
+11-16 11:17:06.579 D/AudioPlayerStateMonitor( 3013): Found a new active media playback. AudioPlaybackConfiguration piid:19935 deviceIds:[] type:android.media.AudioTrack u/pid:10959/15728 state:started attr:AudioAttribute
+11-16 11:17:06.580 D/MediaSessionService( 3013): Audio playback is changed, config=AudioPlaybackConfiguration piid:19935 deviceIds:[] type:android.media.AudioTrack u/pid:10959/15728 state:started attr:AudioAttributes: us

@@ -1,0 +1,41 @@
+11-16 11:23:11.923 D/KernelAI(29668): SPEECH_TRACE chat lifecycle=ON_CREATE
+11-16 11:23:11.924 D/KernelAI(29668): SPEECH_TRACE chat lifecycle=ON_START
+11-16 11:23:11.924 D/KernelAI(29668): SPEECH_TRACE chat lifecycle=ON_RESUME
+11-16 11:23:15.860 D/KernelAI(29668): ADB_MODEL_STATE commandId=9bc7d3a5-1 status=generating route=llm_fallthrough
+11-16 11:23:15.860 D/KernelAI(29668): TTFT_STAGE commandId=9bc7d3a5-1 stage=model_ready t_ms=28770
+11-16 11:23:16.714 D/KernelAI(29668): Core vec search: 0 raw results, distances=[]
+11-16 11:23:16.714 D/KernelAI(29668): Episodic vec search: 0 raw results, distances=[]
+11-16 11:23:16.731 D/KernelAI(29668): Kiwi vec search: 2 raw results, distances=[0.737, 0.741]
+11-16 11:23:16.748 D/KernelAI(29668): TTFT_STAGE commandId=9bc7d3a5-1 stage=rag_done t_ms=29658
+11-16 11:23:16.757 D/KernelAI(29668): generation_context_budget generation_id=9bc7d3a5-1-g1 attempt=1 source=app_estimate resolved_token_cap=8000 app_context_window=8000 estimated_prior_fixed_tokens=2
+11-16 11:23:16.757 D/KernelAI(29668): TTFT_STAGE commandId=9bc7d3a5-1 stage=generate_called t_ms=29668
+11-16 11:23:27.641 D/KernelAI(29668): TTFT_STAGE commandId=9bc7d3a5-1 stage=first_thinking_text t_ms=40552
+11-16 11:23:27.670 D/KernelAI(29668): TTFT_STAGE commandId=9bc7d3a5-1 stage=first_thinking_text_visible t_ms=40580
+11-16 11:23:43.819 D/KernelAI(29668): TTFT_STAGE commandId=9bc7d3a5-1 stage=first_token t_ms=56729
+11-16 11:23:43.819 D/KernelAI(29668): TTFT_STAGE commandId=9bc7d3a5-1 stage=first_ui_update t_ms=56730
+11-16 11:23:43.872 D/KernelAI(29668): TTFT_STAGE commandId=9bc7d3a5-1 stage=first_answer_token_visible t_ms=56782
+11-16 11:24:14.348 D/KernelAI(29668): Thinking tokens: 677 chars
+11-16 11:24:14.382 D/KernelAI(29668): llm_tools_tool_sequence: attempt=none turn=none terminal=none
+11-16 11:24:14.382 D/KernelAI(29668): thinking_save: thinkingLen=677, contentLen=1068
+11-16 11:24:14.382 D/KernelAI(29668): llm_tools_legacy_tool: tool=unknown len=1068 raw=Morena.  Here is a short story for you:  Buster, a Border Collie, wasn't just any dog; he was a professional shad
+11-16 11:24:14.383 D/KernelAI(29668): llm_tools_assistant_reply: len=1068
+11-16 11:24:14.385 D/KernelAI(29668): SPEECH_TRACE finalize turn=9bc7d3a5-1 suppress=false pending=true
+11-16 11:24:14.403 D/KernelAI(29668): SPEECH_TRACE open turn=9bc7d3a5-1 chars=1068
+11-16 11:24:14.517 D/KernelAI(29668): SPEECH_TRACE sherpa openStream token=1
+11-16 11:24:17.444 D/KernelAI(29668): Sherpa streaming chunk: 2923ms for 43 chars, sid=0
+11-16 11:24:17.444 I/KernelAI(29668): SpeakingStarted engine=sherpa chars=43 epochMs=1794792257444
+11-16 11:24:17.586 D/AudioPlayerStateMonitor( 3013): Found a new active media playback. AudioPlaybackConfiguration piid:19951 deviceIds:[] type:android.media.AudioTrack u/pid:10959/29668 state:started
+11-16 11:24:17.587 D/MediaSessionService( 3013): Audio playback is changed, config=AudioPlaybackConfiguration piid:19951 deviceIds:[] type:android.media.AudioTrack u/pid:10959/29668 state:started attr
+11-16 11:24:17.589 D/AudioPlayerStateMonitor( 3013): Found a new active media playback. AudioPlaybackConfiguration piid:19951 deviceIds:[] type:android.media.AudioTrack u/pid:10959/29668 state:started
+11-16 11:24:18.090 I/adbd    (24984): adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCE1927 MARKER_home_pressed_after_speech_started'
+11-16 11:24:18.155 I/EVIDENCE1927(31200): MARKER_home_pressed_after_speech_started
+11-16 11:24:18.304 D/KernelAI(29668): SPEECH_TRACE chat lifecycle=ON_PAUSE
+11-16 11:24:18.721 D/KernelAI(29668): SPEECH_TRACE chat lifecycle=ON_STOP
+11-16 11:24:18.721 D/KernelAI(29668): SPEECH_TRACE onScreenStopped screenOff=false turn=9bc7d3a5-1 speechJobActive=false
+11-16 11:24:18.722 D/KernelAI(29668): SPEECH_TRACE stopChatSpeech turn=9bc7d3a5-1
+11-16 11:24:18.722 D/KernelAI(29668): SPEECH_TRACE sherpa stop active=1 stopped=false
+11-16 11:24:18.745 D/VRI[MainActivity]@4a46dfd(29668): WindowStopped on ai.jandal.assistant.debug/com.kernel.ai.MainActivity set to true
+11-16 11:24:18.758 D/MediaSessionService( 3013): Audio playback is changed, config=AudioPlaybackConfiguration piid:19951 deviceIds:[3] type:android.media.AudioTrack u/pid:10959/29668 state:paused attr
+11-16 11:24:31.586 D/KernelAI(29668): Sherpa streaming chunk: 14142ms for 75 chars, sid=0
+11-16 11:24:43.278 I/adbd    (24984): adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCE1927 MARKER_25s_after_home'
+11-16 11:24:43.333 I/EVIDENCE1927(31650): MARKER_25s_after_home
