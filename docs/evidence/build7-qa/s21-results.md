@@ -2,14 +2,17 @@
 
 ## Header
 
-- Device: S21, `R5CR605B71K`, SM-G991B, Android 15. Debug build `ai.jandal.assistant.debug` from `origin/main` `8173f2dd`, APK sha256 `cfb3ec80…f6b7`, `lastUpdateTime=2026-11-16 21:28:57`.
+- Device: S21, `R5CR605B71K`, SM-G991B, Android 15. Debug build `ai.jandal.assistant.debug` from `origin/main` `8173f2dd`, APK sha256 `cfb3ec80…f6b7`, `lastUpdateTime=2026-11-16 21:28:57`. The #1968-fix agent reinstalled it at 22:12:34; see the build note.
 - Model: Gemma-4 E-2B on GPU (app default on this phone).
 - Sessions under the lock protocol:
   - first QA agent (`b7qa-s21-agent`), 21:28–21:44 AEST: smoke checks, then out of budget;
   - parent agent (`b7qa-parent`), 21:44–22:10:46 AEST (released): everything else, cleanup and restore.
   - parent agent again, 22:25–22:28:57 AEST (released): #1928 widget crop, #1931 setup step 4, and cleanup. Nothing audible; no TTS.
 - Silenced for the first two sessions (recorded before, restored after; see Cleanup).
-- **Build note:** at 22:12:34, between my sessions, another agent working on the #1968 fix (lock owner `fix-1968-lexicon`) reinstalled the S21 debug app with its own build. So the #1928 and #1931 rows ran on that build, not `8173f2dd`. Its change is the speech lexicon; the widget and setup copy are the same code [INFERENCE: from the agent's run script and #1968 scope, not from a diff]. Every other S21 row ran on `8173f2dd`.
+- **Build note:** at 22:12:34, between my sessions, another agent working on the #1968 fix (lock owner `fix-1968-lexicon`) reinstalled the S21 debug app with its own build, `6910c1a7`, the tip of `origin/fix/lexicon-regex-android-1968`.
+  - So the #1928 and #1931 rows ran on that build.
+  - Its merge-base with `8173f2dd` is `8173f2dd`, and `git diff --stat 8173f2dd 6910c1a7` touches only `PronunciationLexicon.kt`, the new `PronunciationLexiconDeviceTest.kt`, `core/voice/build.gradle.kts` and `gradle/libs.versions.toml`. No widget or setup code changed.
+  - Every other S21 row ran on `8173f2dd`, including `s21-1932-voice-hey-jandal-subtitle.png` (captured about 21:56, before the reinstall), which shows "Adds a 117 MB download" on `8173f2dd` itself.
 
 ## Results
 
@@ -22,7 +25,7 @@
 | Smoke | List add and remove | PASS | – | "add qa test item to my shopping list", then removed. The list had to be created first (none existed). |
 | Smoke | Chat voice reply with Cori (Sherpa) | **FAIL** → #1968 | `s21-tts-crash-patternsyntax.log` | The app crashes at the first spoken chunk: `PatternSyntaxException (?U:\s+)` in `PronunciationLexicon.<clinit>`. 3 crashes in this session, plus 1 from Actions Read aloud. |
 | Known | "what lists do I have" via the Actions fallthrough | FAIL, already tracked | – | `Input token ids are too long … 3382 >= 3072` on E-2B. This is #1961 (Build 8), not new. |
-| #1927 | Home stops a chat voice reply | PASS (Android TTS) | `s21-1927-home.log` | Cori crashes (#1968), so voice output was switched to Android TTS for this check and restored afterwards. Home 2 s into speech: `AudioTrack stop` + `abandonAudioFocus` from the Jandal TTS controller within 0.4 s, and no later `speaking_started` in 25 s (the reply had 112 chunks). |
+| #1927 | Home stops a chat voice reply | PASS (Android TTS) | `s21-1927-home.log` | Cori crashes (#1968), so voice output was switched to Android TTS for this check and restored afterwards. Home 2 s into speech: `AudioTrack stop` + `abandonAudioFocus` from the Jandal TTS controller within 0.4 s, and no later `speaking_started` in 25 s. The reply was a multi-sentence story; the same prompt in the screen-off run produced 3 more `speaking_started` lines in the next 20 s, so more utterances were due. |
 | #1927 | Screen off keeps speaking | PASS (Android TTS) | `s21-1927-screenoff.log` | `KEYCODE_SLEEP` → `Going to sleep due to sleep_button`. Three more `speaking_started` followed with the screen off (21:59:50, 22:00:01, 22:00:09), until the wake key at 22:00:10. |
 | #1927 | Home stops 'Speak message' read-aloud | PASS (Android TTS) | `s21-1927-readaloud-home.log` | Read-aloud on the story reply, Home at 22:01:02.65, stop at 22:01:02.96, no further speech in 20 s. |
 | #1927 | Same, with Cori | NOT RUN (blocked by #1968) | – | Re-check after the #1968 fix. |
@@ -33,7 +36,7 @@
 | #1928 | Widget mic contrast + content description | PASS (see build note) | `s21-1928-widget-mic-button.png` | The debug quick-actions widget (id 36, already on the S21 home screen from #1945's evidence) was cropped to the mic button only. Glyph `#FFFFFF` on `#4F7942`: **5.07:1** (minimum 3:1), light mode. The mic node has content-desc "Voice input". This replaces the S23U placement, which failed in the launcher. |
 | #1931 | Setup guide Hey Jandal card names the download | PASS (see build note) | `s21-1931-setup-step4-hey-jandal-size.png` | Step 4: "Adds a 117 MB download. Uses a little battery." Settings › Voice says the same. Hey Jandal was not turned on, so whether step 3 lists the download when it's on was not checked. |
 | #1920 | One rebuild per command | PASS | `s21-1920-rebuilds.txt` | 3 measured chat-path commands after a warm-up: `CONV_REBUILD` = 1, 1, 1 (`reason=updateSystemPrompt`). t0 → `generate()` was 3843 / 3893 / 3806 ms. Prefill was 2511 tokens. Typed fallthrough (`quick_action_is_voice=false`), because the voice route crashes at speech (#1968); the rebuild path (`submitInitialQueryIfNeeded`, independent command) is the same. |
-| #1930 | Overlay states that can be shown without sound | PASS (partial) | `s21-1930-overlay-listening-widget-entry.png` | The widget-entry overlay (`VoiceCommandActivity`, which the wake path now reuses): mic icon, "Listening…", "Your words are being captured.", X. Back dismissed it, and nothing was routed. The wake path itself (Listening → partials → Processing, X cancel, turnScreenOn) needs the owner's spoken check. |
+| #1930 | Overlay states that can be shown without sound | PARTIAL | `s21-1930-overlay-listening-widget-entry.png` | The widget-entry overlay (`VoiceCommandActivity`, which the wake path now reuses): mic icon, "Listening…", "Your words are being captured.", X. Back dismissed it, and nothing was routed. The image is cropped to the card with the outside corners masked; the card is translucent, so three home-screen app icons show faintly through it (no text, no wallpaper photo). The wake path itself (Listening → partials → Processing, X cancel, turnScreenOn) needs the owner's spoken check. |
 | #1932 | Voice settings Hey Jandal subtitle | PASS | `s21-1932-voice-hey-jandal-subtitle.png` | "Say "Hey Jandal" to start talking, hands-free. Adds a 117 MB download." The old "Tap Home-press…" text is gone. This also shows the #1931 size. |
 | #1943 | 'Set up Jandal again' is the first Settings row | PASS | – | Seen in the UI dump (first row, "How Jandal works and download options"). |
 
@@ -61,3 +64,4 @@
 | Chats created tonight (14) | created | deleted in the UI |
 | Test list `shopping` (created by the first agent; none existed before) | created | deleted |
 | 2 chats + 2 Actions cards "tell me a short story about a dog" (22:13, 22:18) | created by the `fix-1968-lexicon` agent's runs, not by QA | deleted by me at 22:27 while cleaning up, before I knew whose they were; its harness token file was also removed (its run had finished and released the lock) |
+| Installed debug build | `8173f2dd` (21:28:57) | **not restored:** the S21 still has the #1968-fix agent's build `6910c1a7` (`lastUpdateTime=2026-11-16 22:12:34`). A clean `origin/main` debug build will be installed after the post-#1969 re-run. |

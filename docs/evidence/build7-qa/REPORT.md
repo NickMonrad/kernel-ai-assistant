@@ -11,13 +11,21 @@ Tracking: #1944 (milestone "Build 7 — setup polish & tester follow-ups").
 | Source | `origin/main` `8173f2dd6e9300f5c7179dd683bbc1f80897290c` |
 | APK | `./gradlew assembleDebug`, sha256 `cfb3ec8049ade805cbfe96bd207c51aecbb11d803eee57ae13f6d8ed08e1f6b7`, package `ai.jandal.assistant.debug` |
 | S23U | `RFCW11265XH`, SM-S918B, Android 16, Gemma-4 E-4B GPU. Installed 21:28:46. Details: [s23u-results.md](s23u-results.md) |
-| S21 | `R5CR605B71K`, SM-G991B, Android 15, Gemma-4 E-2B GPU. Installed 21:28:57. Details: [s21-results.md](s21-results.md) |
+| S21 | `R5CR605B71K`, SM-G991B, Android 15, Gemma-4 E-2B GPU. Installed 21:28:57; the #1968-fix agent reinstalled it at 22:12:34 (see below). Details: [s21-results.md](s21-results.md) |
 | Honor | Not touched |
 | When | 2026-11-16, 21:24–22:29 AEST. Each phone was silenced before anything audible: ringer silent, media/notification 0, DND on, alarm `Muted: true`. Speech was judged from logs. All recorded values were restored and re-read (see the results files). |
 
 Locks: `/tmp/jandal-s23u.lock` and `/tmp/jandal-s21.lock` were held with owner files for every device session and released by their owners.
 
-At 22:12:34, between QA sessions, another agent working on the #1968 fix (`fix-1968-lexicon`) reinstalled the S21 debug app with its own build. Only two S21 rows ran after that (#1928, #1931); both are marked below.
+At 22:12:34, between QA sessions, another agent working on the #1968 fix (`fix-1968-lexicon`) reinstalled the S21 debug app with its own build. Only two S21 rows ran after that (#1928, #1931); both are marked S21* below.
+
+That build is `6910c1a7`, the tip of `origin/fix/lexicon-regex-android-1968`, branched directly from `8173f2dd` (merge-base `8173f2dd`). `git diff --stat 8173f2dd 6910c1a7` touches only:
+- `PronunciationLexicon.kt` (+5/−2)
+- the new `PronunciationLexiconDeviceTest.kt` (+29)
+- `core/voice/build.gradle.kts` (+2)
+- `gradle/libs.versions.toml` (+2)
+
+No widget or setup code changed, so the two S21* rows hold for `8173f2dd`.
 
 ## Results
 
@@ -28,23 +36,23 @@ PASS / FAIL / NOT RUN / OWNER CHECK. "S21*" means the S21 had the #1968-fix agen
 | Smoke | App start to ready UI | PASS (cold, 1141 ms) | PASS (warm only, 631–1151 ms; the assistant service restarts the process at once) | results files |
 | Smoke | First chat reply | PASS | PASS | [s21-1920-rebuilds.txt](s21-1920-rebuilds.txt) |
 | Smoke | Timer 5 s (silenced) | PASS (alert text observation) | PASS | results files |
-| Smoke | Weather quick intent | PASS | PASS | [s23u-smoke-weather-auckland.log](s23u-smoke-weather-auckland.log) |
+| Smoke | Weather quick intent | PASS. The S23U run hit a real Open-Meteo stall: the 5 s budget expired with no exception, unlike the marker path, and the marker had been removed before the run | PASS | [s23u-smoke-weather-auckland.log](s23u-smoke-weather-auckland.log) |
 | Smoke | List add / remove | PASS | PASS | results files |
 | **#1968 (new)** | **Any Cori/Sherpa speech** | **FAIL: crash** | **FAIL: crash** | [s21-tts-crash-patternsyntax.log](s21-tts-crash-patternsyntax.log), [s21-1942-read-aloud-crash.log](s21-1942-read-aloud-crash.log) |
-| #1941 | Typed "ad milk to my shopping lest" → `add_to_list`, no LLM | PASS | – | s23u-results.md |
-| #1941 | Chat `run_intent(bulk_add_to_list)` | PASS (`success=true`) | – | s23u-results.md |
+| #1941 | Typed "ad milk to my shopping lest" → `add_to_list`, no LLM | PASS: Actions card routed `add_to_list`, "• milk" (other cards read `llm_fallthrough`) | – | [s23u-1941-actions-ui-dump.txt](s23u-1941-actions-ui-dump.txt) |
+| #1941 | Chat `run_intent(bulk_add_to_list)` | PASS (agent-observed, no artefact): QA agent 1 saw `success=true` in logcat. The log was not kept, and the chat was deleted in cleanup | – | s23u-results.md |
 | #1940 | Weather mishearings | OWNER CHECK | OWNER CHECK | `TranscriptNormaliser` runs only inside the STT controllers; the harness route skips it, so typed tests prove nothing. Unit tests: `TranscriptNormaliserTest`, `WeatherSttRoutingTest`. |
 | #1927 | Home stops a chat voice reply | NOT RUN with Cori (#1968) | PASS (Android TTS) | [s21-1927-home.log](s21-1927-home.log) |
 | #1927 | Home stops 'Speak message' read-aloud | NOT RUN with Cori (#1968) | PASS (Android TTS) | [s21-1927-readaloud-home.log](s21-1927-readaloud-home.log) |
 | #1927 | Screen off keeps speaking | n/a (S21 only) | PASS (Android TTS) | [s21-1927-screenoff.log](s21-1927-screenoff.log) |
 | #1928 | Widget mic contrast + content description | NOT RUN (launcher placement failed) | PASS* 5.07:1, "Voice input" | [s21-1928-widget-mic-button.png](s21-1928-widget-mic-button.png) |
-| #1932 | Hey Jandal subtitle copy | PASS | PASS | [s21-1932-voice-hey-jandal-subtitle.png](s21-1932-voice-hey-jandal-subtitle.png), [s23u-dark-font1.15-voice-top.png](s23u-dark-font1.15-voice-top.png) |
+| #1932 | Hey Jandal subtitle copy | PASS on S21 (the new text, Jandal is default assistant). S23U shows the not-default-assistant text ("Set Jandal as default assistant first…"), which only proves the old "Tap Home-press" text is gone | PASS | [s21-1932-voice-hey-jandal-subtitle.png](s21-1932-voice-hey-jandal-subtitle.png) (`8173f2dd`, before the S21 reinstall), [s23u-dark-font1.15-voice-top.png](s23u-dark-font1.15-voice-top.png) |
 | #1932 | List chooser casing `shopping list` | PASS | – | [s23u-1932-list-chooser-casing.png](s23u-1932-list-chooser-casing.png) |
 | #1932 | Widget picker labels | PASS for this build ("Jandal AI (debug)"); the other rows are older installed packages | – | s23u-results.md |
 | #1952 | No chat composer frame on the widget → Actions handoff | PASS (screenrecord, 10 fps, dark) | – | [s23u-1952-frames.txt](s23u-1952-frames.txt), [1](s23u-1952-1-chat-before-handoff.png) [2](s23u-1952-2-opaque-cover.png) [3](s23u-1952-3-actions-first-frame.png) [4](s23u-1952-4-actions-loaded.png) |
 | #1909 | Permission reply wording, prompt path (deny) | – | PASS | [s21-1909-prompt-path-reply-and-system-prompt.png](s21-1909-prompt-path-reply-and-system-prompt.png) |
 | #1909 | App info path (permanently denied) | – | PASS (App info opens; the reply's second sentence covers it) | [s21-1909-app-info-opened.png](s21-1909-app-info-opened.png), [s21-1909-app-info-path-reply.png](s21-1909-app-info-path-reply.png) |
-| #1912 | Acceptance modules compile | PASS (host) | | [1912-compile-tasks.txt](1912-compile-tasks.txt) |
+| #1912 | Acceptance modules compile | PASS (host) | – | [1912-compile-tasks.txt](1912-compile-tasks.txt) |
 | #1943 | 'Set up Jandal again' is the first Settings row | PASS | PASS | [s23u-1943-settings-top.png](s23u-1943-settings-top.png) |
 | #1943 | Mobile-data switch only in Model Management › Downloads; same value as setup step 3 | PASS | – | [s23u-1943-model-management-downloads.png](s23u-1943-model-management-downloads.png) |
 | #1942 | Card: rows, time column, Show more (test calendar only) | – | PASS | [s21-1942-card-collapsed.png](s21-1942-card-collapsed.png), [s21-1942-card-expanded.png](s21-1942-card-expanded.png) |
@@ -55,7 +63,7 @@ PASS / FAIL / NOT RUN / OWNER CHECK. "S21*" means the S21 had the #1968-fix agen
 | #1929 | Each step opens at the top | PASS | – | `s23u-*-step*-top.png` |
 | #1931 | Hey Jandal card names its download | n/a (models already on the phone) | PASS* "Adds a 117 MB download" | [s21-1931-setup-step4-hey-jandal-size.png](s21-1931-setup-step4-hey-jandal-size.png) |
 | #1937 | Online switch inside the selected engine card | PASS at 1.15; NOT RUN at 2.0 | – | [s23u-light-font1.15-voice-top.png](s23u-light-font1.15-voice-top.png), [s23u-dark-font1.15-step2-top.png](s23u-dark-font1.15-step2-top.png) |
-| #1930 | Hey Jandal overlay (what can be shown silently) | – | PASS partial: the overlay "Listening…" state from the widget entry, which the wake path reuses | [s21-1930-overlay-listening-widget-entry.png](s21-1930-overlay-listening-widget-entry.png); wake-path items are on the owner's checklist |
+| #1930 | Hey Jandal overlay (what can be shown silently) | – | PARTIAL: only the overlay's "Listening…" state from the widget entry, which the wake path reuses. The wake path itself is an owner check. The card is translucent, so three home-screen app icons (phone, Brave, Firefox) show faintly through it; no text, wallpaper photo or personal data | [s21-1930-overlay-listening-widget-entry.png](s21-1930-overlay-listening-widget-entry.png); wake-path items are on the owner's checklist |
 | #1922 | MET Norway fallback, debug marker, uncached city | PASS: Oamaru answered by MET Norway 2.0 s after the forced failure; card credits MET; marker removed | – | [s23u-1922-met-fallback.log](s23u-1922-met-fallback.log), [s23u-1922-met-fallback-card.png](s23u-1922-met-fallback-card.png) |
 
 Font: the phones' default font scale is 1.15, so "default" in the setup images means 1.15.
@@ -77,11 +85,23 @@ Observations (not filed):
 - Harness: a fresh token is written with `run-as` and sent with `chat_input`, `quick_action_input`, or `quick_action_input_encoded`; `quick_action_is_voice` is false wherever speech would trigger #1968. #1927 used Android TTS for the run, and the voice engine was restored to Piper/Cori afterwards.
 - #1942 used a LOCAL test calendar `JandalTest` with 5 made-up events, behind the debug test-calendar filter set before any read. The UI dump showed only `Test …` rows before any screenshot. Calendar, events and filter were removed, and permissions restored.
 - #1909 used deny paths only, with a far-future date (2099). Permission flags were restored to `granted=false, USER_SET`.
-- Screenshots are cropped to app content. Neither phone's home screen, conversation list, contacts nor real events were captured.
+- Screenshots are cropped to app content. No conversation list, contacts or real events were captured. Home-screen content appears in two places:
+  - `s21-1928-widget-mic-button.png` is cropped inside the widget's mic button;
+  - the translucent #1930 overlay card lets three app icons show faintly through it, with no text or wallpaper photo.
 
 ## Cleanup
 
-All QA test data was removed on both phones: lists and items, test calendar, 8 S23U and 16 S21 chats, 13 S23U and 22 S21 Actions cards, harness tokens, marker files and dump files. A DB read-back on each phone shows no conversation or Actions row created after 21:20. On the S21, two chats and two cards made by the #1968-fix agent's runs (22:13, 22:18) were removed in the same sweep. Device settings and permissions were restored to their recorded values (tables in the results files).
+All QA test data was removed on both phones:
+- lists and items, the test calendar, 8 S23U and 16 S21 chats, 13 S23U and 22 S21 Actions cards;
+- harness tokens, marker files and dump files.
+
+A DB read-back on each phone shows no conversation or Actions row created after 21:20. On the S21, two chats and two cards made by the #1968-fix agent's runs (22:13, 22:18) were removed in the same sweep. Device settings and permissions were restored to their recorded values (tables in the results files).
+
+**Installed build at the end:**
+- the S23U has the QA build `8173f2dd` (installed 21:28:46);
+- the S21 still has the #1968-fix agent's debug build `6910c1a7` (installed 22:12:34), not `8173f2dd`.
+
+A clean `origin/main` debug build goes on both phones after the post-#1969 re-run.
 
 ## Owner internal-testing smoke checklist
 
