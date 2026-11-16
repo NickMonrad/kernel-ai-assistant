@@ -1,7 +1,6 @@
 package com.kernel.ai.feature.settings
 
 import android.net.Uri
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -135,7 +134,6 @@ fun ChatPreferencesScreen(
     val wallpaperImageUri by viewModel.wallpaperImageUri.collectAsStateWithLifecycle()
     val copyToolCalls by viewModel.copyToolCalls.collectAsStateWithLifecycle()
     val copyThinking by viewModel.copyThinking.collectAsStateWithLifecycle()
-    val useSystemColors by viewModel.useSystemColors.collectAsStateWithLifecycle()
     val importedWallpapers by viewModel.importedWallpapers.collectAsStateWithLifecycle()
     val wallpaperImportError by viewModel.wallpaperImportError.collectAsStateWithLifecycle()
     val migrationRunning by viewModel.migrationRunning.collectAsStateWithLifecycle()
@@ -213,21 +211,6 @@ fun ChatPreferencesScreen(
                 headlineContent = { Text("Bubble theme") },
                 supportingContent = { Text(themeLabel) },
             )
-
-            // Dynamic Colour toggle (#1183) — Android 12+ only
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                ListItem(
-                    modifier = Modifier.fillMaxWidth(),
-                    headlineContent = { Text("Use system colours") },
-                    supportingContent = { Text("Use Android Dynamic Colour when available. Turn off to use the Jandal theme.") },
-                    trailingContent = {
-                        Switch(
-                            checked = useSystemColors,
-                            onCheckedChange = { viewModel.setUseSystemColors(it) },
-                        )
-                    },
-                )
-            }
 
             // Font colour — user bubbles
             val userColorLabel = if (userFontColor != null) {

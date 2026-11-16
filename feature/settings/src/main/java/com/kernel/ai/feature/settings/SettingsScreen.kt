@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +31,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.Switch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -70,6 +72,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val useSystemColors by viewModel.useSystemColors.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     LaunchedEffect(Unit) {
@@ -224,6 +227,27 @@ fun SettingsScreen(
                 supportingContent = { Text("Speech and spoken response settings") },
                 leadingContent = { Icon(Icons.Default.Tune, contentDescription = null) },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+            )
+            HorizontalDivider()
+            // ── Appearance ────────────────────────────────────────────────────
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Appearance",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                headlineContent = { Text("Use your phone's colours") },
+                supportingContent = { Text("Colours from your wallpaper (Android 12+). Off uses Jandal.") },
+                leadingContent = { Icon(Icons.Default.Palette, contentDescription = null) },
+                trailingContent = {
+                    Switch(
+                        checked = useSystemColors,
+                        onCheckedChange = { viewModel.setUseSystemColors(it) },
+                    )
+                },
             )
             HorizontalDivider()
 
