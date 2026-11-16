@@ -1312,7 +1312,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 return@withContext
             }
             gpuResetCount = restartDecision.updatedCount
-            if (!conversationDirty && conversation != null) {
+            if (!conversationDirty && conversation != null && !_isGenerating.value) {
                 Log.d(TAG, "resetConversation: conversation clean, skipping rebuild")
                 return@withContext
             }
@@ -1327,6 +1327,7 @@ class LiteRtInferenceEngine @Inject constructor(
             // generate() or generateOnce() is suspended mid-flight using it.
             generationMutex.withLock {
                 safeClose(conversation, "conversation")
+                conversation = null
                 try {
                     conversation = createConversationRebuild(eng, backend, config, "resetConversation")
                 } finally {
@@ -2151,7 +2152,8 @@ class LiteRtInferenceEngine @Inject constructor(
                     if (shouldSwapConfig) {
                         currentConfig = requestedConfig
                         safeClose(conversation, "conversation")
-                        conversationDirty = true
+                        // Never keep a closed handle: the restore below must rebuild it (#1920).
+                        conversation = null
                     }
                     val eng = engine ?: run {
                         Log.w(TAG, "generateStructuredOnce: engine is null — was it evicted?")
@@ -2331,7 +2333,7 @@ class LiteRtInferenceEngine @Inject constructor(
     private suspend fun resetConversationForConfig(config: ModelConfig, reason: String) {
         val eng = engine ?: return
         val backend = _activeBackend.value ?: BackendType.CPU
-        if (!conversationDirty && conversation != null && config == currentConfig) {
+        if (!conversationDirty && conversation != null && !_isGenerating.value && config == currentConfig) {
             Log.d(TAG, "resetConversationForConfig reason=$reason: conversation clean, config unchanged; no rebuild")
             return
         }
@@ -2346,6 +2348,7 @@ class LiteRtInferenceEngine @Inject constructor(
         generationMutex.withLock {
             val lockWaitMs = System.currentTimeMillis() - resetStartedAt
             safeClose(conversation, "conversation")
+            conversation = null
             val createStartedAt = System.currentTimeMillis()
             try {
                 conversation = createConversationRebuild(eng, backend, config, reason)
@@ -2551,6 +2554,11 @@ class LiteRtInferenceEngine @Inject constructor(
         try { conv?.cancelProcess() } catch (e: Exception) { Log.w(TAG, "cancelProcess: ${e.message}") }
     }
 
+    /**
+     * Creates the replacement native conversation. Callers null [conversation] before calling, and
+     * the clean flag is set only after creation succeeds, so a failed rebuild is retried by the next
+     * reset instead of being skipped as clean (#1920).
+     */
     private fun createConversationRebuild(
         eng: Engine,
         backend: BackendType,
@@ -2558,9 +2566,10 @@ class LiteRtInferenceEngine @Inject constructor(
         reason: String,
     ): com.google.ai.edge.litertlm.Conversation {
         conversationRebuildCount++
-        conversationDirty = false
         Log.i(TAG, "CONV_REBUILD count=$conversationRebuildCount reason=$reason backend=$backend")
-        return eng.createConversation(buildConversationConfig(backend, config))
+        val created = eng.createConversation(buildConversationConfig(backend, config))
+        conversationDirty = false
+        return created
     }
 
     private fun safeClose(closeable: AutoCloseable?, label: String) {

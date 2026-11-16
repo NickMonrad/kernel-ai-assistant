@@ -24,6 +24,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Test
 
 /**
@@ -113,6 +114,32 @@ class LiteRtInferenceEngineRebuildTest {
         withTimeout(3_000) { inferenceEngine.updateSystemPrompt("system prompt B") }
 
         verify(exactly = 1) { engineFake.createConversation(any()) }
+    }
+
+    @Test
+    fun `one-shot generation on the shared conversation makes the next reset rebuild once`() = runBlocking {
+        val title = async { inferenceEngine.generateOnce("generate a title") }
+        withTimeout(3_000) { callbacks.receive() }.onDone()
+        withTimeout(3_000) { title.await() }
+
+        withTimeout(3_000) { inferenceEngine.resetConversation() }
+        withTimeout(3_000) { inferenceEngine.resetConversation() }
+
+        verify(exactly = 1) { engineFake.createConversation(any()) }
+    }
+
+    @Test
+    fun `failed rebuild is retried by the next reset instead of skipped as clean`() = runBlocking {
+        every { engineFake.createConversation(any()) } throws IllegalStateException("GPU OOM") andThen
+            mockk<Conversation>(relaxed = true)
+
+        val firstFailure = runCatching {
+            withTimeout(3_000) { inferenceEngine.updateSystemPrompt("system prompt B") }
+        }.exceptionOrNull()
+        withTimeout(3_000) { inferenceEngine.resetConversation() }
+
+        assertInstanceOf(IllegalStateException::class.java, firstFailure)
+        verify(exactly = 2) { engineFake.createConversation(any()) }
     }
 
     private fun setPrivateField(target: Any, fieldName: String, value: Any?) {

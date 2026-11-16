@@ -7,6 +7,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
 import com.google.ai.edge.litertlm.ToolProvider
+import com.kernel.ai.core.inference.BORING_AI_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.BackendType
 import com.kernel.ai.core.inference.DEFAULT_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
@@ -94,6 +95,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelInitTest {
     private val dispatcher = StandardTestDispatcher()
@@ -1033,17 +1036,28 @@ class ChatViewModelInitTest {
         coVerify(atLeast = 1) { inferenceEngine.resetConversation() }
     }
 
-    @Test
-    fun `GPU independent command rebuilds the native conversation exactly once`() = runTest(dispatcher) {
-        // #1920: a voice command on GPU rebuilt twice (independent reset + per-turn history replay).
-        // updateSystemPrompt is the replay rebuild; resetConversation must not add a second one.
-        val query = "tell me a short story about a dog"
+    @ParameterizedTest(name = "{0} releaseGpuPath={1}")
+    @CsvSource(
+        "Look up the weather in Apia, true, true",
+        "Tell me a short story about a dog, true, false",
+        "Look up the weather in Apia, false, false",
+        "Tell me a short story about a dog, false, false",
+    )
+    fun `GPU voice command installs one prompt from chat open to generation`(
+        query: String,
+        releaseGpuPath: Boolean,
+        expectMinimalPrompt: Boolean,
+    ) = runTest(dispatcher) {
+        // #1920: each engine prompt install or reset is a native conversation rebuild. Counted from
+        // ViewModel creation, an Actions-to-chat voice command must install exactly one prompt: the
+        // replay's (MINIMAL for tool queries on the release GPU path) or the deferred FULL prompt.
+        val systemPrompts = mutableListOf<String>()
         every { inferenceEngine.isReady } returns MutableStateFlow(true)
         every { inferenceEngine.isGenerating } returns MutableStateFlow(false)
         every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
         every { inferenceEngine.generate(any()) } returns
-            flowOf(GenerationResult.Token("Once upon a time."), GenerationResult.Complete(durationMs = 1L))
-        coEvery { inferenceEngine.updateSystemPrompt(any()) } just runs
+            flowOf(GenerationResult.Token("Done."), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers { systemPrompts += firstArg<String>() }
         coEvery { inferenceEngine.resetConversation() } just runs
         every { quickIntentRouter.route(query) } returns QuickIntentRouter.RouteResult.FallThrough(input = query)
         every { slotValidationRegistry.validateParams(any(), any()) } returns null
@@ -1051,16 +1065,52 @@ class ChatViewModelInitTest {
         coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
             listOf("user-msg", "assistant-msg")
 
-        val viewModel = createViewModel()
-        viewModel.setDebugForceGpuConversationResetEachTurn(true)
+        val viewModel = createViewModel(
+            SavedStateHandle(mapOf("initialQuery" to query, "minimalContext" to true)),
+        )
+        viewModel.setDebugForceGpuConversationResetEachTurn(releaseGpuPath)
         advanceUntilIdle()
-        clearMocks(inferenceEngine, answers = false)
-
-        viewModel.submitInitialQueryIfNeeded(query)
+        viewModel.submitInitialQueryIfNeeded(query, speakResponse = true)
         advanceUntilIdle()
 
         coVerify(exactly = 0) { inferenceEngine.resetConversation() }
-        coVerify(exactly = 1) { inferenceEngine.updateSystemPrompt(any()) }
+        assertEquals(1, systemPrompts.size, systemPrompts.joinToString(separator = "\n---\n"))
+        val expectedIdentity = if (expectMinimalPrompt) MINIMAL_SYSTEM_PROMPT else DEFAULT_SYSTEM_PROMPT
+        assertTrue(systemPrompts.single().contains(expectedIdentity), systemPrompts.single())
+        verify(exactly = 1) { inferenceEngine.generate(any()) }
+    }
+
+    @Test
+    fun `persona change before a deferred voice command still reaches its prompt`() = runTest(dispatcher) {
+        // Deferring the chat-open install must not drop a prompt change: the turn's single install
+        // is built after the change (#1920).
+        val query = "Tell me a short story about a dog"
+        val personaMode = MutableStateFlow(PersonaMode.FULL)
+        val systemPrompts = mutableListOf<String>()
+        every { jandalPersona.personaMode } returns personaMode
+        every { inferenceEngine.isReady } returns MutableStateFlow(true)
+        every { inferenceEngine.isGenerating } returns MutableStateFlow(false)
+        every { inferenceEngine.activeBackend } returns MutableStateFlow(BackendType.GPU)
+        every { inferenceEngine.generate(any()) } returns
+            flowOf(GenerationResult.Token("Done."), GenerationResult.Complete(durationMs = 1L))
+        coEvery { inferenceEngine.updateSystemPrompt(any()) } answers { systemPrompts += firstArg<String>() }
+        every { quickIntentRouter.route(query) } returns QuickIntentRouter.RouteResult.FallThrough(input = query)
+        every { slotValidationRegistry.validateParams(any(), any()) } returns null
+        every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
+        coEvery { conversationRepository.addMessage(any(), any(), any(), any(), any()) } returnsMany
+            listOf("user-msg", "assistant-msg")
+
+        val viewModel = createViewModel(SavedStateHandle(mapOf("initialQuery" to query)))
+        viewModel.setDebugForceGpuConversationResetEachTurn(true)
+        advanceUntilIdle()
+        every { jandalPersona.currentPersonaMode } returns PersonaMode.BORING
+        personaMode.value = PersonaMode.BORING
+        advanceUntilIdle()
+        viewModel.submitInitialQueryIfNeeded(query)
+        advanceUntilIdle()
+
+        assertEquals(1, systemPrompts.size, systemPrompts.joinToString(separator = "\n---\n"))
+        assertTrue(systemPrompts.single().contains(BORING_AI_SYSTEM_PROMPT), systemPrompts.single())
     }
 
     @Test
