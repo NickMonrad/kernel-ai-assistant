@@ -71,6 +71,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.voice.HeyJandalGate
 import com.kernel.ai.core.voice.HonorCameraCoexistence
+
 import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
 import com.kernel.ai.core.voice.SherpaKokoroVoice
@@ -618,12 +619,19 @@ private fun VoiceScreenContent(
                 },
                 headlineContent = { Text("Listen for \"Hey Jandal\"") },
                 supportingContent = {
+                    val sizeLine = if (uiState.isWakeWordModelAvailable && !uiState.heyJandalEnabled &&
+                        uiState.heyJandalDownloadBytes > 0L
+                    ) {
+                        " Adds a ${formatBytes(uiState.heyJandalDownloadBytes)} download."
+                    } else {
+                        ""
+                    }
                     Text(
                         when {
                             !uiState.isWakeWordModelAvailable -> "Wake word model not yet available — model training in progress (#984)"
-                            !uiState.isDefaultAssistant -> "Set Jandal as default assistant first for reliable background mic access"
+                            !uiState.isDefaultAssistant -> "Set Jandal as default assistant first for reliable background mic access."
                             else -> "Say \"Hey Jandal\" to start talking, hands-free."
-                        },
+                        } + sizeLine,
                     )
                 },
                 trailingContent = {
@@ -668,6 +676,7 @@ private fun VoiceScreenContent(
                 onCancel = onCancelSherpaStt,
                 onDelete = onDeleteSherpaStt,
             )
+
 
             HorizontalDivider()
 

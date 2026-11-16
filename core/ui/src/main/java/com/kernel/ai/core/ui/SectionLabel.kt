@@ -1,6 +1,6 @@
 package com.kernel.ai.core.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -113,7 +113,7 @@ fun SwitchSubSetting(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
-                .clickable(role = Role.Switch) { onCheckedChange(!checked) },
+                .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {

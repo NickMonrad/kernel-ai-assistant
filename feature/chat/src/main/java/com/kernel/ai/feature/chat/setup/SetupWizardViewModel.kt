@@ -24,7 +24,7 @@ import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import com.kernel.ai.core.voice.InflectMicroSetup
-import com.kernel.ai.core.voice.wakeVerifierKernelModels
+import com.kernel.ai.core.voice.heyJandalDownloadModels
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,9 +77,14 @@ data class SetupWizardUiState(
      * ("Downloaded"); a missing key means the output has no download ("No download"). Cori and Inflect (#1931).
      */
     val outputSizes: Map<VoiceOutputEngine, Long> = emptyMap(),
-    /** Extra download the Hey Jandal card names: verifier files, plus Zipformer for Android native (#1931). */
+    /** Extra download the Hey Jandal card names: the files turning it on still needs, beyond the step-3 plan (#1931). */
     val heyJandalExtraBytes: Long = 0L,
-    /** Total for the welcome screen: the first-run plan at the default choices, excluding files already on disk. */
+    /** The Zipformer part of [heyJandalExtraBytes]: non-zero only with Android native input. Named by Why?. */
+    val heyJandalZipformerBytes: Long = 0L,
+    /**
+     * Total for the welcome screen, excluding files already on disk: on a first run the plan at the default choices
+     * for this phone; on a re-run from Settings, what the current choices still have to download.
+     */
     val welcomeTotalBytes: Long = 0L,
     /** True when the wizard was opened from Settings after a finished first run. */
     val isRerun: Boolean = false,
@@ -145,6 +150,7 @@ class SetupWizardViewModel @Inject constructor(
             val tier = setupVoiceDevice.hardwareTier()
             val outputOptions = SetupSpeechOptions.outputOptions(
                 hasSystemTts = setupVoiceDevice.hasSystemTtsEngine(),
+                isRelease = setupVoiceDevice.isReleaseBuild(),
                 inflectEligible = setupVoiceDevice.inflectEligible(),
             )
             val currentInput = if (voiceInputPreferences.hasStoredEngine()) {
@@ -188,6 +194,11 @@ class SetupWizardViewModel @Inject constructor(
             val plannedModels = plannedModelsFor(input, output)
             val plannedVoices = plannedVoicesFor(output)
             val defaultOutput = SetupSpeechOptions.defaultOutput(tier, outputOptions)
+            val welcomeTotal = if (progress.completed) {
+                estimateBytes(plannedModels, plannedVoices)
+            } else {
+                estimateBytes(plannedModelsFor(VoiceInputEngine.Auto, defaultOutput), plannedVoicesFor(defaultOutput))
+            }
             _uiState.value = _uiState.value.copy(
                 loaded = true,
                 step = start,
@@ -208,14 +219,15 @@ class SetupWizardViewModel @Inject constructor(
                     ?: voiceInputPreferences.allowOnlineSpeechFallback.first(),
                 outputSizes = outputSizes(),
                 heyJandalExtraBytes = heyJandalExtraBytes(input, plannedModels),
-                welcomeTotalBytes = DownloadConsent.firstRunEstimateBytes(
-                    models = plannedModelsFor(VoiceInputEngine.Auto, defaultOutput),
-                    voiceBytes = plannedVoicesFor(defaultOutput).sumOf { it.approxDownloadBytes },
-                ),
+                heyJandalZipformerBytes = heyJandalZipformerBytes(input, plannedModels),
+                welcomeTotalBytes = welcomeTotal,
                 isRerun = progress.completed,
             )
         }
     }
+
+    private fun estimateBytes(models: List<KernelModel>, voices: List<SherpaPiperVoice>): Long =
+        DownloadConsent.firstRunEstimateBytes(models = models, voiceBytes = voices.sumOf { it.approxDownloadBytes })
 
     private fun isDownloaded(voice: SherpaPiperVoice): Boolean =
         voiceStates[voice] is VoicePackDownloadState.Downloaded
@@ -262,17 +274,25 @@ class SetupWizardViewModel @Inject constructor(
     }
 
     /**
-     * Extra download the Hey Jandal card names: verifier files not on disk, plus Zipformer when the input is
-     * Android native. Files already in the step-3 plan are excluded so no byte is counted twice (#1931).
+     * Extra download the Hey Jandal card names: the files turning it on still needs for this input
+     * ([heyJandalDownloadModels]: the verifier, plus Zipformer unless an online Sherpa recognizer is chosen), less
+     * files on disk and files already in the step-3 plan, so no byte is counted twice (#1931).
      */
-    private fun heyJandalExtraBytes(input: VoiceInputEngine, plannedModels: List<KernelModel>): Long {
-        val verifier = wakeVerifierKernelModels()
-        val zipformer = if (input == VoiceInputEngine.AndroidNative) VoiceDefaultsProvisioner.zipformerModels() else emptyList()
-        return (verifier + zipformer)
-            .distinct()
-            .filterNot { isModelDownloaded(it) || it in plannedModels }
-            .sumOf { it.approxSizeBytes }
-    }
+    private fun heyJandalExtraBytes(input: VoiceInputEngine, plannedModels: List<KernelModel>): Long =
+        heyJandalMissing(input, plannedModels).sumOf { it.approxSizeBytes }
+
+    /** Zipformer bytes Hey Jandal adds when Android native is the input (the Why? sheet names them). */
+    private fun heyJandalZipformerBytes(input: VoiceInputEngine, plannedModels: List<KernelModel>): Long =
+        if (input == VoiceInputEngine.AndroidNative) {
+            heyJandalMissing(input, plannedModels)
+                .filter { it in VoiceDefaultsProvisioner.zipformerModels() }
+                .sumOf { it.approxSizeBytes }
+        } else {
+            0L
+        }
+
+    private fun heyJandalMissing(input: VoiceInputEngine, plannedModels: List<KernelModel>): List<KernelModel> =
+        heyJandalDownloadModels(input).filterNot { isModelDownloaded(it) || it in plannedModels }
 
     private fun plannedVoicesFor(output: VoiceOutputEngine?): List<SherpaPiperVoice> =
         output?.let { plannedVoicesFor(it) { voice -> isDownloaded(voice) } } ?: emptyList()
@@ -282,13 +302,12 @@ class SetupWizardViewModel @Inject constructor(
 
     fun onInputSelected(engine: VoiceInputEngine) {
         savedStateHandle[KEY_SELECTED_INPUT] = engine.name
+        val models = plannedModelsFor(engine, effectiveOutput(_uiState.value.outputEngine))
         _uiState.value = _uiState.value.copy(
             inputEngine = engine,
-            plannedModels = plannedModelsFor(engine, effectiveOutput(_uiState.value.outputEngine)),
-            heyJandalExtraBytes = heyJandalExtraBytes(
-                engine,
-                plannedModelsFor(engine, effectiveOutput(_uiState.value.outputEngine)),
-            ),
+            plannedModels = models,
+            heyJandalExtraBytes = heyJandalExtraBytes(engine, models),
+            heyJandalZipformerBytes = heyJandalZipformerBytes(engine, models),
         )
     }
 
@@ -301,6 +320,7 @@ class SetupWizardViewModel @Inject constructor(
             plannedModels = models,
             plannedVoices = plannedVoicesFor(engine) { isDownloaded(it) },
             heyJandalExtraBytes = heyJandalExtraBytes(input, models),
+            heyJandalZipformerBytes = heyJandalZipformerBytes(input, models),
         )
     }
 

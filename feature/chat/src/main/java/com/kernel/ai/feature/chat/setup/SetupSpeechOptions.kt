@@ -26,15 +26,18 @@ internal object SetupSpeechOptions {
         }
 
     /**
-     * Cori is always offered. Inflect Micro only where it is release-eligible on this device (#1936: no device-requirement
-     * wording). Kokoro is never offered in setup. Android's built-in voice needs an installed TTS engine.
+     * The voices setup offers, in the order Cori, Inflect Micro, Android's built-in voice. Uses the same build rule
+     * as Settings ([VoiceOutputEngine.entriesForBuild]): release builds offer Inflect only where [inflectEligible],
+     * debug builds everywhere. Kokoro is never offered in setup. Android's built-in voice needs an installed TTS engine.
      */
-    fun outputOptions(hasSystemTts: Boolean, inflectEligible: Boolean): List<VoiceOutputEngine> =
-        buildList {
-            add(VoiceOutputEngine.SherpaExperimental)
-            if (inflectEligible) add(VoiceOutputEngine.InflectMicroExperimental)
-            if (hasSystemTts) add(VoiceOutputEngine.AndroidTts)
-        }
+    fun outputOptions(hasSystemTts: Boolean, isRelease: Boolean, inflectEligible: Boolean): List<VoiceOutputEngine> {
+        val offered = VoiceOutputEngine.entriesForBuild(isRelease, inflectEligible)
+        return listOf(
+            VoiceOutputEngine.SherpaExperimental,
+            VoiceOutputEngine.InflectMicroExperimental,
+            VoiceOutputEngine.AndroidTts,
+        ).filter { it in offered && (it != VoiceOutputEngine.AndroidTts || hasSystemTts) }
+    }
 
     /** [candidate] when the wizard offers it, otherwise null. */
     fun <T> offered(candidate: T, options: List<T>): T? = candidate.takeIf { it in options }

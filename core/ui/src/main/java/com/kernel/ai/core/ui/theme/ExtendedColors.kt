@@ -21,25 +21,25 @@ data class JandalExtendedColors(
 )
 
 val JandalDarkExtendedColors = JandalExtendedColors(
-    accent = FernGreenLight,
-    successContainer = Color(0xFF1F3A24),
-    onSuccessContainer = Color(0xFFBFE3C4),
-    warningContainer = Color(0xFF3D2E12),
-    onWarningContainer = Color(0xFFF2D49B),
-    warningOutline = Color(0xFFB8862E),
-    neutralChip = Color(0xFF2E2E2E),
-    onNeutralChip = Color(0xFFD0D0D0),
+    accent = AccentDark,
+    successContainer = SuccessContainerDark,
+    onSuccessContainer = OnSuccessContainerDark,
+    warningContainer = WarningContainerDark,
+    onWarningContainer = OnWarningContainerDark,
+    warningOutline = WarningOutlineDark,
+    neutralChip = NeutralChipDark,
+    onNeutralChip = OnNeutralChipDark,
 )
 
 val JandalLightExtendedColors = JandalExtendedColors(
-    accent = FernGreen,
-    successContainer = Color(0xFFD7EBD2),
-    onSuccessContainer = Color(0xFF1B3A1F),
-    warningContainer = Color(0xFFFCE9BE),
-    onWarningContainer = Color(0xFF4A3300),
-    warningOutline = Color(0xFF9A6B12),
-    neutralChip = Color(0xFFE6E0D6),
-    onNeutralChip = Color(0xFF3F3A33),
+    accent = AccentLight,
+    successContainer = SuccessContainerLight,
+    onSuccessContainer = OnSuccessContainerLight,
+    warningContainer = WarningContainerLight,
+    onWarningContainer = OnWarningContainerLight,
+    warningOutline = WarningOutlineLight,
+    neutralChip = NeutralChipLight,
+    onNeutralChip = OnNeutralChipLight,
 )
 
 /** Dark defaults; [KernelAITheme] supplies the light variant or the wallpaper accent. */

@@ -19,7 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.ui.theme.JandalTheme
 
@@ -27,7 +27,10 @@ enum class ChipStatus { On, OnAtFinish, Off, NotAvailable, NeedsAccess }
 
 enum class InfoTagStyle { Success, Neutral }
 
-/** Status pill for a setup or settings card. The label merges into the card header for screen readers. */
+/**
+ * Status pill for a setup or settings card: colour, icon and text together. It has no semantics node of its own,
+ * so its text merges into the parent card header for screen readers.
+ */
 @Composable
 fun StatusChip(
     status: ChipStatus,
@@ -43,7 +46,7 @@ fun StatusChip(
         ChipStatus.NeedsAccess -> Quad(colors.warningContainer, colors.onWarningContainer, null, Icons.Outlined.WarningAmber)
     }
     Surface(
-        modifier = modifier.semantics(mergeDescendants = true) {},
+        modifier = modifier,
         shape = RoundedCornerShape(12.dp),
         color = container,
         border = border,
@@ -59,6 +62,7 @@ fun StatusChip(
                 style = MaterialTheme.typography.labelMedium,
                 color = content,
                 maxLines = 1,
+                softWrap = false,
             )
         }
     }
@@ -87,6 +91,7 @@ fun InfoTag(
             style = MaterialTheme.typography.labelMedium,
             color = content,
             maxLines = 1,
+            softWrap = false,
         )
     }
 }
@@ -95,7 +100,7 @@ private data class Quad(
     val container: Color,
     val content: Color,
     val border: BorderStroke?,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val icon: ImageVector,
 )
 
 private fun defaultLabel(status: ChipStatus): String = when (status) {
