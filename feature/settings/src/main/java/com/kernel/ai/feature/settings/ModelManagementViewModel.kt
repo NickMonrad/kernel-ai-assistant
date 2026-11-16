@@ -8,12 +8,14 @@ import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.inference.download.ConversationModelRules
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.prefs.ModelPreferences
+import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -71,6 +73,10 @@ data class ModelManagementUiState(
     val speechRecognitionStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
     /** Jandal's voice (Cori) status, read-only on the Models screen. */
     val voiceOutputStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
+    /** The Downloads section switch: true only when mobile data is allowed for model downloads (#1855). */
+    val mobileDataAllowed: Boolean = false,
+    /** Models queued on Wi-Fi only while the phone is on mobile data. Drives "Waiting for Wi-Fi" (#1855). */
+    val waitingForWifi: Set<KernelModel> = emptySet(),
 )
 
 /** Read-only status for a voice section on the Models screen. Managed in Voice settings. */
@@ -115,6 +121,7 @@ class ModelManagementViewModel @Inject constructor(
     private val gatedModelStatusRepository: GatedModelStatusRepository,
     private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager,
     private val voiceOutputPreferences: VoiceOutputPreferences,
+    private val downloadNetworkPreferences: DownloadNetworkPreferences,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -163,6 +170,8 @@ class ModelManagementViewModel @Inject constructor(
         _gatedStatuses,
         sherpaVoicePackDownloadManager.downloadStates,
         voiceOutputPreferences.selectedEngine,
+        modelDownloadManager.waitingForWifi,
+        downloadNetworkPreferences.choice,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val downloadStates = array[0] as Map<KernelModel, DownloadState>
@@ -179,6 +188,9 @@ class ModelManagementViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val voicePacks = array[8] as Map<SherpaPiperVoice, VoicePackDownloadState>
         val engine = array[9] as VoiceOutputEngine
+        @Suppress("UNCHECKED_CAST")
+        val waitingForWifi = array[10] as Set<KernelModel>
+        val mobileDataAllowed = array[11] as DownloadNetworkChoice? == DownloadNetworkChoice.MOBILE_DATA_ALLOWED
 
         val filteredModels = KernelModel.entries.filter {
             it.showInModelManagement && !it.isDeprecated
@@ -213,6 +225,8 @@ class ModelManagementViewModel @Inject constructor(
             deviceTier = tier,
             speechRecognitionStatus = speechStatusOf(downloadStates),
             voiceOutputStatus = voiceOutputStatusOf(engine, voicePacks[SherpaPiperVoice.CoriHigh]),
+            mobileDataAllowed = mobileDataAllowed,
+            waitingForWifi = waitingForWifi,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -266,6 +280,15 @@ class ModelManagementViewModel @Inject constructor(
             try {
                 modelPreferences.setPreferredModel(model)
             } catch (_: IOException) { /* best-effort */ }
+        }
+    }
+
+    /** Same preference and setter the setup guide writes (#1855). */
+    fun setMobileDataAllowed(allowed: Boolean) {
+        viewModelScope.launch {
+            modelDownloadManager.setDownloadNetworkChoice(
+                if (allowed) DownloadNetworkChoice.MOBILE_DATA_ALLOWED else DownloadNetworkChoice.WIFI_ONLY,
+            )
         }
     }
 
