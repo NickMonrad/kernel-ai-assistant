@@ -90,6 +90,8 @@ fun RoleSectionView(
     onPrimary: (KernelModel) -> Unit,
     canDelete: (KernelModel) -> Boolean,
     onDelete: (KernelModel) -> Unit,
+    waitingForWifi: Set<KernelModel> = emptySet(),
+    onMobileDataShortcut: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val role = section.role
@@ -143,6 +145,8 @@ fun RoleSectionView(
                         onPrimary = onPrimary,
                         canDelete = canDelete(row.model),
                         onDelete = onDelete,
+                        waitingForWifi = row.model in waitingForWifi,
+                        onMobileDataShortcut = onMobileDataShortcut,
                     )
                 }
             }
@@ -174,6 +178,8 @@ fun RoleSectionView(
                             onPrimary = onPrimary,
                             canDelete = canDelete(row.model),
                             onDelete = onDelete,
+                            waitingForWifi = row.model in waitingForWifi,
+                            onMobileDataShortcut = onMobileDataShortcut,
                         )
                     }
                 }
@@ -279,6 +285,8 @@ private fun ModelRoleRowItem(
     onPrimary: (KernelModel) -> Unit,
     canDelete: Boolean,
     onDelete: (KernelModel) -> Unit,
+    waitingForWifi: Boolean,
+    onMobileDataShortcut: (() -> Unit)?,
 ) {
     val ready = state is ModelAvailabilityState.Ready
     val primaryLabel = primaryLabelFor(state)
@@ -327,6 +335,13 @@ private fun ModelRoleRowItem(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (waitingForWifi) {
+                        Text(
+                            text = ModelRoleCopy.WAITING_FOR_WIFI,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     if (required) {
                         Text(
                             text = ModelRoleCopy.REQUIRED_TAG,
@@ -343,7 +358,7 @@ private fun ModelRoleRowItem(
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                StateBadge(state = state)
+                StateBadge(state = state, waitingForWifi = waitingForWifi)
             }
 
             if (state is ModelAvailabilityState.Preparing) {
@@ -355,7 +370,8 @@ private fun ModelRoleRowItem(
             }
 
             val showDelete = canDelete && ready
-            if (primaryLabel != null || showDelete) {
+            val showShortcut = waitingForWifi && onMobileDataShortcut != null
+            if (primaryLabel != null || showDelete || showShortcut) {
                 Spacer(Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -379,6 +395,18 @@ private fun ModelRoleRowItem(
                                 .semantics { contentDescription = "${ModelRoleCopy.DELETE_ACTION} ${model.displayName}" },
                         ) {
                             Text(ModelRoleCopy.DELETE_ACTION)
+                        }
+                    }
+                    if (showShortcut) {
+                        onMobileDataShortcut?.let { onShortcut ->
+                            TextButton(
+                                onClick = onShortcut,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "${ModelRoleCopy.MOBILE_DATA_SHORTCUT} ${model.displayName}"
+                                },
+                            ) {
+                                Text(ModelRoleCopy.MOBILE_DATA_SHORTCUT)
+                            }
                         }
                     }
                 }
