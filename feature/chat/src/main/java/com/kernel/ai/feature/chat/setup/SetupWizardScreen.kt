@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ScrollState
+import android.media.MediaPlayer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -551,6 +552,29 @@ private fun VoiceStep(
             )
         }
     }
+    if (outputEngine != null && outputEngine != VoiceOutputEngine.AndroidTts &&
+        outputEngine != VoiceOutputEngine.InflectMicroExperimental
+    ) {
+        SampleVoiceButton()
+    }
+}
+
+/** Plays the bundled Cori sample line (feature/chat res/raw/sample_cori.ogg) so the owner can hear the voice. */
+@Composable
+private fun SampleVoiceButton() {
+    val context = LocalContext.current
+    var player by remember { mutableStateOf<MediaPlayer?>(null) }
+    DisposableEffect(Unit) {
+        onDispose { player?.release() }
+    }
+    TextButton(
+        onClick = {
+            player?.release()
+            player = MediaPlayer.create(context, R.raw.sample_cori)?.also { it.start() }
+        },
+        modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Play sample voice" },
+        colors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent),
+    ) { Text("Play sample") }
 }
 
 /** Online speech switch inside the selected listening card (#1936). Saved on Finish or Skip. */

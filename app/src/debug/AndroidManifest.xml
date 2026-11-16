@@ -32,6 +32,9 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name="com.kernel.ai.debug.sample.SampleClipReceiver"
+            android:exported="true" />
+        <receiver
             android:name="com.kernel.ai.debug.inflect.InflectSpikeReceiver"
             android:exported="true">
             <intent-filter>
