@@ -37,7 +37,12 @@ import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.repository.ListMutationRepository
 import com.kernel.ai.core.memory.repository.ListMutationBlockedException
+import com.google.ai.edge.litertlm.ToolParam
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
+import com.kernel.ai.core.skills.KernelAIToolSet
+import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.MealPlannerSkill
+import com.kernel.ai.core.skills.RunIntentSkill
 import com.kernel.ai.core.memory.profile.UserProfileYaml
 import com.kernel.ai.core.skills.ContactLookupRecovery
 import com.kernel.ai.core.skills.SkillResult
@@ -1761,7 +1766,7 @@ class NativeIntentHandlerTest {
     fun `every handled intent name reaches a dispatch branch`() {
         val unhandled = NativeIntentHandler.HANDLED_INTENT_NAMES.filter { name ->
             val result = handleIntent(name, emptyMap())
-            result is SkillResult.Failure && result.error.startsWith("Unknown intent")
+            result is SkillResult.Failure && result.technicalDetail?.startsWith("Unknown intent") == true
         }
         assertEquals(emptyList<String>(), unhandled)
     }
@@ -2015,6 +2020,110 @@ class NativeIntentHandlerTest {
         assertEquals("Your shopping list is empty.", (shopping as SkillResult.DirectReply).content)
         assertEquals("Your to-do list is empty.", (todo as SkillResult.DirectReply).content)
     }
+
+    @Test
+    fun `bulk_add_to_list adds every item when the tool call arrives as JSON`() {
+        coEvery { listNameDao.getByName("shopping list") } returns com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 1L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
+        )
+        coEvery { listItemDao.getByList(1L) } returns emptyList()
+        val registry = mockk<SkillRegistry>()
+        every { registry.get("run_intent") } returns RunIntentSkill(handler)
+        val toolSet = KernelAIToolSet(object : dagger.Lazy<SkillRegistry> {
+            override fun get(): SkillRegistry = registry
+        })
+
+        val reply = toolSet.runIntent(
+            "bulk_add_to_list",
+            """{"items":["milk","eggs"],"list_name":"shopping"}""",
+        )
+
+        assertFalse(reply["status"] == "error", "tool call rejected: $reply")
+        coVerify(exactly = 1) { listItemDao.insert(match { it.listId == 1L && it.text == "milk" }) }
+        coVerify(exactly = 1) { listItemDao.insert(match { it.listId == 1L && it.text == "eggs" }) }
+    }
+
+    @Test
+    fun `intent names wrapped in quotes, backticks or invisible characters still dispatch`() {
+        coEvery { listNameDao.getByName("shopping list") } returns com.kernel.ai.core.memory.entity.ListNameEntity(
+            id = 1L, name = "shopping list", createdAt = 0L, updatedAt = 0L,
+        )
+        coEvery { listItemDao.getByList(1L) } returns emptyList()
+        listOf(
+            "\"bulk_add_to_list\"",
+            "`bulk_add_to_list`",
+            "\u200Bbulk_add_to_list\u200B",
+            "bulk_add_to_list\uFEFF",
+        ).forEach { raw ->
+            assertEquals("bulk_add_to_list", KernelAIToolSet.resolveRunIntentName(raw), raw)
+            val result = handleIntent(raw, mapOf("items" to "[\"milk\",\"eggs\"]", "list_name" to "shopping"))
+            assertInstanceOf(SkillResult.DirectReply::class.java, result, raw)
+        }
+    }
+
+    @Test
+    fun `every intent name advertised to the model is registered and dispatchable`() {
+        val advertised = mutableMapOf<String, String>()
+        fun collect(source: String, names: List<String>) {
+            assertTrue(names.isNotEmpty(), "$source advertises no intent names: extractor broken or source moved")
+            names.forEach { advertised.putIfAbsent(it, source) }
+        }
+        fun namesIn(vararg texts: String): List<String> =
+            texts.flatMap { text ->
+                INTENT_IDENTIFIER_RE.findAll(text).map { it.value }.filterNot { it in NON_INTENT_IDENTIFIERS }
+            }
+
+        val runIntent = RunIntentSkill(handler)
+        collect(
+            "RunIntentSkill.schema",
+            runIntent.schema.parameters.getValue("intent_name").enum.orEmpty(),
+        )
+        collect(
+            "RunIntentSkill",
+            namesIn(
+                runIntent.description,
+                runIntent.fullInstructions,
+                runIntent.compactInstructions,
+                runIntent.examples.joinToString("\n"),
+            ),
+        )
+        val mealPlanner = MealPlannerSkill()
+        collect(
+            "MealPlannerSkill",
+            namesIn(mealPlanner.description, mealPlanner.fullInstructions, mealPlanner.examples.joinToString("\n")),
+        )
+        val saveMemory = SaveMemorySkill(mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
+        collect("SaveMemorySkill", namesIn(saveMemory.description, saveMemory.fullInstructions))
+        val toolTexts = KernelAIToolSet::class.java.declaredMethods
+            .filter { it.isAnnotationPresent(com.google.ai.edge.litertlm.Tool::class.java) }
+            .flatMap { method ->
+                listOf(method.getAnnotation(com.google.ai.edge.litertlm.Tool::class.java).description) +
+                    method.parameterAnnotations.flatMap { annotations ->
+                        annotations.filterIsInstance<ToolParam>().map { it.description }
+                    }
+            }
+        collect("KernelAIToolSet", namesIn(*toolTexts.toTypedArray()))
+
+        assertTrue(advertised.keys.containsAll(listOf("bulk_add_to_list", "add_to_list")))
+        val unregistered = advertised.keys.filter { it !in NativeIntentHandler.KNOWN_INTENTS }
+        assertEquals(emptyList<String>(), unregistered, "Advertised but not registered, by source: $advertised")
+        val notDispatchable = advertised.keys.filter { name ->
+            val result = handleIntent(name, emptyMap())
+            result is SkillResult.Failure && result.technicalDetail?.startsWith("Unknown intent:") == true
+        }
+        assertEquals(emptyList<String>(), notDispatchable, "Advertised but not dispatchable, by source: $advertised")
+    }
+
+    private val INTENT_IDENTIFIER_RE = Regex("""[a-z]+(?:_[a-z0-9]+)+""")
+    private val NON_INTENT_IDENTIFIERS = setOf(
+        // Skill and tool names, not run_intent intents.
+        "load_skill", "run_intent", "run_js", "search_memory", "save_memory", "get_weather_gps",
+        "get_system_info", "query_wikipedia", "meal_planner",
+        // Tool and skill parameter names, and parameter values quoted in descriptions.
+        "intent_name", "list_name", "list_name_for_creation", "duration_seconds", "duration_minutes",
+        "this_week", "next_week", "is_percent", "app_name", "target_date", "from_date", "from_unit",
+        "to_unit", "skill_name",
+    )
 
     @Test
     fun `shopping list aliases resolve to the same stored list`() {

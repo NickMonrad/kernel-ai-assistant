@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only label override so the widget picker and launcher tell debug builds apart. -->
+<resources>
+    <string name="app_name">Jandal AI (debug)</string>
+</resources>

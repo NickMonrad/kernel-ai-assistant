@@ -287,19 +287,19 @@ class NativeIntentHandler @Inject constructor(
      * Normalizes LLM-generated intent names to their canonical form.
      *
      * Small models occasionally omit underscores (e.g. "toggle_flashlightoff" instead of
-     * "toggle_flashlight_off") or add spaces. This function:
-     *   1. Trims and lowercases the input
+     * "toggle_flashlight_off"), add spaces, or wrap the name in quotes, backticks or invisible
+     * characters (zero-width space, BOM). This function:
+     *   1. Lowercases and keeps only `[a-z0-9_]`, dropping everything else
      *   2. Returns immediately on exact match
-     *   3. Strips all underscores/spaces and compares against the same normalization of every
+     *   3. Strips underscores and compares against the same normalization of every
      *      known intent name — handles any underscore insertion or omission
      */
     private fun normalizeIntentName(raw: String): String {
-        val trimmed = raw.trim().lowercase()
-        INTENT_ALIASES[trimmed]?.let { return it }
-        if (trimmed in KNOWN_INTENTS) return trimmed
-        // Strip all word separators and compare canonically
-        val stripped = trimmed.replace(Regex("[_\\s]+"), "")
-        return KNOWN_INTENTS.firstOrNull { it.replace("_", "") == stripped } ?: trimmed
+        val cleaned = raw.lowercase().filter { it in 'a'..'z' || it in '0'..'9' || it == '_' }
+        INTENT_ALIASES[cleaned]?.let { return it }
+        if (cleaned in KNOWN_INTENTS) return cleaned
+        val stripped = cleaned.replace("_", "")
+        return KNOWN_INTENTS.firstOrNull { it.replace("_", "") == stripped } ?: cleaned
     }
 
     companion object {

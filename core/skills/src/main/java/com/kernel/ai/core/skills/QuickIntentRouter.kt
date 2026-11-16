@@ -165,6 +165,18 @@ class QuickIntentRouter(
         """\b(list|lust|lost|last)\b\s*$""",
         RegexOption.IGNORE_CASE,
     )
+
+    // #1941 — STT mishears "add" as "ad" and "list" as "lest" in list commands. Both rewrites
+    // need a list-shaped phrase ("… to … list|lest") so ordinary sentences such as "ad campaign to
+    // run last" are never touched. Trailing "last" is left to LIST_NAME_TAIL_MISHEAR_RE (#982).
+    private val STT_LIST_VERB_MISHEAR_RE = Regex(
+        """^ad\s+(?=.+\bto\b.+\b(?:list|lest)[.!?]*\s*$)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val STT_LIST_NOUN_MISHEAR_RE = Regex(
+        """^(add\s+.+\bto\b.+?)\s+lest[.!?]*\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
     private val ANAPHORIC_LIST_FOLLOW_UP_RE = Regex(
         """\b(?:add|put)\s+(?:it|that|this|them|these|those)\s+(?:to|in|on)\b.*\blist\b""",
         RegexOption.IGNORE_CASE,
@@ -4885,11 +4897,23 @@ class QuickIntentRouter(
             },
         )
 
-        // #982 — trailing "lost"/"lust"/"last" → "list" for list-command detection.
-        // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
+        // #1941 — STT list-command correction ("ad … lest" → "add … list"), regex path only.
+        val listCommandFixed = STT_LIST_NOUN_MISHEAR_RE.replace(
+            STT_LIST_VERB_MISHEAR_RE.replace(aliasNormalized, "add "),
+            "\$1 list",
+        )
+        // The guards above ran on the raw text. Run them again on the corrected text so
+        // "ad it to my shopping lest" and "ad that to the list" fall through like "add it to …".
+        if (ANAPHORIC_LIST_FOLLOW_UP_RE.containsMatchIn(listCommandFixed) ||
+            INVALID_LIST_CREATE_PREFIX_RE.containsMatchIn(listCommandFixed)
+        ) {
+            return RouteResult.FallThrough(input = trimmed)
+        }
         // #1688 — rewrite only complete verb-first arithmetic commands on the regex path.
         // The classifier and fall-through continue to receive the original trimmed input.
-        val arithmeticNormalized = normalizeImperativeArithmetic(aliasNormalized)
+        val arithmeticNormalized = normalizeImperativeArithmetic(listCommandFixed)
+        // #982 — trailing "lost"/"lust"/"last" → "list" for list-command detection.
+        // Scoped to regex path only; classifier/FallThrough still see the trimmed original.
         val listTailFixed = LIST_NAME_TAIL_MISHEAR_RE.replace(arithmeticNormalized) { match ->
             match.groupValues[1].takeIf { it.equals("list", ignoreCase = true) } ?: "list"
         }
