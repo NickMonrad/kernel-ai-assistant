@@ -110,7 +110,8 @@ class GetWeatherGeocodeErrorTest {
     private fun assertOnlyGeocodeRequests() {
         for (url in urls) {
             assertTrue(
-                isGeocode(url) || url.contains("api.open-meteo.com") || url.contains("air-quality-api.open-meteo.com"),
+                isGeocode(url) || url.contains("api.open-meteo.com") || url.contains("air-quality-api.open-meteo.com") ||
+                    url.startsWith("https://api.met.no/weatherapi/locationforecast/2.0/compact?"),
                 "unexpected request: $url",
             )
             assertFalse(url.contains("/reverse"), "device-location reverse lookup must not run: $url")

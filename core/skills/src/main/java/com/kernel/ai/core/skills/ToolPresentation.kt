@@ -31,6 +31,8 @@ sealed interface ToolPresentation {
         val forecast: List<ForecastDay> = emptyList(),
         /** Set only for a cached forecast served while the live service is down (#1921). */
         val staleNoteText: String? = null,
+        /** Data-source credit shown under the card; set only when MET Norway answered (#1922). */
+        val attributionText: String? = null,
     ) : ToolPresentation
 
 
@@ -118,6 +120,7 @@ object ToolPresentationJson {
                 put("forecast", toForecastJson(presentation.forecast))
             }
             presentation.staleNoteText?.let { put("staleNoteText", it) }
+            presentation.attributionText?.let { put("attributionText", it) }
         }
 
         is ToolPresentation.Status -> JSONObject().apply {
@@ -191,6 +194,7 @@ object ToolPresentationJson {
                 }
             } ?: emptyList(),
             staleNoteText = obj.optString("staleNoteText").takeIf { it.isNotBlank() },
+            attributionText = obj.optString("attributionText").takeIf { it.isNotBlank() },
         )
 
         "status" -> ToolPresentation.Status(

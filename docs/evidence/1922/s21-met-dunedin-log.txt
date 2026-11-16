@@ -1,0 +1,14 @@
+Device: S21 (R5CR605B71K), debug build d00fbf2b, marker files/debug-force-open-meteo-failure set.
+Prompt sent via MainActivity chat_input with adb_harness_token (external_prompt_trust trust=DIRECT).
+
+11-16 20:07:13.831 KernelAI: NativeIntentHandler.handle: intent=get_weather paramKeys=[location]
+11-16 20:07:13.831 KernelAI: verbose_params: intent=get_weather params={location=Dunedin}
+11-16 20:07:14.795 KernelAI: Weather API failed (attempt 0/1), retrying in 500ms
+11-16 20:07:14.795 KernelAI: java.net.SocketTimeoutException: debug: forced Open-Meteo failure
+11-16 20:07:15.304 KernelAI: Weather API failed; giving up
+11-16 20:07:15.304 KernelAI: Weather API: Open-Meteo unavailable, trying MET Norway
+11-16 20:07:17.162 KernelAI: Weather API answered by MET Norway
+11-16 20:07:17.163 KernelAI: GetWeatherSkill: fetched current weather
+11-16 20:07:17.210 KernelAI: Weather cache stored (268 bytes)
+11-16 20:07:17.212 KernelAI: Weather data: MET Norway (CC BY 4.0)
+11-16 20:07:17.229 KernelAI: ADB_TOOL_COMPLETE commandId=40d35f67-1 intent=get_weather result=direct_reply

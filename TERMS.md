@@ -28,7 +28,7 @@ Don't use Jandal to break the law, to harm, harass, or deceive others, or to int
 
 Some features you choose to use connect to services that Jandal does not operate, including:
 
-- weather and geocoding (Open-Meteo, OpenStreetMap Nominatim, REST Countries);
+- weather and geocoding (Open-Meteo, MET Norway as a fallback forecast source, OpenStreetMap Nominatim, REST Countries);
 - currency rates (Frankfurter);
 - Wikipedia lookups;
 - model and voice downloads (Hugging Face, GitHub);
