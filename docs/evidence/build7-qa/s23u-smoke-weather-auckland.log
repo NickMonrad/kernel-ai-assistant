@@ -1,0 +1,3 @@
+11-16 22:11:24.767 KernelAI: Weather API: Open-Meteo unavailable, trying MET Norway
+11-16 22:11:26.438 KernelAI: Weather API answered by MET Norway
+11-16 22:11:26.439 KernelAI: GetWeatherSkill: fetched current weather

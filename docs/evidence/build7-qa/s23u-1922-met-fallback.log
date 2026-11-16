@@ -1,0 +1,4 @@
+11-16 22:10:45.774 KernelAI: java.net.SocketTimeoutException: debug: forced Open-Meteo failure
+11-16 22:10:46.277 KernelAI: java.net.SocketTimeoutException: debug: forced Open-Meteo failure
+11-16 22:10:46.278 KernelAI: Weather API: Open-Meteo unavailable, trying MET Norway
+11-16 22:10:47.808 KernelAI: Weather API answered by MET Norway

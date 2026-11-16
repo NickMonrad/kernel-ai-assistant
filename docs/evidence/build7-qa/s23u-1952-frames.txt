@@ -1,0 +1,20 @@
+#1952: widget handoff from chat to Actions. S23U RFCW11265XH, debug 8173f2dd, dark mode (the phone's setting).
+
+Method (parent re-run, 22:18 AEST; replaces the QA agent's first attempt, whose unquoted extra delivered only "Add"
+and so never reached Actions):
+1. force-stop, then chat_input 'Remind me about the team lunch' (puts chat in the back stack); wait 35 s.
+2. screenrecord --time-limit 10; 3 s later, harness `quick_action_input_encoded=Add%20qa%20flash%20test%20to%20my%20shopping%20list`,
+   quick_action_is_voice=false. The voice flag does not change the navigation; `isChatToWidgetActionsHandoff` keys on the widget
+   query. The typed flag avoids the Sherpa speech crash #1968. Log: NativeIntentHandler intent=add_to_list item=qa flash test.
+3. ffmpeg -vf fps=10 → 162 frames; frame-to-frame difference flags changes only at f021, f022 and f024.
+
+Frames (committed, cropped to app content, 40 % scale):
+- s23u-1952-1-chat-before-handoff.png (f020): chat with the test reminder and the composer, last chat frame.
+- s23u-1952-2-opaque-cover.png (f021): opaque cover; no chat content.
+- s23u-1952-3-actions-first-frame.png (f022, also f023): Actions shell with its empty state ("No actions yet…") before history
+  loads, about 0.2 s.
+- s23u-1952-4-actions-loaded.png (f024 onward): Actions with the new add_to_list card.
+
+Result: no frame after f020 shows the chat composer ("Message Jandal…", PTT/Loop). PASS.
+Observation: the empty state shows for 2 frames before the history list loads (not a chat frame; cosmetic).
+Cleanup: 'qa flash test' removed from the shopping list; the 'Remind me about the team lunch' chat deleted.

@@ -1,0 +1,40 @@
+# S21 R5CR605B71K, main 8173f2dd debug, Gemma E-2B GPU. Typed Actions fallthrough (quick_action_is_voice=false; voice route blocked by #1968). Query: 'In one sentence, why is the sky blue?'. run 0 = warm-up.
+run=0 t0_to_accepted=2343 accepted_to_gen=10748 t0_to_gen=13091 rebuilds=0 reasons=- create_ms=- prompt_reset_ms=1 engine_ttft=6618 litert_ttft_ms=5734 prefill_tokens=2511 decode_tokens=31 thinking_chars=0 generation_total_ms=8282 t0_to_first_output=19712 t0_to_first_token=19712
+run=1 t0_to_accepted=368 accepted_to_gen=3475 t0_to_gen=3843 rebuilds=1 reasons=updateSystemPrompt create_ms=2266 prompt_reset_ms=NA engine_ttft=4659 litert_ttft_ms=4490 prefill_tokens=2511 decode_tokens=41 thinking_chars=0 generation_total_ms=6944 t0_to_first_output=8503 t0_to_first_token=8503
+run=2 t0_to_accepted=292 accepted_to_gen=3601 t0_to_gen=3893 rebuilds=1 reasons=updateSystemPrompt create_ms=2306 prompt_reset_ms=NA engine_ttft=4340 litert_ttft_ms=4150 prefill_tokens=2511 decode_tokens=41 thinking_chars=0 generation_total_ms=6621 t0_to_first_output=8234 t0_to_first_token=8234
+run=3 t0_to_accepted=263 accepted_to_gen=3543 t0_to_gen=3806 rebuilds=1 reasons=updateSystemPrompt create_ms=2286 prompt_reset_ms=NA engine_ttft=4275 litert_ttft_ms=4134 prefill_tokens=2511 decode_tokens=34 thinking_chars=0 generation_total_ms=6559 t0_to_first_output=8081 t0_to_first_token=8081
+
+# Trimmed lines (CONV_REBUILD*, ADB_ROUTE_DECISION, TTFT_STAGE accepted/generation_lock_wait/first_token, START)
+## run 1
+         1794829754.306  7908 10373 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=ai.jandal.assistant.debug/com.kernel.ai.MainActivity (has extras)} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALL
+         1794829754.584  5541  5541 D KernelAI: CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true
+         1794829754.649  5541  5541 D KernelAI: CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true
+         1794829754.668  5541  5541 D KernelAI: CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true
+         1794829754.674  5541  5541 D KernelAI: TTFT_STAGE commandId=e6593404-1 stage=accepted t_ms=0
+         1794829754.674  5541  5541 I KernelAI: CONV_REBUILD_TRIGGER reason=independentCommandPromptInstall
+         1794829754.758  5541  5629 I LiteRtInferenceEngine: CONV_REBUILD count=1 reason=updateSystemPrompt backend=GPU
+         1794829757.121  5541  5541 D KernelAI: ADB_ROUTE_DECISION commandId=e6593404-1 result=fallthrough best_guess=null confidence=0.0
+         1794829758.149  5541  5629 D LiteRtInferenceEngine: TTFT_STAGE engine generation_lock_wait_ms=0
+         1794829762.809  5541  5541 D KernelAI: TTFT_STAGE commandId=e6593404-1 stage=first_token t_ms=8135
+## run 2
+         1794829789.428  7908  8540 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=ai.jandal.assistant.debug/com.kernel.ai.MainActivity (has extras)} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALL
+         1794829789.642  5541  5541 D KernelAI: CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true
+         1794829789.698  5541  5541 D KernelAI: CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true
+         1794829789.714  5541  5541 D KernelAI: CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true
+         1794829789.720  5541  5541 D KernelAI: TTFT_STAGE commandId=5b2ebf7a-1 stage=accepted t_ms=0
+         1794829789.720  5541  5541 I KernelAI: CONV_REBUILD_TRIGGER reason=independentCommandPromptInstall
+         1794829789.892  5541  5629 I LiteRtInferenceEngine: CONV_REBUILD count=2 reason=updateSystemPrompt backend=GPU
+         1794829792.297  5541  5541 D KernelAI: ADB_ROUTE_DECISION commandId=5b2ebf7a-1 result=fallthrough best_guess=null confidence=0.0
+         1794829793.321  5541  5629 D LiteRtInferenceEngine: TTFT_STAGE engine generation_lock_wait_ms=0
+         1794829797.662  5541  5541 D KernelAI: TTFT_STAGE commandId=5b2ebf7a-1 stage=first_token t_ms=7941
+## run 3
+         1794829823.532  7908  8728 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=ai.jandal.assistant.debug/com.kernel.ai.MainActivity (has extras)} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALL
+         1794829823.724  5541  5541 D KernelAI: CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true
+         1794829823.775  5541  5541 D KernelAI: CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true
+         1794829823.790  5541  5541 D KernelAI: CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true
+         1794829823.795  5541  5541 D KernelAI: TTFT_STAGE commandId=b7d66c10-1 stage=accepted t_ms=0
+         1794829823.796  5541  5541 I KernelAI: CONV_REBUILD_TRIGGER reason=independentCommandPromptInstall
+         1794829823.950  5541  5629 I LiteRtInferenceEngine: CONV_REBUILD count=3 reason=updateSystemPrompt backend=GPU
+         1794829826.322  5541  5541 D KernelAI: ADB_ROUTE_DECISION commandId=b7d66c10-1 result=fallthrough best_guess=null confidence=0.0
+         1794829827.338  5541  5629 D LiteRtInferenceEngine: TTFT_STAGE engine generation_lock_wait_ms=0
+         1794829831.613  5541  5541 D KernelAI: TTFT_STAGE commandId=b7d66c10-1 stage=first_token t_ms=7817

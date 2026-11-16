@@ -1,0 +1,22 @@
+# S21 R5CR605B71K, main 8173f2dd debug. Voice output switched to Android TTS for this check (Cori/Sherpa crashes, #1968); restored afterwards.
+# quick_action_input 'tell me a short story about a dog' quick_action_is_voice=true -> chat; key event 2 s after speech starts; 25 s observed after it.
+11-16 21:58:39.802 D/KernelAI(10677): ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@5f42
+11-16 21:58:42.454 D/KernelAI(10677): ADB_ROUTE_DECISION commandId=cd2494e7-1 result=fallthrough best_guess=null confidence=0.0
+11-16 21:59:41.905 I/LiteRtInferenceEngine(10677): Generation complete: total=58443ms, TTFT=8175ms, visibleChunks=187 [backend=GPU]
+11-16 21:59:42.498 D/KernelAI_TTS(10677): speaking_started engine=android_tts chars=108 part=1/1
+11-16 21:59:42.499 I/KernelAI(10677): SpeakingStarted engine=android_tts chars=108 epochMs=1794830382498
+11-16 21:59:43.176 D/KernelAI(10677): ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-16 21:59:45.017 I/adbd    (25999): adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCEB7 MARKER sleep keyevent sent'
+11-16 21:59:45.048 I/EVIDENCEB7(12308): MARKER sleep keyevent sent
+11-16 21:59:45.123 I/PowerManagerService( 7908): Going to sleep due to sleep_button (uid 1000, screenOffTimeout=60000, activityTimeoutWM=-1, maxDimRatio=0.333, maxDimDur=20000)...
+11-16 21:59:49.986 D/AudioTrack(11464): stop(520): called with 174842 frames delivered
+11-16 21:59:50.009 D/KernelAI_TTS(10677): speaking_started engine=android_tts chars=191 part=1/1
+11-16 21:59:50.019 D/KernelAI(10677): ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-16 22:00:01.701 D/AudioTrack(11464): stop(521): called with 278320 frames delivered
+11-16 22:00:01.720 D/KernelAI_TTS(10677): speaking_started engine=android_tts chars=127 part=1/1
+11-16 22:00:01.727 D/KernelAI(10677): ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-16 22:00:09.572 D/AudioTrack(11464): stop(522): called with 186536 frames delivered
+11-16 22:00:09.577 D/KernelAI_TTS(10677): speaking_started engine=android_tts chars=122 part=1/1
+11-16 22:00:09.579 D/KernelAI(10677): ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-16 22:00:10.360 I/PowerGroup( 7908): Waking up power group from Dozing (groupId=0, uid=1000, reason=wake_key, details=android.policy:KEY(224):Virtual)...
+11-16 22:00:10.367 I/PowerManagerService( 7908): Waking up from Dozing (uid=1000, reason=wake_key, details=android.policy:KEY(224):Virtual)...
