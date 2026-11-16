@@ -1,7 +1,13 @@
 # Negative control: old (?U:\s+) regex, earlier version of the same device test (fails at static init, before the added asserts). Samsung SM-G991B Android 15.
+java.lang.ExceptionInInitializerError
+	at com.kernel.ai.core.voice.PronunciationLexiconDeviceTest.shippedLexiconAndSherpaPreparationRunOnAndroidRegex(PronunciationLexiconDeviceTest.kt:21)
 Caused by: java.util.regex.PatternSyntaxException: Syntax error in regexp pattern near index 3
 (?U:\s+)
    ^
 	at com.android.icu.util.regex.PatternNative.compileImpl(Native Method)
+	at com.android.icu.util.regex.PatternNative.<init>(PatternNative.java:53)
+	at com.android.icu.util.regex.PatternNative.create(PatternNative.java:49)
+	at java.util.regex.Pattern.compile(Pattern.java:3666)
+	at kotlin.text.Regex.<init>(Regex.kt:90)
 	at com.kernel.ai.core.voice.PronunciationLexicon.<clinit>(PronunciationLexicon.kt:108)
 Tests run: 1,  Failures: 1
