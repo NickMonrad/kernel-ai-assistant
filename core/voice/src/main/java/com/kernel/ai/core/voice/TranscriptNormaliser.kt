@@ -6,9 +6,12 @@ import android.util.Log
  * Pure-Kotlin normaliser that runs on every STT transcript *before* it reaches
  * any downstream consumer (intent router, LLM, RAG, chat, slot fill).
  *
- * Two alias tables:
- * - [KIWI_PHONETIC_REPLACEMENTS] — word-level Kiwi/Māori mishears (#935, #939)
+ * Alias and correction tables, applied in this order by [normalise]:
+ * - [WEATHER_MISHEAR_REPLACEMENTS] — context-gated "weather" mishears (#1940)
+ * - [AUCKLAND_REPLACEMENTS] — Auckland mishears (#1894)
+ * - [KIWI_PHONETIC_REPLACEMENTS] — word-level Kiwi/Māori mishears (#935, #939, #1852)
  * - [STT_UNIT_ALIAS_REPLACEMENTS] — unit/abbreviation normalisations (#1017)
+ * - [MISHEARD_ADD_LIST_COMMAND] — "add" misheard as "I've"/"I'd"/"ad" in list commands (#1820)
  *
  * ## False-positive note
  * `comrade` → `kumara` is a known limitation: "i was a comrade in arms" becomes
@@ -62,6 +65,45 @@ object TranscriptNormaliser {
         Regex("""\bockland\b""", RegexOption.IGNORE_CASE) to "Auckland",
     )
 
+    /**
+     * Weather-keyword mishears from STT: #1940. Voice-transcript only (called from the STT
+     * controllers, never from typed input). A correction fires only in a weather-shaped
+     * question: question head ("what's", "whats", "how's", "what is") + "the" + mishear
+     * (whither/wither/wether/whether/wayther), followed by a weather follower or end of
+     * utterance. "the way" is accepted only as "the way" + a time phrase that ends the
+     * utterance. A bare "the wether" (the NZ farm word for a castrated sheep) is never rewritten.
+     */
+    private const val WEATHER_FOLLOWER =
+        """(?:in|for|at|like|looking|on|going\s+to|now|right\s+now|currently|out\s+there|here|over|today|tonight|tomorrow|outside|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days))"""
+    private const val WEATHER_TIME_FOLLOWER =
+        """(?:today|tonight|tomorrow|forecast|this\s+(?:morning|afternoon|evening|week|weekend)|next\s+(?:week|weekend|(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+days))"""
+    /** Optional spoken filler before the question ("hey jandal, what's the wether…"). Anchors the rule to utterance start. */
+    private const val WEATHER_LEAD_IN = """^(\s*(?:(?:hey|hi|ok|okay)(?:\s+jandal)?[,\s]+)?)"""
+    private const val WEATHER_QUESTION_HEAD = """(what(?:['’]?s|\s+is)?|how(?:['’]?s|\s+is)?)"""
+    private const val WEATHER_MISHEAR = """(?:whither|wither|wether|whether|wayther)"""
+
+    private val WEATHER_MISHEAR_REPLACEMENTS: List<Pair<Regex, (MatchResult) -> String>> = listOf(
+        // "what the whither in Auckland", "how's the wether tomorrow", "what's the whether like today"
+        Regex(
+            """$WEATHER_LEAD_IN$WEATHER_QUESTION_HEAD\s+the\s+$WEATHER_MISHEAR\b(?=\s+$WEATHER_FOLLOWER\b|\s*[.!?]*$)""",
+            RegexOption.IGNORE_CASE,
+        ) to { mr -> "${mr.groupValues[1]}${questionHead(mr.groupValues[2])} the weather" },
+        // "what's the way tomorrow" — "the way" alone is navigation ("the way to"), so require a
+        // time phrase that ends the utterance
+        Regex(
+            """$WEATHER_LEAD_IN$WEATHER_QUESTION_HEAD\s+the\s+way(?=\s+$WEATHER_TIME_FOLLOWER\s*[.!?]*$)""",
+            RegexOption.IGNORE_CASE,
+        ) to { mr -> "${mr.groupValues[1]}${questionHead(mr.groupValues[2])} the weather" },
+    )
+
+    /** "what"/"whats" → "what's", "how"/"hows" → "how's"; keeps original first-letter casing and an existing "'s"/"is". */
+    private fun questionHead(lead: String): String = when {
+        lead.equals("whats", ignoreCase = true) -> "${lead.take(4)}'s"
+        lead.equals("hows", ignoreCase = true) -> "${lead.take(3)}'s"
+        Regex("""\s+is$|['’]s$""", RegexOption.IGNORE_CASE).containsMatchIn(lead) -> lead
+        else -> "${lead}'s"
+    }
+
     /** Unit/abbreviation normalisations: #1017. */
     private val STT_UNIT_ALIAS_REPLACEMENTS: List<Pair<Regex, String>> = listOf(
         // #1017 — mls / Mills / mils / ml's -> ml
@@ -112,6 +154,9 @@ object TranscriptNormaliser {
     fun normalise(text: String): String {
         if (text.isBlank()) return text
         var out = text
+        for ((re, replacement) in WEATHER_MISHEAR_REPLACEMENTS) {
+            out = re.replace(out, replacement)
+        }
         for ((re, replacement) in AUCKLAND_REPLACEMENTS) {
             out = re.replace(out, replacement)
         }

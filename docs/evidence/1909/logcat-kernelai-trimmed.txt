@@ -1,0 +1,40 @@
+D/KernelAI(15991): NativeIntentHandler.handle: intent=read_calendar_events paramKeys=[]
+D/KernelAI(15991): ADB_TOOL_COMPLETE commandId=677a5062-1 intent=read_calendar_events result=capability_required_no_llm
+D/KernelAI(15991): ADB_INTENT_TRACE commandId=e33ad402-2 input=redacted submitMode=Text
+D/KernelAI(15991): ADB_ROUTE_DECISION commandId=e33ad402-2 result=classified intent=read_calendar_events
+D/KernelAI(15991): llm_tools_route: result=classified intent=read_calendar_events
+D/KernelAI(15991): NativeIntentHandler.handle: intent=read_calendar_events paramKeys=[]
+D/KernelAI(15991): ADB_TOOL_COMPLETE commandId=e33ad402-2 intent=read_calendar_events result=capability_required_no_llm
+D/KernelAI(15991): ADB_INTENT_TRACE commandId=b1461de7-3 input=redacted submitMode=Text
+D/KernelAI(15991): ADB_ROUTE_DECISION commandId=b1461de7-3 result=classified intent=read_calendar_events
+D/KernelAI(15991): llm_tools_route: result=classified intent=read_calendar_events
+D/KernelAI(15991): NativeIntentHandler.handle: intent=read_calendar_events paramKeys=[]
+D/KernelAI(15991): ADB_TOOL_COMPLETE commandId=b1461de7-3 intent=read_calendar_events result=capability_required_no_llm
+D/KernelAI(15991): ADB_INTENT_TRACE commandId=1ba95e4c-4 input=redacted submitMode=Text
+D/KernelAI(15991): ADB_INTENT_TRACE commandId=bab9fa01-5 input=redacted submitMode=Text
+D/KernelAI(15991): NativeIntentHandler.handle: intent=create_calendar_event paramKeys=[raw_query,title,time,date]
+D/KernelAI(15991): ADB_INTENT_TRACE commandId=e2e29c6f-6 input=redacted submitMode=Text
+D/KernelAI(15991): ADB_ROUTE_DECISION commandId=e2e29c6f-6 result=classified intent=create_calendar_event
+D/KernelAI(15991): llm_tools_route: result=classified intent=create_calendar_event
+D/KernelAI(15991): NativeIntentHandler.handle: intent=create_calendar_event paramKeys=[intent_name,raw_query,title,date,time]
+D/KernelAI(15991): NativeIntentHandler.handle: intent=create_calendar_event paramKeys=[raw_query,title,date,time]
+D/KernelAI(15991): ADB_TOOL_COMPLETE commandId=e2e29c6f-6 intent=create_calendar_event result=capability_required_no_llm
+D/KernelAI(21614): ADB_INTENT_TRACE commandId=b9cb347c-1 input=redacted submitMode=Text
+D/KernelAI(21614): Set placeholder title for 41114b2e-f187-41ba-933b-264f9631561d: "Add Test Event Alpha to my calendar for …"
+D/KernelAI(21614): ADB_ROUTE_DECISION commandId=b9cb347c-1 result=classified intent=create_calendar_event
+D/KernelAI(21614): llm_tools_route: result=classified intent=create_calendar_event
+D/KernelAI(21614): NativeIntentHandler.handle: intent=create_calendar_event paramKeys=[intent_name,raw_query,title,date,time]
+D/KernelAI(21614): NativeIntentHandler.handle: intent=create_calendar_event paramKeys=[raw_query,title,date,time]
+D/KernelAI(21614): ADB_TOOL_COMPLETE commandId=b9cb347c-1 intent=create_calendar_event result=capability_required_no_llm
+D/KernelAI(21614): ADB_INTENT_TRACE commandId=693cb8c7-2 input=redacted submitMode=Text
+D/KernelAI(21614): ADB_ROUTE_DECISION commandId=693cb8c7-2 result=classified intent=create_calendar_event
+D/KernelAI(21614): llm_tools_route: result=classified intent=create_calendar_event
+D/KernelAI(21614): NativeIntentHandler.handle: intent=create_calendar_event paramKeys=[intent_name,raw_query,title,date,time]
+D/KernelAI(21614): NativeIntentHandler.handle: intent=create_calendar_event paramKeys=[raw_query,title,date,time]
+D/KernelAI(21614): ADB_TOOL_COMPLETE commandId=693cb8c7-2 intent=create_calendar_event result=capability_required_no_llm
+D/KernelAI(21614): ADB_INTENT_TRACE commandId=990f11c1-3 input=redacted submitMode=Text
+D/KernelAI(21614): ADB_ROUTE_DECISION commandId=990f11c1-3 result=classified intent=create_calendar_event
+D/KernelAI(21614): llm_tools_route: result=classified intent=create_calendar_event
+D/KernelAI(21614): NativeIntentHandler.handle: intent=create_calendar_event paramKeys=[intent_name,raw_query,title,date,time]
+D/KernelAI(21614): NativeIntentHandler.handle: intent=create_calendar_event paramKeys=[raw_query,title,date,time]
+D/KernelAI(21614): ADB_TOOL_COMPLETE commandId=990f11c1-3 intent=create_calendar_event result=capability_required_no_llm
