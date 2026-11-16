@@ -40,12 +40,15 @@ import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import com.kernel.ai.core.voice.WakeWordHandoff
+import com.kernel.ai.core.voice.WakeOverlayChannel
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.LifecycleOutcome
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
+import com.kernel.ai.feature.widget.EXTRA_WAKE_OVERLAY
+import com.kernel.ai.feature.widget.EXTRA_WAKE_TOKEN
 import java.io.File
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -215,6 +218,8 @@ internal suspend fun runWakeAttempt(
     cuePlayer: StartListeningCuePlayer,
     attempt: Int,
     onError: (String) -> Unit = {},
+    onWakeEvent: (VoiceInputEvent) -> Unit = {},
+    onCaptureReady: () -> Unit = {},
 ): WakeAttemptOutcome = coroutineScope {
     val attemptEvents = Channel<VoiceInputEvent>(Channel.BUFFERED)
     val collectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -267,6 +272,7 @@ internal suspend fun runWakeAttempt(
                         )
                     }
                     if (!event.isWakeSessionEvent(captureSessionId)) continue
+                    onWakeEvent(event)
                     when (event) {
                         is VoiceInputEvent.SpeechDetected -> journal.record(
                             AcousticEventType.STT_SPEECH_DETECTED,
@@ -296,6 +302,8 @@ internal suspend fun runWakeAttempt(
             val terminalEvent = when (startupEvent) {
                 is VoiceInputEvent.ListeningStarted -> {
                     playWakeCue(journal, cuePlayer)
+                    // #1930: the overlay launches only after the mic-ready cue has played.
+                    onCaptureReady()
                     awaitEvent {
                         it is VoiceInputEvent.Transcript ||
                             it is VoiceInputEvent.Error ||
@@ -456,6 +464,9 @@ internal suspend fun runWakeCommandHandoff(
     onSessionTerminal: () -> Unit,
     journal: WakeSessionJournal? = null,
     capturePermitted: () -> Boolean = { true },
+    onWakeEvent: (VoiceInputEvent) -> Unit = {},
+    onCaptureReady: () -> Unit = {},
+    isCancelled: () -> Boolean = { false },
 ): WakeCommandHandoffResult {
     // #1433: a confirmed wake activation must not request live STT capture until the
     // wake detector has completed microphone-resource release.
@@ -483,13 +494,18 @@ internal suspend fun runWakeCommandHandoff(
                 cuePlayer = cuePlayer,
                 attempt = attempt,
                 onError = onError,
+                onWakeEvent = onWakeEvent,
+                onCaptureReady = onCaptureReady,
             )
         }
 
         cancellationCategory = sessionResult.cancellationCategory
         val transcript = sessionResult.transcript
 
-        if (transcript != null) {
+        if (transcript != null && isCancelled()) {
+            // #1930: the user closed the overlay after capture; the command must not run.
+            cancellationCategory = "wake_overlay_cancelled"
+        } else if (transcript != null) {
             if (routeTranscript(transcript)) {
                 sessionJournal.record(
                     AcousticEventType.COMMAND_ROUTING_RESULT,
@@ -525,6 +541,56 @@ internal suspend fun runWakeCommandHandoff(
         onSessionTerminal()
     }
     return WakeCommandHandoffResult(completed, cancellationCategory)
+}
+
+/**
+ * #1930: runs one Hey Jandal capture with its overlay. [openOverlay] runs once, after the mic-ready
+ * cue, with this capture's token. [WakeOverlayChannel.requestCancel] with that token cancels the
+ * handoff; its cancellation path stops the recognizer and re-arms the detector exactly once.
+ */
+internal suspend fun runWakeOverlayHandoff(
+    wakeWordDetector: WakeWordDetector,
+    voiceInputController: VoiceInputController,
+    cuePlayer: StartListeningCuePlayer,
+    generationId: Long,
+    sessionId: Long,
+    onError: (String) -> Unit,
+    routeTranscript: (String) -> Boolean,
+    onSessionTerminal: () -> Unit,
+    capturePermitted: () -> Boolean,
+    openOverlay: (token: Long) -> Unit,
+): Unit = coroutineScope {
+    val token = WakeOverlayChannel.begin()
+    var overlayRequested = false
+    val handoff = launch {
+        runWakeCommandHandoff(
+            wakeWordDetector = wakeWordDetector,
+            voiceInputController = voiceInputController,
+            cuePlayer = cuePlayer,
+            generationId = generationId,
+            sessionId = sessionId,
+            onError = onError,
+            routeTranscript = routeTranscript,
+            onSessionTerminal = {
+                WakeOverlayChannel.end()
+                onSessionTerminal()
+            },
+            capturePermitted = capturePermitted,
+            onWakeEvent = WakeOverlayChannel::onEvent,
+            onCaptureReady = {
+                if (!overlayRequested) {
+                    overlayRequested = true
+                    openOverlay(token)
+                }
+            },
+            isCancelled = { WakeOverlayChannel.isCancelRequested(token) },
+        )
+    }
+    val cancelWatcher = launch {
+        WakeOverlayChannel.awaitCancelRequest(token)
+        handoff.cancel()
+    }
+    handoff.invokeOnCompletion { cancelWatcher.cancel() }
 }
 private const val TAG = "KernelAI"
 private const val CHANNEL_ID = "kernel_wake_word"
@@ -934,7 +1000,7 @@ class WakeWordService : Service() {
         serviceScope.launch {
             isHandlingDetection = true
             try {
-                runWakeCommandHandoff(
+                runWakeOverlayHandoff(
                     wakeWordDetector = wakeWordDetector,
                     voiceInputController = voiceInputController,
                     cuePlayer = cuePlayer,
@@ -948,6 +1014,7 @@ class WakeWordService : Service() {
                     },
                     // #1502: a camera-driven yield must not be undone by the session's retry.
                     capturePermitted = { !isWakeCaptureSuspended },
+                    openOverlay = ::showWakeOverlay,
                 )
             } catch (e: CancellationException) {
                 isHandlingDetection = false
@@ -958,6 +1025,24 @@ class WakeWordService : Service() {
     private fun showWakeWordError(message: String) {
         Handler(Looper.getMainLooper()).post {
             Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * #1930: opens the Hey Jandal overlay once the mic-ready cue has played. [token] names the live
+     * capture, so the overlay's cancel applies only to it. A failed launch leaves the capture running.
+     */
+    private fun showWakeOverlay(token: Long) {
+        try {
+            startActivity(
+                Intent(this, VoiceCommandActivity::class.java).apply {
+                    putExtra(EXTRA_WAKE_OVERLAY, true)
+                    putExtra(EXTRA_WAKE_TOKEN, token)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "WakeWordService: could not open the wake overlay", e)
         }
     }
 
@@ -1026,6 +1111,7 @@ class WakeWordService : Service() {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )
+            WakeOverlayChannel.markRouted()
             true
         } catch (e: Exception) {
             // Clear the token if startActivity failed so it doesn't linger.

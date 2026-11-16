@@ -10,6 +10,9 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.core.voice.WakeOverlayChannel
+import com.kernel.ai.core.voice.WakeOverlayPhase
+import com.kernel.ai.core.voice.WakeOverlayState
 import io.mockk.every
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -456,6 +459,90 @@ class WakeCommandHandoffTest {
     }
 
     @Test
+    fun `closing the overlay during attempt 1 starts no retry and routes nothing`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(
+                VoiceInputStartResult.Started(1L),
+                VoiceInputStartResult.Started(2L),
+            ),
+            sharedOrder = order,
+        )
+        var routed = false
+        var rearmCount = 0
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(mutableListOf()),
+                routeTranscript = { routed = true; true },
+                onSessionTerminal = { rearmCount++ },
+            )
+        }
+        runCurrent()
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        runCurrent()
+
+        // The user closes the overlay mid-capture: the service cancels the handoff job.
+        job.cancel()
+        runCurrent()
+        // A stop from attempt 1 after cancellation would otherwise trigger the retry.
+        controller.emit(VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "recognition failed", captureSessionId = 1L))
+        runCurrent()
+
+        assertEquals(listOf(1L), controller.startCalls, "closing the overlay must not start attempt 2")
+        assertFalse(routed)
+        assertEquals(1, rearmCount, "re-arm happens exactly once")
+        assertEquals(1, controller.stopCalls, "the recognizer is stopped on cancel")
+    }
+
+    @Test
+    fun `a transcript captured after the overlay was closed is not routed`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(1L)),
+            sharedOrder = order,
+        )
+        var routed = false
+        var rearmCount = 0
+        var closed = false
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(mutableListOf()),
+                routeTranscript = { routed = true; true },
+                onSessionTerminal = { rearmCount++ },
+                isCancelled = { closed },
+            )
+        }
+        runCurrent()
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        runCurrent()
+
+        closed = true
+        controller.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "what time is it", captureSessionId = 1L))
+        runCurrent()
+        job.join()
+
+        assertEquals(listOf(1L), controller.startCalls)
+        assertFalse(routed, "a command must not run after the user closed the overlay")
+        assertEquals(1, rearmCount)
+    }
+
+    @Test
     fun `no-speech-exhausted first attempt skips the pointless retry`() = runTest {
         // #1433: when the first session's full no-speech window elapsed (in-place
         // refreshes spent, still no speech), the command window has closed — the
@@ -501,6 +588,126 @@ class WakeCommandHandoffTest {
         assertTrue(recorded.contains(AcousticEventType.STT_ERROR))
         assertTrue(recorded.contains(AcousticEventType.SESSION_CANCELLED))
         assertEquals(1, recorded.count { it == AcousticEventType.STT_START_REQUESTED })
+    }
+
+    @Test
+    fun `wake overlay launches only after the mic-ready cue has played`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(1L)),
+            sharedOrder = order,
+        )
+        val cue = mockk<StartListeningCuePlayer>().apply {
+            every { playCue(StartListeningCueContext.WAKE_WORD) } answers {
+                order += "cue"
+                StartListeningCueResult(started = true, context = StartListeningCueContext.WAKE_WORD)
+            }
+        }
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cue,
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(mutableListOf()),
+                routeTranscript = { order += "route"; true },
+                onSessionTerminal = { },
+                onCaptureReady = { order += "overlay" },
+            )
+        }
+        runCurrent()
+        assertFalse(order.contains("overlay"), "no overlay before the capture is ready")
+
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        runCurrent()
+        controller.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "what time is it", captureSessionId = 1L))
+        runCurrent()
+        job.join()
+
+        assertEquals(
+            listOf("cue", "overlay", "route"),
+            order.filter { it == "cue" || it == "overlay" || it == "route" },
+            "the cue must play before the overlay launches",
+        )
+    }
+
+    @Test
+    fun `closing the overlay while the capture is live stops the recognizer and routes nothing`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(1L)),
+            sharedOrder = order,
+        )
+        var overlayToken = -1L
+        var routed = false
+        var rearmCount = 0
+
+        val job = launch {
+            runWakeOverlayHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                routeTranscript = { routed = true; true },
+                onError = { },
+                onSessionTerminal = { rearmCount++ },
+                capturePermitted = { true },
+                openOverlay = { overlayToken = it },
+            )
+        }
+        runCurrent()
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        runCurrent()
+        assertTrue(overlayToken >= 0L, "the overlay opens once the mic-ready cue has played")
+        assertEquals(WakeOverlayState.Active(WakeOverlayPhase.Listening, ""), WakeOverlayChannel.state.value)
+
+        WakeOverlayChannel.requestCancel(overlayToken)
+        runCurrent()
+        job.join()
+
+        assertEquals(listOf(1L), controller.startCalls, "no second startListening after the cancel")
+        assertEquals(1, controller.stopCalls, "the recognizer is stopped exactly once")
+        assertFalse(routed, "a cancelled capture must not route a command")
+        assertEquals(1, rearmCount, "the detector re-arms exactly once")
+        assertEquals(WakeOverlayState.Ended(routed = false), WakeOverlayChannel.state.value)
+    }
+
+    @Test
+    fun `wake overlay is never launched when the capture is cancelled before it is ready`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(1L)),
+            sharedOrder = order,
+        )
+        var overlayLaunches = 0
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(mutableListOf()),
+                routeTranscript = { true },
+                onSessionTerminal = { },
+                onCaptureReady = { overlayLaunches++ },
+            )
+        }
+        runCurrent()
+        job.cancel()
+        runCurrent()
+
+        assertEquals(0, overlayLaunches, "no overlay for a capture that never became ready")
     }
 
     @Test
