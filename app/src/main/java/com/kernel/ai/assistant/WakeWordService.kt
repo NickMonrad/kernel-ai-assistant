@@ -48,6 +48,7 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
 import com.kernel.ai.feature.widget.EXTRA_WAKE_OVERLAY
+import com.kernel.ai.feature.widget.EXTRA_WAKE_TOKEN
 import java.io.File
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -541,6 +542,56 @@ internal suspend fun runWakeCommandHandoff(
     }
     return WakeCommandHandoffResult(completed, cancellationCategory)
 }
+
+/**
+ * #1930: runs one Hey Jandal capture with its overlay. [openOverlay] runs once, after the mic-ready
+ * cue, with this capture's token. [WakeOverlayChannel.requestCancel] with that token cancels the
+ * handoff; its cancellation path stops the recognizer and re-arms the detector exactly once.
+ */
+internal suspend fun runWakeOverlayHandoff(
+    wakeWordDetector: WakeWordDetector,
+    voiceInputController: VoiceInputController,
+    cuePlayer: StartListeningCuePlayer,
+    generationId: Long,
+    sessionId: Long,
+    onError: (String) -> Unit,
+    routeTranscript: (String) -> Boolean,
+    onSessionTerminal: () -> Unit,
+    capturePermitted: () -> Boolean,
+    openOverlay: (token: Long) -> Unit,
+): Unit = coroutineScope {
+    val token = WakeOverlayChannel.begin()
+    var overlayRequested = false
+    val handoff = launch {
+        runWakeCommandHandoff(
+            wakeWordDetector = wakeWordDetector,
+            voiceInputController = voiceInputController,
+            cuePlayer = cuePlayer,
+            generationId = generationId,
+            sessionId = sessionId,
+            onError = onError,
+            routeTranscript = routeTranscript,
+            onSessionTerminal = {
+                WakeOverlayChannel.end()
+                onSessionTerminal()
+            },
+            capturePermitted = capturePermitted,
+            onWakeEvent = WakeOverlayChannel::onEvent,
+            onCaptureReady = {
+                if (!overlayRequested) {
+                    overlayRequested = true
+                    openOverlay(token)
+                }
+            },
+            isCancelled = { WakeOverlayChannel.isCancelRequested(token) },
+        )
+    }
+    val cancelWatcher = launch {
+        WakeOverlayChannel.awaitCancelRequest(token)
+        handoff.cancel()
+    }
+    handoff.invokeOnCompletion { cancelWatcher.cancel() }
+}
 private const val TAG = "KernelAI"
 private const val CHANNEL_ID = "kernel_wake_word"
 private const val NOTIFICATION_ID = 9_500
@@ -948,47 +999,26 @@ class WakeWordService : Service() {
     private fun handleDetection(generationId: Long, sessionId: Long) {
         serviceScope.launch {
             isHandlingDetection = true
-            WakeOverlayChannel.begin()
-            var overlayRequested = false
-            coroutineScope {
-                val handoff = launch {
-                    try {
-                        runWakeCommandHandoff(
-                            wakeWordDetector = wakeWordDetector,
-                            voiceInputController = voiceInputController,
-                            cuePlayer = cuePlayer,
-                            generationId = generationId,
-                            sessionId = sessionId,
-                            onError = { msg -> if (msg.isNotBlank()) showWakeWordError(msg) },
-                            routeTranscript = ::routeTranscript,
-                            onSessionTerminal = {
-                                isHandlingDetection = false
-                                WakeOverlayChannel.end()
-                                rearmDetector()
-                            },
-                            // #1502: a camera-driven yield must not be undone by the session's retry.
-                            capturePermitted = { !isWakeCaptureSuspended },
-                            onWakeEvent = WakeOverlayChannel::onEvent,
-                            isCancelled = WakeOverlayChannel::isCancelRequested,
-                            onCaptureReady = {
-                                if (!overlayRequested) {
-                                    overlayRequested = true
-                                    showWakeOverlay()
-                                }
-                            },
-                        )
-                    } catch (e: CancellationException) {
+            try {
+                runWakeOverlayHandoff(
+                    wakeWordDetector = wakeWordDetector,
+                    voiceInputController = voiceInputController,
+                    cuePlayer = cuePlayer,
+                    generationId = generationId,
+                    sessionId = sessionId,
+                    onError = { msg -> if (msg.isNotBlank()) showWakeWordError(msg) },
+                    routeTranscript = ::routeTranscript,
+                    onSessionTerminal = {
                         isHandlingDetection = false
-                        throw e
-                    }
-                }
-                // #1930: closing the overlay cancels the live capture. The handoff's cancellation
-                // path stops the recognizer and re-arms the detector exactly once.
-                val cancelWatcher = launch {
-                    WakeOverlayChannel.awaitCancelRequest()
-                    handoff.cancel()
-                }
-                handoff.invokeOnCompletion { cancelWatcher.cancel() }
+                        rearmDetector()
+                    },
+                    // #1502: a camera-driven yield must not be undone by the session's retry.
+                    capturePermitted = { !isWakeCaptureSuspended },
+                    openOverlay = ::showWakeOverlay,
+                )
+            } catch (e: CancellationException) {
+                isHandlingDetection = false
+                throw e
             }
         }
     }
@@ -999,14 +1029,15 @@ class WakeWordService : Service() {
     }
 
     /**
-     * #1930: opens the Hey Jandal overlay before the capture's events arrive. The capture itself
-     * (detector stop, cue, STT attempts) is unchanged; a failed launch leaves the capture running.
+     * #1930: opens the Hey Jandal overlay once the mic-ready cue has played. [token] names the live
+     * capture, so the overlay's cancel applies only to it. A failed launch leaves the capture running.
      */
-    private fun showWakeOverlay() {
+    private fun showWakeOverlay(token: Long) {
         try {
             startActivity(
                 Intent(this, VoiceCommandActivity::class.java).apply {
                     putExtra(EXTRA_WAKE_OVERLAY, true)
+                    putExtra(EXTRA_WAKE_TOKEN, token)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )

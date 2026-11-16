@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
@@ -96,8 +97,8 @@ const val EXTRA_PREFILLED_TRANSCRIPT = "prefilled_transcript"
 /** Intent extra set by [WakeWordService] when it opens the overlay for a live Hey Jandal capture (#1930). */
 const val EXTRA_WAKE_OVERLAY = "wake_overlay"
 
-/** #1930: a wake intent shows the overlay only while its capture is live; otherwise it closes. */
-internal fun wakeOverlayShows(state: WakeOverlayState): Boolean = state is WakeOverlayState.Active
+/** #1930: token of the live wake capture that opened the overlay; see [WakeOverlayChannel.begin]. */
+const val EXTRA_WAKE_TOKEN = "wake_token"
 
 /** #1930: delay before a routed wake overlay closes when its prefilled transcript never arrives. */
 internal const val WAKE_ROUTED_FINISH_TIMEOUT_MS = 2_000L
@@ -146,6 +147,12 @@ class VoiceCommandActivity : ComponentActivity() {
     private var wakeOverlayJob: Job? = null
     /** True when launched as a Hey Jandal wake overlay (#1930); decides cancel-on-destroy. */
     private var wakeIntentSeen = false
+    /** Token of the wake capture this overlay belongs to (#1930). */
+    private var wakeToken = 0L
+    /** Back closes a wake overlay as X does; enabled only while a wake overlay is shown. */
+    private val wakeBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() = dismissWakeOverlay()
+    }
 
     private val requestMicPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -164,6 +171,7 @@ class VoiceCommandActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, wakeBackCallback)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         if (handlePrefilledTranscript(intent)) return
@@ -224,19 +232,19 @@ class VoiceCommandActivity : ComponentActivity() {
 
     /**
      * #1930: a Hey Jandal wake opens this overlay while [WakeWordService] captures speech. Only a
-     * live wake capture ([WakeOverlayState.Active]) may open it, so an external caller cannot show a
-     * listening overlay with no capture behind it. Returns true when the intent is a wake intent.
+     * live capture (matching token, [WakeOverlayState.Active]) may open it, so an external caller
+     * cannot show a listening overlay with no capture behind it. Returns false and does nothing
+     * otherwise, leaving the intent to the normal flow.
      */
     internal fun handleWakeOverlayIntent(intent: Intent): Boolean {
         if (!intent.getBooleanExtra(EXTRA_WAKE_OVERLAY, false)) return false
+        val token = intent.getLongExtra(EXTRA_WAKE_TOKEN, 0L)
+        if (!WakeOverlayChannel.isLive(token)) return false
         wakeIntentSeen = true
-        if (wakeOverlayShows(WakeOverlayChannel.state.value)) {
-            // #1930: a wake-launched overlay turns the screen on so it is visible with the screen off.
-            setTurnScreenOn(true)
-            startWakeOverlay()
-        } else {
-            finish()
-        }
+        wakeToken = token
+        // #1930: a wake-launched overlay turns the screen on so it is visible with the screen off.
+        setTurnScreenOn(true)
+        startWakeOverlay()
         return true
     }
 
@@ -247,6 +255,7 @@ class VoiceCommandActivity : ComponentActivity() {
      */
     private fun startWakeOverlay() {
         wakeOverlayJob?.cancel()
+        wakeBackCallback.isEnabled = true
         var phase by mutableStateOf(VoiceCommandPhase.Listening)
         var partialText by mutableStateOf("")
         var dismissEnabled by mutableStateOf(false)
@@ -265,7 +274,7 @@ class VoiceCommandActivity : ComponentActivity() {
                     hintVisible = false,
                     inputLevel = voiceInputController.inputLevel.collectAsState(),
                     dismissEnabled = dismissEnabled,
-                    onDismiss = { finish() },
+                    onDismiss = { dismissWakeOverlay() },
                 )
             }
         }
@@ -295,10 +304,19 @@ class VoiceCommandActivity : ComponentActivity() {
         }
     }
 
-    /** #1930: Home or an app switch ends the wake overlay; finishing it stops the capture in onDestroy. */
+    /** #1930: Home or an app switch closes the wake overlay and cancels its live capture. */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (wakeOverlayJob?.isActive == true) finish()
+        if (wakeOverlayJob?.isActive == true) dismissWakeOverlay()
+    }
+
+    /**
+     * #1930: X, backdrop, Back and Home cancel the live capture before finishing, so a transcript
+     * that arrives before onDestroy runs cannot be routed. onDestroy stays as a backstop.
+     */
+    private fun dismissWakeOverlay() {
+        if (wakeIntentSeen) WakeOverlayChannel.requestCancel(wakeToken)
+        finish()
     }
 
     /**
@@ -511,10 +529,9 @@ class VoiceCommandActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (wakeIntentSeen) {
-            // #1930: closing the wake overlay (X, backdrop, Back and Home all finish the activity)
-            // cancels the live capture; the service's cancellation path stops the recognizer.
-            // A configuration change keeps the capture running.
-            if (!isChangingConfigurations) WakeOverlayChannel.requestCancel()
+            // #1930: backstop; the dismiss paths already requested cancel. A configuration change
+            // keeps the capture running.
+            if (!isChangingConfigurations) WakeOverlayChannel.requestCancel(wakeToken)
         } else {
             voiceInputController.stopListening()
         }

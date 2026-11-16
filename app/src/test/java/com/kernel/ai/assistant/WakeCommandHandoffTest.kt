@@ -10,6 +10,9 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.core.voice.WakeOverlayChannel
+import com.kernel.ai.core.voice.WakeOverlayPhase
+import com.kernel.ai.core.voice.WakeOverlayState
 import io.mockk.every
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -630,6 +633,50 @@ class WakeCommandHandoffTest {
             order.filter { it == "cue" || it == "overlay" || it == "route" },
             "the cue must play before the overlay launches",
         )
+    }
+
+    @Test
+    fun `closing the overlay while the capture is live stops the recognizer and routes nothing`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(1L)),
+            sharedOrder = order,
+        )
+        var overlayToken = -1L
+        var routed = false
+        var rearmCount = 0
+
+        val job = launch {
+            runWakeOverlayHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                routeTranscript = { routed = true; true },
+                onError = { },
+                onSessionTerminal = { rearmCount++ },
+                capturePermitted = { true },
+                openOverlay = { overlayToken = it },
+            )
+        }
+        runCurrent()
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        runCurrent()
+        assertTrue(overlayToken >= 0L, "the overlay opens once the mic-ready cue has played")
+        assertEquals(WakeOverlayState.Active(WakeOverlayPhase.Listening, ""), WakeOverlayChannel.state.value)
+
+        WakeOverlayChannel.requestCancel(overlayToken)
+        runCurrent()
+        job.join()
+
+        assertEquals(listOf(1L), controller.startCalls, "no second startListening after the cancel")
+        assertEquals(1, controller.stopCalls, "the recognizer is stopped exactly once")
+        assertFalse(routed, "a cancelled capture must not route a command")
+        assertEquals(1, rearmCount, "the detector re-arms exactly once")
+        assertEquals(WakeOverlayState.Ended(routed = false), WakeOverlayChannel.state.value)
     }
 
     @Test

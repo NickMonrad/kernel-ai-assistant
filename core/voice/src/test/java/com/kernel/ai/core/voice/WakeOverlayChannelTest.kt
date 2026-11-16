@@ -69,18 +69,26 @@ class WakeOverlayChannelTest {
     }
 
     @Test
-    fun `cancel is honoured only for a live wake capture`() {
+    fun `cancel is honoured only for the live capture that asked for it`() {
         val channel = WakeOverlayChannel
-        channel.begin()
-        assertFalse(channel.isCancelRequested())
-        channel.requestCancel()
-        assertTrue(channel.isCancelRequested())
+        val first = channel.begin()
+        assertTrue(channel.isLive(first))
+        assertFalse(channel.isCancelRequested(first))
+        channel.requestCancel(first)
+        assertTrue(channel.isCancelRequested(first))
+        channel.end()
+
+        val second = channel.begin()
+        assertFalse(channel.isLive(first), "a finished capture's token is no longer live")
+        channel.requestCancel(first)
+        assertFalse(
+            channel.isCancelRequested(second),
+            "a late cancel from the previous overlay must not cancel the new capture",
+        )
+        assertTrue(channel.isLive(second))
 
         channel.end()
-        channel.begin()
-        assertFalse(channel.isCancelRequested(), "begin resets a previous cancel request")
-        channel.end()
-        channel.requestCancel()
-        assertFalse(channel.isCancelRequested(), "a request after the capture ended is ignored")
+        channel.requestCancel(second)
+        assertFalse(channel.isLive(second), "no cancel is accepted once the capture ended")
     }
 }

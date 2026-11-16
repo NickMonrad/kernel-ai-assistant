@@ -52,33 +52,41 @@ internal fun WakeOverlayState.onWakeEvent(event: VoiceInputEvent): WakeOverlaySt
 object WakeOverlayChannel {
     private val _state = MutableStateFlow<WakeOverlayState>(WakeOverlayState.Idle)
     val state: StateFlow<WakeOverlayState> = _state.asStateFlow()
-    private val _cancelRequested = MutableStateFlow(false)
+    private val _cancelRequested = MutableStateFlow(0L)
 
-    /** Called before the overlay is launched and the wake capture starts. */
-    fun begin() {
-        _cancelRequested.value = false
+    @Volatile
+    private var currentToken = 0L
+
+    /**
+     * Called when a wake capture starts (single writer: the service's serviceScope). Returns the
+     * token that identifies this capture; a closed overlay holding an older token cannot cancel a
+     * newer capture.
+     */
+    fun begin(): Long {
+        currentToken += 1
         _state.value = WakeOverlayState.Active(WakeOverlayPhase.Listening, "")
+        return currentToken
     }
+
+    /** True while [token] names the capture that is currently [WakeOverlayState.Active]. */
+    fun isLive(token: Long): Boolean = token == currentToken && _state.value is WakeOverlayState.Active
 
     fun onEvent(event: VoiceInputEvent) {
         _state.update { it.onWakeEvent(event) }
     }
 
-    /**
-     * The user closed the overlay (X, backdrop, Back, Home). Only meaningful while a wake capture
-     * is live; the service cancels the capture when it sees this.
-     */
-    fun requestCancel() {
-        if (_state.value is WakeOverlayState.Active) _cancelRequested.value = true
+    /** The user closed the overlay for capture [token]. Ignored unless that capture is live. */
+    fun requestCancel(token: Long) {
+        if (isLive(token)) _cancelRequested.value = token
     }
 
-    /** Suspends until [requestCancel] is called for the current wake capture. */
-    suspend fun awaitCancelRequest() {
-        _cancelRequested.first { it }
+    /** Suspends until [requestCancel] is called for capture [token]. */
+    suspend fun awaitCancelRequest(token: Long) {
+        _cancelRequested.first { it == token }
     }
 
-    /** True once [requestCancel] has been honoured for the current wake capture. */
-    fun isCancelRequested(): Boolean = _cancelRequested.value
+    /** True once [requestCancel] has been honoured for capture [token]. */
+    fun isCancelRequested(token: Long): Boolean = _cancelRequested.value == token
 
     /** A transcript was handed to the overlay activity, which owns the rest of the flow. */
     fun markRouted() {
