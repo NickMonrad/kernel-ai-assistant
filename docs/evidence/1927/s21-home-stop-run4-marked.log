@@ -1,0 +1,9 @@
+11-16 10:24:01.500 23084 23200 D KernelAI: Sherpa streaming chunk: 1889ms for 29 chars, sid=0
+11-16 10:24:01.502 23084 23200 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=29 part=1/1 text=What should I call the event?
+11-16 10:24:01.502 23084 23200 I KernelAI: SpeakingStarted engine=sherpa chars=29 epochMs=1794788641502
+11-16 10:24:01.546  7908  7908 D AudioPlayerStateMonitor: Found a new active media playback. AudioPlaybackConfiguration piid:87095399 deviceId:0 type:android.media.AudioTrack u/pid:10300/23084 state:started attr:AudioAttributes: usage=USAGE_ASSISTANT content=CONTENT_TYPE_SPEECH flags=0x800 tags= bundle=null sessionId:87096001 mutedState:none  FormatInfo{isSpatialized=false, channelMask=0x0, sampleRate=0}
+11-16 10:24:01.558  7908  7908 D MediaSessionService: Audio playback is changed, config=AudioPlaybackConfiguration piid:87095399 deviceId:0 type:android.media.AudioTrack u/pid:10300/23084 state:started attr:AudioAttributes: usage=USAGE_ASSISTANT content=CONTENT_TYPE_SPEECH flags=0x800 tags= bundle=null sessionId:87096001 mutedState:none  FormatInfo{isSpatialized=false, channelMask=0x1, sampleRate=22050}, removed=false
+11-16 10:24:01.696 24502 24502 I EVIDENCE1927: MARKER Home keyevent sent
+11-16 10:24:01.744 23084 23084 D VRI[MainActivity]@6ade157: WindowStopped on ai.jandal.assistant.debug/com.kernel.ai.MainActivity set to true
+11-16 10:24:01.782 23084 23200 D AudioTrack: stop(340): called with 6144 frames delivered
+11-16 10:24:01.783  7908  7908 D MediaSessionService: Audio playback is changed, config=AudioPlaybackConfiguration piid:87095399 deviceId:3 type:android.media.AudioTrack u/pid:10300/23084 state:paused attr:AudioAttributes: usage=USAGE_ASSISTANT content=CONTENT_TYPE_SPEECH flags=0x800 tags= bundle=null sessionId:87096001 mutedState:none  FormatInfo{isSpatialized=false, channelMask=0x1, sampleRate=22050}, removed=false
