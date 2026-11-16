@@ -406,11 +406,11 @@ private fun IconTile(icon: ImageVector, size: Dp, container: Color, content: Col
 }
 
 @Composable
-private fun WelcomeRow(icon: ImageVector, title: String, body: String) {
+private fun WelcomeRow(icon: ImageVector, title: String, body: String?) {
     Row(
         modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
         horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = if (body == null) Alignment.CenterVertically else Alignment.Top,
     ) {
         IconTile(
             icon = icon,
@@ -420,18 +420,37 @@ private fun WelcomeRow(icon: ImageVector, title: String, body: String) {
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(text = title, style = MaterialTheme.typography.titleMedium)
-            Text(
-                text = body,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            body?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
 
+/** Title and optional body of the third welcome row. */
+internal data class WelcomeDownloadCopy(val title: String, val body: String?)
+
+/**
+ * The third welcome row for [totalBytes] still to download: the spec's "Chat needs a one-time download" with the
+ * size while anything is left, otherwise just the title "Chat is ready" with no body (owner decision on #1957).
+ */
+internal fun welcomeDownloadCopy(totalBytes: Long): WelcomeDownloadCopy =
+    if (totalBytes > 0L) {
+        WelcomeDownloadCopy(
+            title = "Chat needs a one-time download",
+            body = "About ${formatBytesShort(totalBytes)}. You choose Wi-Fi or mobile data in step 3.",
+        )
+    } else {
+        WelcomeDownloadCopy(title = "Chat is ready", body = null)
+    }
+
 /**
  * Step 1. [totalBytes] is what is still to download: the default plan for this phone on a first run, or what is
- * left on a re-run from Settings. Nothing left drops the size ("Chat is ready").
+ * left on a re-run from Settings. Nothing left shows "Chat is ready" ([welcomeDownloadCopy]).
  */
 @Composable
 private fun WelcomeStep(totalBytes: Long) {
@@ -463,15 +482,8 @@ private fun WelcomeStep(totalBytes: Long) {
         title = "Timers, weather and lists work now",
         body = "No download needed for these.",
     )
-    WelcomeRow(
-        icon = Icons.Outlined.Download,
-        title = "Chat needs a one-time download",
-        body = if (totalBytes > 0L) {
-            "About ${formatBytesShort(totalBytes)}. You choose Wi-Fi or mobile data in step 3."
-        } else {
-            "Chat is ready"
-        },
-    )
+    val download = welcomeDownloadCopy(totalBytes)
+    WelcomeRow(icon = Icons.Outlined.Download, title = download.title, body = download.body)
 }
 
 @Composable
