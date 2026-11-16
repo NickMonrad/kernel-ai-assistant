@@ -325,7 +325,16 @@ internal fun SetupWizardContent(
             Column(modifier = Modifier.fillMaxSize()) {
                 SetupStepHeader(
                     step = stepNumber,
-                    modifier = Modifier.padding(horizontal = 24.dp).padding(top = 20.dp),
+                    modifier = Modifier.padding(horizontal = 24.dp).padding(top = 20.dp, bottom = 12.dp),
+                )
+                // Marks the edge content scrolls under, so a line cut at the top reads as scrolled, not clipped.
+                // Always laid out (transparent at the top) so the content does not jump when it appears.
+                HorizontalDivider(
+                    color = if (scrollState.canScrollBackward) {
+                        MaterialTheme.colorScheme.outlineVariant
+                    } else {
+                        Color.Transparent
+                    },
                 )
                 FadingScrollArea(scrollState = scrollState, modifier = Modifier.weight(1f).fillMaxWidth()) {
                     StepContent(state, onInputSelected, onOutputSelected, onChoiceSelected, onOnlineSpeechChanged, makeYours)

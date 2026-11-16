@@ -43,7 +43,6 @@ import com.kernel.ai.core.voice.WakeWordHandoff
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.LifecycleOutcome
-import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT

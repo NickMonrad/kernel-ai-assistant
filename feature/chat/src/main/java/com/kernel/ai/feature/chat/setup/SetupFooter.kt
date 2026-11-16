@@ -117,7 +117,7 @@ internal fun FadingScrollArea(
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(horizontal = 24.dp)
-                .padding(top = 24.dp, bottom = 24.dp)
+                .padding(top = 12.dp, bottom = 24.dp)
                 .testTag(SETUP_WIZARD_CONTENT_TAG),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             content = content,

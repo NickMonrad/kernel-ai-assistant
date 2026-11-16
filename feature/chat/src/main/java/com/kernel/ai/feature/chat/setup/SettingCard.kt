@@ -97,14 +97,18 @@ internal fun SettingCard(
                     )
                 }
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    // Title and chip share a line when they fit (chip at the end, as in the mockup); at large font
+                    // the chip moves under the title instead of squeezing it (README Shared parts 2 tag rule).
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = title,
                             style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f).semantics { heading() },
+                            modifier = Modifier.padding(end = 8.dp).semantics { heading() },
                         )
                         StatusChip(status = status, modifier = Modifier.testTag("make_yours_status_$id"))
                     }
