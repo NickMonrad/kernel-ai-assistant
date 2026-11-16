@@ -1,6 +1,7 @@
 package com.kernel.ai.feature.chat
 
 import android.util.Log
+import com.kernel.ai.core.skills.SpeechPause
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceOutputStreamingSession
@@ -32,15 +33,34 @@ class ChunkedSpeechTest {
         unmockkStatic(Log::class)
     }
 
+    /** Appended text as (text, isFinal); a pause shows up as ("<pause N>", false). */
     private val appended = mutableListOf<Pair<String, Boolean>>()
     private val session = object : VoiceOutputStreamingSession {
         override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
             appended += text to isFinal
             return VoiceOutputResult.Spoken
         }
+
+        override suspend fun appendPause(durationMs: Long) {
+            appended += "<pause $durationMs>" to false
+        }
     }
     private val controller: VoiceOutputController = mockk {
         coEvery { openStreamingSession(any()) } returns session
+    }
+
+    @Test
+    fun `a pause marker ends the intro chunk, pauses, then speaks the next sentence on its own`() = runTest {
+        val reply = "You have 3 events today.${SpeechPause.MARKER}10:00 to 10:15 AM, Test standup. " +
+            "11:00 to 11:30 AM, Test design review. 1:00 to 1:45 PM, Test lunch with Sam."
+
+        speakInSentenceChunks(controller, reply)
+
+        assertEquals("You have 3 events today." to false, appended[0])
+        assertEquals("<pause ${SpeechPause.DURATION_MS}>" to false, appended[1])
+        assertEquals("10:00 to 10:15 AM, Test standup." to false, appended[2])
+        assertTrue(appended.last().second, "last chunk must be final: $appended")
+        assertTrue(appended.none { SpeechPause.MARKER in it.first }, "marker never reaches the voice: $appended")
     }
 
     @Test

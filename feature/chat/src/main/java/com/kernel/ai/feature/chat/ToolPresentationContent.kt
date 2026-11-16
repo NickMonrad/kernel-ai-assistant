@@ -31,8 +31,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.skills.ToolPresentation
 
@@ -48,6 +53,7 @@ fun ToolPresentationContent(
         is ToolPresentation.Weather -> WeatherPresentationCard(presentation, modifier, compact, onSpeak, isSpeaking)
         is ToolPresentation.Status -> StatusPresentationCard(presentation, modifier)
         is ToolPresentation.ListPreview -> ListPreviewPresentationCard(presentation, modifier, compact)
+        is ToolPresentation.CalendarAgenda -> CalendarAgendaPresentationCard(presentation, modifier, compact, onSpeak, isSpeaking)
         is ToolPresentation.ComputedResult -> ComputedResultPresentationCard(presentation, modifier)
     }
 }
@@ -367,6 +373,155 @@ private fun ListPreviewPresentationCard(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Rows the agenda card shows: days with their visible rows, and how many rows "Show more" reveals. */
+internal data class CalendarAgendaVisibleRows(
+    val days: List<ToolPresentation.CalendarAgendaDay>,
+    val hiddenCount: Int,
+)
+
+/**
+ * The first [collapsedCount] rows across days, in order, unless [expanded]. A day with no visible rows is
+ * dropped with its header. [CalendarAgendaVisibleRows.hiddenCount] is 0 when everything fits.
+ */
+internal fun calendarAgendaVisibleRows(
+    presentation: ToolPresentation.CalendarAgenda,
+    collapsedCount: Int,
+    expanded: Boolean,
+): CalendarAgendaVisibleRows {
+    val hiddenCount = (presentation.totalCount - collapsedCount).coerceAtLeast(0)
+    var remaining = if (hiddenCount > 0 && !expanded) collapsedCount else Int.MAX_VALUE
+    val days = presentation.days.mapNotNull { day ->
+        val rows = day.rows.take(remaining)
+        remaining -= rows.size
+        if (rows.isEmpty()) null else day.copy(rows = rows)
+    }
+    return CalendarAgendaVisibleRows(days = days, hiddenCount = hiddenCount)
+}
+
+/** Calendar readout as rows: aligned time column, title, optional detail; day headers for multi-day windows (#1942). */
+@Composable
+private fun CalendarAgendaPresentationCard(
+    presentation: ToolPresentation.CalendarAgenda,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    onSpeak: (() -> Unit)? = null,
+    isSpeaking: Boolean = false,
+) {
+    var expanded by rememberSaveable(presentation.title, presentation.totalCount, compact) { mutableStateOf(false) }
+    val visible = calendarAgendaVisibleRows(presentation, collapsedCount = if (compact) 3 else 5, expanded = expanded)
+    // The time column is as wide as the widest time on the card plus a gap, so titles line up and never
+    // touch the time at large font scales (a fixed 112 dp ran "10:15 AM" into the title on the S23U).
+    val timeStyle = MaterialTheme.typography.bodySmall
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val timeColumnWidth = remember(presentation, timeStyle, density) {
+        val widestPx = presentation.days.flatMap { it.rows }
+            .maxOfOrNull { textMeasurer.measure(it.timeText, timeStyle, softWrap = false, maxLines = 1).size.width }
+            ?: 0
+        with(density) { widestPx.toDp() } + 12.dp
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(modifier = Modifier.padding(if (compact) 12.dp else 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = presentation.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.weight(1f),
+                )
+                // Chat hides the message bubble (and its speak button) when a card is shown, so the card
+                // carries the speak control, as the weather card does (#1942 review).
+                if (onSpeak != null) {
+                    IconButton(onClick = onSpeak) {
+                        Icon(
+                            imageVector = if (isSpeaking) {
+                                Icons.AutoMirrored.Filled.VolumeUp
+                            } else {
+                                Icons.AutoMirrored.Outlined.VolumeUp
+                            },
+                            contentDescription = if (isSpeaking) "Stop speaking" else "Speak calendar",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer.copy(
+                                alpha = if (isSpeaking) 1f else 0.6f,
+                            ),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            if (presentation.totalCount == 0) {
+                Text(
+                    text = presentation.emptyMessage ?: "Nothing on your calendar.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            } else {
+                visible.days.forEach { day ->
+                    day.label?.let { label ->
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                    }
+                    day.rows.forEach { row -> CalendarAgendaRowText(row, timeColumnWidth, timeStyle) }
+                    Spacer(Modifier.height(6.dp))
+                }
+                if (visible.hiddenCount > 0) {
+                    TextButton(
+                        onClick = { expanded = !expanded },
+                        modifier = Modifier.padding(start = 4.dp),
+                    ) {
+                        Text(
+                            text = if (expanded) "Show less" else "Show more (${visible.hiddenCount})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarAgendaRowText(
+    row: ToolPresentation.CalendarAgendaRow,
+    timeColumnWidth: Dp,
+    timeStyle: TextStyle,
+) {
+    Row(verticalAlignment = Alignment.Top) {
+        Text(
+            text = row.timeText,
+            style = timeStyle,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.width(timeColumnWidth),
+        )
+        Column {
+            Text(
+                text = row.title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            row.detail?.let { detail ->
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
             }
         }
     }

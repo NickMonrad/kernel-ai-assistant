@@ -588,7 +588,7 @@ fun ChatScreen(
                 onResponseFeedbackVisible = viewModel::logFirstVisibleResponseFeedback,
                 onFirstThinkingTextVisible = viewModel::logFirstVisibleThinkingText,
                 onFirstAnswerTokenVisible = viewModel::logFirstVisibleAnswerToken,
-                onStopVoicePlayback = viewModel::stopVoicePlayback,
+                onStopVoicePlayback = { viewModel.stopVoicePlayback(com.kernel.ai.core.voice.SpeechStopReason.USER) },
                 onBack = onBack,
                 onNewConversation = {
                     viewModel.startNewConversation()

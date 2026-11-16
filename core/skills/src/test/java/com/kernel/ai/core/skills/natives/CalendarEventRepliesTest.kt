@@ -13,11 +13,13 @@ import org.junit.jupiter.api.Test
 class CalendarEventRepliesTest {
 
     private val utc = ZoneId.of("UTC")
+    private val PAUSE = com.kernel.ai.core.skills.SpeechPause.MARKER
     private val nz = ZoneId.of("Pacific/Auckland")
     private val west = ZoneId.of("America/New_York")
 
     /** All-day rows are stored as UTC midnight of their calendar date (CalendarContract convention). */
     private fun allDay(date: LocalDate) = CalendarEventRecord(
+        eventId = 1L,
         title = "Holiday",
         beginMillis = date.atStartOfDay(utc).toInstant().toEpochMilli(),
         endMillis = date.plusDays(1).atStartOfDay(utc).toInstant().toEpochMilli(),
@@ -27,6 +29,7 @@ class CalendarEventRepliesTest {
     )
 
     private fun timed(zone: ZoneId, date: LocalDate, startHour: Int, endHour: Int) = CalendarEventRecord(
+        eventId = 1L,
         title = "Meeting",
         beginMillis = date.atTime(startHour, 0).atZone(zone).toInstant().toEpochMilli(),
         endMillis = date.atTime(endHour, 0).atZone(zone).toInstant().toEpochMilli(),
@@ -90,6 +93,7 @@ class CalendarEventRepliesTest {
             val window = CalendarEventReplies.readWindow(CalendarRange.TODAY, false, today, utc, instant(utc, today, 12))
             val startOfToday = today.atStartOfDay(utc).toInstant().toEpochMilli()
             val endsAtMidnight = CalendarEventRecord(
+                eventId = 1L,
                 title = "Late",
                 beginMillis = startOfToday - 3_600_000L,
                 endMillis = startOfToday,
@@ -161,6 +165,7 @@ class CalendarEventRepliesTest {
         @DisplayName("matches title, calendar name or location, case-insensitively")
         fun matchesAnyField() {
             val event = CalendarEventRecord(
+                eventId = 1L,
                 title = "Dentist check",
                 beginMillis = 0,
                 endMillis = 1,
@@ -180,6 +185,7 @@ class CalendarEventRepliesTest {
         private val day = LocalDate.of(2026, 6, 1)
 
         private fun timedIn(calendar: String) = CalendarEventRecord(
+            eventId = 1L,
             title = "Dentist",
             beginMillis = day.atTime(9, 0).atZone(utc).toInstant().toEpochMilli(),
             endMillis = day.atTime(10, 0).atZone(utc).toInstant().toEpochMilli(),
@@ -227,6 +233,122 @@ class CalendarEventRepliesTest {
             assertEquals(null, CalendarEventReplies.spokenCalendarName("  "))
             assertEquals(null, CalendarEventReplies.spokenCalendarName("Work (me@example.com)"))
             assertEquals("Work", CalendarEventReplies.spokenCalendarName(" Work "))
+        }
+    }
+
+    @Nested
+    @DisplayName("speech and card for a read (#1942)")
+    inner class SpeechAndCard {
+
+        private fun event(id: Long, title: String, startHour: Int, endHour: Int, date: LocalDate = LocalDate.of(2025, 11, 20)) =
+            CalendarEventRecord(
+                eventId = id,
+                title = title,
+                beginMillis = date.atTime(startHour, 30).atZone(utc).toInstant().toEpochMilli(),
+                endMillis = date.atTime(endHour, 35).atZone(utc).toInstant().toEpochMilli(),
+                allDay = false,
+                calendarName = "Test calendar",
+                location = "Room 2",
+            )
+
+        @Test
+        @DisplayName("speech is one sentence per event with no dotted AM, no colon and no calendar or location")
+        fun oneSentencePerEvent() {
+            val events = listOf(event(1, "Dentist", 7, 7), event(2, "Standup", 9, 10))
+            val spoken = CalendarEventReplies.formatSpokenRead(CalendarRange.TODAY, null, events, utc)
+            assertEquals(
+                "You have 2 events today.$PAUSE" + "7:30 to 7:35 AM, Dentist. 9:30 to 10:35 AM, Standup.",
+                spoken,
+            )
+            assertFalse(spoken.contains("AM."))
+            assertFalse(spoken.contains(":."))
+            assertFalse(spoken.contains("Test calendar"), "calendar names stay on the card: $spoken")
+            assertFalse(spoken.contains("Room 2"), "locations stay on the card: $spoken")
+        }
+
+        @Test
+        @DisplayName("the count sentence is followed by exactly one pause, before the first event")
+        fun pauseAfterCount() {
+            val events = listOf(event(1, "Dentist", 7, 7), event(2, "Standup", 9, 10), event(3, "Gym", 17, 18))
+            val spoken = CalendarEventReplies.formatSpokenRead(CalendarRange.TODAY, null, events, utc)
+            val parts = spoken.split(PAUSE)
+            assertEquals(2, parts.size, "one pause: $spoken")
+            assertEquals("You have 3 events today.", parts[0])
+            assertTrue(parts[1].startsWith("7:30 to 7:35 AM, Dentist."), parts[1])
+        }
+
+        @Test
+        @DisplayName("nothing to list has no pause")
+        fun emptyReadHasNoPause() {
+            val spoken = CalendarEventReplies.formatSpokenRead(CalendarRange.TODAY, null, emptyList(), utc)
+            assertEquals("Nothing on your calendar today.", spoken)
+        }
+
+        @Test
+        @DisplayName("times that cross a meridiem keep both suffixes")
+        fun meridiemCrossing() {
+            val events = listOf(event(1, "Lunch", 11, 12))
+            assertEquals(
+                "You have 1 event today.$PAUSE" + "11:30 AM to 12:35 PM, Lunch.",
+                CalendarEventReplies.formatSpokenRead(CalendarRange.TODAY, null, events, utc),
+            )
+        }
+
+        @Test
+        @DisplayName("multi-day speech names the day for each event")
+        fun multiDayNamesDay() {
+            val monday = LocalDate.of(2025, 11, 17)
+            val events = listOf(event(1, "Review", 7, 8, monday))
+            assertEquals(
+                "You have 1 event this week.$PAUSE" + "On Monday 17 November, 7:30 to 8:35 AM, Review.",
+                CalendarEventReplies.formatSpokenRead(CalendarRange.THIS_WEEK, null, events, utc),
+            )
+        }
+
+        @Test
+        @DisplayName("one invite in two calendars (different event ids, same UID and start) is listed once")
+        fun dedupeSharedUidAcrossCalendars() {
+            val organiser = event(7, "Planning", 9, 10).copy(uid = "abc@google.com", calendarName = "Work")
+            val attendee = event(42, "Planning", 9, 10).copy(uid = "abc@google.com", calendarName = "Family")
+            assertEquals(listOf(organiser), CalendarEventReplies.dedupeInstances(listOf(organiser, attendee)))
+        }
+
+        @Test
+        @DisplayName("recurring instances share a UID but not a start, so each stays")
+        fun dedupeKeepsRecurringInstances() {
+            val monday = event(7, "Standup", 9, 10, LocalDate.of(2025, 11, 17)).copy(uid = "daily@x")
+            val tuesday = event(7, "Standup", 9, 10, LocalDate.of(2025, 11, 18)).copy(uid = "daily@x")
+            assertEquals(listOf(monday, tuesday), CalendarEventReplies.dedupeInstances(listOf(monday, tuesday)))
+        }
+
+        @Test
+        @DisplayName("without a UID, different events at the same time both stay")
+        fun dedupeWithoutUidKeepsDistinctEvents() {
+            val a = event(7, "Dentist", 9, 10)
+            val b = event(8, "School run", 9, 10)
+            assertEquals(listOf(a, b), CalendarEventReplies.dedupeInstances(listOf(a, b)))
+        }
+
+        @Test
+        @DisplayName("card groups multi-day rows under day labels and keeps all rows for Show more")
+        fun agendaGroupsByDay() {
+            val monday = LocalDate.of(2025, 11, 17)
+            val tuesday = LocalDate.of(2025, 11, 18)
+            val events = listOf(event(1, "A", 7, 8, monday), event(2, "B", 9, 10, tuesday))
+            val agenda = CalendarEventReplies.agendaPresentation(CalendarRange.THIS_WEEK, events, utc)
+            assertEquals(2, agenda.days.size)
+            assertEquals("Monday 17 November", agenda.days[0].label)
+            assertEquals("7:30 \u2013 8:35 AM", agenda.days[0].rows[0].timeText)
+            assertEquals("Test calendar \u00b7 Room 2", agenda.days[0].rows[0].detail)
+            assertEquals(2, agenda.totalCount)
+        }
+
+        @Test
+        @DisplayName("single-day card has one unlabelled group")
+        fun agendaSingleDay() {
+            val agenda = CalendarEventReplies.agendaPresentation(CalendarRange.TODAY, listOf(event(1, "A", 7, 8)), utc)
+            assertEquals(1, agenda.days.size)
+            assertEquals(null, agenda.days[0].label)
         }
     }
 }

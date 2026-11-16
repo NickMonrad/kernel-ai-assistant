@@ -26,6 +26,7 @@ class CalendarEventStoreTest {
     private val store = CalendarEventStore(context)
 
     private val instanceColumns = listOf(
+        CalendarContract.Instances.EVENT_ID,
         CalendarContract.Instances.TITLE,
         CalendarContract.Instances.BEGIN,
         CalendarContract.Instances.END,
@@ -35,6 +36,7 @@ class CalendarEventStoreTest {
         CalendarContract.Instances.EVENT_LOCATION,
         CalendarContract.Instances.SELF_ATTENDEE_STATUS,
         CalendarContract.Instances.STATUS,
+        CalendarContract.Events.UID_2445,
     )
 
     @BeforeEach
@@ -53,6 +55,7 @@ class CalendarEventStoreTest {
         var position = -1
         return mockk<Cursor>(relaxed = true) {
             every { getColumnIndexOrThrow(any()) } answers { columns.indexOf(firstArg<String>()) }
+            every { getColumnIndex(any()) } answers { columns.indexOf(firstArg<String>()) }
             every { moveToNext() } answers {
                 position++
                 position < rows.size
@@ -88,7 +91,9 @@ class CalendarEventStoreTest {
         allDay: Int = 0,
         selfStatus: Int = 1,
         status: Int = 1,
+        uid: String? = null,
     ) = mapOf(
+        CalendarContract.Instances.EVENT_ID to 1L,
         CalendarContract.Instances.TITLE to title,
         CalendarContract.Instances.BEGIN to 1_000L,
         CalendarContract.Instances.END to 2_000L,
@@ -98,6 +103,7 @@ class CalendarEventStoreTest {
         CalendarContract.Instances.EVENT_LOCATION to null,
         CalendarContract.Instances.SELF_ATTENDEE_STATUS to selfStatus,
         CalendarContract.Instances.STATUS to status,
+        CalendarContract.Events.UID_2445 to uid,
     )
 
     private val from: LocalDate = LocalDate.of(2025, 11, 20)
@@ -158,6 +164,27 @@ class CalendarEventStoreTest {
             assertTrue(event.allDay)
             assertNull(event.location)
             assertFalse(event.title.isBlank())
+        }
+
+        @Test
+        @DisplayName("the iCalendar UID maps onto the record; a blank or missing UID is null")
+        fun mapsUid() {
+            stubQueries(
+                instances = cursorOf(
+                    instanceColumns,
+                    listOf(instanceRow("Shared", uid = " abc@google.com "), instanceRow("Local", uid = "")),
+                ),
+            )
+
+            assertEquals(listOf("abc@google.com", null), store.queryInstances(from, from.plusDays(1)).map { it.uid })
+        }
+
+        @Test
+        @DisplayName("a provider without the UID column still reads, with null UIDs")
+        fun missingUidColumnIsTolerated() {
+            stubQueries(instances = cursorOf(instanceColumns.dropLast(1), listOf(instanceRow("Dentist"))))
+
+            assertEquals(listOf(null), store.queryInstances(from, from.plusDays(1)).map { it.uid })
         }
     }
 
