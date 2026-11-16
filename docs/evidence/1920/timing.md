@@ -74,7 +74,8 @@ tests cover a persona change during the deferral.
   paths run (per-turn GPU replay, no debug-only engine logging); `:app` is R8-minified with the release ProGuard files.
   `:app` stays debuggable and debug-signed with the `.debug` id: `run-as` (harness token) and the app's
   `BuildConfig.DEBUG` gate on the harness need it, and the release id `ai.jandal.assistant` is the owner's installed
-  build. No upload key was used. The normal debug build of this branch was reinstalled afterwards.
+  build. No upload key was used. Afterwards the S21 got the normal debug build of this branch; on the S23U another
+  agent took the lock as the run ended and installed its own normal (non-minified) debug build, which was left in place.
 
 ## Method
 
