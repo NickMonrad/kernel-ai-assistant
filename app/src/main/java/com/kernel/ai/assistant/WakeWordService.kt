@@ -218,6 +218,7 @@ internal suspend fun runWakeAttempt(
     attempt: Int,
     onError: (String) -> Unit = {},
     onWakeEvent: (VoiceInputEvent) -> Unit = {},
+    onCaptureReady: () -> Unit = {},
 ): WakeAttemptOutcome = coroutineScope {
     val attemptEvents = Channel<VoiceInputEvent>(Channel.BUFFERED)
     val collectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -300,6 +301,8 @@ internal suspend fun runWakeAttempt(
             val terminalEvent = when (startupEvent) {
                 is VoiceInputEvent.ListeningStarted -> {
                     playWakeCue(journal, cuePlayer)
+                    // #1930: the overlay launches only after the mic-ready cue has played.
+                    onCaptureReady()
                     awaitEvent {
                         it is VoiceInputEvent.Transcript ||
                             it is VoiceInputEvent.Error ||
@@ -461,6 +464,7 @@ internal suspend fun runWakeCommandHandoff(
     journal: WakeSessionJournal? = null,
     capturePermitted: () -> Boolean = { true },
     onWakeEvent: (VoiceInputEvent) -> Unit = {},
+    onCaptureReady: () -> Unit = {},
     isCancelled: () -> Boolean = { false },
 ): WakeCommandHandoffResult {
     // #1433: a confirmed wake activation must not request live STT capture until the
@@ -490,6 +494,7 @@ internal suspend fun runWakeCommandHandoff(
                 attempt = attempt,
                 onError = onError,
                 onWakeEvent = onWakeEvent,
+                onCaptureReady = onCaptureReady,
             )
         }
 
@@ -944,7 +949,7 @@ class WakeWordService : Service() {
         serviceScope.launch {
             isHandlingDetection = true
             WakeOverlayChannel.begin()
-            showWakeOverlay()
+            var overlayRequested = false
             coroutineScope {
                 val handoff = launch {
                     try {
@@ -965,6 +970,12 @@ class WakeWordService : Service() {
                             capturePermitted = { !isWakeCaptureSuspended },
                             onWakeEvent = WakeOverlayChannel::onEvent,
                             isCancelled = WakeOverlayChannel::isCancelRequested,
+                            onCaptureReady = {
+                                if (!overlayRequested) {
+                                    overlayRequested = true
+                                    showWakeOverlay()
+                                }
+                            },
                         )
                     } catch (e: CancellationException) {
                         isHandlingDetection = false

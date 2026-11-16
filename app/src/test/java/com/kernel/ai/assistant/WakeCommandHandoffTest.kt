@@ -588,6 +588,82 @@ class WakeCommandHandoffTest {
     }
 
     @Test
+    fun `wake overlay launches only after the mic-ready cue has played`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(1L)),
+            sharedOrder = order,
+        )
+        val cue = mockk<StartListeningCuePlayer>().apply {
+            every { playCue(StartListeningCueContext.WAKE_WORD) } answers {
+                order += "cue"
+                StartListeningCueResult(started = true, context = StartListeningCueContext.WAKE_WORD)
+            }
+        }
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cue,
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(mutableListOf()),
+                routeTranscript = { order += "route"; true },
+                onSessionTerminal = { },
+                onCaptureReady = { order += "overlay" },
+            )
+        }
+        runCurrent()
+        assertFalse(order.contains("overlay"), "no overlay before the capture is ready")
+
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
+        runCurrent()
+        controller.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "what time is it", captureSessionId = 1L))
+        runCurrent()
+        job.join()
+
+        assertEquals(
+            listOf("cue", "overlay", "route"),
+            order.filter { it == "cue" || it == "overlay" || it == "route" },
+            "the cue must play before the overlay launches",
+        )
+    }
+
+    @Test
+    fun `wake overlay is never launched when the capture is cancelled before it is ready`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(1L)),
+            sharedOrder = order,
+        )
+        var overlayLaunches = 0
+
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                journal = journal(mutableListOf()),
+                routeTranscript = { true },
+                onSessionTerminal = { },
+                onCaptureReady = { overlayLaunches++ },
+            )
+        }
+        runCurrent()
+        job.cancel()
+        runCurrent()
+
+        assertEquals(0, overlayLaunches, "no overlay for a capture that never became ready")
+    }
+
+    @Test
     fun `each confirmed activation produces exactly one voice session`() = runTest {
         // Two sequential confirmed activations each run one capture session and one re-arm.
         for (activation in 1..2) {
