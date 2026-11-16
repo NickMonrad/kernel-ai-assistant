@@ -3,16 +3,19 @@ package com.kernel.ai.feature.chat.setup
 import androidx.lifecycle.SavedStateHandle
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
+import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
+import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -68,6 +71,11 @@ class SetupWizardViewModelTest {
         coEvery { voiceOutputPreferences.hasStoredEngine() } returns false
         every { wakeWordPreferences.heyJandalEnabled } returns flowOf(false)
         every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
+        every { voiceInputPreferences.allowOnlineSpeechFallback } returns flowOf(false)
+        every { downloadManager.downloadStates } returns MutableStateFlow(emptyMap())
+        every { setupVoiceDevice.inflectEligible() } returns false
+        // Release rules unless a test says otherwise; debug builds also offer Inflect Micro everywhere.
+        every { setupVoiceDevice.isReleaseBuild() } returns true
         coEvery { platformReader.read() } returns MakeYoursPlatform(
             hasMicrophone = true,
             micGranted = true,
@@ -428,6 +436,205 @@ class SetupWizardViewModelTest {
         vm.onOutputSelected(VoiceOutputEngine.AndroidTts)
 
         assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
+    }
+
+    // ── Online speech switch and Inflect Micro (#1936) ───────────────────────────
+
+    /** Loads, moves to the last step and taps Finish. */
+    private fun SetupWizardViewModel.finishFromDownloadStep() {
+        onContinue {}
+        onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `the online switch starts at the stored value`() {
+        every { voiceInputPreferences.allowOnlineSpeechFallback } returns flowOf(true)
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.allowOnlineSpeech)
+    }
+
+    @Test
+    fun `an untouched online switch is not written on Finish or Skip`() {
+        val finishing = viewModel()
+        finishing.atDownloadStep()
+        finishing.finishFromDownloadStep()
+        viewModel().also { dispatcher.scheduler.advanceUntilIdle() }.onSkip {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceInputPreferences.setAllowOnlineSpeechFallback(any()) }
+    }
+
+    @Test
+    fun `a touched online switch is written on Finish`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOnlineSpeechChanged(true)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.finishFromDownloadStep()
+
+        coVerify(exactly = 1) { voiceInputPreferences.setAllowOnlineSpeechFallback(true) }
+    }
+
+    @Test
+    fun `a touched online switch is written on Skip`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOnlineSpeechChanged(true)
+
+        vm.onSkip {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceInputPreferences.setAllowOnlineSpeechFallback(true) }
+    }
+
+    @Test
+    fun `Back never writes the online switch`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOnlineSpeechChanged(true)
+
+        vm.onBack {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceInputPreferences.setAllowOnlineSpeechFallback(any()) }
+    }
+
+    @Test
+    fun `debug builds offer Inflect Micro on any phone, and never Kokoro`() {
+        every { setupVoiceDevice.isReleaseBuild() } returns false
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental, VoiceOutputEngine.AndroidTts),
+            vm.uiState.value.outputOptions,
+        )
+    }
+
+    @Test
+    fun `choosing Inflect plans its graph files and the Cori pack it needs`() {
+        every { setupVoiceDevice.inflectEligible() } returns true
+        val vm = viewModel()
+        vm.atSpeechStep()
+
+        vm.onOutputSelected(VoiceOutputEngine.InflectMicroExperimental)
+
+        assertEquals(InflectMicroSetup.kernelModels(), vm.uiState.value.plannedModels)
+        assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
+    }
+
+    @Test
+    fun `Inflect chosen is queued with the Cori pack on Finish, after the network choice`() {
+        every { setupVoiceDevice.inflectEligible() } returns true
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOutputSelected(VoiceOutputEngine.InflectMicroExperimental)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.finishFromDownloadStep()
+
+        coVerifyOrder {
+            voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.InflectMicroExperimental)
+            downloadNetworkPreferences.setChoice(DownloadNetworkChoice.WIFI_ONLY)
+            downloadManager.startDownload(KernelModel.INFLECT_MICRO_DURATION, any(), any(), any())
+            downloadManager.startDownload(KernelModel.INFLECT_MICRO_DECODE, any(), any(), any())
+            voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh, any(), any(), any())
+        }
+    }
+
+    @Test
+    fun `Inflect chosen is queued with the Cori pack on Skip, after the network choice`() {
+        every { setupVoiceDevice.inflectEligible() } returns true
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOutputSelected(VoiceOutputEngine.InflectMicroExperimental)
+
+        vm.onSkip {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerifyOrder {
+            downloadNetworkPreferences.setChoice(DownloadNetworkChoice.WIFI_ONLY)
+            downloadManager.startDownload(KernelModel.INFLECT_MICRO_DURATION, any(), any(), any())
+            downloadManager.startDownload(KernelModel.INFLECT_MICRO_DECODE, any(), any(), any())
+            voicePackDownloadManager.startDownload(SherpaPiperVoice.CoriHigh, any(), any(), any())
+        }
+    }
+
+    @Test
+    fun `a re-run welcome total is what the current choices still need, not the defaults`() {
+        every { setupWizardPreferences.progress } returns flowOf(SetupWizardProgress(decided = true, completed = true))
+        storedOutput(VoiceOutputEngine.AndroidTts)
+        coEvery { downloadManager.plannedFirstRunModels() } returns listOf(KernelModel.GEMMA_4_E4B)
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.isRerun)
+        assertEquals(KernelModel.GEMMA_4_E4B.approxSizeBytes, vm.uiState.value.welcomeTotalBytes)
+    }
+
+    // ── Hey Jandal download size (#1931) ─────────────────────────────────────────
+
+    private val verifierBytes = wakeVerifierKernelModels().sumOf { it.approxSizeBytes }
+    private val zipformerBytes = VoiceDefaultsProvisioner.zipformerModels().sumOf { it.approxSizeBytes }
+
+    @Test
+    fun `Hey Jandal with Android's own listener and nothing downloaded adds the verifier and Zipformer`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+
+        vm.onInputSelected(VoiceInputEngine.AndroidNative)
+
+        assertEquals(verifierBytes + zipformerBytes, vm.uiState.value.heyJandalExtraBytes)
+        assertEquals(zipformerBytes, vm.uiState.value.heyJandalZipformerBytes)
+    }
+
+    @Test
+    fun `Hey Jandal with Automatic counts only the verifier when Zipformer is already in the step 3 plan`() {
+        coEvery { downloadManager.plannedFirstRunModels() } returns VoiceDefaultsProvisioner.zipformerModels()
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceDefaultsProvisioner.zipformerModels(), vm.uiState.value.plannedModels)
+        assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
+        assertEquals(0L, vm.uiState.value.heyJandalZipformerBytes)
+    }
+
+    @Test
+    fun `Hey Jandal adds nothing when every file is already downloaded`() {
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            KernelModel.entries.associateWith { DownloadState.Downloaded("/models/${it.fileName}") as DownloadState },
+        )
+        val vm = viewModel()
+        vm.atSpeechStep()
+
+        vm.onInputSelected(VoiceInputEngine.AndroidNative)
+
+        assertEquals(0L, vm.uiState.value.heyJandalExtraBytes)
+        assertEquals(0L, vm.uiState.value.heyJandalZipformerBytes)
+    }
+
+    @Test
+    fun `a first-run welcome total uses the default plan, including Cori`() {
+        coEvery { downloadManager.plannedFirstRunModels() } returns listOf(KernelModel.GEMMA_4_E4B)
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.isRerun)
+        assertEquals(
+            KernelModel.GEMMA_4_E4B.approxSizeBytes + SherpaPiperVoice.CoriHigh.approxDownloadBytes,
+            vm.uiState.value.welcomeTotalBytes,
+        )
     }
 
     // ── Zipformer files follow the speech input (#1855 part 2 review S1) ─────────

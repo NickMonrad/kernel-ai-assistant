@@ -39,7 +39,7 @@ enum class AndroidNativeWarning {
  * The warning to show when Android native is the selected engine, or null when it is safe.
  *
  * Precedence: an earlier missing capability hides the later ones. [localeReady] is the
- * language-pack check, and [onlineAllowed] is the "Allow online speech recognition" setting.
+ * language-pack check, and [onlineAllowed] is the "Use online speech recognition" setting.
  */
 fun androidNativeWarning(
     capabilities: VoiceCapabilities,

@@ -20,6 +20,8 @@ import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
+import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -243,12 +245,34 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `android native language summary is exposed from recognizer support`() = runTest {
+    fun `Hey Jandal size with Android native and nothing downloaded is the verifier plus Zipformer`() = runTest {
+        selectedInputEngine.value = VoiceInputEngine.AndroidNative
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val expected = (wakeVerifierKernelModels() + VoiceDefaultsProvisioner.zipformerModels())
+            .distinct().sumOf { it.approxSizeBytes }
+        assertEquals(expected, viewModel.uiState.value.heyJandalDownloadBytes)
+    }
+
+    @Test
+    fun `Hey Jandal size drops files as they finish downloading`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        modelDownloadStates.value = KernelModel.entries.associateWith {
+            DownloadState.Downloaded("/models/${it.fileName}") as DownloadState
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(0L, viewModel.uiState.value.heyJandalDownloadBytes)
+    }
+
+    @Test
+    fun `android native language name is exposed from recognizer support`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            "English (New Zealand) (en-NZ)",
-            viewModel.uiState.value.androidNativeLanguageSummary,
+            "English (New Zealand)",
+            viewModel.uiState.value.androidNativeLanguageName,
         )
     }
 
