@@ -8,6 +8,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
+import com.kernel.ai.core.skills.SpeechPause
 import com.kernel.ai.core.skills.ToolPresentation
 
 /** Windows the calendar read skill understands. Keeps model/router vocabulary in one place. */
@@ -160,7 +161,8 @@ object CalendarEventReplies {
 
     /**
      * Speech for a read: one sentence per event, shaped "7:30 to 7:35 AM, <title>." so TTS speaks the
-     * time and the title as one unit. Calendar names and locations stay on the card.
+     * time and the title as one unit. Calendar names and locations stay on the card. The intro sentence
+     * ("You have 5 events today.") is followed by a [SpeechPause] so the list starts after a short pause.
      */
     fun formatSpokenRead(
         range: CalendarRange?,
@@ -189,7 +191,7 @@ object CalendarEventReplies {
         val spoken = events.take(MAX_SPOKEN_EVENTS).joinToString(" ") { spokenSentence(it, zone, withDay) }
         val more = events.size - MAX_SPOKEN_EVENTS
         val moreSentence = if (more > 0) " And $more more on your screen." else ""
-        return "$header $spoken$moreSentence"
+        return "$header${SpeechPause.MARKER}$spoken$moreSentence"
     }
 
     /**

@@ -31,8 +31,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.skills.ToolPresentation
 
@@ -385,6 +390,17 @@ private fun CalendarAgendaPresentationCard(
     val hiddenCount = presentation.totalCount - collapsedCount
     val hasHiddenRows = hiddenCount > 0
     val rowBudget = if (hasHiddenRows && !expanded) collapsedCount else Int.MAX_VALUE
+    // The time column is as wide as the widest time on the card plus a gap, so titles line up and never
+    // touch the time at large font scales (a fixed 112 dp ran "10:15 AM" into the title on the S23U).
+    val timeStyle = MaterialTheme.typography.bodySmall
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val timeColumnWidth = remember(presentation, timeStyle, density) {
+        val widestPx = presentation.days.flatMap { it.rows }
+            .maxOfOrNull { textMeasurer.measure(it.timeText, timeStyle, softWrap = false, maxLines = 1).size.width }
+            ?: 0
+        with(density) { widestPx.toDp() } + 12.dp
+    }
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -418,7 +434,7 @@ private fun CalendarAgendaPresentationCard(
                             )
                             Spacer(Modifier.height(2.dp))
                         }
-                        rows.forEach { row -> CalendarAgendaRowText(row) }
+                        rows.forEach { row -> CalendarAgendaRowText(row, timeColumnWidth, timeStyle) }
                         Spacer(Modifier.height(6.dp))
                     }
                 }
@@ -440,14 +456,19 @@ private fun CalendarAgendaPresentationCard(
 }
 
 @Composable
-private fun CalendarAgendaRowText(row: ToolPresentation.CalendarAgendaRow) {
+private fun CalendarAgendaRowText(
+    row: ToolPresentation.CalendarAgendaRow,
+    timeColumnWidth: Dp,
+    timeStyle: TextStyle,
+) {
     Row(verticalAlignment = Alignment.Top) {
         Text(
             text = row.timeText,
-            style = MaterialTheme.typography.bodySmall,
+            style = timeStyle,
             color = MaterialTheme.colorScheme.onTertiaryContainer,
             maxLines = 1,
-            modifier = Modifier.width(112.dp),
+            softWrap = false,
+            modifier = Modifier.width(timeColumnWidth),
         )
         Column {
             Text(

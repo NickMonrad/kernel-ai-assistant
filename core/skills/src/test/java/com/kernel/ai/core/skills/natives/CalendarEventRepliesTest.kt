@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test
 class CalendarEventRepliesTest {
 
     private val utc = ZoneId.of("UTC")
+    private val PAUSE = com.kernel.ai.core.skills.SpeechPause.MARKER
     private val nz = ZoneId.of("Pacific/Auckland")
     private val west = ZoneId.of("America/New_York")
 
@@ -251,16 +252,36 @@ class CalendarEventRepliesTest {
             )
 
         @Test
-        @DisplayName("speech is one sentence per event with no dotted AM and no colon")
+        @DisplayName("speech is one sentence per event with no dotted AM, no colon and no calendar or location")
         fun oneSentencePerEvent() {
             val events = listOf(event(1, "Dentist", 7, 7), event(2, "Standup", 9, 10))
             val spoken = CalendarEventReplies.formatSpokenRead(CalendarRange.TODAY, null, events, utc)
             assertEquals(
-                "You have 2 events today. 7:30 to 7:35 AM, Dentist. 9:30 to 10:35 AM, Standup.",
+                "You have 2 events today.$PAUSE" + "7:30 to 7:35 AM, Dentist. 9:30 to 10:35 AM, Standup.",
                 spoken,
             )
             assertFalse(spoken.contains("AM."))
             assertFalse(spoken.contains(":."))
+            assertFalse(spoken.contains("Test calendar"), "calendar names stay on the card: $spoken")
+            assertFalse(spoken.contains("Room 2"), "locations stay on the card: $spoken")
+        }
+
+        @Test
+        @DisplayName("the count sentence is followed by exactly one pause, before the first event")
+        fun pauseAfterCount() {
+            val events = listOf(event(1, "Dentist", 7, 7), event(2, "Standup", 9, 10), event(3, "Gym", 17, 18))
+            val spoken = CalendarEventReplies.formatSpokenRead(CalendarRange.TODAY, null, events, utc)
+            val parts = spoken.split(PAUSE)
+            assertEquals(2, parts.size, "one pause: $spoken")
+            assertEquals("You have 3 events today.", parts[0])
+            assertTrue(parts[1].startsWith("7:30 to 7:35 AM, Dentist."), parts[1])
+        }
+
+        @Test
+        @DisplayName("nothing to list has no pause")
+        fun emptyReadHasNoPause() {
+            val spoken = CalendarEventReplies.formatSpokenRead(CalendarRange.TODAY, null, emptyList(), utc)
+            assertEquals("Nothing on your calendar today.", spoken)
         }
 
         @Test
@@ -268,7 +289,7 @@ class CalendarEventRepliesTest {
         fun meridiemCrossing() {
             val events = listOf(event(1, "Lunch", 11, 12))
             assertEquals(
-                "You have 1 event today. 11:30 AM to 12:35 PM, Lunch.",
+                "You have 1 event today.$PAUSE" + "11:30 AM to 12:35 PM, Lunch.",
                 CalendarEventReplies.formatSpokenRead(CalendarRange.TODAY, null, events, utc),
             )
         }
@@ -279,7 +300,7 @@ class CalendarEventRepliesTest {
             val monday = LocalDate.of(2025, 11, 17)
             val events = listOf(event(1, "Review", 7, 8, monday))
             assertEquals(
-                "You have 1 event this week. On Monday 17 November, 7:30 to 8:35 AM, Review.",
+                "You have 1 event this week.$PAUSE" + "On Monday 17 November, 7:30 to 8:35 AM, Review.",
                 CalendarEventReplies.formatSpokenRead(CalendarRange.THIS_WEEK, null, events, utc),
             )
         }

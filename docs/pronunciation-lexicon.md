@@ -36,7 +36,7 @@ Whole-word respellings applied to text before the Sherpa voices (Piper, Kokoro) 
 
 ## Status of seed entries
 
-All entries are owner picks (by ear, 2026-11-14) and `verify: false`.
+All NZ place-name entries are owner picks (by ear, 2026-11-14) and `verify: false`. `Jandal` (#1942) is `verify: true` until the owner confirms it by ear.
 
 **Policy for future entries:** use common NZ English pronunciations, not attempted Māori
 pronunciations. Set `verify: true` only for an entry with no owner pick yet. Candidate clips are in `nz-names-audio/`, `round2/` and `round3/`.
@@ -55,6 +55,7 @@ pronunciations. Set `verify: true` only for an entry with no owner pick yet. Can
 | Paraparaumu | Para-puh-ram | false | Owner, by ear, 2026-11-14 |
 | Taihape | Tie-happy | false | Owner, by ear, 2026-11-14 (replaces Tie-ha-peh) |
 | Waikato | Why-kat-o | false | Owner, by ear, 2026-11-14 |
+| Jandal, Jandals | Jandle, Jandles | true | #1942: owner heard Cori say "jun-DALL"; target JAN-dl, rhymes with handle. eSpeak (Cori's `espeak-ng-data`, voice `en`): `Jandal` alone is `dʒˈandəl`, but inside a longer token (`jandaltest`) the `-dal` becomes `dɒl`; `Jandle` is `dʒˈandəl` like `handle` (`hˈandəl`) |
 
 Not in the lexicon: Ōtaki, Waikanae, Hāwera, Rotorua (not clearly wrong, not listened to).
 

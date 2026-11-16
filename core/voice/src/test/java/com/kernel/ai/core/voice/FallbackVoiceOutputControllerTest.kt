@@ -245,7 +245,7 @@ class FallbackVoiceOutputControllerTest {
                 lines.toString(),
             )
             org.junit.jupiter.api.Assertions.assertTrue(
-                lines.any { " tts speak_end " in it && "spoken=false" in it },
+                lines.any { " tts speak_end " in it && "spoken=false" in it && "reason=ERROR" in it },
                 lines.toString(),
             )
         }

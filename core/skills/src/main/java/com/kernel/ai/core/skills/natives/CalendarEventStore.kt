@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.CalendarContract
@@ -59,6 +60,7 @@ class CalendarEventStore @Inject constructor(
     fun queryInstances(fromDate: LocalDate, toDateExclusive: LocalDate): List<CalendarEventRecord> {
         if (!hasReadPermission() || !toDateExclusive.isAfter(fromDate)) return emptyList()
         val visibleCalendarIds = visibleCalendarIds()
+        val testCalendarOnly = debugTestCalendarName()
         val uri = Uri.withAppendedPath(
             CalendarContract.Instances.CONTENT_BY_DAY_URI,
             "${julianDay(fromDate)}/${julianDay(toDateExclusive.minusDays(1))}",
@@ -95,6 +97,7 @@ class CalendarEventStore @Inject constructor(
             val statusIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.STATUS)
             while (cursor.moveToNext()) {
                 if (cursor.getLong(calendarIdIndex) !in visibleCalendarIds) continue
+                if (testCalendarOnly != null && cursor.getString(calendarIndex)?.trim() != testCalendarOnly) continue
                 if (cursor.getInt(statusIndex) == CalendarContract.Events.STATUS_CANCELED) continue
                 if (cursor.getInt(selfStatusIndex) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED) continue
                 results += CalendarEventRecord(
@@ -109,6 +112,19 @@ class CalendarEventStore @Inject constructor(
             }
         }
         return results
+    }
+
+    /**
+     * Debug builds only (#1942): the name of the one calendar reads are limited to, so device evidence can use
+     * made-up events on a phone that also has real ones. Set and cleared by the debug-only
+     * `CalendarTestFilterReceiver`; always null in release builds, which are not debuggable.
+     */
+    private fun debugTestCalendarName(): String? {
+        if ((context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0) return null
+        return context.getSharedPreferences(DEBUG_TEST_CALENDAR_PREFS, Context.MODE_PRIVATE)
+            .getString(DEBUG_TEST_CALENDAR_NAME, null)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
     }
 
     /**
@@ -183,6 +199,10 @@ class CalendarEventStore @Inject constructor(
     companion object {
         /** Days since 1970-01-01 plus this offset gives the Julian day number CalendarContract expects. */
         private const val EPOCH_JULIAN_DAY = 2440588L
+
+        /** Debug-only test-calendar filter (#1942); written by the debug `CalendarTestFilterReceiver`. */
+        const val DEBUG_TEST_CALENDAR_PREFS = "debug_test_calendar_filter"
+        const val DEBUG_TEST_CALENDAR_NAME = "calendar_name"
 
         fun julianDay(date: LocalDate): Long = date.toEpochDay() + EPOCH_JULIAN_DAY
     }

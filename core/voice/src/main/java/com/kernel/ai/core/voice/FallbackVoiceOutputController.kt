@@ -244,6 +244,10 @@ class FallbackVoiceOutputController @Inject constructor(
                     return androidTts.speak(request.copy(text = finalText))
                 }
 
+                override suspend fun appendPause(durationMs: Long) {
+                    if (!isClosed) inflectSession.appendPause(durationMs)
+                }
+
                 override suspend fun cancel() {
                     if (isClosed) return
                     isClosed = true
@@ -354,6 +358,8 @@ class FallbackVoiceOutputController @Inject constructor(
             return result
         }
 
+        override suspend fun appendPause(durationMs: Long) = delegate.appendPause(durationMs)
+
         override suspend fun cancel() {
             delegate.cancel()
             abandon()
@@ -366,18 +372,17 @@ class FallbackVoiceOutputController @Inject constructor(
 
         private fun end(spoken: Boolean, reason: SpeakEndReason) {
             if (open.compareAndSet(true, false)) {
-                JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to spoken, "reason" to reason.wireName)
+                JandalEvents.record("tts", "speak_end", "engine" to engine, "spoken" to spoken, "reason" to reason)
             }
             playbackWatcher.cancel()
         }
     }
 
-    /** Why a streamed speak ended; logged as `reason=` on `speak_end`. */
-    private enum class SpeakEndReason(val wireName: String) {
-        COMPLETED("completed"),
-        STOPPED("stopped"),
-        ERROR("error"),
-    }
+    /**
+     * Why a streamed speak ended; logged as `reason=COMPLETED|STOPPED|ERROR` on `speak_end`. Passed as the
+     * enum itself: the event log keeps enum constants and redacts every string.
+     */
+    private enum class SpeakEndReason { COMPLETED, STOPPED, ERROR }
 
     private fun stopInactiveControllers(active: VoiceOutputController) {
         if (active !== sherpa) sherpa.stop()
