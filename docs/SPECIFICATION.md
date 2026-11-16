@@ -818,6 +818,15 @@ continues to the model. Unrelated bring/know questions are not store-list reques
 > `timezone=auto`) and returns a breakdown with WMO weather emoji (☀️🌤️⛅☁️🌧️❄️⛈️) and
 > min/max temps. Default `forecast_days = 3` when a forecast is requested. A defensive
 > array-length guard prevents crashes on partial API responses.
+>
+> **MET Norway fallback (`#1922`):** The native weather skill (`GetWeatherSkill`) answers from MET Norway
+> Locationforecast 2.0 only when the Open-Meteo request fails (timeout, transport error, or any HTTP error).
+> The raw MET body is cached per coordinate with its Expires and Last-Modified. Inside Expires there is no
+> network call; after it, a conditional request is sent, and a 304 refreshes Expires and re-converts the
+> stored body at the current clock. MET requests use the app User-Agent and 4-decimal coordinates; a 429
+> sets a Retry-After back-off. Attribution is shown only when MET answers. Named places use the device time
+> zone, not Open-Meteo's `timezone=auto`. After 15:00 local, today's high, low, and rain are omitted because
+> they would cover only the hours left. The `get-weather-city` JS skill has no fallback.
 
 JS skills expose a single async entry point:
 ```javascript

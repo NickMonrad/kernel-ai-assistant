@@ -1,7 +1,7 @@
 package com.kernel.ai.core.skills.natives
 
+import com.kernel.ai.core.skills.BuildConfig
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import okhttp3.Interceptor
 import okhttp3.Response
 import org.json.JSONArray
@@ -90,8 +90,8 @@ internal fun metNoWmoCode(symbolCode: String?): Int {
         "lightrainshowers" -> 80
         "rainshowers" -> 81
         "heavyrainshowers" -> 82
-        "lightsleet", "sleet", "lightsleetshowers", "sleetshowers" -> 66
-        "heavysleet", "heavysleetshowers" -> 67
+        "lightsleet", "sleet", "lightsleetshowers", "sleetshowers" -> 68
+        "heavysleet", "heavysleetshowers" -> 69
         "lightsnow" -> 71
         "snow" -> 73
         "heavysnow" -> 75
@@ -142,37 +142,51 @@ internal fun parseMetNoSeries(raw: String): List<MetNoPoint> {
 private fun JSONObject.optDoubleOrNull(key: String): Double? =
     if (has(key) && !isNull(key)) optDouble(key).takeUnless { it.isNaN() } else null
 
-/** One local calendar day from the MET series. */
+/** One local calendar day from the MET series. Null values mean today is too far along for them (see [metNoDays]). */
 internal data class MetNoDay(
     val date: LocalDate,
     val high: Double?,
     val low: Double?,
-    val precipMm: Double,
+    val precipMm: Double?,
     val wmoCode: Int,
 )
 
+/** Local hour from which today's high, low and rain would describe only the hours left (#1922 review). */
+internal const val MET_TODAY_CUTOFF_HOUR = 15
+
 /**
- * Groups the series into local days starting at [fromDate]. Today's values cover only the hours from now
- * on, because MET has no earlier observations. A day with no temperature is skipped.
+ * Groups the series into local days starting at [fromDate]. MET has no observations before the current hour,
+ * so when [todayIsLate] is set, [fromDate]'s row keeps its symbol but drops high, low and rain. A day with no
+ * temperature is skipped.
  */
-internal fun metNoDays(points: List<MetNoPoint>, zone: ZoneId, fromDate: LocalDate, maxDays: Int): List<MetNoDay> =
+internal fun metNoDays(
+    points: List<MetNoPoint>,
+    zone: ZoneId,
+    fromDate: LocalDate,
+    maxDays: Int,
+    todayIsLate: Boolean,
+): List<MetNoDay> =
     points.groupBy { it.time.atZone(zone).toLocalDate() }
         .filterKeys { !it.isBefore(fromDate) }
         .toSortedMap()
         .entries
         .take(maxDays)
         .mapNotNull { (date, pts) ->
-            val temps = pts.mapNotNull { it.airTemperature }
-            if (temps.isEmpty()) return@mapNotNull null
             // Daily symbol: the entry nearest midday that has one.
             val symbol = pts.filter { it.symbolCode != null }
                 .minByOrNull { abs(it.time.atZone(zone).hour - 12) }?.symbolCode
+            val wmo = metNoWmoCode(symbol)
+            if (date == fromDate && todayIsLate) {
+                return@mapNotNull MetNoDay(date, high = null, low = null, precipMm = null, wmoCode = wmo)
+            }
+            val temps = pts.mapNotNull { it.airTemperature }
+            if (temps.isEmpty()) return@mapNotNull null
             MetNoDay(
                 date = date,
                 high = temps.max(),
                 low = temps.min(),
                 precipMm = pts.sumOf { it.precipitationMm ?: 0.0 },
-                wmoCode = metNoWmoCode(symbol),
+                wmoCode = wmo,
             )
         }
 
@@ -186,7 +200,7 @@ private fun dailyObject(days: List<MetNoDay>): JSONObject {
         time.put(day.date.toString())
         highs.put(day.high ?: JSONObject.NULL)
         lows.put(day.low ?: JSONObject.NULL)
-        precip.put(day.precipMm)
+        precip.put(day.precipMm ?: JSONObject.NULL)
         codes.put(day.wmoCode)
     }
     return JSONObject()
@@ -202,28 +216,32 @@ private fun dailyObject(days: List<MetNoDay>): JSONObject {
  * day has data, so the caller treats it as a failed provider.
  */
 internal fun metNoDailyJson(raw: String, days: Int, zone: ZoneId, nowMillis: Long): String? {
-    val today = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
-    val rows = metNoDays(parseMetNoSeries(raw), zone, today, days.coerceAtLeast(1))
+    val now = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone)
+    val rows = metNoDays(
+        parseMetNoSeries(raw), zone, now.toLocalDate(), days.coerceAtLeast(1),
+        todayIsLate = now.hour >= MET_TODAY_CUTOFF_HOUR,
+    )
     if (rows.isEmpty()) return null
     return JSONObject().put("source", METNO_SOURCE).put("daily", dailyObject(rows)).toString()
 }
 
 /**
- * Converts a MET body to the Open-Meteo current-conditions shape. The first timeseries entry is the current
- * hour. Precipitation is the next hour's amount, and there is no feels-like, UV or rain probability. Those
- * fields stay absent, so the card omits them. Returns null when there is no current entry.
+ * Converts a MET body to the Open-Meteo current-conditions shape. The current reading is the timeseries entry
+ * nearest [nowMillis], not the first one: MET's first entry can be up to an hour old, and a 304 re-reads a
+ * stored body later (#1922 review). Precipitation is that hour's next-hour amount. There is no feels-like, UV
+ * or rain probability, so those fields stay absent. Returns null when the series is empty.
  */
 internal fun metNoCurrentJson(raw: String, zone: ZoneId, nowMillis: Long): String? {
     val series = parseMetNoSeries(raw)
-    val first = series.firstOrNull() ?: return null
+    val entry = series.minByOrNull { abs(it.time.toEpochMilli() - nowMillis) } ?: return null
+    val now = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone)
     val current = JSONObject()
-    first.airTemperature?.let { current.put("temperature_2m", it) }
-    first.humidity?.let { current.put("relative_humidity_2m", it.roundToInt()) }
-    first.windSpeed?.let { current.put("wind_speed_10m", it) }
-    first.precipitationMm?.let { current.put("precipitation", it) }
-    current.put("weather_code", metNoWmoCode(first.symbolCode))
-    val today = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
-    val todayRows = metNoDays(series, zone, today, maxDays = 1)
+    entry.airTemperature?.let { current.put("temperature_2m", it) }
+    entry.humidity?.let { current.put("relative_humidity_2m", it.roundToInt()) }
+    entry.windSpeed?.let { current.put("wind_speed_10m", it) }
+    entry.precipitationMm?.let { current.put("precipitation", it) }
+    current.put("weather_code", metNoWmoCode(entry.symbolCode))
+    val todayRows = metNoDays(series, zone, now.toLocalDate(), maxDays = 1, todayIsLate = now.hour >= MET_TODAY_CUTOFF_HOUR)
     return JSONObject()
         .put("source", METNO_SOURCE)
         .put("current", current)
@@ -241,20 +259,17 @@ internal fun withWeatherAttribution(text: String, obj: JSONObject): String =
 
 /**
  * Debug-only: makes Open-Meteo requests fail while [DEBUG_OPEN_METEO_FAILURE_MARKER] exists in the app's
- * files dir, to exercise the MET Norway fallback on a device (#1922). Inert on release builds, which are not
- * debuggable. Enable with `run-as <debug package> touch files/<marker>`.
+ * files dir, to exercise the MET Norway fallback on a device (#1922). Inert unless [BuildConfig.DEBUG] is set.
+ * Enable with `run-as <debug package> touch files/<marker>`.
  */
 internal class DebugOpenMeteoFailureInterceptor(private val context: Context) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        if (isDebuggable() && request.url.host == "api.open-meteo.com" &&
+        if (BuildConfig.DEBUG && request.url.host == "api.open-meteo.com" &&
             File(context.filesDir, DEBUG_OPEN_METEO_FAILURE_MARKER).exists()
         ) {
             throw SocketTimeoutException("debug: forced Open-Meteo failure")
         }
         return chain.proceed(request)
     }
-
-    private fun isDebuggable(): Boolean =
-        (context.applicationInfo?.flags ?: 0) and ApplicationInfo.FLAG_DEBUGGABLE != 0
 }

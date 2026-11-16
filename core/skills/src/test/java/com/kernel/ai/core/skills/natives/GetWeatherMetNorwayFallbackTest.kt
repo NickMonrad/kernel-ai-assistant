@@ -22,6 +22,7 @@ import org.json.JSONObject
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -48,6 +49,7 @@ class GetWeatherMetNorwayFallbackTest {
 
     /** When true, Open-Meteo reads time out, as with the Auckland outage in the issue. */
     private var openMeteoFails = true
+    private var openMeteoStatus: Int? = null
     private var metStatus = 200
     private var metBody = MET_FIXTURE
     private var metExpires: String? = "Mon, 16 Nov 2026 01:00:00 GMT"
@@ -84,7 +86,7 @@ class GetWeatherMetNorwayFallbackTest {
     fun `open-meteo failure is answered from MET Norway with attribution`() {
         val result = weather(ask("Wellington"))
 
-        assertEquals("13°C", result.temperatureText)
+        assertEquals("17°C", result.temperatureText)
         assertEquals(METNO_ATTRIBUTION, result.attributionText)
         assertNull(result.airQualityText)
         assertEquals(1, metRequests.size)
@@ -165,6 +167,72 @@ class GetWeatherMetNorwayFallbackTest {
         assertEquals(2, metRequests.size)
     }
 
+    @Test
+    fun `open-meteo 4xx is answered from MET Norway too`() {
+        openMeteoStatus = 400
+
+        assertEquals(METNO_ATTRIBUTION, weather(ask("Wellington")).attributionText)
+        assertEquals(1, metRequests.size)
+    }
+
+    @Test
+    fun `a 304 after Expires re-reads the stored body at the current clock`() {
+        assertEquals("17°C", weather(ask("Wellington")).temperatureText)
+        now = Instant.parse("2026-11-16T10:30:00Z").toEpochMilli()
+        metStatus = 304
+
+        val result = weather(ask("Wellington"))
+
+        assertEquals("16°C", result.temperatureText)
+        assertEquals(METNO_LAST_MODIFIED, metRequests.last().header("If-Modified-Since"))
+    }
+
+    @Test
+    fun `stale MET body replays with attribution when both providers fail`() {
+        weather(ask("Wellington"))
+        now += 3 * 60 * MINUTE_MS
+        metStatus = 503
+
+        val result = weather(ask("Wellington"))
+
+        assertEquals(METNO_ATTRIBUTION, result.attributionText)
+        assertEquals("17°C", result.temperatureText)
+    }
+
+    @Test
+    fun `MET body without Expires is not reused without another MET call`() {
+        metExpires = null
+        ask("Wellington")
+        now += 30 * MINUTE_MS
+
+        ask("Wellington")
+
+        assertEquals(2, metRequests.size)
+    }
+
+    @Test
+    fun `MET current text omits feels-like when MET supplies no apparent temperature`() {
+        assertFalse(direct(ask("Wellington")).content.contains("feels like"))
+    }
+
+    @Test
+    fun `sleet codes are described as sleet, not freezing rain`() {
+        assertEquals("Sleet", wmoDescription(68))
+        assertEquals("Heavy sleet", wmoDescription(69))
+    }
+
+    @Test
+    fun `after 15h local today has no high, low or rain`() {
+        val afternoon = Instant.parse("2026-11-16T16:00:00Z").toEpochMilli()
+        val daily = JSONObject(
+            metNoDailyJson(MET_FIXTURE, days = 1, zone = ZoneId.of("UTC"), nowMillis = afternoon)!!,
+        ).getJSONObject("daily")
+
+        assertTrue(daily.getJSONArray("temperature_2m_max").isNull(0))
+        assertTrue(daily.getJSONArray("temperature_2m_min").isNull(0))
+        assertTrue(daily.getJSONArray("precipitation_sum").isNull(0))
+    }
+
 
 
     @Test
@@ -181,8 +249,8 @@ class GetWeatherMetNorwayFallbackTest {
             "lightrainshowers_day" to 80,
             "rainshowers_night" to 81,
             "heavyrainshowers" to 82,
-            "lightsleetshowers" to 66,
-            "heavysleet" to 67,
+            "lightsleetshowers" to 68,
+            "heavysleet" to 69,
             "lightsnow" to 71,
             "snow" to 73,
             "heavysnow" to 75,
@@ -212,10 +280,10 @@ class GetWeatherMetNorwayFallbackTest {
 
         assertEquals("met.no", json.getString("source"))
         assertEquals("2026-11-16", daily.getJSONArray("time").getString(0))
-        assertEquals(17.5, daily.getJSONArray("temperature_2m_max").getDouble(0), 0.001)
-        assertEquals(11.0, daily.getJSONArray("temperature_2m_min").getDouble(0), 0.001)
-        assertEquals(1.7, daily.getJSONArray("precipitation_sum").getDouble(0), 0.001)
-        assertEquals(81, daily.getJSONArray("weather_code").getInt(0))
+        assertEquals(22.5, daily.getJSONArray("temperature_2m_max").getDouble(0), 0.001)
+        assertEquals(16.1, daily.getJSONArray("temperature_2m_min").getDouble(0), 0.001)
+        assertEquals(0.1, daily.getJSONArray("precipitation_sum").getDouble(0), 0.001)
+        assertEquals(2, daily.getJSONArray("weather_code").getInt(0))
         assertEquals(2, daily.getJSONArray("time").length())
     }
 
@@ -241,7 +309,7 @@ class GetWeatherMetNorwayFallbackTest {
             when {
                 url.startsWith(GEOCODE_PREFIX) -> respond(chain, 200, GEOCODE_JSON)
                 request.url.host == "api.open-meteo.com" && openMeteoFails ->
-                    throw SocketTimeoutException("read timed out")
+                    openMeteoStatus?.let { respond(chain, it, "") } ?: throw SocketTimeoutException("read timed out")
                 request.url.host == "api.open-meteo.com" -> respond(chain, 200, OPEN_METEO_CURRENT_JSON)
                 request.url.host == "air-quality-api.open-meteo.com" -> respond(chain, 404, "")
                 request.url.host == "api.met.no" -> {

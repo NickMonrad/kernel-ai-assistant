@@ -232,6 +232,7 @@ internal fun wmoEmoji(code: Int): String = when (code) {
     55 -> "🌧️"
     61, 63, 65 -> "🌧️"
     66, 67 -> "🌧️"
+    68, 69 -> "🌨️"
     71, 73, 75 -> "❄️"
     77 -> "🌨️"
     80, 81 -> "🌦️"
@@ -251,6 +252,8 @@ internal fun wmoDescription(code: Int): String = when (code) {
     51, 53, 55 -> "Drizzle"
     61, 63, 65 -> "Rain"
     66, 67 -> "Freezing rain"
+    68 -> "Sleet"
+    69 -> "Heavy sleet"
     71, 73, 75 -> "Snow"
     77 -> "Snow grains"
     80, 81 -> "Rain showers"
@@ -737,8 +740,16 @@ class GetWeatherSkill @Inject constructor(
         .addInterceptor(DebugOpenMeteoFailureInterceptor(context))
         .build()
 
-    /** Earliest time MET Norway may be called again after a 429 (#1922). */
-    private var metNoBackoffUntilMillis = 0L
+    /**
+     * Open-Meteo client with a hard callTimeout, so the [OPEN_METEO_BUDGET_MS] budget also bounds a stalled body
+     * read (#1922 review).
+     */
+    private val openMeteoClient: OkHttpClient = httpClient.newBuilder()
+        .callTimeout(OPEN_METEO_BUDGET_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        .build()
+
+    /** Earliest time MET Norway may be called again after a 429 (#1922). Written and read on any dispatcher. */
+    @Volatile private var metNoBackoffUntilMillis = 0L
     /** Test seam: swapped for an isolated DataStore in unit tests. */
     internal var weatherStore: DataStore<Preferences> = context.weatherDataStore
 
@@ -1230,10 +1241,11 @@ class GetWeatherSkill @Inject constructor(
                 val desc = wmoDescription(code)
                 val high = maxTemps.optDouble(i, Double.NaN)
                 val low = minTemps.optDouble(i, Double.NaN)
-                val rain = precip.optDouble(i, 0.0)
+                val rain = precip.optDouble(i, Double.NaN)  // NaN: today's rain is absent after the MET cutoff (#1922)
                 val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
                 val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
-                val rainStr = "%.0fmm rain".format(rain)
+                val tempsStr = if (high.isNaN() && low.isNaN()) "" else " $highStr / $lowStr"
+                val rainStr = if (rain.isNaN()) "" else ", %.0fmm rain".format(rain)
                 val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
                 val uvStr = uvMax?.let { " | UV max: %.0f (%s)".format(it, uvIndexLabel(it)) } ?: ""
                 val sunrise = sunriseArr?.let { if (i < it.length() && !it.isNull(i)) it.getString(i).substringAfterLast("T") else null }
@@ -1244,7 +1256,7 @@ class GetWeatherSkill @Inject constructor(
                     sunset != null -> " | 🌇 $sunset"
                     else -> ""
                 }
-                append("$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr\n")
+                append("$formattedDate: $emoji $desc$tempsStr$rainStr$uvStr$sunStr\n")
             }
         }.trimEnd()
 
@@ -1390,10 +1402,11 @@ class GetWeatherSkill @Inject constructor(
         val desc = wmoDescription(code)
         val high = maxTemps.optDouble(dayIndex, Double.NaN)
         val low = minTemps.optDouble(dayIndex, Double.NaN)
-        val rain = precip.optDouble(dayIndex, 0.0)
+        val rain = precip.optDouble(dayIndex, Double.NaN)  // NaN: today's rain is absent after the MET cutoff (#1922)
         val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
         val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
-        val rainStr = "%.0fmm rain".format(rain)
+        val tempsStr = if (high.isNaN() && low.isNaN()) "" else " $highStr / $lowStr"
+        val rainStr = if (rain.isNaN()) "" else ", %.0fmm rain".format(rain)
         val uvMax = uvMaxArr?.let { if (dayIndex < it.length() && !it.isNull(dayIndex)) it.getDouble(dayIndex) else null }
         val uvStr = uvMax?.let { " | UV max: %.0f (%s)".format(it, uvIndexLabel(it)) } ?: ""
         val sunrise = sunriseArr?.let { if (dayIndex < it.length() && !it.isNull(dayIndex)) it.getString(dayIndex).substringAfterLast("T") else null }
@@ -1406,7 +1419,7 @@ class GetWeatherSkill @Inject constructor(
         }
 
         val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
-        val text = "$formattedDate: $emoji $desc $highStr / $lowStr, $rainStr$uvStr$sunStr"
+        val text = "$formattedDate: $emoji $desc$tempsStr$rainStr$uvStr$sunStr"
 
         Log.d(TAG, "GetWeatherSkill: fetched forecast for day $dayIndex ($formattedDate)")
 
@@ -1515,7 +1528,7 @@ class GetWeatherSkill @Inject constructor(
             if (!parsesOrLogs("Weather API") { parseWeatherResponse(weather.json, displayName, airQuality = null) }) {
                 return@withContext null
             }
-            cacheWeatherJson(cacheKey, displayName, weather.json, weather.validUntilMillis, weather.lastModified)
+            cacheWeatherJson(cacheKey, displayName, weather.json, weather.validUntilMillis, weather.lastModified, weather.cachedAtMillis)
             CurrentWeatherFetch(weather.json, displayName, lat, lon, fromCache = false, fromFallback = weather.fromFallback)
         }
 
@@ -1584,8 +1597,8 @@ class GetWeatherSkill @Inject constructor(
         val text = buildString {
             // Line 1: location, temperature
             val tempStr = if (!temp.isNaN()) "%.0f°C".format(temp) else "?"
-            val feelsStr = if (!feelsLike.isNaN()) "%.0f°C".format(feelsLike) else "?"
-            appendLine("$emoji $locationLabel — $tempStr (feels like $feelsStr) — $description")
+            val feelsPart = if (!feelsLike.isNaN()) " (feels like %.0f°C)".format(feelsLike) else ""
+            appendLine("$emoji $locationLabel — $tempStr$feelsPart — $description")
 
             // Line 2: today's high / low
             if (tempMax != null || tempMin != null) {
@@ -1740,7 +1753,7 @@ class GetWeatherSkill @Inject constructor(
             return null
         }
         if (parsed is SkillResult.DirectReply) {
-            cacheWeatherJson(cacheKey, displayName, body.json, body.validUntilMillis, body.lastModified)
+            cacheWeatherJson(cacheKey, displayName, body.json, body.validUntilMillis, body.lastModified, body.cachedAtMillis)
         }
         return parsed
     }
@@ -1756,10 +1769,11 @@ class GetWeatherSkill @Inject constructor(
         jsonBody: String,
         validUntilMillis: Long? = null,
         lastModified: String? = null,
+        cachedAtMillis: Long? = null,
     ) {
         val now = weatherClockMillis()
         val encoded = encodeWeatherCacheEntry(
-            WeatherCacheEntry(now, displayName, jsonBody, validUntilMillis, lastModified),
+            WeatherCacheEntry(cachedAtMillis ?: now, displayName, jsonBody, validUntilMillis, lastModified),
         )
         weatherStore.edit { prefs ->
             // Legacy single-slot keys (pre-#1921) are dropped so only per-place entries remain.
@@ -1798,16 +1812,19 @@ class GetWeatherSkill @Inject constructor(
      * Runs [request] and hands the open response to [read], so the body read happens inside the call.
      * Cancelling the coroutine cancels the call (#1921 N2); the client's callTimeout bounds the body read.
      */
-    private suspend inline fun <T> executeWeatherCall(request: Request, read: (okhttp3.Response) -> T): T =
-        awaitWeatherResponse(request).use(read)
+    private suspend inline fun <T> executeWeatherCall(
+        request: Request,
+        client: OkHttpClient = httpClient,
+        read: (okhttp3.Response) -> T,
+    ): T = awaitWeatherResponse(request, client).use(read)
 
     /**
      * Suspends until response headers arrive. Cancelling the coroutine cancels the call; a response that
      * arrives after cancellation is closed.
      */
-    private suspend fun awaitWeatherResponse(request: Request): okhttp3.Response =
+    private suspend fun awaitWeatherResponse(request: Request, client: OkHttpClient): okhttp3.Response =
         suspendCancellableCoroutine { cont ->
-            val call = httpClient.newCall(request)
+            val call = client.newCall(request)
             cont.invokeOnCancellation { call.cancel() }
             call.enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
@@ -1826,6 +1843,7 @@ class GetWeatherSkill @Inject constructor(
         val fromFallback: Boolean = false,
         val validUntilMillis: Long? = null,
         val lastModified: String? = null,
+        val cachedAtMillis: Long? = null,
     )
 
     /**
@@ -1842,7 +1860,7 @@ class GetWeatherSkill @Inject constructor(
     ): WeatherBody? {
         val openMeteo = withTimeoutOrNull(OPEN_METEO_BUDGET_MS) {
             retryWithBackoff(label) {
-                executeWeatherCall(Request.Builder().url(url).build()) { response ->
+                executeWeatherCall(Request.Builder().url(url).build(), openMeteoClient) { response ->
                     if (!response.isSuccessful) throw HttpStatusException(response.code)
                     response.body?.string() ?: throw IllegalStateException("Empty forecast response")
                 }
@@ -1850,43 +1868,42 @@ class GetWeatherSkill @Inject constructor(
         }
         if (openMeteo != null) return WeatherBody(openMeteo)
         Log.w(TAG, "$label: Open-Meteo unavailable, trying MET Norway")
-        return fetchMetNorwayBody(lat, lon, cacheKey, toMetNoJson)
+        return fetchMetNorwayBody(lat, lon, toMetNoJson)
             ?.also { Log.i(TAG, "$label answered by MET Norway") }
     }
 
     /**
-     * One MET Norway request for the place's cache key. Sends If-Modified-Since when a stored Last-Modified
-     * exists; 304 reuses the stored body. 429 sets a back-off that skips MET until Retry-After passes. Any other
-     * failure returns null (#1922).
+     * One MET Norway body for the place's coordinates. The raw body is stored per coordinate. A 304 refreshes
+     * its Expires but keeps the original fetch time, and every read re-converts the raw body with the current
+     * clock, so the reading is never older than the body's own fetch time implies (#1922 review). Inside
+     * Expires there is no network call. Otherwise sends If-Modified-Since when a stored Last-Modified exists.
+     * 429 sets a back-off until Retry-After passes. Any other failure returns null.
      */
     private suspend fun fetchMetNorwayBody(
         lat: Double,
         lon: Double,
-        cacheKey: String,
         toMetNoJson: (String) -> String?,
     ): WeatherBody? {
+        val stored = readMetNoRaw(lat, lon)
+        if (stored != null && weatherClockMillis() < stored.expiresMillis) {
+            return metNoBody(stored, toMetNoJson)
+        }
         if (weatherClockMillis() < metNoBackoffUntilMillis) {
             Log.w(TAG, "MET Norway skipped: rate-limited")
             return null
         }
-        val existing = readWeatherEntry(cacheKey)
         val request = Request.Builder()
             .url(metNoRequestUrl(lat, lon))
             .header("User-Agent", METNO_USER_AGENT)
-            .apply { existing?.lastModified?.let { header("If-Modified-Since", it) } }
+            .apply { stored?.lastModified?.let { header("If-Modified-Since", it) } }
             .build()
-        return try {
+        val entry = (try {
             executeWeatherCall(request) { response ->
                 val received = weatherClockMillis()
-                // Missing or malformed Expires means "not fresh": validUntil = now (#1922).
+                // Missing or malformed Expires means "not fresh": expires = received (#1922).
                 val expires = parseHttpDateMillis(response.header("Expires")) ?: received
                 when {
-                    response.code == 304 && existing != null -> WeatherBody(
-                        json = existing.body,
-                        fromFallback = true,
-                        validUntilMillis = expires,
-                        lastModified = existing.lastModified,
-                    )
+                    response.code == 304 && stored != null -> stored.copy(expiresMillis = expires)
                     response.code == 429 -> {
                         metNoBackoffUntilMillis = received + metNoBackoffMillis(response.header("Retry-After"))
                         Log.w(TAG, "MET Norway rate-limited (429); backing off")
@@ -1895,11 +1912,10 @@ class GetWeatherSkill @Inject constructor(
                     response.isSuccessful -> {
                         if (response.code == 203) Log.w(TAG, "MET Norway returned 203: endpoint deprecated")
                         val raw = response.body?.string() ?: throw IllegalStateException("Empty MET response")
-                        val json = toMetNoJson(raw) ?: return@executeWeatherCall null
-                        WeatherBody(
-                            json = json,
-                            fromFallback = true,
-                            validUntilMillis = expires,
+                        MetNoRawEntry(
+                            raw = raw,
+                            fetchedAtMillis = received,
+                            expiresMillis = expires,
                             lastModified = response.header("Last-Modified"),
                         )
                     }
@@ -1914,7 +1930,74 @@ class GetWeatherSkill @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "MET Norway failed (${e.javaClass.simpleName})")
             null
+        }) ?: return null
+        val body = metNoBody(entry, toMetNoJson) ?: return null
+        writeMetNoRaw(lat, lon, entry)
+        return body
+    }
+
+    /** Raw MET body for one coordinate (#1922). [fetchedAtMillis] is when MET sent it, not when we replayed it. */
+    private data class MetNoRawEntry(
+        val raw: String,
+        val fetchedAtMillis: Long,
+        val expiresMillis: Long,
+        val lastModified: String?,
+    )
+
+    private val metNoRawKeyPrefix = "met_raw:"
+
+    private fun metNoRawKey(lat: Double, lon: Double) =
+        stringPreferencesKey(metNoRawKeyPrefix + metNoRequestUrl(lat, lon))
+
+    private suspend fun readMetNoRaw(lat: Double, lon: Double): MetNoRawEntry? = withContext(Dispatchers.IO) {
+        try {
+            weatherStore.data.first()[metNoRawKey(lat, lon)]?.let(::decodeMetNoRaw)
+        } catch (e: Exception) {
+            Log.w(TAG, "MET cache read failed (${e.javaClass.simpleName})")
+            null
         }
+    }
+
+    /** Stores [entry] and drops other MET bodies past the stale window, so per-coordinate keys stay bounded. */
+    private suspend fun writeMetNoRaw(lat: Double, lon: Double, entry: MetNoRawEntry) {
+        val staleBefore = weatherClockMillis() - STALE_CACHE_MAX_AGE_MS
+        weatherStore.edit { prefs ->
+            prefs.asMap()
+                .filter { (key, value) ->
+                    key.name.startsWith(metNoRawKeyPrefix) &&
+                        ((value as? String)?.let { runCatching { decodeMetNoRaw(it).fetchedAtMillis < staleBefore }.getOrDefault(true) } ?: true)
+                }
+                .forEach { (key, _) -> prefs.remove(stringPreferencesKey(key.name)) }
+            prefs[metNoRawKey(lat, lon)] = encodeMetNoRaw(entry)
+        }
+    }
+
+    private fun encodeMetNoRaw(entry: MetNoRawEntry): String = JSONObject()
+        .put("raw", entry.raw)
+        .put("fetchedAt", entry.fetchedAtMillis)
+        .put("expires", entry.expiresMillis)
+        .put("lastModified", entry.lastModified ?: JSONObject.NULL)
+        .toString()
+
+    private fun decodeMetNoRaw(encoded: String): MetNoRawEntry = JSONObject(encoded).let { o ->
+        MetNoRawEntry(
+            raw = o.getString("raw"),
+            fetchedAtMillis = o.getLong("fetchedAt"),
+            expiresMillis = o.getLong("expires"),
+            lastModified = if (o.isNull("lastModified")) null else o.getString("lastModified"),
+        )
+    }
+
+    /** Converts a stored or fresh MET entry for the current clock; the body keeps the raw fetch time as cache time. */
+    private fun metNoBody(entry: MetNoRawEntry, toMetNoJson: (String) -> String?): WeatherBody? {
+        val json = toMetNoJson(entry.raw) ?: return null
+        return WeatherBody(
+            json = json,
+            fromFallback = true,
+            validUntilMillis = entry.expiresMillis,
+            lastModified = entry.lastModified,
+            cachedAtMillis = entry.fetchedAtMillis,
+        )
     }
 
     // ── Retry with exponential backoff ─────────────────────────────────────────
