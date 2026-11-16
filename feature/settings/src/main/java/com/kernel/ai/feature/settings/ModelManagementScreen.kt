@@ -27,10 +27,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -56,12 +58,13 @@ import com.kernel.ai.core.model.availability.StatusSectionView
 import com.kernel.ai.core.model.availability.StillNeededCard
 import com.kernel.ai.core.model.availability.toAvailability
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
+import kotlinx.coroutines.launch
 
 /**
- * Index of the first role section in the list. Items before it are the storage card and the
- * Still-needed card. "Scroll to conversation model" lands on the chat brain section.
+ * Index of the first role section in the list. Items before it are the Downloads card, the storage
+ * card and the Still-needed card. "Scroll to conversation model" lands on the chat brain section.
  */
-private const val FIRST_ROLE_ITEM_INDEX = 2
+private const val FIRST_ROLE_ITEM_INDEX = 3
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +77,7 @@ fun ModelManagementScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     val downloadStates: Map<KernelModel, DownloadState> =
         uiState.models.associate { it.model to it.downloadState }
@@ -123,6 +127,33 @@ fun ModelManagementScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            // ── Downloads ─────────────────────────────────────────────────────
+            item(key = "downloads") {
+                Column {
+                    Text(
+                        text = "Downloads",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    ListItem(
+                        headlineContent = { Text("Download on mobile data") },
+                        supportingContent = {
+                            Text(
+                                if (uiState.mobileDataAllowed) "Models may use your mobile data plan"
+                                else "Models download on Wi-Fi only",
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = uiState.mobileDataAllowed,
+                                onCheckedChange = { viewModel.setMobileDataAllowed(it) },
+                            )
+                        },
+                    )
+                    HorizontalDivider()
+                }
+            }
             // ── Storage summary ───────────────────────────────────────────────
             item {
                 StorageSummaryCard(
@@ -189,6 +220,8 @@ fun ModelManagementScreen(
                             viewModel.deleteModel(model)
                         }
                     },
+                    waitingForWifi = uiState.waitingForWifi,
+                    onMobileDataShortcut = { scope.launch { listState.animateScrollToItem(index = 0) } },
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
                 HorizontalDivider()

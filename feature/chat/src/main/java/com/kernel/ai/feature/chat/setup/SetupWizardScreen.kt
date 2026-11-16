@@ -362,8 +362,8 @@ internal fun downloadSizeLine(totalBytes: Long, choiceRecorded: Boolean): String
 }
 
 private fun skipNote(choice: DownloadNetworkChoice): String = when (choice) {
-    DownloadNetworkChoice.WIFI_ONLY -> "Skipped. Models will download on Wi-Fi only. Change this in Settings."
-    DownloadNetworkChoice.MOBILE_DATA_ALLOWED -> "Skipped. Models will download on mobile data too. Change this in Settings."
+    DownloadNetworkChoice.WIFI_ONLY -> "Skipped. Models will download on Wi-Fi only. Change this in Model Management."
+    DownloadNetworkChoice.MOBILE_DATA_ALLOWED -> "Skipped. Models will download on mobile data too. Change this in Model Management."
 }
 
 @Composable
