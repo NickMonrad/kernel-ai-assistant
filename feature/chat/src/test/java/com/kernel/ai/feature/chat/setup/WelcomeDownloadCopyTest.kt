@@ -17,13 +17,15 @@ class WelcomeDownloadCopyTest {
 
         assertEquals("Chat needs a one-time download", copy.title)
         assertEquals("About ${formatBytesShort(bytes)}. You choose Wi-Fi or mobile data in step 3.", copy.body)
+        assertEquals(WelcomeDownloadIcon.Download, copy.icon)
     }
 
     @Test
-    fun `nothing left to download makes the title Chat is ready with no body`() {
+    fun `nothing left to download makes the title Chat is ready with no body and a check icon`() {
         val copy = welcomeDownloadCopy(0L)
 
         assertEquals("Chat is ready", copy.title)
         assertNull(copy.body)
+        assertEquals(WelcomeDownloadIcon.Ready, copy.icon)
     }
 }
