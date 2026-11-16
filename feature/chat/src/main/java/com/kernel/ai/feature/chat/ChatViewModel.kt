@@ -260,7 +260,7 @@ class ChatViewModel @Inject constructor(
     sealed interface UiEvent {
         data object RequestWeatherLocationPermission : UiEvent
         data object RepairWeatherLocationPermission : UiEvent
-        data class RequestCalendarPermission(val permissions: List<String>, val capability: CapabilityKey) : UiEvent
+        data class RequestCalendarPermission(val permissions: List<String>) : UiEvent
     }
 
     /** State for the contextual local-weather location permission dialog. */
@@ -3035,7 +3035,7 @@ class ChatViewModel @Inject constructor(
                             )
                             Log.d(
                                 "KernelAI",
-                                "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=capability_required_no_llm",
+                                "ADB_TOOL_COMPLETE commandId=$commandId intent=${matchedIntent.intentName} result=${if (skillResult.capabilityKey == CapabilityKey.WeatherCurrentLocation) "capability_required_weather_permission" else "capability_required_no_llm"}",
                             )
                             return@launch
                         }
@@ -3821,7 +3821,7 @@ class ChatViewModel @Inject constructor(
                                 } else {
                                     toolSpokenOverrideFor(resultContent, toolCall.resultText, toolCall.spokenSummary) ?: resultContent
                                 }
-                                finalizeVoicePlaybackForResponse(spokenToolReply)
+                                finalizeVoicePlaybackForResponse(withModelCalendarReply(spokenToolReply))
                                 // Persist only normal turns; safe model probes retain an ephemeral UI chip.
                                 val savedId = if (safeRunIntentTest) {
                                     null
@@ -3959,7 +3959,7 @@ class ChatViewModel @Inject constructor(
                                     msgs.map { if (it.id == assistantMsgId) it.copy(content = displayContent, isStreaming = false) else it }
                                 }
                                 // Speak before persisting: displayContent is final here, so speech does not wait on the database write.
-                                finalizeVoicePlaybackForResponse(displayContent)
+                                finalizeVoicePlaybackForResponse(withModelCalendarReply(displayContent))
                                 val savedAssistantMsgId = if (safeRunIntentTest) {
                                     null
                                 } else {
@@ -3987,14 +3987,13 @@ class ChatViewModel @Inject constructor(
                                 turnsSinceReset++
                             }
 
-                            // The calendar permission reply is saved and spoken after the model turn it follows.
+                            // Saved after the model turn it follows. Its spoken line is part of that turn's speech.
                             modelTurnCalendarRequest?.let { request ->
                                 modelTurnCalendarRequest = null
                                 requestCalendarPermissionIfNeeded(
                                     convId = convId,
                                     capability = request.capability,
                                     retryOnGrant = false,
-                                    voice = request.voice,
                                 )
                             }
                             // Clear streaming tracking now that the message is fully persisted.
@@ -4599,7 +4598,6 @@ class ChatViewModel @Inject constructor(
                     convId = convId,
                     capability = result.capabilityKey,
                     retryOnGrant = true,
-                    voice = submitMode == SubmitMode.Voice,
                 )
             }
             else -> {
@@ -4610,15 +4608,15 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Calendar permission flow for a CapabilityRequired result. The reply is saved to the conversation like
-     * other assistant messages and spoken only when [voice] is true. [voice] is passed in, not read from
-     * [pendingVoiceReply], so a model route's own spoken reply is not consumed.
+     * Calendar permission flow for a CapabilityRequired result. The reply is saved to the conversation.
+     * Quick, recovery and pending routes ([retryOnGrant] = true) are spoken through [appendAssistantMessage],
+     * which also resets the voice state. Model routes are spoken with the turn's own reply instead
+     * (see [withModelCalendarReply]), so they are saved silently here.
      */
     private suspend fun requestCalendarPermissionIfNeeded(
         convId: String,
         capability: CapabilityKey,
         retryOnGrant: Boolean,
-        voice: Boolean,
     ) {
         val permissions = when (capability) {
             CapabilityKey.CalendarWrite -> listOf(
@@ -4629,35 +4627,28 @@ class ChatViewModel @Inject constructor(
             else -> return
         }
         val text = calendarPermissionReply(capability, retryOnGrant)
-        appendAssistantMessage(convId = convId, content = text, shouldIndex = false, speak = false)
-        if (voice) speakCalendarPermissionReply(text)
-        _events.emit(UiEvent.RequestCalendarPermission(permissions, capability))
+        if (retryOnGrant) {
+            appendAssistantMessage(convId = convId, content = text, shouldIndex = false, spokenSummary = text)
+        } else {
+            // A model route does not wait for a retry, so a request left pending must not re-run on a later grant.
+            clearPendingCalendarPermission()
+            appendAssistantMessage(convId = convId, content = text, shouldIndex = false, speak = false)
+        }
+        _events.emit(UiEvent.RequestCalendarPermission(permissions))
     }
 
     /**
-     * Speaks a calendar permission reply after any speech already in progress, so a model route's own
-     * spoken reply is not cut off by the calendar line.
+     * Adds the calendar permission line to a voice model turn's spoken reply, so the turn is one speech.
+     * Uses the request's captured voice flag: [pendingVoiceReply] is consumed by the speech that follows.
      */
-    private fun speakCalendarPermissionReply(text: String) {
-        if (!autoSpeakEnabled || normalizeChatTextForSpeech(text).isBlank()) return
-        val previous = assistantSpeechJob
-        awaitingVoicePlaybackCompletion = true
-        assistantSpeechJob = viewModelScope.launch {
-            previous?.join()
-            val result = try {
-                speakInSentenceChunks(voiceOutputController, text)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start calendar permission reply", e)
-                VoiceOutputResult.Unavailable("Voice playback failed to start.")
-            }
-            if (result is VoiceOutputResult.Unavailable) {
-                awaitingVoicePlaybackCompletion = false
-                _voiceMode.value = null
-                _error.value = withVoiceSettingsHint(result.message)
-            }
-        }
+    private fun withModelCalendarReply(spoken: String): String {
+        val request = modelTurnCalendarRequest
+            ?.takeIf { it.voice && (it.capability == CapabilityKey.CalendarLookup || it.capability == CapabilityKey.CalendarWrite) }
+            ?: return spoken
+        val turnText = if (looksLikeRawToolCall(spoken)) "" else spoken
+        return listOf(turnText, calendarPermissionReply(request.capability, retryOnGrant = false))
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
     }
 
     private fun calendarPermissionReply(capability: CapabilityKey, retryOnGrant: Boolean): String {
@@ -4666,8 +4657,11 @@ class ChatViewModel @Inject constructor(
                 "Jandal needs Calendar read and write access to add events." to "add the event"
             else -> "Jandal needs calendar access to read your events." to "answer"
         }
-        val path = "Allow it when prompted, or turn on Calendar in App info if Android won't ask."
-        return if (retryOnGrant) "$need $path Jandal will $outcome." else "$need $path Then ask again."
+        return if (retryOnGrant) {
+            "$need Allow it when prompted and Jandal will $outcome. If Android doesn't ask, turn on Calendar in App info, then ask again."
+        } else {
+            "$need Allow it when prompted, or turn on Calendar in App info if Android won't ask. Then ask again."
+        }
     }
 
     private fun capabilityRequiredMessage(result: com.kernel.ai.core.skills.SkillResult.CapabilityRequired): String =

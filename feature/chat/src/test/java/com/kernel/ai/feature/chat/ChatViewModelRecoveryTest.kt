@@ -57,9 +57,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -72,6 +69,8 @@ import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelRecoveryTest {
@@ -385,11 +384,10 @@ class ChatViewModelRecoveryTest {
             listOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR),
             request.permissions,
         )
-        assertEquals(CapabilityKey.CalendarWrite, request.capability)
         coVerify(exactly = 0) { inferenceEngine.generate(any()) }
         assertTrue(
             viewModel.getConversationAsText().contains(
-                "Allow it when prompted, or turn on Calendar in App info if Android won't ask. Jandal will add the event.",
+                "Allow it when prompted and Jandal will add the event. If Android doesn't ask, turn on Calendar in App info, then ask again.",
             ),
             viewModel.getConversationAsText(),
         )
@@ -403,7 +401,6 @@ class ChatViewModelRecoveryTest {
             )
         }
         coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
-        assertFalse(viewModel.getConversationAsText().contains("Turn on Calendar in App info"))
     }
 
 }
