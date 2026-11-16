@@ -29,11 +29,13 @@ import androidx.compose.ui.unit.dp
  * Maps [ModelAvailabilityState] to the appropriate icon and color scheme.
  *
  * @param state The availability state to render.
+ * @param waitingForWifi True when a Preparing download is queued until Wi-Fi; shows "Waiting".
  * @param modifier Modifier for the chip.
  */
 @Composable
 fun StateBadge(
     state: ModelAvailabilityState,
+    waitingForWifi: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val (label, icon, containerColor, contentColor) = when (state) {
@@ -44,7 +46,7 @@ fun StateBadge(
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         )
         is ModelAvailabilityState.Preparing -> BadgeValues(
-            label = if (state.isAutoQueued) "Waiting" else "Downloading",
+            label = if (state.isAutoQueued || waitingForWifi) "Waiting" else "Downloading",
             icon = Icons.Default.HourglassEmpty,
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,

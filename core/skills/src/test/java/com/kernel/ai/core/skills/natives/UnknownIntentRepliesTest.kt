@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills.natives
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class UnknownIntentRepliesTest {
@@ -45,6 +46,26 @@ class UnknownIntentRepliesTest {
     @Test
     fun `names without a calendar or email noun get the generic reply`() {
         listOf("frobnicate_widgets", "", "   ", "get_weather").forEach { name ->
+            assertEquals(UnknownIntentReplies.GENERIC_REPLY, UnknownIntentReplies.replyFor(name), name)
+        }
+    }
+
+    @Test
+    fun `list-shaped unknown names get a reply that offers the real list action`() {
+        listOf("add_add_to_list", "add_list_item", "bulk_list_add", "get_lists").forEach { name ->
+            assertEquals(UnknownIntentReplies.LIST_REPLY, UnknownIntentReplies.replyFor(name), name)
+        }
+        assertTrue(UnknownIntentReplies.LIST_REPLY.contains("add milk to my shopping list"))
+    }
+
+    @Test
+    fun `calendar reads containing list stay calendar replies`() {
+        assertEquals(UnknownIntentReplies.CALENDAR_READ_REPLY, UnknownIntentReplies.replyFor("list_calendar_events"))
+    }
+
+    @Test
+    fun `a leading list verb does not make a name a list-noun reply`() {
+        listOf("list_alarms", "list_reminders", "list_contacts", "list").forEach { name ->
             assertEquals(UnknownIntentReplies.GENERIC_REPLY, UnknownIntentReplies.replyFor(name), name)
         }
     }

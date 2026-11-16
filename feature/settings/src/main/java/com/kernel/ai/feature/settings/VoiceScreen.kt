@@ -626,7 +626,7 @@ private fun VoiceScreenContent(
                         when {
                             !uiState.isWakeWordModelAvailable -> "Wake word model not yet available — model training in progress (#984)"
                             !uiState.isDefaultAssistant -> "Set Jandal as default assistant first for reliable background mic access"
-                            else -> "Always-on wake word detection. Tap Home-press to activate when recognised."
+                            else -> "Say \"Hey Jandal\" to start talking, hands-free."
                         },
                     )
                 },

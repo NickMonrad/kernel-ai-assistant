@@ -17,11 +17,17 @@ object UnknownIntentReplies {
 
     const val EMAIL_READ_REPLY = "I can't read your email yet, but I can send one."
 
+    /** Offered for unregistered list-shaped names (#1941): points at the real list actions. */
+    const val LIST_REPLY =
+        "I can add things to a list or read one back. Try \"add milk to my shopping list\" or \"what's on my shopping list\"."
+
     private val CALENDAR_NOUNS = setOf(
         "calendar", "calendars", "agenda", "agendas", "schedule", "schedules",
         "event", "events", "appointment", "appointments", "meeting", "meetings", "diary", "diaries",
     )
     private val EMAIL_NOUNS = setOf("email", "emails", "mail", "mails", "inbox", "inboxes")
+
+    private val LIST_NOUNS = setOf("list", "lists")
 
     /**
      * Verbs that mark a write-style request. A name containing one never gets a read reply.
@@ -44,10 +50,14 @@ object UnknownIntentReplies {
         // ("check_schedule", "todays_schedule").
         val isWrite = words.any { it in WRITE_VERBS } || words.firstOrNull() == "schedule"
         val tokens = words.toSet()
+        // A leading "list" is a verb ("list_alarms"), so only a later "list"/"lists" counts as the noun.
+        val listNoun = words.drop(1).any { it in LIST_NOUNS }
         return when {
+            isWrite && listNoun -> LIST_REPLY
             isWrite -> GENERIC_REPLY
             tokens.any { it in CALENDAR_NOUNS } -> CALENDAR_READ_REPLY
             tokens.any { it in EMAIL_NOUNS } -> EMAIL_READ_REPLY
+            listNoun -> LIST_REPLY
             else -> GENERIC_REPLY
         }
     }
