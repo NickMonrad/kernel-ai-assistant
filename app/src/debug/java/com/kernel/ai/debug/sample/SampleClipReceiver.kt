@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
+import kotlinx.coroutines.flow.first
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -18,9 +20,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Debug-only: renders the setup sample line with the selected Sherpa voice (Cori) to
- * `files/sample_cori.wav`, using the controller's own warm-up and its private generate handles. Nothing
- * in production code changes; playback is not started.
+ * Debug-only: renders the setup sample line with the selected Piper voice (Cori by default) to
+ * `files/sample_<voice>.wav`, using the controller's own warm-up and its private generate handles. Nothing in
+ * production code changes; playback is not started. Inflect Micro samples come from `InflectSpikeReceiver`'s
+ * runtime probe instead.
  *
  *   adb -s <serial> shell am broadcast -n ai.jandal.assistant.debug/com.kernel.ai.debug.sample.SampleClipReceiver \
  *       --es text "Kia ora, I'm Jandle. What can I help with?"
@@ -32,14 +35,13 @@ class SampleClipReceiver : BroadcastReceiver() {
         val text = intent.getStringExtra("text") ?: DEFAULT_TEXT
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val controller = EntryPointAccessors.fromApplication(
-                    appContext,
-                    SampleClipEntryPoint::class.java,
-                ).sherpaController()
+                val entryPoint = EntryPointAccessors.fromApplication(appContext, SampleClipEntryPoint::class.java)
+                val controller = entryPoint.sherpaController()
+                val voice = entryPoint.voiceOutputPreferences().selectedSherpaVoice.first()
                 val warm = controller.warmUp()
                 check(warm !is VoiceOutputResult.Unavailable) { "warmUp: $warm" }
                 val (samples, rate) = render(controller, text)
-                val file = File(appContext.filesDir, "sample_cori.wav")
+                val file = File(appContext.filesDir, "sample_${voice.name.lowercase()}.wav")
                 writeWav(file, samples, rate)
                 Log.i(TAG, "wrote ${file.absolutePath} samples=${samples.size} rate=$rate")
             } catch (e: Exception) {
@@ -110,4 +112,5 @@ class SampleClipReceiver : BroadcastReceiver() {
 @InstallIn(SingletonComponent::class)
 interface SampleClipEntryPoint {
     fun sherpaController(): SherpaOnnxVoiceOutputController
+    fun voiceOutputPreferences(): VoiceOutputPreferences
 }

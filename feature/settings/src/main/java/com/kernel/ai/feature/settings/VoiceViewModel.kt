@@ -11,6 +11,7 @@ import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.InflectMicroModelSpec
+import com.kernel.ai.core.voice.heyJandalDownloadModels
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.PiperVoiceSetup
@@ -111,6 +112,8 @@ data class VoiceUiState(
     val isDefaultAssistant: Boolean = false,
     /** True when "Listen for Hey Jandal" is enabled in preferences. */
     val heyJandalEnabled: Boolean = false,
+    /** Bytes turning Hey Jandal on still downloads for the selected input ([heyJandalDownloadModels]); 0 when on disk (#1931). */
+    val heyJandalDownloadBytes: Long = 0L,
     /** True when the hey_jandal_int8.tflite model file is present on device. */
     val isWakeWordModelAvailable: Boolean = false,
     /** Wake word confidence threshold in [0, 1]. Reflects [WakeWordPreferences.confidenceThreshold]. */
@@ -258,10 +261,7 @@ class VoiceViewModel @Inject constructor(
         InflectMicroModelSpec.isReleaseEligible(hardwareProfileDetector.profile.tier)
     private val visibleSherpaVoices: List<SherpaPiperVoice> =
         SherpaPiperVoice.entriesForBuild(isReleaseBuild)
-    private val inflectModels: List<KernelModel> =
-        InflectMicroModelSpec.requiredModels.map { required ->
-            KernelModel.entries.first { it.fileName == required.fileName }
-        }
+    private val inflectModels: List<KernelModel> = InflectMicroSetup.kernelModels()
 
     private val _uiState = MutableStateFlow(
         VoiceUiState(
@@ -292,7 +292,12 @@ class VoiceViewModel @Inject constructor(
         }
         viewModelScope.launch {
             voiceInputPreferences.selectedEngine.collect { engine ->
-                _uiState.update { it.copy(selectedInputEngine = engine) }
+                _uiState.update {
+                    it.copy(
+                        selectedInputEngine = engine,
+                        heyJandalDownloadBytes = heyJandalDownloadBytes(engine, modelDownloadManager.downloadStates.value),
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -484,6 +489,7 @@ class VoiceViewModel @Inject constructor(
                         piperSelected = it.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental,
                     )
                     it.copy(
+                        heyJandalDownloadBytes = heyJandalDownloadBytes(it.selectedInputEngine, states),
                         inflectMicroStates = inflectStates,
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
@@ -535,6 +541,11 @@ class VoiceViewModel @Inject constructor(
             issue = issue,
         )
     }
+
+    private fun heyJandalDownloadBytes(input: VoiceInputEngine, states: Map<KernelModel, DownloadState>): Long =
+        heyJandalDownloadModels(input)
+            .filterNot { states[it] is DownloadState.Downloaded }
+            .sumOf { it.approxSizeBytes }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
         _uiState.update { it.copy(selectedInputEngine = engine) }

@@ -72,6 +72,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.HeyJandalGate
 import com.kernel.ai.core.voice.HonorCameraCoexistence
+import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.onlineSpeechToggleVisible
 import com.kernel.ai.core.voice.androidNativeWarning
 import com.kernel.ai.core.voice.VoiceCapabilities
@@ -623,12 +624,19 @@ private fun VoiceScreenContent(
                 },
                 headlineContent = { Text("Listen for \"Hey Jandal\"") },
                 supportingContent = {
+                    val sizeLine = if (uiState.isWakeWordModelAvailable && !uiState.heyJandalEnabled &&
+                        uiState.heyJandalDownloadBytes > 0L
+                    ) {
+                        " Adds a ${formatBytes(uiState.heyJandalDownloadBytes)} download."
+                    } else {
+                        ""
+                    }
                     Text(
                         when {
                             !uiState.isWakeWordModelAvailable -> "Wake word model not yet available — model training in progress (#984)"
-                            !uiState.isDefaultAssistant -> "Set Jandal as default assistant first for reliable background mic access"
+                            !uiState.isDefaultAssistant -> "Set Jandal as default assistant first for reliable background mic access."
                             else -> "Say \"Hey Jandal\" to start talking, hands-free."
-                        },
+                        } + sizeLine,
                     )
                 },
                 trailingContent = {
@@ -756,12 +764,7 @@ private fun VoiceScreenContent(
                         headlineContent = { Text("Allow online speech recognition") },
                         supportingContent = {
                             Text(
-                                "Off: voice input never leaves this phone. On: Jandal uses Android " +
-                                    "speech recognition, which is usually more accurate. Voice commands " +
-                                    "try on-device recognition first and retry with your phone's speech " +
-                                    "service (usually Google) if that fails; Hey Jandal and alarm commands " +
-                                    "use that service straight away. That service may send your audio " +
-                                    "off the phone.",
+                                OnlineSpeechCopy.EXPLANATION,
                             )
                         },
                         trailingContent = {

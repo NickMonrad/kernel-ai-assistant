@@ -30,13 +30,13 @@ import androidx.compose.ui.semantics.collectionInfo
 import androidx.compose.ui.semantics.collectionItemInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.kernel.ai.core.ui.theme.JandalTheme
 
-/** Left edge of the card title: 16 dp card padding plus the 40 dp radio target. */
-val CHOICE_TITLE_START = 56.dp
+/** Left edge of the card title: 16 dp card padding, the 24 dp radio, then a 10 dp gap. Sub-content aligns here. */
+val CHOICE_TITLE_START = 50.dp
 
 /** Radio group with a collection role so screen readers announce the item count. */
 @Composable
@@ -56,8 +56,9 @@ fun ChoiceGroup(
 }
 
 /**
- * One radio option. [selected] draws a 2 dp accent outline. [subContent] renders below a divider, indented
- * to [CHOICE_TITLE_START], for switches and sample buttons that belong to this option.
+ * One radio option. Only the header (radio, title, tag, description) is selectable. [selected] draws a 2 dp accent
+ * border over a tinted fill. [subContent] renders below a divider, indented to [CHOICE_TITLE_START], for switches
+ * and sample buttons that belong to this option; each of its controls is its own touch target.
  */
 @Composable
 fun ChoiceCard(
@@ -75,10 +76,15 @@ fun ChoiceCard(
 ) {
     val accent = JandalTheme.colors.accent
     val container = MaterialTheme.colorScheme.surfaceContainerHigh
+    val fill = if (selected) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = SELECTED_FILL_ALPHA).compositeOver(container)
+    } else {
+        container
+    }
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        color = container,
+        color = fill,
         border = if (selected) BorderStroke(2.dp, accent) else null,
     ) {
         Column {
@@ -93,18 +99,20 @@ fun ChoiceCard(
                         onClick = onSelect,
                     )
                     .semantics { collectionItemInfo = CollectionItemInfo(index, 1, 0, 1) }
-                    .padding(start = 0.dp, end = 16.dp, top = 8.dp, bottom = 14.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.Top,
             ) {
                 RadioButton(selected = selected, onClick = null, enabled = enabled)
-                Column(modifier = Modifier.weight(1f).padding(top = 2.dp)) {
+                Spacer(Modifier.width(RADIO_GAP))
+                leadingIcon?.let { icon ->
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(RADIO_GAP))
+                }
+                Column(modifier = Modifier.weight(1f)) {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
                     ) {
-                        leadingIcon?.let { icon ->
-                            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(4.dp))
-                        }
                         Text(
                             text = title,
                             style = MaterialTheme.typography.titleMedium,
@@ -116,8 +124,6 @@ fun ChoiceCard(
                         text = description,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = Int.MAX_VALUE,
-                        overflow = TextOverflow.Clip,
                     )
                     extraLine?.let {
                         Text(
@@ -142,3 +148,6 @@ fun ChoiceCard(
         }
     }
 }
+
+private val RADIO_GAP = 10.dp
+private const val SELECTED_FILL_ALPHA = 0.35f
