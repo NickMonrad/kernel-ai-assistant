@@ -22,10 +22,15 @@ import com.kernel.ai.core.memory.repository.MealPlanSessionRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
+import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
+import com.kernel.ai.core.skills.Skill
+import com.kernel.ai.core.skills.SkillCall
+import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.core.skills.intent.RecoveryResult
@@ -41,6 +46,7 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.google.ai.edge.litertlm.ToolProvider
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -49,6 +55,8 @@ import io.mockk.runs
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -57,9 +65,12 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelRecoveryTest {
@@ -332,4 +343,64 @@ class ChatViewModelRecoveryTest {
         viewModel.sendMessage()
         advanceUntilIdle()
     }
+
+    @Test
+    fun `fallthroughCalendarCapabilityRequestsPermissionAndSavesReply`() = runTest(dispatcher) {
+        val input = "add dentist to my calendar tomorrow at 9am"
+        every { quickIntentRouter.route(any()) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = input,
+            bestGuess = QuickIntentRouter.MatchedIntent(
+                intentName = "create_calendar_event",
+                params = emptyMap(),
+                source = "classifier",
+            ),
+            bestConfidence = 0.72f,
+        )
+        every { intentRecoveryOrchestrator.recover(any(), any(), any()) } returns RecoveryResult.Execute(
+            intentName = "create_calendar_event",
+            params = emptyMap(),
+        )
+        val calendarSkill = object : Skill {
+            override val name = "create_calendar_event"
+            override val description = "Create calendar event"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarWrite,
+                skillName = "create_calendar_event",
+            )
+        }
+        every { skillRegistry.get("create_calendar_event") } returns calendarSkill
+        val viewModel = createViewModel()
+        viewModel.startNewConversation()
+        advanceUntilIdle()
+        val event = async { viewModel.events.first() }
+
+        viewModel.onInputChanged(input)
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val request = withTimeout(1_000) { event.await() } as ChatViewModel.UiEvent.RequestCalendarPermission
+        assertEquals(
+            listOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR),
+            request.permissions,
+        )
+        coVerify(exactly = 0) { inferenceEngine.generate(any()) }
+        assertTrue(
+            viewModel.getConversationAsText().contains(
+                "Allow it when prompted and Jandal will add the event. If Android doesn't ask, turn on Calendar in App info, then ask again.",
+            ),
+            viewModel.getConversationAsText(),
+        )
+        coVerify {
+            conversationRepository.addMessage(
+                any(),
+                "assistant",
+                match { it.contains("Allow it when prompted") },
+                any(),
+                any(),
+            )
+        }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
+    }
+
 }
