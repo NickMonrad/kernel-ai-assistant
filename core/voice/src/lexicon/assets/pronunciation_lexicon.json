@@ -89,6 +89,12 @@
       "say": "Jandles",
       "verify": true,
       "source": "#1942: plural of Jandal"
+    },
+    {
+      "word": "Kia ora",
+      "say": "Kee-ora",
+      "verify": false,
+      "source": "#1936: owner pick by ear, 2026-11-16 (Cori sample candidate 4; the plain spelling sounded clipped, like kyora). eSpeak: Kee-ora /kˈiːˈɔːɹə/"
     }
   ]
 }
