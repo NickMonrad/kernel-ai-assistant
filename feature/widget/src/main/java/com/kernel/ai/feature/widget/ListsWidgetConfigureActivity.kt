@@ -179,7 +179,7 @@ private fun ListsWidgetConfigScreen(
                                 onClick = { selectedId = list.id },
                             )
                             Text(
-                                text = list.name.replaceFirstChar { it.uppercase() },
+                                text = list.name,
                                 style = MaterialTheme.typography.bodyLarge,
                             )
                         }
