@@ -14,6 +14,8 @@ import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.model.availability.computeAvailabilitySummary
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.prefs.ModelPreferences
+import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.memory.prefs.USE_SYSTEM_COLORS_DEFAULT
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +37,7 @@ class SettingsViewModel @Inject constructor(
     private val modelPreferences: ModelPreferences,
     private val authRepository: HuggingFaceAuthRepository,
     private val gatedModelStatusRepository: GatedModelStatusRepository,
+    private val chatPreferences: ChatPreferences,
 ) : ViewModel() {
 
     data class SettingsUiState(
@@ -176,4 +179,12 @@ class SettingsViewModel @Inject constructor(
      * Must be called on the main thread (button-click handler).
      */
     fun startAuth() = authRepository.startAuthFlow()
+
+    /** True when the phone's wallpaper (Android 12+ dynamic) colours are used instead of Jandal. */
+    val useSystemColors: StateFlow<Boolean> = chatPreferences.useSystemColors
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), USE_SYSTEM_COLORS_DEFAULT)
+
+    fun setUseSystemColors(enabled: Boolean) {
+        viewModelScope.launch { chatPreferences.setUseSystemColors(enabled) }
+    }
 }
