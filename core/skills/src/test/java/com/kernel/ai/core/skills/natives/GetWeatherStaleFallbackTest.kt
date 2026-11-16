@@ -165,7 +165,7 @@ class GetWeatherStaleFallbackTest {
 
         assertTrue(elapsedMs < 11_000, "elapsed=${elapsedMs}ms")
         assertTrue(result.content.startsWith("The weather service isn't answering, so here's the forecast from"))
-        assertEquals(2, forecastRequests() - before, "one retry after the first read timeout")
+        assertEquals(1, forecastRequests() - before, "Open-Meteo budget (#1922) is spent on the first read timeout; no retry")
     }
 
     @Test

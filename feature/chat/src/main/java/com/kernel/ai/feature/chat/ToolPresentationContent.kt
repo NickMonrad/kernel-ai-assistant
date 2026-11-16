@@ -212,6 +212,14 @@ private fun WeatherPresentationCard(
                     }
                 }
             }
+            presentation.attributionText?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
+                )
+            }
         }
     }
 }

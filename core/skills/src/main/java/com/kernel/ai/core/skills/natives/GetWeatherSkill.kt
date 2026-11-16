@@ -370,14 +370,26 @@ internal fun weatherFailureMessage(reason: WeatherLookupFailureReason): String =
 internal fun isCacheEntryUsable(cachedAtMillis: Long, nowMillis: Long, maxAgeMillis: Long): Boolean =
     (nowMillis - cachedAtMillis) in 0..maxAgeMillis
 
-/** Forecast body for one place and shape. [displayName] keeps the place label for replays (#1921). */
-internal data class WeatherCacheEntry(val cachedAtMillis: Long, val displayName: String?, val body: String)
+/**
+ * Forecast body for one place and shape. [displayName] keeps the place label for replays (#1921).
+ * [validUntilMillis] and [lastModified] are set only for MET Norway bodies: the body is not served fresh past
+ * MET's Expires, and [lastModified] drives If-Modified-Since (#1922).
+ */
+internal data class WeatherCacheEntry(
+    val cachedAtMillis: Long,
+    val displayName: String?,
+    val body: String,
+    val validUntilMillis: Long? = null,
+    val lastModified: String? = null,
+)
 
 internal fun encodeWeatherCacheEntry(entry: WeatherCacheEntry): String =
     JSONObject()
         .put("cachedAt", entry.cachedAtMillis)
         .put("displayName", entry.displayName ?: JSONObject.NULL)
         .put("body", entry.body)
+        .put("validUntil", entry.validUntilMillis ?: JSONObject.NULL)
+        .put("lastModified", entry.lastModified ?: JSONObject.NULL)
         .toString()
 
 internal fun decodeWeatherCacheEntry(raw: String): WeatherCacheEntry? = try {
@@ -386,6 +398,8 @@ internal fun decodeWeatherCacheEntry(raw: String): WeatherCacheEntry? = try {
         cachedAtMillis = obj.getLong("cachedAt"),
         displayName = obj.optString("displayName").takeIf { it.isNotBlank() },
         body = obj.getString("body"),
+        validUntilMillis = if (obj.isNull("validUntil")) null else obj.getLong("validUntil"),
+        lastModified = obj.optString("lastModified").takeIf { it.isNotBlank() },
     )
 } catch (e: Exception) {
     null
@@ -507,6 +521,9 @@ private const val STALE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000L // 12 hours
 
 /** Entries stamped more than this far in the future are treated as corrupt and pruned (#1921 N5). */
 private const val FUTURE_CACHE_SLACK_MS = 60_000L
+
+/** Budget (ms) for the Open-Meteo attempt before MET Norway is tried, so the fallback fits in 10 s (#1922). */
+private const val OPEN_METEO_BUDGET_MS = 5_000L
 
 /** Budget (ms) for geocoding, forecast and current conditions; air quality has its own budget (#1921). */
 private const val WEATHER_LIVE_BUDGET_MS = 10_000L
@@ -666,7 +683,7 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
         else -> null
     }
     return SkillResult.DirectReply(
-        text,
+        withWeatherAttribution(text, obj),
         presentation = ToolPresentation.Weather(
             locationName = locationLabel,
             temperatureText = temperatureText,
@@ -681,6 +698,7 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
             airQualityText = null,
             sunText = sunText,
             forecast = forecastDays,
+            attributionText = weatherAttributionFor(obj),
         ),
         spokenSummary = buildWeekendForecastSpoken(locationLabel, spokenDays),
     )
@@ -703,6 +721,7 @@ private data class CurrentWeatherFetch(
     val lat: Double,
     val lon: Double,
     val fromCache: Boolean,
+    val fromFallback: Boolean = false,
 )
 
 @Singleton
@@ -715,7 +734,11 @@ class GetWeatherSkill @Inject constructor(
         .connectTimeout(WEATHER_CONNECT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
         .readTimeout(WEATHER_READ_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
         .callTimeout(WEATHER_CALL_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        .addInterceptor(DebugOpenMeteoFailureInterceptor(context))
         .build()
+
+    /** Earliest time MET Norway may be called again after a 429 (#1922). */
+    private var metNoBackoffUntilMillis = 0L
     /** Test seam: swapped for an isolated DataStore in unit tests. */
     internal var weatherStore: DataStore<Preferences> = context.weatherDataStore
 
@@ -1145,14 +1168,11 @@ class GetWeatherSkill @Inject constructor(
                 "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
                 "&timezone=auto&forecast_days=7&wind_speed_unit=ms"
 
-            val body = retryWithBackoff("Weekend Forecast API") {
-                executeWeatherCall(Request.Builder().url(url).build()) { response ->
-                    if (!response.isSuccessful) throw HttpStatusException(response.code)
-                    response.body?.string() ?: throw IllegalStateException("Empty forecast response")
-                }
+            val weather = fetchWeatherBody(url, "Weekend Forecast API", lat, lon, cacheKey) {
+                metNoDailyJson(it, days = 7, zone = ZoneId.systemDefault(), nowMillis = weatherClockMillis())
             } ?: return@withContext null
 
-            cacheParsedForecast(cacheKey, displayName, body) { parseWeekendResponse(it, displayName) }
+            cacheParsedForecast(cacheKey, displayName, weather) { parseWeekendResponse(it, displayName) }
         }
 
     private suspend fun fetchForecast(
@@ -1173,14 +1193,11 @@ class GetWeatherSkill @Inject constructor(
                 "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
                 "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
 
-            val body = retryWithBackoff("Forecast API ($days days)") {
-                executeWeatherCall(Request.Builder().url(url).build()) { response ->
-                    if (!response.isSuccessful) throw HttpStatusException(response.code)
-                    response.body?.string() ?: throw IllegalStateException("Empty forecast response")
-                }
+            val weather = fetchWeatherBody(url, "Forecast API ($days days)", lat, lon, cacheKey) {
+                metNoDailyJson(it, days = days, zone = ZoneId.systemDefault(), nowMillis = weatherClockMillis())
             } ?: return@withContext null
 
-            cacheParsedForecast(cacheKey, displayName, body) { parseForecastResponse(it, displayName) }
+            cacheParsedForecast(cacheKey, displayName, weather) { parseForecastResponse(it, displayName) }
         }
 
     private fun parseForecastResponse(json: String, displayName: String?): SkillResult {
@@ -1301,7 +1318,7 @@ class GetWeatherSkill @Inject constructor(
             else -> null
         }
         return SkillResult.DirectReply(
-            text,
+            withWeatherAttribution(text, obj),
             presentation = ToolPresentation.Weather(
                 locationName = locationLabel,
                 temperatureText = temperatureText,
@@ -1316,6 +1333,7 @@ class GetWeatherSkill @Inject constructor(
                 airQualityText = null,
                 sunText = sunText,
                 forecast = forecastDays,
+                attributionText = weatherAttributionFor(obj),
             ),
             spokenSummary = buildMultiDayForecastSpoken(
                 locationLabel = locationLabel,
@@ -1342,14 +1360,11 @@ class GetWeatherSkill @Inject constructor(
             "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,uv_index_max,sunrise,sunset" +
             "&timezone=auto&forecast_days=$days&wind_speed_unit=ms"
 
-        val body = retryWithBackoff("Forecast API (day $dayIndex)") {
-            executeWeatherCall(Request.Builder().url(url).build()) { response ->
-                if (!response.isSuccessful) throw HttpStatusException(response.code)
-                response.body?.string() ?: throw IllegalStateException("Empty forecast response")
-            }
+        val weather = fetchWeatherBody(url, "Forecast API (day $dayIndex)", lat, lon, cacheKey) {
+            metNoDailyJson(it, days = days, zone = ZoneId.systemDefault(), nowMillis = weatherClockMillis())
         } ?: return@withContext null
 
-        cacheParsedForecast(cacheKey, displayName, body) { parseForecastDayResponse(it, displayName, dayIndex) }
+        cacheParsedForecast(cacheKey, displayName, weather) { parseForecastDayResponse(it, displayName, dayIndex) }
     }
 
     private fun parseForecastDayResponse(json: String, displayName: String?, dayIndex: Int): SkillResult {
@@ -1417,7 +1432,7 @@ class GetWeatherSkill @Inject constructor(
         }
 
         return SkillResult.DirectReply(
-            text,
+            withWeatherAttribution(text, obj),
             presentation = ToolPresentation.Weather(
                 locationName = locationLabel,
                 temperatureText = temperatureText,
@@ -1431,6 +1446,7 @@ class GetWeatherSkill @Inject constructor(
                 uvText = uvMax?.let { "UV max %.0f (%s)".format(it, uvIndexLabel(it)) },
                 airQualityText = null,
                 sunText = sunText,
+                attributionText = weatherAttributionFor(obj),
             ),
             spokenSummary = buildSingleDayForecastSpoken(
                 locationLabel = locationLabel,
@@ -1492,18 +1508,15 @@ class GetWeatherSkill @Inject constructor(
                 "&daily=uv_index_max,sunrise,sunset,temperature_2m_max,temperature_2m_min" +
                 "&forecast_days=1&timezone=auto&wind_speed_unit=ms"
 
-            val weatherBody = retryWithBackoff("Weather API") {
-                executeWeatherCall(Request.Builder().url(url).build()) { response ->
-                    if (!response.isSuccessful) throw HttpStatusException(response.code)
-                    response.body?.string() ?: throw IllegalStateException("Empty weather response")
-                }
+            val weather = fetchWeatherBody(url, "Weather API", lat, lon, cacheKey) {
+                metNoCurrentJson(it, ZoneId.systemDefault(), weatherClockMillis())
             } ?: return@withContext null
 
-            if (!parsesOrLogs("Weather API") { parseWeatherResponse(weatherBody, displayName, airQuality = null) }) {
+            if (!parsesOrLogs("Weather API") { parseWeatherResponse(weather.json, displayName, airQuality = null) }) {
                 return@withContext null
             }
-            cacheWeatherJson(cacheKey, displayName, weatherBody)
-            CurrentWeatherFetch(weatherBody, displayName, lat, lon, fromCache = false)
+            cacheWeatherJson(cacheKey, displayName, weather.json, weather.validUntilMillis, weather.lastModified)
+            CurrentWeatherFetch(weather.json, displayName, lat, lon, fromCache = false, fromFallback = weather.fromFallback)
         }
 
     /**
@@ -1512,7 +1525,8 @@ class GetWeatherSkill @Inject constructor(
      * fresh forecast into a stale one (#1921). Returns null when the body cannot be parsed.
      */
     private suspend fun buildCurrentWeather(fetch: CurrentWeatherFetch, startedAtNanos: Long): SkillResult? {
-        val airQuality = if (fetch.fromCache) {
+        // Air quality is Open-Meteo only; skip it when MET answered, since Open-Meteo is down (#1922).
+        val airQuality = if (fetch.fromCache || fetch.fromFallback) {
             null
         } else {
             // Air quality gets only what is left of the live budget; under 3 s it is skipped so a fresh
@@ -1657,7 +1671,7 @@ class GetWeatherSkill @Inject constructor(
             else -> null
         }
         return SkillResult.DirectReply(
-            text,
+            withWeatherAttribution(text, obj),
             presentation = ToolPresentation.Weather(
                 locationName = locationLabel,
                 temperatureText = if (!temp.isNaN()) "%.0f°C".format(temp) else "?",
@@ -1671,6 +1685,7 @@ class GetWeatherSkill @Inject constructor(
                 uvText = uvText,
                 airQualityText = airQuality?.usAqi?.let { "AQI $it (${aqiLabel(it)})" },
                 sunText = sunText,
+                attributionText = weatherAttributionFor(obj),
             ),
             spokenSummary = buildCurrentWeatherSpoken(
                 locationLabel = locationLabel,
@@ -1715,16 +1730,18 @@ class GetWeatherSkill @Inject constructor(
     private suspend fun cacheParsedForecast(
         cacheKey: String,
         displayName: String?,
-        body: String,
+        body: WeatherBody,
         parse: (String) -> SkillResult,
     ): SkillResult? {
         val parsed = try {
-            parse(body)
+            parse(body.json)
         } catch (e: Exception) {
             Log.w(TAG, "Forecast response unparseable (${e.javaClass.simpleName})")
             return null
         }
-        if (parsed is SkillResult.DirectReply) cacheWeatherJson(cacheKey, displayName, body)
+        if (parsed is SkillResult.DirectReply) {
+            cacheWeatherJson(cacheKey, displayName, body.json, body.validUntilMillis, body.lastModified)
+        }
         return parsed
     }
 
@@ -1733,9 +1750,17 @@ class GetWeatherSkill @Inject constructor(
      * Store raw Open-Meteo JSON for [cacheKey] with its time and place label (#1921). Entries older than the
      * stale window are pruned in the same edit, so per-place keys cannot accumulate without bound.
      */
-    private suspend fun cacheWeatherJson(cacheKey: String, displayName: String?, jsonBody: String) {
+    private suspend fun cacheWeatherJson(
+        cacheKey: String,
+        displayName: String?,
+        jsonBody: String,
+        validUntilMillis: Long? = null,
+        lastModified: String? = null,
+    ) {
         val now = weatherClockMillis()
-        val encoded = encodeWeatherCacheEntry(WeatherCacheEntry(now, displayName, jsonBody))
+        val encoded = encodeWeatherCacheEntry(
+            WeatherCacheEntry(now, displayName, jsonBody, validUntilMillis, lastModified),
+        )
         weatherStore.edit { prefs ->
             // Legacy single-slot keys (pre-#1921) are dropped so only per-place entries remain.
             prefs.remove(stringPreferencesKey("weather_cache_json"))
@@ -1753,6 +1778,8 @@ class GetWeatherSkill @Inject constructor(
     private suspend fun getCachedWeatherJson(cacheKey: String): String? =
         readWeatherEntry(cacheKey)
             ?.takeIf { isCacheEntryUsable(it.cachedAtMillis, weatherClockMillis(), CACHE_MAX_AGE_MS) }
+            // MET bodies stop being fresh at their Expires time; they can still serve as stale fallback (#1922).
+            ?.takeIf { entry -> entry.validUntilMillis?.let { weatherClockMillis() < it } ?: true }
             ?.body
 
     /** Cached entry for [cacheKey] at any age; the caller applies the age window (#1921). */
@@ -1792,6 +1819,103 @@ class GetWeatherSkill @Inject constructor(
                 }
             })
         }
+
+    /** One provider body ready to parse and cache. MET fields are set only for MET Norway bodies (#1922). */
+    private data class WeatherBody(
+        val json: String,
+        val fromFallback: Boolean = false,
+        val validUntilMillis: Long? = null,
+        val lastModified: String? = null,
+    )
+
+    /**
+     * Open-Meteo first; MET Norway only when Open-Meteo yields no usable body (#1922). The Open-Meteo attempt is
+     * capped at [OPEN_METEO_BUDGET_MS] so the fallback still fits the 10 s live budget.
+     */
+    private suspend fun fetchWeatherBody(
+        url: String,
+        label: String,
+        lat: Double,
+        lon: Double,
+        cacheKey: String,
+        toMetNoJson: (String) -> String?,
+    ): WeatherBody? {
+        val openMeteo = withTimeoutOrNull(OPEN_METEO_BUDGET_MS) {
+            retryWithBackoff(label) {
+                executeWeatherCall(Request.Builder().url(url).build()) { response ->
+                    if (!response.isSuccessful) throw HttpStatusException(response.code)
+                    response.body?.string() ?: throw IllegalStateException("Empty forecast response")
+                }
+            }
+        }
+        if (openMeteo != null) return WeatherBody(openMeteo)
+        Log.w(TAG, "$label: Open-Meteo unavailable, trying MET Norway")
+        return fetchMetNorwayBody(lat, lon, cacheKey, toMetNoJson)
+            ?.also { Log.i(TAG, "$label answered by MET Norway") }
+    }
+
+    /**
+     * One MET Norway request for the place's cache key. Sends If-Modified-Since when a stored Last-Modified
+     * exists; 304 reuses the stored body. 429 sets a back-off that skips MET until Retry-After passes. Any other
+     * failure returns null (#1922).
+     */
+    private suspend fun fetchMetNorwayBody(
+        lat: Double,
+        lon: Double,
+        cacheKey: String,
+        toMetNoJson: (String) -> String?,
+    ): WeatherBody? {
+        if (weatherClockMillis() < metNoBackoffUntilMillis) {
+            Log.w(TAG, "MET Norway skipped: rate-limited")
+            return null
+        }
+        val existing = readWeatherEntry(cacheKey)
+        val request = Request.Builder()
+            .url(metNoRequestUrl(lat, lon))
+            .header("User-Agent", METNO_USER_AGENT)
+            .apply { existing?.lastModified?.let { header("If-Modified-Since", it) } }
+            .build()
+        return try {
+            executeWeatherCall(request) { response ->
+                val received = weatherClockMillis()
+                // Missing or malformed Expires means "not fresh": validUntil = now (#1922).
+                val expires = parseHttpDateMillis(response.header("Expires")) ?: received
+                when {
+                    response.code == 304 && existing != null -> WeatherBody(
+                        json = existing.body,
+                        fromFallback = true,
+                        validUntilMillis = expires,
+                        lastModified = existing.lastModified,
+                    )
+                    response.code == 429 -> {
+                        metNoBackoffUntilMillis = received + metNoBackoffMillis(response.header("Retry-After"))
+                        Log.w(TAG, "MET Norway rate-limited (429); backing off")
+                        null
+                    }
+                    response.isSuccessful -> {
+                        if (response.code == 203) Log.w(TAG, "MET Norway returned 203: endpoint deprecated")
+                        val raw = response.body?.string() ?: throw IllegalStateException("Empty MET response")
+                        val json = toMetNoJson(raw) ?: return@executeWeatherCall null
+                        WeatherBody(
+                            json = json,
+                            fromFallback = true,
+                            validUntilMillis = expires,
+                            lastModified = response.header("Last-Modified"),
+                        )
+                    }
+                    else -> {
+                        Log.w(TAG, "MET Norway failed (HTTP ${response.code})")
+                        null
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "MET Norway failed (${e.javaClass.simpleName})")
+            null
+        }
+    }
 
     // ── Retry with exponential backoff ─────────────────────────────────────────
 

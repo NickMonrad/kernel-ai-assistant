@@ -1,0 +1,65 @@
+{
+  "type": "Feature",
+  "geometry": { "type": "Point", "coordinates": [174.78, -41.29, 0] },
+  "properties": {
+    "meta": {
+      "updated_at": "2026-11-16T00:00:00Z",
+      "units": {
+        "air_temperature": "celsius",
+        "precipitation_amount": "mm",
+        "wind_speed": "m/s"
+      }
+    },
+    "timeseries": [
+      {
+        "time": "2026-11-16T00:00:00Z",
+        "data": {
+          "instant": { "details": { "air_temperature": 13.1, "relative_humidity": 70.4, "wind_speed": 5.2 } },
+          "next_1_hours": { "summary": { "symbol_code": "partlycloudy_night" }, "details": { "precipitation_amount": 0.0 } }
+        }
+      },
+      {
+        "time": "2026-11-16T01:00:00Z",
+        "data": {
+          "instant": { "details": { "air_temperature": 12.8, "relative_humidity": 72.0, "wind_speed": 5.0 } },
+          "next_1_hours": { "summary": { "symbol_code": "partlycloudy_night" }, "details": { "precipitation_amount": 0.1 } }
+        }
+      },
+      {
+        "time": "2026-11-16T06:00:00Z",
+        "data": {
+          "instant": { "details": { "air_temperature": 11.0, "relative_humidity": 80.0, "wind_speed": 4.1 } },
+          "next_6_hours": { "summary": { "symbol_code": "lightrain" }, "details": { "precipitation_amount": 1.2 } }
+        }
+      },
+      {
+        "time": "2026-11-16T12:00:00Z",
+        "data": {
+          "instant": { "details": { "air_temperature": 17.5, "relative_humidity": 60.0, "wind_speed": 6.3 } },
+          "next_6_hours": { "summary": { "symbol_code": "rainshowers_day" }, "details": { "precipitation_amount": 0.4 } }
+        }
+      },
+      {
+        "time": "2026-11-16T18:00:00Z",
+        "data": {
+          "instant": { "details": { "air_temperature": 14.0, "relative_humidity": 75.0, "wind_speed": 3.0 } },
+          "next_6_hours": { "summary": { "symbol_code": "cloudy" }, "details": { "precipitation_amount": 0.0 } }
+        }
+      },
+      {
+        "time": "2026-11-17T00:00:00Z",
+        "data": {
+          "instant": { "details": { "air_temperature": 10.0, "relative_humidity": 85.0, "wind_speed": 2.0 } },
+          "next_6_hours": { "summary": { "symbol_code": "clearsky_night" }, "details": { "precipitation_amount": 0.0 } }
+        }
+      },
+      {
+        "time": "2026-11-17T06:00:00Z",
+        "data": {
+          "instant": { "details": { "air_temperature": 16.0, "relative_humidity": 65.0, "wind_speed": 3.5 } },
+          "next_6_hours": { "summary": { "symbol_code": "fair_day" }, "details": { "precipitation_amount": 0.0 } }
+        }
+      }
+    ]
+  }
+}
