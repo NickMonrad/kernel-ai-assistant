@@ -65,8 +65,8 @@ import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.feature.chat.model.ChatUiState
-import io.mockk.coEvery
 import io.mockk.clearMocks
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
@@ -494,10 +494,13 @@ class ChatViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story"))
         runCurrent()
 
+        clearMocks(voiceOutputController, answers = false)
         viewModel.onScreenStopped(screenOff = false)
+        gate.complete(Unit)
         advanceUntilIdle()
 
         verify(atLeast = 1) { voiceOutputController.stop() }
+        coVerify(atLeast = 1) { voiceStreamingSession.cancel() }
         assertEquals(1, streamedChunks.size, "no chunk after Home may be queued")
         assertNull(viewModel.speakingMessageId.value)
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
@@ -531,6 +534,10 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals(listOf("Hi there, all good." to true), streamedChunks)
+
+        // Speech finishes with the screen off: the back-and-forth loop must not reopen the mic.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.Command) }
     }
 
