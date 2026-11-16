@@ -19,6 +19,7 @@ import com.kernel.ai.MainActivity
 import com.kernel.ai.core.voice.AcousticEventType
 import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.NATIVE_NOT_READY
+import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.NATIVE_STALLED
 import com.kernel.ai.core.voice.AcousticJournalBridge
 import com.kernel.ai.core.voice.CameraForegroundMonitor
@@ -98,12 +99,6 @@ internal fun missingWakeVerifierModelFiles(context: Context): List<String> {
         !File(modelsDir, name).exists()
     }
 }
-
-/** Catalogue entries backing the wake-verifier model files (#1439). */
-internal fun wakeVerifierKernelModels(): List<KernelModel> =
-    SherpaSttModelSpec.WHISPER.requiredFileNames.mapNotNull { name ->
-        KernelModel.entries.firstOrNull { it.fileName == name }
-    }
 
 /** Build consistent cue-journal metadata from a playback result. */
 internal fun cueMetadata(

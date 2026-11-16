@@ -72,6 +72,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.HeyJandalGate
 import com.kernel.ai.core.voice.HonorCameraCoexistence
+import com.kernel.ai.core.voice.onlineSpeechToggleVisible
 import com.kernel.ai.core.voice.androidNativeWarning
 import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.KokoroSpeakerGroup
@@ -2031,13 +2032,6 @@ private fun VoiceScreenPreview() {
         )
     }
 }
-
-/**
- * The "Allow online speech recognition" switch is shown under an engine row only when that row is
- * the selected engine and the engine is Automatic or Android native (the only engines it affects).
- */
-internal fun onlineSpeechToggleVisible(selected: VoiceInputEngine, row: VoiceInputEngine): Boolean =
-    row == selected && (row == VoiceInputEngine.Auto || row == VoiceInputEngine.AndroidNative)
 
 /** One-line status for the selected Piper voice, shown under the Piper option. */
 private fun sherpaVoiceStatusLine(voice: SherpaPiperVoice, state: VoicePackDownloadState?): String =

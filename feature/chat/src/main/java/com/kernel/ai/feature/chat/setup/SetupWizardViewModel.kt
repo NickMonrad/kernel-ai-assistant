@@ -5,6 +5,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.inference.download.DownloadConsent
+import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
@@ -21,6 +23,8 @@ import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.queueHeyJandalSttModel
+import com.kernel.ai.core.voice.InflectMicroSetup
+import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +38,7 @@ private const val KEY_SELECTED_INPUT = "selected_speech_input"
 private const val KEY_SELECTED_OUTPUT = "selected_speech_output"
 private const val KEY_SELECTED_WAKE_WORD = "selected_wake_word"
 private const val KEY_NOTIFICATIONS_ASKED = "notifications_asked"
+private const val KEY_ONLINE_SPEECH = "allow_online_speech"
 
 /** One screen of the setup wizard. [loaded] is false until persisted progress is read. */
 data class SetupWizardUiState(
@@ -65,6 +70,19 @@ data class SetupWizardUiState(
     val wakeWordChoice: Boolean = false,
     /** True once the notification row launched the system prompt in this run; Finish then skips the download gate. */
     val notificationsAsked: Boolean = false,
+    /** Online speech switch on the speech step. Saved on Finish or Skip, never on Back (#1936). */
+    val allowOnlineSpeech: Boolean = false,
+    /**
+     * Bytes each speech output still has to download, keyed by output. 0 means the output is already on disk
+     * ("Downloaded"); a missing key means the output has no download ("No download"). Cori and Inflect (#1931).
+     */
+    val outputSizes: Map<VoiceOutputEngine, Long> = emptyMap(),
+    /** Extra download the Hey Jandal card names: verifier files, plus Zipformer for Android native (#1931). */
+    val heyJandalExtraBytes: Long = 0L,
+    /** Total for the welcome screen: the first-run plan at the default choices, excluding files already on disk. */
+    val welcomeTotalBytes: Long = 0L,
+    /** True when the wizard was opened from Settings after a finished first run. */
+    val isRerun: Boolean = false,
 )
 
 /**
@@ -125,7 +143,10 @@ class SetupWizardViewModel @Inject constructor(
             val nativeReady = setupVoiceDevice.androidNativeInputReady()
             val inputOptions = SetupSpeechOptions.inputOptions(nativeReady)
             val tier = setupVoiceDevice.hardwareTier()
-            val outputOptions = SetupSpeechOptions.outputOptions(setupVoiceDevice.hasSystemTtsEngine())
+            val outputOptions = SetupSpeechOptions.outputOptions(
+                hasSystemTts = setupVoiceDevice.hasSystemTtsEngine(),
+                inflectEligible = setupVoiceDevice.inflectEligible(),
+            )
             val currentInput = if (voiceInputPreferences.hasStoredEngine()) {
                 voiceInputPreferences.selectedEngine.first()
             } else {
@@ -162,6 +183,11 @@ class SetupWizardViewModel @Inject constructor(
             val wakeStored = wakeWordPreferences.heyJandalEnabled.first()
             voiceStates = voicePackDownloadManager.downloadStates.value
             allPlannedModels = downloadManager.plannedFirstRunModels()
+            val input = effectiveInput(inputEngine)
+            val output = effectiveOutput(outputEngine)
+            val plannedModels = plannedModelsFor(input, output)
+            val plannedVoices = plannedVoicesFor(output)
+            val defaultOutput = SetupSpeechOptions.defaultOutput(tier, outputOptions)
             _uiState.value = _uiState.value.copy(
                 loaded = true,
                 step = start,
@@ -172,12 +198,21 @@ class SetupWizardViewModel @Inject constructor(
                 outputEngine = outputEngine,
                 choice = selected ?: stored ?: DownloadNetworkChoice.WIFI_ONLY,
                 choiceRecorded = stored != null,
-                plannedModels = plannedModelsFor(effectiveInput(inputEngine)),
-                plannedVoices = plannedVoicesFor(effectiveOutput(outputEngine)),
+                plannedModels = plannedModels,
+                plannedVoices = plannedVoices,
                 platform = platformReader.read(),
                 wakeWordStored = wakeStored,
                 wakeWordChoice = savedStateHandle.get<Boolean>(KEY_SELECTED_WAKE_WORD) ?: wakeStored,
                 notificationsAsked = savedStateHandle.get<Boolean>(KEY_NOTIFICATIONS_ASKED) == true,
+                allowOnlineSpeech = savedStateHandle.get<Boolean>(KEY_ONLINE_SPEECH)
+                    ?: voiceInputPreferences.allowOnlineSpeechFallback.first(),
+                outputSizes = outputSizes(),
+                heyJandalExtraBytes = heyJandalExtraBytes(input, plannedModels),
+                welcomeTotalBytes = DownloadConsent.firstRunEstimateBytes(
+                    models = plannedModelsFor(VoiceInputEngine.Auto, defaultOutput),
+                    voiceBytes = plannedVoicesFor(defaultOutput).sumOf { it.approxDownloadBytes },
+                ),
+                isRerun = progress.completed,
             )
         }
     }
@@ -192,13 +227,52 @@ class SetupWizardViewModel @Inject constructor(
     /** The output the app will use: the shown choice, else the stored one (a kept choice). */
     private fun effectiveOutput(engine: VoiceOutputEngine?): VoiceOutputEngine? = engine ?: storedOutput
 
-    /** Zipformer files are needed only when the effective input uses them (Auto or Sherpa Zipformer). */
-    private fun plannedModelsFor(input: VoiceInputEngine): List<KernelModel> =
-        if (VoiceDefaultsProvisioner.needsZipformer(input)) {
+    /**
+     * Zipformer files are needed only when the effective input uses them (Auto or Sherpa Zipformer). Inflect Micro's
+     * graph files join the plan when Inflect is the output, so the step-3 rows and totals include them (#1931).
+     */
+    private fun plannedModelsFor(input: VoiceInputEngine, output: VoiceOutputEngine?): List<KernelModel> {
+        val speech = if (VoiceDefaultsProvisioner.needsZipformer(input)) {
             allPlannedModels
         } else {
             allPlannedModels.filterNot { it in VoiceDefaultsProvisioner.zipformerModels() }
         }
+        val inflect = if (output == VoiceOutputEngine.InflectMicroExperimental) {
+            InflectMicroSetup.kernelModels().filterNot { isModelDownloaded(it) }
+        } else {
+            emptyList()
+        }
+        return speech + inflect.filterNot { it in speech }
+    }
+
+    private fun isModelDownloaded(model: KernelModel): Boolean =
+        downloadManager.downloadStates.value[model] is DownloadState.Downloaded
+
+    /**
+     * Bytes each speech output still has to download. Cori: its pack, or 0 when on disk. Inflect: its missing
+     * graph files plus Cori when Cori is not on disk, or 0 when all are on disk (#1931). Android TTS has no entry.
+     */
+    private fun outputSizes(): Map<VoiceOutputEngine, Long> {
+        val cori = if (isDownloaded(SherpaPiperVoice.CoriHigh)) 0L else SherpaPiperVoice.CoriHigh.approxDownloadBytes
+        val inflectFiles = InflectMicroSetup.kernelModels().filterNot { isModelDownloaded(it) }.sumOf { it.approxSizeBytes }
+        return mapOf(
+            VoiceOutputEngine.SherpaExperimental to cori,
+            VoiceOutputEngine.InflectMicroExperimental to inflectFiles + cori,
+        )
+    }
+
+    /**
+     * Extra download the Hey Jandal card names: verifier files not on disk, plus Zipformer when the input is
+     * Android native. Files already in the step-3 plan are excluded so no byte is counted twice (#1931).
+     */
+    private fun heyJandalExtraBytes(input: VoiceInputEngine, plannedModels: List<KernelModel>): Long {
+        val verifier = wakeVerifierKernelModels()
+        val zipformer = if (input == VoiceInputEngine.AndroidNative) VoiceDefaultsProvisioner.zipformerModels() else emptyList()
+        return (verifier + zipformer)
+            .distinct()
+            .filterNot { isModelDownloaded(it) || it in plannedModels }
+            .sumOf { it.approxSizeBytes }
+    }
 
     private fun plannedVoicesFor(output: VoiceOutputEngine?): List<SherpaPiperVoice> =
         output?.let { plannedVoicesFor(it) { voice -> isDownloaded(voice) } } ?: emptyList()
@@ -210,16 +284,30 @@ class SetupWizardViewModel @Inject constructor(
         savedStateHandle[KEY_SELECTED_INPUT] = engine.name
         _uiState.value = _uiState.value.copy(
             inputEngine = engine,
-            plannedModels = plannedModelsFor(engine),
+            plannedModels = plannedModelsFor(engine, effectiveOutput(_uiState.value.outputEngine)),
+            heyJandalExtraBytes = heyJandalExtraBytes(
+                engine,
+                plannedModelsFor(engine, effectiveOutput(_uiState.value.outputEngine)),
+            ),
         )
     }
 
     fun onOutputSelected(engine: VoiceOutputEngine) {
         savedStateHandle[KEY_SELECTED_OUTPUT] = engine.name
+        val input = effectiveInput(_uiState.value.inputEngine)
+        val models = plannedModelsFor(input, engine)
         _uiState.value = _uiState.value.copy(
             outputEngine = engine,
+            plannedModels = models,
             plannedVoices = plannedVoicesFor(engine) { isDownloaded(it) },
+            heyJandalExtraBytes = heyJandalExtraBytes(input, models),
         )
+    }
+
+    /** Online speech switch on the speech step. Written only by Finish or Skip (#1936). */
+    fun onOnlineSpeechChanged(allowed: Boolean) {
+        savedStateHandle[KEY_ONLINE_SPEECH] = allowed
+        _uiState.value = _uiState.value.copy(allowOnlineSpeech = allowed)
     }
 
     fun onChoiceSelected(choice: DownloadNetworkChoice) {
@@ -297,9 +385,11 @@ class SetupWizardViewModel @Inject constructor(
     fun onSkip(onDone: (DownloadNetworkChoice) -> Unit) {
         val state = _uiState.value
         viewModelScope.launch {
-            saveSpeechChoices(state)
             val effective = storedChoice ?: DownloadNetworkChoice.WIFI_ONLY
+            val output = saveSpeechChoices(state)
             if (storedChoice == null) downloadNetworkPreferences.setChoice(effective)
+            // Inflect queues on Skip too; Cori alone never does (#1936). Queued after the network choice (consent).
+            if (output == VoiceOutputEngine.InflectMicroExperimental) queueInflectMicro()
             setupWizardPreferences.markCompleted()
             onDone(effective)
         }
@@ -321,6 +411,8 @@ class SetupWizardViewModel @Inject constructor(
      */
     private suspend fun saveSpeechChoices(state: SetupWizardUiState): VoiceOutputEngine? {
         inputToSave(state)?.let { voiceInputPreferences.setSelectedEngine(it) }
+        // Written only when changed in this run, so a stored value stands otherwise (#1936).
+        if (touched(KEY_ONLINE_SPEECH)) voiceInputPreferences.setAllowOnlineSpeechFallback(state.allowOnlineSpeech)
         val output = outputToSave(state)
         output?.let { voiceOutputPreferences.setSelectedEngine(it) }
         return output
@@ -344,7 +436,16 @@ class SetupWizardViewModel @Inject constructor(
      * for Android TTS or a kept output. Cori already on disk is left alone (PiperVoiceSetup checks state).
      */
     private suspend fun startChosenVoice(output: VoiceOutputEngine?) {
-        if (output == VoiceOutputEngine.SherpaExperimental) piperVoiceSetup.onEngineChosen(output)
+        when (output) {
+            VoiceOutputEngine.SherpaExperimental -> piperVoiceSetup.onEngineChosen(output)
+            VoiceOutputEngine.InflectMicroExperimental -> queueInflectMicro()
+            else -> Unit
+        }
+    }
+
+    /** Queues Inflect's graph files and the Cori pack it needs. Shared with Settings via [InflectMicroSetup]. */
+    private fun queueInflectMicro() {
+        InflectMicroSetup.queue(downloadManager, voicePackDownloadManager, SherpaPiperVoice.CoriHigh)
     }
 
     /**
@@ -372,7 +473,7 @@ class SetupWizardViewModel @Inject constructor(
             engine: VoiceOutputEngine,
             isDownloaded: (SherpaPiperVoice) -> Boolean,
         ): List<SherpaPiperVoice> =
-            if (engine == VoiceOutputEngine.SherpaExperimental) {
+            if (engine == VoiceOutputEngine.SherpaExperimental || engine == VoiceOutputEngine.InflectMicroExperimental) {
                 listOf(SherpaPiperVoice.CoriHigh).filterNot(isDownloaded)
             } else {
                 emptyList()

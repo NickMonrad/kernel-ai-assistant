@@ -25,12 +25,15 @@ internal object SetupSpeechOptions {
             "Android's own listener can't be used on this phone, so Automatic is the one that works here."
         }
 
-    /** Cori is always offered. Android's built-in voice is offered only when a TTS engine is installed. */
-    fun outputOptions(hasSystemTts: Boolean): List<VoiceOutputEngine> =
-        if (hasSystemTts) {
-            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts)
-        } else {
-            listOf(VoiceOutputEngine.SherpaExperimental)
+    /**
+     * Cori is always offered. Inflect Micro only where it is release-eligible on this device (#1936: no device-requirement
+     * wording). Kokoro is never offered in setup. Android's built-in voice needs an installed TTS engine.
+     */
+    fun outputOptions(hasSystemTts: Boolean, inflectEligible: Boolean): List<VoiceOutputEngine> =
+        buildList {
+            add(VoiceOutputEngine.SherpaExperimental)
+            if (inflectEligible) add(VoiceOutputEngine.InflectMicroExperimental)
+            if (hasSystemTts) add(VoiceOutputEngine.AndroidTts)
         }
 
     /** [candidate] when the wizard offers it, otherwise null. */

@@ -40,6 +40,10 @@ object HeyJandalGate {
 fun SherpaSttModelSpec.kernelModels(): List<KernelModel> =
     requiredFileNames.mapNotNull { fileName -> KernelModel.entries.firstOrNull { it.fileName == fileName } }
 
+/** Catalogue entries backing the wake-verifier model files (#1439). Shared by :app provisioning and setup sizes (#1931). */
+fun wakeVerifierKernelModels(): List<KernelModel> =
+    SherpaSttModelSpec.WHISPER.kernelModels()
+
 /**
  * Queues the STT model Hey Jandal verifies with: the selected online recognizer if it has one,
  * otherwise Zipformer. Call when Hey Jandal is turned on.

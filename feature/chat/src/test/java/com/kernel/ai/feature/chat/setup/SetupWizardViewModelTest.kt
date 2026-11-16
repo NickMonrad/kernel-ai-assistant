@@ -68,6 +68,9 @@ class SetupWizardViewModelTest {
         coEvery { voiceOutputPreferences.hasStoredEngine() } returns false
         every { wakeWordPreferences.heyJandalEnabled } returns flowOf(false)
         every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
+        every { voiceInputPreferences.allowOnlineSpeechFallback } returns flowOf(false)
+        every { downloadManager.downloadStates } returns MutableStateFlow(emptyMap())
+        every { setupVoiceDevice.inflectEligible() } returns false
         coEvery { platformReader.read() } returns MakeYoursPlatform(
             hasMicrophone = true,
             micGranted = true,

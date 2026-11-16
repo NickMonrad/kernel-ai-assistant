@@ -177,7 +177,7 @@ class SetupWizardLargeFontTest {
             )
         }
         val minHeightPx = MIN_TOUCH_DP * layoutDensity
-        listOf(primary, "Back", "Skip for now").forEach { label ->
+        listOf(primary, "Back", "Skip setup").forEach { label ->
             if (compact) {
                 composeRule.onNode(hasClickAction() and hasText(label)).performScrollTo()
             }

@@ -26,9 +26,20 @@ class SetupSpeechOptionsTest {
     fun `Android's voice is offered only when a TTS engine is installed`() {
         assertEquals(
             listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
-            SetupSpeechOptions.outputOptions(hasSystemTts = true),
+            SetupSpeechOptions.outputOptions(hasSystemTts = true, inflectEligible = false),
         )
-        assertEquals(listOf(VoiceOutputEngine.SherpaExperimental), SetupSpeechOptions.outputOptions(hasSystemTts = false))
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental),
+            SetupSpeechOptions.outputOptions(hasSystemTts = false, inflectEligible = false),
+        )
+    }
+
+    @Test
+    fun `Inflect Micro is offered only where it is eligible`() {
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+            SetupSpeechOptions.outputOptions(hasSystemTts = false, inflectEligible = true),
+        )
     }
 
     @Test

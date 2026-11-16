@@ -1,6 +1,5 @@
-package com.kernel.ai.feature.settings
+package com.kernel.ai.core.voice
 
-import com.kernel.ai.core.voice.VoiceInputEngine
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

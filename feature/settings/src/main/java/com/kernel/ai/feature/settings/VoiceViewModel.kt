@@ -11,6 +11,7 @@ import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.InflectMicroModelSpec
+import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController
@@ -550,29 +551,11 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun downloadInflectMicro() {
-        val currentStates = modelDownloadManager.downloadStates.value
-        inflectModels
-            .filter { model ->
-                when (currentStates[model] ?: DownloadState.NotDownloaded) {
-                    is DownloadState.NotDownloaded,
-                    is DownloadState.Error,
-                    -> true
-                    is DownloadState.Downloading,
-                    is DownloadState.Downloaded,
-                    -> false
-                }
-            }
-            .forEach { modelDownloadManager.startDownload(it) }
-
-        val selectedVoice = _uiState.value.selectedSherpaVoice
-        val frontendState =
-            sherpaVoicePackDownloadManager.downloadStates.value[selectedVoice]
-                ?: VoicePackDownloadState.NotDownloaded
-        if (frontendState is VoicePackDownloadState.NotDownloaded ||
-            frontendState is VoicePackDownloadState.Error
-        ) {
-            sherpaVoicePackDownloadManager.startDownload(selectedVoice)
-        }
+        InflectMicroSetup.queue(
+            modelDownloadManager = modelDownloadManager,
+            voicePackDownloadManager = sherpaVoicePackDownloadManager,
+            frontendVoice = _uiState.value.selectedSherpaVoice,
+        )
     }
 
     /**

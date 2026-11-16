@@ -1,5 +1,4 @@
 package com.kernel.ai.feature.chat.setup
-import com.kernel.ai.core.ui.findActivity
 
 import android.Manifest
 import android.content.Context
@@ -7,21 +6,35 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Alarm
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Button
+import androidx.compose.foundation.background
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,23 +42,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.KernelModel
@@ -60,16 +75,27 @@ import com.kernel.ai.core.permissions.exactAlarmSettingsIntents
 import com.kernel.ai.core.permissions.isSilentDenial
 import com.kernel.ai.core.permissions.launchFirstAvailable
 import com.kernel.ai.core.permissions.recordPermissionResult
+import com.kernel.ai.core.ui.ChipStatus
+import com.kernel.ai.core.ui.ChoiceCard
+import com.kernel.ai.core.ui.ChoiceGroup
+import com.kernel.ai.core.ui.ExplanationSheet
+import com.kernel.ai.core.ui.InfoTag
+import com.kernel.ai.core.ui.InfoTagStyle
+import com.kernel.ai.core.ui.theme.JandalTheme
+import com.kernel.ai.core.ui.SectionLabel
+import com.kernel.ai.core.ui.StatusChip
+import com.kernel.ai.core.ui.SwitchSubSetting
 import com.kernel.ai.core.ui.findActivity
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
-import com.kernel.ai.feature.chat.R
-import com.kernel.ai.core.voice.HonorCameraCoexistence
-import androidx.compose.ui.res.stringResource
-import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.HeyJandalBlock
+import com.kernel.ai.core.voice.HonorCameraCoexistence
+import com.kernel.ai.core.voice.OnlineSpeechCopy
+import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
+import com.kernel.ai.core.voice.onlineSpeechToggleVisible
+import com.kernel.ai.feature.chat.R
 import com.kernel.ai.feature.chat.formatBytesShort
 
 private const val FINISH_ID = "finish"
@@ -193,6 +219,7 @@ fun SetupWizardScreen(
         onInputSelected = viewModel::onInputSelected,
         onOutputSelected = viewModel::onOutputSelected,
         onChoiceSelected = viewModel::onChoiceSelected,
+        onOnlineSpeechChanged = viewModel::onOnlineSpeechChanged,
         makeYours = makeYours,
         onPrimary = {
             if (state.step == SetupStep.entries.last()) {
@@ -235,13 +262,15 @@ private fun openAppInfo(context: Context, permission: String) {
     if (!opened) toast(context, context.getString(R.string.setup_wizard_app_info_missing))
 }
 
+
 private fun toast(context: Context, message: String) {
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
 /**
- * Stateless wizard layout (#1903). Portrait: step content scrolls above a pinned button row. Short windows
+ * Stateless wizard layout (#1903). Portrait: step content scrolls above a pinned footer. Short windows
  * (landscape phones): the whole page scrolls so the buttons keep a 48 dp minimum instead of being squeezed.
+ * The scroll position resets on each step change (#1929).
  */
 @Composable
 internal fun SetupWizardContent(
@@ -253,13 +282,12 @@ internal fun SetupWizardContent(
     onPrimary: () -> Unit,
     onBack: () -> Unit,
     onSkip: () -> Unit,
+    onOnlineSpeechChanged: (Boolean) -> Unit = {},
 ) {
     val isLast = state.step == SetupStep.entries.last()
-    val scrollState = rememberScrollState()
+    val scrollState = rememberSaveable(state.step, saver = ScrollState.Saver) { ScrollState(0) }
     BoxWithConstraints(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
         if (maxHeight < COMPACT_HEIGHT) {
-            // Short windows (landscape phones at large font): a pinned button row cannot keep its 48 dp minimum,
-            // so the whole page scrolls and the buttons stay reachable at the end of it.
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -268,8 +296,8 @@ internal fun SetupWizardContent(
                     .testTag(SETUP_WIZARD_CONTENT_TAG),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                StepContent(Modifier, state, onInputSelected, onOutputSelected, onChoiceSelected, makeYours)
-                WizardButtons(isLast, onPrimary, onBack, onSkip)
+                StepContent(state, onInputSelected, onOutputSelected, onChoiceSelected, onOnlineSpeechChanged, makeYours)
+                WizardButtons(state.step, isLast, onPrimary, onBack, onSkip)
             }
         } else {
             Column(
@@ -284,10 +312,11 @@ internal fun SetupWizardContent(
                         .fillMaxWidth()
                         .verticalScroll(scrollState)
                         .testTag(SETUP_WIZARD_CONTENT_TAG),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    StepContent(Modifier, state, onInputSelected, onOutputSelected, onChoiceSelected, makeYours)
+                    StepContent(state, onInputSelected, onOutputSelected, onChoiceSelected, onOnlineSpeechChanged, makeYours)
                 }
-                WizardButtons(isLast, onPrimary, onBack, onSkip)
+                WizardButtons(state.step, isLast, onPrimary, onBack, onSkip)
             }
         }
     }
@@ -295,45 +324,50 @@ internal fun SetupWizardContent(
 
 @Composable
 private fun StepContent(
-    modifier: Modifier,
     state: SetupWizardUiState,
     onInputSelected: (VoiceInputEngine) -> Unit,
     onOutputSelected: (VoiceOutputEngine) -> Unit,
     onChoiceSelected: (DownloadNetworkChoice) -> Unit,
+    onOnlineSpeechChanged: (Boolean) -> Unit,
     makeYours: MakeYoursActions,
 ) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        when (state.step) {
-            SetupStep.HOW_IT_WORKS -> HowItWorksStep()
-            SetupStep.VOICE -> VoiceStep(
-                inputOptions = state.inputOptions,
-                inputReason = state.inputReason,
-                inputEngine = state.inputEngine,
-                outputOptions = state.outputOptions,
-                outputEngine = state.outputEngine,
-                onInputSelected = onInputSelected,
-                onOutputSelected = onOutputSelected,
-            )
-            SetupStep.DOWNLOAD -> DownloadStep(
-                plannedModels = state.plannedModels,
-                plannedVoices = state.plannedVoices,
-                choice = state.choice,
-                choiceRecorded = state.choiceRecorded,
-                onChoiceSelected = onChoiceSelected,
-            )
-            SetupStep.MAKE_JANDAL_YOURS -> MakeYoursStep(state, makeYours)
-        }
+    when (state.step) {
+        SetupStep.HOW_IT_WORKS -> WelcomeStep(state)
+        SetupStep.VOICE -> VoiceStep(
+            state = state,
+            onInputSelected = onInputSelected,
+            onOutputSelected = onOutputSelected,
+            onOnlineSpeechChanged = onOnlineSpeechChanged,
+        )
+        SetupStep.DOWNLOAD -> DownloadStep(
+            plannedModels = state.plannedModels,
+            plannedVoices = state.plannedVoices,
+            choice = state.choice,
+            choiceRecorded = state.choiceRecorded,
+            isRerun = state.isRerun,
+            onChoiceSelected = onChoiceSelected,
+        )
+        SetupStep.MAKE_JANDAL_YOURS -> MakeYoursStep(state, makeYours)
     }
 }
 
+/** Footer: the primary action, then Back and Skip. Skip reads "Skip setup" on steps 1–3 and "Skip these" on step 4. */
 @Composable
-private fun WizardButtons(isLast: Boolean, onPrimary: () -> Unit, onBack: () -> Unit, onSkip: () -> Unit) {
+private fun WizardButtons(
+    step: SetupStep,
+    isLast: Boolean,
+    onPrimary: () -> Unit,
+    onBack: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    val accent = JandalTheme.colors.accent
     Button(
         onClick = onPrimary,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
     ) {
         Text(if (isLast) "Finish" else "Continue")
     }
@@ -345,20 +379,14 @@ private fun WizardButtons(isLast: Boolean, onPrimary: () -> Unit, onBack: () -> 
         TextButton(
             onClick = onBack,
             modifier = Modifier.heightIn(min = 48.dp),
+            colors = ButtonDefaults.textButtonColors(contentColor = accent),
         ) { Text("Back") }
         TextButton(
             onClick = onSkip,
             modifier = Modifier.heightIn(min = 48.dp),
-        ) { Text("Skip for now") }
+            colors = ButtonDefaults.textButtonColors(contentColor = accent),
+        ) { Text(if (step == SetupStep.MAKE_JANDAL_YOURS) "Skip these" else "Skip setup") }
     }
-}
-
-/** Download-step size line. Zero bytes left means nothing to download, never "About 0 B" (#1903). */
-internal fun downloadSizeLine(totalBytes: Long, choiceRecorded: Boolean): String = when {
-    totalBytes <= 0L -> "Nothing left to download. Jandal already has every model and voice it needs on this phone."
-    choiceRecorded -> "About ${formatBytesShort(totalBytes)} still to download. " +
-        "Your network choice applies to downloads in progress."
-    else -> "About ${formatBytesShort(totalBytes)} in total. Nothing downloads until you tap Finish or Skip on the last step."
 }
 
 private fun skipNote(choice: DownloadNetworkChoice): String = when (choice) {
@@ -366,100 +394,216 @@ private fun skipNote(choice: DownloadNetworkChoice): String = when (choice) {
     DownloadNetworkChoice.MOBILE_DATA_ALLOWED -> "Skipped. Models will download on mobile data too. Change this in Model Management."
 }
 
+/** Shared step heading: a semantic title and a plain subtitle. */
 @Composable
-private fun HowItWorksStep() {
+private fun StepHeading(title: String, subtitle: String?) {
     Text(
-        text = "Kia ora, welcome to Jandal",
+        text = title,
         style = MaterialTheme.typography.headlineSmall,
         modifier = Modifier.semantics { heading() },
     )
-    Text(
-        text = "Jandal is a private assistant that runs on your phone. Your chats and the things you tell it " +
-            "stay on this device.",
-        style = MaterialTheme.typography.bodyLarge,
+    subtitle?.let { Text(text = it, style = MaterialTheme.typography.bodyLarge) }
+}
+
+/** A 44 dp icon tile on the primary container, used by the welcome rows and summary rows. */
+@Composable
+private fun IconTile(icon: ImageVector) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+    }
+}
+
+@Composable
+private fun WelcomeRow(icon: ImageVector, title: String, body: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        IconTile(icon)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.titleSmall)
+            Text(text = body, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun WelcomeStep(state: SetupWizardUiState) {
+    Box(
+        modifier = Modifier
+            .size(72.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(20.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.AutoAwesome,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+    }
+    StepHeading(
+        title = "Kia ora, welcome to Jandal",
+        subtitle = "A private assistant that runs on your phone.",
     )
-    Text(
-        text = "Timers, weather and shopping lists work straight away. Chatting needs model files, " +
-            "which Jandal downloads once.",
-        style = MaterialTheme.typography.bodyLarge,
+    WelcomeRow(
+        icon = Icons.Outlined.Lock,
+        title = "Private by default",
+        body = "Your chats and what you tell Jandal stay on this phone.",
+    )
+    WelcomeRow(
+        icon = Icons.Outlined.Bolt,
+        title = "Timers, weather and lists work now",
+        body = "No download needed for these.",
+    )
+    WelcomeRow(
+        icon = Icons.Outlined.Download,
+        title = "Chat needs a one-time download",
+        body = if (state.isRerun) {
+            "Already set up on this phone. You choose Wi-Fi or mobile data in step 3."
+        } else if (state.welcomeTotalBytes > 0L) {
+            "About ${formatBytesShort(state.welcomeTotalBytes)}. You choose Wi-Fi or mobile data in step 3."
+        } else {
+            "Already downloaded on this phone. You choose Wi-Fi or mobile data in step 3."
+        },
     )
 }
 
 @Composable
 private fun VoiceStep(
-    inputOptions: List<VoiceInputEngine>,
-    inputReason: String?,
-    inputEngine: VoiceInputEngine?,
-    outputOptions: List<VoiceOutputEngine>,
-    outputEngine: VoiceOutputEngine?,
+    state: SetupWizardUiState,
     onInputSelected: (VoiceInputEngine) -> Unit,
     onOutputSelected: (VoiceOutputEngine) -> Unit,
+    onOnlineSpeechChanged: (Boolean) -> Unit,
 ) {
-    Text(
-        text = "How should Jandal hear and talk to you?",
-        style = MaterialTheme.typography.headlineSmall,
-        modifier = Modifier.semantics { heading() },
+    val inputEngine = state.inputEngine
+    val outputEngine = state.outputEngine
+    StepHeading(
+        title = "How should Jandal hear and talk to you?",
+        subtitle = "Nothing downloads until the last step.",
     )
-    Text(
-        text = "Pick both now. Nothing downloads until you tap Finish or Skip on the last step.",
-        style = MaterialTheme.typography.bodyLarge,
-    )
-    Text(
-        text = "When you talk to Jandal",
-        style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(top = 8.dp).semantics { heading() },
-    )
-    inputReason?.let { reason ->
+    SectionLabel(text = "When you talk to Jandal")
+    state.inputReason?.let { reason ->
         Text(text = reason, style = MaterialTheme.typography.bodySmall)
     }
     if (inputEngine == null) {
-        Text(text = "Your current speech input stays as it is unless you pick one below.", style = MaterialTheme.typography.bodySmall)
-    }
-    inputOptions.forEach { engine ->
-        ChoiceOption(
-            title = inputTitle(engine),
-            body = inputBody(engine),
-            selected = inputEngine == engine,
-            onSelect = { onInputSelected(engine) },
+        Text(
+            text = "Your current speech input stays as it is.",
+            style = MaterialTheme.typography.bodySmall,
         )
     }
-    Text(
-        text = "When Jandal talks back",
-        style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(top = 8.dp).semantics { heading() },
-    )
-    outputOptions.forEach { engine ->
-        ChoiceOption(
-            title = outputTitle(engine),
-            body = outputBody(engine),
-            selected = outputEngine == engine,
-            onSelect = { onOutputSelected(engine) },
-        )
+    ChoiceGroup(count = state.inputOptions.size) {
+        state.inputOptions.forEachIndexed { index, engine ->
+            val selected = inputEngine == engine
+            ChoiceCard(
+                title = inputTitle(engine),
+                description = inputBody(engine),
+                selected = selected,
+                onSelect = { onInputSelected(engine) },
+                index = index,
+                tag = if (engine == VoiceInputEngine.Auto) {
+                    { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
+                } else {
+                    null
+                },
+                subContent = if (selected && inputEngine != null && onlineSpeechToggleVisible(inputEngine, engine)) {
+                    {
+                        OnlineSpeechRow(
+                            checked = state.allowOnlineSpeech,
+                            onCheckedChange = onOnlineSpeechChanged,
+                        )
+                    }
+                } else {
+                    null
+                },
+            )
+        }
     }
+
+    SectionLabel(text = "When Jandal talks back")
     if (outputEngine == null) {
-        Text(text = "Your current speech output stays as it is unless you pick one above.", style = MaterialTheme.typography.bodySmall)
+        Text(
+            text = "Your current speech output stays as it is.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    ChoiceGroup(count = state.outputOptions.size) {
+        state.outputOptions.forEachIndexed { index, engine ->
+            ChoiceCard(
+                title = outputTitle(engine),
+                description = outputBody(engine),
+                selected = outputEngine == engine,
+                onSelect = { onOutputSelected(engine) },
+                index = index,
+                tag = outputTag(state.outputSizes[engine]),
+            )
+        }
+    }
+}
+
+/** Online speech switch inside the selected listening card (#1936). Saved on Finish or Skip. */
+@Composable
+private fun OnlineSpeechRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    var showExplanation by remember { mutableStateOf(false) }
+    SwitchSubSetting(
+        title = OnlineSpeechCopy.TITLE,
+        description = OnlineSpeechCopy.LINE,
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        onMore = { showExplanation = true },
+        moreDescription = "More about online speech recognition",
+    )
+    if (showExplanation) {
+        ExplanationSheet(
+            title = OnlineSpeechCopy.TITLE,
+            body = OnlineSpeechCopy.EXPLANATION,
+            onDismiss = { showExplanation = false },
+        )
+    }
+}
+
+/** Size or status tag for a speech output: "Downloaded" at 0 bytes, the size when needed, none otherwise. */
+@Composable
+private fun outputTag(bytes: Long?): (@Composable () -> Unit)? {
+    if (bytes == null) return null
+    return {
+        if (bytes <= 0L) {
+            InfoTag(text = "Downloaded", style = InfoTagStyle.Success)
+        } else {
+            InfoTag(text = formatBytesShort(bytes), style = InfoTagStyle.Neutral)
+        }
     }
 }
 
 private fun inputTitle(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.AndroidNative -> "Android's own listener"
-    else -> "Automatic (recommended)"
+    else -> "Automatic"
 }
 
 private fun inputBody(engine: VoiceInputEngine): String = when (engine) {
-    VoiceInputEngine.AndroidNative -> "Uses the speech recognition built into your phone."
+    VoiceInputEngine.AndroidNative -> "Your phone's built-in speech recognition."
     else -> "Works offline on this phone."
 }
 
 private fun outputTitle(engine: VoiceOutputEngine): String = when (engine) {
-    VoiceOutputEngine.AndroidTts -> "Your phone's voice"
-    else -> "Cori, natural voice (about ${formatBytesShort(SherpaPiperVoice.CoriHigh.approxDownloadBytes)})"
+    VoiceOutputEngine.AndroidTts -> "Phone's built-in voice"
+    VoiceOutputEngine.InflectMicroExperimental -> "Inflect Micro"
+    else -> "Cori, natural voice"
 }
 
 private fun outputBody(engine: VoiceOutputEngine): String = when (engine) {
-    VoiceOutputEngine.AndroidTts -> "The voice already on your phone. Nothing to download."
-    else -> "Sounds more natural and works offline. It downloads with the other files in the next step. " +
-        "May be slower on older phones."
+    VoiceOutputEngine.AndroidTts -> "No download. Sounds more robotic."
+    VoiceOutputEngine.InflectMicroExperimental -> "Higher-quality voice. Works offline."
+    else -> "Sounds natural and works offline. Can be slower on older phones."
 }
 
 @Composable
@@ -468,227 +612,341 @@ private fun DownloadStep(
     plannedVoices: List<SherpaPiperVoice>,
     choice: DownloadNetworkChoice,
     choiceRecorded: Boolean,
+    isRerun: Boolean,
     onChoiceSelected: (DownloadNetworkChoice) -> Unit,
 ) {
-    val totalBytes = DownloadConsent.firstRunEstimateBytes(plannedModels, plannedVoices.sumOf { it.approxDownloadBytes })
+    val voiceBytes = plannedVoices.sumOf { it.approxDownloadBytes }
+    val totalBytes = DownloadConsent.firstRunEstimateBytes(plannedModels, voiceBytes)
+    StepHeading(
+        title = "Download Jandal's models",
+        subtitle = "A one-time download. Timers, weather and lists work while it runs.",
+    )
+    SetupSummaryCard(totalBytes = totalBytes, plannedModels = plannedModels, plannedVoices = plannedVoices)
     Text(
-        text = "Download Jandal's models",
-        style = MaterialTheme.typography.headlineSmall,
-        modifier = Modifier.semantics { heading() },
+        text = when {
+            totalBytes <= 0L -> "Already downloaded. Jandal has every model and voice it needs on this phone."
+            isRerun || choiceRecorded -> "Your network choice applies to downloads already in progress."
+            else -> "Nothing downloads until you tap Finish or Skip on the last step."
+        },
+        style = MaterialTheme.typography.bodySmall,
     )
-    Text(
-        text = downloadSizeLine(totalBytes, choiceRecorded),
-        style = MaterialTheme.typography.bodyLarge,
-    )
-    val (zipformer, others) = plannedModels.partition { it in VoiceDefaultsProvisioner.zipformerModels() }
-    if (zipformer.isNotEmpty()) {
-        Column {
-            Text(text = "Speech recognition (Zipformer)", style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = "Turns your voice into text, offline. ${formatBytesShort(zipformer.sumOf { it.approxSizeBytes })}",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
+    SectionLabel(text = "Which network should downloads use?")
+    ChoiceGroup(count = 2) {
+        ChoiceCard(
+            title = "Wi-Fi only",
+            description = "Waits until you're on Wi-Fi.",
+            selected = choice == DownloadNetworkChoice.WIFI_ONLY,
+            onSelect = { onChoiceSelected(DownloadNetworkChoice.WIFI_ONLY) },
+            index = 0,
+            tag = { InfoTag(text = "Recommended", style = InfoTagStyle.Success) },
+        )
+        ChoiceCard(
+            title = "Wi-Fi or mobile data",
+            description = "Can use your mobile data plan.",
+            selected = choice == DownloadNetworkChoice.MOBILE_DATA_ALLOWED,
+            onSelect = { onChoiceSelected(DownloadNetworkChoice.MOBILE_DATA_ALLOWED) },
+            index = 1,
+        )
     }
-    others.forEach { model ->
-        Column {
-            Text(text = ModelRoleCopy.purpose(model), style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = ModelRoleCopy.technicalLine(model),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
-    plannedVoices.forEach { voice ->
-        Column {
-            Text(text = "${voice.displayName} natural voice", style = MaterialTheme.typography.bodyLarge)
-            Text(text = formatBytesShort(voice.approxDownloadBytes), style = MaterialTheme.typography.bodySmall)
-        }
-    }
-
-    Text(
-        text = "Which network should downloads use?",
-        style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(top = 8.dp),
-    )
-    ChoiceOption(
-        title = "Wi-Fi only (recommended)",
-        body = "Downloads wait until you are on Wi-Fi.",
-        selected = choice == DownloadNetworkChoice.WIFI_ONLY,
-        onSelect = { onChoiceSelected(DownloadNetworkChoice.WIFI_ONLY) },
-    )
-    ChoiceOption(
-        title = "Allow mobile data",
-        body = "Downloads may use your mobile data plan.",
-        selected = choice == DownloadNetworkChoice.MOBILE_DATA_ALLOWED,
-        onSelect = { onChoiceSelected(DownloadNetworkChoice.MOBILE_DATA_ALLOWED) },
-    )
 }
 
 /**
- * Optional Make Jandal yours step (#1855 part 3). Four rows, each with a live status (On, Off or Not
- * available) read from the phone. Nothing here requests a permission or opens a page until its button is tapped.
+ * Summary rows for the step-3 plan: a Total, then one row per planned item with its size. Items already on the
+ * phone are left out by the view model, so this only lists what is still to download.
+ */
+@Composable
+private fun SetupSummaryCard(
+    totalBytes: Long,
+    plannedModels: List<KernelModel>,
+    plannedVoices: List<SherpaPiperVoice>,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SummaryRow(
+                title = "Total",
+                detail = null,
+                size = if (totalBytes > 0L) "About ${formatBytesShort(totalBytes)}" else "Already downloaded",
+                bold = true,
+            )
+            val (zipformer, others) = plannedModels.partition { it in VoiceDefaultsProvisioner.zipformerModels() }
+            if (zipformer.isNotEmpty()) {
+                SummaryRow(
+                    title = "Offline speech recognition",
+                    detail = "Zipformer",
+                    size = formatBytesShort(zipformer.sumOf { it.approxSizeBytes }),
+                )
+            }
+            others.forEach { model ->
+                SummaryRow(
+                    title = ModelRoleCopy.purpose(model),
+                    detail = ModelRoleCopy.technicalLine(model),
+                    size = formatBytesShort(model.approxSizeBytes),
+                )
+            }
+            plannedVoices.forEach { voice ->
+                SummaryRow(
+                    title = "${voice.displayName} natural voice",
+                    detail = null,
+                    size = formatBytesShort(voice.approxDownloadBytes),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryRow(title: String, detail: String?, size: String, bold: Boolean = false) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(
+                text = title,
+                style = if (bold) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyLarge,
+            )
+            detail?.let { Text(text = it, style = MaterialTheme.typography.bodySmall) }
+        }
+        Text(text = size, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/**
+ * Optional Make Jandal yours step (#1855 part 3). Each card shows a live status read from the phone. Nothing here
+ * requests a permission or opens a page until its button is tapped.
  */
 @Composable
 private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) {
     val platform = state.platform
-    val wakeBlock = MakeYoursRows.heyJandalBlock(platform)
-    val wakeStatus = MakeYoursRows.wakeWord(state.wakeWordStored, platform)
-    val wakePending = state.wakeWordChoice != state.wakeWordStored
     val assistantStatus = MakeYoursRows.defaultAssistant(platform)
     val notificationStatus = MakeYoursRows.notifications(platform)
     val exactStatus = MakeYoursRows.exactAlarm(platform)
 
-    Text(
-        text = "Make Jandal yours",
-        style = MaterialTheme.typography.headlineSmall,
-        modifier = Modifier.semantics { heading() },
+    StepHeading(
+        title = "Make Jandal yours",
+        subtitle = "All optional. Change any of these later in Settings.",
     )
-    Text(
-        text = "All of these are optional. Skip any of them and change them later in Settings.",
-        style = MaterialTheme.typography.bodyLarge,
-    )
+    HeyJandalCard(state, actions)
 
-    // The blocker's own fix comes first. "Turn off" is offered whenever the stored choice is On.
-    val wakeActions = buildList<Pair<String, () -> Unit>> {
-        when (wakeBlock) {
-            HeyJandalBlock.MicrophoneNotGranted -> add("Allow microphone" to actions.onAllowMicrophone)
-            HeyJandalBlock.UsageAccessNeeded -> add("Open Usage Access" to actions.onOpenUsageAccess)
-            null -> if (!state.wakeWordChoice) add("Turn on" to { actions.onWakeWordChoiceChanged(true) })
-            HeyJandalBlock.NoMicrophone, HeyJandalBlock.ModelNotInstalled -> Unit
-        }
-        if (state.wakeWordChoice) add("Turn off" to { actions.onWakeWordChoiceChanged(false) })
-    }
-    // Reason first, then what Finish will do. Never promise a turn-on that a blocker will stop.
-    val wakeNote = listOfNotNull(
-        MakeYoursRows.wakeWordBlockReason(platform),
-        when {
-            wakeBlock != null && state.wakeWordChoice -> "Stays off until this is fixed."
-            wakePending && state.wakeWordChoice -> "Turns on when you tap Finish."
-            wakePending -> "Turns off when you tap Finish."
-            else -> null
-        },
-    ).joinToString(" ").takeIf { it.isNotEmpty() }
-
-    MakeYoursRow(
-        id = "hey_jandal",
-        title = "Hey Jandal",
-        reason = "Say \"Hey Jandal\" and Jandal starts listening, hands-free. The mic stays on for the wake " +
-            "word, so it uses a little battery. It works most reliably once Jandal is your default assistant, " +
-            "which is the next row." +
-            if (state.inputEngine == VoiceInputEngine.AndroidNative) {
-                " Hey Jandal also needs the Zipformer speech model, about 72 MB, even though Android's listener " +
-                    "is your speech input."
-            } else {
-                ""
-            },
-        status = wakeStatus,
-        note = wakeNote,
-        actions = wakeActions,
-    )
-
-    MakeYoursRow(
-        id = "default_assistant",
+    SettingCard(
+        icon = Icons.Outlined.AutoAwesome,
         title = "Default assistant",
-        reason = "Makes Jandal the app that opens when you use your phone's assistant button or gesture. " +
-            "Hey Jandal listens most reliably with this set. Pick Jandal AI on the system page, then come back. " +
-            "This row updates by itself.",
-        status = assistantStatus,
-        note = if (assistantStatus == MakeYoursStatus.NotAvailable) {
-            "This phone has no default assistant setting."
-        } else {
-            null
+        description = "Opens Jandal from your phone's assistant button or gesture. Hey Jandal works best with this on.",
+        status = when (assistantStatus) {
+            MakeYoursStatus.On -> ChipStatus.On
+            MakeYoursStatus.Off -> ChipStatus.Off
+            MakeYoursStatus.NotAvailable -> ChipStatus.NotAvailable
         },
-        actions = if (assistantStatus == MakeYoursStatus.NotAvailable) {
-            emptyList()
-        } else {
-            listOf("Open default assistant settings" to actions.onOpenDefaultAssistant)
+        action = when (assistantStatus) {
+            MakeYoursStatus.On -> null
+            MakeYoursStatus.Off -> CardAction(
+                label = "Open settings",
+                onClick = actions.onOpenDefaultAssistant,
+                tonal = true,
+            )
+            MakeYoursStatus.NotAvailable -> null
         },
+        id = "default_assistant",
     )
-
-    MakeYoursRow(
-        id = "notifications",
+    SettingCard(
+        icon = Icons.Outlined.Notifications,
         title = "Notifications",
-        reason = "Lets Jandal show download progress, alarms and reminders. Downloads keep going either way.",
-        status = notificationStatus,
-        note = if (notificationStatus == MakeYoursStatus.Off) {
-            "If Android won't ask again, Jandal opens App info so you can turn it on there."
+        description = "Download progress, alarms and reminders. Downloads keep going either way.",
+        status = if (notificationStatus == MakeYoursStatus.On) ChipStatus.On else ChipStatus.Off,
+        action = if (notificationStatus == MakeYoursStatus.Off) {
+            CardAction(label = "Allow", onClick = actions.onAllowNotifications, tonal = true)
         } else {
             null
         },
-        actions = if (notificationStatus == MakeYoursStatus.Off) {
-            listOf("Allow notifications" to actions.onAllowNotifications)
-        } else {
-            emptyList()
-        },
+        id = "notifications",
     )
-
-    MakeYoursRow(
-        id = "exact_alarms",
+    SettingCard(
+        icon = Icons.Outlined.Alarm,
         title = "Alarms and timers",
-        reason = "So timers ring on time. Without this, Android can delay them.",
-        status = exactStatus,
-        note = if (exactStatus == MakeYoursStatus.Off) {
-            "Open Alarms & reminders, find Jandal AI, and turn on Allow. Then come back. This row updates by itself."
+        description = "So timers ring on time. Without this, Android can delay them.",
+        status = if (exactStatus == MakeYoursStatus.On) ChipStatus.On else ChipStatus.Off,
+        action = if (exactStatus == MakeYoursStatus.Off) {
+            CardAction(label = "Open settings", onClick = actions.onOpenExactAlarm, tonal = true)
         } else {
             null
         },
-        actions = if (exactStatus == MakeYoursStatus.Off) {
-            listOf("Open Alarms & reminders" to actions.onOpenExactAlarm)
-        } else {
-            emptyList()
-        },
+        id = "exact_alarms",
     )
 }
 
+/** Button on a setting card. [tonal] renders a tonal button; otherwise a text button in the accent colour. */
+private data class CardAction(val label: String, val onClick: () -> Unit, val tonal: Boolean)
+
+/**
+ * Hey Jandal card (#1931 and the state table in docs/specs/setup-visual-pass/README.md). Its caveat names the
+ * download size, plus the extra Zipformer or verifier files when they are not already in the plan.
+ */
 @Composable
-private fun MakeYoursRow(
-    id: String,
+private fun HeyJandalCard(state: SetupWizardUiState, actions: MakeYoursActions) {
+    val platform = state.platform
+    val block = MakeYoursRows.heyJandalBlock(platform)
+    val choice = state.wakeWordChoice
+    val pending = choice != state.wakeWordStored
+    val sizeCaveat = if (state.heyJandalExtraBytes > 0L) {
+        "Adds a ${formatBytesShort(state.heyJandalExtraBytes)} download. Uses a little battery."
+    } else {
+        "Uses a little battery."
+    }
+    val base = "Say \"Hey Jandal\" to start talking, hands-free."
+
+    val status: ChipStatus
+    val description: String
+    val caveat: String?
+    val primary: CardAction?
+    var secondary: CardAction? = null
+    val turnOff = CardAction("Turn off", { actions.onWakeWordChoiceChanged(false) }, tonal = false)
+    val turnOn = CardAction("Turn on", { actions.onWakeWordChoiceChanged(true) }, tonal = false)
+
+    when (block) {
+        null -> {
+            when {
+                choice && pending -> {
+                    status = ChipStatus.OnAtFinish
+                    description = "$base Turns on when you tap Finish."
+                    caveat = sizeCaveat
+                    primary = null
+                    secondary = turnOff
+                }
+                choice -> {
+                    status = ChipStatus.On
+                    description = base
+                    caveat = sizeCaveat
+                    primary = null
+                    secondary = turnOff
+                }
+                pending -> {
+                    status = ChipStatus.Off
+                    description = "$base Turns off when you tap Finish."
+                    caveat = sizeCaveat
+                    primary = turnOn
+                }
+                else -> {
+                    status = ChipStatus.Off
+                    description = base
+                    caveat = sizeCaveat
+                    primary = turnOn
+                }
+            }
+        }
+        HeyJandalBlock.NoMicrophone, HeyJandalBlock.ModelNotInstalled -> {
+            status = ChipStatus.NotAvailable
+            description = MakeYoursRows.wakeWordBlockReason(platform) ?: base
+            caveat = if (choice) "Stays off until this is fixed." else null
+            primary = null
+            secondary = if (choice) turnOff else null
+        }
+        HeyJandalBlock.MicrophoneNotGranted -> {
+            status = if (choice) ChipStatus.NeedsAccess else ChipStatus.Off
+            description = base
+            caveat = if (choice) {
+                "Hey Jandal needs microphone access. Stays off until this is fixed."
+            } else {
+                MakeYoursRows.wakeWordBlockReason(platform)
+            }
+            primary = CardAction("Allow microphone", actions.onAllowMicrophone, tonal = true)
+            secondary = if (choice) turnOff else null
+        }
+        HeyJandalBlock.UsageAccessNeeded -> {
+            status = if (choice) ChipStatus.NeedsAccess else ChipStatus.Off
+            description = base
+            caveat = if (choice) {
+                "On this phone it needs Usage Access, so it can pause while the camera's in use. " +
+                    "Stays off until this is fixed."
+            } else {
+                MakeYoursRows.wakeWordBlockReason(platform)
+            }
+            primary = CardAction("Open Usage Access", actions.onOpenUsageAccess, tonal = true)
+            secondary = if (choice) turnOff else null
+        }
+    }
+
+    SettingCard(
+        icon = Icons.Outlined.Mic,
+        title = "Hey Jandal",
+        description = description,
+        caveat = caveat,
+        status = status,
+        action = primary,
+        secondaryAction = secondary,
+        id = "hey_jandal",
+    )
+}
+
+/**
+ * One Make Jandal yours card: icon tile, title, status chip, description, optional caveat, then its actions.
+ * The status chip carries the test tag `make_yours_status_<id>` so the status is readable by tests.
+ */
+@Composable
+private fun SettingCard(
+    icon: ImageVector,
     title: String,
-    reason: String,
-    status: MakeYoursStatus,
-    note: String?,
-    actions: List<Pair<String, () -> Unit>>,
+    description: String,
+    status: ChipStatus,
+    action: CardAction?,
+    id: String,
+    caveat: String? = null,
+    secondaryAction: CardAction? = null,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.semantics { heading() },
-        )
-        Text(text = reason, style = MaterialTheme.typography.bodySmall)
-        Text(
-            text = "Status: ${MakeYoursRows.statusLabel(status)}",
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.testTag("make_yours_status_$id"),
-        )
-        note?.let { Text(text = it, style = MaterialTheme.typography.bodySmall) }
-        actions.forEach { (label, onClick) ->
-            Button(
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(label)
+                IconTile(icon)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f).semantics { heading() },
+                )
+                StatusChip(status = status, modifier = Modifier.testTag("make_yours_status_$id"))
+            }
+            Text(text = description, style = MaterialTheme.typography.bodyMedium)
+            caveat?.let { Text(text = it, style = MaterialTheme.typography.bodySmall) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                action?.let { CardButton(it) }
+                secondaryAction?.let { CardButton(it) }
             }
         }
     }
 }
 
 @Composable
-private fun ChoiceOption(title: String, body: String, selected: Boolean, onSelect: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .selectable(selected = selected, onClick = onSelect, role = Role.RadioButton),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = selected, onClick = null)
-            Column(modifier = Modifier.padding(start = 8.dp)) {
-                Text(text = title, style = MaterialTheme.typography.bodyLarge)
-                Text(text = body, style = MaterialTheme.typography.bodySmall)
-            }
-        }
+private fun CardButton(action: CardAction) {
+    if (action.tonal) {
+        FilledTonalButton(
+            onClick = action.onClick,
+            modifier = Modifier.heightIn(min = 48.dp),
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ),
+        ) { Text(action.label) }
+    } else {
+        TextButton(
+            onClick = action.onClick,
+            modifier = Modifier.heightIn(min = 48.dp),
+            colors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent),
+        ) { Text(action.label) }
     }
 }
 

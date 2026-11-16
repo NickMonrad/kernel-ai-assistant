@@ -1,10 +1,12 @@
 package com.kernel.ai.feature.chat.setup
 
 import android.content.Context
+import android.os.Build
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.systemTtsEngineInstalled
+import com.kernel.ai.core.voice.InflectMicroModelSpec
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,4 +38,11 @@ class SetupVoiceDevice @Inject constructor(
     }
 
     fun hardwareTier(): HardwareTier = hardwareProfileDetector.profile.tier
+
+    /** True when Inflect Micro is release-eligible here (tier and ABI). Failed probes read as not eligible. */
+    fun inflectEligible(): Boolean = try {
+        InflectMicroModelSpec.isReleaseEligible(hardwareTier(), Build.SUPPORTED_ABIS)
+    } catch (e: Exception) {
+        false
+    }
 }
