@@ -187,11 +187,12 @@ class ChatPreferences @Inject constructor(
     }
 
     // ---- System colors ----
-    private val useSystemColorsKey = booleanPreferencesKey("use_system_colors")
-
-    /** When true, prefer system dynamic color (Android 12+) over Jandal palette. Default: true. */
+    /**
+     * When true, use the Android 12+ wallpaper (dynamic) colour scheme instead of the Jandal
+     * palette. Off by default: untouched installs have no stored value and get Jandal colours.
+     */
     val useSystemColors: Flow<Boolean> = context.chatPrefsDataStore.data
-        .map { prefs -> prefs[useSystemColorsKey] ?: true }
+        .map { prefs -> prefs.resolveUseSystemColors() }
 
     suspend fun setUseSystemColors(enabled: Boolean) {
         context.chatPrefsDataStore.edit { prefs ->
@@ -199,3 +200,12 @@ class ChatPreferences @Inject constructor(
         }
     }
 }
+
+private val useSystemColorsKey = booleanPreferencesKey("use_system_colors")
+
+/** Default for [ChatPreferences.useSystemColors] when nothing is stored. */
+const val USE_SYSTEM_COLORS_DEFAULT = false
+
+/** Resolves the stored system-colour choice, falling back to [USE_SYSTEM_COLORS_DEFAULT]. */
+internal fun Preferences.resolveUseSystemColors(): Boolean =
+    this[useSystemColorsKey] ?: USE_SYSTEM_COLORS_DEFAULT

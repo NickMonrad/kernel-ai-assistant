@@ -1,0 +1,7 @@
+pre: mWakefulness=Awake
+post: mWakefulness=Awake
+11-16 11:47:33.409 D/KernelAI( 6371): ADB_INTENT_TRACE commandId=858b9023-1 input=tell me a short story about a dog submitMode=Voice
+11-16 11:47:33.409 D/KernelAI( 6371): TTFT_STAGE commandId=858b9023-1 stage=accepted t_ms=0
+11-16 11:47:33.698 I/EVIDENCE1927( 6587): MARKER_home_pressed_during_loading
+11-16 11:47:34.078 D/VRI[MainActivity]@4f69a1f( 6371): WindowStopped on ai.jandal.assistant.debug/com.kernel.ai.MainActivity set to true
+11-16 11:48:03.858 I/EVIDENCE1927( 7479): MARKER_30s_after_home

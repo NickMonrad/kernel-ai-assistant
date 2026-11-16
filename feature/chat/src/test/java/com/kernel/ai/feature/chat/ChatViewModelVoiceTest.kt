@@ -32,6 +32,7 @@ import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.KernelAIToolSet
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.Skill
+import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
@@ -64,6 +65,7 @@ import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
+import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.feature.chat.model.ChatUiState
 import io.mockk.clearMocks
 import io.mockk.coEvery
@@ -84,6 +86,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -219,6 +222,7 @@ class ChatViewModelVoiceTest {
         every { nzTruthSeedingService.isSeeding } returns MutableStateFlow(false)
         every { nzTruthSeedingService.seedIfNeeded() } just runs
         coEvery { verboseLoggingPreferenceUseCase.loadAndApplyVerboseLoggingPreference() } just runs
+        every { kernelAIToolSet.lastToolCapabilityRequired() } returns null
     }
 
     @AfterEach
@@ -468,6 +472,105 @@ class ChatViewModelVoiceTest {
 
         assertEquals(1, streamedChunks.size, "no chunk after the stop may be queued")
         coVerify(atLeast = 1) { voiceStreamingSession.cancel() }
+    }
+
+    @Test
+    fun `home stop during a voice-submitted reply cancels speech and queues no later chunk`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("The first sentence here is long enough to stand alone. "),
+            GenerationResult.Token("The second sentence follows after it and is spoken last."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+        val gate = CompletableDeferred<Unit>()
+        coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
+            streamedChunks += firstArg<String>() to secondArg<Boolean>()
+            gate.await()
+            VoiceOutputResult.Spoken
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story"))
+        runCurrent()
+
+        clearMocks(voiceOutputController, answers = false)
+        viewModel.onScreenStopped(screenOff = false)
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        coVerify(atLeast = 1) { voiceStreamingSession.cancel() }
+        assertEquals(1, streamedChunks.size, "no chunk after Home may be queued")
+        assertNull(viewModel.speakingMessageId.value)
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `home before the reply finishes opens no speech for the rest of that turn`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        val generationGate = CompletableDeferred<Unit>()
+        every { inferenceEngine.generate(any()) } returns flow {
+            emit(GenerationResult.Token("The first sentence here is long enough to stand alone. "))
+            generationGate.await()
+            emit(GenerationResult.Token("The second sentence follows after it and is spoken last."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story"))
+        runCurrent()
+
+        viewModel.onScreenStopped(screenOff = false)
+        clearMocks(voiceOutputController, answers = false)
+        generationGate.complete(Unit)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
+        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+        assertEquals(emptyList<Pair<String, Boolean>>(), streamedChunks, "generation finishing after Home must not speak")
+    }
+
+    @Test
+    fun `screen-off during generation still speaks the reply when generation completes`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Say hi later") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Say hi later")
+        val generationGate = CompletableDeferred<Unit>()
+        every { inferenceEngine.generate(any()) } returns flow {
+            generationGate.await()
+            emit(GenerationResult.Token("Hi there, all good. "))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        advanceUntilIdle()
+        clearMocks(voiceInputController, answers = false)
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Say hi later"))
+        advanceUntilIdle()
+
+        viewModel.onScreenStopped(screenOff = true)
+        advanceUntilIdle()
+        assertEquals(emptyList<Pair<String, Boolean>>(), streamedChunks, "nothing spoken while generating")
+
+        generationGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Hi there, all good." to true), streamedChunks)
+
+        // Speech finishes with the screen off: the back-and-forth loop must not reopen the mic.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.Command) }
     }
 
     @Test
@@ -1282,6 +1385,59 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `home stop cancels read-aloud speech and clears the speaker state`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.speakMessage("assistant-1", "Hello there")
+        advanceUntilIdle()
+        assertEquals("assistant-1", viewModel.speakingMessageId.value)
+
+        clearMocks(voiceOutputController, answers = false)
+        viewModel.onScreenStopped(screenOff = false)
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { voiceOutputController.stop() }
+        assertNull(viewModel.speakingMessageId.value)
+        assertEquals(ChatViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
+    }
+
+    @Test
+    fun `initial voice query submitted after Home is sent as text and not spoken`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("Once upon a time there was a dog. "),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.onScreenStopped(screenOff = false)
+        clearMocks(voiceOutputController, answers = false)
+        viewModel.submitInitialQueryIfNeeded("Tell me a story", speakResponse = true)
+        advanceUntilIdle()
+
+        verify(atLeast = 1) { inferenceEngine.generate(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
+        coVerify(exactly = 0) { voiceOutputController.speak(any()) }
+    }
+
+    @Test
+    fun `screen-off stop keeps read-aloud speech playing`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.speakMessage("assistant-1", "Hello there")
+        advanceUntilIdle()
+        clearMocks(voiceOutputController, answers = false)
+
+        viewModel.onScreenStopped(screenOff = true)
+        advanceUntilIdle()
+
+        verify(exactly = 0) { voiceOutputController.stop() }
+        assertEquals("assistant-1", viewModel.speakingMessageId.value)
+    }
+
+    @Test
     fun `stopVoiceInput clears the back-and-forth loop before a pending re-arm`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Stop listening") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Stop listening")
@@ -1945,6 +2101,128 @@ class ChatViewModelVoiceTest {
         androidx.lifecycle.ViewModelStore()
             .apply { put("chat-view-model", viewModel) }
             .clear()
+    }
+
+    @Test
+    fun `calendar permission reply is spoken on a voice-initiated turn`() = runTest(dispatcher) {
+        val input = "add dentist to my calendar tomorrow at 9am"
+        every { quickIntentRouter.route(input) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = input,
+            bestGuess = QuickIntentRouter.MatchedIntent(
+                intentName = "create_calendar_event",
+                params = emptyMap(),
+                source = "classifier",
+            ),
+            bestConfidence = 0.72f,
+        )
+        every { intentRecoveryOrchestrator.recover(any(), any(), any()) } returns RecoveryResult.Execute(
+            intentName = "create_calendar_event",
+            params = emptyMap(),
+        )
+        val calendarSkill = object : Skill {
+            override val name = "create_calendar_event"
+            override val description = "Create calendar event"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarWrite,
+                skillName = "create_calendar_event",
+            )
+        }
+        every { skillRegistry.get("create_calendar_event") } returns calendarSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input))
+        advanceUntilIdle()
+
+        coVerify {
+            voiceOutputController.openStreamingSession(
+                match<VoiceSpeakRequest> { it.text.contains("Allow it when prompted") },
+            )
+        }
+        coVerify {
+            conversationRepository.addMessage(
+                "conv-existing",
+                "assistant",
+                match { it.contains("Allow it when prompted") },
+                any(),
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `calendar line on a voice model turn is spoken once with the turn's spoken summary`() = runTest(dispatcher) {
+        var nativeToolRan = false
+        every { quickIntentRouter.route("Add dentist to my calendar") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Add dentist to my calendar")
+        every { kernelAIToolSet.terminalToolCalledInCurrentAttempt() } answers { nativeToolRan }
+        every { kernelAIToolSet.terminalToolName() } answers { if (nativeToolRan) "create_calendar_event" else null }
+        every { kernelAIToolSet.terminalToolRequest() } returns "{}"
+        every { kernelAIToolSet.terminalToolDetail() } returns ""
+        every { kernelAIToolSet.terminalToolResult() } returns "Calendar permission needed."
+        every { kernelAIToolSet.terminalToolSucceeded() } returns false
+        every { kernelAIToolSet.terminalToolFailed() } returns true
+        every { kernelAIToolSet.lastToolCapabilityRequired() } returns CapabilityKey.CalendarWrite
+        every { inferenceEngine.generate(any()) } returns kotlinx.coroutines.flow.flow {
+            emit(GenerationResult.Token("Sure, one moment. "))
+            nativeToolRan = true
+            emit(GenerationResult.Token("I can add that once calendar access is on."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Add dentist to my calendar"))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceOutputController.openStreamingSession(any()) }
+        val spoken = streamedChunks.joinToString(" ") { (chunk, _) -> chunk }
+        assertTrue(spoken.contains("Calendar permission needed."), "tool summary not spoken: $spoken")
+        assertTrue(
+            spoken.contains("Allow it when prompted, or turn on Calendar in App info"),
+            "calendar line not spoken: $spoken",
+        )
+    }
+
+    @Test
+    fun `calendar reply on a voice turn with auto-speak off does not leave voice processing`() = runTest(dispatcher) {
+        every { voiceOutputPreferences.autoSpeak } returns MutableStateFlow(false)
+        val input = "add dentist to my calendar tomorrow at 9am"
+        every { quickIntentRouter.route(input) } returns QuickIntentRouter.RouteResult.FallThrough(
+            input = input,
+            bestGuess = QuickIntentRouter.MatchedIntent(
+                intentName = "create_calendar_event",
+                params = emptyMap(),
+                source = "classifier",
+            ),
+            bestConfidence = 0.72f,
+        )
+        every { intentRecoveryOrchestrator.recover(any(), any(), any()) } returns RecoveryResult.Execute(
+            intentName = "create_calendar_event",
+            params = emptyMap(),
+        )
+        val calendarSkill = object : Skill {
+            override val name = "create_calendar_event"
+            override val description = "Create calendar event"
+            override val schema = SkillSchema()
+            override suspend fun execute(call: SkillCall): SkillResult = SkillResult.CapabilityRequired(
+                capabilityKey = CapabilityKey.CalendarWrite,
+                skillName = "create_calendar_event",
+            )
+        }
+        every { skillRegistry.get("create_calendar_event") } returns calendarSkill
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input))
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
     }
     private fun createViewModel(
         savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),

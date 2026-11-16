@@ -1,0 +1,15 @@
+pre: mWakefulness=Awake
+Warning: Activity not started, its current task has been brought to the front
+post: mWakefulness=Awake
+11-16 11:48:09.624  6371  6371 D VRI[MainActivity]@4f69a1f: WindowStopped on ai.jandal.assistant.debug/com.kernel.ai.MainActivity set to false
+11-16 11:48:17.057  6371  6371 D KernelAI: TTFT_STAGE commandId=9b9a945b-1 stage=generate_called t_ms=3628
+11-16 11:48:29.977  6371  6371 D KernelAI: TTFT_STAGE commandId=9b9a945b-1 stage=first_token t_ms=16548
+11-16 11:48:51.293  6371  6412 D KernelAI: Sherpa streaming chunk: 3357ms for 44 chars, sid=0
+11-16 11:48:51.408  3013  3013 D AudioPlayerStateMonitor: Found a new active media playback. AudioPlaybackConfiguration piid:19967 deviceIds:[] type:android.media.AudioTrack u/pid:10959/6371 state:sta
+11-16 11:48:51.408  3013  3013 D AudioPlayerStateMonitor: Found a new active media playback. AudioPlaybackConfiguration piid:19967 deviceIds:[] type:android.media.AudioTrack u/pid:10959/6371 state:sta
+11-16 11:48:51.409  3013  3013 D MediaSessionService: Audio playback is changed, config=AudioPlaybackConfiguration piid:19967 deviceIds:[] type:android.media.AudioTrack u/pid:10959/6371 state:started 
+11-16 11:48:52.146  7742  7742 I EVIDENCE1927: MARKER_home_pressed_after_speech_started
+11-16 11:48:52.614  6371  6371 D VRI[MainActivity]@4f69a1f: WindowStopped on ai.jandal.assistant.debug/com.kernel.ai.MainActivity set to true
+11-16 11:48:52.715  6371  6408 D AudioTrack: stop(3734): called with 30720 frames delivered
+11-16 11:48:52.715  3013  3013 D MediaSessionService: Audio playback is changed, config=AudioPlaybackConfiguration piid:19967 deviceIds:[3] type:android.media.AudioTrack u/pid:10959/6371 state:paused 
+11-16 11:49:17.300  7808  7808 I EVIDENCE1927: MARKER_25s_after_home
