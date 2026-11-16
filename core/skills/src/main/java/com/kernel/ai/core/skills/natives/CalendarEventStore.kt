@@ -8,6 +8,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.CalendarContract
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.LocalDate
 import javax.inject.Inject
@@ -23,6 +24,11 @@ data class CalendarEventRecord(
     val allDay: Boolean,
     val calendarName: String,
     val location: String?,
+    /**
+     * iCalendar UID (`Events.UID_2445`), or null. Copies of one meeting in two calendars (organiser and
+     * attendee, or two accounts) have different event ids but share this UID.
+     */
+    val uid: String? = null,
 )
 
 /** An event to insert. For all-day events, [beginMillis]/[endMillis] are UTC midnights per CalendarContract. */
@@ -61,6 +67,9 @@ class CalendarEventStore @Inject constructor(
         if (!hasReadPermission() || !toDateExclusive.isAfter(fromDate)) return emptyList()
         val visibleCalendarIds = visibleCalendarIds()
         val testCalendarOnly = debugTestCalendarName()
+        if (testCalendarOnly != null) {
+            Log.w(TAG, "Debug test-calendar filter is on: calendar reads show one calendar only (#1942)")
+        }
         val uri = Uri.withAppendedPath(
             CalendarContract.Instances.CONTENT_BY_DAY_URI,
             "${julianDay(fromDate)}/${julianDay(toDateExclusive.minusDays(1))}",
@@ -76,6 +85,7 @@ class CalendarEventStore @Inject constructor(
             CalendarContract.Instances.EVENT_LOCATION,
             CalendarContract.Instances.SELF_ATTENDEE_STATUS,
             CalendarContract.Instances.STATUS,
+            CalendarContract.Events.UID_2445,
         )
         val results = mutableListOf<CalendarEventRecord>()
         context.contentResolver.query(
@@ -95,6 +105,8 @@ class CalendarEventStore @Inject constructor(
             val locationIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_LOCATION)
             val selfStatusIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.SELF_ATTENDEE_STATUS)
             val statusIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.STATUS)
+            // Not every provider exposes the iCalendar UID on instances; without it dedupe falls back to the event id.
+            val uidIndex = cursor.getColumnIndex(CalendarContract.Events.UID_2445)
             while (cursor.moveToNext()) {
                 if (cursor.getLong(calendarIdIndex) !in visibleCalendarIds) continue
                 if (testCalendarOnly != null && cursor.getString(calendarIndex)?.trim() != testCalendarOnly) continue
@@ -108,6 +120,7 @@ class CalendarEventStore @Inject constructor(
                     allDay = cursor.getInt(allDayIndex) != 0,
                     calendarName = cursor.getString(calendarIndex)?.trim().orEmpty(),
                     location = cursor.getString(locationIndex)?.trim()?.takeIf { it.isNotEmpty() },
+                    uid = if (uidIndex >= 0) cursor.getString(uidIndex)?.trim()?.takeIf { it.isNotEmpty() } else null,
                 )
             }
         }
@@ -199,6 +212,7 @@ class CalendarEventStore @Inject constructor(
     companion object {
         /** Days since 1970-01-01 plus this offset gives the Julian day number CalendarContract expects. */
         private const val EPOCH_JULIAN_DAY = 2440588L
+        private const val TAG = "KernelAI"
 
         /** Debug-only test-calendar filter (#1942); written by the debug `CalendarTestFilterReceiver`. */
         const val DEBUG_TEST_CALENDAR_PREFS = "debug_test_calendar_filter"

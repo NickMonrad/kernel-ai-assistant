@@ -3,5 +3,9 @@
 -keep class com.kernel.ai.core.voice.PronunciationLexicon$RawFile { *; }
 -keep class com.kernel.ai.core.voice.PronunciationLexicon$RawEntry { *; }
 
-# Sherpa JNI calls invoke([F)Ljava/lang/Integer; on the generateWithCallback callback (#1942); no Kotlin code calls it.
--keepclassmembers class com.kernel.ai.core.voice.SherpaContinueCallback { java.lang.Integer invoke(float[]); }
+# Sherpa's JNI looks up invoke([F)Ljava/lang/Integer; on the generateWithCallback callback object (#1942).
+# No Kotlin code calls that overload, so without this R8 may drop or rename it, and the JNI lookup then
+# aborts the process on every streamed Sherpa reply.
+-keep class com.kernel.ai.core.voice.SherpaContinueCallback {
+    public java.lang.Integer invoke(float[]);
+}

@@ -594,6 +594,15 @@ not just when voice mode is active.
 
 Quick Action cards show the same `VolumeUp` play/stop button at the top-right of the card header, before copy and delete. Starting a card stops any other Actions voice output. The icon is the only playback control on cards, so no "Speaking response" banner appears for card speech.
 
+In Chat, a reply that shows a rich card (weather, calendar) hides its text bubble, so the card carries the `VolumeUp` button (calendar: in the card header, 48dp touch target). In Actions the card header's own button is used and the rich card shows none.
+
+### 5.4a Agenda cards (calendar readout, #1942)
+
+- One row per event: a time column, then the title, then an optional detail line (calendar · location). The time column is as wide as the widest time on the card plus 12dp, so titles align and never touch the time at large font scales.
+- Multi-day windows group rows under a day header; a single day has no header.
+- The first 3 rows (compact Actions card) or 5 rows (elsewhere) are shown, then a `Show more (N)` / `Show less` text button. A day with no visible rows is hidden with its header.
+- Speech is shorter than the card: one sentence per event (time and title), no calendar or location, and a short pause after the "You have N events" sentence.
+
 ### 5.5 Streaming / loading states
 
 - Show a "Thinking…" / progress indicator while the model is initialising or generating.

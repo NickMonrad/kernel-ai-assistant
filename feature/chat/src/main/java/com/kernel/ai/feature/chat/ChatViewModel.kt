@@ -79,6 +79,8 @@ import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.SpeechStopCoordinator
+import com.kernel.ai.core.voice.SpeechStopReason
+import com.kernel.ai.core.voice.stopFor
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
@@ -910,7 +912,7 @@ class ChatViewModel @Inject constructor(
             // (SF2): a background chat or an Actions stop must not re-arm listening here.
             speechStopCoordinator.stopRequests.collect {
                 val ownsPlayback = awaitingVoicePlaybackCompletion
-                stopVoicePlayback() // clears awaitingVoicePlaybackCompletion
+                stopVoicePlayback(SpeechStopReason.USER) // clears awaitingVoicePlaybackCompletion
                 if (!ownsPlayback || _voiceMode.value != VoiceMode.BackAndForth) return@collect
                 if (inferenceEngine.isGenerating.value) {
                     rearmBackAndForthAfterGeneration = true
@@ -2040,7 +2042,7 @@ class ChatViewModel @Inject constructor(
     fun stopSpeaking() {
         speakMessageJob?.cancel()
         speakMessageJob = null
-        stopChatSpeech()
+        stopChatSpeech(SpeechStopReason.USER)
     }
 
     fun submitInitialQueryIfNeeded(initialQuery: String, speakResponse: Boolean = false) {
@@ -4257,7 +4259,7 @@ class ChatViewModel @Inject constructor(
         stopVoiceInput()
         speakMessageJob?.cancel()
         speakMessageJob = null
-        stopVoicePlayback()
+        stopVoicePlayback(SpeechStopReason.BACKGROUND)
     }
 
     /** Chat screen ON_RESUME (#1927): automatic mic paths may run again. */
@@ -4266,21 +4268,22 @@ class ChatViewModel @Inject constructor(
         stoppedByHome = false
     }
 
-    fun stopVoicePlayback() {
+    /** Stops chat speech; [reason] is logged on the reply's `speak_end` (#1942), null when there is no clear cause. */
+    fun stopVoicePlayback(reason: SpeechStopReason? = null) {
         awaitingVoicePlaybackCompletion = false
         pendingVoiceReply = false
         suppressVoiceOutputForCurrentResponse = true
-        stopChatSpeech()
+        stopChatSpeech(reason)
         _isSpeakingResponse.value = false
         _voicePlaybackState.value = VoicePlaybackState.Idle
         _speakingMessageId.value = null
     }
 
     /** Stops speech output and cancels an in-flight chunked reply so no later chunk is queued. */
-    private fun stopChatSpeech() {
+    private fun stopChatSpeech(reason: SpeechStopReason? = null) {
         assistantSpeechJob?.cancel()
         assistantSpeechJob = null
-        voiceOutputController.stop()
+        if (reason != null) voiceOutputController.stopFor(reason) else voiceOutputController.stop()
     }
 
     fun getConversationAsText(): String {

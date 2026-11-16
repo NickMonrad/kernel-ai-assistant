@@ -28,6 +28,13 @@ internal fun logFirstChunkQueued(chars: Int) {
 }
 
 /**
+ * Entry point for the debug build's speech probe (`SpeechProbeReceiver`, #1942): speaks [text] through the
+ * production chunked path. Not for app code, which calls [speakInSentenceChunks] inside this module.
+ */
+suspend fun speakForDebugSpeechProbe(controller: VoiceOutputController, text: String): VoiceOutputResult =
+    speakInSentenceChunks(controller, text)
+
+/**
  * Speaks [text] through a streaming session, one sentence-sized chunk at a time, so the first
  * chunk starts playing while the next is synthesised. Slow local voices (Piper/Cori) otherwise
  * synthesise a whole multi-sentence reply before any sound plays.
@@ -41,7 +48,7 @@ internal fun logFirstChunkQueued(chars: Int) {
  * characters ("Thanks.") would be a separate, barely audible chunk, so it is folded into the previous chunk.
  * A [SpeechPause.MARKER] always ends a chunk and becomes [SpeechPause.DURATION_MS] of silence.
  */
-suspend fun speakInSentenceChunks(
+internal suspend fun speakInSentenceChunks(
     controller: VoiceOutputController,
     text: String,
 ): VoiceOutputResult {

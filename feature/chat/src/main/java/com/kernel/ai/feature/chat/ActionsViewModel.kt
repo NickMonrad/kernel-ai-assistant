@@ -37,6 +37,8 @@ import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import com.kernel.ai.core.voice.SpeechStopCoordinator
+import com.kernel.ai.core.voice.SpeechStopReason
+import com.kernel.ai.core.voice.stopFor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -581,7 +583,7 @@ class ActionsViewModel @Inject constructor(
             speechStopCoordinator.stopRequests.collect {
                 // Also drop a pending command retry, whose job opens the mic once its prompt ends.
                 cancelPendingVoiceSpeech()
-                stopAllVoiceOutput()
+                stopAllVoiceOutput(SpeechStopReason.USER)
                 _voicePlaybackState.value = VoicePlaybackState.Idle
             }
         }
@@ -722,7 +724,7 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
-        stopAllVoiceOutput()
+        stopAllVoiceOutput(SpeechStopReason.USER)
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
@@ -737,7 +739,7 @@ class ActionsViewModel @Inject constructor(
         val previouslySpeaking = _speakingActionId.value
         val wasSpeakingThisCard = previouslySpeaking == actionId
         cancelPendingVoiceSpeech()
-        stopAllVoiceOutput()
+        stopAllVoiceOutput(SpeechStopReason.USER)
         _voicePlaybackState.value = VoicePlaybackState.Idle
         setSlotReplyAutoRearmArmed(false, "speakAction")
         if (wasSpeakingThisCard) return
@@ -779,10 +781,13 @@ class ActionsViewModel @Inject constructor(
         if (wasActive) _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
-    /** Stops every Actions voice output path, including a playing quick-action card (#1026). */
-    private fun stopAllVoiceOutput() {
+    /**
+     * Stops every Actions voice output path, including a playing quick-action card (#1026). [reason] is
+     * logged on the reply's `speak_end` (#1942); null when the stop has no user-visible cause.
+     */
+    private fun stopAllVoiceOutput(reason: SpeechStopReason? = null) {
         stopActionSpeech()
-        voiceOutputController.stop()
+        if (reason != null) voiceOutputController.stopFor(reason) else voiceOutputController.stop()
     }
 
     private fun clearActionSpeechState() {
@@ -799,7 +804,7 @@ class ActionsViewModel @Inject constructor(
      */
     fun onScreenStopped(screenOff: Boolean) {
         backgroundPaused = true
-        pauseTransientVoiceUi(reason = "lifecycleOnStop", keepSpeech = screenOff)
+        pauseTransientVoiceUi(reason = "lifecycleOnStop", keepSpeech = screenOff, stopReason = SpeechStopReason.BACKGROUND)
     }
 
     /** Actions screen ON_RESUME: automatic mic paths (retry, re-arm, safety net) may run again. */
@@ -820,7 +825,11 @@ class ActionsViewModel @Inject constructor(
      * [backgroundPaused] set they cannot open the mic.
      * [keepSpeech] = false (e.g. Home/navigation): stops listening and all speech, resets to idle.
      */
-    fun pauseTransientVoiceUi(reason: String = "unspecified", keepSpeech: Boolean = false) {
+    fun pauseTransientVoiceUi(
+        reason: String = "unspecified",
+        keepSpeech: Boolean = false,
+        stopReason: SpeechStopReason? = null,
+    ) {
         Log.d(
             TAG,
             "ActionsViewModel: pauseTransientVoiceUi reason=$reason keepSpeech=$keepSpeech " +
@@ -836,7 +845,7 @@ class ActionsViewModel @Inject constructor(
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSpeech()
         stopActionSpeech()
-        stopAllVoiceOutput()
+        stopAllVoiceOutput(stopReason)
         _voicePlaybackState.value = VoicePlaybackState.Idle
     }
 
@@ -853,7 +862,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onPhonePermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                stopAllVoiceOutput()
+                stopAllVoiceOutput(SpeechStopReason.NEW_REPLY)
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -1029,7 +1038,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onWeatherLocationPermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                stopAllVoiceOutput()
+                stopAllVoiceOutput(SpeechStopReason.NEW_REPLY)
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -1141,7 +1150,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onContactPermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                stopAllVoiceOutput()
+                stopAllVoiceOutput(SpeechStopReason.NEW_REPLY)
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -1234,7 +1243,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "onCalendarPermissionGranted")
                 clearExpectedSlotPromptSpeech()
-                stopAllVoiceOutput()
+                stopAllVoiceOutput(SpeechStopReason.NEW_REPLY)
                 val result = executeIntent(
                     query = pending.query,
                     intentName = pending.intentName,
@@ -1491,7 +1500,7 @@ class ActionsViewModel @Inject constructor(
                 try {
                     setSlotReplyAutoRearmArmed(false, "onDndResumeCheck")
                     clearExpectedSlotPromptSpeech()
-                    stopAllVoiceOutput()
+                    stopAllVoiceOutput(SpeechStopReason.NEW_REPLY)
                     val result = executeIntent(
                         query = pending.query,
                         intentName = pending.intentName,
@@ -1579,7 +1588,7 @@ class ActionsViewModel @Inject constructor(
                 try {
                     setSlotReplyAutoRearmArmed(false, "onWriteSettingsResumeCheck")
                     clearExpectedSlotPromptSpeech()
-                    stopAllVoiceOutput()
+                    stopAllVoiceOutput(SpeechStopReason.NEW_REPLY)
                     val result = executeIntent(
                         query = pending.query,
                         intentName = pending.intentName,
@@ -1643,7 +1652,7 @@ class ActionsViewModel @Inject constructor(
             try {
                 setSlotReplyAutoRearmArmed(false, "executeAction")
                 clearExpectedSlotPromptSpeech()
-                stopAllVoiceOutput()
+                stopAllVoiceOutput(SpeechStopReason.NEW_REPLY)
                 _uiState.value = UiState.Executing
 
                 val routeResult = quickIntentRouter.route(normalizedQuery)
@@ -1768,7 +1777,7 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = UiState.Executing
             try {
-                stopAllVoiceOutput()
+                stopAllVoiceOutput(SpeechStopReason.NEW_REPLY)
                 val result = executeIntent(
                     query = pending.originalQuery,
                     intentName = pending.request.intentName,
@@ -1814,7 +1823,7 @@ class ActionsViewModel @Inject constructor(
         cancelPendingVoiceSpeech()
         _pendingSlot.value = null
         stopVoiceCapture()
-        stopAllVoiceOutput()
+        stopAllVoiceOutput(SpeechStopReason.USER)
     }
 
     private fun primePendingSlot(
@@ -2270,7 +2279,7 @@ class ActionsViewModel @Inject constructor(
         cancelPendingVoiceSpeech()
         _error.value = null
         if (interruptPlayback) {
-            stopAllVoiceOutput()
+            stopAllVoiceOutput(SpeechStopReason.USER)
         }
         // #1850: one hint use per user tap. Automatic starts (command retry, slot re-arm, safety
         // net) reuse the tap's capture flow and must not count as a new use.
@@ -2312,7 +2321,7 @@ class ActionsViewModel @Inject constructor(
             ?: normaliseUserValuesForTts(toSpokenSummary(text), userValues)
         if (summary.isBlank()) return
         cancelPendingVoiceSlotReplyRestart()
-        if (_speakingActionId.value != null) stopAllVoiceOutput()
+        if (_speakingActionId.value != null) stopAllVoiceOutput(SpeechStopReason.NEW_REPLY)
         cancelPendingVoiceSpeech()
         // A new reply supersedes the cancellation, so its SpeakingStarted events count again.
         voiceSpeechCancelled = false

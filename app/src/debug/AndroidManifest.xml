@@ -40,14 +40,18 @@
                 <action android:name="com.kernel.ai.debug.action.CANCEL_INFLECT_GRAPH_PROBE" />
             </intent-filter>
         </receiver>
-        <!-- #1942: speaks a file's text through the production chunked TTS path (explicit component only). -->
+        <!-- #1942: speaks a file's text through the production chunked TTS path. Explicit component only;
+             DUMP (held by adb shell, not by third-party apps) keeps other apps from triggering it. -->
         <receiver
             android:name="com.kernel.ai.debug.speech.SpeechProbeReceiver"
-            android:exported="true" />
-        <!-- #1942: limits calendar reads to one named test calendar for device evidence (explicit component only). -->
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <!-- #1942: limits calendar reads to one named test calendar for device evidence. Explicit component
+             only; DUMP restricts senders to adb shell. -->
         <receiver
             android:name="com.kernel.ai.debug.calendar.CalendarTestFilterReceiver"
-            android:exported="true" />
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
         <!-- Explicit-component-only control endpoint (#1410): no intent filter,
              so only targeted broadcasts with -n reach it. -->
         <receiver

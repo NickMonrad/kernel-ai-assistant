@@ -55,10 +55,8 @@ object CalendarEventReplies {
 
     private val TIME_FORMAT = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
     private val DAY_FORMAT = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH)
+    /** Reply text and speech name at most this many events; the card lists the rest. */
     private const val MAX_LISTED_EVENTS = 8
-
-    /** Spoken replies name at most this many events; the card lists the rest. */
-    private const val MAX_SPOKEN_EVENTS = 8
 
     /** Spoken and displayed times never use dotted "a.m."; a full stop inside a time would split the sentence for TTS. */
     private val CLOCK_TIME = DateTimeFormatter.ofPattern("h:mm", Locale.ENGLISH)
@@ -96,12 +94,13 @@ object CalendarEventReplies {
     }
 
     /**
-     * One row per calendar instance: the same event id at the same start is listed once. Repeats happen
-     * when the same event is returned twice for one instance (for example a calendar synced into two
-     * accounts under one event id). Input order is kept.
+     * One row per meeting instance. Rows with the same iCalendar UID and start are one meeting: the same
+     * invite in two calendars (organiser's and attendee's copy, or two synced accounts) has a different
+     * event id per calendar but the same UID. Without a UID, the event id and start identify the instance.
+     * The first row (earliest start, provider order) is kept.
      */
     fun dedupeInstances(events: List<CalendarEventRecord>): List<CalendarEventRecord> =
-        events.distinctBy { it.eventId to it.beginMillis }
+        events.distinctBy { event -> (event.uid?.let { "uid:$it" } ?: "id:${event.eventId}") to event.beginMillis }
 
     /** True when [event] falls inside [window]. Exact for both all-day rows (by day) and timed rows (by instant). */
     fun isInWindow(event: CalendarEventRecord, window: ReadWindow): Boolean =
@@ -188,8 +187,8 @@ object CalendarEventReplies {
         if (events.isEmpty()) return "Nothing on your calendar $windowPhrase."
         val withDay = range != null && range != CalendarRange.TODAY && range != CalendarRange.TOMORROW
         val header = "You have ${if (events.size == 1) "1 event" else "${events.size} events"} $windowPhrase."
-        val spoken = events.take(MAX_SPOKEN_EVENTS).joinToString(" ") { spokenSentence(it, zone, withDay) }
-        val more = events.size - MAX_SPOKEN_EVENTS
+        val spoken = events.take(MAX_LISTED_EVENTS).joinToString(" ") { spokenSentence(it, zone, withDay) }
+        val more = events.size - MAX_LISTED_EVENTS
         val moreSentence = if (more > 0) " And $more more on your screen." else ""
         return "$header${SpeechPause.MARKER}$spoken$moreSentence"
     }

@@ -6,6 +6,9 @@ import android.media.AudioManager
 import android.media.AudioFocusRequest
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CoroutineScope
@@ -250,6 +253,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         clearStreamingPlayback()
         stopped = false
         val chunks = Channel<StreamingChunk>(Channel.UNLIMITED)
+        val outcome = CompletableDeferred<StreamPlaybackOutcome>()
         val worker = scope.launch {
             runStreamingPlayback(
                 playbackToken = playbackToken,
@@ -258,8 +262,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 speakerCount = speakerCount,
                 activeSid = activeSid,
                 isKokoro = isKokoro,
+                outcome = outcome,
             )
         }
+        // A worker cancelled before it ran, or one that returned early, still reports an outcome.
+        worker.invokeOnCompletion { outcome.complete(StreamPlaybackOutcome.CANCELLED) }
         synchronized(playbackLock) {
             activeStreamingPlayback = ActiveStreamingPlayback(
                 token = playbackToken,
@@ -268,8 +275,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             )
         }
 
-        return@withContext object : VoiceOutputStreamingSession {
+        return@withContext object : VoiceOutputStreamingSession, ReportsStreamPlaybackOutcome {
             private var closed = false
+
+            override val playbackOutcome: Deferred<StreamPlaybackOutcome> = outcome
 
             override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
                 if (closed) return VoiceOutputResult.Spoken
@@ -432,6 +441,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         speakerCount: Int,
         activeSid: Int,
         isKokoro: Boolean,
+        outcome: CompletableDeferred<StreamPlaybackOutcome>,
     ) {
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
@@ -453,6 +463,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         // usage while still guaranteeing the next chunk is ready the moment the current one ends.
         val audioQueue = Channel<SynthesizedChunk>(capacity = 2)
         val timing = if (verboseLoggingEnabled.value) StreamTimingLog(playbackToken) else null
+        var synthesisFailed = false
+        var playedToEnd = false
         try {
             coroutineScope {
                 // ── Synthesis producer ────────────────────────────────────────────────────
@@ -471,9 +483,13 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                                     genWithCallback.invoke(tts, spokenText, effectiveSid, sherpaSpeed.value, continueWhileActive)
                                 } else {
                                     genMethod.invoke(tts, spokenText, effectiveSid, sherpaSpeed.value)
-                                } ?: break
+                                }
                             } catch (e: Exception) {
                                 Log.e(TAG, "Sherpa streaming generate() failed", e)
+                                null
+                            }
+                            if (audioResult == null) {
+                                synthesisFailed = true
                                 break
                             }
                             val synthesized = SynthesizedChunk(
@@ -496,8 +512,12 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
                 // ── Playback consumer ─────────────────────────────────────────────────────
                 launch {
+                    var stoppedEarly = false
                     for (chunk in audioQueue) {
-                        if (stopped || !isStreamingPlaybackActive(playbackToken)) break
+                        if (stopped || !isStreamingPlaybackActive(playbackToken)) {
+                            stoppedEarly = true
+                            break
+                        }
                         if (chunk.pauseMs > 0L) {
                             // Silence between parts of a reply (SpeechPause, #1942): nothing is written, so
                             // the previous track has drained and the next one has not started.
@@ -525,16 +545,27 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                         playOnAudioTrack(chunk.samples, chunk.sampleRate, playbackToken = playbackToken)
                         timing?.playEnded(chunk)
                     }
+                    playedToEnd = !stoppedEarly && !synthesisFailed && !stopped && isStreamingPlaybackActive(playbackToken)
                     // Playback finished (or stopped early) — cancel synthesis so it doesn't
                     // keep producing chunks that will never be consumed.
                     synthJob.cancel()
                 }
             }
+        } catch (e: Throwable) {
+            if (e !is CancellationException) synthesisFailed = true
+            throw e
         } finally {
             // Runs exactly once per worker, including when stop() cancels it. The gate, not
             // activeStreamingPlayback (which stop() clears first), decides whether this unwind ends speech.
             releaseAudioFocus()
             finishStreamingPlayback(playbackToken)
+            outcome.complete(
+                when {
+                    synthesisFailed -> StreamPlaybackOutcome.FAILED
+                    playedToEnd -> StreamPlaybackOutcome.COMPLETED
+                    else -> StreamPlaybackOutcome.CANCELLED
+                },
+            )
             if (speakingStopGate.claimStopped(playbackToken)) _events.tryEmit(VoiceOutputEvent.SpeakingStopped)
         }
     }

@@ -306,13 +306,27 @@ class CalendarEventRepliesTest {
         }
 
         @Test
-        @DisplayName("same event id and start is listed once; different starts both stay")
-        fun dedupeByIdAndStart() {
-            val a = event(7, "Repeat", 9, 10)
-            val b = event(7, "Repeat", 9, 10)
-            val later = event(7, "Repeat", 13, 14)
-            val deduped = CalendarEventReplies.dedupeInstances(listOf(a, b, later))
-            assertEquals(listOf(a, later), deduped)
+        @DisplayName("one invite in two calendars (different event ids, same UID and start) is listed once")
+        fun dedupeSharedUidAcrossCalendars() {
+            val organiser = event(7, "Planning", 9, 10).copy(uid = "abc@google.com", calendarName = "Work")
+            val attendee = event(42, "Planning", 9, 10).copy(uid = "abc@google.com", calendarName = "Family")
+            assertEquals(listOf(organiser), CalendarEventReplies.dedupeInstances(listOf(organiser, attendee)))
+        }
+
+        @Test
+        @DisplayName("recurring instances share a UID but not a start, so each stays")
+        fun dedupeKeepsRecurringInstances() {
+            val monday = event(7, "Standup", 9, 10, LocalDate.of(2025, 11, 17)).copy(uid = "daily@x")
+            val tuesday = event(7, "Standup", 9, 10, LocalDate.of(2025, 11, 18)).copy(uid = "daily@x")
+            assertEquals(listOf(monday, tuesday), CalendarEventReplies.dedupeInstances(listOf(monday, tuesday)))
+        }
+
+        @Test
+        @DisplayName("without a UID, different events at the same time both stay")
+        fun dedupeWithoutUidKeepsDistinctEvents() {
+            val a = event(7, "Dentist", 9, 10)
+            val b = event(8, "School run", 9, 10)
+            assertEquals(listOf(a, b), CalendarEventReplies.dedupeInstances(listOf(a, b)))
         }
 
         @Test

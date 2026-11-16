@@ -81,8 +81,10 @@ Readout started, Home pressed 1.6 s into the first event (after the pause):
 ```
 
 No later `playStart`; no `mCbf call back interval is abnormal` line. Crackle is a listening judgement and
-was not judged by this run. Before this run `speak_end` logged `reason=[redacted]`: the event log keeps only
-enum constants, so the reason is now passed as an enum (`COMPLETED`, `STOPPED`, `ERROR`).
+was not judged by this run; it is on the owner's internal-testing smoke checklist. Before this run
+`speak_end` logged `reason=[redacted]`: the event log keeps only enum constants, so the reason is now
+passed as an enum. This run logged `STOPPED`; after review round 1, Home logs `INTERRUPTED_BACKGROUND`
+(see the reason list below).
 
 Rule (unchanged, #1918): Home or an app switch stops the readout; screen off keeps it speaking.
 
@@ -131,7 +133,11 @@ measured on the Honor]. With rtf ≈ 1.6 the old format's first boundary would b
 - Stale synthesis stops at the next sentence: streaming uses `generateWithCallback`, whose callback
   returns 0 once the utterance is no longer active.
 - Sherpa init is `@Synchronized`.
-- `speak_end` `reason` is logged as an enum (`COMPLETED`/`STOPPED`/`ERROR`); as a string it was redacted.
+- `speak_end` is logged when playback ends, with `reason=` `COMPLETED`, `STOPPED_BY_USER`,
+  `INTERRUPTED_BACKGROUND` (Home or app switch), `REPLACED` (a new reply or one-shot speech), `STOPPED`
+  (a stop with no recorded cause, e.g. the Settings voice sample) or `ERROR`. The Sherpa voices report how
+  each streamed reply ended, so speech that was cut off is never logged as `COMPLETED`. `focus_loss` was not
+  added: no voice stops on audio-focus loss today.
 - Spoken `AM` is `A-M` (eSpeak reads the old `A M` as "uh em", i.e. "am"); `Jandal` is respelled `Jandle`
   for the Sherpa voices. Phonemes: [phonemes.md](phonemes.md).
 - Card time column sized to the widest time on the card.
@@ -139,8 +145,9 @@ measured on the Honor]. With rtf ≈ 1.6 the old format's first boundary would b
 ## Debug-only test-calendar filter
 
 The S23U has real events today, and the readout has no date parameter. Debug builds only:
-`CalendarTestFilterReceiver` (explicit component, debug manifest) stores a calendar display name, and
-`CalendarEventStore.queryInstances` then skips rows from any other calendar. It is read only when the app is
+`CalendarTestFilterReceiver` (explicit component, debug manifest, senders need `DUMP`, which `adb shell` has)
+stores a calendar display name, and `CalendarEventStore.queryInstances` then skips rows from any other
+calendar and logs a warning on every read while the filter is on. It is read only when the app is
 debuggable, so release builds never filter. Used here as:
 
 ```
@@ -152,10 +159,10 @@ Cleanup after the run: test events and the `JandalTest` calendar deleted (querie
 cleared, the debug app's `READ_CALENDAR` (granted for the run) revoked to its pre-run state
 (`granted=false`, same flags), media volume restored to 11, probe text files removed, device lock released.
 
-## Not fixed: screen-off readouts are slow
+## Not fixed: screen-off readouts are slow (#1959)
 
 With the screen off (speech keeps playing, #1918) the app is in the background, so synthesis runs at
 rtf ≈ 3 and gaps of 13–20 s follow each chunk. The S23U screen-off case was not run (no sleep/power keys on
 this device); the Home measurement above shows the same background CPU limit. A foreground service while
-speaking would keep synthesis on the fast cores; that touches the #1918/#1927 lifecycle and is left for a
-follow-up.
+speaking would keep synthesis on the fast cores; tracked in #1959. On the S21, where Jandal is the
+assistant app, Home did not slow synthesis ([review-round-1.md](review-round-1.md)).

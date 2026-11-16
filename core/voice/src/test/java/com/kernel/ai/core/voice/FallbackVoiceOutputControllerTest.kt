@@ -250,6 +250,126 @@ class FallbackVoiceOutputControllerTest {
             )
         }
 
+    /** A Sherpa-like session whose playback outcome the test decides. */
+    private class OutcomeSession : VoiceOutputStreamingSession, ReportsStreamPlaybackOutcome {
+        override val playbackOutcome = kotlinx.coroutines.CompletableDeferred<StreamPlaybackOutcome>()
+        override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult = VoiceOutputResult.Spoken
+    }
+
+    /** Records a unique mark and returns a reader for the `tts` lines logged after it. */
+    private fun ttsLinesAfterMark(): () -> List<String> {
+        com.kernel.ai.core.inference.diagnostics.JandalEvents.install(java.io.File.createTempFile("jandal-tts", ".log"))
+        val mark = System.nanoTime() % 999_999_999L
+        com.kernel.ai.core.inference.diagnostics.JandalEvents.record("test", "mark", "id" to mark)
+        return {
+            com.kernel.ai.core.inference.diagnostics.JandalEvents.awaitWritesForTest()
+            val exported = com.kernel.ai.core.inference.diagnostics.JandalEvents.exportLines()
+            exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1).filter { " tts " in it }
+        }
+    }
+
+    /** The watcher resumes on the controller's IO scope, so wait (real time) for its line. */
+    private fun awaitSpeakEnd(lines: () -> List<String>): String {
+        repeat(100) {
+            lines().firstOrNull { " tts speak_end " in it }?.let { return it }
+            Thread.sleep(20)
+        }
+        error("no speak_end in ${lines()}")
+    }
+
+    /** Opens a Sherpa stream through [controller]; returns the wrapped stream and the engine session behind it. */
+    private suspend fun openSherpaStream(
+        controller: FallbackVoiceOutputController,
+    ): Pair<VoiceOutputStreamingSession, OutcomeSession> {
+        selectedEngine.value = VoiceOutputEngine.SherpaExperimental
+        val session = OutcomeSession()
+        coEvery { sherpa.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { sherpa.openStreamingSession(any()) } returns session
+        return controller.openStreamingSession(VoiceSpeakRequest("You have 2 events today.")) to session
+    }
+
+    @Test
+    fun `streamed speak_end waits for playback to end, not for the final chunk to be queued`() = runTest(dispatcher) {
+        val lines = ttsLinesAfterMark()
+        val (stream, session) = openSherpaStream(buildController())
+
+        stream.append("Last chunk.", isFinal = true)
+        Thread.sleep(100)
+        assertEquals(emptyList<String>(), lines().filter { " tts speak_end " in it }, "no speak_end before playback ends")
+
+        session.playbackOutcome.complete(StreamPlaybackOutcome.COMPLETED)
+
+        val end = awaitSpeakEnd(lines)
+        org.junit.jupiter.api.Assertions.assertTrue("spoken=true" in end && "reason=COMPLETED" in end, end)
+    }
+
+    @Test
+    fun `a synthesis failure mid-reply ends the event with ERROR`() = runTest(dispatcher) {
+        val lines = ttsLinesAfterMark()
+        val (stream, session) = openSherpaStream(buildController())
+        stream.append("First chunk.", isFinal = false)
+
+        session.playbackOutcome.complete(StreamPlaybackOutcome.FAILED)
+
+        val end = awaitSpeakEnd(lines)
+        org.junit.jupiter.api.Assertions.assertTrue("spoken=false" in end && "reason=ERROR" in end, end)
+        org.junit.jupiter.api.Assertions.assertTrue(lines().any { " tts speak_failed " in it }, lines().toString())
+    }
+
+    @Test
+    fun `stop ends the event at once, with the reason the caller gave`() = runTest(dispatcher) {
+        val cases = listOf<Pair<(FallbackVoiceOutputController) -> Unit, String>>(
+            { c: FallbackVoiceOutputController -> c.stop() } to "reason=STOPPED",
+            { c: FallbackVoiceOutputController -> c.stopFor(SpeechStopReason.USER) } to "reason=STOPPED_BY_USER",
+            { c: FallbackVoiceOutputController -> c.stopFor(SpeechStopReason.BACKGROUND) } to "reason=INTERRUPTED_BACKGROUND",
+            { c: FallbackVoiceOutputController -> c.stopFor(SpeechStopReason.NEW_REPLY) } to "reason=REPLACED",
+        )
+        for ((stop, expected) in cases) {
+            val lines = ttsLinesAfterMark()
+            val controller = buildController()
+            val (_, session) = openSherpaStream(controller)
+
+            stop(controller)
+            // The engine then reports its own cancel; the event has already ended and is not logged twice.
+            session.playbackOutcome.complete(StreamPlaybackOutcome.CANCELLED)
+            Thread.sleep(50)
+
+            val ends = lines().filter { " tts speak_end " in it }
+            assertEquals(1, ends.size, ends.toString())
+            org.junit.jupiter.api.Assertions.assertTrue(ends.single().hasTokens("spoken=false", expected), ends.single())
+        }
+    }
+
+    @Test
+    fun `a one-shot speak during a streamed reply ends that reply as REPLACED`() = runTest(dispatcher) {
+        val lines = ttsLinesAfterMark()
+        val controller = buildController()
+        openSherpaStream(controller)
+        coEvery { sherpa.speak(any()) } returns VoiceOutputResult.Spoken
+
+        controller.speak(VoiceSpeakRequest("What time?"))
+
+        val end = awaitSpeakEnd(lines)
+        org.junit.jupiter.api.Assertions.assertTrue(end.hasTokens("reason=REPLACED"), end)
+    }
+
+    @Test
+    fun `a stop that bypasses this controller still ends the event, as STOPPED`() = runTest(dispatcher) {
+        val lines = ttsLinesAfterMark()
+        val (_, session) = openSherpaStream(buildController())
+
+        session.playbackOutcome.complete(StreamPlaybackOutcome.CANCELLED)
+
+        val end = awaitSpeakEnd(lines)
+        org.junit.jupiter.api.Assertions.assertTrue(end.hasTokens("spoken=false", "reason=STOPPED"), end)
+    }
+
+    /** True when every token is a whole space-separated field ("reason=STOPPED" does not match "reason=STOPPED_BY_USER"). */
+    private fun String.hasTokens(vararg tokens: String): Boolean {
+        val fields = split(' ')
+        return tokens.all { it in fields }
+    }
+
     @Test
     fun `openStreamingSession falls back to Android TTS when Sherpa is unavailable`() =
         runTest(dispatcher) {
