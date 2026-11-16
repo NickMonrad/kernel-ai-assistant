@@ -61,6 +61,8 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
 
+    androidTestImplementation(libs.test.runner)
+    androidTestImplementation(libs.test.ext.junit)
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
