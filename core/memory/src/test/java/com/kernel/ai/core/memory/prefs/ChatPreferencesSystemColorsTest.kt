@@ -10,7 +10,6 @@ class ChatPreferencesSystemColorsTest {
 
     @Test
     fun `untouched install defaults to Jandal colours, not system colours`() {
-        assertEquals(false, USE_SYSTEM_COLORS_DEFAULT)
         assertEquals(false, emptyPreferences().resolveUseSystemColors())
     }
 

@@ -193,8 +193,8 @@ fun ChatPreferencesScreen(
             )
             HorizontalDivider()
 
-            // ─────── Appearance ───────
-            SectionHeader("Appearance")
+            // ─────── Messages ───────
+            SectionHeader("Messages")
 
             // Font size
             val fontSizeLabel = FONT_SIZE_OPTIONS.find { it.first == fontSize }?.second ?: "Medium"

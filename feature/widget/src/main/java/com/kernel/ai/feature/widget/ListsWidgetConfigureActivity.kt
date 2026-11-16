@@ -29,6 +29,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.memory.dao.ListNameDao
 import com.kernel.ai.core.memory.entity.ListNameEntity
 import com.kernel.ai.core.ui.theme.KernelAITheme
+import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.memory.prefs.USE_SYSTEM_COLORS_DEFAULT
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
@@ -65,6 +68,9 @@ class ListsWidgetConfigureActivity : ComponentActivity() {
     @Inject
     lateinit var listNameDao: ListNameDao
 
+    @Inject
+    lateinit var chatPreferences: ChatPreferences
+
     private val appWidgetId by lazy {
         intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
     }
@@ -82,7 +88,9 @@ class ListsWidgetConfigureActivity : ComponentActivity() {
             return
         }
         setContent {
-            KernelAITheme {
+            val useSystemColors = chatPreferences.useSystemColors
+                .collectAsState(initial = USE_SYSTEM_COLORS_DEFAULT).value
+            KernelAITheme(dynamicColor = useSystemColors) {
                 ListsWidgetConfigScreen(
                     listsFlow = listNameDao.observeActiveLists(),
                     onSelect = { persistAndFinish(it) },

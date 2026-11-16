@@ -59,6 +59,8 @@ import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.ui.theme.KernelAITheme
+import com.kernel.ai.core.memory.prefs.ChatPreferences
+import com.kernel.ai.core.memory.prefs.USE_SYSTEM_COLORS_DEFAULT
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
@@ -107,6 +109,7 @@ class VoiceCommandActivity : ComponentActivity() {
     @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
     /** Volume key stops Jandal's speech while the voice overlay is open (#1873). */
     @Inject lateinit var speechStopCoordinator: com.kernel.ai.core.voice.SpeechStopCoordinator
+    @Inject lateinit var chatPreferences: ChatPreferences
 
     private val speechStopKeys by lazy {
         com.kernel.ai.core.voice.SpeechStopKeyTracker(speechStopCoordinator::requestStop)
@@ -205,7 +208,9 @@ class VoiceCommandActivity : ComponentActivity() {
      */
     internal fun routePrefilledTranscript(transcript: String) {
         setContent {
-            KernelAITheme {
+            val useSystemColors = chatPreferences.useSystemColors
+                .collectAsState(initial = USE_SYSTEM_COLORS_DEFAULT).value
+            KernelAITheme(dynamicColor = useSystemColors) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -280,7 +285,9 @@ class VoiceCommandActivity : ComponentActivity() {
         var failed by mutableStateOf(false)
 
         setContent {
-            KernelAITheme {
+            val useSystemColors = chatPreferences.useSystemColors
+                .collectAsState(initial = USE_SYSTEM_COLORS_DEFAULT).value
+            KernelAITheme(dynamicColor = useSystemColors) {
                 // Unlock backdrop tap-to-dismiss after 800ms. Prevents accidental
                 // dismiss when the overlay appears mid-screen-wake (Side key path)
                 // before the user is ready. The card's X button is always active.
