@@ -29,7 +29,8 @@ Whole-word respellings applied to text before the Sherpa voices (Piper, Kokoro) 
   one entry. Input is NFC-normalised; output is NFC text.
 - Punctuation is kept: `Petone, Lower Hutt.` becomes `Pih-toe-nee, Lower Hutt.`
 - One combined pattern, longest word first. Multi-word entries (`Te Awamutu`) match as one unit,
-  and a longer entry wins over a shorter one that starts the same way.
+  across any whitespace between their words (several spaces, a tab, a line break or a no-break
+  space), and a longer entry wins over a shorter one that starts the same way.
 - Replaced text is not re-scanned.
 - A missing or malformed asset leaves the lexicon empty and logs a warning. Speech still works,
   with words spoken as written.
@@ -56,7 +57,7 @@ pronunciations. Set `verify: true` only for an entry with no owner pick yet. Can
 | Taihape | Tie-happy | false | Owner, by ear, 2026-11-14 (replaces Tie-ha-peh) |
 | Waikato | Why-kat-o | false | Owner, by ear, 2026-11-14 |
 | Jandal, Jandals | Jandle, Jandles | true | #1942: owner heard Cori say "jun-DALL"; target JAN-dl, rhymes with handle. eSpeak (Cori's `espeak-ng-data`, voice `en`): `Jandal` alone is `dʒˈandəl`, but inside a longer token (`jandaltest`) the `-dal` becomes `dɒl`; `Jandle` is `dʒˈandəl` like `handle` (`hˈandəl`) |
-| Kia ora | Kee-ora | false | Owner, by ear, 2026-11-16 (#1936 Cori sample, candidate 4 of 4). The plain spelling sounded clipped ("kyora"): eSpeak gives `kˈiəɹ ˈɔːɹə` with a linking r; `Kee-ora` gives `kˈiːˈɔːɹə` |
+| Kia ora, Kiaora | Kee-ora | false | Owner, by ear, 2026-11-16 (#1936 Cori sample, candidate 4 of 4). The plain spelling sounded clipped ("kyora"): eSpeak gives `kˈiəɹ ˈɔːɹə` with a linking r; `Kee-ora` gives `kˈiːˈɔːɹə` |
 
 Not in the lexicon: Ōtaki, Waikanae, Hāwera, Rotorua (not clearly wrong, not listened to).
 

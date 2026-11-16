@@ -267,12 +267,12 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `android native language summary is exposed from recognizer support`() = runTest {
+    fun `android native language name is exposed from recognizer support`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            "English (New Zealand) (en-NZ)",
-            viewModel.uiState.value.androidNativeLanguageSummary,
+            "English (New Zealand)",
+            viewModel.uiState.value.androidNativeLanguageName,
         )
     }
 

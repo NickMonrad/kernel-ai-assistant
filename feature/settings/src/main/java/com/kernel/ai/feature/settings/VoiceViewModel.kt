@@ -93,7 +93,8 @@ data class VoiceUiState(
     val autoStartAlertVoiceCommandsEnabled: Boolean = true,
     val allowOnlineSpeechFallback: Boolean = false,
     val androidNativeAvailabilityMessage: String? = null,
-    val androidNativeLanguageSummary: String? = null,
+    /** Android native recognizer language name, e.g. "English (Australia)"; the card's third line (#1937). */
+    val androidNativeLanguageName: String? = null,
     val androidNativeCapabilities: VoiceCapabilities? = null,
     val androidNativeLocaleReady: Boolean = true,
     val hasDownloadedSherpaVoice: Boolean = false,
@@ -284,7 +285,7 @@ class VoiceViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     androidNativeAvailabilityMessage = nativeWarning,
-                    androidNativeLanguageSummary = availability.languageSummary,
+                    androidNativeLanguageName = availability.languageDisplayName,
                     androidNativeLocaleReady = availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready,
                     androidNativeCapabilities = runCatching { readVoiceCapabilities(context) }.getOrNull(),
                 )

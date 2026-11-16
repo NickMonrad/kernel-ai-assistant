@@ -86,15 +86,23 @@ internal object PronunciationLexicon {
         }
         val says = LinkedHashMap<String, String>()
         for (entry in entries) {
-            says.putIfAbsent(fold(entry.word), entry.say)
+            says.putIfAbsent(key(fold(entry.word)), entry.say)
         }
+        // Words of a multi-word entry ("Kia ora", "Te Awamutu") match across any run of whitespace.
         val alternation = says.keys
             .sortedByDescending { it.length }
-            .joinToString("|") { Pattern.quote(it) }
+            .joinToString("|") { k -> k.split(' ').joinToString(WHITESPACE_PATTERN) { Pattern.quote(it) } }
         val pattern = Pattern.compile("(?<![\\p{L}\\p{N}])(?:$alternation)(?![\\p{L}\\p{N}])")
         table = Table(pattern, says)
         loaded = true
     }
+
+    /** Lookup key: folded words joined by one space, so any whitespace between words finds the entry. */
+    private fun key(folded: String): String = folded.trim().split(WHITESPACE).joinToString(" ")
+
+    /** Any Unicode whitespace, including no-break spaces. */
+    private const val WHITESPACE_PATTERN = "(?U:\\s+)"
+    private val WHITESPACE = Regex(WHITESPACE_PATTERN)
 
     /**
      * NFC-normalises, then folds macrons and case one char at a time. The result has the same
@@ -118,7 +126,7 @@ internal object PronunciationLexicon {
         var last = 0
         while (matcher.find()) {
             out.append(nfc, last, matcher.start())
-            out.append(current.says.getValue(matcher.group()))
+            out.append(current.says.getValue(key(matcher.group())))
             last = matcher.end()
         }
         out.append(nfc, last, nfc.length)
