@@ -113,4 +113,19 @@ class KernelNavHostRouteTest {
     fun `primary navigation from a transient route does not restore saved state`() {
         assertEquals(false, shouldRestorePrimaryRouteState("actions?openSheet=true", "tools"))
     }
+
+    @Test
+    fun `widget handoff from chat with a query uses no enter transition`() {
+        assertEquals(true, isChatToWidgetActionsHandoff("chat?initialQuery={initialQuery}", "turn on torch"))
+        assertEquals(true, isChatToWidgetActionsHandoff("chat/{conversationId}", "add milk"))
+    }
+
+    @Test
+    fun `handoff predicate ignores other origins and empty widget queries`() {
+        assertEquals(false, isChatToWidgetActionsHandoff("chat", ""))
+        assertEquals(false, isChatToWidgetActionsHandoff("chat", null))
+        assertEquals(false, isChatToWidgetActionsHandoff("conversation_list", "add milk"))
+        assertEquals(false, isChatToWidgetActionsHandoff("actions?openSheet={openSheet}", "add milk"))
+        assertEquals(false, isChatToWidgetActionsHandoff(null, "add milk"))
+    }
 }
