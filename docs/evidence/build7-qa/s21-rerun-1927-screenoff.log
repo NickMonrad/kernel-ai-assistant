@@ -1,0 +1,38 @@
+# Re-run after #1969 on origin/main e227d09d (debug APK sha256 65a2386b…eea3), Cori (Sherpa Piper en_GB-cori-high). Phones silenced; judged from logs.
+# S21: 'tell me a short story about a dog' (voice -> chat), KEYCODE_SLEEP about 3 s into speech (EVIDENCEB7 marker), wake key 25 s later. Spoken text omitted.
+
+## logcat (filtered)
+11-16 22:55:58.603 D/KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@7f876a7 voicePlaybackState=com.kernel.ai.feature.ch
+11-16 22:56:01.310 D/KernelAI: ADB_ROUTE_DECISION commandId=fe266633-1 result=fallthrough best_guess=null confidence=0.0
+11-16 22:56:27.275 I/LiteRtInferenceEngine: Generation complete: total=24926ms, TTFT=4577ms, visibleChunks=152 [backend=GPU]
+11-16 22:56:27.275 D/LiteRtInferenceEngine: VoiceTiming lastToken epochMs=1794833787275
+11-16 22:56:27.401 D/VoiceTiming: firstChunkQueued epochMs=1794833787401 chars=102
+11-16 22:56:31.894 I/VoiceTiming: synth token=2 chunk=0 chars=102 sid=0 startEpochMs=1794833787401 endEpochMs=1794833791893 synthMs=4492 audioMs=6362 rtf=0.71
+11-16 22:56:31.896 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=102 part=1/1
+11-16 22:56:31.896 I/KernelAI: SpeakingStarted engine=sherpa chars=102 epochMs=1794833791896
+11-16 22:56:31.912 D/KernelAI: ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-16 22:56:31.915 I/VoiceTiming: playStart token=2 chunk=0 epochMs=1794833791915
+11-16 22:56:35.126 I/adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCEB7 MARKER_sleep_keyevent_sent'
+11-16 22:56:35.192 I/EVIDENCEB7: MARKER_sleep_keyevent_sent
+11-16 22:56:35.316 I/PowerManagerService: Going to sleep due to sleep_button (uid 1000, screenOffTimeout=60000, activityTimeoutWM=-1, maxDimRatio=0.333, maxDimDur=20000)...
+11-16 22:56:35.393 I/VoiceTiming: synth token=2 chunk=1 chars=96 sid=0 startEpochMs=1794833791894 endEpochMs=1794833795393 synthMs=3499 audioMs=5054 rtf=0.69
+11-16 22:56:38.573 I/VoiceTiming: playEnd token=2 chunk=0 epochMs=1794833798573
+11-16 22:56:38.579 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=96 part=1/1
+11-16 22:56:38.580 I/VoiceTiming: playStart token=2 chunk=1 epochMs=1794833798580 gapMs=7
+11-16 22:56:43.536 I/VoiceTiming: synth token=2 chunk=2 chars=138 sid=0 startEpochMs=1794833795393 endEpochMs=1794833803535 synthMs=8142 audioMs=8033 rtf=1.01
+11-16 22:56:43.835 I/VoiceTiming: playEnd token=2 chunk=1 epochMs=1794833803835
+11-16 22:56:43.840 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=138 part=1/1
+11-16 22:56:43.840 I/VoiceTiming: playStart token=2 chunk=2 epochMs=1794833803840 gapMs=5
+11-16 22:56:52.072 I/VoiceTiming: playEnd token=2 chunk=2 epochMs=1794833812072
+11-16 22:56:52.350 I/VoiceTiming: synth token=2 chunk=3 chars=148 sid=0 startEpochMs=1794833803536 endEpochMs=1794833812349 synthMs=8813 audioMs=8605 rtf=1.02
+11-16 22:56:52.355 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=148 part=1/1
+11-16 22:56:52.355 I/VoiceTiming: playStart token=2 chunk=3 epochMs=1794833812355 gapMs=283
+11-16 22:56:58.608 I/VoiceTiming: synth token=2 chunk=4 chars=102 sid=0 startEpochMs=1794833812350 endEpochMs=1794833818608 synthMs=6258 audioMs=6029 rtf=1.04
+11-16 22:57:00.551 I/PowerManagerService: Waking up from Dozing (uid=1000, reason=wake_key, details=android.policy:KEY(224):Virtual)...
+11-16 22:57:01.164 I/VoiceTiming: playEnd token=2 chunk=3 epochMs=1794833821164
+11-16 22:57:01.193 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=102 part=1/1
+11-16 22:57:01.194 I/VoiceTiming: playStart token=2 chunk=4 epochMs=1794833821194 gapMs=30
+
+## in-app event log (files/jandal_events.log), tts events in this window
+22:56:27.381 tts|engine_select|engine=SHERPA_EXPERIMENTAL
+22:56:27.397 tts|speak_start|engine=SHERPA_EXPERIMENTAL|streaming=true

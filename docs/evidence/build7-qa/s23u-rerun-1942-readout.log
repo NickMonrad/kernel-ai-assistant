@@ -1,0 +1,26 @@
+# Re-run after #1969 on origin/main e227d09d (debug APK sha256 65a2386b…eea3), Cori (Sherpa Piper en_GB-cori-high). Phones silenced; judged from logs.
+# S23U: LOCAL test calendar JandalTest (5 made-up events), debug filter set before any read. App in background 90 s, then quick_action_input_encoded 'what is on my calendar today', quick_action_is_voice=true. Full readout. (S23U does not print the KernelAI_TTS spoken-text lines; spoken text is checked on the S21.)
+
+## logcat (filtered)
+11-16 23:08:10.540 D/KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@24157f5 voicePlaybackState=com.kernel.ai.feature.ch
+11-16 23:08:10.611 W/KernelAI: Debug test-calendar filter is on: calendar reads show one calendar only (#1942)
+11-16 23:08:10.704 D/VoiceTiming: firstChunkQueued epochMs=1794834490704 chars=24
+11-16 23:08:11.848 I/VoiceTiming: synth token=6 chunk=0 chars=27 sid=0 startEpochMs=1794834490704 endEpochMs=1794834491848 synthMs=1144 audioMs=1845 rtf=0.62
+11-16 23:08:11.849 I/KernelAI: SpeakingStarted engine=sherpa chars=27 epochMs=1794834491849
+11-16 23:08:11.852 I/VoiceTiming: playStart token=6 chunk=0 epochMs=1794834491852
+11-16 23:08:13.901 I/VoiceTiming: playEnd token=6 chunk=0 epochMs=1794834493900
+11-16 23:08:13.901 I/VoiceTiming: pause token=6 ms=400
+11-16 23:08:13.958 I/VoiceTiming: synth token=6 chunk=1 chars=52 sid=0 startEpochMs=1794834491849 endEpochMs=1794834493958 synthMs=2109 audioMs=3831 rtf=0.55
+11-16 23:08:14.302 I/VoiceTiming: playStart token=6 chunk=1 epochMs=1794834494302 gapMs=2
+11-16 23:08:17.428 I/VoiceTiming: synth token=6 chunk=2 chars=105 sid=0 startEpochMs=1794834493958 endEpochMs=1794834497428 synthMs=3470 audioMs=6477 rtf=0.54
+11-16 23:08:18.236 I/VoiceTiming: playEnd token=6 chunk=1 epochMs=1794834498236
+11-16 23:08:18.236 I/VoiceTiming: playStart token=6 chunk=2 epochMs=1794834498236 gapMs=0
+11-16 23:08:20.468 I/VoiceTiming: synth token=6 chunk=3 chars=97 sid=0 startEpochMs=1794834497428 endEpochMs=1794834500468 synthMs=3040 audioMs=5611 rtf=0.54
+11-16 23:08:24.799 I/VoiceTiming: playEnd token=6 chunk=2 epochMs=1794834504799
+11-16 23:08:24.799 I/VoiceTiming: playStart token=6 chunk=3 epochMs=1794834504799 gapMs=0
+11-16 23:08:30.578 I/VoiceTiming: playEnd token=6 chunk=3 epochMs=1794834510578
+
+## in-app event log (files/jandal_events.log), tts events in this window
+23:08:10.674 tts|engine_select|engine=SHERPA_EXPERIMENTAL
+23:08:10.701 tts|speak_start|engine=SHERPA_EXPERIMENTAL|streaming=true
+23:08:30.582 tts|speak_end|engine=SHERPA_EXPERIMENTAL|spoken=true|reason=COMPLETED

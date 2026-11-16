@@ -120,9 +120,13 @@ class WakeWordCueTest {
 
         val result = runWakeCaptureSession(onFinalError = { shown += "final: $it" }) { attempt ->
             attempts += attempt
-            runWakeAttempt(controller, WakeSessionJournal(1L, 1L, emit = { _, _, _, _ -> }), cuePlayer, attempt) {
-                shown += it
-            }
+            runWakeAttempt(
+                controller,
+                WakeSessionJournal(1L, 1L, emit = { _, _, _, _ -> }),
+                cuePlayer,
+                attempt,
+                onError = { shown += it },
+            )
         }
 
         assertEquals(listOf(1), attempts)

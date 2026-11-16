@@ -1,0 +1,10 @@
+#1912: acceptance modules' androidTest sources compile. Host build, origin/main 8173f2dd, 2026-11-16 21:24 AEST.
+
+1. ./gradlew --console=plain assembleDebug compileDebugAndroidTestKotlin --continue -q
+   -> exit 0 (all modules, including :acceptance:timer-cancel and :acceptance:boot-restore), 62 s.
+2. ./gradlew :acceptance:timer-cancel:compileDebugAndroidTestKotlin :acceptance:boot-restore:compileDebugAndroidTestKotlin
+   > Task :acceptance:boot-restore:compileDebugAndroidTestKotlin UP-TO-DATE
+   > Task :acceptance:timer-cancel:compileDebugAndroidTestKotlin UP-TO-DATE
+   BUILD SUCCESSFUL in 3s   (up to date: compiled successfully in step 1)
+
+CI: .github/workflows/ci.yml has the step "Compile androidTest sources": ./gradlew compileDebugAndroidTestKotlin.

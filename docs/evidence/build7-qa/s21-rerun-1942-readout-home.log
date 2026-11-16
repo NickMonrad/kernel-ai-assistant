@@ -1,0 +1,27 @@
+# Re-run after #1969 on origin/main e227d09d (debug APK sha256 65a2386b…eea3), Cori (Sherpa Piper en_GB-cori-high). Phones silenced; judged from logs.
+# s21: same readout again; KEYCODE_HOME 2 s after the first chunk after the intro pause (EVIDENCEB7 marker).
+
+## logcat (filtered)
+11-16 23:03:13.565 D/KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@7f876a7 voicePlaybackState=com.kernel.ai.feature.ch
+11-16 23:03:13.654 W/KernelAI: Debug test-calendar filter is on: calendar reads show one calendar only (#1942)
+11-16 23:03:13.863 D/VoiceTiming: firstChunkQueued epochMs=1794834193863 chars=24
+11-16 23:03:14.758 I/VoiceTiming: synth token=4 chunk=0 chars=27 sid=0 startEpochMs=1794834193863 endEpochMs=1794834194758 synthMs=895 audioMs=1588 rtf=0.56
+11-16 23:03:14.760 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=27 part=1/1 text=You have five events today.
+11-16 23:03:14.760 I/KernelAI: SpeakingStarted engine=sherpa chars=27 epochMs=1794834194760
+11-16 23:03:14.773 I/VoiceTiming: playStart token=4 chunk=0 epochMs=1794834194773
+11-16 23:03:16.562 I/VoiceTiming: playEnd token=4 chunk=0 epochMs=1794834196562
+11-16 23:03:16.563 I/VoiceTiming: pause token=4 ms=400
+11-16 23:03:17.801 I/VoiceTiming: synth token=4 chunk=1 chars=52 sid=0 startEpochMs=1794834194758 endEpochMs=1794834197801 synthMs=3043 audioMs=3975 rtf=0.77
+11-16 23:03:17.804 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=52 part=1/1 text=seven thirty to seven thirty five A-M, Test standup.
+11-16 23:03:17.804 I/VoiceTiming: playStart token=4 chunk=1 epochMs=1794834197804 gapMs=842
+11-16 23:03:19.927 I/adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCEB7 MARKER_home_mid_readout'
+11-16 23:03:20.014 I/EVIDENCEB7: MARKER_home_mid_readout
+11-16 23:03:20.668 D/KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@7f876a7 voicePlaybackState=Speaking(text=You have 5
+11-16 23:03:20.786 I/VoiceTiming: playEnd token=4 chunk=1 epochMs=1794834200786
+11-16 23:03:23.452 I/VoiceTiming: synth token=4 chunk=2 chars=105 sid=0 startEpochMs=1794834197802 endEpochMs=1794834203451 synthMs=5649 audioMs=6733 rtf=0.84
+11-16 23:03:23.452 I/VoiceTiming: discard token=4 chunk=2 reason=stale
+
+## in-app event log (files/jandal_events.log), tts events in this window
+23:03:13.789 tts|engine_select|engine=SHERPA_EXPERIMENTAL
+23:03:13.860 tts|speak_start|engine=SHERPA_EXPERIMENTAL|streaming=true
+23:03:20.669 tts|speak_end|engine=SHERPA_EXPERIMENTAL|spoken=false|reason=INTERRUPTED_BACKGROUND

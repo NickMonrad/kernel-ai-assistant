@@ -1,0 +1,8 @@
+11-16 21:46:09.584 E/AndroidRuntime( 4734): FATAL EXCEPTION: main
+11-16 21:46:09.584 E/AndroidRuntime( 4734): Process: ai.jandal.assistant.debug, PID: 4734
+11-16 21:46:09.584 E/AndroidRuntime( 4734): java.lang.ExceptionInInitializerError
+11-16 21:46:09.584 E/AndroidRuntime( 4734): 	at com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$openStreamingSession$2.invokeSuspend(SherpaOnnxVoiceOutputController.kt:227)
+11-16 21:46:09.584 E/AndroidRuntime( 4734): Caused by: java.util.regex.PatternSyntaxException: Syntax error in regexp pattern near index 3
+11-16 21:46:09.584 E/AndroidRuntime( 4734): (?U:\s+)
+11-16 21:46:09.584 E/AndroidRuntime( 4734): 	at com.kernel.ai.core.voice.PronunciationLexicon.<clinit>(PronunciationLexicon.kt:105)
+11-16 21:46:10.326 I/ActivityManager( 7908): Process ai.jandal.assistant.debug (pid 4734) has died: cch CRE (2719,1300)

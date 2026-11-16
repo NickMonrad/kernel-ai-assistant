@@ -1,0 +1,13 @@
+# S21 R5CR605B71K, main 8173f2dd debug. Voice output switched to Android TTS for this check (Cori/Sherpa crashes, #1968); restored afterwards.
+# quick_action_input 'tell me a short story about a dog' quick_action_is_voice=true -> chat; key event 2 s after speech starts; 25 s observed after it.
+11-16 21:57:02.797 D/KernelAI(10677): ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@5f42
+11-16 21:57:03.279 D/KernelAI(10677): ADB_ROUTE_DECISION commandId=55586c61-1 result=fallthrough best_guess=null confidence=0.0
+11-16 21:57:56.453 I/LiteRtInferenceEngine(10677): Generation complete: total=40220ms, TTFT=10396ms, visibleChunks=112 [backend=GPU]
+11-16 21:57:57.150 D/KernelAI_TTS(10677): speaking_started engine=android_tts chars=52 part=1/1
+11-16 21:57:57.151 I/KernelAI(10677): SpeakingStarted engine=android_tts chars=52 epochMs=1794830277150
+11-16 21:57:57.503 D/KernelAI(10677): ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-16 21:57:59.548 I/adbd    (25999): adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCEB7 MARKER home keyevent sent'
+11-16 21:57:59.589 I/EVIDENCEB7(11882): MARKER home keyevent sent
+11-16 21:57:59.965 D/AudioTrack(11464): stop(519): called with 66016 frames delivered
+11-16 21:57:59.966 I/GoogleTTSServiceImpl(11464): Skipping Synthesiscallback.error() call for TextToSpeech.ERROR
+11-16 21:57:59.982 I/MediaFocusControl( 7908): abandonAudioFocus() from uid/pid 10300/10677 clientId=android.media.AudioManager@78ce676com.kernel.ai.core.voice.AndroidTextToSpeechController$$ExternalS

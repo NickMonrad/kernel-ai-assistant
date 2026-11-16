@@ -1,0 +1,18 @@
+# Samsung SM-G991B (R5CR605B71K), Android 15 (SDK 35), build with fix 6910c1a7 merged with origin/main 3727152e
+# Source: adb logcat -d (filtered) + run-as jandal_events.log (speak events). Quick action: quick_action_is_voice=true.
+## app process check
+FATAL EXCEPTION lines for ai.jandal.assistant.debug: 0
+PatternSyntaxException lines: 0
+Our process has died lines: 0
+## logcat (KernelAI, KernelAI_TTS, Speaking)
+11-16 22:29:10.202 25999 25999 I adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:am start -n ai.jandal.assistant.debug/com.kernel.ai.MainActivity --es adb_harness_token <redacted> --es quick_action_input 'say hello in one short sentence' --ez quick_ac
+11-16 22:29:11.381 23731 23731 I KernelAI: external_prompt_trust callerUid=-1 trust=DIRECT
+11-16 22:29:13.118 23731 23731 D KernelAI: ADB_ROUTE_DECISION commandId=7e86cc5f-1 result=fallthrough best_guess=null confidence=0.0
+11-16 22:29:15.326 23731 23764 I KernelAI: Sherpa-ONNX TTS initialised — voice: en_GB-cori-high at /data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-cori-high
+11-16 22:29:30.257 23731 23731 D KernelAI: TTFT_STAGE commandId=7e86cc5f-1 stage=first_token t_ms=17265
+11-16 22:29:31.863 23731 23757 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=15 part=1/1 text=Keeorah. Hello.
+11-16 22:29:31.864 23731 23757 I KernelAI: SpeakingStarted engine=sherpa chars=15 epochMs=1794832171864
+11-16 22:29:31.865 23731 23731 D KernelAI: ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+## app event log (run-as files/jandal_events.log, run window)
+1794832170661|tts|speak_start|engine=SHERPA_EXPERIMENTAL|streaming=true
+1794832173435|tts|speak_end|engine=SHERPA_EXPERIMENTAL|spoken=true|reason=COMPLETED

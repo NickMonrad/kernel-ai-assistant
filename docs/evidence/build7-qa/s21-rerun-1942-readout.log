@@ -1,0 +1,29 @@
+# Re-run after #1969 on origin/main e227d09d (debug APK sha256 65a2386b…eea3), Cori (Sherpa Piper en_GB-cori-high). Phones silenced; judged from logs.
+# s21: LOCAL test calendar JandalTest (5 made-up events), debug filter set before any read. quick_action_input_encoded 'what is on my calendar today', quick_action_is_voice=true. Full readout. Spoken text kept (fixture titles only).
+
+## logcat (filtered)
+11-16 23:02:46.452 W/KernelAI: Debug test-calendar filter is on: calendar reads show one calendar only (#1942)
+11-16 23:02:46.662 D/VoiceTiming: firstChunkQueued epochMs=1794834166662 chars=24
+11-16 23:02:47.528 I/VoiceTiming: synth token=3 chunk=0 chars=27 sid=0 startEpochMs=1794834166663 endEpochMs=1794834167528 synthMs=865 audioMs=1539 rtf=0.56
+11-16 23:02:47.531 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=27 part=1/1 text=You have five events today.
+11-16 23:02:47.531 I/KernelAI: SpeakingStarted engine=sherpa chars=27 epochMs=1794834167531
+11-16 23:02:47.559 I/VoiceTiming: playStart token=3 chunk=0 epochMs=1794834167558
+11-16 23:02:49.375 I/VoiceTiming: playEnd token=3 chunk=0 epochMs=1794834169375
+11-16 23:02:49.375 I/VoiceTiming: pause token=3 ms=400
+11-16 23:02:50.350 I/VoiceTiming: synth token=3 chunk=1 chars=52 sid=0 startEpochMs=1794834167529 endEpochMs=1794834170350 synthMs=2821 audioMs=4126 rtf=0.68
+11-16 23:02:50.352 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=52 part=1/1 text=seven thirty to seven thirty five A-M, Test standup.
+11-16 23:02:50.352 I/VoiceTiming: playStart token=3 chunk=1 epochMs=1794834170352 gapMs=577
+11-16 23:02:54.611 I/VoiceTiming: synth token=3 chunk=2 chars=105 sid=0 startEpochMs=1794834170351 endEpochMs=1794834174611 synthMs=4260 audioMs=6696 rtf=0.64
+11-16 23:02:54.625 I/VoiceTiming: playEnd token=3 chunk=1 epochMs=1794834174625
+11-16 23:02:54.627 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=105 part=1/1 text=ten o'clock to ten fifteen A-M, Test Jandle sync. one o'clock to one forty five P M, Test lunch with Sam.
+11-16 23:02:54.627 I/VoiceTiming: playStart token=3 chunk=2 epochMs=1794834174627 gapMs=2
+11-16 23:02:58.190 I/VoiceTiming: synth token=3 chunk=3 chars=97 sid=0 startEpochMs=1794834174611 endEpochMs=1794834178190 synthMs=3579 audioMs=5738 rtf=0.62
+11-16 23:03:01.446 I/VoiceTiming: playEnd token=3 chunk=2 epochMs=1794834181446
+11-16 23:03:01.448 D/KernelAI_TTS: speaking_started engine=sherpa_stream chars=97 part=1/1 text=two thirty to three o'clock P M, Test vendor call. four o'clock to four thirty P M, Test wrap-up.
+11-16 23:03:01.448 I/VoiceTiming: playStart token=3 chunk=3 epochMs=1794834181448 gapMs=2
+11-16 23:03:07.324 I/VoiceTiming: playEnd token=3 chunk=3 epochMs=1794834187324
+
+## in-app event log (files/jandal_events.log), tts events in this window
+23:02:46.607 tts|engine_select|engine=SHERPA_EXPERIMENTAL
+23:02:46.660 tts|speak_start|engine=SHERPA_EXPERIMENTAL|streaming=true
+23:03:07.333 tts|speak_end|engine=SHERPA_EXPERIMENTAL|spoken=true|reason=COMPLETED

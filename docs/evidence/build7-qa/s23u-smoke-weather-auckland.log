@@ -1,0 +1,17 @@
+# S23U RFCW11265XH, debug 8173f2dd. Smoke weather run after the #1922 marker run.
+# #1922 marker run (r1922b.py, one script, in order): touch marker -> command 22:10:44.349 -> logcat dump 22:10:54.486 -> screencap -> rm -f files/debug-force-open-meteo-failure -> 'ls files' check (marker absent, as reported by the QA agent). So the marker was removed after 22:10:54.5 and before the smoke run's first command at 22:11:11.737.
+# Marker run, for comparison: the debug interceptor throws at once and logs it.
+11-16 22:10:45.774 W KernelAI: Weather API failed (attempt 0/1), retrying in 500ms
+11-16 22:10:45.774 W KernelAI: java.net.SocketTimeoutException: debug: forced Open-Meteo failure
+11-16 22:10:46.277 W KernelAI: Weather API failed; giving up
+11-16 22:10:46.277 W KernelAI: java.net.SocketTimeoutException: debug: forced Open-Meteo failure
+11-16 22:10:46.278 W KernelAI: Weather API: Open-Meteo unavailable, trying MET Norway
+11-16 22:10:47.808 I KernelAI: Weather API answered by MET Norway
+# Smoke run (new process pid after am force-stop): all KernelAI lines from the command to the answer, except 3 TTS-init lines. No 'Weather API failed' and no 'debug: forced Open-Meteo failure' line: the 5 s OPEN_METEO_BUDGET_MS timeout expired (19.54 -> 24.77) with no exception thrown, i.e. a real stall, not the debug marker (GetWeatherSkill.fetchWeatherBody / retryWithBackoff).
+11-16 22:11:11.737 adbd: am start -W (cold start)
+11-16 22:11:19.213 adbd: am start, quick_action_input "what's the weather in Auckland"
+11-16 22:11:19.329 I KernelAI: external_prompt_trust callerUid=-1 trust=DIRECT
+11-16 22:11:19.541 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-16 22:11:24.767 W KernelAI: Weather API: Open-Meteo unavailable, trying MET Norway
+11-16 22:11:26.438 I KernelAI: Weather API answered by MET Norway
+11-16 22:11:26.439 D KernelAI: GetWeatherSkill: fetched current weather

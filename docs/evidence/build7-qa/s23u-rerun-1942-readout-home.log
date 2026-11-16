@@ -1,0 +1,26 @@
+# Re-run after #1969 on origin/main e227d09d (debug APK sha256 65a2386b…eea3), Cori (Sherpa Piper en_GB-cori-high). Phones silenced; judged from logs.
+# S23U: readout, KEYCODE_HOME 2 s after the first chunk after the intro pause (EVIDENCEB7 marker MARKER_home_mid_readout_2).
+
+## logcat (filtered)
+11-16 23:09:41.558 D/KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@24157f5 voicePlaybackState=com.kernel.ai.feature.ch
+11-16 23:09:41.615 W/KernelAI: Debug test-calendar filter is on: calendar reads show one calendar only (#1942)
+11-16 23:09:41.666 D/VoiceTiming: firstChunkQueued epochMs=1794834581666 chars=24
+11-16 23:09:42.365 I/VoiceTiming: synth token=8 chunk=0 chars=27 sid=0 startEpochMs=1794834581666 endEpochMs=1794834582365 synthMs=699 audioMs=1534 rtf=0.46
+11-16 23:09:42.365 I/KernelAI: SpeakingStarted engine=sherpa chars=27 epochMs=1794834582365
+11-16 23:09:42.368 I/VoiceTiming: playStart token=8 chunk=0 epochMs=1794834582368
+11-16 23:09:44.071 I/VoiceTiming: playEnd token=8 chunk=0 epochMs=1794834584071
+11-16 23:09:44.071 I/VoiceTiming: pause token=8 ms=400
+11-16 23:09:44.371 I/VoiceTiming: synth token=8 chunk=1 chars=52 sid=0 startEpochMs=1794834582365 endEpochMs=1794834584371 synthMs=2006 audioMs=4088 rtf=0.49
+11-16 23:09:44.472 I/VoiceTiming: playStart token=8 chunk=1 epochMs=1794834584472 gapMs=1
+11-16 23:09:47.856 I/adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:log -t EVIDENCEB7 MARKER_home_mid_readout_2'
+11-16 23:09:47.904 I/EVIDENCEB7: MARKER_home_mid_readout_2
+11-16 23:09:48.148 I/VoiceTiming: synth token=8 chunk=2 chars=105 sid=0 startEpochMs=1794834584371 endEpochMs=1794834588148 synthMs=3777 audioMs=6383 rtf=0.59
+11-16 23:09:48.319 D/KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@24157f5 voicePlaybackState=Speaking(text=You have 5
+11-16 23:09:48.376 I/VoiceTiming: playEnd token=8 chunk=1 epochMs=1794834588376
+11-16 23:10:03.178 I/VoiceTiming: synth token=8 chunk=3 chars=97 sid=0 startEpochMs=1794834588148 endEpochMs=1794834603176 synthMs=15028 audioMs=5936 rtf=2.53
+11-16 23:10:03.179 I/VoiceTiming: discard token=8 chunk=3 reason=stale
+
+## in-app event log (files/jandal_events.log), tts events in this window
+23:09:41.663 tts|engine_select|engine=SHERPA_EXPERIMENTAL
+23:09:41.664 tts|speak_start|engine=SHERPA_EXPERIMENTAL|streaming=true
+23:09:48.320 tts|speak_end|engine=SHERPA_EXPERIMENTAL|spoken=false|reason=INTERRUPTED_BACKGROUND
