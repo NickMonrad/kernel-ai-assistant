@@ -5,8 +5,10 @@ import android.app.role.RoleManager
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import com.kernel.ai.core.ui.ChipStatus
 import com.kernel.ai.core.permissions.MicrophonePermissionReadiness
 import com.kernel.ai.core.permissions.MicrophoneReadiness
+import com.kernel.ai.feature.chat.formatBytesShort
 import com.kernel.ai.core.permissions.canScheduleExactAlarms
 import com.kernel.ai.core.voice.HeyJandalBlock
 import com.kernel.ai.core.voice.HeyJandalGate
@@ -34,6 +36,22 @@ data class MakeYoursPlatform(
     val exactAlarmAllowed: Boolean = false,
 )
 
+/** Button a Hey Jandal card offers; the screen maps each one to its callback. */
+internal enum class HeyJandalAction { TurnOn, TurnOff, AllowMicrophone, OpenUsageAccess }
+
+/**
+ * What the Hey Jandal card shows. [why] is non-null only when the card has no secondary button, which is when
+ * "Why?" is offered (screens 4 and 4b in the README).
+ */
+internal data class HeyJandalCard(
+    val status: ChipStatus,
+    val description: String,
+    val caveat: String?,
+    val primary: HeyJandalAction?,
+    val secondary: HeyJandalAction?,
+    val why: String?,
+)
+
 /** Pure mapping from platform and stored state to row statuses. No Android calls, so it is unit-tested. */
 internal object MakeYoursRows {
 
@@ -46,17 +64,100 @@ internal object MakeYoursRows {
     )
 
     /**
-     * Effective Hey Jandal state: On only when stored on and nothing blocks it. Not available when the
-     * phone has no microphone or no wake-word model. Otherwise Off, with the block reason shown in the row.
+     * The Hey Jandal card for [choice] (what Finish will apply) against [stored], by the step 4 state table in
+     * docs/specs/setup-visual-pass/README.md. [extraBytes] is the download this phone still needs.
+     * [androidNativeZipformerBytes] is the Zipformer download Hey Jandal adds when Android native is the speech
+     * input (0 otherwise, or when Zipformer is already on the phone); Why? names it.
      */
-    fun wakeWord(storedEnabled: Boolean, platform: MakeYoursPlatform): MakeYoursStatus {
-        val block = heyJandalBlock(platform)
-        return when {
-            block == HeyJandalBlock.NoMicrophone || block == HeyJandalBlock.ModelNotInstalled -> MakeYoursStatus.NotAvailable
-            block == null && storedEnabled -> MakeYoursStatus.On
-            else -> MakeYoursStatus.Off
+    fun heyJandalCard(
+        stored: Boolean,
+        choice: Boolean,
+        platform: MakeYoursPlatform,
+        extraBytes: Long,
+        androidNativeZipformerBytes: Long,
+    ): HeyJandalCard {
+        val pending = choice != stored
+        val base = "Say \"Hey Jandal\" to start talking, hands-free."
+        val sizeLine = if (extraBytes > 0L) {
+            "Adds a ${formatBytesShort(extraBytes)} download. Uses a little battery."
+        } else {
+            "Uses a little battery."
         }
+        val status: ChipStatus
+        val description: String
+        val caveat: String?
+        val primary: HeyJandalAction?
+        val secondary: HeyJandalAction?
+        when (val block = heyJandalBlock(platform)) {
+            null -> {
+                caveat = sizeLine
+                when {
+                    choice && pending -> {
+                        status = ChipStatus.OnAtFinish
+                        description = "$base Turns on when you tap Finish."
+                        primary = null
+                        secondary = HeyJandalAction.TurnOff
+                    }
+                    choice -> {
+                        status = ChipStatus.On
+                        description = base
+                        primary = null
+                        secondary = HeyJandalAction.TurnOff
+                    }
+                    pending -> {
+                        status = ChipStatus.Off
+                        description = "$base Turns off when you tap Finish."
+                        primary = HeyJandalAction.TurnOn
+                        secondary = null
+                    }
+                    else -> {
+                        status = ChipStatus.Off
+                        description = base
+                        primary = HeyJandalAction.TurnOn
+                        secondary = null
+                    }
+                }
+            }
+            HeyJandalBlock.NoMicrophone, HeyJandalBlock.ModelNotInstalled -> {
+                status = ChipStatus.NotAvailable
+                description = blockText(block)
+                caveat = if (choice) STAYS_OFF else null
+                primary = null
+                secondary = if (choice) HeyJandalAction.TurnOff else null
+            }
+            HeyJandalBlock.MicrophoneNotGranted, HeyJandalBlock.UsageAccessNeeded -> {
+                status = if (choice) ChipStatus.NeedsAccess else ChipStatus.Off
+                description = base
+                caveat = if (choice) "${blockText(block)} $STAYS_OFF" else blockText(block)
+                primary = if (block == HeyJandalBlock.MicrophoneNotGranted) {
+                    HeyJandalAction.AllowMicrophone
+                } else {
+                    HeyJandalAction.OpenUsageAccess
+                }
+                secondary = if (choice) HeyJandalAction.TurnOff else null
+            }
+        }
+        return HeyJandalCard(
+            status = status,
+            description = description,
+            caveat = caveat,
+            primary = primary,
+            secondary = secondary,
+            why = if (secondary == null) heyJandalWhy(androidNativeZipformerBytes) else null,
+        )
     }
+
+    private const val STAYS_OFF = "Stays off until this is fixed."
+
+    private fun heyJandalWhy(androidNativeZipformerBytes: Long): String =
+        "Say \"Hey Jandal\" and Jandal starts listening, hands-free. The mic stays on for the wake word, so it uses " +
+            "a little battery. It works most reliably once Jandal is your default assistant, which is the next row." +
+            (if (androidNativeZipformerBytes > 0L) {
+                " Hey Jandal also needs the Zipformer speech model, about " +
+                    "${formatBytesShort(androidNativeZipformerBytes)}, even though Android's listener is your speech input."
+            } else {
+                ""
+            })
 
     /** Default assistant: On when Jandal holds the role; Not available when the phone has no assistant role. */
     fun defaultAssistant(platform: MakeYoursPlatform): MakeYoursStatus = when {
@@ -71,25 +172,12 @@ internal object MakeYoursRows {
     fun exactAlarm(platform: MakeYoursPlatform): MakeYoursStatus =
         if (platform.exactAlarmAllowed) MakeYoursStatus.On else MakeYoursStatus.Off
 
-    /**
-     * Plain reason Hey Jandal cannot listen right now, or null when it can. The default assistant is not a
-     * blocker: Settings treats it as recommended only, and so does the wizard.
-     */
-    fun wakeWordBlockReason(platform: MakeYoursPlatform): String? = heyJandalBlock(platform)?.let(::blockText)
-
     private fun blockText(block: HeyJandalBlock): String = when (block) {
         HeyJandalBlock.NoMicrophone -> "This phone has no microphone, so Hey Jandal can't listen."
-        HeyJandalBlock.MicrophoneNotGranted -> "Hey Jandal needs microphone access. Tap Allow microphone."
+        HeyJandalBlock.MicrophoneNotGranted -> "Hey Jandal needs microphone access."
         HeyJandalBlock.ModelNotInstalled -> "The Hey Jandal model isn't on this phone yet, so it can't listen."
         HeyJandalBlock.UsageAccessNeeded ->
-            "On this Honor phone, Hey Jandal needs Usage Access so it can pause while the camera is in use. " +
-                "Tap Open Usage Access, turn it on for Jandal, then come back."
-    }
-
-    fun statusLabel(status: MakeYoursStatus): String = when (status) {
-        MakeYoursStatus.On -> "On"
-        MakeYoursStatus.Off -> "Off"
-        MakeYoursStatus.NotAvailable -> "Not available"
+            "On this phone it needs Usage Access, so it can pause while the camera's in use."
     }
 }
 

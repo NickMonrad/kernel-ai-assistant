@@ -56,6 +56,7 @@ pronunciations. Set `verify: true` only for an entry with no owner pick yet. Can
 | Taihape | Tie-happy | false | Owner, by ear, 2026-11-14 (replaces Tie-ha-peh) |
 | Waikato | Why-kat-o | false | Owner, by ear, 2026-11-14 |
 | Jandal, Jandals | Jandle, Jandles | true | #1942: owner heard Cori say "jun-DALL"; target JAN-dl, rhymes with handle. eSpeak (Cori's `espeak-ng-data`, voice `en`): `Jandal` alone is `dʒˈandəl`, but inside a longer token (`jandaltest`) the `-dal` becomes `dɒl`; `Jandle` is `dʒˈandəl` like `handle` (`hˈandəl`) |
+| Kia ora | Kee-ora | false | Owner, by ear, 2026-11-16 (#1936 Cori sample, candidate 4 of 4). The plain spelling sounded clipped ("kyora"): eSpeak gives `kˈiəɹ ˈɔːɹə` with a linking r; `Kee-ora` gives `kˈiːˈɔːɹə` |
 
 Not in the lexicon: Ōtaki, Waikanae, Hāwera, Rotorua (not clearly wrong, not listened to).
 

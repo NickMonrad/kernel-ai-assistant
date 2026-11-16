@@ -40,6 +40,27 @@ object HeyJandalGate {
 fun SherpaSttModelSpec.kernelModels(): List<KernelModel> =
     requiredFileNames.mapNotNull { fileName -> KernelModel.entries.firstOrNull { it.fileName == fileName } }
 
+/** Catalogue entries backing the wake-verifier model files (#1439). Shared by :app provisioning and setup sizes (#1931). */
+fun wakeVerifierKernelModels(): List<KernelModel> =
+    SherpaSttModelSpec.WHISPER.kernelModels()
+
+/** The STT engine Hey Jandal verifies with: the selected recognizer if it is an online Sherpa one, else Zipformer. */
+private fun heyJandalSttEngine(selected: VoiceInputEngine): VoiceInputEngine =
+    if (SherpaSttModelSpec.forEngine(selected)?.recognizerKind == SherpaSttModelSpec.RecognizerKind.Online) {
+        selected
+    } else {
+        VoiceInputEngine.SherpaZipformer
+    }
+
+/**
+ * Every catalogue file turning Hey Jandal on needs with [selectedInput] as the speech input: the wake verifier
+ * ([wakeVerifierKernelModels]) plus the STT model [queueHeyJandalSttModel] queues. The one source for the size that
+ * setup and Settings › Voice show (#1931); callers drop files already downloaded.
+ */
+fun heyJandalDownloadModels(selectedInput: VoiceInputEngine): List<KernelModel> =
+    (wakeVerifierKernelModels() + SherpaSttModelSpec.forEngine(heyJandalSttEngine(selectedInput))?.kernelModels().orEmpty())
+        .distinct()
+
 /**
  * Queues the STT model Hey Jandal verifies with: the selected online recognizer if it has one,
  * otherwise Zipformer. Call when Hey Jandal is turned on.
@@ -48,12 +69,6 @@ suspend fun queueHeyJandalSttModel(
     voiceInputPreferences: VoiceInputPreferences,
     modelDownloadManager: ModelDownloadManager,
 ) {
-    val selected = voiceInputPreferences.selectedEngine.first()
-    val engine = if (SherpaSttModelSpec.forEngine(selected)?.recognizerKind == SherpaSttModelSpec.RecognizerKind.Online) {
-        selected
-    } else {
-        VoiceInputEngine.SherpaZipformer
-    }
-    val spec = SherpaSttModelSpec.forEngine(engine) ?: return
+    val spec = SherpaSttModelSpec.forEngine(heyJandalSttEngine(voiceInputPreferences.selectedEngine.first())) ?: return
     spec.kernelModels().forEach { modelDownloadManager.startDownload(it) }
 }

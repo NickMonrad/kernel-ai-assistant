@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Jandal mark from docs/brand/jandal-mark.svg (same paths as app ic_launcher_monochrome.xml). Tinted by the caller. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 53.5,16 C 65,16 73.5,26 76,39 C 77.5,47 75.5,54.5 72,61 C 68.5,67.5 66,73 66,80 C 66,89.5 60,98 54,100 C 48,98 42,89.5 42,80 C 42,73 39.5,67.5 36,61 C 32.5,54.5 30.5,47 32,39 C 34.5,26 42,16 53.5,16 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 54,34 L 54,39" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 54,39 C 48,48 41,55 39,64" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 54,39 C 61,48 68,55 70,64" />
+</vector>

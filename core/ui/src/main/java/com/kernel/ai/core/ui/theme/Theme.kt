@@ -8,6 +8,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
@@ -110,8 +111,15 @@ fun KernelAITheme(
         else -> JandalLightColorScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        content = content
-    )
+    val isDynamic = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val baseExtended = if (darkTheme) JandalDarkExtendedColors else JandalLightExtendedColors
+    // Wallpaper colours replace the static Jandal accent; the accent always follows the scheme primary.
+    val extended = if (isDynamic) baseExtended.copy(accent = colorScheme.primary) else baseExtended
+
+    CompositionLocalProvider(LocalJandalColors provides extended) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            content = content
+        )
+    }
 }

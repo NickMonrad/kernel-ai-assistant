@@ -4,6 +4,7 @@ import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -26,9 +27,42 @@ class SetupSpeechOptionsTest {
     fun `Android's voice is offered only when a TTS engine is installed`() {
         assertEquals(
             listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
-            SetupSpeechOptions.outputOptions(hasSystemTts = true),
+            SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = true, inflectEligible = false),
         )
-        assertEquals(listOf(VoiceOutputEngine.SherpaExperimental), SetupSpeechOptions.outputOptions(hasSystemTts = false))
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental),
+            SetupSpeechOptions.outputOptions(hasSystemTts = false, isRelease = true, inflectEligible = false),
+        )
+    }
+
+    @Test
+    fun `release builds offer Inflect Micro only where it is eligible`() {
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental, VoiceOutputEngine.AndroidTts),
+            SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = true, inflectEligible = true),
+        )
+        assertFalse(
+            VoiceOutputEngine.InflectMicroExperimental in
+                SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = true, inflectEligible = false),
+        )
+    }
+
+    @Test
+    fun `debug builds offer Inflect Micro everywhere, as Settings does`() {
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental, VoiceOutputEngine.AndroidTts),
+            SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = false, inflectEligible = false),
+        )
+    }
+
+    @Test
+    fun `Kokoro is never offered in setup, even in debug builds`() {
+        listOf(true, false).forEach { isRelease ->
+            assertFalse(
+                VoiceOutputEngine.KokoroExperimental in
+                    SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = isRelease, inflectEligible = true),
+            )
+        }
     }
 
     @Test
