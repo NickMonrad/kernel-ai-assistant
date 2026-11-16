@@ -40,12 +40,14 @@ import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import com.kernel.ai.core.voice.WakeWordHandoff
+import com.kernel.ai.core.voice.WakeOverlayChannel
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.LifecycleOutcome
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
+import com.kernel.ai.feature.widget.EXTRA_WAKE_OVERLAY
 import java.io.File
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -767,6 +769,7 @@ class WakeWordService : Service() {
         // Automatically yield the AudioRecord whenever another voice session is active.
         eventCollectorJob = serviceScope.launch {
             voiceInputController.events.collect { event ->
+                WakeOverlayChannel.onEvent(event)
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
                         isVoiceSessionActive = true
@@ -933,6 +936,8 @@ class WakeWordService : Service() {
     private fun handleDetection(generationId: Long, sessionId: Long) {
         serviceScope.launch {
             isHandlingDetection = true
+            WakeOverlayChannel.begin()
+            showWakeOverlay()
             try {
                 runWakeCommandHandoff(
                     wakeWordDetector = wakeWordDetector,
@@ -944,6 +949,7 @@ class WakeWordService : Service() {
                     routeTranscript = ::routeTranscript,
                     onSessionTerminal = {
                         isHandlingDetection = false
+                        WakeOverlayChannel.end()
                         rearmDetector()
                     },
                     // #1502: a camera-driven yield must not be undone by the session's retry.
@@ -958,6 +964,23 @@ class WakeWordService : Service() {
     private fun showWakeWordError(message: String) {
         Handler(Looper.getMainLooper()).post {
             Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * #1930: opens the Hey Jandal overlay before the capture's events arrive. The capture itself
+     * (detector stop, cue, STT attempts) is unchanged; a failed launch leaves the capture running.
+     */
+    private fun showWakeOverlay() {
+        try {
+            startActivity(
+                Intent(this, VoiceCommandActivity::class.java).apply {
+                    putExtra(EXTRA_WAKE_OVERLAY, true)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "WakeWordService: could not open the wake overlay", e)
         }
     }
 
@@ -1026,6 +1049,7 @@ class WakeWordService : Service() {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )
+            WakeOverlayChannel.markRouted()
             true
         } catch (e: Exception) {
             // Clear the token if startActivity failed so it doesn't linger.

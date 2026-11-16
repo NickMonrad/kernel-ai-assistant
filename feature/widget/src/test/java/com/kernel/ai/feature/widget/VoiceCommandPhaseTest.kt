@@ -41,4 +41,26 @@ class VoiceCommandPhaseTest {
             phaseAfter(VoiceCommandPhase.Starting, VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "no speech")),
         )
     }
+
+    @Test
+    fun `processing label stays visible as caption once partial transcripts arrive`() {
+        assertEquals(
+            "turn on the lights" to "Processing…",
+            voiceOverlayLabels(VoiceCommandPhase.Processing, "turn on the lights", failed = false),
+        )
+    }
+
+    @Test
+    fun `listening shows the label alone until the first partial`() {
+        assertEquals("Listening…" to null, voiceOverlayLabels(VoiceCommandPhase.Listening, "", failed = false))
+        assertEquals("hi" to "Listening…", voiceOverlayLabels(VoiceCommandPhase.Listening, "hi", failed = false))
+    }
+
+    @Test
+    fun `failure shows the error text without a phase caption`() {
+        assertEquals(
+            "Voice commands are unavailable right now." to null,
+            voiceOverlayLabels(VoiceCommandPhase.Starting, "Voice commands are unavailable right now.", failed = true),
+        )
+    }
 }

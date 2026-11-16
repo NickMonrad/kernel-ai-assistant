@@ -17,3 +17,25 @@ internal fun phaseAfter(current: VoiceCommandPhase, event: VoiceInputEvent): Voi
     is VoiceInputEvent.Error -> VoiceCommandPhase.Starting
     else -> current
 }
+
+/**
+ * Main line and optional phase caption for the voice overlay. Partial text is the main line, but
+ * the phase label stays visible beneath it so "Processing…" is not replaced by partials (#1930, O2).
+ * [failed] shows the error text alone.
+ */
+internal fun voiceOverlayLabels(
+    phase: VoiceCommandPhase,
+    partialText: String,
+    failed: Boolean,
+): Pair<String, String?> {
+    val label = when (phase) {
+        VoiceCommandPhase.Starting -> "Starting…"
+        VoiceCommandPhase.Listening -> "Listening…"
+        VoiceCommandPhase.Processing -> "Processing…"
+    }
+    return when {
+        failed -> partialText to null
+        partialText.isEmpty() -> label to null
+        else -> partialText to label
+    }
+}

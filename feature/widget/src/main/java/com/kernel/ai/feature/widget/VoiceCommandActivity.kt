@@ -74,6 +74,11 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import com.kernel.ai.core.voice.WakeOverlayChannel
+import com.kernel.ai.core.voice.WakeOverlayPhase
+import com.kernel.ai.core.voice.WakeOverlayState
 
 private const val TAG = "KernelAI"
 
@@ -87,6 +92,9 @@ private const val TAG = "KernelAI"
  * the in-process token matches and then clears it — external apps cannot write the token.
  */
 const val EXTRA_PREFILLED_TRANSCRIPT = "prefilled_transcript"
+
+/** Intent extra set by [WakeWordService] when it opens the overlay for a live Hey Jandal capture (#1930). */
+const val EXTRA_WAKE_OVERLAY = "wake_overlay"
 /**
  * Validates a prefilled transcript extra against the in-process [WakeWordHandoff] token.
  *
@@ -128,6 +136,8 @@ class VoiceCommandActivity : ComponentActivity() {
     /** Cancellable job for the 400 ms prefilled-transcript navigation delay. */
     private var prefilledNavJob: Job? = null
     private var toneGenerator: ToneGenerator? = null
+    /** Observer of [WakeOverlayChannel] while a Hey Jandal overlay is shown (#1930). */
+    private var wakeOverlayJob: Job? = null
 
     private val requestMicPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -149,6 +159,7 @@ class VoiceCommandActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         if (handlePrefilledTranscript(intent)) return
+        if (handleWakeOverlayIntent(intent)) return
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -169,7 +180,7 @@ class VoiceCommandActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handlePrefilledTranscript(intent)
+        if (!handlePrefilledTranscript(intent)) handleWakeOverlayIntent(intent)
         // If there was no prefilled transcript this is an OS assistant re-trigger; ignore —
         // the existing voice session or overlay is still valid.
     }
@@ -197,8 +208,73 @@ class VoiceCommandActivity : ComponentActivity() {
         prefilledNavJob?.cancel()
         prefilledNavJob = null
         WakeWordHandoff.pendingTranscript = null
+        wakeOverlayJob?.cancel()
+        wakeOverlayJob = null
         routePrefilledTranscript(extra)
         return true
+    }
+
+    /**
+     * #1930: a Hey Jandal wake opens this overlay while [WakeWordService] captures speech. Only a
+     * live wake capture ([WakeOverlayState.Active]) may open it, so an external caller cannot show a
+     * listening overlay with no capture behind it. Returns true when the intent is a wake intent.
+     */
+    internal fun handleWakeOverlayIntent(intent: Intent): Boolean {
+        if (!intent.getBooleanExtra(EXTRA_WAKE_OVERLAY, false)) return false
+        if (WakeOverlayChannel.state.value is WakeOverlayState.Active) startWakeOverlay() else finish()
+        return true
+    }
+
+    /**
+     * Renders [WakeOverlayChannel] state: Listening, live partials, then Processing. The capture is
+     * owned by [WakeWordService], so its timing and mic-ready cue are unchanged and this activity
+     * never calls startListening. Closes when the capture ends without a routed transcript.
+     */
+    private fun startWakeOverlay() {
+        wakeOverlayJob?.cancel()
+        var phase by mutableStateOf(VoiceCommandPhase.Listening)
+        var partialText by mutableStateOf("")
+        var dismissEnabled by mutableStateOf(false)
+        setContent {
+            val useSystemColors = chatPreferences.useSystemColors
+                .collectAsState(initial = USE_SYSTEM_COLORS_DEFAULT).value
+            KernelAITheme(dynamicColor = useSystemColors) {
+                LaunchedEffect(Unit) {
+                    delay(800)
+                    dismissEnabled = true
+                }
+                VoiceCommandOverlay(
+                    phase = phase,
+                    partialText = partialText,
+                    failed = false,
+                    hintVisible = false,
+                    inputLevel = voiceInputController.inputLevel.collectAsState(),
+                    dismissEnabled = dismissEnabled,
+                    onDismiss = { finish() },
+                )
+            }
+        }
+        wakeOverlayJob = lifecycleScope.launch {
+            WakeOverlayChannel.state.collect { state ->
+                when (state) {
+                    is WakeOverlayState.Active -> {
+                        phase = when (state.phase) {
+                            WakeOverlayPhase.Listening -> VoiceCommandPhase.Listening
+                            WakeOverlayPhase.Processing -> VoiceCommandPhase.Processing
+                        }
+                        partialText = state.partialText
+                    }
+                    is WakeOverlayState.Ended -> if (!state.routed && !isFinishing) finish()
+                    WakeOverlayState.Idle -> Unit
+                }
+            }
+        }
+    }
+
+    /** #1930: Home or an app switch ends the wake overlay; finishing it stops the capture in onDestroy. */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (wakeOverlayJob?.isActive == true) finish()
     }
 
     /**
@@ -297,98 +373,15 @@ class VoiceCommandActivity : ComponentActivity() {
                 }
                 val inputLevel = voiceInputController.inputLevel.collectAsState()
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .navigationBarsPadding(),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clickable(enabled = dismissEnabled) { finish() },
-                    )
-
-                    Surface(
-                        onClick = {},  // consume taps so backdrop doesn't fire
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                        tonalElevation = 8.dp,
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
-                                val pulse by infiniteTransition.animateFloat(
-                                    initialValue = 1f,
-                                    targetValue = 1.25f,
-                                    animationSpec = infiniteRepeatable(
-                                        animation = tween(600, easing = LinearEasing),
-                                        repeatMode = RepeatMode.Reverse,
-                                    ),
-                                    label = "mic_scale",
-                                )
-                                val ringColor = MaterialTheme.colorScheme.primary
-                                Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                                    // #1850: accent ring driven by the live capture level; drawn only while Listening.
-                                    if (phase == VoiceCommandPhase.Listening) {
-                                        Canvas(modifier = Modifier.matchParentSize()) {
-                                            drawCircle(
-                                                color = ringColor.copy(alpha = 0.35f),
-                                                radius = size.minDimension / 2f * (0.6f + 0.4f * inputLevel.value),
-                                            )
-                                        }
-                                    }
-                                    if (phase == VoiceCommandPhase.Starting && !failed) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.dp,
-                                            color = ringColor,
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Default.Mic,
-                                            contentDescription = "Listening",
-                                            modifier = Modifier
-                                                .size(28.dp)
-                                                .scale(if (phase == VoiceCommandPhase.Listening) pulse else 1f),
-                                            tint = ringColor,
-                                        )
-                                    }
-                                }
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    text = partialText.ifEmpty {
-                                        when (phase) {
-                                            VoiceCommandPhase.Starting -> "Starting…"
-                                            VoiceCommandPhase.Listening -> "Listening…"
-                                            VoiceCommandPhase.Processing -> "Processing…"
-                                        }
-                                    },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                IconButton(onClick = { finish() }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Cancel",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            if (hintVisible && phase == VoiceCommandPhase.Listening) {
-                                Text(
-                                    text = "Your words are being captured.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
+                VoiceCommandOverlay(
+                    phase = phase,
+                    partialText = partialText,
+                    failed = failed,
+                    hintVisible = hintVisible,
+                    inputLevel = inputLevel,
+                    dismissEnabled = dismissEnabled,
+                    onDismiss = { finish() },
+                )
             }
         }
 
@@ -496,5 +489,116 @@ class VoiceCommandActivity : ComponentActivity() {
         voiceInputController.stopListening()
         toneGenerator?.release()
         toneGenerator = null
+    }
+}
+
+/**
+ * Live voice overlay card shared by the widget mic, the assistant session and the Hey Jandal wake
+ * overlay (#1930). The backdrop dismisses once [dismissEnabled]; the card's X always dismisses.
+ */
+@Composable
+private fun VoiceCommandOverlay(
+    phase: VoiceCommandPhase,
+    partialText: String,
+    failed: Boolean,
+    hintVisible: Boolean,
+    inputLevel: State<Float>,
+    dismissEnabled: Boolean,
+    onDismiss: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(enabled = dismissEnabled) { onDismiss() },
+        )
+
+        Surface(
+            onClick = {},  // consume taps so backdrop doesn't fire
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            tonalElevation = 8.dp,
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
+                    val pulse by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.25f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(600, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "mic_scale",
+                    )
+                    val ringColor = MaterialTheme.colorScheme.primary
+                    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                        // #1850: accent ring driven by the live capture level; drawn only while Listening.
+                        if (phase == VoiceCommandPhase.Listening) {
+                            Canvas(modifier = Modifier.matchParentSize()) {
+                                drawCircle(
+                                    color = ringColor.copy(alpha = 0.35f),
+                                    radius = size.minDimension / 2f * (0.6f + 0.4f * inputLevel.value),
+                                )
+                            }
+                        }
+                        if (phase == VoiceCommandPhase.Starting && !failed) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = ringColor,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Listening",
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .scale(if (phase == VoiceCommandPhase.Listening) pulse else 1f),
+                                tint = ringColor,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    val (mainText, caption) = voiceOverlayLabels(phase, partialText, failed)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = mainText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        caption?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (hintVisible && phase == VoiceCommandPhase.Listening) {
+                    Text(
+                        text = "Your words are being captured.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
 }
