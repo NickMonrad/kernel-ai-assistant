@@ -1,11 +1,12 @@
 <?xml version='1.0' encoding='UTF-8' ?>
-<testsuite name="com.kernel.ai.feature.settings.SpeechRecognitionSectionTest" tests="3" failures="0" errors="0" skipped="0" time="3.254" timestamp="2026-11-16T04:43:32" hostname="localhost">
+<testsuite name="com.kernel.ai.feature.settings.SpeechRecognitionSectionTest" tests="4" failures="0" errors="0" skipped="0" time="6.313" timestamp="2026-11-16T05:35:37" hostname="localhost">
   <properties>
     <property name="device" value="SM-S918B - 16" />
     <property name="flavor" value="" />
     <property name="project" value=":feature:settings" />
   </properties>
-  <testcase name="onlineSwitchSitsInsideSelectedAutomaticCard" classname="com.kernel.ai.feature.settings.SpeechRecognitionSectionTest" time="0.654" />
-  <testcase name="onlineSwitchIsAbsentWhenSherpaEngineSelected" classname="com.kernel.ai.feature.settings.SpeechRecognitionSectionTest" time="0.679" />
-  <testcase name="onlineSwitchSitsInsideSelectedAndroidNativeCard" classname="com.kernel.ai.feature.settings.SpeechRecognitionSectionTest" time="0.703" />
+  <testcase name="androidNativeWarningAndUseAutomaticSitInsideTheAndroidNativeCard" classname="com.kernel.ai.feature.settings.SpeechRecognitionSectionTest" time="1.833" />
+  <testcase name="onlineSwitchSitsInsideSelectedAutomaticCard" classname="com.kernel.ai.feature.settings.SpeechRecognitionSectionTest" time="1.048" />
+  <testcase name="onlineSwitchIsAbsentWhenSherpaEngineSelected" classname="com.kernel.ai.feature.settings.SpeechRecognitionSectionTest" time="0.677" />
+  <testcase name="onlineSwitchSitsInsideSelectedAndroidNativeCard" classname="com.kernel.ai.feature.settings.SpeechRecognitionSectionTest" time="0.629" />
 </testsuite>
