@@ -1,0 +1,20 @@
+# S21 R5CR605B71K, debug build, adb harness-token quick_action route, query: tell me a short story about a dog
+# screen off (KEYCODE_POWER) at MARKER_screen_off_during_generation, after generate_called and before first_token
+pre-off: mWakefulness=Awake
+post-off: mWakefulness=Dozing
+11-16 10:40:12.686 27056 27056 D KernelAI: TTFT_STAGE commandId=b0bd0ff2-1 stage=generate_called t_ms=11191
+11-16 10:40:13.061 29243 29243 I EVIDENCE1927: MARKER_screen_off_during_generation
+11-16 10:40:13.574 27056 27056 D VRI[MainActivity]@4a63f3f: WindowStopped on ai.jandal.assistant.debug/com.kernel.ai.MainActivity set to true
+11-16 10:40:24.226 27056 27056 D KernelAI: TTFT_STAGE commandId=b0bd0ff2-1 stage=first_token t_ms=22731
+11-16 10:41:10.908 27056 27699 D LiteRtInferenceEngine: VoiceTiming lastToken epochMs=1794789670908
+11-16 10:41:17.576 27056 28261 D KernelAI: Sherpa streaming chunk: 6308ms for 60 chars, sid=0
+11-16 10:41:17.584 27056 27071 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=60 part=1/1 text=Moh-reh-nah. Hey, I can certainly spin a short story for ya.
+11-16 10:41:17.781  7908  7908 D AudioPlayerStateMonitor: Found a new active media playback. AudioPlaybackConfiguration piid:87095455 deviceId:0 type:android.media.AudioTrack u/pid:10300/27056 state:s
+11-16 10:41:17.783  7908  7908 D MediaSessionService: Audio playback is changed, config=AudioPlaybackConfiguration piid:87095455 deviceId:0 type:android.media.AudioTrack u/pid:10300/27056 state:starte
+11-16 10:41:21.822 27056 27071 D AudioTrack: stop(347): called with 90414 frames delivered
+11-16 10:41:21.834  7908  7908 D MediaSessionService: Audio playback is changed, config=AudioPlaybackConfiguration piid:87095455 deviceId:3 type:android.media.AudioTrack u/pid:10300/27056 state:stoppe
+11-16 10:41:29.418 27056 28261 D KernelAI: Sherpa streaming chunk: 11841ms for 120 chars, sid=0
+11-16 10:41:29.423 27056 27071 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=120 part=1/1 text=There was once a dog named Buster. Buster wasn't the biggest dog in the whole neighbourhood
+11-16 10:41:29.491  7908  7908 D AudioPlayerStateMonitor: Found a new active media playback. AudioPlaybackConfiguration piid:87095463 deviceId:0 type:android.media.AudioTrack u/pid:10300/27056 state:s
+11-16 10:41:29.491  7908  7908 D MediaSessionService: Audio playback is changed, config=AudioPlaybackConfiguration piid:87095463 deviceId:0 type:android.media.AudioTrack u/pid:10300/27056 state:starte
+11-16 10:41:33.296 29613 29613 I EVIDENCE1927: MARKER_15s_after_speech_check
