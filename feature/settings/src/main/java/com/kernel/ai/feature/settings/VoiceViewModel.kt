@@ -284,7 +284,8 @@ class VoiceViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     androidNativeAvailabilityMessage = nativeWarning,
-                    androidNativeLanguageSummary = availability.languageSummary,
+                    // Shown as the Android native card's third line, e.g. "English (Australia)" (#1937).
+                    androidNativeLanguageSummary = availability.languageDisplayName,
                     androidNativeLocaleReady = availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready,
                     androidNativeCapabilities = runCatching { readVoiceCapabilities(context) }.getOrNull(),
                 )

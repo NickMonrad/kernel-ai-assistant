@@ -247,7 +247,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            "English (New Zealand) (en-NZ)",
+            "English (New Zealand)",
             viewModel.uiState.value.androidNativeLanguageSummary,
         )
     }
