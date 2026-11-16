@@ -100,8 +100,11 @@ internal object PronunciationLexicon {
     /** Lookup key: folded words joined by one space, so any whitespace between words finds the entry. */
     private fun key(folded: String): String = folded.trim().split(WHITESPACE).joinToString(" ")
 
-    /** Any Unicode whitespace, including no-break spaces. */
-    private const val WHITESPACE_PATTERN = "(?U:\\s+)"
+    /**
+     * Any Unicode whitespace, including no-break spaces. Written as an explicit class: the JVM-only
+     * `(?U:...)` inline flag is rejected by Android's ICU regex engine (#1968).
+     */
+    private const val WHITESPACE_PATTERN = "[\\s\\p{Z}]+"
     private val WHITESPACE = Regex(WHITESPACE_PATTERN)
 
     /**
