@@ -89,6 +89,6 @@ class WakeOverlayChannelTest {
 
         channel.end()
         channel.requestCancel(second)
-        assertFalse(channel.isLive(second), "no cancel is accepted once the capture ended")
+        assertFalse(channel.isCancelRequested(second), "no cancel is accepted once the capture ended")
     }
 }

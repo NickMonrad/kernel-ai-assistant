@@ -175,7 +175,11 @@ class VoiceCommandActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         if (handlePrefilledTranscript(intent)) return
-        if (handleWakeOverlayIntent(intent)) return
+        if (intent.getBooleanExtra(EXTRA_WAKE_OVERLAY, false)) {
+            // #1930: a wake intent whose capture already ended must not fall through to a new session.
+            if (!handleWakeOverlayIntent(intent)) finish()
+            return
+        }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -197,7 +201,7 @@ class VoiceCommandActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (!handlePrefilledTranscript(intent)) handleWakeOverlayIntent(intent)
-        // If there was no prefilled transcript this is an OS assistant re-trigger; ignore —
+        // Non-live wake intents and OS assistant re-triggers (no prefilled transcript) are ignored;
         // the existing voice session or overlay is still valid.
     }
 
