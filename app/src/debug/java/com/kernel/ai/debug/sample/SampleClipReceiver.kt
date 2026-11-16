@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
  * runtime probe instead.
  *
  *   adb -s <serial> shell am broadcast -n ai.jandal.assistant.debug/com.kernel.ai.debug.sample.SampleClipReceiver \
- *       --es text "Kia ora, I'm Jandle. What can I help with?"
+ *       --es text "Kee-ora, I'm Jandle. What can I help with?"
  */
 class SampleClipReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -104,7 +104,8 @@ class SampleClipReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "SampleClipReceiver"
-        private const val DEFAULT_TEXT = "Kia ora, I'm Jandle. What can I help with?"
+        // Respelled as the lexicon does, since this calls the generator directly (bundled sample_cori.ogg).
+        private const val DEFAULT_TEXT = "Kee-ora, I'm Jandle. What can I help with?"
     }
 }
 

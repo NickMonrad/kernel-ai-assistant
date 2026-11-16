@@ -79,6 +79,8 @@ import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.SpeechStopCoordinator
+import com.kernel.ai.core.voice.SpeechStopReason
+import com.kernel.ai.core.voice.stopFor
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
@@ -298,6 +300,13 @@ class ChatViewModel @Inject constructor(
     * system prompt and skip RAG retrieval, even when the transcript no longer looks tool-like.
     */
     private var forceMinimalContextForNextMessage: Boolean = savedStateHandle["minimalContext"] ?: false
+    /**
+     * A fresh chat opened to run an initial query (voice command, Actions fallthrough). That
+     * query's turn installs its own prompt, so the FULL prompt installs at chat open would only add
+     * native conversation rebuilds before it (#1920). Cleared once the turn installs the prompt.
+     */
+    private var deferPromptInstallToFirstTurn: Boolean =
+        navConversationId == null && !savedStateHandle.get<String>("initialQuery").isNullOrBlank()
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     // Saved with the replacement so a restored composer and the ViewModel agree after process
@@ -469,6 +478,15 @@ class ChatViewModel @Inject constructor(
     /** Capture session of the current chat voice input; its notes are shown (#1853, #1866). */
     private var chatVoiceSessionId: Long? = null
     private var chatVoiceNoticeJob: Job? = null
+
+    /**
+     * True from the chat screen's ON_STOP until its next ON_RESUME (#1927). While set, no automatic
+     * path may reopen the mic (back-and-forth re-arm). Mirrors ActionsViewModel.backgroundPaused (#1918).
+     */
+    private var backgroundPaused = false
+
+    /** Set by Home (#1927) until the chat resumes: a voice initial query queued before Home is sent as text. */
+    private var stoppedByHome = false
 
     /** Active voice interaction mode, or null when no voice session is running (#741). */
     private val _voiceMode = MutableStateFlow<VoiceMode?>(null)
@@ -901,7 +919,7 @@ class ChatViewModel @Inject constructor(
             // (SF2): a background chat or an Actions stop must not re-arm listening here.
             speechStopCoordinator.stopRequests.collect {
                 val ownsPlayback = awaitingVoicePlaybackCompletion
-                stopVoicePlayback() // clears awaitingVoicePlaybackCompletion
+                stopVoicePlayback(SpeechStopReason.USER) // clears awaitingVoicePlaybackCompletion
                 if (!ownsPlayback || _voiceMode.value != VoiceMode.BackAndForth) return@collect
                 if (inferenceEngine.isGenerating.value) {
                     rearmBackAndForthAfterGeneration = true
@@ -975,7 +993,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             jandalPersona.personaMode.collect {
                 if (inferenceEngine.isReady.value) {
-                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                    installFullSystemPrompt()
                 }
             }
         }
@@ -1115,6 +1133,20 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Installs the FULL system prompt now or, while [deferPromptInstallToFirstTurn] is set, leaves
+     * it to the next model turn: that turn replays, which installs the current prompt in one
+     * rebuild (#1920).
+     */
+    private suspend fun installFullSystemPrompt() {
+        if (deferPromptInstallToFirstTurn) {
+            needsHistoryReplay = true
+            Log.d(TAG, "CONV_REBUILD_TRIGGER reason=fullPromptInstall deferred=true")
+            return
+        }
+        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+    }
+
     private suspend fun resetInferenceForFreshConversation(): Boolean {
         // A brand-new chat route must not inherit the singleton inference session's KV cache
         // or a stripped-down temporary prompt from the previous conversation.
@@ -1123,7 +1155,9 @@ class ChatViewModel @Inject constructor(
         needsHistoryReplay = false
         pendingConfirmationIntent = null
         return try {
-            if (inferenceEngine.isReady.value) {
+            if (deferPromptInstallToFirstTurn) {
+                installFullSystemPrompt()
+            } else if (inferenceEngine.isReady.value) {
                 inferenceEngine.updateSystemPrompt(buildSystemPrompt())
             } else {
                 inferenceEngine.resetConversation()
@@ -1285,7 +1319,7 @@ class ChatViewModel @Inject constructor(
                         inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                             activeContextWindowSize = it
                         }
-                        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                        installFullSystemPrompt()
                         return
                     }
                     Log.i(TAG, "Eager inference initialization waiting for app foreground")
@@ -1303,7 +1337,7 @@ class ChatViewModel @Inject constructor(
                         inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                             activeContextWindowSize = it
                         }
-                        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                        installFullSystemPrompt()
                         return
                     }
                     watchdogAttempt = startModelInitializationWatchdog("initEngineWhenReady")
@@ -1333,7 +1367,7 @@ class ChatViewModel @Inject constructor(
                     }
                     estimatedTokensUsed = 0
                     turnsSinceReset = 0
-                    inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                    installFullSystemPrompt()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -1373,7 +1407,7 @@ class ChatViewModel @Inject constructor(
                         inferenceEngine.resolvedMaxTokens.value.takeIf { it > 0 }?.let {
                             activeContextWindowSize = it
                         }
-                        inferenceEngine.updateSystemPrompt(buildSystemPrompt())
+                        installFullSystemPrompt()
                         return
                     }
                     watchdogAttempt = startModelInitializationWatchdog("initGemma4")
@@ -1748,6 +1782,7 @@ class ChatViewModel @Inject constructor(
     private fun rearmVoiceInput() {
         if (_voiceMode.value != VoiceMode.BackAndForth) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
+        if (backgroundPaused) return
         viewModelScope.launch {
             _error.value = null
             _voiceCaptureState.value = VoiceCaptureState.Preparing
@@ -2030,7 +2065,7 @@ class ChatViewModel @Inject constructor(
     fun stopSpeaking() {
         speakMessageJob?.cancel()
         speakMessageJob = null
-        stopChatSpeech()
+        stopChatSpeech(SpeechStopReason.USER)
     }
 
     fun submitInitialQueryIfNeeded(initialQuery: String, speakResponse: Boolean = false) {
@@ -2055,7 +2090,7 @@ class ChatViewModel @Inject constructor(
         // preventing stale KV-cache state from contaminating the new independent command (#1190)
         needsConversationReset = true
         replaceInputText(normalized)
-        sendMessage(if (speakResponse) SubmitMode.Voice else SubmitMode.Text)
+        sendMessage(if (speakResponse && !stoppedByHome) SubmitMode.Voice else SubmitMode.Text)
     }
 
     fun renameConversation(newTitle: String) {
@@ -2219,13 +2254,28 @@ class ChatViewModel @Inject constructor(
                     slotFillerManager.cancel()
                     pendingConfirmationIntent = null
                 }
-                needsHistoryReplay = safeRunIntentTest
+                // GPU turns replay history through updateSystemPrompt (a rebuild), so resetting here
+                // as well would rebuild twice per command. The replay below covers the reset (#1920).
+                val gpuReplayThisTurn = shouldForceGpuConversationResetEachTurn(
+                    backend = inferenceEngine.activeBackend.value,
+                    isDebugBuild = BuildConfig.DEBUG,
+                    debugForceReset = _debugForceGpuConversationReset.value,
+                )
+                needsHistoryReplay = safeRunIntentTest || gpuReplayThisTurn
                 estimatedTokensUsed = 0
                 turnsSinceReset = 0
-                if (inferenceEngine.isReady.value) {
-                    if (!resetInferenceConversation("resetConversationBeforeIndependentCommand")) {
-                        return@launch
+                // A replay this turn rebuilds the conversation, so it is the reset. Otherwise a fresh
+                // chat's deferred FULL prompt install is the reset: one rebuild either way (#1920).
+                if (inferenceEngine.isReady.value && !needsHistoryReplay) {
+                    val resetSucceeded = if (deferPromptInstallToFirstTurn) {
+                        deferPromptInstallToFirstTurn = false
+                        Log.i("KernelAI", "CONV_REBUILD_TRIGGER reason=independentCommandPromptInstall")
+                        resetInferenceForFreshConversation()
+                    } else {
+                        Log.i("KernelAI", "CONV_REBUILD_TRIGGER reason=independentCommandReset")
+                        resetInferenceConversation("resetConversationBeforeIndependentCommand")
                     }
+                    if (!resetSucceeded) return@launch
                     Log.d("KernelAI", "ADB_INTENT_TRACE commandId=$commandId conversation_reset=true")
                 }
             }
@@ -3338,6 +3388,8 @@ class ChatViewModel @Inject constructor(
                 systemPromptForPrefill = systemPromptWithHistory
                 shouldMeasureToolDeclarations = true
                 logTurnStage("prompt_reset_start")
+                Log.i("KernelAI", "CONV_REBUILD_TRIGGER reason=historyReplay")
+                deferPromptInstallToFirstTurn = false
                 inferenceEngine.updateSystemPrompt(systemPromptWithHistory)
                 logTurnStage("prompt_reset_done")
                 if (isLoadSkillAbortProbeFollowUp) {
@@ -4221,21 +4273,57 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun stopVoicePlayback() {
+    /**
+     * Chat screen ON_STOP (#1927). Lifecycle rule, shared with the Actions screen (#1918) and relied
+     * on by #1942 (calendar readout), keep it stable:
+     * - Home, app switch or navigation ([screenOff] = false): stop speech cleanly (per-message
+     *   read-aloud and streamed voice reply) and close the mic.
+     * - Screen off ([screenOff] = true): speech keeps playing to the end; the mic closes and the
+     *   back-and-forth loop does not re-arm while [backgroundPaused] is set.
+     * [backgroundPaused] clears on [onScreenResumed]; only a user tap, which needs a resumed screen,
+     * opens the mic.
+     */
+    fun onScreenStopped(screenOff: Boolean) {
+        backgroundPaused = true
+        if (screenOff) {
+            // Screen off: a reply still generating is spoken when it completes, and speech keeps playing.
+            // Only the mic closes; pendingVoiceReply and awaitingVoicePlaybackCompletion stay set (#1927).
+            _voiceMode.value = null
+            voiceInputController.stopListening()
+            _voiceCaptureState.value = VoiceCaptureState.Idle
+            return
+        }
+        stoppedByHome = true
+        // Home: full voice-input cleanup (mic, loop, pending reply, hand-off notice) plus playback stop.
+        // stopVoicePlayback() makes the single voiceOutputController.stop() call (via stopChatSpeech).
+        stopVoiceInput()
+        speakMessageJob?.cancel()
+        speakMessageJob = null
+        stopVoicePlayback(SpeechStopReason.BACKGROUND)
+    }
+
+    /** Chat screen ON_RESUME (#1927): automatic mic paths may run again. */
+    fun onScreenResumed() {
+        backgroundPaused = false
+        stoppedByHome = false
+    }
+
+    /** Stops chat speech; [reason] is logged on the reply's `speak_end` (#1942), null when there is no clear cause. */
+    fun stopVoicePlayback(reason: SpeechStopReason? = null) {
         awaitingVoicePlaybackCompletion = false
         pendingVoiceReply = false
         suppressVoiceOutputForCurrentResponse = true
-        stopChatSpeech()
+        stopChatSpeech(reason)
         _isSpeakingResponse.value = false
         _voicePlaybackState.value = VoicePlaybackState.Idle
         _speakingMessageId.value = null
     }
 
     /** Stops speech output and cancels an in-flight chunked reply so no later chunk is queued. */
-    private fun stopChatSpeech() {
+    private fun stopChatSpeech(reason: SpeechStopReason? = null) {
         assistantSpeechJob?.cancel()
         assistantSpeechJob = null
-        voiceOutputController.stop()
+        if (reason != null) voiceOutputController.stopFor(reason) else voiceOutputController.stop()
     }
 
     fun getConversationAsText(): String {

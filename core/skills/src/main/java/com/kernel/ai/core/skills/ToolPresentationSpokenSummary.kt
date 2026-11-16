@@ -15,6 +15,7 @@ fun ToolPresentation.toSpokenSummary(): String? = when (this) {
     is ToolPresentation.Weather -> toSpokenSummary()
     is ToolPresentation.Status,
     is ToolPresentation.ListPreview,
+    is ToolPresentation.CalendarAgenda,
     is ToolPresentation.ComputedResult,
     -> null
 }

@@ -79,9 +79,13 @@ internal fun readCalendarEvents(
         )
     }
     val window = CalendarEventReplies.readWindow(range, keyword != null, today, zone, now)
-    val events = store
-        .queryInstances(window.fromDate, window.toDateExclusive)
-        .filter { CalendarEventReplies.isInWindow(it, window) }
+    val events = CalendarEventReplies.dedupeInstances(
+        store
+            .queryInstances(window.fromDate, window.toDateExclusive)
+            .filter { CalendarEventReplies.isInWindow(it, window) },
+    )
     val reply = CalendarEventReplies.formatRead(range, keyword, events, zone)
-    return SkillResult.DirectReply(content = reply, spokenSummary = reply)
+    val spoken = CalendarEventReplies.formatSpokenRead(range, keyword, events, zone)
+    val presentation = if (keyword == null) CalendarEventReplies.agendaPresentation(range, events, zone) else null
+    return SkillResult.DirectReply(content = reply, presentation = presentation, spokenSummary = spoken)
 }

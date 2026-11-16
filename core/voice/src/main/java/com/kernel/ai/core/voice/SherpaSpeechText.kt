@@ -132,7 +132,13 @@ internal object SherpaSpeechText {
             return if (minute == 0) "midnight" else spokenTime("12", rawMinute, "a")
         }
         // "P M" as separate capitals: Cori reads "p.m." as one rushed syllable (#1487 device check).
-        val suffix = if (meridiem.isEmpty()) "" else " ${meridiem.uppercase()} M"
+        // Not "A M": eSpeak reads a lone "A" as the article (/ɐ ˈɛm/), heard as the word "am" (#1942).
+        // "A-M" is /ˈeɪˈɛm/, letters, with no full stop for a sentence splitter to end on.
+        val suffix = when (meridiem.uppercase()) {
+            "" -> ""
+            "A" -> " A-M"
+            else -> " P M"
+        }
         val minuteWords = when {
             minute == 0 && hour > 12 && meridiem.isEmpty() -> "hundred"
             minute == 0 -> "o'clock"

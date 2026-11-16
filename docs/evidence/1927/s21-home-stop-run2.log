@@ -1,0 +1,3 @@
+11-16 09:52:10.420 13868 14063 D AudioTrack: stop(329): called with 67779 frames delivered
+11-16 09:52:10.422  7908  7908 D MediaSessionService: Audio playback is changed, config=AudioPlaybackConfiguration piid:87095303 deviceId:3 type:android.media.AudioTrack u/pid:10300/13868 state:stopped attr:AudioAttributes: usage=USAGE_ASSISTANT content=CONTENT_TYPE_SPEECH flags=0x800 tags= bundle=null sessionId:87095865 mutedState:none  FormatInfo{isSpatialized=false, channelMask=0x1, sampleRate=22050}, removed=false
+11-16 09:52:13.047 13868 14072 D KernelAI: Sherpa streaming chunk: 5930ms for 87 chars, sid=0

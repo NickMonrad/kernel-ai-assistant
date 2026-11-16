@@ -45,6 +45,38 @@ class ToolPresentationJsonTest {
     }
 
     @Test
+    fun `calendar agenda round-trips through json with day labels, null label and missing detail`() {
+        val original = ToolPresentation.CalendarAgenda(
+            title = "This week",
+            days = listOf(
+                ToolPresentation.CalendarAgendaDay(
+                    label = "Monday 17 November",
+                    rows = listOf(
+                        ToolPresentation.CalendarAgendaRow("7:30 \u2013 8:35 AM", "Standup", "Work \u00b7 Room 2"),
+                        ToolPresentation.CalendarAgendaRow("All day", "Holiday", detail = null),
+                    ),
+                ),
+                ToolPresentation.CalendarAgendaDay(
+                    label = null,
+                    rows = listOf(ToolPresentation.CalendarAgendaRow("11:30 AM \u2013 12:35 PM", "Lunch")),
+                ),
+            ),
+            emptyMessage = "Nothing on your calendar this week.",
+        )
+
+        val parsed = ToolPresentationJson.fromJsonString(ToolPresentationJson.toJsonString(original))
+
+        assertEquals(original, parsed)
+    }
+
+    @Test
+    fun `empty calendar agenda keeps its empty message through json`() {
+        val original = ToolPresentation.CalendarAgenda(title = "Today", days = emptyList(), emptyMessage = "Nothing on your calendar today.")
+
+        assertEquals(original, ToolPresentationJson.fromJsonString(ToolPresentationJson.toJsonString(original)))
+    }
+
+    @Test
     fun `computed result presentation round-trips through json`() {
         val original = ToolPresentation.ComputedResult(
             primaryText = "125 days",

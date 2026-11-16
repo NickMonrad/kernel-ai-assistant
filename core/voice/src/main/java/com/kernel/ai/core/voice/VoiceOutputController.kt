@@ -14,6 +14,12 @@ interface VoiceOutputStreamingSession {
     suspend fun append(text: String, isFinal: Boolean = false): VoiceOutputResult
 
     /**
+     * Silence of [durationMs] between the text already appended and the next text (#1942), for example
+     * after a reply's intro sentence. Default: no pause; engines that cannot insert silence ignore it.
+     */
+    suspend fun appendPause(durationMs: Long) {}
+
+    /**
      * Closes the session after the producing coroutine was cancelled. Releases streaming
      * resources (closes chunk channels, marks the final chunk queued) without starting any
      * new playback. Default: an empty final [append], which streaming controllers treat as

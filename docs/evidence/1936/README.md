@@ -30,4 +30,6 @@ The S23U cannot show the blocked states (it has a microphone, the model and no U
 
 ## Instrumented tests
 
-`TEST-SM-S918B-setup-wizard-androidTest.xml` (raw output, round 2): `SetupWizardLargeFontTest` (19, including the four last-item-above-footer tests, More below, scroll reset and `heyJandalTitleStaysOnOneLineWithNeedsAccessAtLargeFont`) and `MakeYoursResumeRefreshTest` (1), run with `ANDROID_SERIAL=RFCW11265XH ./gradlew :feature:chat:connectedDebugAndroidTest`: 0 failures. The same run included the throwaway `EvidenceCaptureTest` (`capture`, which drew `states/`; not committed), so the file reports 21 tests.
+`TEST-SM-S918B-setup-wizard-androidTest.xml` (raw output, after the owner's welcome-row decision): `SetupWizardLargeFontTest` (19, including the four last-item-above-footer tests, More below, scroll reset and `heyJandalTitleStaysOnOneLineWithNeedsAccessAtLargeFont`) and `MakeYoursResumeRefreshTest` (1), run with `ANDROID_SERIAL=RFCW11265XH ./gradlew :feature:chat:connectedDebugAndroidTest`: 20 tests, 0 failures. The `states/` images came from a separate throwaway render test in round 2 (not committed).
+
+Step 1 (`*-step1-*.png`) was re-captured after the owner's decision: with nothing left to download the third row's title is "Chat is ready" and it has no body line.
