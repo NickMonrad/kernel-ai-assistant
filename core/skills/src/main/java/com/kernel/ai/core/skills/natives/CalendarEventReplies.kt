@@ -94,32 +94,52 @@ object CalendarEventReplies {
     }
 
     /**
-     * One row per meeting instance. A row is dropped when an earlier row (provider order, earliest start
-     * first) has the same iCalendar UID and start, or the same normalised title, start and end. The UID
-     * rule catches one invite copied to two calendars. The title rule also catches copies whose UIDs
-     * differ or are missing, which providers do for events created separately in two calendars (#1974).
-     * Two genuinely different events with the same title and times are treated as one row by design.
+     * One row per meeting instance, in input order (earliest start first, provider order). A row is a
+     * duplicate of an earlier row when they share an iCalendar UID and start, or when they share a
+     * non-blank normalised title, start and end. The UID rule catches one invite copied to two calendars.
+     * The title rule also catches copies whose UIDs differ or are missing (#1974). Blank titles never match
+     * on title, so untitled events at the same time stay separate.
+     *
+     * A duplicate is dropped, but its calendar name is recorded on the kept row, so the card can show
+     * every calendar the event is in.
      */
     fun dedupeInstances(events: List<CalendarEventRecord>): List<CalendarEventRecord> {
-        val seenUidStarts = HashSet<Pair<String, Long>>()
-        val seenTitleSpans = HashSet<Triple<String, Long, Long>>()
         val kept = mutableListOf<CalendarEventRecord>()
+        val indexByUidStart = HashMap<Pair<String, Long>, Int>()
+        val indexByTitleSpan = HashMap<Triple<String, Long, Long>, Int>()
         for (event in events) {
             val uidStart = event.uid?.let { it to event.beginMillis }
-            val titleSpan = Triple(normalisedTitle(event.title), event.beginMillis, event.endMillis)
-            val duplicate = (uidStart != null && uidStart in seenUidStarts) || titleSpan in seenTitleSpans
-            if (uidStart != null) seenUidStarts += uidStart
-            seenTitleSpans += titleSpan
-            if (!duplicate) kept += event
+            val title = normalisedTitle(event.title)
+            val titleSpan = if (title.isEmpty()) null else Triple(title, event.beginMillis, event.endMillis)
+            val index = uidStart?.let { indexByUidStart[it] } ?: titleSpan?.let { indexByTitleSpan[it] }
+            if (index == null) {
+                kept += event
+                uidStart?.let { indexByUidStart[it] = kept.lastIndex }
+                titleSpan?.let { indexByTitleSpan[it] = kept.lastIndex }
+            } else {
+                kept[index] = mergeCalendar(kept[index], event.calendarName)
+                uidStart?.let { indexByUidStart.putIfAbsent(it, index) }
+                titleSpan?.let { indexByTitleSpan.putIfAbsent(it, index) }
+            }
         }
         return kept
     }
 
-    /** Trimmed, lower-cased, with runs of whitespace collapsed, so "Team  Sync " and "team sync" match. */
-    private fun normalisedTitle(title: String): String =
-        title.trim().replace(WHITESPACE, " ").lowercase(Locale.ROOT)
+    private fun mergeCalendar(kept: CalendarEventRecord, calendarName: String): CalendarEventRecord =
+        if (calendarName == kept.calendarName || calendarName in kept.mergedCalendarNames) {
+            kept
+        } else {
+            kept.copy(mergedCalendarNames = kept.mergedCalendarNames + calendarName)
+        }
 
-    private val WHITESPACE = Regex("\\s+")
+    /** Trimmed, lower-cased, with runs of whitespace (any Unicode whitespace) collapsed to one space. */
+    private fun normalisedTitle(title: String): String =
+        title.map { if (it.isWhitespace()) ' ' else it }
+            .joinToString("")
+            .split(' ')
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+            .lowercase(Locale.ROOT)
 
     /** True when [event] falls inside [window]. Exact for both all-day rows (by day) and timed rows (by instant). */
     fun isInWindow(event: CalendarEventRecord, window: ReadWindow): Boolean =
@@ -285,8 +305,13 @@ object CalendarEventReplies {
             val end = Instant.ofEpochMilli(event.endMillis).atZone(zone)
             timeRange(start, end, separator = "\u2013")
         }
+        val calendars = (listOf(event.calendarName) + event.mergedCalendarNames)
+            .mapNotNull { spokenCalendarName(it) }
+            .distinct()
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(", ")
         val detail = listOfNotNull(
-            spokenCalendarName(event.calendarName),
+            calendars,
             event.location,
         ).joinToString(" \u00b7 ").takeIf { it.isNotEmpty() }
         return ToolPresentation.CalendarAgendaRow(

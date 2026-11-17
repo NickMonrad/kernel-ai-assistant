@@ -310,7 +310,7 @@ class CalendarEventRepliesTest {
         fun dedupeSharedUidAcrossCalendars() {
             val organiser = event(7, "Planning", 9, 10).copy(uid = "abc@google.com", calendarName = "Work")
             val attendee = event(42, "Planning", 9, 10).copy(uid = "abc@google.com", calendarName = "Family")
-            assertEquals(listOf(organiser), CalendarEventReplies.dedupeInstances(listOf(organiser, attendee)))
+            assertEquals(listOf(organiser.copy(mergedCalendarNames = listOf("Family"))), CalendarEventReplies.dedupeInstances(listOf(organiser, attendee)))
         }
 
         @Test
@@ -334,7 +334,7 @@ class CalendarEventRepliesTest {
         fun dedupeSameTitleAndTimeWithDifferentUidsKeepsOne() {
             val work = event(7, "Dinner", 18, 19).copy(uid = "one@google.com", calendarName = "Work")
             val family = event(42, "Dinner", 18, 19).copy(uid = "two@google.com", calendarName = "Family")
-            assertEquals(listOf(work), CalendarEventReplies.dedupeInstances(listOf(work, family)))
+            assertEquals(listOf(work.copy(mergedCalendarNames = listOf("Family"))), CalendarEventReplies.dedupeInstances(listOf(work, family)))
         }
 
         @Test
@@ -342,7 +342,7 @@ class CalendarEventRepliesTest {
         fun dedupeMissingUidOnOneCopyKeepsOne() {
             val withUid = event(7, "Dinner", 18, 19).copy(uid = "one@google.com", calendarName = "Work")
             val noUid = event(42, "Dinner", 18, 19).copy(uid = null, calendarName = "Family")
-            assertEquals(listOf(withUid), CalendarEventReplies.dedupeInstances(listOf(withUid, noUid)))
+            assertEquals(listOf(withUid.copy(mergedCalendarNames = listOf("Family"))), CalendarEventReplies.dedupeInstances(listOf(withUid, noUid)))
         }
 
         @Test
@@ -350,14 +350,14 @@ class CalendarEventRepliesTest {
         fun dedupeNoUidOnEitherCopyKeepsOne() {
             val work = event(7, "Dinner", 18, 19).copy(calendarName = "Work")
             val family = event(42, "Dinner", 18, 19).copy(calendarName = "Family")
-            assertEquals(listOf(work), CalendarEventReplies.dedupeInstances(listOf(work, family)))
+            assertEquals(listOf(work.copy(mergedCalendarNames = listOf("Family"))), CalendarEventReplies.dedupeInstances(listOf(work, family)))
         }
 
         @Test
         @DisplayName("recurring instance and its exception with the same title and times collapse to one row (#1974)")
         fun dedupeRecurringPlusExceptionSameTimeKeepsOne() {
             val series = event(7, "Gym", 6, 7).copy(uid = "gym@x")
-            val exception = event(9, "Gym", 6, 7).copy(uid = "gym@x")
+            val exception = event(9, "Gym", 6, 7).copy(uid = null)
             assertEquals(listOf(series), CalendarEventReplies.dedupeInstances(listOf(series, exception)))
         }
 
@@ -382,7 +382,33 @@ class CalendarEventRepliesTest {
         fun dedupeNormalisesTitle() {
             val a = event(7, "Team  Sync ", 9, 10).copy(calendarName = "Work")
             val b = event(42, "team sync", 9, 10).copy(calendarName = "Family")
-            assertEquals(listOf(a), CalendarEventReplies.dedupeInstances(listOf(a, b)))
+            assertEquals(listOf(a.copy(mergedCalendarNames = listOf("Family"))), CalendarEventReplies.dedupeInstances(listOf(a, b)))
+        }
+
+        @Test
+        @DisplayName("untitled events with the same times and different UIDs both stay (#1974)")
+        fun dedupeBlankTitlesWithDifferentUidsKeepBoth() {
+            val busyA = event(7, "", 9, 10).copy(uid = "busy-a@x", calendarName = "Work")
+            val busyB = event(42, "  ", 9, 10).copy(uid = "busy-b@x", calendarName = "Family")
+            assertEquals(listOf(busyA, busyB), CalendarEventReplies.dedupeInstances(listOf(busyA, busyB)))
+        }
+
+        @Test
+        @DisplayName("untitled events with the same times and no UID both stay (#1974)")
+        fun dedupeBlankTitlesWithoutUidKeepBoth() {
+            val busyA = event(7, "", 9, 10).copy(calendarName = "Work")
+            val busyB = event(42, "", 9, 10).copy(calendarName = "Family")
+            assertEquals(listOf(busyA, busyB), CalendarEventReplies.dedupeInstances(listOf(busyA, busyB)))
+        }
+
+        @Test
+        @DisplayName("agenda row lists every calendar a merged event is in (#1974)")
+        fun agendaRowShowsMergedCalendars() {
+            val work = event(7, "Soccer", 9, 10).copy(calendarName = "Work")
+            val family = event(42, "Soccer", 9, 10).copy(calendarName = "Family")
+            val merged = CalendarEventReplies.dedupeInstances(listOf(work, family))
+            val agenda = CalendarEventReplies.agendaPresentation(CalendarRange.TODAY, merged, utc)
+            assertEquals("Work, Family \u00b7 Room 2", agenda.days.single().rows.single().detail)
         }
 
         @Test

@@ -340,28 +340,28 @@ private fun ListPreviewPresentationCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
         shape = RoundedCornerShape(16.dp),
     ) {
         Column(modifier = Modifier.padding(if (compact) 12.dp else 16.dp)) {
             Text(
                 text = presentation.title,
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(6.dp))
             if (presentation.items.isEmpty()) {
                 Text(
                     text = presentation.emptyMessage ?: "No items yet.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 visibleItems.forEach { item ->
                     Text(
                         text = "• $item",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
                 if (hasHiddenItems) {
@@ -377,7 +377,7 @@ private fun ListPreviewPresentationCard(
                                 "+ ${presentation.totalCount - collapsedCount} more"
                             },
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
@@ -436,7 +436,7 @@ private fun CalendarAgendaPresentationCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
         shape = RoundedCornerShape(16.dp),
     ) {
         Column(modifier = Modifier.padding(if (compact) 12.dp else 16.dp)) {
