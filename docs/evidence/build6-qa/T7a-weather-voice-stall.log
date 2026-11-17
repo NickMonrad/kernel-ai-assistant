@@ -1,0 +1,13 @@
+11-15 18:32:55.476 30149 30149 I AcousticStimulus: {"event":"prepared","trial_id":"qa-1794731574-cmd_weather","fixture_id":"cmd_weather","monotonic_ms":11447190651,"wall_clock_ms":1794731575475}
+11-15 18:32:55.477 30149 30149 I AcousticStimulus: {"event":"started","trial_id":"qa-1794731574-cmd_weather","fixture_id":"cmd_weather","monotonic_ms":11447190653,"wall_clock_ms":1794731575477}
+11-15 18:32:57.332 30149 30149 I AcousticStimulus: {"event":"completed","trial_id":"qa-1794731574-cmd_weather","fixture_id":"cmd_weather","monotonic_ms":11447192508,"wall_clock_ms":1794731577332}
+11-15 18:32:57.363 30149 30149 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"qa-1794731574-cmd_weather","fixture_id":"cmd_weather","monotonic_ms":11447192538,"wall_clock_ms":1794731577363,"cleanup_success":true,"exact_restoration_verified":true}
+11-15 18:32:59.133 30149 30149 D KernelAI: VoiceCommandActivity: final transcript="what's the weather in brisbon"
+11-15 18:33:07.501 30149 30248 W KernelAI: Weather API failed (attempt 0/1), retrying in 500ms
+11-15 18:33:07.501 30149 30248 W KernelAI: java.net.SocketTimeoutException: Read timed out
+11-15 18:33:09.629 30149 30149 W KernelAI: Live weather fetch exceeded the 10000 ms budget
+11-15 18:33:09.634 30149 30149 I KernelAI: Weather cache miss after API_UNAVAILABLE
+11-15 18:33:14.215 30149 30257 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=46 part=1/1 text=The weather service isn't answering right now.
+11-15 18:33:14.936 30149 30149 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=Speaking(text=The weather service isn't answering right now. Try again in a few minutes.)
+11-15 18:33:14.938 30149 30149 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@ad45caf voicePlaybackState=Speaking(text=The weather service isn't answering right now. Try again in a few minutes.)
+11-15 18:33:14.948 30149 30257 D AudioTrack: stop(276): called with 16384 frames delivered

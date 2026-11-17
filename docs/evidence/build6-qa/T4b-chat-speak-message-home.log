@@ -1,0 +1,8 @@
+# chat 'Speak message' read-aloud; HOME sent at 18:31:53.523 — later chunks still start (18:32:08)
+11-15 18:31:40.728 30149 30248 D AudioTrack: stop(266): called with 207299 frames delivered
+11-15 18:31:40.751 30149 30248 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=77 part=1/1 text=slightest sound. Rusty lived in a house where the garden was his whole world.
+11-15 18:31:45.673 30149 30248 D AudioTrack: stop(267): called with 111500 frames delivered
+11-15 18:31:51.992 30149 30248 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=146 part=1/1 text=Every morning, Rusty would be the first one up, his nose to the window, sniffing the dew and the fresh scent of earth waking up around the garden.
+11-15 18:31:53.840 25999 25999 I adbd    : adbd service requested 'shell,v2,raw:input keyevent KEYCODE_HOME'
+11-15 18:32:00.505 30149 30248 D AudioTrack: stop(268): called with 188993 frames delivered
+11-15 18:32:08.039 30149  5911 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=176 part=1/1 text=His best friend was a golden retriever named Sunny. Sunny was all sunshine and enthusiasm, always eager to chase the squirrels or help Rusty dig holes for his favourite buried,

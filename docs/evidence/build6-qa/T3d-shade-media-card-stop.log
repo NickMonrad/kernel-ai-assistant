@@ -1,0 +1,7 @@
+# tap sent at 18:30:39.837
+11-15 18:30:22.360 30149 13048 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=51 part=1/1 text=Keeorah. Here is a short story for you about a dog.
+11-15 18:30:22.397 30149 30149 I NotificationManager: ai.jandal.assistant.debug: notify(1873, null, Notification(channel=speech_playback shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONGOING_EVENT color=0x00000000 category=transport vis=PUBLIC semFlags=0x0 semPriority=0 semMissedCount=0)) as user
+11-15 18:30:25.792 30149 13048 D AudioTrack: stop(263): called with 73859 frames delivered
+11-15 18:30:37.331 30149 13048 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=171 part=1/1 text=There was a little terrier named Rusty. Rusty wasn't the biggest dog, nor the most flashy, but he had a tail that never seemed to be asleep, and ears that twitched at the,
+11-15 18:30:40.323  7908 10557 I MediaSessionService: tempAllowlistTargetPkgIfPossible callingPackage:com.android.systemui targetPackage:ai.jandal.assistant.debug reason:MediaSessionRecord:custom-com.kernel.ai.speech.STOP_SPEECH [WIU] [FGS]
+11-15 18:30:40.493 30149 13048 D AudioTrack: stop(264): called with 69632 frames delivered

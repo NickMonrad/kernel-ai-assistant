@@ -1,0 +1,10 @@
+RecordActivityMonitor active-recordings section (empty = no active capture):
+RecordActivityMonitor dump time: 6:37:00 pm
+
+Last recording events:
+11-15 18:28:18:131 rec update riid:87094783 uid:10300 session:87095305 src:MIC not silenced pack:ai.jandal.assistant.debug
+11-15 18:28:24:582 rec stop riid:87094783 uid:10300 session:87095305 src:MIC not silenced pack:ai.jandal.assistant.debug
+11-15 18:32:53:340 rec update riid:87094871 uid:10300 session:87095401 src:MIC not silenced pack:ai.jandal.assistant.debug
+11-15 18:32:59:188 rec stop riid:87094871 uid:10300 session:87095401 src:MIC not silenced pack:ai.jandal.assistant.debug
+11-15 18:35:17:848 rec update riid:87094895 uid:10300 session:87095433 src:MIC not silenced pack:ai.jandal.assistant.debug
+11-15 18:35:24:314 rec stop riid:87094895 uid:10300 session:87095433 src:MIC not silenced pack:ai.jandal.assistant.debug

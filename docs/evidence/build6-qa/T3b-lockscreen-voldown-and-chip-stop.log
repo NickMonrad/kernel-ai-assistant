@@ -1,0 +1,37 @@
+11-15 18:19:55.250 30149 30257 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=127 part=1/1 text=Keeorah. There was a little terrier named Whiskers. Whisk wasn't the biggest dog in the world, but he had the heart of a giant.
+11-15 18:19:55.250 30149 30257 I KernelAI: SpeakingStarted engine=sherpa chars=127 epochMs=1794730795250
+11-15 18:19:55.253 30149 30149 D KernelAI: ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-15 18:19:55.253 30149 30149 D KernelAI: ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-15 18:19:55.253 30149 30149 D KernelAI: ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-15 18:19:55.267 25999 25999 I adbd    : adbd service requested 'shell,v2:export ANDROID_LOG_TAGS=''; exec logcat '-d' '-s' 'KernelAI_TTS:V''
+11-15 18:20:01.285  7908  8518 D MediaSessionService: dispatchVolumeKeyEvent, pkg=com.android.systemui, opPkg=com.android.systemui, pid=8384, uid=10040, asSystem=true, event=KeyEvent { action=ACTION_DOWN, keyCode=KEYCODE_VOLUME_DOWN, scanCode=0, metaState=0, flags=0x0, repeatCount=0, eventTime=11027889444000000, downTime=11027889444000000, deviceId=-1, source=0x0, displayId=-1 }, stream=-2147483648, musicOnly=false
+11-15 18:20:01.301  7908  8518 W MediaSessionRecord: adjusting local volume, stream=3, dir=-1, asSystemService=true, useSuggested=true
+11-15 18:20:01.313  7908  8518 D MediaSessionService: dispatchVolumeKeyEvent, pkg=com.android.systemui, opPkg=com.android.systemui, pid=8384, uid=10040, asSystem=true, event=KeyEvent { action=ACTION_UP, keyCode=KEYCODE_VOLUME_DOWN, scanCode=0, metaState=0, flags=0x0, repeatCount=0, eventTime=11027889444000000, downTime=11027889444000000, deviceId=-1, source=0x0, displayId=-1 }, stream=-2147483648, musicOnly=false
+11-15 18:20:01.314  7908  8518 W MediaSessionRecord: adjusting local volume, stream=3, dir=0, asSystemService=true, useSuggested=true
+11-15 18:20:01.328  7908  8237 D AS.AudioService: adjustStreamVolume() stream=11, dir=-1, flags=4608, caller=android
+11-15 18:20:01.337  7908  8211 D AS.AudioService: setStreamVolumeIndexAS(11, 10, 2)
+11-15 18:20:01.340  7908  8211 D AS.AudioService: setStreamVolumeIndexAS(11, 10, 1)
+11-15 18:20:01.352  7908  8237 D AS.AudioService: adjustStreamVolume() stream=11, dir=0, flags=4608, caller=android
+11-15 18:20:01.381  8384  8384 D SecVolume.VolumePanelStore: dispatch [ACTION_PANEL_SHOW with [STATE_UPDATE], currentAction={isFromOutside : true}, currentState={activeStream=11(vol=10), stream=-1(vol=null) } isHasVibrator : true, isSetupWizardComplete : true, isVoiceCapable : true, isConfigurationChanged : true, earProtectLevel : 909, ringerModeInternal : 2, activeStream : 11, systemTimeNow : 11027889703}
+11-15 18:20:02.177 30149 30257 D AudioTrack: stop(250): called with 153973 frames delivered
+11-15 18:20:02.180  7908  8715 V AS.PlaybackActivityMon: playerEvent(piid=87094727, event=PLAYER_STATE_STOPPED, eventValue=0)
+11-15 18:20:02.183  7908  8715 V AS.PlaybackActivityMon: playerEvent(piid=87094727, event=PLAYER_STATE_STOPPED, eventValue=0)
+11-15 18:20:03.167 25999 25999 I adbd    : adbd service requested 'shell,v2:export ANDROID_LOG_TAGS=''; exec logcat '-d' '-v' 'threadtime' '-s' 'KernelAI:V' 'KernelAI_TTS:V''
+11-15 18:20:06.225 30149 30255 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=119 part=1/1 text=Whisk lived in a cozy cottage surrounded by rolling green hills, where the air smelled of damp earth and wild lavender.
+11-15 18:20:13.139 30149 30255 D AudioTrack: stop(251): called with 154478 frames delivered
+11-15 18:20:13.142  7908  8715 V AS.PlaybackActivityMon: playerEvent(piid=87094735, event=PLAYER_STATE_STOPPED, eventValue=0)
+11-15 18:20:13.145  7908  8715 V AS.PlaybackActivityMon: playerEvent(piid=87094735, event=PLAYER_STATE_STOPPED, eventValue=0)
+11-15 18:20:16.512 30149 10121 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=108 part=1/1 text=Every morning, when the sunbeams slanted through the dusty windowpanes, Whisk would be the first to wake up.
+11-15 18:20:22.372 30149 10121 D AudioTrack: stop(252): called with 131984 frames delivered
+11-15 18:20:22.378  7908  8715 V AS.PlaybackActivityMon: playerEvent(piid=87094743, event=PLAYER_STATE_STOPPED, eventValue=0)
+11-15 18:20:22.379  7908  8715 V AS.PlaybackActivityMon: playerEvent(piid=87094743, event=PLAYER_STATE_STOPPED, eventValue=0)
+11-15 18:20:25.968 30149 30257 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=91 part=1/1 text=He wasn't a dog of grand, but he possessed a certain energy, a joyful readiness to explore.
+11-15 18:20:28.803  7908  8211 D AS.AudioService: setStreamVolumeIndexAS(11, 11, 2)
+11-15 18:20:28.814  7908  8211 D AS.AudioService: setStreamVolumeIndexAS(11, 11, 1)
+11-15 18:20:31.494 30149 30257 D AudioTrack: stop(253): called with 124835 frames delivered
+11-15 18:20:31.500  7908 10389 V AS.PlaybackActivityMon: playerEvent(piid=87094751, event=PLAYER_STATE_STOPPED, eventValue=0)
+11-15 18:20:31.505  7908 10389 V AS.PlaybackActivityMon: playerEvent(piid=87094751, event=PLAYER_STATE_STOPPED, eventValue=0)
+11-15 18:20:36.843 30149 10121 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=117 part=1/1 text=His favourite thing in the whole of Aotearoa was the local river. Every day, he’d make a be a beeline for the stream.
+11-15 18:20:42.065  7908  8745 I MediaSessionService: tempAllowlistTargetPkgIfPossible callingPackage:com.android.systemui targetPackage:ai.jandal.assistant.debug reason:MediaSessionRecord:custom-com.kernel.ai.speech.STOP_SPEECH [WIU] [FGS]
+11-15 18:20:42.139 30149 10121 D AudioTrack: stop(254): called with 118784 frames delivered
+11-15 18:20:42.147  7908  8518 V AS.PlaybackActivityMon: playerEvent(piid=87094759, event=PLAYER_STATE_STOPPED, eventValue=0)
