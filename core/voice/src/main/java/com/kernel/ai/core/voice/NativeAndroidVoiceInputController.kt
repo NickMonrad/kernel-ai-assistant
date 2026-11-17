@@ -7,6 +7,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -104,6 +105,52 @@ internal fun shouldForceRecognizerLanguage(availability: AndroidNativeRecognitio
 internal fun shouldUseCachedCaptureAvailability(mode: VoiceCaptureMode): Boolean =
     mode == VoiceCaptureMode.AlertCommand
 
+/**
+ * Whether a capture start must run the live on-device language check before it starts (#1973).
+ * Alert commands and a cached Ready answer never do. With online recognition on, any earlier answer
+ * is reused: the platform service covers an on-device recognizer that is not confirmed ready, so
+ * checking again on every tap only delays the ready cue (the check can take up to its 5 s timeout,
+ * then the 400 ms settle).
+ */
+internal fun shouldRunLiveLocaleCheck(
+    mode: VoiceCaptureMode,
+    cachedStatus: AndroidNativeRecognitionLocaleStatus,
+    localeChecked: Boolean,
+    allowPlatformFallback: Boolean,
+): Boolean =
+    !shouldUseCachedCaptureAvailability(mode) &&
+        cachedStatus != AndroidNativeRecognitionLocaleStatus.Ready &&
+        !(allowPlatformFallback && localeChecked)
+
+/**
+ * #1973: whether a start goes to the platform service without touching the on-device one, so it waits
+ * neither for a running live check nor for that check's #1008 settle. True with online recognition on
+ * for an alert command (always platform-first), or for an answered, not-confirmed language when an
+ * outside speech service is installed. [hasExternalPlatformRecognizer] is only asked in that last case.
+ */
+internal fun skipsLiveCheckWaits(
+    mode: VoiceCaptureMode,
+    allowPlatformFallback: Boolean,
+    cachedOnDeviceReady: Boolean,
+    localeChecked: Boolean,
+    hasExternalPlatformRecognizer: () -> Boolean,
+): Boolean = allowPlatformFallback && (
+    mode == VoiceCaptureMode.AlertCommand ||
+        (!cachedOnDeviceReady && localeChecked && hasExternalPlatformRecognizer())
+    )
+
+/**
+ * The reason a capture cannot start, or null. When the platform speech service can take the capture
+ * ([platformServiceAvailable]: online recognition on and a speech service other than Jandal's own is
+ * installed), a missing on-device recognizer or language pack does not block (#1973): the start goes
+ * to that service instead of failing over to Zipformer.
+ */
+internal fun captureBlockingReason(
+    availability: AndroidNativeRecognitionAvailability,
+    platformServiceAvailable: Boolean,
+): String? =
+    if (platformServiceAvailable && availability.isRecognitionAvailable) null else availability.blockingReason
+
 
 internal enum class RecognizerBackend {
     OnDevice,
@@ -113,18 +160,23 @@ internal enum class RecognizerBackend {
 internal fun initialRecognizerBackend(
     mode: VoiceCaptureMode,
     allowPlatformFallback: Boolean = true,
-): RecognizerBackend =
-    if (mode == VoiceCaptureMode.AlertCommand && allowPlatformFallback) {
-        // Wake-word / alert flows are cue-driven. Starting on-device first can report ready,
-        // play the cue, then silently fall back to platform seconds later on some devices
-        // (observed on S23). Start directly on the vetted platform recognizer for alert
-        // commands so the cue aligns with the backend that will actually capture speech.
-        // When the user has not allowed the online platform service, alert commands stay
-        // on the on-device recognizer.
-        RecognizerBackend.Platform
-    } else {
-        RecognizerBackend.OnDevice
-    }
+    onDeviceReady: Boolean = true,
+    platformServiceAvailable: Boolean = true,
+): RecognizerBackend = when {
+    !allowPlatformFallback -> RecognizerBackend.OnDevice
+    // Wake-word / alert flows are cue-driven. Starting on-device first can report ready,
+    // play the cue, then silently fall back to platform seconds later on some devices
+    // (observed on S23). Start directly on the vetted platform recognizer for alert
+    // commands so the cue aligns with the backend that will actually capture speech.
+    // When the user has not allowed the online platform service, alert commands stay
+    // on the on-device recognizer.
+    mode == VoiceCaptureMode.AlertCommand -> RecognizerBackend.Platform
+    // #1973: an on-device recognizer that is not confirmed ready for the language would only
+    // add its 1.5 s startup timeout before the platform retry, so start on the platform when
+    // there is one to start on.
+    !onDeviceReady && platformServiceAvailable -> RecognizerBackend.Platform
+    else -> RecognizerBackend.OnDevice
+}
 
 internal fun shouldRetryWithPlatformAfterStartupTimeout(
     backend: RecognizerBackend,
@@ -264,6 +316,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
     @Volatile
     private var readinessEmittedForSession = false
 
+    /** #1973: elapsedRealtime when the current session's start was requested, for the start-to-ready timing. */
+    @Volatile
+    private var sessionStartRequestedAtMs = 0L
 
 
     /** Starts an on-device-only session: the platform service is never used. */
@@ -280,29 +335,53 @@ class NativeAndroidVoiceInputController @Inject constructor(
         allowPlatformFallback: Boolean,
     ): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
+            val startRequestedAtMs = SystemClock.elapsedRealtime()
             stopListeningInternal(emitStopped = false)
             this@NativeAndroidVoiceInputController.allowPlatformFallback = allowPlatformFallback
 
 
-            // Reuse a cached "Ready" locale answer: the live check creates and destroys a
-            // throwaway recognizer, and that teardown can kill the shared on-device
-            // recognition service just after this session starts (ERROR_SERVER_DISCONNECTED,
-            // observed on the S23 Ultra, #1008).
-            val cachedAvailability = recognitionSupport.getCaptureAvailability()
-            val availability = if (
-                shouldUseCachedCaptureAvailability(mode) ||
-                cachedAvailability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
-            ) {
-                cachedAvailability
-            } else {
-                recognitionSupport.getAvailability().also {
-                    // The live check's throwaway recognizer is torn down asynchronously and can
-                    // take the shared on-device service with it if a session starts at once
-                    // (ERROR_SERVER_DISCONNECTED on the S23 Ultra after a cold start, #1008).
-                    delay(LIVE_CHECK_SETTLE_MS)
-                }
+            // A live check creates and destroys a throwaway recognizer, and that teardown can kill the
+            // shared on-device recognition service just after a session starts (ERROR_SERVER_DISCONNECTED,
+            // observed on the S23 Ultra, #1008). A start that can use the on-device service therefore
+            // joins a check already running (the chat's prewarm, Settings) rather than repeating it, and
+            // waits out its settle. A start that goes to the platform service straight away (#1973) never
+            // touches the on-device service, so it waits for neither: see [skipsLiveCheckWaits].
+            var cachedAvailability = recognitionSupport.getCaptureAvailability()
+            val localeChecked = recognitionSupport.hasLocaleCheckResult(cachedAvailability.languageTag)
+            val skipWaits = skipsLiveCheckWaits(
+                mode = mode,
+                allowPlatformFallback = allowPlatformFallback,
+                cachedOnDeviceReady = cachedAvailability.blockingReason == null &&
+                    cachedAvailability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready,
+                localeChecked = localeChecked,
+                hasExternalPlatformRecognizer = recognitionSupport::hasExternalPlatformRecognizer,
+            )
+            if (!skipWaits) {
+                recognitionSupport.awaitInFlightLiveCheck()
+                cachedAvailability = recognitionSupport.getCaptureAvailability()
             }
-            availability.blockingReason?.let { reason ->
+            val runLiveCheck = !skipWaits && shouldRunLiveLocaleCheck(
+                mode = mode,
+                cachedStatus = cachedAvailability.localeStatus,
+                localeChecked = recognitionSupport.hasLocaleCheckResult(cachedAvailability.languageTag),
+                allowPlatformFallback = allowPlatformFallback,
+            )
+            val availability = if (runLiveCheck) {
+                recognitionSupport.getAvailability().also { delay(LIVE_CHECK_SETTLE_MS) }
+            } else {
+                if (!skipWaits) {
+                    val settleMs = recognitionSupport.liveCheckSettleRemainingMs(LIVE_CHECK_SETTLE_MS)
+                    if (settleMs > 0L) delay(settleMs)
+                }
+                cachedAvailability
+            }
+            val localeCheckMs = SystemClock.elapsedRealtime() - startRequestedAtMs
+            val onDeviceReady = availability.blockingReason == null &&
+                availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
+            // Asked only when on-device is not ready, since the platform service is then the alternative.
+            val platformServiceAvailable = allowPlatformFallback && !onDeviceReady &&
+                recognitionSupport.hasExternalPlatformRecognizer()
+            captureBlockingReason(availability, platformServiceAvailable)?.let { reason ->
                 Log.w(
                     TAG,
                     "Blocking Android native STT start: language=${availability.languageSummary} " +
@@ -320,7 +399,22 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 activeSessionId = sessionId
                 noSpeechRefreshCount = 0
                 readinessEmittedForSession = false
-                val startBackend = initialRecognizerBackend(mode, allowPlatformFallback)
+                sessionStartRequestedAtMs = startRequestedAtMs
+                val startBackend = initialRecognizerBackend(
+                    mode = mode,
+                    allowPlatformFallback = allowPlatformFallback,
+                    onDeviceReady = onDeviceReady,
+                    platformServiceAvailable = platformServiceAvailable,
+                )
+                Log.i(
+                    TAG,
+                    "STT_START_TIMING start sessionId=$sessionId mode=$mode backend=$startBackend " +
+                        "localeStatus=${availability.localeStatus} liveCheck=$runLiveCheck localeCheckMs=$localeCheckMs",
+                )
+                JandalEvents.record(
+                    "voice", "stt_start", "mode" to mode, "backend" to startBackend,
+                    "locale" to availability.localeStatus, "check_ms" to localeCheckMs,
+                )
                 try {
                     startRecognizer(
                         sessionId = sessionId,
@@ -677,7 +771,6 @@ class NativeAndroidVoiceInputController @Inject constructor(
             cancelStartupFallback()
             resetSessionWatchdog()
             Log.i(TAG, "Android native STT ready: sessionId=$sessionId mode=$mode backend=$backend")
-            JandalEvents.record("voice", "stt_ready", "mode" to mode)
             // #1433: readiness is idempotent per capture session.  An in-place
             // recognizer refresh must not re-emit ListeningStarted (the wake-command
             // path already played its cue, and ClockAlertService plays its listening
@@ -686,7 +779,17 @@ class NativeAndroidVoiceInputController @Inject constructor(
             // failed before ever becoming ready.
             if (!readinessEmittedForSession) {
                 readinessEmittedForSession = true
+                // #1973: start request to the session's first ready (the ready cue follows at once). A
+                // platform retry before that first ready shows as backend=Platform with its wait included.
+                val startToReadyMs = SystemClock.elapsedRealtime() - sessionStartRequestedAtMs
+                Log.i(
+                    TAG,
+                    "STT_START_TIMING ready sessionId=$sessionId mode=$mode backend=$backend startToReadyMs=$startToReadyMs",
+                )
+                JandalEvents.record("voice", "stt_ready", "mode" to mode, "backend" to backend, "ms" to startToReadyMs)
                 _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
+            } else {
+                JandalEvents.record("voice", "stt_ready", "mode" to mode, "backend" to backend)
             }
         }
 

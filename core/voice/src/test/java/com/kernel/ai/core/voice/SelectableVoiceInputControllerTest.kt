@@ -362,4 +362,34 @@ class SelectableVoiceInputControllerTest {
 
             assertTrue(micOpened)
         }
+
+    // ── Android native prewarm (#1973) ──────────────────────────────────────
+
+    private suspend fun prewarmAndroidNative(online: Boolean, checkDue: Boolean) {
+        selectEngine(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(online)
+        every { recognitionSupport.getCaptureAvailability() } returns
+            nativeAvailability(onDevice = true, localeStatus = AndroidNativeRecognitionLocaleStatus.Unknown)
+        every { recognitionSupport.localeCheckDue("en-NZ") } returns checkDue
+        coEvery { recognitionSupport.getAvailability() } returns nativeAvailability(onDevice = true)
+        controller().prewarm()
+    }
+
+    @Test
+    fun `android native prewarm runs the language check once it is due with online on`() = runTest(dispatcher) {
+        prewarmAndroidNative(online = true, checkDue = true)
+        coVerify(exactly = 1) { recognitionSupport.getAvailability() }
+    }
+
+    @Test
+    fun `android native prewarm reuses an answered language check`() = runTest(dispatcher) {
+        prewarmAndroidNative(online = true, checkDue = false)
+        coVerify(exactly = 0) { recognitionSupport.getAvailability() }
+    }
+
+    @Test
+    fun `android native prewarm runs no language check with online off`() = runTest(dispatcher) {
+        prewarmAndroidNative(online = false, checkDue = true)
+        coVerify(exactly = 0) { recognitionSupport.getAvailability() }
+    }
 }

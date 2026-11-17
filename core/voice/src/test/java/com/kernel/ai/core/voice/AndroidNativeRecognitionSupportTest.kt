@@ -214,4 +214,42 @@ class AndroidNativeRecognitionSupportTest {
             selected,
         )
     }
+
+    private fun due(
+        cachedStatus: AndroidNativeRecognitionLocaleStatus?,
+        ageMs: Long,
+        cachedTag: String? = "en-NZ",
+    ) = isLocaleCheckDue(
+        cachedLanguageTag = cachedTag,
+        cachedStatus = cachedStatus,
+        languageTag = "en-NZ",
+        lastCheckEndMs = 1_000L,
+        nowMs = 1_000L + ageMs,
+    )
+
+    @Test
+    fun `a not-ready language answer is re-checked from ten minutes on`() {
+        val unknown = AndroidNativeRecognitionLocaleStatus.Unknown
+        assertEquals(false, due(unknown, UNCONFIRMED_LOCALE_RECHECK_MS - 1))
+        assertEquals(true, due(unknown, UNCONFIRMED_LOCALE_RECHECK_MS))
+    }
+
+    @Test
+    fun `a ready language answer is never re-checked`() {
+        assertEquals(false, due(AndroidNativeRecognitionLocaleStatus.Ready, UNCONFIRMED_LOCALE_RECHECK_MS * 100))
+    }
+
+    @Test
+    fun `a language with no answer of its own is due at once`() {
+        assertEquals(true, due(cachedStatus = null, ageMs = 0, cachedTag = null))
+        assertEquals(true, due(AndroidNativeRecognitionLocaleStatus.Ready, ageMs = 0, cachedTag = "en-AU"))
+    }
+
+    @Test
+    fun `settle remaining counts down from the check end and clamps to the settle window`() {
+        assertEquals(0L, settleRemainingMs(lastCheckEndMs = 0L, nowMs = 5_000L, settleMs = 400L))
+        assertEquals(300L, settleRemainingMs(lastCheckEndMs = 5_000L, nowMs = 5_100L, settleMs = 400L))
+        assertEquals(0L, settleRemainingMs(lastCheckEndMs = 5_000L, nowMs = 5_400L, settleMs = 400L))
+        assertEquals(400L, settleRemainingMs(lastCheckEndMs = 5_000L, nowMs = 4_000L, settleMs = 400L))
+    }
 }

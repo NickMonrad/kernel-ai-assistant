@@ -12,8 +12,8 @@ enum class VoiceInputEngine(
     ),
     AndroidNative(
         displayName = "Android native",
-        description = "Uses Android's on-device speech recognizer, which may work better for some accents or devices.",
-        warning = "Android native speech recognition depends on device support and installed language packs. It only falls back to your phone's online speech service if you allow online speech recognition.",
+        description = "Uses Android's speech recognition: on-device, or your phone's speech service when online speech recognition is on. May work better for some accents or devices.",
+        warning = "Android native speech recognition depends on device support and installed language packs. With online speech recognition on, Jandal uses your phone's speech service straight away when on-device recognition isn't confirmed for your language. With it off, voice input stays on the phone.",
     ),
     SherpaZipformer(
         displayName = "Sherpa-ONNX Zipformer",

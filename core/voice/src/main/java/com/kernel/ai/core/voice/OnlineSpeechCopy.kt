@@ -6,9 +6,10 @@ object OnlineSpeechCopy {
     const val LINE = "Sends your voice to your phone's speech service (usually Google)."
     const val EXPLANATION =
         "Off: voice input never leaves this phone. On: Jandal uses Android speech recognition, which is " +
-            "usually more accurate. Voice commands try on-device recognition first and retry with your phone's " +
-            "speech service (usually Google) if that fails; Hey Jandal and alarm commands use that service " +
-            "straight away. That service may send your audio off the phone."
+            "usually more accurate. When your phone's on-device recognition is confirmed ready for your " +
+            "language, voice commands use it first and retry with your phone's speech service (usually Google) " +
+            "if that fails. Otherwise, and for Hey Jandal and alarm commands, Jandal uses that service straight " +
+            "away. That service may send your audio off the phone."
 }
 
 /**
