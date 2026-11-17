@@ -94,13 +94,52 @@ object CalendarEventReplies {
     }
 
     /**
-     * One row per meeting instance. Rows with the same iCalendar UID and start are one meeting: the same
-     * invite in two calendars (organiser's and attendee's copy, or two synced accounts) has a different
-     * event id per calendar but the same UID. Without a UID, the event id and start identify the instance.
-     * The first row (earliest start, provider order) is kept.
+     * One row per meeting instance, in input order (earliest start first, provider order). A row is a
+     * duplicate of an earlier row when they share an iCalendar UID and start, or when they share a
+     * non-blank normalised title, start and end. The UID rule catches one invite copied to two calendars.
+     * The title rule also catches copies whose UIDs differ or are missing (#1974). Blank titles never match
+     * on title, so untitled events at the same time stay separate.
+     *
+     * A duplicate is dropped, but its calendar name is recorded on the kept row, so the card can show
+     * every calendar the event is in.
      */
-    fun dedupeInstances(events: List<CalendarEventRecord>): List<CalendarEventRecord> =
-        events.distinctBy { event -> (event.uid?.let { "uid:$it" } ?: "id:${event.eventId}") to event.beginMillis }
+    fun dedupeInstances(events: List<CalendarEventRecord>): List<CalendarEventRecord> {
+        val kept = mutableListOf<CalendarEventRecord>()
+        val indexByUidStart = HashMap<Pair<String, Long>, Int>()
+        val indexByTitleSpan = HashMap<Triple<String, Long, Long>, Int>()
+        for (event in events) {
+            val uidStart = event.uid?.let { it to event.beginMillis }
+            val title = normalisedTitle(event.title)
+            val titleSpan = if (title.isEmpty()) null else Triple(title, event.beginMillis, event.endMillis)
+            val index = uidStart?.let { indexByUidStart[it] } ?: titleSpan?.let { indexByTitleSpan[it] }
+            if (index == null) {
+                kept += event
+                uidStart?.let { indexByUidStart[it] = kept.lastIndex }
+                titleSpan?.let { indexByTitleSpan[it] = kept.lastIndex }
+            } else {
+                kept[index] = mergeCalendar(kept[index], event.calendarName)
+                uidStart?.let { indexByUidStart.putIfAbsent(it, index) }
+                titleSpan?.let { indexByTitleSpan.putIfAbsent(it, index) }
+            }
+        }
+        return kept
+    }
+
+    private fun mergeCalendar(kept: CalendarEventRecord, calendarName: String): CalendarEventRecord =
+        if (calendarName == kept.calendarName || calendarName in kept.mergedCalendarNames) {
+            kept
+        } else {
+            kept.copy(mergedCalendarNames = kept.mergedCalendarNames + calendarName)
+        }
+
+    /** Trimmed, lower-cased, with runs of whitespace (any Unicode whitespace) collapsed to one space. */
+    private fun normalisedTitle(title: String): String =
+        title.map { if (it.isWhitespace()) ' ' else it }
+            .joinToString("")
+            .split(' ')
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+            .lowercase(Locale.ROOT)
 
     /** True when [event] falls inside [window]. Exact for both all-day rows (by day) and timed rows (by instant). */
     fun isInWindow(event: CalendarEventRecord, window: ReadWindow): Boolean =
@@ -266,8 +305,13 @@ object CalendarEventReplies {
             val end = Instant.ofEpochMilli(event.endMillis).atZone(zone)
             timeRange(start, end, separator = "\u2013")
         }
+        val calendars = (listOf(event.calendarName) + event.mergedCalendarNames)
+            .mapNotNull { spokenCalendarName(it) }
+            .distinct()
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(", ")
         val detail = listOfNotNull(
-            spokenCalendarName(event.calendarName),
+            calendars,
             event.location,
         ).joinToString(" \u00b7 ").takeIf { it.isNotEmpty() }
         return ToolPresentation.CalendarAgendaRow(

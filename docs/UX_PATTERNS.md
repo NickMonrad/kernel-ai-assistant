@@ -598,10 +598,12 @@ In Chat, a reply that shows a rich card (weather, calendar) hides its text bubbl
 
 ### 5.4a Agenda cards (calendar readout, #1942)
 
-- One row per event: a time column, then the title, then an optional detail line (calendar · location). The time column is as wide as the widest time on the card plus 12dp, so titles align and never touch the time at large font scales.
+- One row per event: a time column, then the title, then an optional detail line (calendars · location). When duplicate copies of one event were merged (#1974), the detail lists every calendar it is in, e.g. `Work, Family · Room 2`. The time column is as wide as the widest time on the card plus 12dp, so titles align and never touch the time at large font scales.
 - Multi-day windows group rows under a day header; a single day has no header.
 - The first 3 rows (compact Actions card) or 5 rows (elsewhere) are shown, then a `Show more (N)` / `Show less` text button. A day with no visible rows is hidden with its header.
 - Speech is shorter than the card: one sentence per event (time and title), no calendar or location, and a short pause after the "You have N events" sentence.
+- Colours: the card container is `surfaceContainerHighest` with a 1dp `outlineVariant` border (Jandal `#F0EDE6` light, `#262626` dark; system colours via the same roles). The border keeps it visible against the page in Chat light (about 1.03:1) and the `ActionHistoryCard` parent in Actions dark (about 1.08:1). Time and title are `onSurface`; the detail line is `onSurfaceVariant`. Do not use `tertiaryContainer`: Jandal does not set it, so it falls back to the Material default (pink light, maroon dark) and reads as an error (#1974).
+- The list preview card (`ListPreview`, Actions lists) uses the same neutral container and text roles for the same reason.
 
 ### 5.5 Streaming / loading states
 
