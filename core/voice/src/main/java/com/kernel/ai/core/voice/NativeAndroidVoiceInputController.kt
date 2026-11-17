@@ -123,6 +123,23 @@ internal fun shouldRunLiveLocaleCheck(
         !(allowPlatformFallback && localeChecked)
 
 /**
+ * #1973: whether a start goes to the platform service without touching the on-device one, so it waits
+ * neither for a running live check nor for that check's #1008 settle. True with online recognition on
+ * for an alert command (always platform-first), or for an answered, not-confirmed language when an
+ * outside speech service is installed. [hasExternalPlatformRecognizer] is only asked in that last case.
+ */
+internal fun skipsLiveCheckWaits(
+    mode: VoiceCaptureMode,
+    allowPlatformFallback: Boolean,
+    cachedOnDeviceReady: Boolean,
+    localeChecked: Boolean,
+    hasExternalPlatformRecognizer: () -> Boolean,
+): Boolean = allowPlatformFallback && (
+    mode == VoiceCaptureMode.AlertCommand ||
+        (!cachedOnDeviceReady && localeChecked && hasExternalPlatformRecognizer())
+    )
+
+/**
  * The reason a capture cannot start, or null. When the platform speech service can take the capture
  * ([platformServiceAvailable]: online recognition on and a speech service other than Jandal's own is
  * installed), a missing on-device recognizer or language pack does not block (#1973): the start goes
@@ -323,30 +340,39 @@ class NativeAndroidVoiceInputController @Inject constructor(
             this@NativeAndroidVoiceInputController.allowPlatformFallback = allowPlatformFallback
 
 
-            // A live check already running (the chat's prewarm, Settings) is awaited, never repeated
-            // (#1973). Then a cached locale answer is reused when there is one (see
-            // [shouldRunLiveLocaleCheck]): the live check creates and destroys a throwaway recognizer,
-            // and that teardown can kill the shared on-device recognition service just after this
-            // session starts (ERROR_SERVER_DISCONNECTED, observed on the S23 Ultra, #1008).
-            recognitionSupport.awaitInFlightLiveCheck()
-            val cachedAvailability = recognitionSupport.getCaptureAvailability()
-            val runLiveCheck = shouldRunLiveLocaleCheck(
+            // A live check creates and destroys a throwaway recognizer, and that teardown can kill the
+            // shared on-device recognition service just after a session starts (ERROR_SERVER_DISCONNECTED,
+            // observed on the S23 Ultra, #1008). A start that can use the on-device service therefore
+            // joins a check already running (the chat's prewarm, Settings) rather than repeating it, and
+            // waits out its settle. A start that goes to the platform service straight away (#1973) never
+            // touches the on-device service, so it waits for neither: see [skipsLiveCheckWaits].
+            var cachedAvailability = recognitionSupport.getCaptureAvailability()
+            val localeChecked = recognitionSupport.hasLocaleCheckResult(cachedAvailability.languageTag)
+            val skipWaits = skipsLiveCheckWaits(
+                mode = mode,
+                allowPlatformFallback = allowPlatformFallback,
+                cachedOnDeviceReady = cachedAvailability.blockingReason == null &&
+                    cachedAvailability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready,
+                localeChecked = localeChecked,
+                hasExternalPlatformRecognizer = recognitionSupport::hasExternalPlatformRecognizer,
+            )
+            if (!skipWaits) {
+                recognitionSupport.awaitInFlightLiveCheck()
+                cachedAvailability = recognitionSupport.getCaptureAvailability()
+            }
+            val runLiveCheck = !skipWaits && shouldRunLiveLocaleCheck(
                 mode = mode,
                 cachedStatus = cachedAvailability.localeStatus,
                 localeChecked = recognitionSupport.hasLocaleCheckResult(cachedAvailability.languageTag),
                 allowPlatformFallback = allowPlatformFallback,
             )
             val availability = if (runLiveCheck) {
-                recognitionSupport.getAvailability().also {
-                    // The live check's throwaway recognizer is torn down asynchronously and can
-                    // take the shared on-device service with it if a session starts at once
-                    // (ERROR_SERVER_DISCONNECTED on the S23 Ultra after a cold start, #1008).
-                    delay(LIVE_CHECK_SETTLE_MS)
-                }
+                recognitionSupport.getAvailability().also { delay(LIVE_CHECK_SETTLE_MS) }
             } else {
-                // A check that has just finished elsewhere (the chat's prewarm) still needs its settle (#1008).
-                val settleMs = recognitionSupport.liveCheckSettleRemainingMs(LIVE_CHECK_SETTLE_MS)
-                if (settleMs > 0L) delay(settleMs)
+                if (!skipWaits) {
+                    val settleMs = recognitionSupport.liveCheckSettleRemainingMs(LIVE_CHECK_SETTLE_MS)
+                    if (settleMs > 0L) delay(settleMs)
+                }
                 cachedAvailability
             }
             val localeCheckMs = SystemClock.elapsedRealtime() - startRequestedAtMs

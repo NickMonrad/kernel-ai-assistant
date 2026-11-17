@@ -16,10 +16,12 @@ import io.mockk.verify
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
@@ -412,6 +414,62 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
 
         verify(exactly = 1) { recognizer.startListening(any()) }
         assertInstanceOf(VoiceInputStartResult.Started::class.java, start.await())
+    }
+
+    /** A language check (the prewarm's stale re-check) that keeps running for 5 s, then a full 400 ms settle. */
+    private fun stallingLanguageCheck() {
+        coEvery { recognitionSupport.awaitInFlightLiveCheck() } coAnswers { delay(5_000) }
+        every { recognitionSupport.liveCheckSettleRemainingMs(any()) } returns 400L
+    }
+
+    @Test
+    fun `with online on a platform-first start waits for no running language check or settle`() = runTest {
+        // #1973 round 2: the prewarm's 10-minute re-check must not put the multi-second wait back.
+        stallingLanguageCheck()
+        every { recognitionSupport.getCaptureAvailability() } returns unconfirmedAvailability()
+        every { recognitionSupport.hasLocaleCheckResult("en-NZ") } returns true
+        every { recognitionSupport.hasExternalPlatformRecognizer() } returns true
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+
+        val start = async { controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true) }
+        runCurrent()
+
+        verify(exactly = 1) { platformRecognizer.startListening(any()) }
+        assertEquals(0L, currentTime)
+        assertInstanceOf(VoiceInputStartResult.Started::class.java, start.await())
+    }
+
+    @Test
+    fun `with online on an alert command waits for no running language check or settle`() = runTest {
+        stallingLanguageCheck()
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+
+        val start = async { controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true) }
+        runCurrent()
+
+        verify(exactly = 1) { platformRecognizer.startListening(any()) }
+        assertEquals(0L, currentTime)
+        start.await()
+    }
+
+    @Test
+    fun `an on-device start waits for a running language check and then its settle`() = runTest {
+        // #1008: the cached answer is Ready, so this start uses the on-device service.
+        stallingLanguageCheck()
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns recognizer
+
+        val start = async { controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true) }
+        advanceTimeBy(5_399)
+        runCurrent()
+        verify(exactly = 0) { recognizer.startListening(any()) }
+        advanceTimeBy(1)
+        runCurrent()
+
+        verify(exactly = 1) { recognizer.startListening(any()) }
+        start.await()
     }
 
     @Test

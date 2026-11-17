@@ -27,7 +27,7 @@ import kotlin.coroutines.resume
 
 private const val TAG = "NativeVoiceInput"
 /** Age after which the prewarm checks a not-Ready on-device language answer again (#1973). */
-private const val UNCONFIRMED_LOCALE_RECHECK_MS = 10 * 60 * 1000L
+internal const val UNCONFIRMED_LOCALE_RECHECK_MS = 10 * 60 * 1000L
 private const val VOICE_RECOGNITION_SERVICE_SETTING = "voice_recognition_service"
 private const val NO_EXTERNAL_RECOGNIZER_MESSAGE =
     "Android speech recognition is unavailable because no external recognition service is configured on this device."
@@ -206,9 +206,13 @@ class AndroidNativeRecognitionSupport @Inject constructor(
      */
     fun localeCheckDue(languageTag: String): Boolean {
         val cache = localeSupportCache
-        if (cache?.languageTag != languageTag) return true
-        if (cache.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready) return false
-        return SystemClock.elapsedRealtime() - lastLiveCheckEndMs >= UNCONFIRMED_LOCALE_RECHECK_MS
+        return isLocaleCheckDue(
+            cachedLanguageTag = cache?.languageTag,
+            cachedStatus = cache?.localeStatus,
+            languageTag = languageTag,
+            lastCheckEndMs = lastLiveCheckEndMs,
+            nowMs = SystemClock.elapsedRealtime(),
+        )
     }
 
     /**
@@ -226,11 +230,8 @@ class AndroidNativeRecognitionSupport @Inject constructor(
      * recognizer is torn down asynchronously, and a session started inside that window can lose the
      * shared on-device service (#1008). 0 when no check ran or the window has passed.
      */
-    fun liveCheckSettleRemainingMs(settleMs: Long): Long {
-        val endedAt = lastLiveCheckEndMs
-        if (endedAt == 0L) return 0L
-        return (settleMs - (SystemClock.elapsedRealtime() - endedAt)).coerceIn(0L, settleMs)
-    }
+    fun liveCheckSettleRemainingMs(settleMs: Long): Long =
+        settleRemainingMs(lastLiveCheckEndMs, SystemClock.elapsedRealtime(), settleMs)
 
     private fun currentRecognitionAvailability(): AndroidNativeRecognitionAvailability {
         val locale = context.resources.configuration.locales[0] ?: Locale.getDefault()
@@ -371,6 +372,26 @@ class AndroidNativeRecognitionSupport @Inject constructor(
     }
 }
 
+
+/**
+ * Whether the live check is due for [languageTag] at [nowMs] (elapsedRealtime): never answered for
+ * this language, or answered not-Ready at least [UNCONFIRMED_LOCALE_RECHECK_MS] ago. Ready is final.
+ */
+internal fun isLocaleCheckDue(
+    cachedLanguageTag: String?,
+    cachedStatus: AndroidNativeRecognitionLocaleStatus?,
+    languageTag: String,
+    lastCheckEndMs: Long,
+    nowMs: Long,
+): Boolean = when {
+    cachedLanguageTag != languageTag -> true
+    cachedStatus == AndroidNativeRecognitionLocaleStatus.Ready -> false
+    else -> nowMs - lastCheckEndMs >= UNCONFIRMED_LOCALE_RECHECK_MS
+}
+
+/** What is left of [settleMs] at [nowMs] after a check that ended at [lastCheckEndMs]; 0 when none ran. */
+internal fun settleRemainingMs(lastCheckEndMs: Long, nowMs: Long, settleMs: Long): Long =
+    if (lastCheckEndMs == 0L) 0L else (settleMs - (nowMs - lastCheckEndMs)).coerceIn(0L, settleMs)
 
 internal fun createRecognitionAvailability(
     isRecognitionAvailable: Boolean,
