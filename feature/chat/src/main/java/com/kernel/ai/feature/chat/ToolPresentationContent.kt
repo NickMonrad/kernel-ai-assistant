@@ -436,7 +436,7 @@ private fun CalendarAgendaPresentationCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         shape = RoundedCornerShape(16.dp),
     ) {
         Column(modifier = Modifier.padding(if (compact) 12.dp else 16.dp)) {
@@ -444,7 +444,7 @@ private fun CalendarAgendaPresentationCard(
                 Text(
                     text = presentation.title,
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
                 // Chat hides the message bubble (and its speak button) when a card is shown, so the card
@@ -459,7 +459,7 @@ private fun CalendarAgendaPresentationCard(
                             },
                             contentDescription = if (isSpeaking) "Stop speaking" else "Speak calendar",
                             modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer.copy(
+                            tint = MaterialTheme.colorScheme.onSurface.copy(
                                 alpha = if (isSpeaking) 1f else 0.6f,
                             ),
                         )
@@ -471,7 +471,7 @@ private fun CalendarAgendaPresentationCard(
                 Text(
                     text = presentation.emptyMessage ?: "Nothing on your calendar.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 visible.days.forEach { day ->
@@ -479,7 +479,7 @@ private fun CalendarAgendaPresentationCard(
                         Text(
                             text = label,
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(2.dp))
                     }
@@ -494,7 +494,7 @@ private fun CalendarAgendaPresentationCard(
                         Text(
                             text = if (expanded) "Show less" else "Show more (${visible.hiddenCount})",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
@@ -513,7 +513,7 @@ private fun CalendarAgendaRowText(
         Text(
             text = row.timeText,
             style = timeStyle,
-            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             softWrap = false,
             modifier = Modifier.width(timeColumnWidth),
@@ -522,13 +522,13 @@ private fun CalendarAgendaRowText(
             Text(
                 text = row.title,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             row.detail?.let { detail ->
                 Text(
                     text = detail,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

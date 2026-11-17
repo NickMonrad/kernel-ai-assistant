@@ -330,6 +330,70 @@ class CalendarEventRepliesTest {
         }
 
         @Test
+        @DisplayName("same title and times in two calendars with different UIDs collapse to one row (#1974)")
+        fun dedupeSameTitleAndTimeWithDifferentUidsKeepsOne() {
+            val work = event(7, "Dinner", 18, 19).copy(uid = "one@google.com", calendarName = "Work")
+            val family = event(42, "Dinner", 18, 19).copy(uid = "two@google.com", calendarName = "Family")
+            assertEquals(listOf(work), CalendarEventReplies.dedupeInstances(listOf(work, family)))
+        }
+
+        @Test
+        @DisplayName("same title and times where one copy has no UID collapse to one row (#1974)")
+        fun dedupeMissingUidOnOneCopyKeepsOne() {
+            val withUid = event(7, "Dinner", 18, 19).copy(uid = "one@google.com", calendarName = "Work")
+            val noUid = event(42, "Dinner", 18, 19).copy(uid = null, calendarName = "Family")
+            assertEquals(listOf(withUid), CalendarEventReplies.dedupeInstances(listOf(withUid, noUid)))
+        }
+
+        @Test
+        @DisplayName("same title and times with no UID on either copy collapse to one row (#1974)")
+        fun dedupeNoUidOnEitherCopyKeepsOne() {
+            val work = event(7, "Dinner", 18, 19).copy(calendarName = "Work")
+            val family = event(42, "Dinner", 18, 19).copy(calendarName = "Family")
+            assertEquals(listOf(work), CalendarEventReplies.dedupeInstances(listOf(work, family)))
+        }
+
+        @Test
+        @DisplayName("recurring instance and its exception with the same title and times collapse to one row (#1974)")
+        fun dedupeRecurringPlusExceptionSameTimeKeepsOne() {
+            val series = event(7, "Gym", 6, 7).copy(uid = "gym@x")
+            val exception = event(9, "Gym", 6, 7).copy(uid = "gym@x")
+            assertEquals(listOf(series), CalendarEventReplies.dedupeInstances(listOf(series, exception)))
+        }
+
+        @Test
+        @DisplayName("recurring exception moved to another time keeps both rows (#1974)")
+        fun dedupeRecurringExceptionMovedKeepsBoth() {
+            val series = event(7, "Gym", 6, 7).copy(uid = "gym@x")
+            val moved = event(9, "Gym", 8, 9).copy(uid = "gym@x")
+            assertEquals(listOf(series, moved), CalendarEventReplies.dedupeInstances(listOf(series, moved)))
+        }
+
+        @Test
+        @DisplayName("same title and start but different end keeps both rows (#1974)")
+        fun dedupeSameStartDifferentEndKeepsBoth() {
+            val short = event(7, "Call", 9, 10)
+            val long = event(42, "Call", 9, 11)
+            assertEquals(listOf(short, long), CalendarEventReplies.dedupeInstances(listOf(short, long)))
+        }
+
+        @Test
+        @DisplayName("title match ignores case and repeated whitespace (#1974)")
+        fun dedupeNormalisesTitle() {
+            val a = event(7, "Team  Sync ", 9, 10).copy(calendarName = "Work")
+            val b = event(42, "team sync", 9, 10).copy(calendarName = "Family")
+            assertEquals(listOf(a), CalendarEventReplies.dedupeInstances(listOf(a, b)))
+        }
+
+        @Test
+        @DisplayName("same title and times on different days stay separate (#1974)")
+        fun dedupeSameTitleDifferentDaysKeepsBoth() {
+            val monday = event(7, "Standup", 9, 10, LocalDate.of(2025, 11, 17)).copy(uid = null)
+            val tuesday = event(42, "Standup", 9, 10, LocalDate.of(2025, 11, 18)).copy(uid = null)
+            assertEquals(listOf(monday, tuesday), CalendarEventReplies.dedupeInstances(listOf(monday, tuesday)))
+        }
+
+        @Test
         @DisplayName("card groups multi-day rows under day labels and keeps all rows for Show more")
         fun agendaGroupsByDay() {
             val monday = LocalDate.of(2025, 11, 17)

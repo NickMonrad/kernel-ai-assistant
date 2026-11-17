@@ -94,13 +94,32 @@ object CalendarEventReplies {
     }
 
     /**
-     * One row per meeting instance. Rows with the same iCalendar UID and start are one meeting: the same
-     * invite in two calendars (organiser's and attendee's copy, or two synced accounts) has a different
-     * event id per calendar but the same UID. Without a UID, the event id and start identify the instance.
-     * The first row (earliest start, provider order) is kept.
+     * One row per meeting instance. A row is dropped when an earlier row (provider order, earliest start
+     * first) has the same iCalendar UID and start, or the same normalised title, start and end. The UID
+     * rule catches one invite copied to two calendars. The title rule also catches copies whose UIDs
+     * differ or are missing, which providers do for events created separately in two calendars (#1974).
+     * Two genuinely different events with the same title and times are treated as one row by design.
      */
-    fun dedupeInstances(events: List<CalendarEventRecord>): List<CalendarEventRecord> =
-        events.distinctBy { event -> (event.uid?.let { "uid:$it" } ?: "id:${event.eventId}") to event.beginMillis }
+    fun dedupeInstances(events: List<CalendarEventRecord>): List<CalendarEventRecord> {
+        val seenUidStarts = HashSet<Pair<String, Long>>()
+        val seenTitleSpans = HashSet<Triple<String, Long, Long>>()
+        val kept = mutableListOf<CalendarEventRecord>()
+        for (event in events) {
+            val uidStart = event.uid?.let { it to event.beginMillis }
+            val titleSpan = Triple(normalisedTitle(event.title), event.beginMillis, event.endMillis)
+            val duplicate = (uidStart != null && uidStart in seenUidStarts) || titleSpan in seenTitleSpans
+            if (uidStart != null) seenUidStarts += uidStart
+            seenTitleSpans += titleSpan
+            if (!duplicate) kept += event
+        }
+        return kept
+    }
+
+    /** Trimmed, lower-cased, with runs of whitespace collapsed, so "Team  Sync " and "team sync" match. */
+    private fun normalisedTitle(title: String): String =
+        title.trim().replace(WHITESPACE, " ").lowercase(Locale.ROOT)
+
+    private val WHITESPACE = Regex("\\s+")
 
     /** True when [event] falls inside [window]. Exact for both all-day rows (by day) and timed rows (by instant). */
     fun isInWindow(event: CalendarEventRecord, window: ReadWindow): Boolean =
