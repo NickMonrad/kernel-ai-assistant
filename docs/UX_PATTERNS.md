@@ -602,7 +602,7 @@ In Chat, a reply that shows a rich card (weather, calendar) hides its text bubbl
 - Multi-day windows group rows under a day header; a single day has no header.
 - The first 3 rows (compact Actions card) or 5 rows (elsewhere) are shown, then a `Show more (N)` / `Show less` text button. A day with no visible rows is hidden with its header.
 - Speech is shorter than the card: one sentence per event (time and title), no calendar or location, and a short pause after the "You have N events" sentence.
-- Colours: the card container is `surfaceContainerHighest` (Jandal `#F0EDE6` light, `#262626` dark; system colours via the same role), so it stands apart from the `ActionHistoryCard` parent in Actions and from the page in Chat. Time and title are `onSurface`; the detail line is `onSurfaceVariant`. Do not use `tertiaryContainer`: Jandal does not set it, so it falls back to the Material default (pink light, maroon dark) and reads as an error (#1974).
+- Colours: the card container is `surfaceContainerHighest` with a 1dp `outlineVariant` border (Jandal `#F0EDE6` light, `#262626` dark; system colours via the same roles). The border keeps it visible against the page in Chat light (about 1.03:1) and the `ActionHistoryCard` parent in Actions dark (about 1.08:1). Time and title are `onSurface`; the detail line is `onSurfaceVariant`. Do not use `tertiaryContainer`: Jandal does not set it, so it falls back to the Material default (pink light, maroon dark) and reads as an error (#1974).
 - The list preview card (`ListPreview`, Actions lists) uses the same neutral container and text roles for the same reason.
 
 ### 5.5 Streaming / loading states
