@@ -29,6 +29,8 @@ data class CalendarEventRecord(
      * attendee, or two accounts) have different event ids but share this UID.
      */
     val uid: String? = null,
+    /** Calendar names of other copies folded into this row by [CalendarEventReplies.dedupeInstances] (#1974). */
+    val mergedCalendarNames: List<String> = emptyList(),
 )
 
 /** An event to insert. For all-day events, [beginMillis]/[endMillis] are UTC midnights per CalendarContract. */
