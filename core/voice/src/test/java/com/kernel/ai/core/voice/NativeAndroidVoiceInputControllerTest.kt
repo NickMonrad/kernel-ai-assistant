@@ -7,6 +7,7 @@ import android.speech.RecognitionListener
 import android.speech.SpeechRecognizer
 import io.mockk.every
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
@@ -322,6 +323,60 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         assertInstanceOf(VoiceInputStartResult.Started::class.java, result)
         verify(exactly = 1) { onDeviceRecognizer.startListening(any()) }
         verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+    }
+
+    private fun unconfirmedAvailability(onDeviceAvailable: Boolean = true) = createRecognitionAvailability(
+        isRecognitionAvailable = true,
+        isOnDeviceRecognitionAvailable = onDeviceAvailable,
+        languageTag = "en-NZ",
+        languageDisplayName = "English (New Zealand)",
+        localeStatus = AndroidNativeRecognitionLocaleStatus.Unknown,
+    )
+
+    @Test
+    fun `with online on an answered but unconfirmed language check starts on the platform without checking again`() = runTest {
+        // #1973: the live check (up to 5 s) and the on-device attempt (1.5 s ready timeout) must not
+        // run before every online command once the check has already failed to confirm the language.
+        every { recognitionSupport.getCaptureAvailability() } returns unconfirmedAvailability()
+        every { recognitionSupport.hasLocaleCheckResult("en-NZ") } returns true
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+
+        val result = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true)
+
+        assertInstanceOf(VoiceInputStartResult.Started::class.java, result)
+        coVerify(exactly = 0) { recognitionSupport.getAvailability() }
+        verify(exactly = 0) { recognitionSupport.createOnDeviceSpeechRecognizer() }
+        verify(exactly = 1) { platformRecognizer.startListening(any()) }
+    }
+
+    @Test
+    fun `with online off an unconfirmed language is checked again on each start`() = runTest {
+        every { recognitionSupport.getCaptureAvailability() } returns unconfirmedAvailability()
+        every { recognitionSupport.hasLocaleCheckResult("en-NZ") } returns true
+        coEvery { recognitionSupport.getAvailability() } returns unconfirmedAvailability()
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns mockk(relaxed = true)
+
+        controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+
+        coVerify(exactly = 1) { recognitionSupport.getAvailability() }
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+    }
+
+    @Test
+    fun `with online on a phone without an on-device recognizer starts on the platform instead of failing`() = runTest {
+        every { recognitionSupport.getCaptureAvailability() } returns unconfirmedAvailability(onDeviceAvailable = false)
+        coEvery { recognitionSupport.getAvailability() } returns unconfirmedAvailability(onDeviceAvailable = false)
+        every { recognitionSupport.hasLocaleCheckResult("en-NZ") } returns true
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+
+        val online = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true)
+        val offline = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+
+        assertInstanceOf(VoiceInputStartResult.Started::class.java, online)
+        verify(exactly = 1) { platformRecognizer.startListening(any()) }
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, offline)
     }
 
     @Test

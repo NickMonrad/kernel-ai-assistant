@@ -201,7 +201,8 @@ class SelectableVoiceInputController @Inject constructor(
     /**
      * #1850: warms the recognizer the next start will use, so the first tap does not wait for the
      * model load. Auto warms Zipformer only when [resolveAutoSttRoute] would pick it from the
-     * cached native availability; it never runs the live check. Native has nothing to preload.
+     * cached native availability; it never runs the live check. Android native has no model, but
+     * its first start would run the live language check (#1973), so that check runs here instead.
      */
     override suspend fun prewarm() {
         when (voiceInputPreferences.selectedEngine.first()) {
@@ -219,7 +220,14 @@ class SelectableVoiceInputController @Inject constructor(
                     sherpaOnnxVoiceInputController.prewarmSpec(SherpaSttModelSpec.ZIPFORMER)
                 }
             }
-            VoiceInputEngine.AndroidNative -> Unit
+            VoiceInputEngine.AndroidNative -> {
+                val cached = androidNativeRecognitionSupport.getCaptureAvailability()
+                if (cached.localeStatus != AndroidNativeRecognitionLocaleStatus.Ready &&
+                    !androidNativeRecognitionSupport.hasLocaleCheckResult(cached.languageTag)
+                ) {
+                    androidNativeRecognitionSupport.getAvailability()
+                }
+            }
             else -> sherpaOnnxVoiceInputController.prewarm()
         }
     }

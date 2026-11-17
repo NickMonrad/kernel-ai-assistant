@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.speech.RecognitionService
 import android.speech.RecognitionSupport
@@ -123,6 +124,10 @@ class AndroidNativeRecognitionSupport @Inject constructor(
     @Volatile
     private var localeSupportCache: LocaleSupportCache? = null
 
+    /** elapsedRealtime when the last live check finished; 0 before the first one. */
+    @Volatile
+    private var lastLiveCheckEndMs = 0L
+
     // Independent scope so RecognitionSupportCallback closures don't capture
     // the calling Activity's coroutine continuation chain.
     private val localeCheckScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
@@ -143,6 +148,7 @@ class AndroidNativeRecognitionSupport @Inject constructor(
             languageTag = availability.languageTag,
             localeStatus = availability.localeStatus,
         )
+        lastLiveCheckEndMs = SystemClock.elapsedRealtime()
 
         Log.i(
             TAG,
@@ -172,6 +178,21 @@ class AndroidNativeRecognitionSupport @Inject constructor(
                 "localeStatus=${availability.localeStatus}",
         )
         return availability
+    }
+
+    /** True when a live check has already answered for [languageTag], whatever its answer (#1973). */
+    fun hasLocaleCheckResult(languageTag: String): Boolean =
+        localeSupportCache?.languageTag == languageTag
+
+    /**
+     * How much of [settleMs] is still left since the last live check finished: its throwaway
+     * recognizer is torn down asynchronously, and a session started inside that window can lose the
+     * shared on-device service (#1008). 0 when no check ran or the window has passed.
+     */
+    fun liveCheckSettleRemainingMs(settleMs: Long): Long {
+        val endedAt = lastLiveCheckEndMs
+        if (endedAt == 0L) return 0L
+        return (settleMs - (SystemClock.elapsedRealtime() - endedAt)).coerceIn(0L, settleMs)
     }
 
     private fun currentRecognitionAvailability(): AndroidNativeRecognitionAvailability {
