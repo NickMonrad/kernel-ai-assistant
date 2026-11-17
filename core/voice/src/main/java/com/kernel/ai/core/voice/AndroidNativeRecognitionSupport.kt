@@ -26,6 +26,8 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 private const val TAG = "NativeVoiceInput"
+/** Age after which the prewarm checks a not-Ready on-device language answer again (#1973). */
+private const val UNCONFIRMED_LOCALE_RECHECK_MS = 10 * 60 * 1000L
 private const val VOICE_RECOGNITION_SERVICE_SETTING = "voice_recognition_service"
 private const val NO_EXTERNAL_RECOGNIZER_MESSAGE =
     "Android speech recognition is unavailable because no external recognition service is configured on this device."
@@ -132,8 +134,20 @@ class AndroidNativeRecognitionSupport @Inject constructor(
     // the calling Activity's coroutine continuation chain.
     private val localeCheckScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
 
+    /**
+     * One live check at a time (#1973): a start that arrives while the chat's prewarm or Settings is
+     * checking awaits that check. A second check would add its own throwaway recognizer, whose teardown
+     * could land after the session starts (#1008), and would wait out its own timeout.
+     */
+    private val liveCheck = SingleFlight<AndroidNativeRecognitionAvailability>(localeCheckScope)
 
-    suspend fun getAvailability(): AndroidNativeRecognitionAvailability {
+    /** Runs the live on-device language check, or joins the one already running, and caches its answer. */
+    suspend fun getAvailability(): AndroidNativeRecognitionAvailability = liveCheck.run { runLiveCheck() }
+
+    /** Waits for a live check that is already running, without starting one. */
+    suspend fun awaitInFlightLiveCheck() = liveCheck.awaitInFlight()
+
+    private suspend fun runLiveCheck(): AndroidNativeRecognitionAvailability {
         val baseAvailability = currentRecognitionAvailability()
         val localeStatus = if (
             baseAvailability.isRecognitionAvailable &&
@@ -185,6 +199,29 @@ class AndroidNativeRecognitionSupport @Inject constructor(
         localeSupportCache?.languageTag == languageTag
 
     /**
+     * Whether the prewarm should run the live check for [languageTag] (#1973): there is no answer yet,
+     * or the answer was not Ready and is older than [UNCONFIRMED_LOCALE_RECHECK_MS]. Starts with online
+     * recognition on reuse any answer, so this keeps a one-off timeout from deciding the backend for the
+     * rest of the process.
+     */
+    fun localeCheckDue(languageTag: String): Boolean {
+        val cache = localeSupportCache
+        if (cache?.languageTag != languageTag) return true
+        if (cache.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready) return false
+        return SystemClock.elapsedRealtime() - lastLiveCheckEndMs >= UNCONFIRMED_LOCALE_RECHECK_MS
+    }
+
+    /**
+     * True when a speech service other than Jandal's own is installed, so [createPlatformSpeechRecognizer]
+     * can succeed. [SpeechRecognizer.isRecognitionAvailable] is not enough: the app's own exported
+     * `JandalRecognitionService` makes it true on every phone.
+     */
+    fun hasExternalPlatformRecognizer(): Boolean {
+        val (configured, available) = platformRecognitionServices()
+        return selectPlatformRecognitionService(configured, available, context.packageName) != null
+    }
+
+    /**
      * How much of [settleMs] is still left since the last live check finished: its throwaway
      * recognizer is torn down asynchronously, and a session started inside that window can lose the
      * shared on-device service (#1008). 0 when no check ran or the window has passed.
@@ -216,18 +253,7 @@ class AndroidNativeRecognitionSupport @Inject constructor(
     fun createOnDeviceSpeechRecognizer(): SpeechRecognizer =
         SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
     fun createPlatformSpeechRecognizer(): SpeechRecognizer {
-        val configuredService = Settings.Secure.getString(
-            context.contentResolver,
-            VOICE_RECOGNITION_SERVICE_SETTING,
-        )?.takeIf { it.isNotBlank() }
-        val availableServices = context.packageManager.queryIntentServices(
-            Intent(RecognitionService.SERVICE_INTERFACE),
-            PackageManager.ResolveInfoFlags.of(0),
-        ).mapNotNull { resolveInfo ->
-            resolveInfo.serviceInfo?.let { serviceInfo ->
-                ComponentName(serviceInfo.packageName, serviceInfo.name).flattenToShortString()
-            }
-        }
+        val (configuredService, availableServices) = platformRecognitionServices()
         val selectedService = selectPlatformRecognitionService(
             configuredService = configuredService,
             availableServices = availableServices,
@@ -247,6 +273,23 @@ class AndroidNativeRecognitionSupport @Inject constructor(
             throw IllegalStateException(NO_EXTERNAL_RECOGNIZER_MESSAGE)
         }
         return SpeechRecognizer.createSpeechRecognizer(context, selectedComponent)
+    }
+
+    /** The user's configured speech service setting and every installed recognition service. */
+    private fun platformRecognitionServices(): Pair<String?, List<String>> {
+        val configuredService = Settings.Secure.getString(
+            context.contentResolver,
+            VOICE_RECOGNITION_SERVICE_SETTING,
+        )?.takeIf { it.isNotBlank() }
+        val availableServices = context.packageManager.queryIntentServices(
+            Intent(RecognitionService.SERVICE_INTERFACE),
+            PackageManager.ResolveInfoFlags.of(0),
+        ).mapNotNull { resolveInfo ->
+            resolveInfo.serviceInfo?.let { serviceInfo ->
+                ComponentName(serviceInfo.packageName, serviceInfo.name).flattenToShortString()
+            }
+        }
+        return configuredService to availableServices
     }
 
     private suspend fun checkLocaleSupport(languageTag: String): AndroidNativeRecognitionLocaleStatus {
