@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.kernel.ai.feature.settings.LegalPrivacyScreen
 import com.kernel.ai.feature.settings.OpenSourceLicensesScreen
@@ -45,5 +46,8 @@ class LegalPrivacySurfaceTest {
         }
         composeRule.onNodeWithText("Third-party software notices").assertIsDisplayed()
         composeRule.onNodeWithText("openWakeWord", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("asr4all speech recognition weights", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("FUTO Model Weights License text").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Copyright License", substring = true).performScrollTo()
     }
 }

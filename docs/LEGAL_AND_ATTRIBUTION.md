@@ -90,6 +90,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Sherpa SenseVoice STT | Optional Sherpa STT model | Model licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa Whisper tiny.en STT | Optional Sherpa STT model | Code comments indicate Apache-2.0; verify upstream model page | Document source/licence before shipping/download exposure. |
 | Sherpa Paraformer STT | Optional Sherpa STT model | Code comments indicate Apache-2.0; verify upstream model page | Document source/licence before shipping/download exposure. |
+| asr4all STT (FUTO, 28M and 56M) | Planned default offline STT model (#1977/#1980); ONNX Runtime | FUTO Model Weights License (Restricted Use) 1.0 (`futo-org/asr4all-s`, `futo-org/asr4all-m` LICENSE). Commercial use permitted; Limitations prohibit surveillance, profiling/discrimination, intelligence gathering, custody monitoring, targeting protected activity, and circumvention. Full text bundled in app (`legal/FUTO-Model-Weights-License-1.0.txt`) and listed in `NOTICE`. Terms of Use clause binds users to the Limitations. | Unmodified weights downloaded from FUTO's Hugging Face repos; no model-card derivation notice needed. Any modification or rehosting requires a modification notice and the FUTO terms alongside the files. |
 
 ### Text-to-speech voices/assets
 

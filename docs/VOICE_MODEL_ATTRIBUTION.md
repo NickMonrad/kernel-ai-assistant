@@ -77,6 +77,22 @@ For release attribution, cite both:
 
 Use `openai/whisper-tiny.en`, not multilingual `openai/whisper-tiny`, because Jandal's app-side model selection is the English-only `tiny.en` ONNX export.
 
+## asr4all source notes
+
+Planned offline STT default (#1977, #1980). Jandal will download the unmodified FUTO ONNX export files from FUTO's Hugging Face repositories, `futo-org/asr4all-s` (28M) and `futo-org/asr4all-m` (56M), and run them with ONNX Runtime.
+
+Licence: FUTO Model Weights License (Restricted Use) 1.0, in each repository's `LICENSE`. The two copies are byte-identical (checked 18 Nov 2026). The text is bundled at `app/src/main/assets/legal/FUTO-Model-Weights-License-1.0.txt` and shown offline on the Open-source licences screen, which also lists asr4all in `NOTICE`.
+
+Release obligations:
+
+- Commercial use is permitted. No attribution is required for model outputs.
+- The Limitations section prohibits surveillance, profiling and discrimination by voice, intelligence gathering, monitoring people in custody, targeting protected activity, and circumvention. Jandal's Terms of Use (section 5) bind users to these Limitations, as the licence requires for hosted or embedded services.
+- Recipients must receive the terms. The app bundles them and the Terms of Use link to them.
+- Do not modify, re-quantise, or rehost the weights without first adding a modification notice and the FUTO terms alongside the files.
+- The FUTO name and logos may not be used to endorse Jandal.
+
+The FUTO inference code is not used. Jandal's ONNX Runtime port is written from FUTO's published Python reference; no code is copied from `futo-org/voice-input`, which uses the non-commercial FUTO Source First licence.
+
 ## Code references
 
 - `core/inference/src/main/java/com/kernel/ai/core/inference/download/KernelModel.kt` records the Hugging Face model URLs for STT ONNX assets.

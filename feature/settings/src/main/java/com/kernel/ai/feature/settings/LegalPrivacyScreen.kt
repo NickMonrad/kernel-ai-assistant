@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 internal const val PRIVACY_POLICY_URL = "https://nickmonrad.github.io/kernel-ai-assistant/privacy/"
 internal const val TERMS_OF_USE_URL = "https://nickmonrad.github.io/kernel-ai-assistant/terms/"
 private const val NOTICE_ASSET_PATH = "legal/NOTICE.txt"
+private const val FUTO_LICENCE_ASSET_PATH = "legal/FUTO-Model-Weights-License-1.0.txt"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +96,9 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
     val notice = remember(context) {
         context.assets.open(NOTICE_ASSET_PATH).bufferedReader(Charsets.UTF_8).use { it.readText() }
     }
+    val futoLicence = remember(context) {
+        context.assets.open(FUTO_LICENCE_ASSET_PATH).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }
 
     Scaffold(
         topBar = {
@@ -122,6 +126,18 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
             SelectionContainer {
                 Text(
                     text = notice,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            Text(
+                text = "FUTO Model Weights License text",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+            SelectionContainer {
+                Text(
+                    text = futoLicence,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 8.dp),
                 )
