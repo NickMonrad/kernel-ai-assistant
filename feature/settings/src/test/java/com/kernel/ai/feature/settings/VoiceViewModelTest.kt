@@ -31,7 +31,8 @@ import com.kernel.ai.core.permissions.MicrophoneReadiness
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import io.mockk.Runs
-import io.mockk.coEvery
+import com.kernel.ai.core.inference.download.localFile
+ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
@@ -40,6 +41,8 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -103,6 +106,8 @@ class VoiceViewModelTest {
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
     private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
     private val asr4allVoiceInputController: Asr4allVoiceInputController = mockk(relaxed = true)
+    @org.junit.jupiter.api.io.TempDir
+    lateinit var tempDir: java.nio.file.Path
 
     @Test
     fun `play sample speaks through Sherpa only for a downloaded voice`() = runTest {
@@ -1163,21 +1168,34 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `deleting asr4all files is routed through the exclusive engine release`() {
-        val log = java.util.concurrent.CopyOnWriteArrayList<String>()
-        val done = java.util.concurrent.CountDownLatch(1)
-        // The release body is not run: the mock context has no filesDir, so file deletion cannot
-        // execute here. This test pins only that deletion is wrapped by the release.
+    fun `deleting asr4all files removes only its model files after the engine release and converges selection to Auto`() = runTest {
+        // Real files in a temp models dir: every Asr4all model file plus one unrelated file that must survive.
+        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
+        every { context.filesDir } returns tempDir.toFile()
+        val modelFiles = com.kernel.ai.core.voice.asr4all.Asr4allModelFiles.models.map { it.localFile(context) }
+        modelFiles.forEach { it.writeText("x") }
+        val unrelated = java.io.File(tempDir.toFile(), "unrelated.bin").apply { writeText("keep") }
+        every { modelDownloadManager.refreshState(any()) } just Runs
+
+        val entered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
         coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } coAnswers {
-            log += "enter"
-            log += "exit"
-            done.countDown()
+            entered.complete(Unit)
+            gate.await() // the release is held here; the deletion body must not have run yet
+            firstArg<() -> Unit>().invoke()
         }
 
+        viewModel.setVoiceInputEngine(VoiceInputEngine.Asr4all)
         viewModel.deleteSherpaStt(VoiceInputEngine.Asr4all)
+        entered.await()
+        assertTrue(modelFiles.all { it.exists() }, "files must survive until the release is held and the body runs")
 
-        assertTrue(done.await(5, java.util.concurrent.TimeUnit.SECONDS), "deletion did not reach the release")
-        assertEquals(listOf("enter", "exit"), log.toList())
-        coVerify(exactly = 1) { asr4allVoiceInputController.withEngineReleased<Unit>(any()) }
+        gate.complete(Unit)
+        viewModel.uiState.first { it.selectedInputEngine == VoiceInputEngine.Auto }
+
+        assertTrue(modelFiles.none { it.exists() }, "every Asr4all model file is removed")
+        assertTrue(unrelated.exists(), "an unrelated file is untouched")
+        testDispatcher.scheduler.advanceUntilIdle() // the Auto preference write is launched on Main after the state flip
+        coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto) }
     }
 }
