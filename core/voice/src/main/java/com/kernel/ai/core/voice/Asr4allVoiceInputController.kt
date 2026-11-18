@@ -26,7 +26,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -99,6 +101,7 @@ class Asr4allVoiceInputController @Inject constructor(
     /** Guards the stop count and the mic-open decision, like Sherpa's captureLock. */
     private val captureLock = Any()
     private var stopCount = 0 // guarded by captureLock
+    private var admissionEpoch = 0L // guarded by captureLock
     @Volatile private var activeJob: Job? = null
     @Volatile private var activeStop: AtomicBoolean? = null
     @Volatile private var activeDiscard: AtomicBoolean? = null
@@ -174,12 +177,16 @@ class Asr4allVoiceInputController @Inject constructor(
                 return@withLock VoiceInputStartResult.Unavailable("Microphone unavailable — check RECORD_AUDIO permission.")
             }
 
+            // The load runs on the controller scope, so a cancelled caller leaves the await at
+            // once and ends the mic before the blocking native open returns. The load is still
+            // awaited, non-cancellably, so the start lock is not released while it runs.
+            val loading = scope.async(Dispatchers.IO) { engine ?: openOrNull()?.also { engine = it } }
             val eng = try {
-                withContext(Dispatchers.IO) { engine ?: openOrNull()?.also { engine = it } }
+                loading.await()
             } catch (e: Throwable) {
-                // Caller cancellation or an unexpected failure: end the mic now, then rethrow.
                 halt(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+                withContext(NonCancellable) { loading.join() }
                 throw e
             }
             if (eng == null) {
@@ -209,7 +216,7 @@ class Asr4allVoiceInputController @Inject constructor(
                 } finally {
                     capture.buffer.close()
                     _inputLevel.value = 0f
-                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = discard.get()))
                 }
             }
             VoiceInputStartResult.Started(sessionId)
@@ -425,10 +432,17 @@ class Asr4allVoiceInputController @Inject constructor(
      */
     fun supersedeCapture(): Unit = synchronized(captureLock) {
         stopCount++
+        admissionEpoch++
         activeDiscard?.set(true)
         activeStop?.set(true)
         activeCapture?.let(::halt)
     }
+
+    /**
+     * The current admission epoch. Every supersede bumps it, and so does an engine release
+     * (selection switch or deletion). A start admitted under an older epoch never opens the mic.
+     */
+    fun admissionEpochNow(): Long = synchronized(captureLock) { admissionEpoch }
 
     /**
      * Supersedes any capture without emitting its result, waits for its job and reader to end,

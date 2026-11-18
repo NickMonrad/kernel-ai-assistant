@@ -253,6 +253,24 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `a cancelled stop clears an owned listening capture without submitting its partial`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "set a timer"))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
+        advanceUntilIdle()
+
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
     fun `ListeningStarted emits one chat start haptic signal`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)

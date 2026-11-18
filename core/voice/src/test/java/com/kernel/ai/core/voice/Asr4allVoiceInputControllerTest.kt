@@ -454,12 +454,13 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(1, micOpens.get(), "mic opens before the engine loads")
 
             caller.cancel()
+            // Teardown must finish while the native open is still blocked: the gate opens last.
+            assertTrue(micReleasedSignal.tryAcquire(1, 5, TimeUnit.SECONDS), "cancelled start must release the mic before the engine loads")
+            assertTrue(focusAbandonedSignal.tryAcquire(1, 5, TimeUnit.SECONDS), "cancelled start must abandon focus before the engine loads")
+            collected.awaitStops(1)
             engineGate!!.countDown()
             caller.join()
-            collected.awaitStops(1)
 
-            assertTrue(micReleasedSignal.tryAcquire(1, 5, TimeUnit.SECONDS), "cancelled start must release the mic it opened")
-            assertTrue(focusAbandonedSignal.tryAcquire(1, 5, TimeUnit.SECONDS), "cancelled start must abandon focus")
             assertEquals(1, micReleases.get())
             assertEquals(focusRequests.get(), focusAbandons.get())
             // Sherpa order: the cue opens with the mic, before the engine loads; cancel closes that pair.

@@ -562,7 +562,7 @@ class ActionsViewModel @Inject constructor(
                         val currentState = _voiceCaptureState.value
                         when (currentState) {
                             is VoiceCaptureState.Listening -> {
-                                _voiceCaptureState.value = if (currentState.transcript.isBlank()) {
+                                _voiceCaptureState.value = if (event.cancelled || currentState.transcript.isBlank()) {
                                     VoiceCaptureState.Idle
                                 } else {
                                     VoiceCaptureState.Processing(

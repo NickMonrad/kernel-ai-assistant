@@ -861,7 +861,7 @@ class ChatViewModel @Inject constructor(
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         when (val currentState = _voiceCaptureState.value) {
                             is VoiceCaptureState.Listening -> {
-                                if (currentState.transcript.isBlank()) {
+                                if (event.cancelled || currentState.transcript.isBlank()) {
                                     _voiceMode.value = null
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
                                 } else {

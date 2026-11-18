@@ -77,6 +77,7 @@ class SelectableVoiceInputHandoffTest {
             every { it.events } returns MutableSharedFlow()
             every { it.stopListening() } just runs
             every { it.supersedeCapture() } just runs
+            every { it.admissionEpochNow() } returns 0L
             coEvery { it.releaseEngine() } just runs
         },
         androidNativeRecognitionSupport = recognitionSupport,

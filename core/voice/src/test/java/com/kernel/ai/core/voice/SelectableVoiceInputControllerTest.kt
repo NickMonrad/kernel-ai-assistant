@@ -54,6 +54,7 @@ class SelectableVoiceInputControllerTest {
         every { asr4allVoiceInputController.events } returns asr4allEvents
         every { asr4allVoiceInputController.stopListening() } just runs
         every { asr4allVoiceInputController.supersedeCapture() } just runs
+        every { asr4allVoiceInputController.admissionEpochNow() } returns 0L
         coEvery { asr4allVoiceInputController.releaseEngine() } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
         every { sherpaOnnxVoiceInputController.stopListening() } just runs
@@ -469,5 +470,52 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
         assertEquals(listOf("first", "second", "final"), seen.filterIsInstance<VoiceInputEvent.Transcript>().map { it.text })
         assertFalse(seen.any { it is VoiceInputEvent.ListeningStopped && it.captureSessionId == 5L })
+    }
+
+    @Test
+    fun `an engine release drops queued asr4all results but forwards the cancellation terminal`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Asr4all)
+        var epoch = 0L
+        every { asr4allVoiceInputController.admissionEpochNow() } answers { epoch }
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } answers {
+            thirdArg<(Long) -> Unit>().invoke(7L)
+            VoiceInputStartResult.Started(7L)
+        }
+        val c = controller()
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        c.startListening(VoiceCaptureMode.Command)
+        // Deletion or a selection switch releases the engine: admission is invalidated.
+        epoch = 1L
+        asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "queued", 7L))
+        asr4allEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 7L, cancelled = true))
+        advanceUntilIdle()
+
+        assertTrue(seen.none { it is VoiceInputEvent.Transcript })
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 7L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+    }
+
+    @Test
+    fun `a switch between the selection read and asr4all admission rejects the start`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Asr4all)
+        var epoch = 0L
+        every { asr4allVoiceInputController.admissionEpochNow() } answers { epoch }
+        var admitted: Boolean? = null
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } answers {
+            // A switch lands after the selection read and before the mic admission check.
+            epoch = 1L
+            admitted = secondArg<() -> Boolean>().invoke()
+            VoiceInputStartResult.Started(9L)
+        }
+        val c = controller()
+
+        c.startListening(VoiceCaptureMode.Command)
+
+        assertEquals(false, admitted)
     }
 }

@@ -55,9 +55,14 @@ sealed interface VoiceInputEvent {
          */
         val category: String? = null,
     ) : VoiceInputEvent
+    /**
+     * The capture ended without a result: it was superseded or its engine was released (engine
+     * switch or deletion). Consumers clear listening and must not submit any partial text.
+     */
     data class ListeningStopped(
         override val mode: VoiceCaptureMode,
         override val captureSessionId: Long = 0L,
+        val cancelled: Boolean = false,
     ) : VoiceInputEvent
     /** End of user speech; the engine is now transcribing (#1850). */
     data class SpeechEnded(
