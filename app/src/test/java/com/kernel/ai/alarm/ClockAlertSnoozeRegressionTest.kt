@@ -95,31 +95,67 @@ class ClockAlertSnoozeRegressionTest {
     }
 
     @Test
-    fun `failed notification snooze after replacement cannot finish the replacement voice capture`() = runTest {
+    fun `failed notification snooze cannot finish capture rebound within the same journal`() = runTest {
         val repositoryResult = CompletableDeferred<Boolean>()
-        var currentJournal = "A"
-        var currentCaptureId = 41L
+        val attemptJournal = Any()
+        val currentJournal = attemptJournal
+        val owner = ClockAlertVoiceCaptureOwner().apply { bind(41L) }
+        val attemptBinding = owner.snapshot()
         var finishCount = 0
+        val stopped = mutableListOf<Long>()
         val action = async {
             runVoiceSnoozeAction(
                 snooze = { repositoryResult.await() },
-                mayFinishVoiceCapture = { currentJournal == "A" },
+                mayFinishVoiceCapture = {
+                    currentJournal === attemptJournal && owner.matches(attemptBinding)
+                },
                 finishOnFailure = {
                     finishCount++
-                    currentCaptureId = 0L
-                    currentJournal = "finished-A"
+                    owner.stop(stopped::add)
                 },
             )
         }
 
-        currentJournal = "B"
-        currentCaptureId = 99L
+        owner.bind(41L)
         repositoryResult.complete(false)
 
         assertEquals(false, action.await())
         assertEquals(0, finishCount)
-        assertEquals(99L, currentCaptureId)
-        assertEquals("B", currentJournal)
+        assertEquals(emptyList<Long>(), stopped)
+        assertEquals(41L, owner.snapshot().sessionId)
+        assertEquals(false, owner.matches(attemptBinding))
+    }
+
+    @Test
+    fun `failed notification snooze cannot finish capture bound after a null owner snapshot`() = runTest {
+        val repositoryResult = CompletableDeferred<Boolean>()
+        val attemptJournal = Any()
+        val currentJournal = attemptJournal
+        val owner = ClockAlertVoiceCaptureOwner()
+        val attemptBinding = owner.snapshot()
+        var finishCount = 0
+        val stopped = mutableListOf<Long>()
+        val action = async {
+            runVoiceSnoozeAction(
+                snooze = { repositoryResult.await() },
+                mayFinishVoiceCapture = {
+                    currentJournal === attemptJournal && owner.matches(attemptBinding)
+                },
+                finishOnFailure = {
+                    finishCount++
+                    owner.stop(stopped::add)
+                },
+            )
+        }
+
+        owner.bind(99L)
+        repositoryResult.complete(false)
+
+        assertEquals(false, action.await())
+        assertEquals(0, finishCount)
+        assertEquals(emptyList<Long>(), stopped)
+        assertEquals(99L, owner.snapshot().sessionId)
+        assertEquals(false, owner.matches(attemptBinding))
     }
 
     @Test

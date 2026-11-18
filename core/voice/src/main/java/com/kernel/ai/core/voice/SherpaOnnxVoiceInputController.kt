@@ -373,7 +373,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                                 )
                             }
                         } finally {
-                            finishCapture(captureLifecycle)
+                            finishCapture(captureLifecycle, waitForRecordingJob = false)
                         }
                     }
                     activeJob = job
@@ -407,10 +407,19 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         }
     }
 
-    private suspend fun finishCapture(lifecycle: CaptureLifecycle) {
+    private suspend fun finishCapture(
+        lifecycle: CaptureLifecycle,
+        waitForRecordingJob: Boolean = true,
+    ) {
         withContext(NonCancellable) {
             lifecycle.capture.close()
             lifecycle.readerJob.join()
+            if (waitForRecordingJob) {
+                val recordingJob = lifecycle.recordingJob
+                if (recordingJob != null && recordingJob !== currentCoroutineContext()[Job]) {
+                    recordingJob.join()
+                }
+            }
             val shouldEmit = synchronized(captureLock) {
                 if (lifecycle.terminalEmitted) {
                     false

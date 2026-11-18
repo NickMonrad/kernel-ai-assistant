@@ -309,6 +309,7 @@ class SelectableVoiceInputController @Inject constructor(
         }
     }
 
+    /** Start callbacks run on Main; bind synchronously before the delegate emits any event. */
     private fun admitSession(
         gen: Long,
         controller: VoiceInputController,
@@ -381,13 +382,28 @@ class SelectableVoiceInputController @Inject constructor(
         if (pendingZipformerStart.compareAndSet(pending, null)) pending.job.cancel()
     }
 
-    private fun retireAdmission(sessionId: Long) {
+    private fun retireAdmission(sessionId: Long, preserveGenerationFence: Boolean = false) {
         synchronized(captureOwnerLock) {
             val retired = admittedControllers.remove(sessionId) ?: return
             backendAdmissions.entries.removeAll { it.value == sessionId }
             retired.teardown?.complete(Unit)
-            if (captureOwner?.sessionId == sessionId) captureOwner = null
+            if (captureOwner?.sessionId == sessionId) {
+                captureOwner = if (preserveGenerationFence) {
+                    CaptureOwnerState(retired.generation, null)
+                } else {
+                    null
+                }
+            }
             updateCaptureActivityLocked()
+        }
+    }
+
+    private fun retainStartFence(gen: Long) {
+        synchronized(captureOwnerLock) {
+            if (gen == generation.get()) {
+                captureOwner = CaptureOwnerState(gen, null)
+                updateCaptureActivityLocked()
+            }
         }
     }
 
@@ -580,7 +596,8 @@ class SelectableVoiceInputController @Inject constructor(
             nativeResult.captureSessionId?.let(nativeAndroidVoiceInputController::cancelListeningForSession)
             return nativeResult
         }
-        nativeSessionId?.let(::retireAdmission)
+        retainStartFence(gen)
+        nativeSessionId?.let { retireAdmission(it, preserveGenerationFence = true) }
 
         Log.w(TAG, "Android native unavailable at start; trying Zipformer: ${(nativeResult as? VoiceInputStartResult.Unavailable)?.message}")
         activeController.value = sherpaOnnxVoiceInputController
@@ -620,7 +637,8 @@ class SelectableVoiceInputController @Inject constructor(
             fallbackSessionId?.let(sherpaOnnxVoiceInputController::cancelListeningForSession)
         }
         if (fallbackResult is VoiceInputStartResult.Unavailable) {
-            fallbackSessionId?.let(::retireAdmission)
+            retainStartFence(gen)
+            fallbackSessionId?.let { retireAdmission(it, preserveGenerationFence = true) }
             return nativeResult
         }
         if (fallbackSessionId != null) return VoiceInputStartResult.Cancelled(fallbackSessionId)
@@ -638,6 +656,7 @@ class SelectableVoiceInputController @Inject constructor(
         gen: Long,
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult {
+        activate(sherpaOnnxVoiceInputController)
         var reservedSessionId: Long? = null
         val result = sherpaOnnxVoiceInputController.startListening(
             mode,
@@ -651,7 +670,9 @@ class SelectableVoiceInputController @Inject constructor(
             sherpaOnnxVoiceInputController.cancelListeningForSession(result.captureSessionId)
             return VoiceInputStartResult.Cancelled(result.captureSessionId)
         }
-        if (result is VoiceInputStartResult.Unavailable) reservedSessionId?.let(::retireAdmission)
+        if (result is VoiceInputStartResult.Unavailable) {
+            reservedSessionId?.let { retireAdmission(it, preserveGenerationFence = true) }
+        }
         return result
     }
 
@@ -902,28 +923,62 @@ class SelectableVoiceInputController @Inject constructor(
             startMutex.withLock {
                 if (gen != generation.get() || !zipformerDownloaded()) return@withLock null
                 Log.w(TAG, "Android native failed ($reason); handing capture to Zipformer for this session")
-                val started = sherpaOnnxVoiceInputController.startListening(error.mode, isWanted = { gen == generation.get() })
-                    as? VoiceInputStartResult.Started
+                val previousAdmission = synchronized(captureOwnerLock) { admittedControllers[nativeId] }
                     ?: return@withLock null
+                var sherpaSessionId: Long? = null
+                var backendRegistered = false
+                val result = sherpaOnnxVoiceInputController.startListening(
+                    error.mode,
+                    isWanted = { gen == generation.get() },
+                    onSessionAdmitted = { backendId ->
+                        sherpaSessionId = backendId
+                        backendRegistered = synchronized(captureOwnerLock) {
+                            val current = admittedControllers[nativeId]
+                            if (current == null) {
+                                false
+                            } else {
+                                admittedControllers[nativeId] = current.copy(
+                                    controller = sherpaOnnxVoiceInputController,
+                                    backendSessionId = backendId,
+                                )
+                                backendAdmissions[BackendCaptureKey(sherpaOnnxVoiceInputController, backendId)] =
+                                    nativeId
+                                true
+                            }
+                        }
+                    },
+                )
+                if (result is VoiceInputStartResult.Unavailable) {
+                    if (backendRegistered) {
+                        synchronized(captureOwnerLock) {
+                            backendAdmissions.remove(
+                                BackendCaptureKey(sherpaOnnxVoiceInputController, checkNotNull(sherpaSessionId)),
+                            )
+                            admittedControllers[nativeId] = previousAdmission
+                            backendAdmissions[
+                                BackendCaptureKey(previousAdmission.controller, previousAdmission.backendSessionId)
+                            ] = nativeId
+                        }
+                    }
+                    return@withLock null
+                }
+                val started = result as? VoiceInputStartResult.Started ?: return@withLock null
+                if (sherpaSessionId != started.captureSessionId || !backendRegistered) {
+                    sherpaOnnxVoiceInputController.cancelListeningForSession(started.captureSessionId)
+                    return@withLock null
+                }
                 if (gen != generation.get()) {
                     sherpaOnnxVoiceInputController.cancelListeningForSession(started.captureSessionId)
                     return@withLock null
                 }
-                // Commit under the lock, before Zipformer's queued events are routed. A scoped
-                // stop either invalidates the native owner first or sees this remapped backend ID.
+                // Admission is already mapped to the logical native owner before Sherpa can
+                // emit readiness or a terminal. Commit only if that owner is still current.
                 val remapped = synchronized(captureOwnerLock) {
-                    val previous = admittedControllers[nativeId]
-                    if (gen != generation.get() || captureOwner?.sessionId != nativeId || previous == null) {
-                        false
-                    } else {
-                        admittedControllers[nativeId] = previous.copy(
-                            controller = sherpaOnnxVoiceInputController,
-                            backendSessionId = started.captureSessionId,
-                        )
-                        backendAdmissions[BackendCaptureKey(sherpaOnnxVoiceInputController, started.captureSessionId)] =
-                            nativeId
-                        true
-                    }
+                    val current = admittedControllers[nativeId]
+                    gen == generation.get() &&
+                        captureOwner?.sessionId == nativeId &&
+                        current?.controller === sherpaOnnxVoiceInputController &&
+                        current.backendSessionId == started.captureSessionId
                 }
                 if (!remapped) {
                     sherpaOnnxVoiceInputController.cancelListeningForSession(started.captureSessionId)

@@ -347,6 +347,115 @@ class SherpaOnnxVoiceInputControllerTest {
     }
 
     @Test
+    fun `replacement waits for final decoder flush and capture teardown before releasing recognizer`() = runTest {
+        createAllStubModelFiles()
+        createWhisperStubModelFiles()
+        selectedEngine.value = VoiceInputEngine.SherpaZipformer
+        val order = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val decodeGate = BlockingGate()
+        val streamCreated = CountDownLatch(1)
+        val recognizer = FakeOnlineRecognizer(order, decodeGate, streamCreated)
+        setPrivateField("activeSpec", SherpaSttModelSpec.ZIPFORMER)
+        setPrivateField("recognizer", recognizer)
+        installInteractiveMethods(recognizer)
+
+        val firstRecorder = micRecorder()
+        val replacementRecorder = micRecorder()
+        every { firstRecorder.release() } answers { order += "recorder-release" }
+        every { audioManager.abandonAudioFocus(null) } answers {
+            order += "focus-abandon"
+            0
+        }
+        val recorders = ArrayDeque(listOf(firstRecorder, replacementRecorder))
+        controller.audioRecordForTest = { recorders.removeFirst() }
+        val transcripts = mutableListOf<String>()
+        val stopped = mutableListOf<Long>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.Transcript -> {
+                        order += "transcript"
+                        transcripts += event.text
+                    }
+                    is VoiceInputEvent.ListeningStopped -> {
+                        order += "stopped"
+                        stopped += event.captureSessionId
+                    }
+                    else -> Unit
+                }
+            }
+        }
+
+        val started = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
+        assertTrue(withContext(Dispatchers.IO) { streamCreated.await(5, TimeUnit.SECONDS) })
+        controller.stopListeningForSession(started.captureSessionId)
+        assertTrue(withContext(Dispatchers.IO) { decodeGate.entered.await(5, TimeUnit.SECONDS) })
+
+        selectedEngine.value = VoiceInputEngine.SherpaWhisper
+        val replacement = async { controller.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        assertFalse(replacement.isCompleted)
+        assertEquals(0, recognizer.releaseCount)
+        assertTrue(stopped.isEmpty())
+
+        decodeGate.release.countDown()
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, replacement.await())
+
+        assertEquals(listOf("hy general"), transcripts)
+        assertEquals(started.captureSessionId, stopped.first())
+        assertEquals(2, stopped.size)
+        val finalDecode = order.indexOf("online_decode")
+        val transcript = order.indexOf("transcript")
+        val streamRelease = order.indexOf("online_stream_release")
+        val micRelease = order.indexOf("recorder-release")
+        val focusRelease = order.indexOf("focus-abandon")
+        val terminal = order.indexOf("stopped")
+        val recognizerRelease = order.indexOf("online_release")
+        assertTrue(finalDecode >= 0 && finalDecode < transcript, order.toString())
+        assertTrue(transcript < streamRelease, order.toString())
+        assertTrue(streamRelease < terminal, order.toString())
+        assertTrue(micRelease < terminal, order.toString())
+        assertTrue(focusRelease < terminal, order.toString())
+        assertTrue(terminal < recognizerRelease, order.toString())
+        assertEquals(1, recognizer.releaseCount)
+    }
+
+    private fun installInteractiveMethods(recognizer: FakeOnlineRecognizer) {
+        val streamClass = FakeOnlineStream::class.java
+        val online = privateField("onlineMethods")!!
+        setObjectField(online, "isReady", FakeOnlineRecognizer::class.java.getDeclaredMethod("isReady", streamClass))
+        setObjectField(online, "decode", FakeOnlineRecognizer::class.java.getDeclaredMethod("decode", streamClass))
+        setObjectField(online, "isEndpoint", FakeOnlineRecognizer::class.java.getDeclaredMethod("isEndpoint", streamClass))
+        setObjectField(online, "getResult", FakeOnlineRecognizer::class.java.getDeclaredMethod("getResult", streamClass))
+        setObjectField(online, "reset", FakeOnlineRecognizer::class.java.getDeclaredMethod("reset", streamClass))
+        val streams = privateField("streamMethods")!!
+        setObjectField(streams, "createStream", FakeOnlineRecognizer::class.java.getDeclaredMethod("createStream", String::class.java))
+        setObjectField(
+            streams,
+            "acceptWaveform",
+            streamClass.getDeclaredMethod("acceptWaveform", FloatArray::class.java, Int::class.javaPrimitiveType),
+        )
+        setObjectField(streams, "inputFinished", streamClass.getDeclaredMethod("inputFinished"))
+        setObjectField(streams, "getText", FakeResult::class.java.getDeclaredMethod("getText"))
+        setObjectField(streams, "streamRelease", streamClass.getDeclaredMethod("release"))
+        // Reflection invokes methods on private test doubles, so make their access explicit.
+        listOf(online, streams).forEach { target ->
+            target.javaClass.declaredFields.forEach { field ->
+                field.isAccessible = true
+                (field.get(target) as? java.lang.reflect.Method)?.isAccessible = true
+            }
+        }
+        assertSame(recognizer, privateField("recognizer"))
+    }
+
+    private fun setObjectField(target: Any, name: String, value: Any) {
+        target.javaClass.getDeclaredField(name).apply {
+            isAccessible = true
+            set(target, value)
+        }
+    }
+
+    @Test
     fun `a second start releases and retires the previous capture before opening the microphone`() = runTest {
         createAllStubModelFiles()
         setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))
@@ -365,7 +474,11 @@ class SherpaOnnxVoiceInputControllerTest {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             controller.events.collect {
                 events += it
-                if (it is VoiceInputEvent.ListeningStopped) order += "stopped:${it.captureSessionId}"
+                when (it) {
+                    is VoiceInputEvent.ListeningStopped -> order += "stopped:${it.captureSessionId}"
+                    is VoiceInputEvent.ListeningStarted -> order += "started:${it.captureSessionId}"
+                    else -> Unit
+                }
             }
         }
 
@@ -379,9 +492,7 @@ class SherpaOnnxVoiceInputControllerTest {
             it is VoiceInputEvent.ListeningStopped && it.captureSessionId == firstResult.captureSessionId
         })
         val stoppedIndex = order.indexOf("stopped:${firstResult.captureSessionId}")
-        val secondStartedIndex = events.indexOfFirst {
-            it is VoiceInputEvent.ListeningStarted && it.captureSessionId == secondResult.captureSessionId
-        }
+        val secondStartedIndex = order.indexOf("started:${secondResult.captureSessionId}")
         assertTrue(stoppedIndex >= 0)
         assertTrue(secondStartedIndex >= 0)
         assertTrue(order.indexOf("first-release") < stoppedIndex)
@@ -508,24 +619,37 @@ class SherpaOnnxVoiceInputControllerTest {
         val release = CountDownLatch(1)
     }
 
-    private class FakeOnlineRecognizer(private val events: MutableList<String>) {
+    private class FakeOnlineRecognizer(
+        private val events: MutableList<String>,
+        private val decodeGate: BlockingGate? = null,
+        private val streamCreated: CountDownLatch? = null,
+    ) {
         var releaseCount = 0
             private set
         val streams = mutableListOf<FakeOnlineStream>()
 
         fun createStream(hotwords: String): FakeOnlineStream {
             events.add("online_createStream")
+            streamCreated?.countDown()
             return FakeOnlineStream(events).also { streams += it }
         }
 
         fun isReady(stream: FakeOnlineStream): Boolean = !stream.decoded
 
         fun decode(stream: FakeOnlineStream) {
+            decodeGate?.let {
+                it.entered.countDown()
+                it.release.await()
+            }
             stream.decoded = true
             events.add("online_decode")
         }
 
+
         fun getResult(stream: FakeOnlineStream): FakeResult = FakeResult("hy general")
+        fun isEndpoint(stream: FakeOnlineStream): Boolean = false
+
+        fun reset(stream: FakeOnlineStream) = Unit
 
         fun release() {
             releaseCount++

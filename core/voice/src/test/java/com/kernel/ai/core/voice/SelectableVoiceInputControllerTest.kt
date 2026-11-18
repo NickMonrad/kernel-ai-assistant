@@ -243,6 +243,71 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `direct Sherpa route after native activates Sherpa before readiness and final events`() = runTest(dispatcher) {
+        val nativeEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 1)
+        every { nativeAndroidVoiceInputController.events } returns nativeEvents
+        val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(1L)
+            VoiceInputStartResult.Started(1L)
+        }
+        every { nativeAndroidVoiceInputController.stopListening() } answers {
+            nativeEvents.tryEmit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
+        }
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(2L)
+            sherpaEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L))
+            sherpaEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "sherpa final", 2L))
+            VoiceInputStartResult.Started(2L)
+        }
+        val c = controller()
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
+        selected.value = VoiceInputEngine.SherpaZipformer
+        assertEquals(VoiceInputStartResult.Started(2L), c.startListening(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+
+        assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L)))
+        assertTrue(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "sherpa final", 2L)))
+        assertTrue(seen.contains(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L)))
+        verify(exactly = 1) { nativeAndroidVoiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `direct Sherpa route after asr4all stops the old backend and routes readiness`() = runTest(dispatcher) {
+        val selected = MutableStateFlow(VoiceInputEngine.Asr4all)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(91L)
+            VoiceInputStartResult.Started(91L)
+        }
+        every { asr4allVoiceInputController.stopListening() } answers {
+            asr4allEvents.tryEmit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 91L))
+        }
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(92L)
+            sherpaEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 92L))
+            VoiceInputStartResult.Started(92L)
+        }
+        val c = controller()
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        assertEquals(VoiceInputStartResult.Started(91L), c.startListening(VoiceCaptureMode.Command))
+        selected.value = VoiceInputEngine.SherpaZipformer
+        assertEquals(VoiceInputStartResult.Started(92L), c.startListening(VoiceCaptureMode.Command))
+        advanceUntilIdle()
+
+        assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 92L)))
+        verify(exactly = 1) { asr4allVoiceInputController.stopListening() }
+    }
+
+    @Test
     fun `failed sherpa admission retires its id without clearing a later capture`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.SherpaZipformer)
         var starts = 2L

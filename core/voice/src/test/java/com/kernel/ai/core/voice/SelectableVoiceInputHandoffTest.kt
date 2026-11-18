@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlin.concurrent.thread
@@ -271,11 +272,74 @@ class SelectableVoiceInputHandoffTest {
         assertTrue(loadCancelled.isCompleted)
         assertTrue(seen.none { it is VoiceInputEvent.Error })
         assertTrue(notices.isEmpty())
-        // The pipeline is still routing after the cancelled hand-off.
-        nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
+        // A cancelled in-flight Sherpa admission retires through its own matched terminal.
+        sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
         advanceUntilIdle()
-        assertEquals(listOf(VoiceInputEvent.ListeningStopped(mode, 1L)), seen)
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+            seen,
+        )
     }
+
+    @Test
+    fun `handoff admission stays owned through scoped stop until Sherpa releases mic and focus`() =
+        runTest(dispatcher) {
+            val c = controller()
+            val seen = eventsOf(c)
+            val release = CompletableDeferred<Unit>()
+            val order = mutableListOf<String>()
+            val scopedStops = mutableListOf<Long>()
+            val nativeStops = mutableListOf<Long>()
+            var releaseScheduled = false
+
+            fun requestSherpaRelease() {
+                if (releaseScheduled) return
+                releaseScheduled = true
+                backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                    release.await()
+                    order += "mic-released"
+                    order += "focus-released"
+                    sherpaEvents.emit(
+                        VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true),
+                    )
+                }
+            }
+
+            every { native.stopListeningForSession(any()) } answers {
+                nativeStops += firstArg<Long>()
+            }
+            every { sherpa.stopListeningForSession(any()) } answers {
+                scopedStops += firstArg<Long>()
+                requestSherpaRelease()
+            }
+            coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+                thirdArg<(Long) -> Unit>().invoke(2L)
+                sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, 2L))
+                c.stopListening(1L)
+                nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
+                VoiceInputStartResult.Started(2L)
+            }
+
+            c.startListening(mode)
+            nativeEvents.emit(stalled(1L))
+            advanceTimeBy(NATIVE_TEARDOWN_SETTLE_MS)
+            advanceUntilIdle()
+
+            assertEquals(listOf(2L), scopedStops)
+            assertTrue(nativeStops.isEmpty())
+            assertTrue(c.captureActivity.value)
+            assertTrue(seen.none { it is VoiceInputEvent.ListeningStopped })
+
+            release.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(listOf("mic-released", "focus-released"), order)
+            assertEquals(
+                listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+                seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+            )
+            assertFalse(c.captureActivity.value)
+        }
 
     @Test
     fun `stop after zipformer started but before the hand-off commits stops zipformer`() = runTest(dispatcher) {
@@ -352,6 +416,40 @@ class SelectableVoiceInputHandoffTest {
             // Subscribed only after the start returned: the replayed note is still delivered.
             assertEquals(ZIPFORMER_START_NOTICE, c.noticesFor(2L).first())
             assertEquals(ZIPFORMER_START_NOTICE, c.latestNoticeFor(2L))
+        }
+
+    @Test
+    fun `native reservation failure keeps capture activity fenced while zipformer fallback is pending`() =
+        runTest(dispatcher) {
+            coEvery { native.startListening(any(), any(), any()) } coAnswers {
+                thirdArg<(Long) -> Unit>().invoke(101L)
+                VoiceInputStartResult.Unavailable("native unavailable")
+            }
+            val fallbackAdmission = CompletableDeferred<Unit>()
+            coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+                fallbackAdmission.await()
+                thirdArg<(Long) -> Unit>().invoke(202L)
+                VoiceInputStartResult.Started(202L)
+            }
+            val c = controller()
+            val activity = mutableListOf<Boolean>()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                c.captureActivity.collect { activity += it }
+            }
+            advanceUntilIdle()
+            val start = async { c.startListening(mode) }
+            advanceUntilIdle()
+
+            assertEquals(listOf(false, true), activity)
+            assertTrue(c.captureActivity.value)
+            fallbackAdmission.complete(Unit)
+            assertEquals(VoiceInputStartResult.Started(202L), start.await())
+            advanceUntilIdle()
+            assertEquals(listOf(false, true), activity)
+            sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 202L))
+            advanceUntilIdle()
+
+            assertEquals(listOf(false, true, false), activity)
         }
 
     @Test

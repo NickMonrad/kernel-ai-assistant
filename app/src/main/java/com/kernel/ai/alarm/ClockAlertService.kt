@@ -217,21 +217,44 @@ internal fun configuredSnoozeDurationMs(
     fallbackMs: Long = ALARM_SNOOZE_MS,
 ): Long = configuredMs.takeIf { it > 0L } ?: fallbackMs
 
+internal data class ClockAlertVoiceCaptureBinding(val sessionId: Long?, val epoch: Long)
+
 internal class ClockAlertVoiceCaptureOwner {
     private var sessionId: Long? = null
+    private var epoch = 0L
 
+    @Synchronized
     fun bind(captureSessionId: Long) {
         sessionId = captureSessionId
+        epoch++
     }
 
+    @Synchronized
     fun clear(captureSessionId: Long) {
-        if (sessionId == captureSessionId) sessionId = null
+        if (sessionId == captureSessionId) {
+            sessionId = null
+            epoch++
+        }
     }
+
+    @Synchronized
+    fun snapshot(): ClockAlertVoiceCaptureBinding =
+        ClockAlertVoiceCaptureBinding(sessionId, epoch)
+
+    @Synchronized
+    fun matches(binding: ClockAlertVoiceCaptureBinding): Boolean =
+        sessionId == binding.sessionId && epoch == binding.epoch
 
     fun stop(stopSession: (Long) -> Unit) {
-        val ownedSessionId = sessionId ?: return
+        val binding = snapshot()
+        val ownedSessionId = binding.sessionId ?: return
         stopSession(ownedSessionId)
-        clear(ownedSessionId)
+        synchronized(this) {
+            if (sessionId == binding.sessionId && epoch == binding.epoch) {
+                sessionId = null
+                epoch++
+            }
+        }
     }
 }
 
@@ -330,6 +353,7 @@ class ClockAlertService : Service() {
                 if (alert != null) {
                     val attemptJournal = voiceJournal
                     val attemptSessionId = captureSessionId
+                    val attemptCaptureBinding = voiceCaptureOwner.snapshot()
                     serviceScope.launch {
                         runSnoozeAction(
                             snooze = {
@@ -339,6 +363,8 @@ class ClockAlertService : Service() {
                                     expectedJournal = attemptJournal,
                                     ownedSessionId = attemptSessionId,
                                     requireExpectedJournalMatch = true,
+                                    expectedCaptureBinding = attemptCaptureBinding,
+                                    requireExpectedCaptureBindingMatch = true,
                                 )
                             },
                             dismiss = { dismissAlert(alert) },
@@ -955,6 +981,8 @@ class ClockAlertService : Service() {
         expectedJournal: WakeSessionJournal? = null,
         ownedSessionId: Long? = captureSessionId,
         requireExpectedJournalMatch: Boolean = false,
+        expectedCaptureBinding: ClockAlertVoiceCaptureBinding? = null,
+        requireExpectedCaptureBindingMatch: Boolean = false,
     ): Boolean {
         if (alert.type != ClockEventType.ALARM) {
             finishVoiceCapture(
@@ -963,6 +991,8 @@ class ClockAlertService : Service() {
                 expectedJournal,
                 ownedSessionId,
                 requireExpectedJournalMatch,
+                expectedCaptureBinding,
+                requireExpectedCaptureBindingMatch,
             )
             return false
         }
@@ -975,7 +1005,9 @@ class ClockAlertService : Service() {
                 )
             },
             mayFinishVoiceCapture = {
-                !requireExpectedJournalMatch || voiceJournal === expectedJournal
+                (!requireExpectedJournalMatch || voiceJournal === expectedJournal) &&
+                    (!requireExpectedCaptureBindingMatch ||
+                        expectedCaptureBinding?.let(voiceCaptureOwner::matches) == true)
             },
             finishOnFailure = {
                 finishVoiceCapture(
@@ -984,6 +1016,8 @@ class ClockAlertService : Service() {
                     expectedJournal,
                     ownedSessionId,
                     requireExpectedJournalMatch,
+                    expectedCaptureBinding,
+                    requireExpectedCaptureBindingMatch,
                 )
             },
         )
@@ -1042,9 +1076,14 @@ class ClockAlertService : Service() {
         expectedJournal: WakeSessionJournal? = null,
         ownedSessionId: Long? = captureSessionId,
         requireExpectedJournalMatch: Boolean = false,
+        expectedCaptureBinding: ClockAlertVoiceCaptureBinding? = null,
+        requireExpectedCaptureBindingMatch: Boolean = false,
     ) {
         if (requireExpectedJournalMatch && voiceJournal !== expectedJournal) return
         if (expectedJournal != null && voiceJournal !== expectedJournal) return
+        if (requireExpectedCaptureBindingMatch &&
+            expectedCaptureBinding?.let(voiceCaptureOwner::matches) != true
+        ) return
         val journalToFinish = expectedJournal ?: voiceJournal
         isVoiceListening = false
         clearVoiceNotice()
