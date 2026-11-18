@@ -27,6 +27,9 @@ class VoiceInputPreferences @Inject constructor(
 ) {
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
+
+    /** v0.1 release excludes the custom Sherpa/Piper/eSpeak runtime; debug retains it. */
+    internal fun allowsSherpaRuntime(): Boolean = !isReleaseBuild
     private val selectedEngineKey = stringPreferencesKey("selected_voice_input_engine")
     private val micUseCountKey = intPreferencesKey("mic_use_count")
     private val autoStartAlertVoiceCommandsEnabledKey =
