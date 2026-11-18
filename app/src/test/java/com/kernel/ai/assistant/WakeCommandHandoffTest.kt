@@ -17,11 +17,14 @@ import io.mockk.every
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
@@ -103,6 +106,19 @@ class WakeCommandHandoffTest {
     ) : VoiceInputController, com.kernel.ai.core.voice.VoiceCaptureAdmissionController {
         private val eventChannel = Channel<VoiceInputEvent>(Channel.UNLIMITED)
         override val events: Flow<VoiceInputEvent> = eventChannel.receiveAsFlow()
+        override val captureActivity: StateFlow<Boolean> = MutableStateFlow(false)
+        private var teardownSessionId: Long? = null
+        private var teardown = CompletableDeferred<Unit>()
+
+        fun requireTeardown(sessionId: Long) {
+            teardownSessionId = sessionId
+            teardown = CompletableDeferred()
+        }
+
+        override suspend fun awaitCaptureTeardown(captureSessionId: Long) {
+            if (captureSessionId == teardownSessionId) teardown.await()
+        }
+
 
         val startCalls = mutableListOf<Long>()
         val releasedWhenStarted = mutableListOf<Boolean>()
@@ -143,6 +159,9 @@ class WakeCommandHandoffTest {
         }
 
         suspend fun emit(event: VoiceInputEvent) {
+            if (event is VoiceInputEvent.ListeningStopped && event.captureSessionId == teardownSessionId) {
+                teardown.complete(Unit)
+            }
             eventChannel.send(event)
         }
     }
@@ -233,6 +252,44 @@ class WakeCommandHandoffTest {
                 recorded.indexOf(AcousticEventType.SESSION_COMPLETED),
         )
         assertFalse(recorded.contains(AcousticEventType.STT_ERROR))
+    }
+
+    @Test
+    fun `wake final waits for matching capture teardown before rearming`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(11L)),
+            sharedOrder = order,
+        ).apply { requireTeardown(11L) }
+        var routedCount = 0
+        var rearmCount = 0
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                routeTranscript = { routedCount++; true },
+                onSessionTerminal = { rearmCount++ },
+            )
+        }
+        runCurrent()
+
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, 11L))
+        controller.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "time", 11L))
+        runCurrent()
+        assertFalse(job.isCompleted)
+        assertEquals(0, routedCount)
+        assertEquals(0, rearmCount)
+
+        controller.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, 11L))
+        runCurrent()
+        job.join()
+        assertEquals(1, routedCount)
+        assertEquals(1, rearmCount)
     }
 
     @Test

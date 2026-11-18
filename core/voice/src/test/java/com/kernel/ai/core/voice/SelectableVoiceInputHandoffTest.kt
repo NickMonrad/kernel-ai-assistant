@@ -57,6 +57,10 @@ class SelectableVoiceInputHandoffTest {
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(false)
         every { native.events } returns nativeEvents
         every { sherpa.events } returns sherpaEvents
+        every { native.stopListeningForSession(any()) } just runs
+        every { native.cancelListeningForSession(any()) } just runs
+        every { sherpa.stopListeningForSession(any()) } just runs
+        every { sherpa.cancelListeningForSession(any()) } just runs
         every { native.stopListening() } just runs
         every { sherpa.stopListening() } just runs
         coEvery { sherpa.isSpecAvailable(any()) } returns true
@@ -240,7 +244,7 @@ class SelectableVoiceInputHandoffTest {
         c.startListening(mode)
         nativeEvents.emit(stalled(1L))
         advanceTimeBy(NATIVE_TEARDOWN_SETTLE_MS / 2)
-        c.stopListening()
+        c.stopListening(1L)
         advanceUntilIdle()
 
         coVerify(exactly = 0) { sherpa.startListening(any(), any(), any()) }
@@ -259,7 +263,7 @@ class SelectableVoiceInputHandoffTest {
         nativeEvents.emit(stalled(1L))
         advanceUntilIdle() // the hand-off is now waiting on the Zipformer load
 
-        thread(name = "not-main") { c.stopListening() }.join()
+        thread(name = "not-main") { c.cancelListening(1L) }.join()
         advanceUntilIdle()
 
         assertTrue(loadCancelled.isCompleted)
@@ -277,7 +281,7 @@ class SelectableVoiceInputHandoffTest {
         val notices = noticesOf(c)
         coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(2L)
-            c.stopListening() // lands after Zipformer opened the microphone
+            c.stopListening(1L) // lands after Zipformer opened the microphone
             VoiceInputStartResult.Started(2L)
         }
 
@@ -285,8 +289,8 @@ class SelectableVoiceInputHandoffTest {
         nativeEvents.emit(stalled(1L))
         advanceUntilIdle()
 
-        // activate(native) at start, stopListening itself, and the hand-off's own stop.
-        verify(atLeast = 3) { sherpa.stopListening() }
+        coVerify { sherpa.cancelListeningForSession(2L) }
+        verify(exactly = 1) { sherpa.stopListening() } // only the initial engine activation
         assertTrue(notices.isEmpty())
     }
 

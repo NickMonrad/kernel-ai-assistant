@@ -295,14 +295,19 @@ class SherpaOnnxVoiceInputControllerTest {
     @Test
     fun `stop before the microphone opens starts no capture`() = runTest {
         createAllStubModelFiles()
+        val events = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.events.collect { events += it }
+        }
         // B2: a stop that lands after the model check but before the mic open must win.
         controller.beforeMicOpenForTest = { controller.stopListening() }
 
         val result = controller.startListening(VoiceCaptureMode.Command)
 
-        assertInstanceOf(VoiceInputStartResult.Started::class.java, result)
+        assertInstanceOf(VoiceInputStartResult.Cancelled::class.java, result)
         verify(exactly = 0) { audioManager.requestAudioFocus(any(), any(), any()) }
         assertNull(privateField("currentCapture"))
+        assertTrue(events.none { it is VoiceInputEvent.ListeningStarted })
     }
 
     @Test
@@ -311,8 +316,12 @@ class SherpaOnnxVoiceInputControllerTest {
         val recorder = micRecorder()
         controller.audioRecordForTest = { recorder }
         val events = mutableListOf<String>()
+        val stoppedEvents = mutableListOf<VoiceInputEvent.ListeningStopped>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            controller.events.collect { events.add(it.javaClass.simpleName) }
+            controller.events.collect {
+                events.add(it.javaClass.simpleName)
+                if (it is VoiceInputEvent.ListeningStopped) stoppedEvents += it
+            }
         }
         val loading = holdRecognizerLoad()
         val start = async { controller.startListening(VoiceCaptureMode.Command) }
@@ -322,11 +331,12 @@ class SherpaOnnxVoiceInputControllerTest {
         controller.stopListening()
         loading.finish()
 
-        assertInstanceOf(VoiceInputStartResult.Started::class.java, start.await())
+        assertInstanceOf(VoiceInputStartResult.Cancelled::class.java, start.await())
         (privateField("lastReaderJob") as Job).join()
         verify(exactly = 1) { recorder.release() }
         verify(exactly = 1) { audioManager.abandonAudioFocus(null) }
         assertEquals(listOf("ListeningStarted", "ListeningStopped"), events)
+        assertEquals(listOf(true), stoppedEvents.map { it.cancelled })
         assertNull(privateField("currentCapture"))
     }
 

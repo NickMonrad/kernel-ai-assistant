@@ -11,6 +11,8 @@ import com.kernel.ai.core.voice.VoiceInputEvent
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -61,6 +63,24 @@ class ClockAlertSessionTest {
 
         assertTrue(isOwnedAlertEvent(cancelled, captureSessionId = 41L, isVoiceListening = true))
         assertFalse(isOwnedAlertEvent(cancelled, captureSessionId = 42L, isVoiceListening = true))
+    }
+
+    @Test
+    fun `suspended alert command completion stops its capture but not an unrelated replacement`() = runTest {
+        val owner = ClockAlertVoiceCaptureOwner().apply { bind(41L) }
+        val activeCaptureIds = mutableSetOf(41L)
+        val repositoryCompletion = CompletableDeferred<Unit>()
+        val command = async {
+            repositoryCompletion.await()
+            owner.stop { activeCaptureIds.remove(it) }
+        }
+
+        // A different owner starts while the clock command is suspended.
+        activeCaptureIds += 99L
+        repositoryCompletion.complete(Unit)
+        command.await()
+
+        assertEquals(setOf(99L), activeCaptureIds)
     }
 
     @Test

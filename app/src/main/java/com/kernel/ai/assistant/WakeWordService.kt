@@ -33,6 +33,7 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.StartListeningCueResult
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.VoiceCaptureMode
+import com.kernel.ai.core.voice.VoiceCaptureAdmissionController
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
@@ -321,7 +322,7 @@ internal suspend fun runWakeAttempt(
             }
 
             val text = (terminalEvent as? VoiceInputEvent.Transcript)?.text
-            if (!text.isNullOrBlank()) {
+            val outcome = if (!text.isNullOrBlank()) {
                 journal.record(
                     AcousticEventType.STT_FINAL,
                     metadata = {
@@ -337,13 +338,7 @@ internal suspend fun runWakeAttempt(
                     AcousticEventType.STT_ERROR,
                     metadata = { mapOf("category" to "stt_recognition_failed") },
                 )
-                // The hand-off note is posted before the replacement recognizer's events, so it
-                // is already in the controller's replay cache here.
                 val handedOff = voiceInputController.latestNoticeFor(captureSessionId) != null
-                // #1433: when the first session's no-speech window is fully exhausted
-                // (in-place refreshes spent and the platform still heard nothing), the
-                // command window has closed — a second attempt would only re-wait.
-                // Genuine failures (any other error) still use the bounded retry.
                 WakeAttemptOutcome.NoTranscript(
                     "stt_recognition_failed",
                     skipRetry = handedOff || terminalEvent.category in NO_RETRY_ERROR_CATEGORIES,
@@ -357,6 +352,12 @@ internal suspend fun runWakeAttempt(
                     skipRetry = voiceInputController.latestNoticeFor(captureSessionId) != null,
                 )
             }
+
+            if (terminalEvent is VoiceInputEvent.Transcript || terminalEvent is VoiceInputEvent.Error) {
+                (voiceInputController as? VoiceCaptureAdmissionController)
+                    ?.awaitCaptureTeardown(captureSessionId)
+            }
+            outcome
         } catch (e: WakeAttemptCollectionException) {
             throw e
         } catch (e: CancellationException) {
@@ -732,6 +733,7 @@ class WakeWordService : Service() {
     @Inject lateinit var modelDownloadManager: ModelDownloadManager
     @Inject lateinit var wakeWordPreferences: WakeWordPreferences
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var captureActivityJob: Job? = null
     private var eventCollectorJob: Job? = null
 
     /** #1502: exactly one Honor-camera foreground monitor per service lifetime. */
@@ -752,6 +754,7 @@ class WakeWordService : Service() {
 
     /** True while [handleDetection] owns a live STT session; suppresses the observer's re-arm. */
     @Volatile private var isHandlingDetection = false
+    @Volatile private var wakeRearmPending = false
 
     /** One-shot guard: verifier model provisioning is requested at most once per service lifetime. */
     @Volatile private var wakeVerifierProvisionRequested = false
@@ -875,6 +878,16 @@ class WakeWordService : Service() {
                     -> Unit
                 }
             }
+        }
+        captureActivityJob = serviceScope.launch {
+            (voiceInputController as? VoiceCaptureAdmissionController)
+                ?.captureActivity
+                ?.collect { active ->
+                    if (!active && wakeRearmPending && !isHandlingDetection && !isVoiceSessionActive) {
+                        wakeRearmPending = false
+                        rearmDetector()
+                    }
+                }
         }
 
         startHonorCameraMonitor()
@@ -1094,9 +1107,11 @@ class WakeWordService : Service() {
             return
         }
         if (voiceInputController.hasCaptureOrStart()) {
+            wakeRearmPending = true
             Log.i(TAG, "WakeWordService: another capture is active or starting — not re-arming detector")
             return
         }
+        wakeRearmPending = false
         val generationId = AcousticJournalBridge.allocateGenerationId()
         wakeWordDetector.start(
             generationId = generationId,

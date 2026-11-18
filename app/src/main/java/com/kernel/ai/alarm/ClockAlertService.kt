@@ -195,6 +195,24 @@ internal fun configuredSnoozeDurationMs(
     fallbackMs: Long = ALARM_SNOOZE_MS,
 ): Long = configuredMs.takeIf { it > 0L } ?: fallbackMs
 
+internal class ClockAlertVoiceCaptureOwner {
+    private var sessionId: Long? = null
+
+    fun bind(captureSessionId: Long) {
+        sessionId = captureSessionId
+    }
+
+    fun clear(captureSessionId: Long) {
+        if (sessionId == captureSessionId) sessionId = null
+    }
+
+    fun stop(stopSession: (Long) -> Unit) {
+        val ownedSessionId = sessionId ?: return
+        stopSession(ownedSessionId)
+        clear(ownedSessionId)
+    }
+}
+
 @AndroidEntryPoint
 class ClockAlertService : Service() {
     @Inject lateinit var startListeningCuePlayer: StartListeningCuePlayer
@@ -203,6 +221,7 @@ class ClockAlertService : Service() {
     @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
 
     private var captureSessionId: Long? = null
+    private val voiceCaptureOwner = ClockAlertVoiceCaptureOwner()
     private val voiceAttemptIds = AtomicLong(0L)
     private var voiceJournal: WakeSessionJournal? = null
     private val activeAlerts = linkedSetOf<TriggeredClockAlert>()
@@ -222,6 +241,7 @@ class ClockAlertService : Service() {
     private var clockSoundConfigJob: Job? = null
     private var clockAlertConfigJob: Job? = null
     private var autoStartVoiceJob: Job? = null
+    private var voiceStartJob: Job? = null
     private var ringtone: Ringtone? = null
     private var duckingPlayback = false
     private var isVoiceListening = false
@@ -339,7 +359,7 @@ class ClockAlertService : Service() {
             isVoiceListening = false
             handledVoiceTranscript = false
             voiceStatusMessage = null
-            voiceInputController.stopListening()
+            stopOwnedVoiceCapture()
             ensureChannel()
             refreshForeground()
             startAlertPlayback()
@@ -352,7 +372,7 @@ class ClockAlertService : Service() {
     override fun onDestroy() {
         voiceJournal = terminaliseClockAlertVoiceJournal(voiceJournal, completed = false, "service_stopped")
         captureSessionId = null
-        voiceInputController.stopListening()
+        stopOwnedVoiceCapture()
         voiceEventsJob?.cancel()
         voiceNoticeJob?.cancel()
         voicePreferencesJob?.cancel()
@@ -482,10 +502,17 @@ class ClockAlertService : Service() {
         isVoiceListening = false
         handledVoiceTranscript = false
         voiceStatusMessage = null
-        voiceInputController.stopListening()
+        stopOwnedVoiceCapture()
         stopPlayback()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun stopOwnedVoiceCapture() {
+        voiceStartJob?.cancel()
+        voiceStartJob = null
+        voiceCaptureOwner.stop(voiceInputController::stopListening)
+        captureSessionId = null
     }
 
     private fun dismissAlert(
@@ -507,7 +534,7 @@ class ClockAlertService : Service() {
             isVoiceListening = false
             handledVoiceTranscript = false
             voiceStatusMessage = null
-            voiceInputController.stopListening()
+            stopOwnedVoiceCapture()
         }
         toDismiss.forEach {
             cancelLifecycleTimeout(it.ownerId)
@@ -681,7 +708,7 @@ class ClockAlertService : Service() {
         }
     }
     private fun startVoiceControl(alert: TriggeredClockAlert, autoStarted: Boolean = false) {
-        // Cancel any existing voice journal before starting a new session
+        stopOwnedVoiceCapture()
         voiceJournal = terminaliseClockAlertVoiceJournal(voiceJournal, completed = false, "voice_session_replaced")
         isVoiceListening = true
         handledVoiceTranscript = false
@@ -698,12 +725,13 @@ class ClockAlertService : Service() {
         attemptJournal.start()
         voiceJournal = attemptJournal
 
-        serviceScope.launch {
+        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             try {
                 when (
                     val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand) { sessionId ->
                         if (voiceJournal === attemptJournal) {
                             captureSessionId = sessionId
+                            voiceCaptureOwner.bind(sessionId)
                             watchVoiceNotices(sessionId)
                         }
                     }
@@ -711,6 +739,7 @@ class ClockAlertService : Service() {
                     is VoiceInputStartResult.Started -> {
                         if (!ownsCurrentVoiceJournal(voiceJournal, attemptJournal)) return@launch
                         captureSessionId = result.captureSessionId
+                        voiceCaptureOwner.bind(result.captureSessionId)
                     }
                     is VoiceInputStartResult.Unavailable -> {
                         if (voiceJournal === attemptJournal) {
@@ -740,6 +769,8 @@ class ClockAlertService : Service() {
                 }
             }
         }
+        voiceStartJob = job
+        job.start()
     }
     private suspend fun handleVoiceEvent(event: VoiceInputEvent) {
         val ownerJournal = voiceJournal ?: return
@@ -809,6 +840,7 @@ class ClockAlertService : Service() {
     private fun cleanupCancelledAlertSession(attemptJournal: WakeSessionJournal, sessionId: Long) {
         if (voiceJournal !== attemptJournal || captureSessionId != sessionId) return
         captureSessionId = null
+        voiceCaptureOwner.clear(sessionId)
         isVoiceListening = false
         handledVoiceTranscript = false
         clearVoiceNotice()
@@ -968,7 +1000,10 @@ class ClockAlertService : Service() {
         captureSessionId = null
         handledVoiceTranscript = false
         voiceStatusMessage = message
-        if (ownedSessionId != null) voiceInputController.stopListening(ownedSessionId)
+        if (ownedSessionId != null) {
+            voiceInputController.stopListening(ownedSessionId)
+            voiceCaptureOwner.clear(ownedSessionId)
+        }
         voiceJournal = terminaliseClockAlertVoiceJournal(journalToFinish, completed = false, cancellationCategory)
         if (activeAlerts.isEmpty()) {
             stopAlertSession()

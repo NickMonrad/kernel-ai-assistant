@@ -132,8 +132,13 @@ interface VoiceCaptureAdmissionController {
     /** Discards only [captureSessionId], without finalizing or affecting a replacement. */
     fun cancelListening(captureSessionId: Long) {}
 
+    /** Waits for any asr4all capture owned by [captureSessionId] to finish reader/focus teardown. */
+    suspend fun awaitCaptureTeardown(captureSessionId: Long) {}
+
     /** True while a start is pending or an admitted capture remains active. */
     fun hasCaptureOrStart(): Boolean = false
+    /** Emits whether the selector currently owns a pending start or active capture. */
+    val captureActivity: StateFlow<Boolean>
 }
 
 fun VoiceInputController.stopListening(captureSessionId: Long) {

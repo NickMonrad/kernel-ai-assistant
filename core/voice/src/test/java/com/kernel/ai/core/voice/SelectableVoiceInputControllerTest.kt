@@ -59,6 +59,10 @@ class SelectableVoiceInputControllerTest {
         every { asr4allVoiceInputController.supersedeCapture() } just runs
         every { asr4allVoiceInputController.admissionEpochNow() } returns 0L
         coEvery { asr4allVoiceInputController.releaseEngine() } just runs
+        every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } just runs
+        every { nativeAndroidVoiceInputController.cancelListeningForSession(any()) } just runs
+        every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } just runs
+        every { sherpaOnnxVoiceInputController.cancelListeningForSession(any()) } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
         every { sherpaOnnxVoiceInputController.stopListening() } just runs
         coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
@@ -205,6 +209,68 @@ class SelectableVoiceInputControllerTest {
         coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any()) }
     }
 
+
+    @Test
+    fun `failed native admission retires its id without clearing a later capture`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.AndroidNative)
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(any()) } returns false
+        var starts = 0L
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            val id = ++starts
+            thirdArg<(Long) -> Unit>().invoke(id)
+            if (id == 1L) VoiceInputStartResult.Unavailable("startup failed")
+            else VoiceInputStartResult.Started(id)
+        }
+        val c = controller()
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable("startup failed"),
+            c.startListening(VoiceCaptureMode.Command),
+        )
+        assertFalse(c.captureActivity.value)
+        c.stopListening(1L)
+        assertEquals(VoiceInputStartResult.Started(2L), c.startListening(VoiceCaptureMode.Command))
+
+        c.stopListening(1L)
+        nativeEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L))
+        advanceUntilIdle()
+        assertTrue(c.hasCaptureOrStart())
+        assertEquals(listOf(2L), seen.filterIsInstance<VoiceInputEvent.ListeningStarted>().map { it.captureSessionId })
+        verify(exactly = 0) { nativeAndroidVoiceInputController.stopListeningForSession(1L) }
+    }
+
+    @Test
+    fun `failed sherpa admission retires its id without clearing a later capture`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.SherpaZipformer)
+        var starts = 2L
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            val id = ++starts
+            thirdArg<(Long) -> Unit>().invoke(id)
+            if (id == 3L) VoiceInputStartResult.Unavailable("startup failed")
+            else VoiceInputStartResult.Started(id)
+        }
+        val c = controller()
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable("startup failed"),
+            c.startListening(VoiceCaptureMode.Command),
+        )
+        assertFalse(c.captureActivity.value)
+        assertEquals(VoiceInputStartResult.Started(4L), c.startListening(VoiceCaptureMode.Command))
+
+        c.stopListening(3L)
+        sherpaEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 4L))
+        advanceUntilIdle()
+        assertTrue(c.hasCaptureOrStart())
+        assertEquals(listOf(4L), seen.filterIsInstance<VoiceInputEvent.ListeningStarted>().map { it.captureSessionId })
+        verify(exactly = 0) { sherpaOnnxVoiceInputController.stopListeningForSession(3L) }
+    }
     @Test
     fun `auto reports unavailable while the offline model downloads`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
@@ -375,8 +441,10 @@ class SelectableVoiceInputControllerTest {
                     sherpaEvents.emit(
                         VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L),
                     )
+                    VoiceInputStartResult.Started(2L)
+                } else {
+                    VoiceInputStartResult.Cancelled()
                 }
-                VoiceInputStartResult.Started(2L)
             }
             val received = mutableListOf<VoiceInputEvent>()
             val collectJob = launch { controller.events.collect { received += it } }
@@ -483,6 +551,60 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `asr4all result settles text but matching stopped settles capture ownership`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Asr4all)
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(12L)
+            VoiceInputStartResult.Started(12L)
+        }
+        val c = controller()
+        advanceUntilIdle()
+
+        assertEquals(VoiceInputStartResult.Started(12L), c.startListening(VoiceCaptureMode.Command))
+        asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "final", 12L))
+        advanceUntilIdle()
+        assertTrue(c.hasCaptureOrStart())
+        assertTrue(c.captureActivity.value)
+
+        val teardown = async { c.awaitCaptureTeardown(12L) }
+        runCurrent()
+        assertFalse(teardown.isCompleted)
+
+        asr4allEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 12L))
+        advanceUntilIdle()
+        teardown.await()
+        assertFalse(c.hasCaptureOrStart())
+        assertFalse(c.captureActivity.value)
+    }
+
+    @Test
+    fun `never admitted replacement clears the capture activity fence`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Asr4all)
+        var starts = 0
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            starts++
+            if (starts == 1) {
+                thirdArg<(Long) -> Unit>().invoke(21L)
+                VoiceInputStartResult.Started(21L)
+            } else {
+                VoiceInputStartResult.Cancelled()
+            }
+        }
+        val c = controller()
+        val activity = mutableListOf<Boolean>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            c.captureActivity.collect { activity += it }
+        }
+        advanceUntilIdle()
+
+        assertEquals(VoiceInputStartResult.Started(21L), c.startListening(VoiceCaptureMode.Command))
+        assertEquals(VoiceInputStartResult.Cancelled(), c.startListening(VoiceCaptureMode.Command))
+
+        assertEquals(listOf(false, true, false), activity)
+        assertFalse(c.hasCaptureOrStart())
+    }
+
+    @Test
     fun `events from a superseded asr4all session never forward and the current session does`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Asr4all)
         var starts = 0L
@@ -514,7 +636,12 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
         assertEquals(listOf("first", "final"), seen.filterIsInstance<VoiceInputEvent.Transcript>().map { it.text })
         assertEquals(listOf("second"), seen.filterIsInstance<VoiceInputEvent.PartialTranscript>().map { it.text })
-        assertTrue(seen.none { it is VoiceInputEvent.ListeningStopped && it.captureSessionId == 5L })
+        assertEquals(
+            listOf(false),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>()
+                .filter { it.captureSessionId == 5L }
+                .map { it.cancelled },
+        )
     }
 
     @Test

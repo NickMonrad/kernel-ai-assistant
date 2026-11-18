@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
 import kotlin.math.sqrt
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.SttFailure
@@ -257,7 +258,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         return sessionMutex.withLock {
             val previousJob = activeJob
             activeJob = null
-            // SF1: close the previous capture's microphone now; cancelling its job alone does not.
             synchronized(captureLock) {
                 currentCapture?.close()
                 currentCapture = null
@@ -265,13 +265,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             }
             previousJob?.cancel()
             previousJob?.join()
-            // The previous reader releases the microphone and audio focus asynchronously.
             lastReaderJob?.join()
             lastReaderJob = null
             val captureSessionId = VoiceCaptureSessionIds.allocate()
             val spec = resolveSpec()
-
-            // SF7: a missing model must not open the microphone, play the cue or buzz the haptic.
             if (!isSpecAvailable(spec)) {
                 JandalEvents.record("voice", "stt_error", "category" to SttFailure.MODEL_UNAVAILABLE)
                 return@withLock VoiceInputStartResult.Unavailable(MODEL_UNAVAILABLE_MESSAGE)
@@ -280,8 +277,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             onSessionAdmitted(captureSessionId)
 
             beforeMicOpenForTest?.invoke()
-            // B2: the stop check and the microphone open share one critical section, so a stop
-            // either wins (no mic, no ListeningStarted) or sees the open capture and closes it.
             var stoppedEarly = false
             val capture = synchronized(captureLock) {
                 if (stopCount != stopsAtCall || !isWanted()) {
@@ -290,7 +285,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 } else {
                     openPreRollCapture()?.also { opened ->
                         currentCapture = opened
-                        // #1850: cue and haptic fire at capture open, the same moment the UI shows Listening.
                         _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, captureSessionId))
                     }
                 }
@@ -299,7 +293,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             if (capture == null) {
                 clearActiveSession(captureSessionId)
                 return@withLock VoiceInputStartResult.Unavailable(
-                    "Microphone unavailable — check RECORD_AUDIO permission."
+                    "Microphone unavailable — check RECORD_AUDIO permission.",
                 )
             }
 
@@ -307,71 +301,90 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 ensureRecognizer(spec)
             } catch (e: Throwable) {
                 abandonCapture(capture)
+                withContext(NonCancellable) { lastReaderJob?.join() }
                 clearActiveSession(captureSessionId)
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
+                _events.tryEmit(
+                    VoiceInputEvent.ListeningStopped(
+                        mode,
+                        captureSessionId,
+                        cancelled = e is CancellationException,
+                    ),
+                )
                 throw e
             }
             if (rec == null) {
                 abandonCapture(capture)
+                lastReaderJob?.join()
                 clearActiveSession(captureSessionId)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                 JandalEvents.record("voice", "stt_error", "category" to SttFailure.MODEL_UNAVAILABLE)
                 return@withLock VoiceInputStartResult.Unavailable(MODEL_UNAVAILABLE_MESSAGE)
             }
-            val callerContext = currentCoroutineContext()
 
-            synchronized(captureLock) {
+            val callerContext = currentCoroutineContext()
+            var callerCancellation: CancellationException? = null
+            var stoppedDuringLoad = false
+            val started = synchronized(captureLock) {
                 try {
                     callerContext.ensureActive()
                 } catch (e: CancellationException) {
                     abandonCapture(capture)
                     if (activeSessionId == captureSessionId) activeSessionId = null
-                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
-                    throw e
+                    callerCancellation = e
                 }
-                if (stopCount != stopsAtCall || !isWanted()) {
+                if (callerCancellation != null) {
+                    null
+                } else if (stopCount != stopsAtCall || !isWanted()) {
                     abandonCapture(capture)
                     if (activeSessionId == captureSessionId) activeSessionId = null
+                    stoppedDuringLoad = true
                     Log.i(TAG, "Sherpa STT start abandoned: stopped while the recognizer was loading (sessionId=$captureSessionId)")
-                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
-                    return@withLock VoiceInputStartResult.Started(captureSessionId)
-                }
-
-                JandalEvents.record("voice", "stt_ready", "mode" to mode, "zipformer" to (spec == SherpaSttModelSpec.ZIPFORMER))
-                isRecording = true
-
-                activeJob = recordingScope.launch {
-                    try {
-                        when (spec.recognizerKind) {
-                            SherpaSttModelSpec.RecognizerKind.Online ->
-                                onlineAudioLoop(capture, mode, captureSessionId, rec, spec)
-                            SherpaSttModelSpec.RecognizerKind.Offline ->
-                                offlineAudioLoop(capture, mode, captureSessionId, rec, spec)
-                        }
-                    } catch (e: Exception) {
-                        JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
-                        Log.e(TAG, "Audio loop error", e)
-                        _events.tryEmit(
-                            VoiceInputEvent.Error(
-                                mode,
-                                e.message ?: "Voice input error",
-                                captureSessionId,
-                            ),
-                        )
-                        _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
-                    } finally {
-                        capture.close()
-                        isRecording = false
-                        _inputLevel.value = 0f
-                        synchronized(captureLock) {
-                            if (currentCapture === capture) currentCapture = null
-                            if (activeSessionId == captureSessionId) activeSessionId = null
+                    null
+                } else {
+                    JandalEvents.record("voice", "stt_ready", "mode" to mode, "zipformer" to (spec == SherpaSttModelSpec.ZIPFORMER))
+                    isRecording = true
+                    activeJob = recordingScope.launch {
+                        try {
+                            when (spec.recognizerKind) {
+                                SherpaSttModelSpec.RecognizerKind.Online ->
+                                    onlineAudioLoop(capture, mode, captureSessionId, rec, spec)
+                                SherpaSttModelSpec.RecognizerKind.Offline ->
+                                    offlineAudioLoop(capture, mode, captureSessionId, rec, spec)
+                            }
+                        } catch (e: Exception) {
+                            JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
+                            Log.e(TAG, "Audio loop error", e)
+                            _events.tryEmit(
+                                VoiceInputEvent.Error(
+                                    mode,
+                                    e.message ?: "Voice input error",
+                                    captureSessionId,
+                                ),
+                            )
+                            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
+                        } finally {
+                            capture.close()
+                            isRecording = false
+                            _inputLevel.value = 0f
+                            synchronized(captureLock) {
+                                if (currentCapture === capture) currentCapture = null
+                                if (activeSessionId == captureSessionId) activeSessionId = null
+                            }
                         }
                     }
+                    VoiceInputStartResult.Started(captureSessionId)
                 }
-
-                VoiceInputStartResult.Started(captureSessionId)
             }
+            if (stoppedDuringLoad || callerCancellation != null) {
+                val reader = lastReaderJob
+                if (reader != null) {
+                    withContext(NonCancellable) { reader.join() }
+                }
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId, cancelled = true))
+                callerCancellation?.let { throw it }
+                return@withLock VoiceInputStartResult.Cancelled(captureSessionId)
+            }
+            checkNotNull(started)
         }
     }
 
@@ -385,8 +398,8 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     private fun endStoppedBeforeMic(mode: VoiceCaptureMode, captureSessionId: Long): VoiceInputStartResult {
         clearActiveSession(captureSessionId)
         Log.i(TAG, "Sherpa STT start abandoned: stopped before the microphone opened (sessionId=$captureSessionId)")
-        _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
-        return VoiceInputStartResult.Started(captureSessionId)
+        _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId, cancelled = true))
+        return VoiceInputStartResult.Cancelled(captureSessionId)
     }
 
     /** Test seam: runs after the model check and before the stop check that guards the mic open. */
