@@ -52,8 +52,8 @@ Reference outputs (pinned driver): 12 final-text rows plus four intermediate par
 | M | c32r8 | partial PCEC, chunk 6 | `A candandle, what is` |
 
 Kotlin `Asr4allEngineParityTest` (`ASR4ALL_PARITY=required`, fresh `--rerun --no-daemon`; XML at `core/voice/build/test-results/testDebugUnitTest/TEST-com.kernel.ai.core.voice.asr4all.Asr4allEngineParityTest.xml`):
-- S: 10 tests (8 parity rows + 2 engine checks), 0 skipped, 0 failures.
-- M: 10 tests, 0 skipped, 0 failures.
+- S: 11 tests (8 parity rows + 2 reset-after-carry tier tests + 1 closed-engine check), 0 skipped, 0 failures (XML 03:55:48).
+- M: 11 tests, 0 skipped, 0 failures (XML 03:56:14).
 - Negative control: M expectations with the S model directory: identity rejects the six-file S set instead of the required 13-file M set; all 3 test cases fail (identity mismatch plus mismatched final outputs).
 - Intermediate rows: 4 pinned Python-driver partial PCEC outputs at chunk index 6; final rows remain 12.
 - Ordinary mode with parity inputs unset: 3 tests, 3 skipped (missing-input assumption shown in XML), 0 failures.
@@ -70,7 +70,7 @@ M rerun uses `ASR4ALL_PARITY_MODEL=M` and `ASR4ALL_MODEL_DIR=/tmp/asr4all-ref-19
 
 Device harness: `Asr4allTierMeasurementDeviceTest` (`app/src/androidTest`, opt-in via `measure_enabled=true`) is documented in `docs/testing/asr4all-device-measurement.md`. Device measurements: not executed; no phone run is recorded in this evidence. The former host-JVM `Asr4allTierMeasurementTest` was removed. Host metrics unit tests verify the metric arithmetic only and are not decision evidence.
 
-Routing tests: `SelectableVoiceInputControllerTest` (28) and `SelectableVoiceInputHandoffTest` (15) pass, 0 failures.
+Routing tests: `SelectableVoiceInputControllerTest` (32) and `SelectableVoiceInputHandoffTest` (15) pass, 0 failures (XML 03:57:17 and 03:57:18).
 
 ## S23U smoke (RFCW11265XH), debug build
 - Installed `app-debug.apk` built from the opening head (the PR head before remediation; exact build SHA not recorded in this README) via `adb install -r`; `lastUpdateTime` 2026-11-18 10:49:12. Remediated head (`47be1ed4` and later) has not been installed or run on device.
