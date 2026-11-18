@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
 sealed interface VoiceInputStartResult {
     data class Started(val captureSessionId: Long) : VoiceInputStartResult
     data class Unavailable(val message: String) : VoiceInputStartResult
+    data class Cancelled(val captureSessionId: Long? = null) : VoiceInputStartResult
 }
 
 internal object VoiceCaptureSessionIds {
@@ -116,6 +117,30 @@ interface VoiceInputController {
      * [kotlinx.coroutines.runBlocking] when calling a [suspend] override.
      */
     suspend fun transcribeBlocking(pcm: ShortArray): String? = null
+}
+
+/** Controllers that can bind an owner before emitting events expose this admission handshake. */
+interface VoiceCaptureAdmissionController {
+    suspend fun startListening(
+        mode: VoiceCaptureMode,
+        onSessionAdmitted: (Long) -> Unit,
+    ): VoiceInputStartResult
+}
+
+suspend fun VoiceInputController.startListening(
+    mode: VoiceCaptureMode,
+    onSessionAdmitted: (Long) -> Unit,
+): VoiceInputStartResult {
+    if (this is VoiceCaptureAdmissionController) {
+        return startListening(mode, onSessionAdmitted)
+    }
+    val result = startListening(mode)
+    when (result) {
+        is VoiceInputStartResult.Started -> onSessionAdmitted(result.captureSessionId)
+        is VoiceInputStartResult.Cancelled -> result.captureSessionId?.let(onSessionAdmitted)
+        is VoiceInputStartResult.Unavailable -> Unit
+    }
+    return result
 }
 
 private val NO_NOTICES: SharedFlow<VoiceNotice> = MutableSharedFlow<VoiceNotice>().asSharedFlow()

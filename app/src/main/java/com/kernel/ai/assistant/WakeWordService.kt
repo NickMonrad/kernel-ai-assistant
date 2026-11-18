@@ -249,9 +249,12 @@ internal suspend fun runWakeAttempt(
                 (startResult as? VoiceInputStartResult.Unavailable)?.message?.let { msg ->
                     if (msg.isNotBlank()) onError(msg)
                 }
-                return@coroutineScope WakeAttemptOutcome.Unavailable
+                return@coroutineScope if (startResult is VoiceInputStartResult.Cancelled) {
+                    WakeAttemptOutcome.NoTranscript("stt_start_cancelled", skipRetry = true)
+                } else {
+                    WakeAttemptOutcome.Unavailable
+                }
             }
-
             val captureSessionId = startResult.captureSessionId
             // #1853/#1866: notes for this capture (a Zipformer hand-off) are shown at once. The
             // latest note is replayed, so one posted during startListening is not lost.
@@ -729,7 +732,7 @@ class WakeWordService : Service() {
 
     /** True while a Jandal voice session (push-to-talk, assistant, widget) owns the microphone. */
     @Volatile private var isVoiceSessionActive = false
-
+    @Volatile private var isVoiceSessionCaptureId: Long? = null
     /** Last text pushed to the ongoing notification; avoids redundant updates on every re-arm. */
     @Volatile private var notificationText = NOTIFICATION_TEXT_LISTENING
 
@@ -835,13 +838,16 @@ class WakeWordService : Service() {
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
+                        isVoiceSessionCaptureId = event.captureSessionId
                         isVoiceSessionActive = true
                         Log.i(TAG, "WakeWordService: yielding mic to voice session (${event.mode})")
                         wakeWordDetector.stop()
                     }
 
                     is VoiceInputEvent.ListeningStopped -> {
+                        if (event.cancelled && event.captureSessionId != isVoiceSessionCaptureId) return@collect
                         isVoiceSessionActive = false
+                        isVoiceSessionCaptureId = null
                         if (isHandlingDetection) return@collect
                         Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
                         rearmDetector()

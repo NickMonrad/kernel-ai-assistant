@@ -169,7 +169,7 @@ class SelectableVoiceInputController @Inject constructor(
     private val sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController,
     private val asr4allVoiceInputController: Asr4allVoiceInputController,
     private val androidNativeRecognitionSupport: AndroidNativeRecognitionSupport,
-) : VoiceInputController {
+) : VoiceInputController, VoiceCaptureAdmissionController {
 
     private val activeController = MutableStateFlow<VoiceInputController>(sherpaOnnxVoiceInputController)
 
@@ -182,8 +182,6 @@ class SelectableVoiceInputController @Inject constructor(
     private val asr4allStartSeq = AtomicLong(0)
     /** Start sequence and admission epoch each asr4all session was admitted under. Main only. */
     private val asr4allSessionAdmission = HashMap<Long, Asr4allAdmission>()
-    /** Session of the latest asr4all admission since the last start; its cancel alone is delivered. */
-    @Volatile private var asr4allLatestSession: Long? = null
 
     init {
         // Moving the selection away from asr4all releases its engine now, not on the next capture.
@@ -264,7 +262,16 @@ class SelectableVoiceInputController @Inject constructor(
                     androidNativeRecognitionSupport.getAvailability()
                 }
             }
-            VoiceInputEngine.Asr4all -> asr4allVoiceInputController.prewarm()
+            VoiceInputEngine.Asr4all -> {
+                val seq = asr4allStartSeq.get()
+                val epoch = asr4allVoiceInputController.admissionEpochNow()
+                startMutex.withLock {
+                    asr4allVoiceInputController.prewarmIfCurrent {
+                        seq == asr4allStartSeq.get() &&
+                            epoch == asr4allVoiceInputController.admissionEpochNow()
+                    }
+                }
+            }
             else -> sherpaOnnxVoiceInputController.prewarm()
         }
     }
@@ -279,22 +286,26 @@ class SelectableVoiceInputController @Inject constructor(
         }
     }
 
-    override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
-        // Supersede any hand-off in flight before waiting for the start lock.
+    override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
+        startListeningInternal(mode, onSessionAdmitted = {})
+
+    override suspend fun startListening(
+        mode: VoiceCaptureMode,
+        onSessionAdmitted: (Long) -> Unit,
+    ): VoiceInputStartResult = startListeningInternal(mode, onSessionAdmitted)
+
+    private suspend fun startListeningInternal(
+        mode: VoiceCaptureMode,
+        onSessionAdmitted: (Long) -> Unit,
+    ): VoiceInputStartResult {
         val gen = generation.incrementAndGet()
         pendingZipformerStart.getAndSet(null)?.cancel()
+        openGeneration = -1L
         val seq = asr4allStartSeq.incrementAndGet()
-        // A new start retires the previous asr4all session: its late cancel must not clear this one.
-        asr4allLatestSession = null
-        // Supersede any asr4all capture before waiting for the start lock: a stale start's
-        // events are fenced by session, and a pending explicit stop's final is dropped here.
         asr4allVoiceInputController.supersedeCapture()
-        // Captured after our own supersede and before the selection read: a switch or deletion
-        // after this point bumps the epoch and rejects this start at admission.
         val asr4allEpoch = asr4allVoiceInputController.admissionEpochNow()
         return withContext(Dispatchers.Main.immediate) {
             startMutex.withLock {
-                openGeneration = -1L
                 handoff = null
                 nativeFacts = null
                 expectedNativeSessionId = null
@@ -308,10 +319,21 @@ class SelectableVoiceInputController @Inject constructor(
                 val result = when (engine) {
                     VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen)
                     VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen)
-                    VoiceInputEngine.Asr4all -> startAsr4all(mode, gen, seq, asr4allEpoch)
-                    else -> startSherpa(mode, gen) // All Sherpa families.
+                    VoiceInputEngine.Asr4all -> startAsr4all(
+                        mode,
+                        gen,
+                        seq,
+                        asr4allEpoch,
+                        onSessionAdmitted,
+                    )
+                    else -> startSherpa(mode, gen)
                 }
-                if (result is VoiceInputStartResult.Started) openGeneration = gen
+                if (result is VoiceInputStartResult.Started) {
+                    openGeneration = gen
+                    if (engine != VoiceInputEngine.Asr4all) {
+                        onSessionAdmitted(result.captureSessionId)
+                    }
+                }
                 result
             }
         }
@@ -396,7 +418,7 @@ class SelectableVoiceInputController @Inject constructor(
         // Zipformer emits ListeningStarted while it starts, so route its events from now on.
         activeController.value = sherpaOnnxVoiceInputController
         val zipformer = runZipformerStart(gen) {
-            val started = sherpaOnnxVoiceInputController.startListening(mode) { gen == generation.get() } as? VoiceInputStartResult.Started
+            val started = sherpaOnnxVoiceInputController.startListening(mode, isWanted = { gen == generation.get() }) as? VoiceInputStartResult.Started
             when {
                 started == null -> null
                 gen != generation.get() -> {
@@ -434,7 +456,7 @@ class SelectableVoiceInputController @Inject constructor(
      */
     private suspend fun startSherpa(mode: VoiceCaptureMode, gen: Long): VoiceInputStartResult {
         activate(sherpaOnnxVoiceInputController)
-        val result = sherpaOnnxVoiceInputController.startListening(mode) { gen == generation.get() }
+        val result = sherpaOnnxVoiceInputController.startListening(mode, isWanted = { gen == generation.get() })
         if (result is VoiceInputStartResult.Started && gen != generation.get()) {
             sherpaOnnxVoiceInputController.stopListening()
         }
@@ -445,21 +467,34 @@ class SelectableVoiceInputController @Inject constructor(
      * Starts the asr4all streaming recognizer for the capture with generation [gen]. Like
      * [startSherpa], a stop that raced the start is closed here too.
      */
-    private suspend fun startAsr4all(mode: VoiceCaptureMode, gen: Long, seq: Long, epoch: Long): VoiceInputStartResult {
+    private suspend fun startAsr4all(
+        mode: VoiceCaptureMode,
+        gen: Long,
+        seq: Long,
+        epoch: Long,
+        onSessionAdmitted: (Long) -> Unit,
+    ): VoiceInputStartResult {
         activate(asr4allVoiceInputController)
         val result = asr4allVoiceInputController.startListening(
-            mode,
-            isWanted = { gen == generation.get() && epoch == asr4allVoiceInputController.admissionEpochNow() },
+            mode = mode,
+            isWanted = {
+                gen == generation.get() &&
+                    seq == asr4allStartSeq.get() &&
+                    epoch == asr4allVoiceInputController.admissionEpochNow()
+            },
             onSession = { sessionId ->
                 asr4allSessionAdmission[sessionId] = Asr4allAdmission(seq, epoch)
-                asr4allLatestSession = sessionId
+                onSessionAdmitted(sessionId)
             },
         )
         if (result is VoiceInputStartResult.Started && gen != generation.get()) {
             asr4allVoiceInputController.stopListening()
+            return VoiceInputStartResult.Cancelled(result.captureSessionId)
         }
         return result
     }
+
+    
 
     private fun activate(controller: VoiceInputController) {
         activeController.value = controller
@@ -523,6 +558,7 @@ class SelectableVoiceInputController @Inject constructor(
         }
     }
 
+
     /**
      * An asr4all session is current only while no newer start and no engine release (selection
      * switch or deletion) has happened since it was admitted.
@@ -534,17 +570,14 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     private suspend fun routeEvent(controller: VoiceInputController, event: VoiceInputEvent) {
-        // The cancellation terminal of the latest admitted asr4all session is delivered even when
-        // stale, so the chat clears listening after a switch or deletion. A superseded session's
-        // terminal is dropped: it must never clear a replacement.
-        if (controller === asr4allVoiceInputController &&
-            event is VoiceInputEvent.ListeningStopped && event.cancelled &&
-            event.captureSessionId == asr4allLatestSession
+        if (
+            controller === asr4allVoiceInputController &&
+            event is VoiceInputEvent.ListeningStopped &&
+            event.cancelled
         ) {
             outbound.emit(event)
             return
         }
-        // Events from a controller that is no longer active (native after a hand-off) are stale.
         if (controller !== activeController.value) return
         if (controller === asr4allVoiceInputController && !asr4allAdmissionCurrent(event.captureSessionId)) return
 
@@ -622,7 +655,7 @@ class SelectableVoiceInputController @Inject constructor(
             startMutex.withLock {
                 if (gen != generation.get() || !zipformerDownloaded()) return@withLock null
                 Log.w(TAG, "Android native failed ($reason); handing capture to Zipformer for this session")
-                val started = sherpaOnnxVoiceInputController.startListening(error.mode) { gen == generation.get() }
+                val started = sherpaOnnxVoiceInputController.startListening(error.mode, isWanted = { gen == generation.get() })
                     as? VoiceInputStartResult.Started
                     ?: return@withLock null
                 if (gen != generation.get()) {

@@ -29,6 +29,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputPreferences
@@ -400,6 +401,7 @@ class ActionsViewModel @Inject constructor(
     private var spokenResponsesEnabled = true
     /** Capture session this screen started; errors and notes are shown only for it (#1853). */
     private var actionsVoiceSessionId: Long? = null
+    private var actionsVoiceAwaitingFinal = false
     private var actionsVoiceNoticeJob: Job? = null
 
     /**
@@ -435,7 +437,7 @@ class ActionsViewModel @Inject constructor(
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
-                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        if (!ownsVoiceCapture(event.mode, event.captureSessionId)) return@collect
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
                             ?.takeIf { it.mode == event.mode }
                             ?.transcript
@@ -446,17 +448,19 @@ class ActionsViewModel @Inject constructor(
                     }
                     is VoiceInputEvent.SpeechDetected -> Unit
                     is VoiceInputEvent.SpeechEnded -> {
-                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        if (!ownsVoiceCapture(event.mode, event.captureSessionId)) return@collect
+                        actionsVoiceAwaitingFinal = true
                         (_voiceCaptureState.value as? VoiceCaptureState.Listening)?.let { listening ->
                             _voiceCaptureState.value = VoiceCaptureState.Processing(event.mode, listening.transcript)
                         }
                     }
                     is VoiceInputEvent.PartialTranscript -> {
-                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        if (!ownsVoiceCapture(event.mode, event.captureSessionId)) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.mode, event.text)
                     }
                     is VoiceInputEvent.Transcript -> {
-                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        if (!ownsVoiceCapture(event.mode, event.captureSessionId)) return@collect
+                        actionsVoiceAwaitingFinal = false
                         val normalizedTranscript = normalizeVoiceCommand(event.text)
                         _voiceCaptureState.value = VoiceCaptureState.Processing(event.mode, normalizedTranscript)
                         when (event.mode) {
@@ -474,7 +478,7 @@ class ActionsViewModel @Inject constructor(
                         }
                     }
                     is VoiceInputEvent.Error -> {
-                        if (!ownsVoiceCapture(event.mode)) {
+                        if (!ownsVoiceCapture(event.mode, event.captureSessionId)) {
                             // Other surfaces' captures (wake, chat, widget) are not ours. Show only the
                             // session this screen started; stopping clears the binding.
                             if (event.captureSessionId != 0L && event.captureSessionId == actionsVoiceSessionId) {
@@ -558,7 +562,7 @@ class ActionsViewModel @Inject constructor(
                         }
                     }
                     is VoiceInputEvent.ListeningStopped -> {
-                        if (!ownsVoiceCapture(event.mode)) return@collect
+                        if (!ownsVoiceCapture(event.mode, event.captureSessionId)) return@collect
                         val currentState = _voiceCaptureState.value
                         when (currentState) {
                             is VoiceCaptureState.Listening -> {
@@ -571,8 +575,11 @@ class ActionsViewModel @Inject constructor(
                                     )
                                 }
                             }
-                            is VoiceCaptureState.Processing -> Unit
-                            else -> _voiceCaptureState.value = VoiceCaptureState.Idle
+                            is VoiceCaptureState.Processing -> if (event.cancelled && actionsVoiceAwaitingFinal) {
+                                actionsVoiceAwaitingFinal = false
+                                _voiceCaptureState.value = VoiceCaptureState.Idle
+                            }
+                            else -> if (event.cancelled) _voiceCaptureState.value = VoiceCaptureState.Idle
                         }
                     }
                 }
@@ -707,6 +714,7 @@ class ActionsViewModel @Inject constructor(
     private fun bindActionsVoiceSession(captureSessionId: Long) {
         actionsVoiceNoticeJob?.cancel()
         actionsVoiceSessionId = captureSessionId
+        actionsVoiceAwaitingFinal = false
         actionsVoiceNoticeJob = viewModelScope.launch {
             voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
         }
@@ -716,6 +724,20 @@ class ActionsViewModel @Inject constructor(
         actionsVoiceNoticeJob?.cancel()
         actionsVoiceNoticeJob = null
         actionsVoiceSessionId = null
+    }
+
+    private fun finishCancelledVoiceStart(mode: VoiceCaptureMode, captureSessionId: Long?) {
+        val state = _voiceCaptureState.value
+        val ownsPreparingAttempt = if (captureSessionId == null) {
+            actionsVoiceSessionId == null && state == VoiceCaptureState.Preparing(mode)
+        } else {
+            actionsVoiceSessionId == captureSessionId && ownsVoiceCapture(mode, captureSessionId)
+        }
+        if (!ownsPreparingAttempt) return
+        if (state is VoiceCaptureState.Processing && !actionsVoiceAwaitingFinal) return
+        unbindActionsVoiceSession()
+        actionsVoiceAwaitingFinal = false
+        _voiceCaptureState.value = VoiceCaptureState.Idle
     }
 
     fun stopVoiceOutput(reason: String = "manual") {
@@ -2248,13 +2270,14 @@ class ActionsViewModel @Inject constructor(
             result.capabilityKey == CapabilityKey.VoiceInput
     }
 
-    private fun ownsVoiceCapture(mode: VoiceCaptureMode): Boolean =
-        when (val state = _voiceCaptureState.value) {
-            is VoiceCaptureState.Preparing -> state.mode == mode
-            is VoiceCaptureState.Listening -> state.mode == mode
-            is VoiceCaptureState.Processing -> state.mode == mode
-            VoiceCaptureState.Idle -> false
-        }
+    private fun ownsVoiceCapture(mode: VoiceCaptureMode, captureSessionId: Long): Boolean =
+        actionsVoiceSessionId == captureSessionId &&
+            when (val state = _voiceCaptureState.value) {
+                is VoiceCaptureState.Preparing -> state.mode == mode
+                is VoiceCaptureState.Listening -> state.mode == mode
+                is VoiceCaptureState.Processing -> state.mode == mode
+                VoiceCaptureState.Idle -> false
+            }
 
 
     /**
@@ -2291,10 +2314,9 @@ class ActionsViewModel @Inject constructor(
         }
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
         viewModelScope.launch {
-            when (val result = voiceInputController.startListening(mode)) {
+            when (val result = voiceInputController.startListening(mode, ::bindActionsVoiceSession)) {
                 is VoiceInputStartResult.Started -> {
                     Log.d(TAG, "ActionsViewModel: voiceInputController.startListening started mode=$mode")
-                    bindActionsVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value is VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
                     }
@@ -2304,6 +2326,7 @@ class ActionsViewModel @Inject constructor(
                     _voiceCaptureState.value = VoiceCaptureState.Idle
                     _error.value = result.message
                 }
+                is VoiceInputStartResult.Cancelled -> finishCancelledVoiceStart(mode, result.captureSessionId)
             }
         }
     }

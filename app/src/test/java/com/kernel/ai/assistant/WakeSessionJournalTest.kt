@@ -98,10 +98,16 @@ class WakeSessionJournalTest {
             VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "final", captureSessionId),
             VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "error", captureSessionId),
             VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, captureSessionId),
+            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, captureSessionId, cancelled = true),
         )
         val unrelatedEvents = listOf(
             VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId - 1),
             VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "wrong capture", captureSessionId + 1),
+            VoiceInputEvent.ListeningStopped(
+                VoiceCaptureMode.AlertCommand,
+                captureSessionId - 1,
+                cancelled = true,
+            ),
             VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId),
             VoiceInputEvent.SpeechDetected(VoiceCaptureMode.SlotReply, captureSessionId),
             VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "private", captureSessionId),

@@ -66,6 +66,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.AndroidEntryPoint
@@ -147,6 +148,7 @@ class VoiceCommandActivity : ComponentActivity() {
     private var wakeOverlayJob: Job? = null
     /** True when launched as a Hey Jandal wake overlay (#1930); decides cancel-on-destroy. */
     private var wakeIntentSeen = false
+    private var cancelledVoiceStart = false
     /** Token of the wake capture this overlay belongs to (#1930). */
     private var wakeToken = 0L
     /** Back closes a wake overlay as X does; enabled only while a wake overlay is shown. */
@@ -400,6 +402,7 @@ class VoiceCommandActivity : ComponentActivity() {
     }
 
     private fun startVoiceSession() {
+        cancelledVoiceStart = false
         var dismissEnabled by mutableStateOf(false)
         var partialText by mutableStateOf("")
         var phase by mutableStateOf(VoiceCommandPhase.Starting)
@@ -467,7 +470,7 @@ class VoiceCommandActivity : ComponentActivity() {
 
             val eventCollectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
                 voiceInputController.events.collect { event ->
-                    if (captureSessionId != null && event.captureSessionId != captureSessionId) return@collect
+                    if (captureSessionId == null || event.captureSessionId != captureSessionId) return@collect
                     when (event) {
                         is VoiceInputEvent.PartialTranscript -> {
                             partialText = event.text
@@ -484,9 +487,13 @@ class VoiceCommandActivity : ComponentActivity() {
                                 captureSessionId = null
                                 phase = VoiceCommandPhase.Starting
                                 Log.d(TAG, "VoiceCommandActivity: blank transcript — retrying")
-                                when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
+                                when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand) { captureSessionId = it }) {
                                     is VoiceInputStartResult.Started -> bindCapture(result)
                                     is VoiceInputStartResult.Unavailable -> showUnavailableAndFinish(result.message)
+                                    is VoiceInputStartResult.Cancelled -> {
+                                        cancelledVoiceStart = true
+                                        finish()
+                                    }
                                 }
                             } else {
                                 finish()
@@ -507,9 +514,13 @@ class VoiceCommandActivity : ComponentActivity() {
                                 partialText = ""
                                 captureSessionId = null
                                 Log.d(TAG, "VoiceCommandActivity: retrying after error")
-                                when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
+                                when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand) { captureSessionId = it }) {
                                     is VoiceInputStartResult.Started -> bindCapture(result)
                                     is VoiceInputStartResult.Unavailable -> showUnavailableAndFinish(result.message)
+                                    is VoiceInputStartResult.Cancelled -> {
+                                        cancelledVoiceStart = true
+                                        finish()
+                                    }
                                 }
                             } else {
                                 showUnavailableAndFinish(event.message)
@@ -520,11 +531,16 @@ class VoiceCommandActivity : ComponentActivity() {
                 }
             }
 
-            when (val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)) {
+            when (val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand) { captureSessionId = it }) {
                 is VoiceInputStartResult.Started -> bindCapture(startResult)
                 is VoiceInputStartResult.Unavailable -> {
                     eventCollectorJob.cancel()
                     showUnavailableAndFinish(startResult.message)
+                }
+                is VoiceInputStartResult.Cancelled -> {
+                    cancelledVoiceStart = true
+                    eventCollectorJob.cancel()
+                    finish()
                 }
             }
         }
@@ -536,7 +552,7 @@ class VoiceCommandActivity : ComponentActivity() {
             // #1930: backstop; the dismiss paths already requested cancel. A configuration change
             // keeps the capture running.
             if (!isChangingConfigurations) WakeOverlayChannel.requestCancel(wakeToken)
-        } else {
+        } else if (!cancelledVoiceStart) {
             voiceInputController.stopListening()
         }
         toneGenerator?.release()

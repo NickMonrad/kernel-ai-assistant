@@ -240,7 +240,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
      * [kotlinx.coroutines.CancellationException] and releases the microphone and audio focus.
      */
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
-        startListening(mode) { true }
+        startListening(mode, isWanted = { true })
 
     /**
      * [isWanted] is checked together with the stop count under [captureLock], right before the

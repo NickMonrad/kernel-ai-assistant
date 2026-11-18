@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -304,7 +305,7 @@ class Asr4allVoiceInputControllerTest {
         val gate = CountDownLatch(1)
         engineGate = gate
         try {
-            val start = launch { c.startListening(VoiceCaptureMode.Command) }
+            val start = async { c.startListening(VoiceCaptureMode.Command) }
             assertTrue(engineEntered.await(5, TimeUnit.SECONDS))
             assertEquals(1, micOpens.get(), "the mic opens before the model loads")
 
@@ -315,8 +316,13 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(0, log.count { it == "open#1" }, "the load has not finished")
 
             gate.countDown()
-            start.join()
+            val startResult = start.await()
             collected.awaitStops(1)
+            assertTrue(startResult is VoiceInputStartResult.Cancelled)
+            assertEquals(
+                (startResult as VoiceInputStartResult.Cancelled).captureSessionId,
+                collected.events.filterIsInstance<VoiceInputEvent.ListeningStopped>().single().captureSessionId,
+            )
             assertEquals(emptyList<String>(), collected.transcripts())
             assertEquals(0, log.count { it == "finish#1" })
             assertTrue(
@@ -428,22 +434,25 @@ class Asr4allVoiceInputControllerTest {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
+        var admittedId: Long? = null
         try {
             // The stop lands after the call started but before the mic-open decision.
-            val result = c.startListening(VoiceCaptureMode.Command, isWanted = {
-                c.stopListening()
-                true
-            })
+            val result = c.startListening(
+                VoiceCaptureMode.Command,
+                isWanted = {
+                    c.stopListening()
+                    true
+                },
+                onSession = { admittedId = it },
+            )
 
-            assertTrue(result is VoiceInputStartResult.Started)
-            collected.awaitStops(1)
+            assertTrue(result is VoiceInputStartResult.Cancelled)
+            assertEquals(null, (result as VoiceInputStartResult.Cancelled).captureSessionId)
+            assertEquals(null, admittedId, "no admission callback before the mic opens")
             assertEquals(0, micOpens.get(), "stop before mic must not open the mic")
             assertEquals(0, focusRequests.get(), "stop before mic must not request focus")
             assertEquals(0, collected.started(), "no ListeningStarted before the mic opens")
-            assertTrue(
-                collected.events.filterIsInstance<VoiceInputEvent.ListeningStopped>().single().cancelled,
-                "a pre-mic stop has no final, so its terminal must be cancelled",
-            )
+            assertTrue(collected.events.none { it is VoiceInputEvent.ListeningStopped }, "never-admitted captures emit no terminal")
         } finally {
             collected.job.cancel()
             scope.cancel()

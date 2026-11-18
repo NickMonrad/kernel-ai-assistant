@@ -148,7 +148,6 @@ class Asr4allVoiceInputController @Inject constructor(
                 return@withLock VoiceInputStartResult.Unavailable("Microphone unavailable — check RECORD_AUDIO permission.")
             }
             val sessionId = VoiceCaptureSessionIds.allocate()
-            onSession(sessionId)
             val stop = AtomicBoolean(false)
             val discard = AtomicBoolean(false)
             var stoppedEarly = false
@@ -160,6 +159,7 @@ class Asr4allVoiceInputController @Inject constructor(
                     null
                 } else {
                     openCapture()?.also {
+                        onSession(sessionId)
                         lastCapture = it
                         activeCapture = it
                         activeStop = stop
@@ -169,10 +169,7 @@ class Asr4allVoiceInputController @Inject constructor(
                 }
             }
             if (capture == null) {
-                if (stoppedEarly) {
-                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
-                    return@withLock VoiceInputStartResult.Started(sessionId)
-                }
+                if (stoppedEarly) return@withLock VoiceInputStartResult.Cancelled()
                 check(micFailed)
                 return@withLock VoiceInputStartResult.Unavailable("Microphone unavailable — check RECORD_AUDIO permission.")
             }
@@ -203,7 +200,7 @@ class Asr4allVoiceInputController @Inject constructor(
             if (discard.get() || stop.get()) {
                 halt(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
-                return@withLock VoiceInputStartResult.Started(sessionId)
+                return@withLock VoiceInputStartResult.Cancelled(sessionId)
             }
             activeJob = scope.launch {
                 try {
@@ -419,11 +416,18 @@ class Asr4allVoiceInputController @Inject constructor(
         }
     }
 
-    override suspend fun prewarm() {
-        if (!isAvailable()) return
-        startLock.withLock {
+    internal suspend fun prewarmIfCurrent(isCurrent: () -> Boolean): Boolean {
+        if (!isAvailable()) return false
+        return startLock.withLock {
+            if (!isCurrent()) return@withLock false
             withContext(Dispatchers.IO) { if (engine == null) engine = openOrNull() }
+            true
         }
+    }
+
+    override suspend fun prewarm() {
+        val epoch = admissionEpochNow()
+        prewarmIfCurrent { epoch == admissionEpochNow() }
     }
 
     /**

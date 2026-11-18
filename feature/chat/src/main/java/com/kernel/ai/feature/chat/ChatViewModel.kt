@@ -97,6 +97,7 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -477,6 +478,7 @@ class ChatViewModel @Inject constructor(
 
     /** Capture session of the current chat voice input; its notes are shown (#1853, #1866). */
     private var chatVoiceSessionId: Long? = null
+    private var chatVoiceAwaitingFinal = false
     private var chatVoiceNoticeJob: Job? = null
 
     /**
@@ -804,7 +806,7 @@ class ChatViewModel @Inject constructor(
             voiceInputController.events.collect { event ->
                 when (event) {
                     is VoiceInputEvent.ListeningStarted -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
                         _listeningHaptics.trySend(Unit)
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
@@ -814,21 +816,23 @@ class ChatViewModel @Inject constructor(
                     }
                     is VoiceInputEvent.SpeechDetected -> Unit
                     is VoiceInputEvent.SpeechEnded -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        chatVoiceAwaitingFinal = true
                         (_voiceCaptureState.value as? VoiceCaptureState.Listening)?.let { listening ->
                             _voiceCaptureState.value = VoiceCaptureState.Processing(listening.transcript)
                         }
                     }
                     is VoiceInputEvent.PartialTranscript -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.text)
                     }
                     is VoiceInputEvent.Transcript -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        chatVoiceAwaitingFinal = false
                         submitVoiceTranscript(event.text)
                     }
                     is VoiceInputEvent.Error -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
                         // #790: Retry once before surfacing the error to the user. #1853: not after
@@ -838,9 +842,8 @@ class ChatViewModel @Inject constructor(
                             chatCommandVoiceRetryCount++
                             Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
                             _voiceCaptureState.value = VoiceCaptureState.Preparing
-                            when (val r = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+                            when (val r = voiceInputController.startListening(VoiceCaptureMode.Command, ::bindChatVoiceSession)) {
                                 is VoiceInputStartResult.Started -> {
-                                    bindChatVoiceSession(r.captureSessionId)
                                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                                     }
@@ -850,6 +853,7 @@ class ChatViewModel @Inject constructor(
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
                                     _error.value = withVoiceSettingsHint(r.message)
                                 }
+                                is VoiceInputStartResult.Cancelled -> finishCancelledChatVoiceStart(r.captureSessionId)
                             }
                         } else {
                             _voiceMode.value = null
@@ -858,7 +862,7 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                     is VoiceInputEvent.ListeningStopped -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         when (val currentState = _voiceCaptureState.value) {
                             is VoiceCaptureState.Listening -> {
                                 if (event.cancelled || currentState.transcript.isBlank()) {
@@ -868,8 +872,12 @@ class ChatViewModel @Inject constructor(
                                     submitVoiceTranscript(currentState.transcript)
                                 }
                             }
-                            is VoiceCaptureState.Processing -> Unit
-                            else -> {
+                            is VoiceCaptureState.Processing -> if (event.cancelled && chatVoiceAwaitingFinal) {
+                                chatVoiceAwaitingFinal = false
+                                _voiceMode.value = null
+                                _voiceCaptureState.value = VoiceCaptureState.Idle
+                            }
+                            else -> if (event.cancelled) {
                                 _voiceMode.value = null
                                 _voiceCaptureState.value = VoiceCaptureState.Idle
                             }
@@ -1726,16 +1734,35 @@ class ChatViewModel @Inject constructor(
      */
     fun startBackAndForthVoiceInput() = startVoiceInput(VoiceMode.BackAndForth)
 
-    private fun ownsCommandVoiceCapture(): Boolean =
-        _voiceCaptureState.value != VoiceCaptureState.Idle
-
-    /** Shows the notes for this chat capture (#1853 Zipformer hand-off, #1866) in the error line. */
+    private fun ownsCommandVoiceCapture(captureSessionId: Long): Boolean =
+        chatVoiceSessionId == captureSessionId &&
+            (_voiceCaptureState.value == VoiceCaptureState.Preparing ||
+                _voiceCaptureState.value is VoiceCaptureState.Listening ||
+                _voiceCaptureState.value is VoiceCaptureState.Processing)
+    
     private fun bindChatVoiceSession(captureSessionId: Long) {
         chatVoiceNoticeJob?.cancel()
         chatVoiceSessionId = captureSessionId
+        chatVoiceAwaitingFinal = false
         chatVoiceNoticeJob = viewModelScope.launch {
             voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
         }
+    }
+
+    private fun finishCancelledChatVoiceStart(captureSessionId: Long?) {
+        val ownedPreparingAttempt = if (captureSessionId == null) {
+            chatVoiceSessionId == null && _voiceCaptureState.value == VoiceCaptureState.Preparing
+        } else {
+            chatVoiceSessionId == captureSessionId
+        }
+        if (!ownedPreparingAttempt) return
+        if (_voiceCaptureState.value is VoiceCaptureState.Processing && !chatVoiceAwaitingFinal) return
+        chatVoiceSessionId = null
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceNoticeJob = null
+        chatVoiceAwaitingFinal = false
+        _voiceMode.value = null
+        _voiceCaptureState.value = VoiceCaptureState.Idle
     }
 
     private fun startVoiceInput(mode: VoiceMode) {
@@ -1757,9 +1784,8 @@ class ChatViewModel @Inject constructor(
             }
             _error.value = null
             _voiceCaptureState.value = VoiceCaptureState.Preparing
-            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command, ::bindChatVoiceSession)) {
                 is VoiceInputStartResult.Started -> {
-                    bindChatVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }
@@ -1771,6 +1797,7 @@ class ChatViewModel @Inject constructor(
                     _voiceCaptureState.value = VoiceCaptureState.Idle
                     _error.value = withVoiceSettingsHint(result.message)
                 }
+                is VoiceInputStartResult.Cancelled -> finishCancelledChatVoiceStart(result.captureSessionId)
             }
         }
     }
@@ -1786,9 +1813,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             _error.value = null
             _voiceCaptureState.value = VoiceCaptureState.Preparing
-            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
+            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command, ::bindChatVoiceSession)) {
                 is VoiceInputStartResult.Started -> {
-                    bindChatVoiceSession(result.captureSessionId)
                     if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
                         _voiceCaptureState.value = VoiceCaptureState.Listening()
                     }
@@ -1799,6 +1825,7 @@ class ChatViewModel @Inject constructor(
                     _voiceCaptureState.value = VoiceCaptureState.Idle
                     _error.value = withVoiceSettingsHint(result.message)
                 }
+                is VoiceInputStartResult.Cancelled -> finishCancelledChatVoiceStart(result.captureSessionId)
             }
         }
     }

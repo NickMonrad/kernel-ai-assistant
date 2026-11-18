@@ -35,6 +35,7 @@ import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -118,10 +119,11 @@ internal sealed interface CaptureStartResult {
         val ownedStartEvents: List<VoiceInputEvent>,
     ) : CaptureStartResult
 
-    data class Unavailable(
-        val message: String?,
-    ) : CaptureStartResult {
+    data class Unavailable(val message: String?) : CaptureStartResult {
         override val captureSessionId: Long get() = -1L
+    }
+    data class Cancelled(val sessionId: Long?) : CaptureStartResult {
+        override val captureSessionId: Long get() = sessionId ?: -1L
     }
 }
 
@@ -187,13 +189,14 @@ internal fun terminaliseClockAlertVoiceJournal(
 internal suspend fun bufferedCaptureSession(
     voiceInputController: VoiceInputController,
     mode: VoiceCaptureMode,
+    onSessionAdmitted: (Long) -> Unit = {},
 ): CaptureStartResult = coroutineScope {
     val startupChannel = Channel<VoiceInputEvent>(Channel.BUFFERED)
     val collectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
         voiceInputController.events.collect { startupChannel.send(it) }
     }
     try {
-        when (val startResult = voiceInputController.startListening(mode)) {
+        when (val startResult = voiceInputController.startListening(mode, onSessionAdmitted)) {
             is VoiceInputStartResult.Started -> {
                 val ownedEvents = mutableListOf<VoiceInputEvent>()
                 while (true) {
@@ -208,6 +211,7 @@ internal suspend fun bufferedCaptureSession(
                 )
             }
             is VoiceInputStartResult.Unavailable -> CaptureStartResult.Unavailable(startResult.message)
+            is VoiceInputStartResult.Cancelled -> CaptureStartResult.Cancelled(startResult.captureSessionId)
         }
     } finally {
         collectorJob.cancelAndJoin()
@@ -740,7 +744,14 @@ class ClockAlertService : Service() {
 
         serviceScope.launch {
             try {
-                when (val result = bufferedCaptureSession(voiceInputController, VoiceCaptureMode.AlertCommand)) {
+                when (
+                    val result = bufferedCaptureSession(
+                        voiceInputController,
+                        VoiceCaptureMode.AlertCommand,
+                    ) { sessionId ->
+                        if (voiceJournal === attemptJournal) captureSessionId = sessionId
+                    }
+                ) {
                     is CaptureStartResult.Started -> {
                         if (!ownsCurrentVoiceJournal(voiceJournal, attemptJournal)) return@launch
                         captureSessionId = result.captureSessionId
@@ -755,6 +766,11 @@ class ClockAlertService : Service() {
                             voiceJournal = terminaliseClockAlertVoiceJournal(attemptJournal, completed = false, "stt_unavailable")
                             finishVoiceCapture(alertVoiceUnavailableMessage(result.message), "stt_unavailable")
                         }
+                    }
+                    is CaptureStartResult.Cancelled -> {
+                        val sessionId = result.sessionId
+                        if (sessionId == null) cleanupCancelledAlertAttempt(attemptJournal)
+                        else cleanupCancelledAlertSession(attemptJournal, sessionId)
                     }
                 }
             } catch (e: CancellationException) {
@@ -797,11 +813,41 @@ class ClockAlertService : Service() {
                 finishVoiceCapture(event.message, "stt_recognition_failed")
             }
             is VoiceInputEvent.ListeningStopped -> {
-                if (!handledVoiceTranscript) {
+                if (event.cancelled) {
+                    voiceJournal?.let { journal ->
+                        cleanupCancelledAlertSession(journal, event.captureSessionId)
+                    }
+                } else if (!handledVoiceTranscript) {
                     captureSessionId = null
                     finishVoiceCapture("I didn't catch a supported alert command.", "stt_stopped_without_result")
                 }
             }
+        }
+    }
+    private fun cleanupCancelledAlertAttempt(attemptJournal: WakeSessionJournal) {
+        if (!ownsCurrentVoiceJournal(voiceJournal, attemptJournal)) return
+        isVoiceListening = false
+        clearVoiceNotice()
+        captureSessionId = null
+        handledVoiceTranscript = false
+        voiceJournal = terminaliseClockAlertVoiceJournal(attemptJournal, completed = false, "voice_start_cancelled")
+        if (activeAlerts.isNotEmpty()) {
+            voiceStatusMessage = "Voice command cancelled."
+            refreshForeground()
+            restorePlaybackAfterVoiceCapture()
+        }
+    }
+    private fun cleanupCancelledAlertSession(attemptJournal: WakeSessionJournal, sessionId: Long) {
+        if (voiceJournal !== attemptJournal || captureSessionId != sessionId) return
+        captureSessionId = null
+        isVoiceListening = false
+        handledVoiceTranscript = false
+        clearVoiceNotice()
+        voiceJournal = terminaliseClockAlertVoiceJournal(voiceJournal, completed = false, "voice_start_cancelled")
+        if (activeAlerts.isNotEmpty()) {
+            voiceStatusMessage = "Voice command cancelled."
+            refreshForeground()
+            restorePlaybackAfterVoiceCapture()
         }
     }
     private suspend fun handleVoiceTranscript(alert: TriggeredClockAlert, transcript: String) {

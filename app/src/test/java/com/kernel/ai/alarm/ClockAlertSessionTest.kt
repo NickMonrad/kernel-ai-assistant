@@ -58,6 +58,18 @@ class ClockAlertSessionTest {
     }
 
     @Test
+    fun `cancelled terminal belongs only to its matching alert capture`() {
+        val cancelled = VoiceInputEvent.ListeningStopped(
+            VoiceCaptureMode.AlertCommand,
+            captureSessionId = 41L,
+            cancelled = true,
+        )
+
+        assertTrue(isOwnedAlertEvent(cancelled, captureSessionId = 41L, isVoiceListening = true))
+        assertFalse(isOwnedAlertEvent(cancelled, captureSessionId = 42L, isVoiceListening = true))
+    }
+
+    @Test
     fun `readiness while not listening returns false`() {
         assertFalse(shouldPlayClockAlertListeningCue(
             VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 42L), 42L, false,
