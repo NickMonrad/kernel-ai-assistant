@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "phrases": [
+    {"id": "A-01", "text": "Kia ora Jandal, what's the weather in Tauranga tomorrow?"},
+    {"id": "A-02", "text": "Navigate to Pūkekohe."},
+    {"id": "A-03", "text": "How far is it from Porirua to Petone?"},
+    {"id": "A-04", "text": "Is it raining in Whanganui?"},
+    {"id": "A-05", "text": "Remind me to ring Aunty in Matamata on Sunday."},
+    {"id": "A-06", "text": "What's the weather like in Taupō this weekend?"},
+    {"id": "A-07", "text": "Navigate to Paraparaumu Beach."},
+    {"id": "A-08", "text": "Add a trip to Te Awamutu to my calendar on Saturday."},
+    {"id": "A-09", "text": "How long is the drive from Taihape to the Waikato?"},
+    {"id": "A-10", "text": "Find a café in Whakatāne."},
+    {"id": "A-11", "text": "Where did I leave my jandals?"},
+    {"id": "A-12", "text": "Jandal, set a timer for twelve minutes."},
+    {"id": "B-01", "text": "Set an alarm for seven forty-five tomorrow morning."},
+    {"id": "B-02", "text": "Add two kilos of potatoes and some milk to the shopping list."},
+    {"id": "B-03", "text": "Note to self: check the tyre pressure before the trip."},
+    {"id": "B-04", "text": "Can you give me a quick recipe for pavlova?"},
+    {"id": "B-05", "text": "Text Mum that I'm running ten minutes late."},
+    {"id": "C-01", "text": "Turn the torch on."},
+    {"id": "C-02", "text": "What's on my calendar on Thursday?"},
+    {"id": "C-03", "text": "Play some music."}
+  ]
+}
