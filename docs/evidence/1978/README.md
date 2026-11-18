@@ -16,9 +16,10 @@ Provenance limit: the clip was made once with `espeak-ng -v en-us -w clip.wav "<
 
 Driver: `onnx/asr4all_onnx.py` at the pinned revision above. The two local copies are identical, sha256 `f173c6d61a004d8596d6f9b3623716167176639440920a92917f902d5566bba4`. Python venv: `/tmp/asr4all-ref/.venv` (versions not recorded).
 
-Model dirs:
-- S = trimmed copy of the pinned release: `stream_c16r4.onnx`, `stream_c32r8.onnx`, `pcec_c16.onnx`, `pcec_c16_flush.onnx`, `asr4all.onnx.data`, `metadata.json`. The full S release also lists tiers whose files are absent, so the driver fails on the untrimmed dir.
-- M = the `m` bundle above (revision `7d6e9145…`, verified as described in the pinned upstream section).
+- S = the exact trimmed copy used by parity: `stream_c16r4.onnx`, `stream_c32r8.onnx`, `pcec_c16.onnx`, `pcec_c16_flush.onnx`, `asr4all.onnx.data`, and `metadata.json`. The full S release metadata also lists tiers whose graphs are absent, so that unmodified directory fails in the Python driver. Trimming is only for the Python reference input; parity requires the exact file set and SHA-256 of the actual trimmed model files and metadata.
+- M = the exact `m` bundle above (revision `7d6e9145…`, verified as described in the pinned upstream section). The model-file set is the 13 production files listed by `parity-expected.tsv`; an adjacent pinned `asr4all_onnx.py` reference helper is allowed only when its separately pinned SHA-256 matches.
+
+The expected per-file digests are in `parity-expected.tsv` and are checked before Kotlin decoding. The WAV digest remains checked separately. This identifies model bytes strictly; it does not validate download integrity in the app.
 
 Driver commands (run from `/tmp/asr4all-ref`, outside Git; `matrix.sh` issued them):
 ```
@@ -27,9 +28,9 @@ python asr4all_onnx.py <S-dir> clip.wav --tier stream_c16r4 --no-pcec    # offli
 python asr4all_onnx.py <S-dir> clip.wav --tier stream_c16r4 --stream     # stream PCEC (final "pcec:" line)
 python asr4all_onnx.py <S-dir> clip.wav --tier stream_c32r8              # and the same three for c32r8
 ```
-The same six invocations were repeated for M with `<M-dir>`. Expected strings are committed in `core/voice/src/test/resources/asr4all/parity-expected.tsv` (text only).
+The same six invocations were repeated for M with `<M-dir>`. The pinned Python driver also supplied partial expectations by feeding chunks of 8,000 samples and calling `decode_pcec(decode_tail=True)` after chunk index 6, before `finish()`. These partials exercise the unflushed PCEC cache, independently of Kotlin. All expected strings and model digests are committed in `core/voice/src/test/resources/asr4all/parity-expected.tsv` (text only).
 
-Reference outputs (driver); the Kotlin test reproduces all 12 rows:
+Reference outputs (pinned driver): 12 final-text rows plus four intermediate partial rows:
 
 | Model | Tier | Mode | Driver output |
 |---|---|---|---|
@@ -45,20 +46,27 @@ Reference outputs (driver); the Kotlin test reproduces all 12 rows:
 | M | c32r8 | offline PCEC | `A candle, what is the weather like can p on tomorrow? Remind me to call them at five.` |
 | M | c32r8 | offline plain | `a candle what is the weather like can pet on tomorrow remind me to call the at five` |
 | M | c32r8 | stream PCEC | `A candle, what is the weather like can p on tomorrow? Remind me to call them at five.` |
+| S | c16r4 | partial PCEC, chunk 6 | `Weather like in p on to` |
+| S | c32r8 | partial PCEC, chunk 6 | `Hey gandle.` |
+| M | c16r4 | partial PCEC, chunk 6 | `Candandle, what is the weather like can p on?` |
+| M | c32r8 | partial PCEC, chunk 6 | `A candandle, what is` |
 
-Kotlin `Asr4allEngineParityTest` (`ASR4ALL_PARITY=required`, fresh `--rerun --no-daemon`, counts from the XML of each run):
-- S: 8 tests (6 row tests + 2 engine tests), 0 skipped, 0 failures.
-- M: 8 tests, 0 skipped, 0 failures.
-- Negative control: M expectations against the S dir: 8 of 8 fail.
-- Required mode with inputs absent: 3 of 3 fail. Default mode with inputs absent: 3 of 3 skipped (reason visible in XML).
-- Full `:core:voice` (forced rerun, parity inputs unset): 626 tests, 3 skipped, 0 failures.
+Kotlin `Asr4allEngineParityTest` (`ASR4ALL_PARITY=required`, fresh `--rerun --no-daemon`; XML at `core/voice/build/test-results/testDebugUnitTest/TEST-com.kernel.ai.core.voice.asr4all.Asr4allEngineParityTest.xml`):
+- S: 10 tests (8 parity rows + 2 engine checks), 0 skipped, 0 failures.
+- M: 10 tests, 0 skipped, 0 failures.
+- Negative control: M expectations with the S model directory: identity rejects the six-file S set instead of the required 13-file M set; all 3 test cases fail (identity mismatch plus mismatched final outputs).
+- Intermediate rows: 4 pinned Python-driver partial PCEC outputs at chunk index 6; final rows remain 12.
+- Ordinary mode with parity inputs unset: 3 tests, 3 skipped (missing-input assumption shown in XML), 0 failures.
+
+Historical checks on the earlier 6-row test version: required mode with inputs absent reported 3/3 failures; ordinary mode reported 3/3 skips. The older forced-run `:core:voice` baseline was 626 tests, 3 skipped, 0 failures; it predates the parity additions below.
 
 Earlier repo-fixture run: a different parity run reported 6/7 failures. Its input was different or unverified (fixture hash not recorded), so it is not a known failure on the SHA above and is not reproduced by these results. It remains unverified until rerun with the pinned fixture hash.
 
-Command for the S parity run:
+S rerun:
 ```
-ASR4ALL_PARITY=required ASR4ALL_PARITY_MODEL=S ASR4ALL_MODEL_DIR=/tmp/asr4all-s/onnx-min ASR4ALL_FIXTURE_WAV=/tmp/asr4all-ref/clip.wav ./gradlew --no-daemon :core:voice:testDebugUnitTest --rerun --tests 'com.kernel.ai.core.voice.asr4all.Asr4allEngineParityTest'
+ANDROID_HOME=/home/lokhor/Android/Sdk ASR4ALL_PARITY=required ASR4ALL_PARITY_MODEL=S ASR4ALL_MODEL_DIR=/tmp/asr4all-s/onnx-min ASR4ALL_FIXTURE_WAV=/tmp/asr4all-ref/clip.wav ./gradlew --no-daemon :core:voice:testDebugUnitTest --rerun --tests 'com.kernel.ai.core.voice.asr4all.Asr4allEngineParityTest'
 ```
+M rerun uses `ASR4ALL_PARITY_MODEL=M` and `ASR4ALL_MODEL_DIR=/tmp/asr4all-ref-1987/m`; same remaining environment and Gradle arguments.
 
 Host harness: `Asr4allTierMeasurementTest` is a plain host-JVM test (`src/test`, `javax.sound`). It runs only as a smoke check that the harness executes. Its timings are host-only and are not decision evidence. It does not measure criterion 4 on Android; that needs an instrumentation test, which has not landed. No tier choice is made from it.
 

@@ -1,8 +1,10 @@
 package com.kernel.ai.core.voice.asr4all
 
+import ai.onnxruntime.OnnxJavaType
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 
 /**
  * The token-space second pass for punctuation, capitalisation and error correction. Port of
@@ -25,8 +27,6 @@ internal class Asr4allPcec(
     /** Rendered slot ids accumulated across committed blocks. */
     val slots = ArrayList<Int>()
 
-    private var state = FloatArray(0)
-    private var seen = LongArray(1)
     private val tokIds = ArrayList<Int>()
     private val pauseBuckets = ArrayList<Int>()
     private val acoustic = ArrayList<FloatArray>()
@@ -34,6 +34,7 @@ internal class Asr4allPcec(
     private var open: OpenToken? = null
     private var blanks = 0
     private var prev = -1
+    private var carry: OrtSession.Result? = null
 
     private class OpenToken(val id: Int, val hiddenSum: DoubleArray, var frames: Int, val leadingBlanks: Int)
 
@@ -42,8 +43,8 @@ internal class Asr4allPcec(
     }
 
     fun reset() {
-        state = FloatArray(stream.inputShape("${p}_state")[1].toInt())
-        seen = LongArray(1)
+        carry?.close()
+        carry = null
         tokIds.clear()
         pauseBuckets.clear()
         acoustic.clear()
@@ -54,16 +55,20 @@ internal class Asr4allPcec(
         prev = -1
     }
 
+    fun close() {
+        carry?.close()
+        carry = null
+    }
+
     /** One committed chunk of frames -> pooled tokens. [hidden] is row-major [frames, dim]. */
     fun pool(frameIds: IntArray, hidden: FloatArray) {
         for (t in frameIds.indices) {
             val fid = frameIds[t]
-            if (fid != prev && fid != meta.blankId) { // a new token starts here
+            if (fid != prev && fid != meta.blankId) {
                 open?.let(::emit)
                 open = OpenToken(fid, DoubleArray(dim) { d -> hidden[t * dim + d].toDouble() }, 1, blanks)
                 blanks = 0
             } else {
-                // a repeat or a blank belongs to the open token
                 open?.let { o ->
                     for (d in 0 until dim) o.hiddenSum[d] += hidden[t * dim + d]
                     o.frames += 1
@@ -86,17 +91,14 @@ internal class Asr4allPcec(
         pauseBuckets += pauseBucket(o.leadingBlanks)
     }
 
-    /** Runs every whole commit that is ready; leftovers stay buffered. */
+    /** Runs every whole commit that is ready; caches remain in the ORT result. */
     fun drain() {
         while (tokIds.size >= commit) {
-            val out = runGraph(stream, listOf("${p}_slots", "${p}_state_out", "${p}_seen_out"), commit, commit, flushed = false)
-            // The delay line holds `lookahead` tokens; until that many have gone through it,
-            // its head is still warm-up from before the utterance. Drop those slots.
+            val out = runGraph(stream, listOf("${p}_slots", "${p}_state_out", "${p}_seen_out"), commit, commit, false)
+            // The delay line holds lookahead tokens; omit warm-up slots until that prefix is consumed.
             val skip = minOf(2 * commit, maxOf(0, 2 * lookahead - 2 * consumed))
-            val s = out.longs("${p}_slots")
+            val s = out[0]
             for (i in skip until 2 * commit) slots += s[i].toInt()
-            state = out.floats("${p}_state_out")
-            seen = out.longs("${p}_seen_out")
             repeat(commit) {
                 tokIds.removeAt(0)
                 pauseBuckets.removeAt(0)
@@ -109,8 +111,7 @@ internal class Asr4allPcec(
     /** The last partial commit plus whatever is still inside the model. */
     fun tail(): List<Int> {
         val n = tokIds.size
-        val out = runGraph(flush, listOf("${p}_tail_slots"), commit, n, flushed = true)
-        val flat = out.longs("${p}_tail_slots")
+        val flat = runGraph(flush, listOf("${p}_tail_slots"), commit, n, true).single()
         val valid = minOf(flat.size, 2 * lookahead + 2 * n + 1)
         val skip = maxOf(0, 2 * lookahead - 2 * consumed)
         return if (skip >= valid) emptyList() else (skip until valid).map { flat[it].toInt() }
@@ -124,39 +125,97 @@ internal class Asr4allPcec(
         k: Int,
         n: Int,
         flushed: Boolean,
-    ): Map<String, Any> {
-        val inputs = feeds(k, n).toMutableMap()
-        if (flushed) inputs["${p}_n_real"] = env.longs(longArrayOf(n.toLong()), LongArray(0))
-        return session.runCopy(inputs, outputs)
+    ): List<LongArray> {
+        val carryBefore = carry
+        val borrowedState = carryBefore?.let { it.get("${p}_state_out").orElseThrow() as OnnxTensor }
+        val borrowedSeen = carryBefore?.let { it.get("${p}_seen_out").orElseThrow() as OnnxTensor }
+        val feeds = feeds(session, k, n, carryBefore == null)
+        var nReal: OnnxTensor? = null
+        var next: OrtSession.Result? = null
+        try {
+            if (borrowedState != null) feeds["${p}_state"] = borrowedState
+            if (borrowedSeen != null) feeds["${p}_seen"] = borrowedSeen
+            if (flushed) {
+                nReal = env.longs(longArrayOf(n.toLong()), LongArray(0))
+                feeds["${p}_n_real"] = nReal
+            }
+            next = session.run(feeds, outputs.toSet())
+            val slotsTensor = next.get(outputs.first()).orElseThrow() as OnnxTensor
+            check(slotsTensor.info.type == OnnxJavaType.INT64) {
+                "unsupported PCEC slots output type ${slotsTensor.info.type} for ${outputs.first()}"
+            }
+            val slotBuffer = slotsTensor.longBuffer
+            val result = LongArray(slotBuffer.remaining()).also(slotBuffer::get)
+            if (!flushed) {
+                carry = next
+                next = null
+                carryBefore?.close()
+            }
+            return listOf(result)
+        } finally {
+            feeds.values.forEach { tensor ->
+                if (tensor !== borrowedState && tensor !== borrowedSeen && tensor !== nReal) {
+                    runCatching { tensor.close() }
+                }
+            }
+            nReal?.close()
+            next?.close()
+        }
     }
 
-    /** A full block of `k` tokens, padded past the `n` real ones. */
-    private fun feeds(k: Int, n: Int): Map<String, OnnxTensor> {
+    private fun feeds(
+        session: OrtSession,
+        k: Int,
+        n: Int,
+        includeInitialCaches: Boolean,
+    ): MutableMap<String, OnnxTensor> {
         val ids = LongArray(k) { meta.padIn }
         val pause = LongArray(k) { meta.pauseBlackout }
         val ac = FloatArray(k * dim)
         for (i in 0 until n) {
             ids[i] = tokIds[i].toLong()
-            // real_pause is a training decision invisible in the graph: a model trained with the
-            // channel blacked out must be fed the blackout value.
+            // A model trained with the pause channel blacked out must keep receiving that value.
             if (meta.realPause) pause[i] = pauseBuckets[i].toLong()
             acoustic[i].copyInto(ac, i * dim)
         }
-        val keep = FloatArray(k)
-        return mapOf(
-            "${p}_hyp_ids" to env.longs(ids, longArrayOf(1, k.toLong())),
-            "${p}_pause" to env.longs(pause, longArrayOf(1, k.toLong())),
-            "${p}_acoustic" to env.floats(ac, longArrayOf(1, k.toLong(), dim.toLong())),
-            "${p}_keep" to env.floats(keep, longArrayOf(1, k.toLong())),
-            "${p}_state" to env.floats(state, longArrayOf(1, state.size.toLong())),
-            "${p}_seen" to env.longs(seen, longArrayOf(1)),
-        )
+        val feeds = mutableMapOf<String, OnnxTensor>()
+        val owned = ArrayList<OnnxTensor>(if (includeInitialCaches) 6 else 4)
+        try {
+            fun own(name: String, create: () -> OnnxTensor) {
+                val tensor = create()
+                owned += tensor
+                feeds[name] = tensor
+            }
+            own("${p}_hyp_ids") { env.longs(ids, longArrayOf(1, k.toLong())) }
+            own("${p}_pause") { env.longs(pause, longArrayOf(1, k.toLong())) }
+            own("${p}_acoustic") { env.floats(ac, longArrayOf(1, k.toLong(), dim.toLong())) }
+            own("${p}_keep") { env.floats(FloatArray(k), longArrayOf(1, k.toLong())) }
+            if (includeInitialCaches) {
+                own("${p}_state") { zeroInput(session, "${p}_state") }
+                own("${p}_seen") { zeroInput(session, "${p}_seen") }
+            }
+            return feeds
+        } catch (t: Throwable) {
+            owned.forEach { runCatching { it.close() } }
+            throw t
+        }
     }
+
+    private fun zeroInput(session: OrtSession, name: String): OnnxTensor {
+        val info = session.inputInfo.getValue(name).info as TensorInfo
+        val shape = info.shape
+        val count = shape.fold(1L) { acc, size -> acc * size }.toInt()
+        return when (info.type) {
+            OnnxJavaType.FLOAT -> env.floats(FloatArray(count), shape)
+            OnnxJavaType.INT64 -> env.longs(LongArray(count), shape)
+            else -> error("unsupported PCEC input type ${info.type} for $name")
+        }
+    }
+
 
     private fun pauseBucket(blanks: Int): Int = PAUSE_THRESHOLDS.count { blanks >= it }
 
     private companion object {
-        /** Blank-frame counts separating the pause buckets PCEC was trained on. */
         val PAUSE_THRESHOLDS = intArrayOf(1, 2, 4, 8, 16, 32, 64, 128)
     }
 }

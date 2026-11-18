@@ -63,7 +63,7 @@ class Asr4allEngine private constructor(
     private var blankRun = 0
 
     /** Valid committed acoustic frames since the last reset. Padded lookahead frames never count. */
-    internal val decodedFrameCount: Int get() = decodedFrames
+    val decodedFrameCount: Int get() = decodedFrames
 
     /** Consecutive valid committed CTC blank frames at the end of the stream since the last reset. */
     internal val trailingBlankFrames: Int get() = blankRun
@@ -124,6 +124,7 @@ class Asr4allEngine private constructor(
         closed = true
         runCatching { carry?.close() }
         carry = null
+        runCatching { pcec?.close() }
         owned.asReversed().forEach { runCatching { it.close() } }
     }
 
@@ -146,14 +147,15 @@ class Asr4allEngine private constructor(
         if (hi > start) pcm.copyInto(win, 0, start, hi)
 
         val prev = carry
-        val pcmIn = env.floats(win, longArrayOf(1, window.toLong()))
-        // First step of an utterance: zero caches, owned here. Later steps: the previous step's outputs.
-        val filterIn = prev?.tensor("${tierName}_filter_cache_out")
-            ?: env.floats(FloatArray(filterSize), longArrayOf(filterSize.toLong()))
-        val attnIn = prev?.tensor("${tierName}_attn_cache_out")
-            ?: env.floats(FloatArray(attnSize), longArrayOf(attnSize.toLong()))
-        val next = try {
-            stream.run(
+        val temporary = ArrayList<OnnxTensor>(3)
+        var next: OrtSession.Result? = null
+        try {
+            val pcmIn = env.floats(win, longArrayOf(1, window.toLong())).also(temporary::add)
+            val filterIn = prev?.tensor("${tierName}_filter_cache_out")
+                ?: env.floats(FloatArray(filterSize), longArrayOf(filterSize.toLong())).also(temporary::add)
+            val attnIn = prev?.tensor("${tierName}_attn_cache_out")
+                ?: env.floats(FloatArray(attnSize), longArrayOf(attnSize.toLong())).also(temporary::add)
+            next = stream.run(
                 mapOf(
                     "${tierName}_pcm" to pcmIn,
                     "filter_cache" to filterIn,
@@ -161,30 +163,28 @@ class Asr4allEngine private constructor(
                 ),
                 outputs,
             )
-        } finally {
-            pcmIn.close()
-            if (prev == null) {
-                filterIn.close()
-                attnIn.close()
-            }
-        }
-        // The previous outputs were consumed as inputs by the run above; the new ones now own the caches.
-        prev?.close()
-        carry = next
+            val result = next!!
+            carry = result
+            next = null
+            prev?.close()
 
-        val valid = minOf(commit, pcmLen / spf - nextFrame)
-        val logs = next.tensor("${tierName}_log_probs")
-        val vocab = (logs.info.numElements / commit).toInt()
-        val logBuf = logs.floatBuffer
-        val frameIds = IntArray(valid) { t -> argmax(logBuf, t * vocab, vocab) }
-        val hidden = if (pcec != null) {
-            val h = next.tensor("${tierName}_hidden")
-            FloatArray(h.info.numElements.toInt()).also { h.floatBuffer.duplicate().get(it) }
-        } else {
-            null
+            val valid = minOf(commit, pcmLen / spf - nextFrame)
+            val logs = result.tensor("${tierName}_log_probs")
+            val vocab = (logs.info.numElements / commit).toInt()
+            val logBuf = logs.floatBuffer
+            val frameIds = IntArray(valid) { t -> argmax(logBuf, t * vocab, vocab) }
+            val hidden = if (pcec != null) {
+                val h = result.tensor("${tierName}_hidden")
+                FloatArray(h.info.numElements.toInt()).also { h.floatBuffer.duplicate().get(it) }
+            } else {
+                null
+            }
+            commit(frameIds, hidden)
+            nextFrame += commit
+        } finally {
+            temporary.forEach { runCatching { it.close() } }
+            next?.close()
         }
-        commit(frameIds, hidden)
-        nextFrame += commit
     }
 
     /** Frames that are final: into the transcript, and into PCEC. */
