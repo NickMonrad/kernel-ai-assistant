@@ -35,7 +35,7 @@ The verifier runs against the exact AAB produced by `bundleRelease`. CI evidence
 |---|---|---|
 | Gemma 4 E-2B / E-4B LiteRT-LM | Download on demand | Named upstream LiteRT-LM repositories; Apache-2.0 metadata recorded. |
 | Arctic Embed M v1.5 + vocabulary | Download/bundled vocabulary | Snowflake source revision `e58a8f756156a1293d763f17e3aae643474e9b8a`; Apache-2.0; pinned vocabulary identity recorded. |
-| MiniLM-L6 intent classifier | Bundled | Upstream `sentence-transformers/all-MiniLM-L6-v2`; Apache-2.0; Jandal conversion lineage recorded in the in-app asset catalogue. |
+| MiniLM-L6 intent classifier | Bundled | Exact pre-converted asset from `Nihal2000/all-MiniLM-L6-v2-quant.tflite` commit `ad6c27c81b2c156925c1fb038d533f52f94ccd77`; Apache-2.0; bundled SHA-256 `0aac5b0b76be23ab94f065a7fab6e0daead5e57f6ff7d55e19a2641d6a81f276`; upstream lineage is `sentence-transformers/all-MiniLM-L6-v2`. |
 | Android native STT | Release-visible | Android platform/provider terms; offline availability is device/provider dependent. |
 | Sherpa STT engines/models | Debug/internal only | Excluded from v0.1 with the unresolved Sherpa runtime distribution path. |
 | Android TTS | Release-visible | Android platform/installed-engine terms. |

@@ -36,9 +36,9 @@ object ReleaseAssetAttributionCatalog {
                 "Arctic Embed M v1.5; source revision e58a8f756156a1293d763f17e3aae643474e9b8a",
             )
             KernelModel.MINI_LM -> Triple(
-                "sentence-transformers/all-MiniLM-L6-v2; bundled by Jandal",
-                "Apache-2.0 (upstream model)",
-                "Jandal's committed INT8 TFLite conversion of sentence-transformers/all-MiniLM-L6-v2; bundled asset identity is recorded by the release artifact",
+                "Nihal2000/all-MiniLM-L6-v2-quant.tflite · commit ad6c27c81b2c156925c1fb038d533f52f94ccd77",
+                "Apache-2.0",
+                "Pre-converted INT8 TFLite derivative of sentence-transformers/all-MiniLM-L6-v2; bundled SHA-256 0aac5b0b76be23ab94f065a7fab6e0daead5e57f6ff7d55e19a2641d6a81f276",
             )
             KernelModel.SHERPA_STT_ENCODER, KernelModel.SHERPA_STT_DECODER,
             KernelModel.SHERPA_STT_JOINER, KernelModel.SHERPA_STT_TOKENS -> Triple(
