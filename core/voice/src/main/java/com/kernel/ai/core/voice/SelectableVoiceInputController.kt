@@ -175,6 +175,11 @@ class SelectableVoiceInputController @Inject constructor(
     private val startMutex = Mutex()
     private val preferenceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Bumped by every start and by every engine switch away from asr4all. Any thread. */
+    private val asr4allStartSeq = AtomicLong(0)
+    /** Start sequence each asr4all session was allocated under. Main only. */
+    private val asr4allSessionSeq = HashMap<Long, Long>()
+
     init {
         // Moving the selection away from asr4all releases its engine now, not on the next capture.
         // The first emission (startup) is a no-op because nothing is loaded yet.
@@ -197,10 +202,6 @@ class SelectableVoiceInputController @Inject constructor(
     private var expectedNativeSessionId: Long? = null
     private var nativeFacts: NativeSessionFacts? = null
     private var handoff: ZipformerHandoff? = null
-    /** Bumped by every start and by every engine switch away from asr4all. Any thread. */
-    private val asr4allStartSeq = AtomicLong(0)
-    /** Start sequence each asr4all session was allocated under. Main only. */
-    private val asr4allSessionSeq = HashMap<Long, Long>()
 
     private val pipelineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val outbound = voiceEventFlow()

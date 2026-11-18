@@ -190,9 +190,10 @@ class Asr4allVoiceInputController @Inject constructor(
                 )
             }
 
-            // Stop during the load does not drop the capture: the pre-roll is decoded and the
-            // explicit stop finalizes it. Only a supersede discards it.
-            if (discard.get()) {
+            // A stop that lands while the model loads ends the capture without a final, matching
+            // the Sherpa cold-load contract. Only a capture already attached to a ready engine is
+            // finalized by an explicit stop; a supersede discards in every case.
+            if (discard.get() || stop.get()) {
                 halt(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
                 return@withLock VoiceInputStartResult.Started(sessionId)

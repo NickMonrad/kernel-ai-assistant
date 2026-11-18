@@ -1161,4 +1161,23 @@ class VoiceViewModelTest {
 
         assertTrue(viewModel.uiState.value.isDefaultAssistant)
     }
+
+    @Test
+    fun `deleting asr4all files is routed through the exclusive engine release`() {
+        val log = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val done = java.util.concurrent.CountDownLatch(1)
+        // The release body is not run: the mock context has no filesDir, so file deletion cannot
+        // execute here. This test pins only that deletion is wrapped by the release.
+        coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } coAnswers {
+            log += "enter"
+            log += "exit"
+            done.countDown()
+        }
+
+        viewModel.deleteSherpaStt(VoiceInputEngine.Asr4all)
+
+        assertTrue(done.await(5, java.util.concurrent.TimeUnit.SECONDS), "deletion did not reach the release")
+        assertEquals(listOf("enter", "exit"), log.toList())
+        coVerify(exactly = 1) { asr4allVoiceInputController.withEngineReleased<Unit>(any()) }
+    }
 }

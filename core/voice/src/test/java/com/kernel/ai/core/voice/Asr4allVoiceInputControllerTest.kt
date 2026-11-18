@@ -51,6 +51,8 @@ class Asr4allVoiceInputControllerTest {
     /** Set to block engine construction until the test releases it. */
     @Volatile private var engineGate: CountDownLatch? = null
     private val engineEntered = CountDownLatch(1)
+    /** When true, PCEC renders empty until the stream is finished (raw CTC still reports text). */
+    @Volatile private var pcecEmptyUntilFinish = false
 
     private fun controller(): Asr4allVoiceInputController {
         var opened = 0
@@ -95,6 +97,7 @@ class Asr4allVoiceInputControllerTest {
     private fun newEngine(index: Int): Asr4allEngine = mockk<Asr4allEngine>(relaxed = true).also { e ->
         var calls = 0
         var frames = 0
+        var finished = false
         every { e.decodeStream(any()) } answers {
             calls++
             if (calls % advanceEvery == 0) frames++
@@ -104,10 +107,10 @@ class Asr4allVoiceInputControllerTest {
         every { e.trailingBlankFrames } answers { if (frames >= blankAfterFrames) ENDPOINT_FRAMES else 0 }
         every { e.decodePcec(any()) } answers {
             renderGate?.let { renderStarted.countDown(); it.await(5, TimeUnit.SECONDS) }
-            "Final text."
+            if (pcecEmptyUntilFinish && !finished) "" else "Final text."
         }
         every { e.reset() } answers { log += "reset#$index" }
-        every { e.finish() } answers { log += "finish#$index"; "" }
+        every { e.finish() } answers { finished = true; log += "finish#$index"; "" }
         every { e.close() } answers { log += "close#$index" }
     }
 
@@ -270,6 +273,91 @@ class Asr4allVoiceInputControllerTest {
         assertTrue(focusAbandonedSignal.tryAcquire(focusRequests.get(), 5, TimeUnit.SECONDS), "failed open must abandon focus")
         assertEquals(micOpens.get(), micReleases.get())
         assertEquals(focusRequests.get(), focusAbandons.get())
+    }
+
+    @Test
+    fun `a stop during a cold model load releases mic and focus before the load ends and emits no transcript`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        val gate = CountDownLatch(1)
+        engineGate = gate
+        try {
+            val start = launch { c.startListening(VoiceCaptureMode.Command) }
+            assertTrue(engineEntered.await(5, TimeUnit.SECONDS))
+            assertEquals(1, micOpens.get(), "the mic opens before the model loads")
+
+            c.stopListening()
+            // Handshake: the reader must release the mic and focus while the load is still blocked.
+            assertTrue(micReleasedSignal.tryAcquire(1, 5, TimeUnit.SECONDS), "stop must release the mic during the load")
+            assertTrue(focusAbandonedSignal.tryAcquire(1, 5, TimeUnit.SECONDS), "stop must abandon focus during the load")
+            assertEquals(0, log.count { it == "open#1" }, "the load has not finished")
+
+            gate.countDown()
+            start.join()
+            collected.awaitStops(1)
+            assertEquals(emptyList<String>(), collected.transcripts())
+            assertEquals(0, log.count { it == "finish#1" })
+            assertEquals(1, collected.started())
+
+            // A new route takes focus only after the old one is abandoned.
+            firstFrame = CountDownLatch(1)
+            startedId(c.startListening(VoiceCaptureMode.Command))
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            assertEquals(2, focusRequests.get())
+            assertEquals(1, focusAbandons.get())
+            c.releaseEngine()
+        } finally {
+            engineGate = null
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a start waits for an exclusive engine release and opens nothing during it`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        c.prewarm()
+        val inside = CountDownLatch(1)
+        val leave = CountDownLatch(1)
+        val exclusive = launch {
+            c.withEngineReleased {
+                log += "exclusive-enter"
+                inside.countDown()
+                leave.await(5, TimeUnit.SECONDS)
+                log += "exclusive-exit"
+            }
+        }
+        assertTrue(inside.await(5, TimeUnit.SECONDS))
+        val start = launch { c.startListening(VoiceCaptureMode.Command) }
+        leave.countDown()
+        exclusive.join()
+        start.join()
+
+        assertTrue(log.indexOf("exclusive-exit") < log.indexOf("open#2"), "log=$log")
+        assertEquals(1, log.count { it == "exclusive-enter" })
+        c.releaseEngine()
+    }
+
+    @Test
+    fun `a one-word utterance with empty interim PCEC endpoints on raw CTC evidence and renders the final`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            pcecEmptyUntilFinish = true
+            blankAfterFrames = 0
+            firstFrame = CountDownLatch(1)
+            c.startListening(VoiceCaptureMode.Command)
+            collected.awaitStops(1)
+
+            assertEquals(listOf("Final text."), collected.transcripts())
+            assertEquals(0, collected.events.count { it is VoiceInputEvent.Error }, "no false no-speech")
+            assertEquals(1, log.count { it == "finish#1" })
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
     }
 
     @Test

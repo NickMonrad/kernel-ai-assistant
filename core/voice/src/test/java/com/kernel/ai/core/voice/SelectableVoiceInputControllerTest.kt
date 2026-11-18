@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -434,5 +435,39 @@ class SelectableVoiceInputControllerTest {
         selected.value = VoiceInputEngine.AndroidNative
 
         withTimeout(5_000) { released.await() }
+    }
+
+    @Test
+    fun `events from a superseded asr4all session never forward and the current session does`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Asr4all)
+        var starts = 0L
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } answers {
+            starts++
+            val id = 4L + starts
+            thirdArg<(Long) -> Unit>().invoke(id)
+            VoiceInputStartResult.Started(id)
+        }
+        val c = controller()
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        c.startListening(VoiceCaptureMode.Command)
+        asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "first", 5L))
+        advanceUntilIdle()
+
+        c.startListening(VoiceCaptureMode.Command)
+        asr4allEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 5L))
+        asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "stale", 5L))
+        asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "second", 6L))
+        advanceUntilIdle()
+
+        c.stopListening()
+        asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "final", 6L))
+        advanceUntilIdle()
+
+        advanceUntilIdle()
+        assertEquals(listOf("first", "second", "final"), seen.filterIsInstance<VoiceInputEvent.Transcript>().map { it.text })
+        assertFalse(seen.any { it is VoiceInputEvent.ListeningStopped && it.captureSessionId == 5L })
     }
 }
