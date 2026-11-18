@@ -67,7 +67,7 @@ class SelectableVoiceInputHandoffTest {
         every { native.stopListening() } just runs
         every { sherpa.stopListening() } just runs
         coEvery { sherpa.isSpecAvailable(any()) } returns true
-        coEvery { native.startListening(any(), any(), any()) } coAnswers {
+        coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(1L)
             VoiceInputStartResult.Started(1L)
         }
@@ -382,7 +382,7 @@ class SelectableVoiceInputHandoffTest {
         nativeEvents.emit(stalled(1L))
         advanceUntilIdle()
 
-        coEvery { native.startListening(any(), any(), any()) } coAnswers {
+        coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(3L)
             VoiceInputStartResult.Started(3L)
         }
@@ -403,7 +403,7 @@ class SelectableVoiceInputHandoffTest {
         val seen = eventsOf(c)
 
         c.startListening(mode)
-        coEvery { native.startListening(any(), any(), any()) } coAnswers {
+        coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(3L)
             VoiceInputStartResult.Started(3L)
         }
@@ -422,7 +422,7 @@ class SelectableVoiceInputHandoffTest {
     @Test
     fun `native start failure falls back at start, routes zipformer readiness and replays the note`() =
         runTest(dispatcher) {
-            coEvery { native.startListening(any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
+            coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
             zipformerStartsAs(2L)
             val c = controller()
             val seen = eventsOf(c)
@@ -439,7 +439,7 @@ class SelectableVoiceInputHandoffTest {
     @Test
     fun `native reservation failure keeps capture activity fenced while zipformer fallback is pending`() =
         runTest(dispatcher) {
-            coEvery { native.startListening(any(), any(), any()) } coAnswers {
+            coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
                 thirdArg<(Long) -> Unit>().invoke(101L)
                 VoiceInputStartResult.Unavailable("native unavailable")
             }
@@ -472,7 +472,7 @@ class SelectableVoiceInputHandoffTest {
 
     @Test
     fun `unavailable fallback retires its reserved admission without waiting for a terminal`() = runTest(dispatcher) {
-        coEvery { native.startListening(any(), any(), any()) } coAnswers {
+        coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(101L)
             VoiceInputStartResult.Unavailable("native failed")
         }
@@ -522,7 +522,7 @@ class SelectableVoiceInputHandoffTest {
 
     @Test
     fun `cancelling the caller during the start-time zipformer load cancels the load`() = runTest(dispatcher) {
-        coEvery { native.startListening(any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
+        coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
         val loadCancelled = zipformerLoadHangs()
         val c = controller()
 
@@ -537,7 +537,7 @@ class SelectableVoiceInputHandoffTest {
 
     @Test
     fun `stop during start-time zipformer load returns admitted cancellation without ghost start`() = runTest(dispatcher) {
-        coEvery { native.startListening(any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
+        coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
         val loadCancelled = zipformerLoadHangs()
         every { sherpa.cancelListeningForSession(2L) } answers {
             sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))

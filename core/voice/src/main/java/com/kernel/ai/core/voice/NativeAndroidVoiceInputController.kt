@@ -334,9 +334,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
         mode: VoiceCaptureMode,
         allowPlatformFallback: Boolean,
         onSessionAdmitted: (Long) -> Unit = {},
+        isWanted: () -> Boolean = { true },
     ): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
             val startRequestedAtMs = SystemClock.elapsedRealtime()
+            if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
             stopListeningInternal(emitStopped = true)
             this@NativeAndroidVoiceInputController.allowPlatformFallback = allowPlatformFallback
 
@@ -359,6 +361,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             )
             if (!skipWaits) {
                 recognitionSupport.awaitInFlightLiveCheck()
+                if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
                 cachedAvailability = recognitionSupport.getCaptureAvailability()
             }
             val runLiveCheck = !skipWaits && shouldRunLiveLocaleCheck(
@@ -376,12 +379,14 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 }
                 cachedAvailability
             }
+            if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
             val localeCheckMs = SystemClock.elapsedRealtime() - startRequestedAtMs
             val onDeviceReady = availability.blockingReason == null &&
                 availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
             // Asked only when on-device is not ready, since the platform service is then the alternative.
             val platformServiceAvailable = allowPlatformFallback && !onDeviceReady &&
                 recognitionSupport.hasExternalPlatformRecognizer()
+            if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
             captureBlockingReason(availability, platformServiceAvailable)?.let { reason ->
                 Log.w(
                     TAG,
@@ -394,7 +399,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
             }
 
             try {
+                if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
                 requestAudioFocus()
+                if (!isWanted()) {
+                    releaseAudioFocus()
+                    return@withContext VoiceInputStartResult.Cancelled()
+                }
                 val sessionId = VoiceCaptureSessionIds.allocate()
                 currentMode = mode
                 activeSessionId = sessionId
@@ -418,6 +428,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     "locale" to availability.localeStatus, "check_ms" to localeCheckMs,
                 )
                 try {
+                    if (!isWanted()) {
+                        stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                        return@withContext VoiceInputStartResult.Cancelled(sessionId)
+                    }
                     startRecognizer(
                         sessionId = sessionId,
                         mode = mode,

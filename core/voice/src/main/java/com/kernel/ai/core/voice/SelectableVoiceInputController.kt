@@ -45,9 +45,10 @@ private const val TAG = "SelectableVoiceInput"
 internal const val LIVE_CHECK_SETTLE_MS = 400L
 
 /**
- * Pause after the native recognizer is stopped and before Zipformer starts. The on-device
- * recognizer service is shared; starting a second client straight after teardown has produced
- * ERROR_SERVER_DISCONNECTED on the S23 Ultra (see [LIVE_CHECK_SETTLE_MS]).
+ * Pause before opening a local recognizer after a Native capture. Android's framework stop is
+ * app-local; Android 15 tears down the remote recognition service asynchronously and exposes no
+ * reliable microphone-release signal. This bounded direct-selection settle is mitigation, not
+ * proof of remote recorder release.
  */
 internal const val NATIVE_TEARDOWN_SETTLE_MS = 400L
 
@@ -433,7 +434,10 @@ class SelectableVoiceInputController @Inject constructor(
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult = startListeningInternal(mode, onSessionAdmitted)
 
-    private suspend fun stopAndAwaitPreviousBackends(gen: Long): Boolean {
+    private suspend fun stopAndAwaitPreviousBackends(
+        gen: Long,
+        settleNativeToLocal: Boolean,
+    ): Boolean {
         while (gen == generation.get()) {
             val previous = synchronized(captureOwnerLock) {
                 admittedControllers.values.filter { capture ->
@@ -452,6 +456,10 @@ class SelectableVoiceInputController @Inject constructor(
                         sherpaOnnxVoiceInputController.stopListeningForSession(capture.backendSessionId)
                 }
                 capture.teardown?.await()
+                if (settleNativeToLocal && capture.controller === nativeAndroidVoiceInputController) {
+                    delay(NATIVE_TEARDOWN_SETTLE_MS)
+                    if (gen != generation.get()) return false
+                }
             }
         }
         return false
@@ -477,7 +485,9 @@ class SelectableVoiceInputController @Inject constructor(
                 startMutex.withLock {
                     if (gen != generation.get()) return@withLock VoiceInputStartResult.Cancelled()
                     val selectedBeforeTeardown = voiceInputPreferences.selectedEngine.first()
-                    if (!stopAndAwaitPreviousBackends(gen)) {
+                    val settleNativeToLocal =
+                        selectedBeforeTeardown.isSherpaFamily || selectedBeforeTeardown == VoiceInputEngine.Asr4all
+                    if (!stopAndAwaitPreviousBackends(gen, settleNativeToLocal)) {
                         return@withLock VoiceInputStartResult.Cancelled()
                     }
                     if (gen != generation.get()) return@withLock VoiceInputStartResult.Cancelled()
@@ -617,6 +627,7 @@ class SelectableVoiceInputController @Inject constructor(
                 nativeSessionId = sessionId
                 admitSession(gen, nativeAndroidVoiceInputController, sessionId, onSessionAdmitted)
             },
+            isWanted = { gen == generation.get() },
         )
         if (nativeResult is VoiceInputStartResult.Started) {
             if (gen != generation.get()) {

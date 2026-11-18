@@ -14,6 +14,7 @@ import io.mockk.runs
 import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -414,6 +415,61 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
 
         verify(exactly = 1) { recognizer.startListening(any()) }
         assertInstanceOf(VoiceInputStartResult.Started::class.java, start.await())
+    }
+
+    @Test
+    fun `native start invalidated during live-check readiness never requests focus or opens mic`() = runTest {
+        val waiting = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        coEvery { recognitionSupport.awaitInFlightLiveCheck() } coAnswers {
+            waiting.complete(Unit)
+            release.await()
+        }
+        var wanted = true
+
+        val start = async {
+            controller.startListening(
+                VoiceCaptureMode.Command,
+                allowPlatformFallback = true,
+                isWanted = { wanted },
+            )
+        }
+        runCurrent()
+        assertTrue(waiting.isCompleted)
+        wanted = false
+        release.complete(Unit)
+        runCurrent()
+
+        assertEquals(VoiceInputStartResult.Cancelled(), start.await())
+        verify(exactly = 0) { audioManager.requestAudioFocus(any<android.media.AudioFocusRequest>()) }
+        verify(exactly = 0) { audioManager.requestAudioFocus(any(), any(), any()) }
+        verify(exactly = 0) { recognitionSupport.createOnDeviceSpeechRecognizer() }
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+    }
+
+    @Test
+    fun `native start invalidated during live-check settle never requests focus or opens mic`() = runTest {
+        every { recognitionSupport.liveCheckSettleRemainingMs(any()) } returns 400L
+        var wanted = true
+        val start = async {
+            controller.startListening(
+                VoiceCaptureMode.Command,
+                allowPlatformFallback = true,
+                isWanted = { wanted },
+            )
+        }
+        runCurrent()
+        advanceTimeBy(200)
+        runCurrent()
+        wanted = false
+        advanceTimeBy(200)
+        runCurrent()
+
+        assertEquals(VoiceInputStartResult.Cancelled(), start.await())
+        verify(exactly = 0) { audioManager.requestAudioFocus(any<android.media.AudioFocusRequest>()) }
+        verify(exactly = 0) { audioManager.requestAudioFocus(any(), any(), any()) }
+        verify(exactly = 0) { recognitionSupport.createOnDeviceSpeechRecognizer() }
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
     }
 
     /** A language check (the prewarm's stale re-check) that keeps running for 5 s, then a full 400 ms settle. */

@@ -8,6 +8,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
+import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
@@ -65,7 +67,7 @@ class SelectableVoiceInputControllerTest {
         every { sherpaOnnxVoiceInputController.cancelListeningForSession(any()) } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
         every { sherpaOnnxVoiceInputController.stopListening() } just runs
-        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(1L)
             VoiceInputStartResult.Started(1L)
         }
@@ -155,7 +157,7 @@ class SelectableVoiceInputControllerTest {
         assertEquals(VoiceInputStartResult.Started(2L), controller().startListening(VoiceCaptureMode.Command))
 
         coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
-        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
         verify(exactly = 0) { recognitionSupport.getCaptureAvailability() }
     }
 
@@ -167,7 +169,7 @@ class SelectableVoiceInputControllerTest {
 
         assertEquals(VoiceInputStartResult.Started(1L), controller().startListening(VoiceCaptureMode.Command))
 
-        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any()) }
+        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
     }
 
     @Test
@@ -179,7 +181,7 @@ class SelectableVoiceInputControllerTest {
 
         controller().startListening(VoiceCaptureMode.Command)
 
-        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, true, any()) }
+        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, true, any(), any()) }
     }
 
     @Test
@@ -192,7 +194,7 @@ class SelectableVoiceInputControllerTest {
         assertEquals(VoiceInputStartResult.Started(2L), controller().startListening(VoiceCaptureMode.Command))
 
         coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
-        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
     }
 
     @Test
@@ -206,7 +208,7 @@ class SelectableVoiceInputControllerTest {
         controller().startListening(VoiceCaptureMode.Command)
 
         coVerify(exactly = 1) { recognitionSupport.getAvailability() }
-        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any()) }
+        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
     }
 
 
@@ -215,7 +217,7 @@ class SelectableVoiceInputControllerTest {
         selectEngine(VoiceInputEngine.AndroidNative)
         coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(any()) } returns false
         var starts = 0L
-        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
             val id = ++starts
             thirdArg<(Long) -> Unit>().invoke(id)
             if (id == 1L) VoiceInputStartResult.Cancelled(id)
@@ -252,7 +254,7 @@ class SelectableVoiceInputControllerTest {
         every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } answers {
             nativeStops += firstArg<Long>()
         }
-        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(1L)
             VoiceInputStartResult.Started(1L)
         }
@@ -278,12 +280,92 @@ class SelectableVoiceInputControllerTest {
 
         nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
         runCurrent()
+        assertFalse(replacement.isCompleted)
+        advanceTimeBy(NATIVE_TEARDOWN_SETTLE_MS - 1)
+        runCurrent()
+        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) }
+        advanceTimeBy(1)
+        runCurrent()
         assertEquals(VoiceInputStartResult.Started(2L), replacement.await())
         advanceUntilIdle()
 
         assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L)))
         assertTrue(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "sherpa final", 2L)))
         verify(exactly = 0) { nativeAndroidVoiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `newer start supersedes direct local handover during native settle`() = runTest(dispatcher) {
+        val nativeEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 1)
+        every { nativeAndroidVoiceInputController.events } returns nativeEvents
+        val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } just runs
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(1L)
+            VoiceInputStartResult.Started(1L)
+        }
+        var sherpaStarts = 0
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            sherpaStarts++
+            thirdArg<(Long) -> Unit>().invoke(2L)
+            VoiceInputStartResult.Started(2L)
+        }
+        val c = controller()
+        advanceUntilIdle()
+        assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
+
+        selected.value = VoiceInputEngine.SherpaZipformer
+        val stale = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
+        runCurrent()
+        assertFalse(stale.isCompleted)
+
+        val latest = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        advanceTimeBy(NATIVE_TEARDOWN_SETTLE_MS)
+        runCurrent()
+
+        assertEquals(VoiceInputStartResult.Cancelled(), stale.await())
+        assertEquals(VoiceInputStartResult.Started(2L), latest.await())
+        assertEquals(1, sherpaStarts)
+    }
+
+    @Test
+    fun `new selector attempt invalidates native start waiting on readiness`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.AndroidNative)
+        val firstPredicate = CompletableDeferred<() -> Boolean>()
+        val releaseReadiness = CompletableDeferred<Unit>()
+        val predicate = slot<() -> Boolean>()
+        var starts = 0
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), capture(predicate)) } coAnswers {
+            val attempt = ++starts
+            val isWanted = predicate.captured
+            if (attempt == 1) {
+                firstPredicate.complete(isWanted)
+                releaseReadiness.await()
+                if (!isWanted()) return@coAnswers VoiceInputStartResult.Cancelled()
+            }
+            val sessionId = attempt.toLong()
+            thirdArg<(Long) -> Unit>().invoke(sessionId)
+            VoiceInputStartResult.Started(sessionId)
+        }
+        val c = controller()
+
+        val first = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        val firstIsWanted = firstPredicate.await()
+
+        val replacement = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        assertFalse(firstIsWanted())
+        releaseReadiness.complete(Unit)
+        runCurrent()
+
+        assertEquals(VoiceInputStartResult.Cancelled(), first.await())
+        assertEquals(VoiceInputStartResult.Started(2L), replacement.await())
+        assertEquals(2, starts)
     }
 
     @Test
@@ -325,7 +407,7 @@ class SelectableVoiceInputControllerTest {
             thirdArg<(Long) -> Unit>().invoke(2L)
             VoiceInputStartResult.Started(2L)
         }
-        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(3L)
             VoiceInputStartResult.Started(3L)
         }
@@ -339,7 +421,7 @@ class SelectableVoiceInputControllerTest {
 
         assertFalse(replacement.isCompleted)
         assertEquals(listOf(2L), sherpaStops)
-        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
 
         sherpaEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 2L))
         runCurrent()
@@ -401,7 +483,7 @@ class SelectableVoiceInputControllerTest {
         runCurrent()
 
         assertEquals(VoiceInputStartResult.Cancelled(), replacement.await())
-        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
         coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
         assertFalse(c.captureActivity.value)
     }
@@ -454,7 +536,7 @@ class SelectableVoiceInputControllerTest {
 
         controller().startListening(VoiceCaptureMode.Command)
 
-        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any()) }
+        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
         verify(exactly = 0) { sherpaOnnxVoiceInputController.stopListening() }
     }
 
@@ -473,7 +555,7 @@ class SelectableVoiceInputControllerTest {
 
         coVerifyOrder {
             asr4allVoiceInputController.releaseEngine()
-            nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any())
+            nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any(), any())
         }
     }
 
@@ -485,7 +567,7 @@ class SelectableVoiceInputControllerTest {
         }
         val sherpaCount = VoiceInputEngine.entries.count { it.isSherpaFamily }
         coVerify(exactly = sherpaCount) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
-        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
     }
 
     @Test
@@ -508,7 +590,7 @@ class SelectableVoiceInputControllerTest {
     @Test
     fun `events receive synchronous startup error from newly selected controller`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.AndroidNative)
-        coEvery { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) } coAnswers {
+        coEvery { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(1L)
             nativeEvents.emit(VoiceInputEvent.Error(mode = VoiceCaptureMode.Command, message = "startup failed", captureSessionId = 1L))
             VoiceInputStartResult.Started(1L)
@@ -567,7 +649,7 @@ class SelectableVoiceInputControllerTest {
 
         controller().transcribeBlocking(pcm)
 
-        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
         coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) }
         verify(exactly = 0) { nativeAndroidVoiceInputController.stopListening() }
         verify(exactly = 0) { sherpaOnnxVoiceInputController.stopListening() }
