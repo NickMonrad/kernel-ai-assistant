@@ -102,6 +102,7 @@ class Asr4allVoiceInputControllerTest {
 
     private fun recorder(): AudioRecord {
         micOpens.incrementAndGet()
+        focusOrder += "mic-open"
         return mockk(relaxed = true) {
             every { state } returns AudioRecord.STATE_INITIALIZED
             every { release() } answers { micReleases.incrementAndGet(); micReleasedSignal.release() }
@@ -335,7 +336,7 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
-    fun `a new route requests focus only after a blocked teardown abandons the old focus`() = runBlocking(Dispatchers.IO) {
+    fun `a new route opens focus and mic only after a blocked teardown abandons the old focus`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val release = CountDownLatch(1)
         abandonGate = release
@@ -345,16 +346,29 @@ class Asr4allVoiceInputControllerTest {
             assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
             val stop = launch { c.stopListening() }
             assertTrue(abandonEntered.await(5, TimeUnit.SECONDS), "teardown must reach focus abandonment")
-            // Overlap: the new route starts while the old teardown is still held inside abandonment.
+            // Overlap: the new route runs eagerly up to its first suspension while the old teardown is held.
             firstFrame = CountDownLatch(1)
-            val start = launch { startedId(c.startListening(VoiceCaptureMode.Command)) }
+            val start = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                startedId(c.startListening(VoiceCaptureMode.Command))
+            }
+            assertEquals(1, focusRequests.get(), "no second focus request while the old abandon is held")
+            assertEquals(1, micOpens.get(), "no second recorder open while the old abandon is held")
             release.countDown()
             stop.join()
             start.join()
             assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
-            assertEquals(listOf("request", "abandon-done", "request"), focusOrder.toList())
+            val events = focusOrder.toList()
+            val abandonAt = events.indexOf("abandon-done")
+            assertTrue(abandonAt >= 0, "old abandon must complete")
+            val before = events.take(abandonAt)
+            val after = events.drop(abandonAt + 1)
+            assertEquals(1, before.count { it == "request" }, "only the first route requests focus before the abandon")
+            assertEquals(1, before.count { it == "mic-open" }, "only the first route opens the recorder before the abandon")
+            assertEquals(2, after.size, "exactly the new route's request and open follow the abandon: $events")
+            assertTrue(after.containsAll(listOf("request", "mic-open")), "new route must request focus and open after abandon: $events")
             c.releaseEngine()
         } finally {
+            release.countDown()
             abandonGate = null
         }
     }
