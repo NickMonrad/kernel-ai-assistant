@@ -33,3 +33,5 @@ Routing tests: `SelectableVoiceInputControllerTest` (25) and `SelectableVoiceInp
 - **Not done:** speech transcription on device. No owner audio and no mic playback path were available. Criteria 4–5 stay pending #1984.
 
 Correction to the line above: trial 001 ran with no S23U capture active (not measured). Trial 002 (volume 7) was the S23U capture that timed out with `No speech heard`. Trial 003 (volume 15) was the captured one.
+
+Correction to the line above: trial 001 ran with no S23U capture active (not measured). Trial 002 (volume 7) was the S23U capture that timed out with `No speech heard`. Trial 003 (volume 15) was the captured one.

@@ -4,35 +4,60 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestFactory
 import java.io.File
+import java.security.MessageDigest
 import javax.sound.sampled.AudioSystem
 
 /**
- * Parity with FUTO's reference driver (`onnx/asr4all_onnx.py`) at revision
- * futo-org/asr4all-s@87a6b5d093723fe37e9f69ad26307a3b95a31af0.
+ * Row-by-row parity with FUTO's pinned Python driver (`onnx/asr4all_onnx.py` at
+ * futo-org/asr4all-s@87a6b5d093723fe37e9f69ad26307a3b95a31af0).
  *
- * Audio and model files are NOT committed. Set:
- *   ASR4ALL_MODEL_DIR     release `onnx/` dir (or a trimmed copy with the tiers under test)
- *   ASR4ALL_FIXTURE_WAV   16 kHz mono 16-bit wav, the clip the expected strings were generated from
- * Without them the tests are skipped, so CI without the model reports skipped, not passed.
+ * Expectations live in `src/test/resources/asr4all/parity-expected.tsv` (text only). Audio and model
+ * files are never committed. Inputs:
+ *   ASR4ALL_MODEL_DIR     model dir (S: trimmed onnx-min, M: m bundle)
+ *   ASR4ALL_PARITY_MODEL  S or M; selects the expected rows for that model dir
+ *   ASR4ALL_FIXTURE_WAV   16 kHz mono s16 wav; its SHA-256 must equal the one in the expectation file
  *
- * Expected strings: generated with
- *   python asr4all_onnx.py <onnx-dir> <clip>.wav --tier 0            # c16r4, PCEC
- *   python asr4all_onnx.py <onnx-dir> <clip>.wav --tier 0 --no-pcec  # c16r4, plain
- *   python asr4all_onnx.py <onnx-dir> <clip>.wav --tier 1            # c32r8, PCEC
- *   python asr4all_onnx.py <onnx-dir> <clip>.wav --tier 0 --stream   # chunked, final `pcec:` line
- * with the clip made by `espeak-ng -v en-us -w clip.wav "<text>"` then
- * `ffmpeg -i clip.wav -ar 16000 -ac 1 -sample_fmt s16 clip16.wav`. The clip is synthetic speech,
- * so this is a parity check of the port, not an accuracy measurement.
+ * Two modes:
+ *   ordinary (default): rows skip when inputs are absent. Skips are visible in the XML.
+ *   ASR4ALL_PARITY=required: missing or mismatched inputs FAIL, so the run cannot pass by skipping.
+ * A fixture whose SHA differs from the expectation file fails in both modes.
  */
 class Asr4allEngineParityTest {
 
-    private val modelDir: File? = System.getenv("ASR4ALL_MODEL_DIR")?.let(::File)?.takeIf { it.isDirectory }
-    private val fixture: File? = System.getenv("ASR4ALL_FIXTURE_WAV")?.let(::File)?.takeIf { it.isFile }
+    private val required = System.getenv("ASR4ALL_PARITY") == "required"
+    private val modelDir: File? = System.getenv("ASR4ALL_MODEL_DIR")?.let(::File)
+    private val modelName: String? = System.getenv("ASR4ALL_PARITY_MODEL")
+    private val fixture: File? = System.getenv("ASR4ALL_FIXTURE_WAV")?.let(::File)
 
-    private fun clip(): FloatArray {
-        val stream = AudioSystem.getAudioInputStream(fixture!!)
+    private val expectation: ParityFile by lazy { ParityFile.load() }
+
+    /** Enforces the input contract. Ordinary mode skips; required mode fails. */
+    private fun requireInputs(): Pair<File, File> {
+        val missing = buildList {
+            if (modelDir == null || !modelDir.isDirectory) add("ASR4ALL_MODEL_DIR (directory)")
+            if (modelName != "S" && modelName != "M") add("ASR4ALL_PARITY_MODEL (S or M)")
+            if (fixture == null || !fixture.isFile) add("ASR4ALL_FIXTURE_WAV (file)")
+        }
+        if (missing.isNotEmpty()) {
+            val msg = "asr4all parity inputs missing: ${missing.joinToString()}"
+            if (required) throw AssertionError(msg)
+            assumeTrue(false, msg)
+        }
+        return modelDir!! to fixture!!
+    }
+
+    private fun checkFixtureSha(file: File) {
+        val sha = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        assertEquals(expectation.fixtureSha256, sha, "fixture SHA-256 does not match the expectation file")
+    }
+
+    private fun clip(file: File): FloatArray {
+        val stream = AudioSystem.getAudioInputStream(file)
         val format = stream.format
         assertEquals(16_000f, format.sampleRate, 0.0f)
         assertEquals(1, format.channels)
@@ -46,74 +71,83 @@ class Asr4allEngineParityTest {
         return samples
     }
 
-    private val expectedPcecC16 = "Weher like in p on tomorrow. Remind me to call them at five."
-    private val expectedPlainC16 = "weather like in p on tomorrow remind me to call m at five"
-    private val expectedPcecC32 = "Hey gandle, what weather like in Peton tomorrow? Remind me to call them at five."
-
-    @Test
-    fun offlinePcecC16MatchesReference() {
-        assumeTrue(modelDir != null && fixture != null)
-        Asr4allEngine.open(modelDir!!, "stream_c16r4").use { engine ->
-            assertEquals(expectedPcecC16, engine.decodeOffline(clip(), applyPcec = true))
-        }
-    }
-
-    @Test
-    fun offlinePlainC16MatchesReference() {
-        assumeTrue(modelDir != null && fixture != null)
-        Asr4allEngine.open(modelDir!!, "stream_c16r4").use { engine ->
-            assertEquals(expectedPlainC16, engine.decodeOffline(clip(), applyPcec = false))
-        }
-    }
-
-    @Test
-    fun offlinePcecC32MatchesReference() {
-        assumeTrue(modelDir != null && fixture != null)
-        Asr4allEngine.open(modelDir!!, "stream_c32r8").use { engine ->
-            assertEquals(expectedPcecC32, engine.decodeOffline(clip(), applyPcec = true))
-        }
-    }
-
-    @Test
-    fun chunkedStreamingMatchesReferenceStreamLoop() {
-        assumeTrue(modelDir != null && fixture != null)
-        val samples = clip()
-        Asr4allEngine.open(modelDir!!, "stream_c16r4").use { engine ->
-            var partial = ""
-            var i = 0
-            while (i < samples.size) {
-                val end = minOf(samples.size, i + 8000) // 0.5 s, like the reference --stream loop
-                partial = engine.decodeStream(samples.copyOfRange(i, end))
-                i = end
+    /** One DynamicTest per expected row for the selected model, so each row reports pass or fail. */
+    @TestFactory
+    fun perRowParity(): List<DynamicTest> {
+        val (dir, wav) = requireInputs()
+        checkFixtureSha(wav)
+        val samples = clip(wav)
+        return expectation.rowsFor(modelName!!).map { row ->
+            DynamicTest.dynamicTest("${row.model} ${row.tier} ${row.mode}") {
+                Asr4allEngine.open(dir, row.tier).use { engine ->
+                    val actual = when (row.mode) {
+                        "offline_pcec" -> engine.decodeOffline(samples, applyPcec = true)
+                        "offline_plain" -> engine.decodeOffline(samples, applyPcec = false)
+                        "stream_pcec" -> {
+                            var i = 0
+                            while (i < samples.size) {
+                                engine.decodeStream(samples.copyOfRange(i, minOf(i + STREAM_CHUNK, samples.size)))
+                                i += STREAM_CHUNK
+                            }
+                            engine.finish()
+                            engine.decodePcec(decodeTail = true)
+                        }
+                        else -> error("unknown mode ${row.mode}")
+                    }
+                    assertEquals(row.text, actual, "row ${row.model} ${row.tier} ${row.mode}")
+                }
             }
-            engine.finish()
-            assertEquals(expectedPcecC16, engine.decodePcec(decodeTail = true))
-            assertTrue(partial.isNotEmpty())
         }
     }
 
     @Test
     fun cancelMidUtteranceThenRestartMatchesFreshDecode() {
-        assumeTrue(modelDir != null && fixture != null)
-        val samples = clip()
-        Asr4allEngine.open(modelDir!!, "stream_c16r4").use { engine ->
-            engine.decodeStream(samples.copyOfRange(0, samples.size / 2))
-            engine.reset() // cancel: caches, PCM and PCEC state all cleared
-            assertEquals(expectedPcecC16, engine.decodeOffline(samples, applyPcec = true))
+        val (dir, wav) = requireInputs()
+        checkFixtureSha(wav)
+        val samples = clip(wav)
+        val tier = expectation.rowsFor(modelName!!).first().tier
+        Asr4allEngine.open(dir, tier).use { engine ->
+            engine.decodeStream(samples.copyOfRange(0, 8000))
+            engine.reset()
+            assertEquals(expectation.textFor(modelName, tier, "offline_pcec"), engine.decodeOffline(samples, applyPcec = true))
         }
     }
 
     @Test
     fun closedEngineRejectsUseAndReopenWorks() {
-        assumeTrue(modelDir != null && fixture != null)
-        val samples = clip()
-        repeat(3) {
-            val engine = Asr4allEngine.open(modelDir!!, "stream_c16r4")
-            assertEquals(expectedPcecC16, engine.decodeOffline(samples, applyPcec = true))
-            engine.close()
-            assertTrue(engine.isClosed)
-            assertThrows(IllegalStateException::class.java) { engine.decodeStream(FloatArray(16)) }
-            engine.close() // idempotent
+        val (dir, wav) = requireInputs()
+        val tier = expectation.rowsFor(modelName!!).first().tier
+        val engine = Asr4allEngine.open(dir, tier)
+        engine.close()
+        assertTrue(engine.isClosed)
+        assertThrows(IllegalStateException::class.java) { engine.decodeStream(FloatArray(16)) }
+        Asr4allEngine.open(dir, tier).use { reopened ->
+            assertEquals(expectation.textFor(modelName!!, tier, "offline_pcec"), reopened.decodeOffline(clip(wav), applyPcec = true))
+        }
+    }
+
+    private companion object {
+        const val STREAM_CHUNK = 8000
+    }
+}
+
+private data class ParityRow(val model: String, val tier: String, val mode: String, val text: String)
+
+private class ParityFile(val fixtureSha256: String, private val rows: List<ParityRow>) {
+    fun rowsFor(model: String): List<ParityRow> = rows.filter { it.model == model }
+    fun textFor(model: String, tier: String, mode: String): String =
+        rows.single { it.model == model && it.tier == tier && it.mode == mode }.text
+
+    companion object {
+        fun load(): ParityFile {
+            val lines = Asr4allEngineParityTest::class.java.classLoader
+                .getResourceAsStream("asr4all/parity-expected.tsv")!!.bufferedReader().readLines()
+            val sha = lines.single { it.startsWith("# fixture sha256 ") }.removePrefix("# fixture sha256 ").substringBefore(" ")
+            val rows = lines.filter { it.isNotBlank() && !it.startsWith("#") }.map {
+                val (m, t, mode, text) = it.split("\t", limit = 4)
+                ParityRow(m, t, mode, text)
+            }
+            return ParityFile(sha, rows)
         }
     }
 }
