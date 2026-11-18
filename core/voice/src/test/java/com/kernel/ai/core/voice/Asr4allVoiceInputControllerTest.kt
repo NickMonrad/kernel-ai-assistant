@@ -319,6 +319,10 @@ class Asr4allVoiceInputControllerTest {
             collected.awaitStops(1)
             assertEquals(emptyList<String>(), collected.transcripts())
             assertEquals(0, log.count { it == "finish#1" })
+            assertTrue(
+                collected.events.filterIsInstance<VoiceInputEvent.ListeningStopped>().single().cancelled,
+                "a stop during the cold load has no final, so its terminal must be cancelled",
+            )
             assertEquals(1, collected.started())
 
             // A new route takes focus only after the old one is abandoned.
@@ -436,6 +440,10 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(0, micOpens.get(), "stop before mic must not open the mic")
             assertEquals(0, focusRequests.get(), "stop before mic must not request focus")
             assertEquals(0, collected.started(), "no ListeningStarted before the mic opens")
+            assertTrue(
+                collected.events.filterIsInstance<VoiceInputEvent.ListeningStopped>().single().cancelled,
+                "a pre-mic stop has no final, so its terminal must be cancelled",
+            )
         } finally {
             collected.job.cancel()
             scope.cancel()
