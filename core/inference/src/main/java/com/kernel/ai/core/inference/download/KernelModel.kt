@@ -139,9 +139,9 @@ enum class KernelModel(
         showInModelManagement = false,
     ),
 
-    ASR4ALL_METADATA(
-        displayName = "asr4all metadata",
-        fileName = "asr4all-metadata.json",
+    ASR4ALL_S_METADATA(
+        displayName = "asr4all S metadata",
+        fileName = "asr4all-s-metadata.json",
         downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/metadata.json",
         approxSizeBytes = 91_004L,
         isRequired = false,
@@ -149,9 +149,9 @@ enum class KernelModel(
         showInModelManagement = false,
     ),
 
-    ASR4ALL_STREAM_C16R4(
-        displayName = "asr4all stream c16r4",
-        fileName = "asr4all-stream_c16r4.onnx",
+    ASR4ALL_S_STREAM_C16R4(
+        displayName = "asr4all S stream c16r4",
+        fileName = "asr4all-s-stream_c16r4.onnx",
         downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/stream_c16r4.onnx",
         approxSizeBytes = 381_779L,
         isRequired = false,
@@ -159,9 +159,9 @@ enum class KernelModel(
         showInModelManagement = false,
     ),
 
-    ASR4ALL_STREAM_C32R8(
-        displayName = "asr4all stream c32r8",
-        fileName = "asr4all-stream_c32r8.onnx",
+    ASR4ALL_S_STREAM_C32R8(
+        displayName = "asr4all S stream c32r8",
+        fileName = "asr4all-s-stream_c32r8.onnx",
         downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/stream_c32r8.onnx",
         approxSizeBytes = 385_402L,
         isRequired = false,
@@ -169,9 +169,9 @@ enum class KernelModel(
         showInModelManagement = false,
     ),
 
-    ASR4ALL_PCEC_C16(
-        displayName = "asr4all PCEC c16",
-        fileName = "asr4all-pcec_c16.onnx",
+    ASR4ALL_S_PCEC_C16(
+        displayName = "asr4all S PCEC c16",
+        fileName = "asr4all-s-pcec_c16.onnx",
         downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/pcec_c16.onnx",
         approxSizeBytes = 138_808L,
         isRequired = false,
@@ -179,9 +179,9 @@ enum class KernelModel(
         showInModelManagement = false,
     ),
 
-    ASR4ALL_PCEC_C16_FLUSH(
-        displayName = "asr4all PCEC c16 flush",
-        fileName = "asr4all-pcec_c16_flush.onnx",
+    ASR4ALL_S_PCEC_C16_FLUSH(
+        displayName = "asr4all S PCEC c16 flush",
+        fileName = "asr4all-s-pcec_c16_flush.onnx",
         downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/pcec_c16_flush.onnx",
         approxSizeBytes = 135_815L,
         isRequired = false,
@@ -189,11 +189,71 @@ enum class KernelModel(
         showInModelManagement = false,
     ),
 
-    ASR4ALL_WEIGHTS(
-        displayName = "asr4all weights",
-        fileName = "asr4all-weights.onnx.data",
+    ASR4ALL_S_WEIGHTS(
+        displayName = "asr4all S weights",
+        fileName = "asr4all-s-weights.onnx.data",
         downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/asr4all.onnx.data",
         approxSizeBytes = 108_249_312L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_M_METADATA(
+        displayName = "asr4all M metadata",
+        fileName = "asr4all-m-metadata.json",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-m/resolve/7d6e9145109a5bece4f05831d046e93d27e38a99/onnx/metadata.json",
+        approxSizeBytes = 91_006L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_M_STREAM_C16R4(
+        displayName = "asr4all M stream c16r4",
+        fileName = "asr4all-m-stream_c16r4.onnx",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-m/resolve/7d6e9145109a5bece4f05831d046e93d27e38a99/onnx/stream_c16r4.onnx",
+        approxSizeBytes = 478_373L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_M_STREAM_C32R8(
+        displayName = "asr4all M stream c32r8",
+        fileName = "asr4all-m-stream_c32r8.onnx",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-m/resolve/7d6e9145109a5bece4f05831d046e93d27e38a99/onnx/stream_c32r8.onnx",
+        approxSizeBytes = 482_459L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_M_PCEC_C16(
+        displayName = "asr4all M PCEC c16",
+        fileName = "asr4all-m-pcec_c16.onnx",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-m/resolve/7d6e9145109a5bece4f05831d046e93d27e38a99/onnx/pcec_c16.onnx",
+        approxSizeBytes = 139_240L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_M_PCEC_C16_FLUSH(
+        displayName = "asr4all M PCEC c16 flush",
+        fileName = "asr4all-m-pcec_c16_flush.onnx",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-m/resolve/7d6e9145109a5bece4f05831d046e93d27e38a99/onnx/pcec_c16_flush.onnx",
+        approxSizeBytes = 136_367L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_M_WEIGHTS(
+        displayName = "asr4all M weights",
+        fileName = "asr4all-m-weights.onnx.data",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-m/resolve/7d6e9145109a5bece4f05831d046e93d27e38a99/onnx/asr4all.onnx.data",
+        approxSizeBytes = 214_322_720L,
         isRequired = false,
         preferredForTier = null,
         showInModelManagement = false,
