@@ -53,16 +53,36 @@ class Asr4allVoiceInputControllerTest {
     private val engineEntered = CountDownLatch(1)
     /** When true, PCEC renders empty until the stream is finished (raw CTC still reports text). */
     @Volatile private var pcecEmptyUntilFinish = false
+    /** Test-only: holds focus abandonment after it is entered, so a teardown can be parked mid-release. */
+    @Volatile private var abandonGate: CountDownLatch? = null
+    private val abandonEntered = CountDownLatch(1)
+    /** Focus events in call order; "abandon-done" is recorded only after the abandon returns. */
+    private val focusOrder = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
+    private fun onFocusRequest(): Int {
+        focusRequests.incrementAndGet()
+        focusOrder += "request"
+        return 1
+    }
+
+    private fun onFocusAbandon(): Int {
+        abandonEntered.countDown()
+        abandonGate?.await(5, TimeUnit.SECONDS)
+        focusAbandons.incrementAndGet()
+        focusOrder += "abandon-done"
+        focusAbandonedSignal.release()
+        return 1
+    }
 
     private fun controller(): Asr4allVoiceInputController {
         var opened = 0
         val context = mockk<Context>(relaxed = true)
         every { context.getSystemService(AudioManager::class.java) } returns mockk<AudioManager>(relaxed = true) {
-            every { requestAudioFocus(any<android.media.AudioFocusRequest>()) } answers { focusRequests.incrementAndGet(); 1 }
-            every { abandonAudioFocusRequest(any()) } answers { focusAbandons.incrementAndGet(); focusAbandonedSignal.release(); 1 }
+            every { requestAudioFocus(any<android.media.AudioFocusRequest>()) } answers { onFocusRequest() }
+            every { abandonAudioFocusRequest(any()) } answers { onFocusAbandon() }
             // Unit tests report SDK_INT below O, so the controller takes the legacy overloads.
-            every { requestAudioFocus(any<AudioManager.OnAudioFocusChangeListener>(), any(), any()) } answers { focusRequests.incrementAndGet(); 1 }
-            every { abandonAudioFocus(any()) } answers { focusAbandons.incrementAndGet(); focusAbandonedSignal.release(); 1 }
+            every { requestAudioFocus(any<AudioManager.OnAudioFocusChangeListener>(), any(), any()) } answers { onFocusRequest() }
+            every { abandonAudioFocus(any()) } answers { onFocusAbandon() }
         }
         return Asr4allVoiceInputController(context).apply {
             availableForTest = { true }
@@ -311,6 +331,31 @@ class Asr4allVoiceInputControllerTest {
             engineGate = null
             collected.job.cancel()
             scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a new route requests focus only after a blocked teardown abandons the old focus`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val release = CountDownLatch(1)
+        abandonGate = release
+        try {
+            firstFrame = CountDownLatch(1)
+            startedId(c.startListening(VoiceCaptureMode.Command))
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            val stop = launch { c.stopListening() }
+            assertTrue(abandonEntered.await(5, TimeUnit.SECONDS), "teardown must reach focus abandonment")
+            // Overlap: the new route starts while the old teardown is still held inside abandonment.
+            firstFrame = CountDownLatch(1)
+            val start = launch { startedId(c.startListening(VoiceCaptureMode.Command)) }
+            release.countDown()
+            stop.join()
+            start.join()
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            assertEquals(listOf("request", "abandon-done", "request"), focusOrder.toList())
+            c.releaseEngine()
+        } finally {
+            abandonGate = null
         }
     }
 
