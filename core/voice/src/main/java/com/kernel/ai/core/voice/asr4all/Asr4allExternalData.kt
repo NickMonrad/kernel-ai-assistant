@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice.asr4all
 
 import java.io.File
+import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
@@ -80,14 +81,18 @@ internal object Asr4allExternalData {
         )
     }
 
-    /**
-     * Maps [dataFile] once and returns one little-endian direct buffer per distinct (offset, length)
-     * region, so tensors that share bytes in the data file share one mapping.
-     */
-    fun mapRegion(dataFile: File, offset: Long, length: Long): java.nio.ByteBuffer {
+    /** Maps [dataFile] once, read-only. Every initializer is a [slice] of this single mapping. */
+    fun mapWeights(dataFile: File): ByteBuffer =
         FileChannel.open(dataFile.toPath(), StandardOpenOption.READ).use { channel ->
-            return channel.map(FileChannel.MapMode.READ_ONLY, offset, length).order(ByteOrder.LITTLE_ENDIAN)
+            channel.map(FileChannel.MapMode.READ_ONLY, 0L, channel.size()).order(ByteOrder.LITTLE_ENDIAN)
         }
+
+    /** Little-endian view of `[offset, offset + length)` of [mapped]. Shares the mapping, copies nothing. */
+    fun slice(mapped: ByteBuffer, offset: Long, length: Long): ByteBuffer {
+        val view = mapped.duplicate()
+        view.limit((offset + length).toInt())
+        view.position(offset.toInt())
+        return view.slice().order(ByteOrder.LITTLE_ENDIAN)
     }
 
     private class Field(val number: Int, val value: Long, val bytes: ByteArray?)

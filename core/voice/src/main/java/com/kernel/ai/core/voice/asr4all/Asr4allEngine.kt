@@ -1,11 +1,13 @@
 package com.kernel.ai.core.voice.asr4all
 
-import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OnnxJavaType
+import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import com.google.gson.JsonParser
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.FloatBuffer
 
 /**
  * Kotlin port of FUTO's asr4all ONNX streaming driver (`onnx/asr4all_onnx.py`): one tier's
@@ -13,8 +15,9 @@ import java.io.File
  *
  * Behaviour matches the reference with PCEC on and no word-spotter biasing (the spotter module is
  * not published, so PCEC's `keep` input is fed zeros, as the reference does without biasing).
- * Shared weights are mapped once per engine from `asr4all.onnx.data` and handed to every session
- * as external initializers, so every graph references the same bytes.
+ * The shared weights are mapped once per engine from `asr4all.onnx.data`; every initializer is a
+ * slice of that mapping, added to each session with `addInitializer`, so every graph references the
+ * same bytes and nothing is copied per session.
  *
  * Not thread-safe: one owner drives an engine. [close] releases every session and tensor; any
  * call after close throws.
@@ -30,16 +33,40 @@ class Asr4allEngine private constructor(
     private val stream: OrtSession,
     private val pcec: Asr4allPcec?,
     private val owned: List<AutoCloseable>,
+    /** The weight mapping that [owned]'s initializers view. Held here so it outlives every session. */
+    private val mappings: List<ByteBuffer>,
 ) : AutoCloseable {
 
     private val windowFrames get() = window / spf
+    private val filterSize = stream.inputShape("filter_cache")[0].toInt()
+    private val attnSize = stream.inputShape("attn_cache")[0].toInt()
+    private val outputs: Set<String> = buildSet {
+        add("${tierName}_log_probs")
+        add("${tierName}_filter_cache_out")
+        add("${tierName}_attn_cache_out")
+        if (pcec != null) add("${tierName}_hidden")
+    }
+    private val win = FloatArray(window)
     private var closed = false
-    private var filterCache = FloatArray(0)
-    private var attnCache = FloatArray(0)
+
+    /**
+     * Outputs of the last step. The next step feeds its cache outputs straight back in as cache inputs,
+     * so the caches stay in ORT memory and never round-trip through Java. Closed when replaced,
+     * on [reset], and on [close].
+     */
+    private var carry: OrtSession.Result? = null
     private var pcm = FloatArray(0)
     private var pcmLen = 0
     private var nextFrame = 0
     private val ids = ArrayList<Int>()
+    private var decodedFrames = 0
+    private var blankRun = 0
+
+    /** Valid committed acoustic frames since the last reset. Padded lookahead frames never count. */
+    internal val decodedFrameCount: Int get() = decodedFrames
+
+    /** Consecutive valid committed CTC blank frames at the end of the stream since the last reset. */
+    internal val trailingBlankFrames: Int get() = blankRun
 
     init {
         reset()
@@ -81,18 +108,22 @@ class Asr4allEngine private constructor(
     /** Starts a new utterance. Zero caches are the initialised state. */
     fun reset() {
         ensureOpen()
-        filterCache = FloatArray(stream.inputShape("filter_cache")[0].toInt())
-        attnCache = FloatArray(stream.inputShape("attn_cache")[0].toInt())
+        carry?.close()
+        carry = null
         pcm = FloatArray(0)
         pcmLen = 0
         nextFrame = 0
         ids.clear()
+        decodedFrames = 0
+        blankRun = 0
         pcec?.reset()
     }
 
     override fun close() {
         if (closed) return
         closed = true
+        runCatching { carry?.close() }
+        carry = null
         owned.asReversed().forEach { runCatching { it.close() } }
     }
 
@@ -110,40 +141,59 @@ class Asr4allEngine private constructor(
 
     private fun step() {
         val start = nextFrame * spf
-        val win = FloatArray(window)
+        win.fill(0f)
         val hi = minOf(pcmLen, start + window)
         if (hi > start) pcm.copyInto(win, 0, start, hi)
 
-        val withHidden = pcec != null
-        val outputs = buildList {
-            add("${tierName}_log_probs")
-            add("${tierName}_filter_cache_out")
-            add("${tierName}_attn_cache_out")
-            if (withHidden) add("${tierName}_hidden")
+        val prev = carry
+        val pcmIn = env.floats(win, longArrayOf(1, window.toLong()))
+        // First step of an utterance: zero caches, owned here. Later steps: the previous step's outputs.
+        val filterIn = prev?.tensor("${tierName}_filter_cache_out")
+            ?: env.floats(FloatArray(filterSize), longArrayOf(filterSize.toLong()))
+        val attnIn = prev?.tensor("${tierName}_attn_cache_out")
+            ?: env.floats(FloatArray(attnSize), longArrayOf(attnSize.toLong()))
+        val next = try {
+            stream.run(
+                mapOf(
+                    "${tierName}_pcm" to pcmIn,
+                    "filter_cache" to filterIn,
+                    "attn_cache" to attnIn,
+                ),
+                outputs,
+            )
+        } finally {
+            pcmIn.close()
+            if (prev == null) {
+                filterIn.close()
+                attnIn.close()
+            }
         }
-        val out = stream.runCopy(
-            mapOf(
-                "${tierName}_pcm" to env.floats(win, longArrayOf(1, window.toLong())),
-                "filter_cache" to env.floats(filterCache, longArrayOf(filterCache.size.toLong())),
-                "attn_cache" to env.floats(attnCache, longArrayOf(attnCache.size.toLong())),
-            ),
-            outputs,
-        )
-        filterCache = out.floats("${tierName}_filter_cache_out")
-        attnCache = out.floats("${tierName}_attn_cache_out")
+        // The previous outputs were consumed as inputs by the run above; the new ones now own the caches.
+        prev?.close()
+        carry = next
 
         val valid = minOf(commit, pcmLen / spf - nextFrame)
-        val logProbs = out.floats("${tierName}_log_probs")
-        val vocab = logProbs.size / commit
-        val frameIds = IntArray(valid) { t -> argmax(logProbs, t * vocab, vocab) }
-        val hidden = if (withHidden) out.floats("${tierName}_hidden") else null
+        val logs = next.tensor("${tierName}_log_probs")
+        val vocab = (logs.info.numElements / commit).toInt()
+        val logBuf = logs.floatBuffer
+        val frameIds = IntArray(valid) { t -> argmax(logBuf, t * vocab, vocab) }
+        val hidden = if (pcec != null) {
+            val h = next.tensor("${tierName}_hidden")
+            FloatArray(h.info.numElements.toInt()).also { h.floatBuffer.duplicate().get(it) }
+        } else {
+            null
+        }
         commit(frameIds, hidden)
         nextFrame += commit
     }
 
     /** Frames that are final: into the transcript, and into PCEC. */
     private fun commit(frameIds: IntArray, hidden: FloatArray?) {
-        for (id in frameIds) ids += id
+        for (id in frameIds) {
+            ids += id
+            blankRun = if (id == meta.blankId) blankRun + 1 else 0
+        }
+        decodedFrames += frameIds.size
         val p = pcec ?: return
         if (hidden != null && frameIds.isNotEmpty()) {
             p.pool(frameIds, hidden)
@@ -181,13 +231,17 @@ class Asr4allEngine private constructor(
             val rung = meta.tierRung[tier]?.let { meta.rungs.getValue(it) }
 
             val owned = mutableListOf<AutoCloseable>()
+            val mappings = mutableListOf<ByteBuffer>()
             try {
                 val graphFiles = listOfNotNull(
                     meta.graphs.getValue(tier),
                     rung?.name?.let { meta.graphs.getValue(it) },
                     rung?.flush?.let { meta.graphs.getValue(it) },
                 ).distinct()
-                val weights = loadWeights(env, onnxDir, meta, graphFiles, owned)
+                val weightsName = meta.weightsFile
+                val mapped = weightsName?.let { Asr4allExternalData.mapWeights(File(onnxDir, it)) }
+                mapped?.let(mappings::add)
+                val weights = loadWeights(env, onnxDir, graphFiles, mapped, owned)
 
                 fun session(graph: String): OrtSession =
                     openSession(env, File(onnxDir, graph), weights.getValue(graph)).also { owned += it }
@@ -226,6 +280,7 @@ class Asr4allEngine private constructor(
                     stream = stream,
                     pcec = pcec,
                     owned = owned,
+                    mappings = mappings,
                 )
             } catch (t: Throwable) {
                 owned.asReversed().forEach { runCatching { it.close() } }
@@ -234,25 +289,25 @@ class Asr4allEngine private constructor(
         }
 
         /**
-         * Maps each distinct (offset, length) region of the shared data file once. Returns, per graph
-         * file, the initializer tensors that graph names. Tensors are registered in [owned].
+         * Per graph file, the initializer tensors that graph names. Each distinct (offset, length) region
+         * of [mapped] becomes one tensor, shared by every graph that names it. Tensors are registered in
+         * [owned] and must outlive the sessions that take them.
          */
         private fun loadWeights(
             env: OrtEnvironment,
             onnxDir: File,
-            meta: Asr4allMetadata,
             graphFiles: List<String>,
+            mapped: ByteBuffer?,
             owned: MutableList<AutoCloseable>,
         ): Map<String, Map<String, OnnxTensor>> {
-            val weightsName = meta.weightsFile
             val regions = HashMap<Pair<Long, Long>, OnnxTensor>()
             return graphFiles.associateWith { file ->
                 val refs = mutableMapOf<String, OnnxTensor>()
-                if (weightsName != null) {
+                if (mapped != null) {
                     for (t in Asr4allExternalData.externalTensors(File(onnxDir, file).readBytes())) {
                         val tensor = regions.getOrPut(t.offset to t.length) {
-                            val buf = Asr4allExternalData.mapRegion(File(onnxDir, weightsName), t.offset, t.length)
-                            OnnxTensor.createTensor(env, buf, t.dims, onnxJavaType(t.onnxDataType)).also { owned += it }
+                            val view = Asr4allExternalData.slice(mapped, t.offset, t.length)
+                            OnnxTensor.createTensor(env, view, t.dims, onnxJavaType(t.onnxDataType)).also { owned += it }
                         }
                         refs[t.name] = tensor
                     }
@@ -276,16 +331,16 @@ class Asr4allEngine private constructor(
                 so.setCPUArenaAllocator(false)
                 so.addConfigEntry("session.disable_prepacking", "1")
                 so.setSessionLogLevel(ai.onnxruntime.OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR)
-                if (weights.isNotEmpty()) so.addExternalInitializers(weights)
+                for ((name, tensor) in weights) so.addInitializer(name, tensor)
                 return env.createSession(file.absolutePath, so)
             }
         }
 
-        private fun argmax(values: FloatArray, offset: Int, size: Int): Int {
+        private fun argmax(values: FloatBuffer, offset: Int, size: Int): Int {
             var best = 0
             var bestValue = Float.NEGATIVE_INFINITY
             for (i in 0 until size) {
-                val v = values[offset + i]
+                val v = values.get(offset + i)
                 if (v > bestValue) {
                     bestValue = v
                     best = i
@@ -293,6 +348,8 @@ class Asr4allEngine private constructor(
             }
             return best
         }
+
+        private fun OrtSession.Result.tensor(name: String): OnnxTensor = get(name).orElseThrow() as OnnxTensor
     }
 }
 
