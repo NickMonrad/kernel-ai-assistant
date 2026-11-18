@@ -24,4 +24,8 @@ internal object Asr4allMeasurementMetrics {
     }
 
     fun aggregate(values: Iterable<Wer>): Wer = values.fold(Wer(0, 0)) { a, b -> Wer(a.edits + b.edits, a.referenceWords + b.referenceWords) }
+    data class SystemWer(val model: String, val tier: String, val wer: Wer)
+
+    fun aggregateBySystem(rows: Iterable<SystemWer>): Map<String, Wer> =
+        rows.groupBy { "${it.model}/${it.tier}" }.mapValues { (_, entries) -> aggregate(entries.map { it.wer }) }
 }
