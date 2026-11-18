@@ -182,6 +182,8 @@ class SelectableVoiceInputController @Inject constructor(
     private val asr4allStartSeq = AtomicLong(0)
     /** Start sequence and admission epoch each asr4all session was admitted under. Main only. */
     private val asr4allSessionAdmission = HashMap<Long, Asr4allAdmission>()
+    /** Session of the latest asr4all admission since the last start; its cancel alone is delivered. */
+    @Volatile private var asr4allLatestSession: Long? = null
 
     init {
         // Moving the selection away from asr4all releases its engine now, not on the next capture.
@@ -282,6 +284,8 @@ class SelectableVoiceInputController @Inject constructor(
         val gen = generation.incrementAndGet()
         pendingZipformerStart.getAndSet(null)?.cancel()
         val seq = asr4allStartSeq.incrementAndGet()
+        // A new start retires the previous asr4all session: its late cancel must not clear this one.
+        asr4allLatestSession = null
         // Supersede any asr4all capture before waiting for the start lock: a stale start's
         // events are fenced by session, and a pending explicit stop's final is dropped here.
         asr4allVoiceInputController.supersedeCapture()
@@ -446,7 +450,10 @@ class SelectableVoiceInputController @Inject constructor(
         val result = asr4allVoiceInputController.startListening(
             mode,
             isWanted = { gen == generation.get() && epoch == asr4allVoiceInputController.admissionEpochNow() },
-            onSession = { sessionId -> asr4allSessionAdmission[sessionId] = Asr4allAdmission(seq, epoch) },
+            onSession = { sessionId ->
+                asr4allSessionAdmission[sessionId] = Asr4allAdmission(seq, epoch)
+                asr4allLatestSession = sessionId
+            },
         )
         if (result is VoiceInputStartResult.Started && gen != generation.get()) {
             asr4allVoiceInputController.stopListening()
@@ -527,10 +534,12 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     private suspend fun routeEvent(controller: VoiceInputController, event: VoiceInputEvent) {
-        // A cancellation terminal is delivered even when stale, so the chat clears listening
-        // without submitting partials after a switch or deletion.
+        // The cancellation terminal of the latest admitted asr4all session is delivered even when
+        // stale, so the chat clears listening after a switch or deletion. A superseded session's
+        // terminal is dropped: it must never clear a replacement.
         if (controller === asr4allVoiceInputController &&
-            event is VoiceInputEvent.ListeningStopped && event.cancelled
+            event is VoiceInputEvent.ListeningStopped && event.cancelled &&
+            event.captureSessionId == asr4allLatestSession
         ) {
             outbound.emit(event)
             return

@@ -518,4 +518,43 @@ class SelectableVoiceInputControllerTest {
 
         assertEquals(false, admitted)
     }
+
+    @Test
+    fun `a delayed cancel from a superseded asr4all session never clears its replacement`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Asr4all)
+        var starts = 0L
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } answers {
+            starts++
+            val id = 6L + starts
+            thirdArg<(Long) -> Unit>().invoke(id)
+            VoiceInputStartResult.Started(id)
+        }
+        val c = controller()
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        // Session A (7) is listening, then session B (8) replaces it and is listening too.
+        c.startListening(VoiceCaptureMode.Command)
+        asr4allEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "a", 7L))
+        advanceUntilIdle()
+        c.startListening(VoiceCaptureMode.Command)
+        asr4allEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "b", 8L))
+        advanceUntilIdle()
+
+        // A's delayed cancellation arrives after B is active: it must not reach the consumers.
+        asr4allEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 7L, cancelled = true))
+        advanceUntilIdle()
+        assertEquals(emptyList<VoiceInputEvent.ListeningStopped>(), seen.filterIsInstance<VoiceInputEvent.ListeningStopped>())
+        assertEquals(listOf("a", "b"), seen.filterIsInstance<VoiceInputEvent.PartialTranscript>().map { it.text })
+
+        // B's own cancellation clears it, without any transcript being submitted.
+        asr4allEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 8L, cancelled = true))
+        advanceUntilIdle()
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 8L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+        assertTrue(seen.none { it is VoiceInputEvent.Transcript })
+    }
 }
