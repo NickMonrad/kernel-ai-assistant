@@ -20,6 +20,7 @@ import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.asr4all.Asr4allModelFiles
 import com.kernel.ai.core.voice.kernelModels
 import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -472,9 +473,12 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
         viewModelScope.launch {
             modelDownloadManager.downloadStates.collect { states ->
-                val perFamilyStates = SherpaSttModelSpec.ALL.mapValues { (engine, spec) ->
-                    computeDownloadState(spec, states)
-                }
+                val perFamilyStates = (SherpaSttModelSpec.ALL.mapValues { (_, spec) ->
+                    computeDownloadState(
+                        spec.requiredFileNames.mapNotNull { fileName -> KernelModel.entries.firstOrNull { it.fileName == fileName } },
+                        states,
+                    )
+                }) + (VoiceInputEngine.Asr4all to computeDownloadState(Asr4allModelFiles.models, states))
                 val inflectStates = inflectModels.associateWith { model ->
                     states[model] ?: DownloadState.NotDownloaded
                 }
@@ -505,12 +509,9 @@ class VoiceViewModel @Inject constructor(
      * Computes a [SherpaSttDownloadState] from the download states of the required models.
      */
     private fun computeDownloadState(
-        spec: SherpaSttModelSpec,
+        requiredModels: List<KernelModel>,
         states: Map<KernelModel, DownloadState>,
     ): SherpaSttDownloadState {
-        val requiredModels = spec.requiredFileNames.mapNotNull { fileName ->
-            KernelModel.entries.firstOrNull { it.fileName == fileName }
-        }
         val allDownloaded = requiredModels.all { states[it] is DownloadState.Downloaded }
         val anyDownloading = requiredModels.any { states[it] is DownloadState.Downloading }
         val totalBytes = requiredModels.sumOf { it.approxSizeBytes }.toFloat()
@@ -555,11 +556,12 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    private fun modelsForSpec(spec: SherpaSttModelSpec): List<KernelModel> = spec.kernelModels()
+    private fun modelsFor(engine: VoiceInputEngine): List<KernelModel> =
+        if (engine == VoiceInputEngine.Asr4all) Asr4allModelFiles.models
+        else SherpaSttModelSpec.forEngine(engine)?.kernelModels().orEmpty()
 
     fun downloadSherpaStt(engine: VoiceInputEngine) {
-        val spec = SherpaSttModelSpec.forEngine(engine) ?: return
-        modelsForSpec(spec).forEach { modelDownloadManager.startDownload(it) }
+        modelsFor(engine).forEach { modelDownloadManager.startDownload(it) }
     }
 
     fun downloadInflectMicro() {
@@ -622,17 +624,16 @@ class VoiceViewModel @Inject constructor(
 
 
     fun cancelSherpaSttDownload(engine: VoiceInputEngine) {
-        val spec = SherpaSttModelSpec.forEngine(engine) ?: return
         val currentStates = modelDownloadManager.downloadStates.value
-        modelsForSpec(spec)
+        modelsFor(engine)
             .filter { currentStates[it] is DownloadState.Downloading }
             .forEach { modelDownloadManager.cancelDownload(it) }
     }
 
     fun deleteSherpaStt(engine: VoiceInputEngine) {
         viewModelScope.launch(Dispatchers.IO) {
-            val spec = SherpaSttModelSpec.forEngine(engine) ?: return@launch
-            modelsForSpec(spec).forEach { model ->
+            val models = modelsFor(engine)
+            models.forEach { model ->
                 val file = model.localFile(context)
                 file.delete()
                 val tmp = java.io.File(file.absolutePath + ".tmp")

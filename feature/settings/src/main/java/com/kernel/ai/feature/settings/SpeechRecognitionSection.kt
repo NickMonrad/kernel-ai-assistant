@@ -84,7 +84,7 @@ internal fun SpeechRecognitionSection(
             VoiceInputEngine.entries.forEachIndexed { index, engine ->
                 val selected = uiState.selectedInputEngine == engine
                 val sttState = uiState.sherpaSttStates[engine]
-                val isReady = !engine.isSherpaFamily || sttState?.isDownloaded == true
+                val isReady = !engine.hasDownloadableModel || sttState?.isDownloaded == true
                 val nativeWarning = if (engine == VoiceInputEngine.AndroidNative && selected) {
                     androidNativeSettingsWarning(
                         blockingMessage = uiState.androidNativeAvailabilityMessage,
@@ -98,11 +98,11 @@ internal fun SpeechRecognitionSection(
                 }
                 val engineWarning = if (engine != VoiceInputEngine.AndroidNative && selected) engine.warning else null
                 val showOnline = onlineSpeechToggleVisible(selected = uiState.selectedInputEngine, row = engine)
-                val showDownloadCard = engine.isSherpaFamily && sttState != null && (!sttState.isDownloaded || selected)
+                val showDownloadCard = engine.hasDownloadableModel && sttState != null && (!sttState.isDownloaded || selected)
                 val hasSub = nativeWarning != null || engineWarning != null || showOnline || showDownloadCard
                 val tag: (@Composable () -> Unit)? = if (engine == VoiceInputEngine.Auto) {
                     { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
-                } else if (sttState != null && engine.isSherpaFamily) {
+                } else if (sttState != null && engine.hasDownloadableModel) {
                     {
                         if (sttState.isDownloaded) {
                             StatusChip(status = ChipStatus.On, label = "Downloaded")
@@ -230,6 +230,7 @@ private fun shortDescription(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.SherpaSenseVoice -> "Offline, English. Final result only."
     VoiceInputEngine.SherpaWhisper -> "Offline, English only."
     VoiceInputEngine.SherpaParaformer -> "Offline, shows words as you speak."
+    VoiceInputEngine.Asr4all -> "Offline, shows words as you speak. Experimental."
 }
 
 /**

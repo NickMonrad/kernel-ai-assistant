@@ -34,9 +34,11 @@ class SelectableVoiceInputControllerTest {
     private val voiceInputPreferences: VoiceInputPreferences = mockk()
     private val nativeAndroidVoiceInputController: NativeAndroidVoiceInputController = mockk()
     private val sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController = mockk()
+    private val asr4allVoiceInputController: Asr4allVoiceInputController = mockk()
     private val recognitionSupport: AndroidNativeRecognitionSupport = mockk()
     private val nativeEvents = MutableSharedFlow<VoiceInputEvent>()
     private val sherpaEvents = MutableSharedFlow<VoiceInputEvent>()
+    private val asr4allEvents = MutableSharedFlow<VoiceInputEvent>()
 
     @BeforeEach
     fun setUp() {
@@ -44,6 +46,8 @@ class SelectableVoiceInputControllerTest {
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(false)
         every { nativeAndroidVoiceInputController.events } returns nativeEvents
         every { sherpaOnnxVoiceInputController.events } returns sherpaEvents
+        every { asr4allVoiceInputController.events } returns asr4allEvents
+        every { asr4allVoiceInputController.stopListening() } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
         every { sherpaOnnxVoiceInputController.stopListening() } just runs
         coEvery { nativeAndroidVoiceInputController.startListening(any(), any()) } returns
@@ -61,6 +65,7 @@ class SelectableVoiceInputControllerTest {
         voiceInputPreferences = voiceInputPreferences,
         nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
         sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
+        asr4allVoiceInputController = asr4allVoiceInputController,
         androidNativeRecognitionSupport = recognitionSupport,
     )
 

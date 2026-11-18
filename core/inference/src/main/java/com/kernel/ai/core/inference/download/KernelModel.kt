@@ -139,6 +139,66 @@ enum class KernelModel(
         showInModelManagement = false,
     ),
 
+    ASR4ALL_METADATA(
+        displayName = "asr4all metadata",
+        fileName = "asr4all-metadata.json",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/metadata.json",
+        approxSizeBytes = 91_004L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_STREAM_C16R4(
+        displayName = "asr4all stream c16r4",
+        fileName = "asr4all-stream_c16r4.onnx",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/stream_c16r4.onnx",
+        approxSizeBytes = 381_779L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_STREAM_C32R8(
+        displayName = "asr4all stream c32r8",
+        fileName = "asr4all-stream_c32r8.onnx",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/stream_c32r8.onnx",
+        approxSizeBytes = 385_402L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_PCEC_C16(
+        displayName = "asr4all PCEC c16",
+        fileName = "asr4all-pcec_c16.onnx",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/pcec_c16.onnx",
+        approxSizeBytes = 138_808L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_PCEC_C16_FLUSH(
+        displayName = "asr4all PCEC c16 flush",
+        fileName = "asr4all-pcec_c16_flush.onnx",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/pcec_c16_flush.onnx",
+        approxSizeBytes = 135_815L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
+    ASR4ALL_WEIGHTS(
+        displayName = "asr4all weights",
+        fileName = "asr4all-weights.onnx.data",
+        downloadUrl = "https://huggingface.co/futo-org/asr4all-s/resolve/87a6b5d093723fe37e9f69ad26307a3b95a31af0/onnx/asr4all.onnx.data",
+        approxSizeBytes = 108_249_312L,
+        isRequired = false,
+        preferredForTier = null,
+        showInModelManagement = false,
+    ),
+
     SHERPA_STT_TOKENS(
         displayName = "Sherpa STT Tokens",
         fileName = "sherpa-stt-tokens.txt",

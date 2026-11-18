@@ -160,6 +160,7 @@ class SelectableVoiceInputController @Inject constructor(
     private val voiceInputPreferences: VoiceInputPreferences,
     private val nativeAndroidVoiceInputController: NativeAndroidVoiceInputController,
     private val sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController,
+    private val asr4allVoiceInputController: Asr4allVoiceInputController,
     private val androidNativeRecognitionSupport: AndroidNativeRecognitionSupport,
 ) : VoiceInputController {
 
@@ -193,8 +194,12 @@ class SelectableVoiceInputController @Inject constructor(
 
     /** Live mic level of whichever engine is capturing (#1850). Both delegates reset to 0 at rest. */
     override val inputLevel: StateFlow<Float> by lazy {
-        combine(nativeAndroidVoiceInputController.inputLevel, sherpaOnnxVoiceInputController.inputLevel) { native, sherpa ->
-            maxOf(native, sherpa)
+        combine(
+            nativeAndroidVoiceInputController.inputLevel,
+            sherpaOnnxVoiceInputController.inputLevel,
+            asr4allVoiceInputController.inputLevel,
+        ) { native, sherpa, asr4all ->
+            maxOf(native, sherpa, asr4all)
         }.stateIn(pipelineScope, SharingStarted.Eagerly, 0f)
     }
 
@@ -228,6 +233,7 @@ class SelectableVoiceInputController @Inject constructor(
                     androidNativeRecognitionSupport.getAvailability()
                 }
             }
+            VoiceInputEngine.Asr4all -> asr4allVoiceInputController.prewarm()
             else -> sherpaOnnxVoiceInputController.prewarm()
         }
     }
@@ -237,6 +243,7 @@ class SelectableVoiceInputController @Inject constructor(
             merge(
                 nativeAndroidVoiceInputController.events.map { event -> nativeAndroidVoiceInputController to event },
                 sherpaOnnxVoiceInputController.events.map { event -> sherpaOnnxVoiceInputController to event },
+                asr4allVoiceInputController.events.map { event -> asr4allVoiceInputController to event },
             ).collect { (controller, event) -> route(controller, event) }
         }
     }
@@ -259,6 +266,7 @@ class SelectableVoiceInputController @Inject constructor(
                 val result = when (engine) {
                     VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen)
                     VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen)
+                    VoiceInputEngine.Asr4all -> startAsr4all(mode, gen)
                     else -> startSherpa(mode, gen) // All Sherpa families.
                 }
                 if (result is VoiceInputStartResult.Started) openGeneration = gen
@@ -391,10 +399,24 @@ class SelectableVoiceInputController @Inject constructor(
         return result
     }
 
+    /**
+     * Starts the asr4all streaming recognizer for the capture with generation [gen]. Like
+     * [startSherpa], a stop that raced the start is closed here too.
+     */
+    private suspend fun startAsr4all(mode: VoiceCaptureMode, gen: Long): VoiceInputStartResult {
+        activate(asr4allVoiceInputController)
+        val result = asr4allVoiceInputController.startListening(mode)
+        if (result is VoiceInputStartResult.Started && gen != generation.get()) {
+            asr4allVoiceInputController.stopListening()
+        }
+        return result
+    }
+
     private fun activate(controller: VoiceInputController) {
         activeController.value = controller
         if (controller !== nativeAndroidVoiceInputController) nativeAndroidVoiceInputController.stopListening()
         if (controller !== sherpaOnnxVoiceInputController) sherpaOnnxVoiceInputController.stopListening()
+        if (controller !== asr4allVoiceInputController) asr4allVoiceInputController.stopListening()
     }
 
     private suspend fun zipformerDownloaded(): Boolean =

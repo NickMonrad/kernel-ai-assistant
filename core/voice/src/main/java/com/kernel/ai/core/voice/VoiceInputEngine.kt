@@ -37,7 +37,15 @@ enum class VoiceInputEngine(
         description = "Local streaming speech recognition via Sherpa-ONNX Paraformer int8. ~226 MB. Streaming partial results.",
         isSherpaFamily = true,
     ),
+    Asr4all(
+        displayName = "asr4all streaming (FUTO)",
+        description = "Offline streaming speech recognition with the FUTO asr4all model. ~110 MB. Streaming partial results.",
+        warning = "Experimental. Accuracy has not yet been compared with Sherpa-ONNX Zipformer; compare on your own speech before relying on it.",
+    ),
     ;
+
+    /** Engines whose model files are downloaded from Settings → Voice (Sherpa family and asr4all). */
+    val hasDownloadableModel: Boolean get() = isSherpaFamily || this == Asr4all
 
     companion object {
         /**
