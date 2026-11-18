@@ -76,6 +76,7 @@ class SelectableVoiceInputHandoffTest {
         asr4allVoiceInputController = mockk<Asr4allVoiceInputController>().also {
             every { it.events } returns MutableSharedFlow()
             every { it.stopListening() } just runs
+            coEvery { it.releaseEngine() } just runs
         },
         androidNativeRecognitionSupport = recognitionSupport,
     )

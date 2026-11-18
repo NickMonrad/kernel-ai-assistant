@@ -3,12 +3,16 @@ package com.kernel.ai.core.voice
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +52,7 @@ class SelectableVoiceInputControllerTest {
         every { sherpaOnnxVoiceInputController.events } returns sherpaEvents
         every { asr4allVoiceInputController.events } returns asr4allEvents
         every { asr4allVoiceInputController.stopListening() } just runs
+        coEvery { asr4allVoiceInputController.releaseEngine() } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
         every { sherpaOnnxVoiceInputController.stopListening() } just runs
         coEvery { nativeAndroidVoiceInputController.startListening(any(), any()) } returns
@@ -210,6 +215,25 @@ class SelectableVoiceInputControllerTest {
 
         coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false) }
         verify(exactly = 1) { sherpaOnnxVoiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `user stop reaches the asr4all capture`() {
+        controller().stopListening()
+
+        verify(exactly = 1) { asr4allVoiceInputController.stopListening() }
+    }
+
+    @Test
+    fun `switching from asr4all waits for release before the native engine starts`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.AndroidNative)
+
+        controller().startListening(VoiceCaptureMode.Command)
+
+        coVerifyOrder {
+            asr4allVoiceInputController.releaseEngine()
+            nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, any())
+        }
     }
 
     @Test
@@ -396,5 +420,18 @@ class SelectableVoiceInputControllerTest {
     fun `android native prewarm runs no language check with online off`() = runTest(dispatcher) {
         prewarmAndroidNative(online = false, checkDue = true)
         coVerify(exactly = 0) { recognitionSupport.getAvailability() }
+    }
+
+    @Test
+    fun `moving the selection away from asr4all releases its engine without another capture`() = runBlocking {
+        val selected = MutableStateFlow(VoiceInputEngine.Asr4all)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        val released = CompletableDeferred<Unit>()
+        coEvery { asr4allVoiceInputController.releaseEngine() } coAnswers { released.complete(Unit) }
+
+        controller()
+        selected.value = VoiceInputEngine.AndroidNative
+
+        withTimeout(5_000) { released.await() }
     }
 }

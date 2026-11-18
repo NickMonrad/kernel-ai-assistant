@@ -19,6 +19,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -169,6 +173,18 @@ class SelectableVoiceInputController @Inject constructor(
     private val generation = AtomicLong()
     private val pendingZipformerStart = AtomicReference<Job?>(null)
     private val startMutex = Mutex()
+    private val preferenceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    init {
+        // Moving the selection away from asr4all releases its engine now, not on the next capture.
+        // The first emission (startup) is a no-op because nothing is loaded yet.
+        preferenceScope.launch {
+            flow { emitAll(voiceInputPreferences.selectedEngine) }
+                .distinctUntilChanged()
+                .catch { Log.w(TAG, "asr4all selection observer stopped", it) }
+                .collect { engine -> if (engine != VoiceInputEngine.Asr4all) asr4allVoiceInputController.releaseEngine() }
+        }
+    }
 
     /** Generation of the capture that is currently open, or -1. Main only. */
     private var openGeneration = -1L
@@ -263,6 +279,7 @@ class SelectableVoiceInputController @Inject constructor(
                 if (engine != VoiceInputEngine.Auto) {
                     JandalEvents.record("voice", "stt_route", "route" to engine, "online_fallback" to allowOnlineFallback)
                 }
+                if (engine != VoiceInputEngine.Asr4all) asr4allVoiceInputController.releaseEngine()
                 val result = when (engine) {
                     VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen)
                     VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen)
@@ -602,6 +619,7 @@ class SelectableVoiceInputController @Inject constructor(
         pendingZipformerStart.getAndSet(null)?.cancel()
         nativeAndroidVoiceInputController.stopListening()
         sherpaOnnxVoiceInputController.stopListening()
+        asr4allVoiceInputController.stopListening()
     }
 
     /**
