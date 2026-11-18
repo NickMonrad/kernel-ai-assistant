@@ -6,7 +6,7 @@ Scope: criteria 1–3 (Kotlin port of FUTO's pinned HF asr4all ONNX driver, engi
 - Repo: asr4all-s, revision `87a6b5d093723fe37e9f69ad26307a3b95a31af0`, path `onnx/`. This is the revision of the Python driver (`onnx/asr4all_onnx.py`) that the parity expectations are generated from.
 - Files: `metadata.json`, `stream_c16r4.onnx`, `stream_c32r8.onnx`, `pcec_c16.onnx`, `pcec_c16_flush.onnx`, `asr4all.onnx.data`.
 - Not pinned by sha256: `KernelModel` has no checksum field. Downloads are not verified beyond HTTP success.
-- The M bundle (`stream_c16r4`, `stream_c32r8`, `stream_c64r16`, `stream_c128r24`, `stream_c256r32`, `stream_c512r8`, `pcec_c16`, `pcec_c64`, `vad.onnx`) has no recorded upstream revision. Its origin is an unrecorded provenance limit; treat M results as tied to those local files only.
+- M bundle (`stream_c16r4`, `stream_c32r8`, `stream_c64r16`, `stream_c128r24`, `stream_c256r32`, `stream_c512r8`, `pcec_c16`, `pcec_c64`, `vad.onnx`, `metadata.json`) matches the official HF repo `futo-org/asr4all-m` at revision `7d6e9145109a5bece4f05831d046e93d27e38a99`, path `onnx/`. Verified by comparing the exact local directory `/tmp/asr4all-ref-1987/m` against `https://huggingface.co/api/models/futo-org/asr4all-m/tree/7d6e9145109a5bece4f05831d046e93d27e38a99/onnx?expand=false`: the five LFS SHA-256 values (weights, `stream_c16r4`, `stream_c32r8`, `pcec_c16`, `pcec_c16_flush`) match byte-for-byte, and the `metadata.json` Git blob ID is `0135c69a48b0373d8b00bc13a36b06270b731703`, matching upstream.
 
 ## Parity reference (pinned Python driver, same ONNX files)
 
@@ -18,7 +18,7 @@ Driver: `onnx/asr4all_onnx.py` at the pinned revision above. The two local copie
 
 Model dirs:
 - S = trimmed copy of the pinned release: `stream_c16r4.onnx`, `stream_c32r8.onnx`, `pcec_c16.onnx`, `pcec_c16_flush.onnx`, `asr4all.onnx.data`, `metadata.json`. The full S release also lists tiers whose files are absent, so the driver fails on the untrimmed dir.
-- M = local `m` bundle (see provenance limit above).
+- M = the `m` bundle above (revision `7d6e9145…`, verified as described in the pinned upstream section).
 
 Driver commands (run from `/tmp/asr4all-ref`, outside Git; `matrix.sh` issued them):
 ```
@@ -65,7 +65,7 @@ Host harness: `Asr4allTierMeasurementTest` is a plain host-JVM test (`src/test`,
 Routing tests: `SelectableVoiceInputControllerTest` (28) and `SelectableVoiceInputHandoffTest` (15) pass, 0 failures.
 
 ## S23U smoke (RFCW11265XH), debug build
-- Installed `app-debug.apk` via `adb install -r`; `lastUpdateTime` 2026-11-18 10:49:12.
+- Installed `app-debug.apk` built from the opening head (the PR head before remediation; exact build SHA not recorded in this README) via `adb install -r`; `lastUpdateTime` 2026-11-18 10:49:12. Remediated head (`47be1ed4` and later) has not been installed or run on device.
 - Six model files pushed to the app's models folder under prefixed names (not committed).
 - Settings → Voice: asr4all row shows **Downloaded**; selecting it shows **Ready**; no `AndroidRuntime` errors in logcat.
 - Engine selection was restored to Automatic after the check. Hey Jandal toggle was not touched.
@@ -74,7 +74,7 @@ Routing tests: `SelectableVoiceInputControllerTest` (28) and `SelectableVoiceInp
 - Stimulus: 48 kHz mono s16 synthetic phrase, 3.29 s, generated outside Git. Manifest `fixture_id=natural_wake`, sha256 prefix `52c1e43f…e576` (the manifest value is truncated; the full digest was not recorded in this README). Installed in S21 app-private `files/acoustic-fixtures/`.
 - Source S21 (`R5CR605B71K`): `AcousticStimulusReceiver` events `prepared` → `started` → `completed` → `cleanup_completed`, `exact_restoration_verified=true`, for trials smoke-1978-001/002/003.
 - **Trial 001: invalid.** No S23U capture was active, so it measured nothing.
-- **Trial 002, volume 7 (safe level): timeout.** The S23U capture ran and ended with `No speech heard` after the 10 s no-speech timeout.
+- **Trial 002, volume index 7 (lower-volume trial, not a proven safe level): timeout.** The S23U capture ran and ended with `No speech heard` after the 10 s no-speech timeout.
 - **Trial 003, volume 15: captured.** Chat push-to-talk on S23U (accessibility bounds `[305,1876][380,1928]`): AudioRecord opened (VOICE_RECOGNITION, 16 kHz). Trace `ADB_INTENT_TRACE submitMode=Voice` at 11:01:22.338 with the final `The quick brown fox stump over the lazy dog.` (cased and punctuated).
 - Coupling: the captured final is observed for trial 003 only.
 - **Not verified:** streaming partials (`PartialTranscript` was not captured; no asr4all journal instrumentation), voice-mode entry point not separately exercised, and no on-device evaluation beyond this one phrase.
