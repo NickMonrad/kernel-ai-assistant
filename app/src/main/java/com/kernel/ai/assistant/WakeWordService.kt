@@ -40,6 +40,9 @@ import com.kernel.ai.core.voice.WakeWordDetector
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import com.kernel.ai.core.voice.WakeWordHandoff
+import com.kernel.ai.core.voice.cancelListening
+import com.kernel.ai.core.voice.hasCaptureOrStart
+import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.WakeOverlayChannel
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
@@ -220,6 +223,7 @@ internal suspend fun runWakeAttempt(
     onError: (String) -> Unit = {},
     onWakeEvent: (VoiceInputEvent) -> Unit = {},
     onCaptureReady: () -> Unit = {},
+    onSessionAdmitted: (Long) -> Unit = {},
 ): WakeAttemptOutcome = coroutineScope {
     val attemptEvents = Channel<VoiceInputEvent>(Channel.BUFFERED)
     val collectorJob = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -240,7 +244,7 @@ internal suspend fun runWakeAttempt(
                 AcousticEventType.STT_START_REQUESTED,
                 metadata = { mapOf("attempt" to attempt.toString()) },
             )
-            val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand)
+            val startResult = voiceInputController.startListening(VoiceCaptureMode.AlertCommand, onSessionAdmitted)
             if (startResult !is VoiceInputStartResult.Started) {
                 journal.record(
                     AcousticEventType.STT_ERROR,
@@ -345,6 +349,8 @@ internal suspend fun runWakeAttempt(
                     skipRetry = handedOff || terminalEvent.category in NO_RETRY_ERROR_CATEGORIES,
                     errorMessage = terminalEvent.message.takeIf { it.isNotBlank() },
                 )
+            } else if (terminalEvent is VoiceInputEvent.ListeningStopped && terminalEvent.cancelled) {
+                WakeAttemptOutcome.NoTranscript("stt_capture_cancelled", skipRetry = true)
             } else {
                 WakeAttemptOutcome.NoTranscript(
                     "stt_stopped_without_result",
@@ -470,6 +476,7 @@ internal suspend fun runWakeCommandHandoff(
     onWakeEvent: (VoiceInputEvent) -> Unit = {},
     onCaptureReady: () -> Unit = {},
     isCancelled: () -> Boolean = { false },
+    onSessionAdmitted: (Long) -> Unit = {},
 ): WakeCommandHandoffResult {
     // #1433: a confirmed wake activation must not request live STT capture until the
     // wake detector has completed microphone-resource release.
@@ -479,6 +486,7 @@ internal suspend fun runWakeCommandHandoff(
     sessionJournal.start()
     var completed = false
     var cancellationCategory = "stt_no_final_result"
+    var activeCaptureSessionId: Long? = null
 
     try {
         val sessionResult = runWakeCaptureSession(onFinalError = onError) { attempt ->
@@ -499,6 +507,10 @@ internal suspend fun runWakeCommandHandoff(
                 onError = onError,
                 onWakeEvent = onWakeEvent,
                 onCaptureReady = onCaptureReady,
+                onSessionAdmitted = { captureSessionId ->
+                    activeCaptureSessionId = captureSessionId
+                    onSessionAdmitted(captureSessionId)
+                },
             )
         }
 
@@ -534,7 +546,7 @@ internal suspend fun runWakeCommandHandoff(
     } catch (e: CancellationException) {
         cancellationCategory = "session_cancelled"
         // No microphone owner or recognizer may survive a cancelled handoff.
-        voiceInputController.stopListening()
+        activeCaptureSessionId?.let(voiceInputController::cancelListening)
         throw e
     } catch (e: Exception) {
         cancellationCategory = "session_failed"
@@ -562,6 +574,7 @@ internal suspend fun runWakeOverlayHandoff(
     onSessionTerminal: () -> Unit,
     capturePermitted: () -> Boolean,
     openOverlay: (token: Long) -> Unit,
+    onSessionAdmitted: (Long) -> Unit = {},
 ): Unit = coroutineScope {
     val token = WakeOverlayChannel.begin()
     var overlayRequested = false
@@ -587,6 +600,7 @@ internal suspend fun runWakeOverlayHandoff(
                 }
             },
             isCancelled = { WakeOverlayChannel.isCancelRequested(token) },
+            onSessionAdmitted = onSessionAdmitted,
         )
     }
     val cancelWatcher = launch {
@@ -845,7 +859,7 @@ class WakeWordService : Service() {
                     }
 
                     is VoiceInputEvent.ListeningStopped -> {
-                        if (event.cancelled && event.captureSessionId != isVoiceSessionCaptureId) return@collect
+                        if (event.captureSessionId != isVoiceSessionCaptureId) return@collect
                         isVoiceSessionActive = false
                         isVoiceSessionCaptureId = null
                         if (isHandlingDetection) return@collect
@@ -1021,6 +1035,10 @@ class WakeWordService : Service() {
                     // #1502: a camera-driven yield must not be undone by the session's retry.
                     capturePermitted = { !isWakeCaptureSuspended },
                     openOverlay = ::showWakeOverlay,
+                    onSessionAdmitted = { captureSessionId ->
+                        isVoiceSessionCaptureId = captureSessionId
+                        isVoiceSessionActive = true
+                    },
                 )
             } catch (e: CancellationException) {
                 isHandlingDetection = false
@@ -1073,6 +1091,10 @@ class WakeWordService : Service() {
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "WakeWordService: RECORD_AUDIO not granted — not re-arming detector")
             recordServiceError(WakeCategory.RECORD_AUDIO_PERMISSION_MISSING)
+            return
+        }
+        if (voiceInputController.hasCaptureOrStart()) {
+            Log.i(TAG, "WakeWordService: another capture is active or starting — not re-arming detector")
             return
         }
         val generationId = AcousticJournalBridge.allocateGenerationId()

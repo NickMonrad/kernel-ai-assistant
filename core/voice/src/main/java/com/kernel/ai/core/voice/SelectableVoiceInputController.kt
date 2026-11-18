@@ -120,8 +120,11 @@ private data class NativeSessionFacts(
     val speechProgress: Boolean = false,
 )
 
-/** Admission facts for one asr4all session: the start sequence and epoch it was admitted under. */
-private data class Asr4allAdmission(val seq: Long, val epoch: Long)
+/** Admission facts for one asr4all session and the start attempt that owns it. */
+private data class Asr4allAdmission(val seq: Long, val epoch: Long, val generation: Long)
+
+private data class CaptureOwnerState(val generation: Long, val sessionId: Long?)
+private data class AdmittedCapture(val controller: VoiceInputController, val backendSessionId: Long)
 
 /**
  * A Zipformer session that replaced a native session mid-capture. Its events are re-stamped
@@ -174,6 +177,9 @@ class SelectableVoiceInputController @Inject constructor(
     private val activeController = MutableStateFlow<VoiceInputController>(sherpaOnnxVoiceInputController)
 
     private val generation = AtomicLong()
+    private val captureOwnerLock = Any()
+    private var captureOwner: CaptureOwnerState? = null
+    private val admittedControllers = HashMap<Long, AdmittedCapture>()
     private val pendingZipformerStart = AtomicReference<Job?>(null)
     private val startMutex = Mutex()
     private val preferenceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -182,6 +188,8 @@ class SelectableVoiceInputController @Inject constructor(
     private val asr4allStartSeq = AtomicLong(0)
     /** Start sequence and admission epoch each asr4all session was admitted under. Main only. */
     private val asr4allSessionAdmission = HashMap<Long, Asr4allAdmission>()
+    /** Recently finalized IDs suppress duplicate cancellation after a final already escaped. */
+    private val terminalAsr4allSessions = LinkedHashSet<Long>()
 
     init {
         // Moving the selection away from asr4all releases its engine now, not on the next capture.
@@ -240,6 +248,8 @@ class SelectableVoiceInputController @Inject constructor(
      * that check runs here instead of on the first tap, and again once a not-Ready answer is stale.
      */
     override suspend fun prewarm() {
+        val asrSeq = asr4allStartSeq.get()
+        val asrEpoch = asr4allVoiceInputController.admissionEpochNow()
         when (voiceInputPreferences.selectedEngine.first()) {
             VoiceInputEngine.Auto -> {
                 val allowOnlineFallback = voiceInputPreferences.allowOnlineSpeechFallback.first()
@@ -262,14 +272,11 @@ class SelectableVoiceInputController @Inject constructor(
                     androidNativeRecognitionSupport.getAvailability()
                 }
             }
-            VoiceInputEngine.Asr4all -> {
-                val seq = asr4allStartSeq.get()
-                val epoch = asr4allVoiceInputController.admissionEpochNow()
-                startMutex.withLock {
-                    asr4allVoiceInputController.prewarmIfCurrent {
-                        seq == asr4allStartSeq.get() &&
-                            epoch == asr4allVoiceInputController.admissionEpochNow()
-                    }
+            VoiceInputEngine.Asr4all -> startMutex.withLock {
+                asr4allVoiceInputController.prewarmIfCurrent {
+                    asrSeq == asr4allStartSeq.get() &&
+                        asrEpoch == asr4allVoiceInputController.admissionEpochNow() &&
+                        voiceInputPreferences.selectedEngine.first() == VoiceInputEngine.Asr4all
                 }
             }
             else -> sherpaOnnxVoiceInputController.prewarm()
@@ -286,6 +293,58 @@ class SelectableVoiceInputController @Inject constructor(
         }
     }
 
+    private fun admitSession(
+        gen: Long,
+        controller: VoiceInputController,
+        sessionId: Long,
+        onSessionAdmitted: (Long) -> Unit,
+    ) {
+        synchronized(captureOwnerLock) {
+            admittedControllers[sessionId] = AdmittedCapture(controller, sessionId)
+            if (gen == generation.get()) captureOwner = CaptureOwnerState(gen, sessionId)
+        }
+        if (controller === nativeAndroidVoiceInputController && gen == generation.get()) {
+            openGeneration = gen
+            expectedNativeSessionId = sessionId
+            nativeFacts = NativeSessionFacts(sessionId)
+        }
+        onSessionAdmitted(sessionId)
+    }
+
+    override fun stopListening(captureSessionId: Long) {
+        val capture = synchronized(captureOwnerLock) { admittedControllers[captureSessionId] } ?: return
+        when (capture.controller) {
+            asr4allVoiceInputController ->
+                asr4allVoiceInputController.stopListeningForSession(capture.backendSessionId)
+            nativeAndroidVoiceInputController ->
+                nativeAndroidVoiceInputController.stopListeningForSession(capture.backendSessionId)
+            sherpaOnnxVoiceInputController ->
+                sherpaOnnxVoiceInputController.stopListeningForSession(capture.backendSessionId)
+        }
+    }
+
+    override fun cancelListening(captureSessionId: Long) {
+        val capture = synchronized(captureOwnerLock) { admittedControllers[captureSessionId] } ?: return
+        when (capture.controller) {
+            asr4allVoiceInputController ->
+                asr4allVoiceInputController.cancelListeningForSession(capture.backendSessionId)
+            nativeAndroidVoiceInputController ->
+                nativeAndroidVoiceInputController.cancelListeningForSession(capture.backendSessionId)
+            sherpaOnnxVoiceInputController ->
+                sherpaOnnxVoiceInputController.cancelListeningForSession(capture.backendSessionId)
+        }
+    }
+
+    override fun hasCaptureOrStart(): Boolean =
+        synchronized(captureOwnerLock) { captureOwner?.generation == generation.get() }
+
+    private fun clearCaptureOwner(sessionId: Long) {
+        synchronized(captureOwnerLock) {
+            if (captureOwner?.sessionId == sessionId) captureOwner = null
+            admittedControllers.remove(sessionId)
+        }
+    }
+
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
         startListeningInternal(mode, onSessionAdmitted = {})
 
@@ -299,17 +358,18 @@ class SelectableVoiceInputController @Inject constructor(
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult {
         val gen = generation.incrementAndGet()
+        synchronized(captureOwnerLock) { captureOwner = CaptureOwnerState(gen, null) }
         pendingZipformerStart.getAndSet(null)?.cancel()
         openGeneration = -1L
         val seq = asr4allStartSeq.incrementAndGet()
         asr4allVoiceInputController.supersedeCapture()
         val asr4allEpoch = asr4allVoiceInputController.admissionEpochNow()
-        return withContext(Dispatchers.Main.immediate) {
+        return try {
+            withContext(Dispatchers.Main.immediate) {
             startMutex.withLock {
                 handoff = null
                 nativeFacts = null
                 expectedNativeSessionId = null
-                asr4allSessionAdmission.clear()
                 val allowOnlineFallback = voiceInputPreferences.allowOnlineSpeechFallback.first()
                 val engine = voiceInputPreferences.selectedEngine.first()
                 if (engine != VoiceInputEngine.Auto) {
@@ -317,8 +377,8 @@ class SelectableVoiceInputController @Inject constructor(
                 }
                 if (engine != VoiceInputEngine.Asr4all) asr4allVoiceInputController.releaseEngine()
                 val result = when (engine) {
-                    VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen)
-                    VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen)
+                    VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen, onSessionAdmitted)
+                    VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen, onSessionAdmitted)
                     VoiceInputEngine.Asr4all -> startAsr4all(
                         mode,
                         gen,
@@ -326,15 +386,21 @@ class SelectableVoiceInputController @Inject constructor(
                         asr4allEpoch,
                         onSessionAdmitted,
                     )
-                    else -> startSherpa(mode, gen)
+                    else -> startSherpa(mode, gen, onSessionAdmitted)
                 }
-                if (result is VoiceInputStartResult.Started) {
+                if (result is VoiceInputStartResult.Started && gen == generation.get()) {
                     openGeneration = gen
-                    if (engine != VoiceInputEngine.Asr4all) {
-                        onSessionAdmitted(result.captureSessionId)
+                } else if (result is VoiceInputStartResult.Unavailable || result is VoiceInputStartResult.Cancelled) {
+                    synchronized(captureOwnerLock) {
+                        if (captureOwner?.generation == gen) captureOwner = null
                     }
                 }
                 result
+            }
+        }
+        } finally {
+            synchronized(captureOwnerLock) {
+                if (captureOwner?.generation == gen && captureOwner?.sessionId == null) captureOwner = null
             }
         }
     }
@@ -343,13 +409,14 @@ class SelectableVoiceInputController @Inject constructor(
         mode: VoiceCaptureMode,
         allowOnlineFallback: Boolean,
         gen: Long,
+        onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult {
         val zipformerReady = zipformerDownloaded()
         if (zipformerReady && !allowOnlineFallback) {
             // Zipformer wins regardless of native support; skip the native availability check.
             Log.i(TAG, "Auto STT route=${AutoSttRoute.Zipformer} mode=$mode allowOnlineFallback=false")
             JandalEvents.record("voice", "stt_route", "route" to AutoSttRoute.Zipformer, "online_fallback" to false)
-            return startSherpa(mode, gen)
+            return startSherpa(mode, gen, onSessionAdmitted)
         }
         // Use the cached locale check when there is one; only run the slower live check for
         // interactive captures that have no cached answer yet.
@@ -387,9 +454,9 @@ class SelectableVoiceInputController @Inject constructor(
                 // a session immediately can lose the shared on-device service
                 // (ERROR_SERVER_DISCONNECTED on the S23 Ultra), so let it settle first.
                 if (ranLiveCheck) delay(LIVE_CHECK_SETTLE_MS)
-                startNative(mode, allowOnlineFallback, gen)
+                startNative(mode, allowOnlineFallback, gen, onSessionAdmitted)
             }
-            AutoSttRoute.Zipformer -> startSherpa(mode, gen)
+            AutoSttRoute.Zipformer -> startSherpa(mode, gen, onSessionAdmitted)
             AutoSttRoute.Unavailable -> VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE)
         }
     }
@@ -403,9 +470,16 @@ class SelectableVoiceInputController @Inject constructor(
         mode: VoiceCaptureMode,
         allowOnlineFallback: Boolean,
         gen: Long,
+        onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult {
         activate(nativeAndroidVoiceInputController)
-        val nativeResult = nativeAndroidVoiceInputController.startListening(mode, allowOnlineFallback)
+        val nativeResult = nativeAndroidVoiceInputController.startListening(
+            mode,
+            allowOnlineFallback,
+            onSessionAdmitted = { sessionId ->
+                admitSession(gen, nativeAndroidVoiceInputController, sessionId, onSessionAdmitted)
+            },
+        )
         if (nativeResult is VoiceInputStartResult.Started) {
             expectedNativeSessionId = nativeResult.captureSessionId
             nativeFacts = nativeFacts?.takeIf { it.sessionId == nativeResult.captureSessionId }
@@ -418,7 +492,13 @@ class SelectableVoiceInputController @Inject constructor(
         // Zipformer emits ListeningStarted while it starts, so route its events from now on.
         activeController.value = sherpaOnnxVoiceInputController
         val zipformer = runZipformerStart(gen) {
-            val started = sherpaOnnxVoiceInputController.startListening(mode, isWanted = { gen == generation.get() }) as? VoiceInputStartResult.Started
+            val started = sherpaOnnxVoiceInputController.startListening(
+                mode,
+                isWanted = { gen == generation.get() },
+                onSessionAdmitted = { sessionId ->
+                    admitSession(gen, sherpaOnnxVoiceInputController, sessionId, onSessionAdmitted)
+                },
+            ) as? VoiceInputStartResult.Started
             when {
                 started == null -> null
                 gen != generation.get() -> {
@@ -442,6 +522,7 @@ class SelectableVoiceInputController @Inject constructor(
             // Stopped or superseded while Zipformer was starting: report a capture that ended
             // at once, as a stop just after a start would, instead of the native failure.
             val stoppedSessionId = VoiceCaptureSessionIds.allocate()
+            admitSession(gen, nativeAndroidVoiceInputController, stoppedSessionId, onSessionAdmitted)
             Log.i(TAG, "Capture stopped during the start-time Zipformer fallback; reporting sessionId=$stoppedSessionId as stopped")
             outbound.tryEmit(VoiceInputEvent.ListeningStopped(mode, stoppedSessionId))
             return VoiceInputStartResult.Started(stoppedSessionId)
@@ -454,9 +535,19 @@ class SelectableVoiceInputController @Inject constructor(
      * [gen] (a stop during this suspension must not open the mic); afterwards a stop that
      * raced the start is closed here too.
      */
-    private suspend fun startSherpa(mode: VoiceCaptureMode, gen: Long): VoiceInputStartResult {
+    private suspend fun startSherpa(
+        mode: VoiceCaptureMode,
+        gen: Long,
+        onSessionAdmitted: (Long) -> Unit,
+    ): VoiceInputStartResult {
         activate(sherpaOnnxVoiceInputController)
-        val result = sherpaOnnxVoiceInputController.startListening(mode, isWanted = { gen == generation.get() })
+        val result = sherpaOnnxVoiceInputController.startListening(
+            mode,
+            isWanted = { gen == generation.get() },
+            onSessionAdmitted = { sessionId ->
+                admitSession(gen, sherpaOnnxVoiceInputController, sessionId, onSessionAdmitted)
+            },
+        )
         if (result is VoiceInputStartResult.Started && gen != generation.get()) {
             sherpaOnnxVoiceInputController.stopListening()
         }
@@ -483,8 +574,8 @@ class SelectableVoiceInputController @Inject constructor(
                     epoch == asr4allVoiceInputController.admissionEpochNow()
             },
             onSession = { sessionId ->
-                asr4allSessionAdmission[sessionId] = Asr4allAdmission(seq, epoch)
-                onSessionAdmitted(sessionId)
+                asr4allSessionAdmission[sessionId] = Asr4allAdmission(seq, epoch, gen)
+                admitSession(gen, asr4allVoiceInputController, sessionId, onSessionAdmitted)
             },
         )
         if (result is VoiceInputStartResult.Started && gen != generation.get()) {
@@ -569,17 +660,41 @@ class SelectableVoiceInputController @Inject constructor(
             admission.epoch == asr4allVoiceInputController.admissionEpochNow()
     }
 
+    private fun isTerminal(event: VoiceInputEvent): Boolean =
+        event is VoiceInputEvent.Transcript ||
+            event is VoiceInputEvent.Error ||
+            event is VoiceInputEvent.ListeningStopped
+
+    private fun rememberAsr4allTerminal(sessionId: Long) {
+        terminalAsr4allSessions.add(sessionId)
+        while (terminalAsr4allSessions.size > 128) {
+            val oldest = terminalAsr4allSessions.first()
+            terminalAsr4allSessions.remove(oldest)
+            asr4allSessionAdmission.remove(oldest)
+        }
+    }
+
     private suspend fun routeEvent(controller: VoiceInputController, event: VoiceInputEvent) {
-        if (
-            controller === asr4allVoiceInputController &&
-            event is VoiceInputEvent.ListeningStopped &&
-            event.cancelled
-        ) {
-            outbound.emit(event)
+        if (controller === asr4allVoiceInputController) {
+            val sessionId = event.captureSessionId
+            if (sessionId in terminalAsr4allSessions) return
+            val admitted = asr4allSessionAdmission.containsKey(sessionId)
+            if (!asr4allAdmissionCurrent(sessionId)) {
+                if (admitted && isTerminal(event)) {
+                    rememberAsr4allTerminal(sessionId)
+                    clearCaptureOwner(sessionId)
+                    outbound.emit(
+                        if (event is VoiceInputEvent.ListeningStopped && event.cancelled) event
+                        else VoiceInputEvent.ListeningStopped(event.mode, sessionId, cancelled = true),
+                    )
+                }
+                return
+            }
+            if (controller !== activeController.value) return
+            if (isTerminal(event)) rememberAsr4allTerminal(sessionId)
+        } else if (controller !== activeController.value) {
             return
         }
-        if (controller !== activeController.value) return
-        if (controller === asr4allVoiceInputController && !asr4allAdmissionCurrent(event.captureSessionId)) return
 
         if (controller === nativeAndroidVoiceInputController) {
             trackNative(event)
@@ -604,10 +719,13 @@ class SelectableVoiceInputController @Inject constructor(
         ) {
             // The native cue already played for this capture; do not replay it.
             if (event is VoiceInputEvent.ListeningStarted && current.readinessAnnounced) return
-            outbound.emit(event.withCaptureSessionId(current.nativeSessionId))
+            val ownedEvent = event.withCaptureSessionId(current.nativeSessionId)
+            outbound.emit(ownedEvent)
+            if (isTerminal(ownedEvent)) clearCaptureOwner(current.nativeSessionId)
             return
         }
         outbound.emit(event)
+        if (isTerminal(event)) clearCaptureOwner(event.captureSessionId)
     }
 
     /** Records native session facts; events from any other native session are ignored. */
@@ -666,6 +784,12 @@ class SelectableVoiceInputController @Inject constructor(
                 }
                 // Commit under the lock, before Zipformer's queued events are routed.
                 activeController.value = sherpaOnnxVoiceInputController
+                synchronized(captureOwnerLock) {
+                    admittedControllers[nativeId] = AdmittedCapture(
+                        sherpaOnnxVoiceInputController,
+                        started.captureSessionId,
+                    )
+                }
                 handoff = ZipformerHandoff(
                     nativeSessionId = nativeId,
                     zipformerSessionId = started.captureSessionId,
@@ -702,6 +826,7 @@ class SelectableVoiceInputController @Inject constructor(
     /** Thread-safe: see the class concurrency notes. */
     override fun stopListening() {
         generation.incrementAndGet()
+        synchronized(captureOwnerLock) { captureOwner = null }
         pendingZipformerStart.getAndSet(null)?.cancel()
         nativeAndroidVoiceInputController.stopListening()
         sherpaOnnxVoiceInputController.stopListening()

@@ -55,6 +55,7 @@ private class FocusHold(val request: AudioFocusRequest?)
  * shared with a later capture, so a later capture can only open the mic after [reader] ends.
  */
 private class Capture(
+    val sessionId: Long,
     val buffer: PreRollAudioBuffer,
     val recorder: AudioRecord,
     val focus: FocusHold?,
@@ -158,7 +159,7 @@ class Asr4allVoiceInputController @Inject constructor(
                     stoppedEarly = true
                     null
                 } else {
-                    openCapture()?.also {
+                    openCapture(sessionId)?.also {
                         onSession(sessionId)
                         lastCapture = it
                         activeCapture = it
@@ -182,12 +183,18 @@ class Asr4allVoiceInputController @Inject constructor(
                 loading.await()
             } catch (e: Throwable) {
                 halt(capture)
+                withContext(NonCancellable) {
+                    capture.reader.join()
+                }
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
-                withContext(NonCancellable) { loading.join() }
+                withContext(NonCancellable) {
+                    loading.join()
+                }
                 throw e
             }
             if (eng == null) {
                 halt(capture)
+                capture.reader.join()
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Offline speech model could not be loaded. Re-download it in Settings → Voice.",
@@ -199,6 +206,7 @@ class Asr4allVoiceInputController @Inject constructor(
             // finalized by an explicit stop; a supersede discards in every case.
             if (discard.get() || stop.get()) {
                 halt(capture)
+                capture.reader.join()
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Cancelled(sessionId)
             }
@@ -212,6 +220,7 @@ class Asr4allVoiceInputController @Inject constructor(
                     if (!discard.get()) _events.tryEmit(VoiceInputEvent.Error(mode, e.message ?: "Voice input error", sessionId))
                 } finally {
                     capture.buffer.close()
+                    capture.reader.join()
                     _inputLevel.value = 0f
                     _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = discard.get()))
                 }
@@ -226,7 +235,7 @@ class Asr4allVoiceInputController @Inject constructor(
      * capture's focus on every exit path, and nothing else.
      */
     @SuppressLint("MissingPermission")
-    private fun openCapture(): Capture? {
+    private fun openCapture(sessionId: Long): Capture? {
         val focus = requestAudioFocus()
         val recorder = recorderForTest?.invoke() ?: createAudioRecord()
         if (recorder == null) {
@@ -234,7 +243,7 @@ class Asr4allVoiceInputController @Inject constructor(
             releaseAudioFocus(focus)
             return null
         }
-        val capture = Capture(PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES), recorder, focus)
+        val capture = Capture(sessionId, PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES), recorder, focus)
         capture.reader = scope.launch { readLoop(capture) }
         return capture
     }
@@ -254,6 +263,13 @@ class Asr4allVoiceInputController @Inject constructor(
             c.buffer.close()
             stopRecorder(c.recorder)
             releaseAudioFocus(c.focus)
+            synchronized(captureLock) {
+                if (activeCapture === c) {
+                    activeCapture = null
+                    activeStop = null
+                    activeDiscard = null
+                }
+            }
         }
     }
 
@@ -415,8 +431,29 @@ class Asr4allVoiceInputController @Inject constructor(
             activeCapture?.let(::halt)
         }
     }
+    internal fun stopListeningForSession(captureSessionId: Long) {
+        synchronized(captureLock) {
+            val capture = activeCapture?.takeIf { it.sessionId == captureSessionId } ?: return
+            stopCount++
+            activeStop?.set(true)
+            halt(capture)
+        }
+    }
 
-    internal suspend fun prewarmIfCurrent(isCurrent: () -> Boolean): Boolean {
+    internal fun cancelListeningForSession(captureSessionId: Long) {
+        synchronized(captureLock) {
+            val capture = activeCapture?.takeIf { it.sessionId == captureSessionId } ?: return
+            stopCount++
+            activeDiscard?.set(true)
+            activeStop?.set(true)
+            halt(capture)
+        }
+    }
+
+    internal fun hasActiveCapture(): Boolean =
+        synchronized(captureLock) { activeCapture != null }
+
+    internal suspend fun prewarmIfCurrent(isCurrent: suspend () -> Boolean): Boolean {
         if (!isAvailable()) return false
         return startLock.withLock {
             if (!isCurrent()) return@withLock false

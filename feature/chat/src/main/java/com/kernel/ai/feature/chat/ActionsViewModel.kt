@@ -37,6 +37,7 @@ import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
+import com.kernel.ai.core.voice.stopListening
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import com.kernel.ai.core.voice.SpeechStopReason
 import com.kernel.ai.core.voice.stopFor
@@ -403,6 +404,8 @@ class ActionsViewModel @Inject constructor(
     private var actionsVoiceSessionId: Long? = null
     private var actionsVoiceAwaitingFinal = false
     private var actionsVoiceNoticeJob: Job? = null
+    private var actionsVoiceAttemptId = 0L
+    private var actionsVoiceStartJob: Job? = null
 
     /**
      * Tracks how many automatic voice retries have been attempted for the current
@@ -705,18 +708,30 @@ class ActionsViewModel @Inject constructor(
     }
 
     fun stopVoiceCapture() {
+        actionsVoiceAttemptId++
+        actionsVoiceStartJob?.cancel()
+        actionsVoiceStartJob = null
+        val sessionId = actionsVoiceSessionId
         unbindActionsVoiceSession()
-        voiceInputController.stopListening()
+        actionsVoiceAwaitingFinal = false
+        if (sessionId != null) voiceInputController.stopListening(sessionId)
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
 
     /** Shows this screen's capture notes (#1853 Zipformer hand-off, #1866) until unbound. */
-    private fun bindActionsVoiceSession(captureSessionId: Long) {
+    private fun bindActionsVoiceSession(
+        captureSessionId: Long,
+        mode: VoiceCaptureMode,
+        attemptId: Long,
+    ) {
+        if (attemptId != actionsVoiceAttemptId || _voiceCaptureState.value != VoiceCaptureState.Preparing(mode)) return
         actionsVoiceNoticeJob?.cancel()
         actionsVoiceSessionId = captureSessionId
         actionsVoiceAwaitingFinal = false
         actionsVoiceNoticeJob = viewModelScope.launch {
-            voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
+            voiceInputController.noticesFor(captureSessionId).collect {
+                if (attemptId == actionsVoiceAttemptId && actionsVoiceSessionId == captureSessionId) _error.value = it
+            }
         }
     }
 
@@ -726,15 +741,18 @@ class ActionsViewModel @Inject constructor(
         actionsVoiceSessionId = null
     }
 
-    private fun finishCancelledVoiceStart(mode: VoiceCaptureMode, captureSessionId: Long?) {
+    private fun finishCancelledVoiceStart(
+        mode: VoiceCaptureMode,
+        attemptId: Long,
+        captureSessionId: Long?,
+    ) {
+        if (attemptId != actionsVoiceAttemptId) return
+        if (captureSessionId != null && actionsVoiceSessionId != captureSessionId) return
         val state = _voiceCaptureState.value
-        val ownsPreparingAttempt = if (captureSessionId == null) {
-            actionsVoiceSessionId == null && state == VoiceCaptureState.Preparing(mode)
-        } else {
-            actionsVoiceSessionId == captureSessionId && ownsVoiceCapture(mode, captureSessionId)
-        }
-        if (!ownsPreparingAttempt) return
-        if (state is VoiceCaptureState.Processing && !actionsVoiceAwaitingFinal) return
+        if (state != VoiceCaptureState.Preparing(mode) &&
+            !(state is VoiceCaptureState.Processing && state.mode == mode && actionsVoiceAwaitingFinal)
+        ) return
+        actionsVoiceStartJob = null
         unbindActionsVoiceSession()
         actionsVoiceAwaitingFinal = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -2312,21 +2330,39 @@ class ActionsViewModel @Inject constructor(
                 _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
             }
         }
+        val attemptId = ++actionsVoiceAttemptId
+        actionsVoiceStartJob?.cancel()
+        actionsVoiceStartJob = null
+        unbindActionsVoiceSession()
+        actionsVoiceAwaitingFinal = false
         _voiceCaptureState.value = VoiceCaptureState.Preparing(mode)
-        viewModelScope.launch {
-            when (val result = voiceInputController.startListening(mode, ::bindActionsVoiceSession)) {
+        actionsVoiceStartJob = viewModelScope.launch {
+            when (
+                val result = voiceInputController.startListening(mode) { sessionId ->
+                    bindActionsVoiceSession(sessionId, mode, attemptId)
+                }
+            ) {
                 is VoiceInputStartResult.Started -> {
-                    Log.d(TAG, "ActionsViewModel: voiceInputController.startListening started mode=$mode")
-                    if (_voiceCaptureState.value is VoiceCaptureState.Preparing) {
-                        _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
+                    if (attemptId == actionsVoiceAttemptId) {
+                        actionsVoiceStartJob = null
+                        Log.d(TAG, "ActionsViewModel: voiceInputController.startListening started mode=$mode")
+                        if (_voiceCaptureState.value == VoiceCaptureState.Preparing(mode)) {
+                            _voiceCaptureState.value = VoiceCaptureState.Listening(mode)
+                        }
                     }
                 }
                 is VoiceInputStartResult.Unavailable -> {
-                    Log.w(TAG, "ActionsViewModel: voiceInputController.startListening unavailable mode=$mode message=${result.message}")
-                    _voiceCaptureState.value = VoiceCaptureState.Idle
-                    _error.value = result.message
+                    if (attemptId == actionsVoiceAttemptId) {
+                        actionsVoiceStartJob = null
+                        Log.w(TAG, "ActionsViewModel: voiceInputController.startListening unavailable mode=$mode message=${result.message}")
+                        unbindActionsVoiceSession()
+                        actionsVoiceAwaitingFinal = false
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
+                        _error.value = result.message
+                    }
                 }
-                is VoiceInputStartResult.Cancelled -> finishCancelledVoiceStart(mode, result.captureSessionId)
+                is VoiceInputStartResult.Cancelled ->
+                    finishCancelledVoiceStart(mode, attemptId, result.captureSessionId)
             }
         }
     }

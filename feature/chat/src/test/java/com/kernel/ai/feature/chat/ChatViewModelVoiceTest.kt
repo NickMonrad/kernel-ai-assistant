@@ -258,6 +258,44 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `cancel after final transcript submission preserves the submitted Processing turn`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("submitted turn") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "submitted turn")
+        val finishGeneration = CompletableDeferred<Unit>()
+        every { inferenceEngine.generate(any()) } returns flow {
+            finishGeneration.await()
+            emit(GenerationResult.Token("done"))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        runCurrent()
+        voiceInputEvents.emit(
+            VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "submitted turn", captureSessionId = 1L),
+        )
+        runCurrent()
+        assertEquals(
+            ChatViewModel.VoiceCaptureState.Processing("submitted turn"),
+            viewModel.voiceCaptureState.value,
+        )
+
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
+        runCurrent()
+        assertEquals(
+            ChatViewModel.VoiceCaptureState.Processing("submitted turn"),
+            viewModel.voiceCaptureState.value,
+        )
+
+        finishGeneration.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
     fun `a cancelled stop clears an owned listening capture without submitting its partial`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
@@ -1532,7 +1570,7 @@ class ChatViewModelVoiceTest {
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
-        verify(exactly = 1) { voiceInputController.stopListening() }
+        verify(exactly = 0) { voiceInputController.stopListening() }
     }
 
     @Test
@@ -1588,7 +1626,7 @@ class ChatViewModelVoiceTest {
         assertNull(viewModel.weatherLocationState.value)
         assertEquals("You: $input", viewModel.getConversationAsText())
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
-        verify(exactly = 1) { voiceInputController.stopListening() }
+        verify(exactly = 0) { voiceInputController.stopListening() }
     }
 
     @Test
@@ -1637,7 +1675,7 @@ class ChatViewModelVoiceTest {
             errorState.await().error,
         )
         assertEquals("You: $input", viewModel.getConversationAsText())
-        verify(exactly = 1) { voiceInputController.stopListening() }
+        verify(exactly = 0) { voiceInputController.stopListening() }
     }
 
     @Test
@@ -1686,7 +1724,7 @@ class ChatViewModelVoiceTest {
         assertEquals("", viewModel.getConversationAsText())
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         assertEquals(null, viewModel.voiceMode.value)
-        verify(exactly = 1) { voiceInputController.stopListening() }
+        verify(exactly = 0) { voiceInputController.stopListening() }
     }
 
     @Test

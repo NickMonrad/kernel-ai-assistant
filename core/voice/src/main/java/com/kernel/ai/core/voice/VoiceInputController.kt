@@ -125,7 +125,27 @@ interface VoiceCaptureAdmissionController {
         mode: VoiceCaptureMode,
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult
+
+    /** Stops only [captureSessionId]; stale UI owners must never stop a replacement capture. */
+    fun stopListening(captureSessionId: Long) {}
+
+    /** Discards only [captureSessionId], without finalizing or affecting a replacement. */
+    fun cancelListening(captureSessionId: Long) {}
+
+    /** True while a start is pending or an admitted capture remains active. */
+    fun hasCaptureOrStart(): Boolean = false
 }
+
+fun VoiceInputController.stopListening(captureSessionId: Long) {
+    (this as? VoiceCaptureAdmissionController)?.stopListening(captureSessionId)
+}
+
+fun VoiceInputController.cancelListening(captureSessionId: Long) {
+    (this as? VoiceCaptureAdmissionController)?.cancelListening(captureSessionId)
+}
+
+fun VoiceInputController.hasCaptureOrStart(): Boolean =
+    (this as? VoiceCaptureAdmissionController)?.hasCaptureOrStart() == true
 
 suspend fun VoiceInputController.startListening(
     mode: VoiceCaptureMode,

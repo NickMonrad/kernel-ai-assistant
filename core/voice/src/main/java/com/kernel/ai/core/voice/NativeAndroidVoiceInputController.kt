@@ -333,6 +333,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
     suspend fun startListening(
         mode: VoiceCaptureMode,
         allowPlatformFallback: Boolean,
+        onSessionAdmitted: (Long) -> Unit = {},
     ): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
             val startRequestedAtMs = SystemClock.elapsedRealtime()
@@ -400,6 +401,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 noSpeechRefreshCount = 0
                 readinessEmittedForSession = false
                 sessionStartRequestedAtMs = startRequestedAtMs
+                onSessionAdmitted(sessionId)
                 val startBackend = initialRecognizerBackend(
                     mode = mode,
                     allowPlatformFallback = allowPlatformFallback,
@@ -461,6 +463,17 @@ class NativeAndroidVoiceInputController @Inject constructor(
     override fun stopListening() {
         context.mainExecutor.execute {
             stopListeningInternal(emitStopped = true, expectedSessionId = activeSessionId)
+        }
+    }
+    internal fun stopListeningForSession(captureSessionId: Long) {
+        context.mainExecutor.execute {
+            stopListeningInternal(emitStopped = true, expectedSessionId = captureSessionId)
+        }
+    }
+
+    internal fun cancelListeningForSession(captureSessionId: Long) {
+        context.mainExecutor.execute {
+            stopListeningInternal(emitStopped = true, expectedSessionId = captureSessionId)
         }
     }
 

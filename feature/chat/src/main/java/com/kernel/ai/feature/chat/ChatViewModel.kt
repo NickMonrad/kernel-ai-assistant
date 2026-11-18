@@ -98,6 +98,7 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.startListening
+import com.kernel.ai.core.voice.stopListening
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -480,6 +481,8 @@ class ChatViewModel @Inject constructor(
     private var chatVoiceSessionId: Long? = null
     private var chatVoiceAwaitingFinal = false
     private var chatVoiceNoticeJob: Job? = null
+    private var chatVoiceAttemptId = 0L
+    private var chatVoiceStartJob: Job? = null
 
     /**
      * True from the chat screen's ON_STOP until its next ON_RESUME (#1927). While set, no automatic
@@ -841,20 +844,9 @@ class ChatViewModel @Inject constructor(
                         if (chatCommandVoiceRetryCount < 1 && !handedOff) {
                             chatCommandVoiceRetryCount++
                             Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
+                            val attemptId = beginChatVoiceAttempt()
                             _voiceCaptureState.value = VoiceCaptureState.Preparing
-                            when (val r = voiceInputController.startListening(VoiceCaptureMode.Command, ::bindChatVoiceSession)) {
-                                is VoiceInputStartResult.Started -> {
-                                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
-                                        _voiceCaptureState.value = VoiceCaptureState.Listening()
-                                    }
-                                }
-                                is VoiceInputStartResult.Unavailable -> {
-                                    _voiceMode.value = null
-                                    _voiceCaptureState.value = VoiceCaptureState.Idle
-                                    _error.value = withVoiceSettingsHint(r.message)
-                                }
-                                is VoiceInputStartResult.Cancelled -> finishCancelledChatVoiceStart(r.captureSessionId)
-                            }
+                            launchChatVoiceAttempt(attemptId) { _error.value = null }
                         } else {
                             _voiceMode.value = null
                             _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -1740,29 +1732,75 @@ class ChatViewModel @Inject constructor(
                 _voiceCaptureState.value is VoiceCaptureState.Listening ||
                 _voiceCaptureState.value is VoiceCaptureState.Processing)
     
-    private fun bindChatVoiceSession(captureSessionId: Long) {
+    private fun beginChatVoiceAttempt(): Long {
+        val attemptId = ++chatVoiceAttemptId
+        chatVoiceStartJob?.cancel()
+        chatVoiceStartJob = null
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceNoticeJob = null
+        chatVoiceSessionId = null
+        chatVoiceAwaitingFinal = false
+        return attemptId
+    }
+
+    private fun bindChatVoiceSession(captureSessionId: Long, attemptId: Long) {
+        if (attemptId != chatVoiceAttemptId || _voiceCaptureState.value != VoiceCaptureState.Preparing) return
         chatVoiceNoticeJob?.cancel()
         chatVoiceSessionId = captureSessionId
         chatVoiceAwaitingFinal = false
         chatVoiceNoticeJob = viewModelScope.launch {
-            voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
+            voiceInputController.noticesFor(captureSessionId).collect {
+                if (attemptId == chatVoiceAttemptId && chatVoiceSessionId == captureSessionId) _error.value = it
+            }
         }
     }
 
-    private fun finishCancelledChatVoiceStart(captureSessionId: Long?) {
-        val ownedPreparingAttempt = if (captureSessionId == null) {
-            chatVoiceSessionId == null && _voiceCaptureState.value == VoiceCaptureState.Preparing
-        } else {
-            chatVoiceSessionId == captureSessionId
-        }
-        if (!ownedPreparingAttempt) return
-        if (_voiceCaptureState.value is VoiceCaptureState.Processing && !chatVoiceAwaitingFinal) return
+    private fun finishCancelledChatVoiceStart(attemptId: Long, captureSessionId: Long?) {
+        if (attemptId != chatVoiceAttemptId) return
+        if (captureSessionId != null && chatVoiceSessionId != captureSessionId) return
+        if (_voiceCaptureState.value !is VoiceCaptureState.Preparing &&
+            !(_voiceCaptureState.value is VoiceCaptureState.Processing && chatVoiceAwaitingFinal)
+        ) return
+        chatVoiceStartJob = null
         chatVoiceSessionId = null
         chatVoiceNoticeJob?.cancel()
         chatVoiceNoticeJob = null
         chatVoiceAwaitingFinal = false
         _voiceMode.value = null
         _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    private fun launchChatVoiceAttempt(
+        attemptId: Long,
+        beforeStart: suspend () -> Unit = {},
+    ) {
+        chatVoiceStartJob = viewModelScope.launch {
+            beforeStart()
+            if (attemptId != chatVoiceAttemptId) return@launch
+            when (
+                val result = voiceInputController.startListening(VoiceCaptureMode.Command) { sessionId ->
+                    bindChatVoiceSession(sessionId, attemptId)
+                }
+            ) {
+                is VoiceInputStartResult.Started -> {
+                    if (attemptId == chatVoiceAttemptId &&
+                        _voiceCaptureState.value == VoiceCaptureState.Preparing
+                    ) _voiceCaptureState.value = VoiceCaptureState.Listening()
+                }
+                is VoiceInputStartResult.Unavailable -> {
+                    if (attemptId == chatVoiceAttemptId) {
+                        chatVoiceStartJob = null
+                        awaitingVoicePlaybackCompletion = false
+                        _voiceMode.value = null
+                        pendingVoiceReply = false
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
+                        _error.value = withVoiceSettingsHint(result.message)
+                    }
+                }
+                is VoiceInputStartResult.Cancelled ->
+                    finishCancelledChatVoiceStart(attemptId, result.captureSessionId)
+            }
+        }
     }
 
     private fun startVoiceInput(mode: VoiceMode) {
@@ -1773,32 +1811,17 @@ class ChatViewModel @Inject constructor(
             val uses = voiceInputPreferences.recordMicUseStarted()
             _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
         }
-        // #790: Fresh mic press resets the retry budget.
         chatCommandVoiceRetryCount = 0
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = mode
-        viewModelScope.launch {
+        val attemptId = beginChatVoiceAttempt()
+        _voiceCaptureState.value = VoiceCaptureState.Preparing
+        launchChatVoiceAttempt(attemptId) {
             // Synthesis of the first chunk has no playback state yet; a mic tap must cancel it too.
             if (_voicePlaybackState.value != VoicePlaybackState.Idle || assistantSpeechJob?.isActive == true) {
                 stopChatSpeech()
             }
             _error.value = null
-            _voiceCaptureState.value = VoiceCaptureState.Preparing
-            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command, ::bindChatVoiceSession)) {
-                is VoiceInputStartResult.Started -> {
-                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
-                        _voiceCaptureState.value = VoiceCaptureState.Listening()
-                    }
-                }
-                is VoiceInputStartResult.Unavailable -> {
-                    awaitingVoicePlaybackCompletion = false
-                    _voiceMode.value = null
-                    pendingVoiceReply = false
-                    _voiceCaptureState.value = VoiceCaptureState.Idle
-                    _error.value = withVoiceSettingsHint(result.message)
-                }
-                is VoiceInputStartResult.Cancelled -> finishCancelledChatVoiceStart(result.captureSessionId)
-            }
         }
     }
 
@@ -1810,24 +1833,9 @@ class ChatViewModel @Inject constructor(
         if (_voiceMode.value != VoiceMode.BackAndForth) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
         if (backgroundPaused) return
-        viewModelScope.launch {
-            _error.value = null
-            _voiceCaptureState.value = VoiceCaptureState.Preparing
-            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command, ::bindChatVoiceSession)) {
-                is VoiceInputStartResult.Started -> {
-                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
-                        _voiceCaptureState.value = VoiceCaptureState.Listening()
-                    }
-                }
-                is VoiceInputStartResult.Unavailable -> {
-                    awaitingVoicePlaybackCompletion = false
-                    _voiceMode.value = null
-                    _voiceCaptureState.value = VoiceCaptureState.Idle
-                    _error.value = withVoiceSettingsHint(result.message)
-                }
-                is VoiceInputStartResult.Cancelled -> finishCancelledChatVoiceStart(result.captureSessionId)
-            }
-        }
+        val attemptId = beginChatVoiceAttempt()
+        _voiceCaptureState.value = VoiceCaptureState.Preparing
+        launchChatVoiceAttempt(attemptId) { _error.value = null }
     }
 
     fun onMicrophonePermissionDenied(shouldShowRationale: Boolean = false, requestedAction: String? = null) {
@@ -2013,14 +2021,18 @@ class ChatViewModel @Inject constructor(
 
 
     fun stopVoiceInput() {
+        chatVoiceAttemptId++
+        chatVoiceStartJob?.cancel()
+        chatVoiceStartJob = null
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
-        // A note from a hand-off that lands just before the stop must not show while idle.
         chatVoiceNoticeJob?.cancel()
         chatVoiceNoticeJob = null
+        val sessionId = chatVoiceSessionId
         chatVoiceSessionId = null
-        voiceInputController.stopListening()
+        chatVoiceAwaitingFinal = false
+        if (sessionId != null) voiceInputController.stopListening(sessionId)
         _voiceCaptureState.value = VoiceCaptureState.Idle
     }
 

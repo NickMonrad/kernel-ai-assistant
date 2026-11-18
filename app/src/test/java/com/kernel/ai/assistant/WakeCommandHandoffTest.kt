@@ -100,25 +100,46 @@ class WakeCommandHandoffTest {
         private val detectorReleased: () -> Boolean,
         private val startResults: MutableList<VoiceInputStartResult>,
         private val sharedOrder: MutableList<String>,
-    ) : VoiceInputController {
+    ) : VoiceInputController, com.kernel.ai.core.voice.VoiceCaptureAdmissionController {
         private val eventChannel = Channel<VoiceInputEvent>(Channel.UNLIMITED)
         override val events: Flow<VoiceInputEvent> = eventChannel.receiveAsFlow()
 
         val startCalls = mutableListOf<Long>()
         val releasedWhenStarted = mutableListOf<Boolean>()
         var stopCalls = 0
+        val cancelSessionIds = mutableListOf<Long>()
 
         override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult {
-            val result = startResults.removeAt(0) as VoiceInputStartResult.Started
-            sharedOrder += "stt-start-${result.captureSessionId}"
-            startCalls += result.captureSessionId
-            releasedWhenStarted += detectorReleased()
+            val result = startResults.removeAt(0)
+            if (result is VoiceInputStartResult.Started) {
+                sharedOrder += "stt-start-${result.captureSessionId}"
+                startCalls += result.captureSessionId
+                releasedWhenStarted += detectorReleased()
+            }
+            return result
+        }
+
+        override suspend fun startListening(
+            mode: VoiceCaptureMode,
+            onSessionAdmitted: (Long) -> Unit,
+        ): VoiceInputStartResult {
+            val result = startListening(mode)
+            when (result) {
+                is VoiceInputStartResult.Started -> onSessionAdmitted(result.captureSessionId)
+                is VoiceInputStartResult.Cancelled -> result.captureSessionId?.let(onSessionAdmitted)
+                is VoiceInputStartResult.Unavailable -> Unit
+            }
             return result
         }
 
         override fun stopListening() {
             stopCalls++
             sharedOrder += "stt-stop"
+        }
+
+        override fun cancelListening(captureSessionId: Long) {
+            cancelSessionIds += captureSessionId
+            sharedOrder += "stt-cancel-$captureSessionId"
         }
 
         suspend fun emit(event: VoiceInputEvent) {
@@ -378,6 +399,38 @@ class WakeCommandHandoffTest {
         val recorded = journalEvents.map { it.first }
         assertTrue(recorded.contains(AcousticEventType.STT_ERROR))
     }
+    @Test
+    fun `never-admitted startup cancellation skips retry without claiming or stopping a capture`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Cancelled()),
+            sharedOrder = order,
+        )
+        val admittedIds = mutableListOf<Long>()
+        var rearmCount = 0
+
+        val result = runWakeCommandHandoff(
+            wakeWordDetector = detector,
+            voiceInputController = controller,
+            cuePlayer = cuePlayer(),
+            generationId = 7L,
+            sessionId = 9L,
+            routeTranscript = { true },
+            onSessionTerminal = { rearmCount++ },
+            onSessionAdmitted = admittedIds::add,
+        )
+
+        assertFalse(result.completed)
+        assertEquals("stt_start_cancelled", result.cancellationCategory)
+        assertTrue(controller.startCalls.isEmpty(), "no microphone session was admitted")
+        assertTrue(admittedIds.isEmpty(), "a never-admitted cancellation has no owner ID")
+        assertTrue(controller.cancelSessionIds.isEmpty(), "nothing admitted needs scoped cancellation")
+        assertEquals(0, controller.stopCalls, "startup cancellation must not issue an unscoped stop")
+        assertEquals(1, rearmCount, "the detector re-arms exactly once")
+    }
+
 
     @Test
     fun `obsolete attempt-1 callback cannot terminate attempt 2`() = runTest {
@@ -450,7 +503,8 @@ class WakeCommandHandoffTest {
         job.cancel()
         runCurrent()
 
-        assertEquals(1, controller.stopCalls, "no recognizer may survive a cancelled handoff")
+        assertEquals(listOf(1L), controller.cancelSessionIds, "cancel only the admitted capture")
+        assertEquals(0, controller.stopCalls, "a cancelled handoff must not issue an unscoped stop")
         assertEquals(1, rearmCount, "re-arm happens once even on cancellation")
         assertTrue(
             journalEvents.map { it.first }.contains(AcousticEventType.SESSION_CANCELLED),
@@ -499,7 +553,8 @@ class WakeCommandHandoffTest {
         assertEquals(listOf(1L), controller.startCalls, "closing the overlay must not start attempt 2")
         assertFalse(routed)
         assertEquals(1, rearmCount, "re-arm happens exactly once")
-        assertEquals(1, controller.stopCalls, "the recognizer is stopped on cancel")
+        assertEquals(listOf(1L), controller.cancelSessionIds, "cancel only the admitted capture")
+        assertEquals(0, controller.stopCalls, "overlay cancellation must not stop a replacement")
     }
 
     @Test
@@ -673,7 +728,8 @@ class WakeCommandHandoffTest {
         job.join()
 
         assertEquals(listOf(1L), controller.startCalls, "no second startListening after the cancel")
-        assertEquals(1, controller.stopCalls, "the recognizer is stopped exactly once")
+        assertEquals(listOf(1L), controller.cancelSessionIds, "cancel only the admitted capture")
+        assertEquals(0, controller.stopCalls, "overlay cancellation must not stop a replacement")
         assertFalse(routed, "a cancelled capture must not route a command")
         assertEquals(1, rearmCount, "the detector re-arms exactly once")
         assertEquals(WakeOverlayState.Ended(routed = false), WakeOverlayChannel.state.value)

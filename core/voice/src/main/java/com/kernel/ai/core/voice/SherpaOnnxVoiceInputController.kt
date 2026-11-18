@@ -210,6 +210,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     private var stopCount = 0L
     /** The microphone capture opened by [startListening], until its recognizer loop ends. */
     @Volatile private var currentCapture: PreRollAudioBuffer? = null
+    @Volatile private var activeSessionId: Long? = null
     /** The pre-roll reader of the most recent capture; a new start waits for it to release the mic. */
     @Volatile private var lastReaderJob: Job? = null
 
@@ -250,6 +251,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     internal suspend fun startListening(
         mode: VoiceCaptureMode,
         isWanted: () -> Boolean,
+        onSessionAdmitted: (Long) -> Unit = {},
     ): VoiceInputStartResult {
         val stopsAtCall = synchronized(captureLock) { stopCount }
         return sessionMutex.withLock {
@@ -274,6 +276,8 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 JandalEvents.record("voice", "stt_error", "category" to SttFailure.MODEL_UNAVAILABLE)
                 return@withLock VoiceInputStartResult.Unavailable(MODEL_UNAVAILABLE_MESSAGE)
             }
+            synchronized(captureLock) { activeSessionId = captureSessionId }
+            onSessionAdmitted(captureSessionId)
 
             beforeMicOpenForTest?.invoke()
             // B2: the stop check and the microphone open share one critical section, so a stop
@@ -293,6 +297,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             }
             if (stoppedEarly) return@withLock endStoppedBeforeMic(mode, captureSessionId)
             if (capture == null) {
+                clearActiveSession(captureSessionId)
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Microphone unavailable — check RECORD_AUDIO permission."
                 )
@@ -302,11 +307,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 ensureRecognizer(spec)
             } catch (e: Throwable) {
                 abandonCapture(capture)
+                clearActiveSession(captureSessionId)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                 throw e
             }
             if (rec == null) {
                 abandonCapture(capture)
+                clearActiveSession(captureSessionId)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                 JandalEvents.record("voice", "stt_error", "category" to SttFailure.MODEL_UNAVAILABLE)
                 return@withLock VoiceInputStartResult.Unavailable(MODEL_UNAVAILABLE_MESSAGE)
@@ -318,11 +325,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                     callerContext.ensureActive()
                 } catch (e: CancellationException) {
                     abandonCapture(capture)
+                    if (activeSessionId == captureSessionId) activeSessionId = null
                     _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                     throw e
                 }
                 if (stopCount != stopsAtCall || !isWanted()) {
                     abandonCapture(capture)
+                    if (activeSessionId == captureSessionId) activeSessionId = null
                     Log.i(TAG, "Sherpa STT start abandoned: stopped while the recognizer was loading (sessionId=$captureSessionId)")
                     _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                     return@withLock VoiceInputStartResult.Started(captureSessionId)
@@ -356,6 +365,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                         _inputLevel.value = 0f
                         synchronized(captureLock) {
                             if (currentCapture === capture) currentCapture = null
+                            if (activeSessionId == captureSessionId) activeSessionId = null
                         }
                     }
                 }
@@ -365,8 +375,15 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         }
     }
 
+    private fun clearActiveSession(captureSessionId: Long) {
+        synchronized(captureLock) {
+            if (activeSessionId == captureSessionId) activeSessionId = null
+        }
+    }
+
     /** A stop arrived before the microphone opened: no mic, cue or haptic (#1850). */
     private fun endStoppedBeforeMic(mode: VoiceCaptureMode, captureSessionId: Long): VoiceInputStartResult {
+        clearActiveSession(captureSessionId)
         Log.i(TAG, "Sherpa STT start abandoned: stopped before the microphone opened (sessionId=$captureSessionId)")
         _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
         return VoiceInputStartResult.Started(captureSessionId)
@@ -404,6 +421,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     override fun stopListening() {
         synchronized(captureLock) {
             stopCount++
+            activeSessionId = null
             isRecording = false
             currentCapture?.close()
             currentCapture = null
@@ -411,6 +429,29 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             activeJob = null
         }
     }
+
+    internal fun stopListeningForSession(captureSessionId: Long) {
+        stopSession(captureSessionId)
+    }
+
+    internal fun cancelListeningForSession(captureSessionId: Long) {
+        stopSession(captureSessionId)
+    }
+
+    private fun stopSession(captureSessionId: Long) {
+        synchronized(captureLock) {
+            if (activeSessionId != captureSessionId) return
+            stopCount++
+            activeSessionId = null
+            isRecording = false
+            currentCapture?.close()
+            currentCapture = null
+            activeJob?.cancel()
+            activeJob = null
+        }
+    }
+
+    internal fun hasCaptureOrStart(): Boolean = activeSessionId != null
 
     /** Ends a capture that never reached a recognizer loop. The reader releases the mic and focus. */
     private fun abandonCapture(capture: PreRollAudioBuffer) {
