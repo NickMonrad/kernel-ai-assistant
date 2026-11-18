@@ -95,6 +95,34 @@ class ClockAlertSnoozeRegressionTest {
     }
 
     @Test
+    fun `failed notification snooze after replacement cannot finish the replacement voice capture`() = runTest {
+        val repositoryResult = CompletableDeferred<Boolean>()
+        var currentJournal = "A"
+        var currentCaptureId = 41L
+        var finishCount = 0
+        val action = async {
+            runVoiceSnoozeAction(
+                snooze = { repositoryResult.await() },
+                mayFinishVoiceCapture = { currentJournal == "A" },
+                finishOnFailure = {
+                    finishCount++
+                    currentCaptureId = 0L
+                    currentJournal = "finished-A"
+                },
+            )
+        }
+
+        currentJournal = "B"
+        currentCaptureId = 99L
+        repositoryResult.complete(false)
+
+        assertEquals(false, action.await())
+        assertEquals(0, finishCount)
+        assertEquals(99L, currentCaptureId)
+        assertEquals("B", currentJournal)
+    }
+
+    @Test
     fun `auto snooze completing after replacement dismisses only the old alert`() = runTest {
         val repositoryResult = CompletableDeferred<Boolean>()
         var currentOwner = "A"

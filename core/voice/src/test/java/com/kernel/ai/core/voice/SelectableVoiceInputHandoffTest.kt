@@ -29,6 +29,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -43,6 +44,7 @@ class SelectableVoiceInputHandoffTest {
     // Unconfined: startListening and collectors run eagerly, so a test's emits can't race a suspended start.
     private val dispatcher = UnconfinedTestDispatcher()
     private val voiceInputPreferences: VoiceInputPreferences = mockk()
+    private val selectedEngine = MutableStateFlow(VoiceInputEngine.AndroidNative)
     private val native: NativeAndroidVoiceInputController = mockk()
     private val sherpa: SherpaOnnxVoiceInputController = mockk()
     private val recognitionSupport: AndroidNativeRecognitionSupport = mockk()
@@ -53,7 +55,7 @@ class SelectableVoiceInputHandoffTest {
     @BeforeEach
     fun setUp() {
         Dispatchers.setMain(dispatcher)
-        every { voiceInputPreferences.selectedEngine } returns MutableStateFlow(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.selectedEngine } returns selectedEngine
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(false)
         every { native.events } returns nativeEvents
         every { sherpa.events } returns sherpaEvents
@@ -350,6 +352,54 @@ class SelectableVoiceInputHandoffTest {
             // Subscribed only after the start returned: the replayed note is still delivered.
             assertEquals(ZIPFORMER_START_NOTICE, c.noticesFor(2L).first())
             assertEquals(ZIPFORMER_START_NOTICE, c.latestNoticeFor(2L))
+        }
+
+    @Test
+    fun `unavailable fallback retires its reserved admission without waiting for a terminal`() = runTest(dispatcher) {
+        coEvery { native.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(101L)
+            VoiceInputStartResult.Unavailable("native failed")
+        }
+        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(202L)
+            VoiceInputStartResult.Unavailable("mic unavailable")
+        }
+        val c = controller()
+        val seen = eventsOf(c)
+
+        assertEquals(VoiceInputStartResult.Unavailable("native failed"), c.startListening(mode))
+        advanceUntilIdle()
+
+        assertTrue(seen.isEmpty(), "unavailable backends do not owe a terminal event")
+        assertFalse(c.captureActivity.value)
+        assertFalse(c.hasCaptureOrStart())
+    }
+
+    @Test
+    fun `same sherpa replacement retires the remapped fallback owner and keeps the new owner`() =
+        runTest(dispatcher) {
+            zipformerStartsAs(2L)
+            val c = controller()
+            val seen = eventsOf(c)
+
+            assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
+            nativeEvents.emit(notReady(1L))
+            advanceUntilIdle()
+            selectedEngine.value = VoiceInputEngine.SherpaZipformer
+            coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+                sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 2L))
+                thirdArg<(Long) -> Unit>().invoke(3L)
+                sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, 3L))
+                VoiceInputStartResult.Started(3L)
+            }
+
+            assertEquals(VoiceInputStartResult.Started(3L), c.startListening(mode))
+            advanceUntilIdle()
+
+            assertTrue(seen.contains(VoiceInputEvent.ListeningStopped(mode, 1L)))
+            assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(mode, 3L)))
+            assertTrue(c.captureActivity.value)
+            assertTrue(c.hasCaptureOrStart())
         }
 
     @Test

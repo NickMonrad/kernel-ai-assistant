@@ -548,6 +548,37 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     }
 
     @Test
+    fun `native replacement retires the prior capture before a new admission fails`() = runTest {
+        val firstRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val secondRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returnsMany
+            listOf(firstRecognizer, secondRecognizer)
+        every { secondRecognizer.startListening(any()) } throws IllegalStateException("replacement failed")
+        val order = mutableListOf<String>()
+        every { firstRecognizer.destroy() } answers { order += "first-destroy" }
+        every { audioManager.abandonAudioFocus(null) } answers { order += "focus-abandon"; 0 }
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch {
+            controller.events.collect {
+                events += it
+                if (it is VoiceInputEvent.ListeningStopped) order += "stopped"
+            }
+        }
+        runCurrent()
+
+        val first = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+            as VoiceInputStartResult.Started
+        val failed = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+        runCurrent()
+
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, failed)
+        assertEquals(listOf(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, first.captureSessionId)), events)
+        assertTrue(order.indexOf("first-destroy") < order.indexOf("stopped"))
+        assertTrue(order.indexOf("focus-abandon") < order.indexOf("stopped"))
+        collector.cancel()
+    }
+
+    @Test
     fun `startListening returns Unavailable when both on-device and platform recognizers throw`() = runTest {
         val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
         val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)

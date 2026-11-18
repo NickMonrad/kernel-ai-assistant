@@ -94,6 +94,16 @@ internal suspend fun runSnoozeAction(
     }
 }
 
+internal suspend fun runVoiceSnoozeAction(
+    snooze: suspend () -> Boolean,
+    mayFinishVoiceCapture: () -> Boolean,
+    finishOnFailure: () -> Unit,
+): Boolean {
+    val success = snooze()
+    if (!success && mayFinishVoiceCapture()) finishOnFailure()
+    return success
+}
+
 internal suspend fun runAutoSnoozeAction(
     snooze: suspend () -> Boolean,
     dismiss: (preserveVoiceSession: Boolean) -> Unit,
@@ -319,12 +329,16 @@ class ClockAlertService : Service() {
                 val alert = intent.toTriggeredClockAlert()?.let { findActiveAlert(it.ownerId) } ?: currentAlert()
                 if (alert != null) {
                     val attemptJournal = voiceJournal
+                    val attemptSessionId = captureSessionId
                     serviceScope.launch {
                         runSnoozeAction(
                             snooze = {
                                 performSnooze(
                                     alert,
                                     snoozeDurationFor(alert),
+                                    expectedJournal = attemptJournal,
+                                    ownedSessionId = attemptSessionId,
+                                    requireExpectedJournalMatch = true,
                                 )
                             },
                             dismiss = { dismissAlert(alert) },
@@ -940,6 +954,7 @@ class ClockAlertService : Service() {
         durationMs: Long,
         expectedJournal: WakeSessionJournal? = null,
         ownedSessionId: Long? = captureSessionId,
+        requireExpectedJournalMatch: Boolean = false,
     ): Boolean {
         if (alert.type != ClockEventType.ALARM) {
             finishVoiceCapture(
@@ -947,18 +962,31 @@ class ClockAlertService : Service() {
                 "unsupported_alert_command",
                 expectedJournal,
                 ownedSessionId,
+                requireExpectedJournalMatch,
             )
             return false
         }
-        val success = clockRepository.snoozeAlarm(
-            alarmId = alert.ownerId,
-            snoozedUntilMillis = System.currentTimeMillis() + durationMs,
-            currentAutoSnoozeCount = alert.autoSnoozeCount,
+        return runVoiceSnoozeAction(
+            snooze = {
+                clockRepository.snoozeAlarm(
+                    alarmId = alert.ownerId,
+                    snoozedUntilMillis = System.currentTimeMillis() + durationMs,
+                    currentAutoSnoozeCount = alert.autoSnoozeCount,
+                )
+            },
+            mayFinishVoiceCapture = {
+                !requireExpectedJournalMatch || voiceJournal === expectedJournal
+            },
+            finishOnFailure = {
+                finishVoiceCapture(
+                    "Couldn't snooze the alarm.",
+                    "command_execution_failed",
+                    expectedJournal,
+                    ownedSessionId,
+                    requireExpectedJournalMatch,
+                )
+            },
         )
-        if (!success) {
-            finishVoiceCapture("Couldn't snooze the alarm.", "command_execution_failed", expectedJournal, ownedSessionId)
-        }
-        return success
     }
 
     private suspend fun performAddOneMinute(
@@ -1013,7 +1041,9 @@ class ClockAlertService : Service() {
         cancellationCategory: String,
         expectedJournal: WakeSessionJournal? = null,
         ownedSessionId: Long? = captureSessionId,
+        requireExpectedJournalMatch: Boolean = false,
     ) {
+        if (requireExpectedJournalMatch && voiceJournal !== expectedJournal) return
         if (expectedJournal != null && voiceJournal !== expectedJournal) return
         val journalToFinish = expectedJournal ?: voiceJournal
         isVoiceListening = false

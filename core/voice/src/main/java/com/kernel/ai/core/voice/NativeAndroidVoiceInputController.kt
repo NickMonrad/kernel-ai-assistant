@@ -337,7 +337,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
     ): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
             val startRequestedAtMs = SystemClock.elapsedRealtime()
-            stopListeningInternal(emitStopped = false)
+            stopListeningInternal(emitStopped = true)
             this@NativeAndroidVoiceInputController.allowPlatformFallback = allowPlatformFallback
 
 
@@ -578,8 +578,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         category = NATIVE_NOT_READY,
                     ),
                 )
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
-                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
                 return@launch
             }
             Log.w(
@@ -658,8 +657,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         message = e.message ?: "Android speech recognition failed to restart.",
                     ),
                 )
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
-                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
             } finally {
                 if (inPlaceRefreshJob === job) inPlaceRefreshJob = null
             }
@@ -768,8 +766,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         },
                     ),
                 )
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
-                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
             }
         }
 
@@ -908,8 +905,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     },
                 ),
             )
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
-            stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+            stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
         }
 
         override fun onResults(results: Bundle?) {
@@ -941,8 +937,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     ),
                 )
             }
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
-            stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+            stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
