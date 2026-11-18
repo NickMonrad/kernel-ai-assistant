@@ -15,6 +15,7 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.PiperVoiceSetup
+import com.kernel.ai.core.voice.Asr4allVoiceInputController
 import com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -101,6 +102,7 @@ class VoiceViewModelTest {
     private lateinit var viewModel: VoiceViewModel
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
     private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
+    private val asr4allVoiceInputController: Asr4allVoiceInputController = mockk(relaxed = true)
 
     @Test
     fun `play sample speaks through Sherpa only for a downloaded voice`() = runTest {
@@ -145,6 +147,7 @@ class VoiceViewModelTest {
         context,
         sherpaVoiceOutputController,
         piperVoiceSetup,
+        asr4allVoiceInputController,
     )
 
     @BeforeEach
@@ -299,6 +302,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -331,6 +335,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -363,6 +368,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -472,6 +478,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -505,6 +512,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -863,6 +871,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -912,6 +921,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 

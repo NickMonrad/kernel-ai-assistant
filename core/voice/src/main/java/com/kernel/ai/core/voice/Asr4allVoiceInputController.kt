@@ -32,7 +32,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -46,27 +45,41 @@ private const val NO_SPEECH_TIMEOUT_CHUNKS = 100 // 10 s without decoded text
 private const val ENDPOINT_BLANK_FRAMES = 25 // 1.0 s of committed blank frames (40 ms each) after text
 private const val MAX_UTTERANCE_CHUNKS = 600 // 60 s hard cap
 
+/** Audio focus held by one capture. [request] is null before API 26. */
+private class FocusHold(val request: AudioFocusRequest?)
+
+/**
+ * One mic open. Owns its pre-roll buffer, recorder, focus hold and reader; nothing here is
+ * shared with a later capture, so a later capture can only open the mic after [reader] ends.
+ */
+private class Capture(
+    val buffer: PreRollAudioBuffer,
+    val recorder: AudioRecord,
+    val focus: FocusHold?,
+) {
+    lateinit var reader: Job
+}
+
 /**
  * Streaming STT with the asr4all model (FUTO, Kotlin port of the HF Python driver).
  *
  * Capture follows the Sherpa online contract (see [SherpaOnnxVoiceInputController]):
- * - The model files are checked first. A stop, or a [isWanted] that turns false, between the
- *   call and the mic open ends the start without opening the mic, playing the cue or emitting
- *   `ListeningStarted`; it returns `Started` with a `ListeningStopped` event.
- * - The mic opens (MIC source, speech focus) before the engine loads. A reader keeps the newest
- *   [PreRollAudioBuffer.PRE_ROLL_SAMPLES] of audio while the engine loads, then the capture loop
- *   takes it through [nextCaptureChunk].
- * - The mic and focus are released by the reader's `finally`, which runs on stop, supersession,
- *   a failed engine open, or a cancelled start.
+ * - The model files are checked first. A stop, or a [isWanted] that turns false, before the mic
+ *   opens ends the start without opening the mic, playing the cue or emitting `ListeningStarted`.
+ * - The mic opens (MIC source, speech focus) before the engine loads. The reader fills the
+ *   pre-roll buffer while the engine loads, then the capture loop takes it.
+ * - Stop closes the pre-roll buffer and stops the recorder at once, so a read blocked in the
+ *   recorder returns during a cold load as well as live. The reader then releases its own
+ *   recorder and focus.
  *
- * Partials and the final text are PCEC renderings of committed decoder output, recomputed only
- * when the decoder advances. The endpoint is decode evidence: nonempty decoded text followed by
- * [ENDPOINT_BLANK_FRAMES] committed blank frames. RMS drives only the speech-detected signal and
- * the input level.
+ * Partials are PCEC renderings of committed decoder output, recomputed only when the decoder
+ * advances. PCEC text is not speech evidence: it holds the last open token until the stream is
+ * finished. The endpoint and the no-speech decision therefore use the raw decoder text
+ * ([Asr4allEngine.decodeStream]); the final text is produced only after [Asr4allEngine.finish].
  *
  * Two ways a capture ends:
  * - [stopListening] is an explicit finalize: the utterance so far is decoded and emitted.
- * - [releaseEngine] supersedes the capture: nothing from it is emitted after release begins.
+ * - [supersedeCapture] (and [releaseEngine]) discards: nothing from it is emitted.
  */
 @Singleton
 class Asr4allVoiceInputController @Inject constructor(
@@ -80,16 +93,18 @@ class Asr4allVoiceInputController @Inject constructor(
     override val inputLevel: StateFlow<Float> = _inputLevel.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    /** Serialises start, prewarm and release; guards [engine]. */
+    /** Serialises start, prewarm, release and exclusive file work; guards [engine]. */
     private val startLock = Mutex()
     private var engine: Asr4allEngine? = null // guarded by startLock
-    private var audioFocusRequest: AudioFocusRequest? = null
     /** Guards the stop count and the mic-open decision, like Sherpa's captureLock. */
     private val captureLock = Any()
     private var stopCount = 0 // guarded by captureLock
     @Volatile private var activeJob: Job? = null
     @Volatile private var activeStop: AtomicBoolean? = null
     @Volatile private var activeDiscard: AtomicBoolean? = null
+    /** Most recent mic open; its reader must end before the next mic open or engine release. */
+    @Volatile private var lastCapture: Capture? = null
+    @Volatile private var activeCapture: Capture? = null
 
     // Test seams (internal, asr4all only). Null in production.
     internal var availableForTest: (() -> Boolean)? = null
@@ -103,21 +118,24 @@ class Asr4allVoiceInputController @Inject constructor(
     private fun micGranted(): Boolean = micGrantedForTest
         ?: (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
 
-    /** A mic open with its pre-roll buffer; the reader owns the recorder until [PreRollAudioBuffer.close]. */
-    private class Capture(val buffer: PreRollAudioBuffer)
-
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
-        startListening(mode) { true }
+        startListening(mode, isWanted = { true })
 
     /**
-     * [isWanted] is checked together with the stop count under [captureLock], right before the
-     * mic opens and again after the engine loads. Callers that supersede this start return false,
-     * so no mic opens for it.
+     * [isWanted] and the stop count are checked under [captureLock] right before the mic opens.
+     * A caller that has been superseded returns false, so no mic opens for it. Once the mic is
+     * open, only [supersedeCapture] discards the capture; an explicit stop still finalizes it.
+     * [onSession] receives the session id before any event for it is emitted.
      */
-    internal suspend fun startListening(mode: VoiceCaptureMode, isWanted: () -> Boolean): VoiceInputStartResult {
+    internal suspend fun startListening(
+        mode: VoiceCaptureMode,
+        isWanted: () -> Boolean,
+        onSession: (Long) -> Unit = {},
+    ): VoiceInputStartResult {
         val stopsAtCall = synchronized(captureLock) { stopCount }
         return startLock.withLock {
             activeJob?.join()
+            lastCapture?.reader?.join()
             if (!isAvailable()) {
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Offline speech model is not downloaded. Download it in Settings → Voice.",
@@ -127,17 +145,20 @@ class Asr4allVoiceInputController @Inject constructor(
                 return@withLock VoiceInputStartResult.Unavailable("Microphone unavailable — check RECORD_AUDIO permission.")
             }
             val sessionId = VoiceCaptureSessionIds.allocate()
+            onSession(sessionId)
             val stop = AtomicBoolean(false)
             val discard = AtomicBoolean(false)
             var stoppedEarly = false
             var micFailed = false
             val capture = synchronized(captureLock) {
                 val wanted = isWanted()
-                if (stopCount != stopsAtCall || !wanted) {
+                if (!wanted || stopCount != stopsAtCall) {
                     stoppedEarly = true
                     null
                 } else {
                     openCapture()?.also {
+                        lastCapture = it
+                        activeCapture = it
                         activeStop = stop
                         activeDiscard = discard
                         _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
@@ -156,39 +177,38 @@ class Asr4allVoiceInputController @Inject constructor(
             val eng = try {
                 withContext(Dispatchers.IO) { engine ?: openOrNull()?.also { engine = it } }
             } catch (e: Throwable) {
-                // Caller cancellation or an unexpected failure: release the mic and focus, then rethrow.
-                capture.buffer.close()
+                // Caller cancellation or an unexpected failure: end the mic now, then rethrow.
+                halt(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
                 throw e
             }
             if (eng == null) {
-                capture.buffer.close()
+                halt(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Offline speech model could not be loaded. Re-download it in Settings → Voice.",
                 )
             }
 
-            synchronized(captureLock) {
-                val wanted = isWanted()
-                if (stopCount != stopsAtCall || !wanted || stop.get()) {
+            // Stop during the load does not drop the capture: the pre-roll is decoded and the
+            // explicit stop finalizes it. Only a supersede discards it.
+            if (discard.get()) {
+                halt(capture)
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+                return@withLock VoiceInputStartResult.Started(sessionId)
+            }
+            activeJob = scope.launch {
+                try {
+                    eng.reset()
+                    runCapture(capture.buffer, eng, mode, sessionId, stop, discard)
+                } catch (e: Exception) {
+                    Log.e(TAG, "asr4all capture failed", e)
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
+                    if (!discard.get()) _events.tryEmit(VoiceInputEvent.Error(mode, e.message ?: "Voice input error", sessionId))
+                } finally {
                     capture.buffer.close()
+                    _inputLevel.value = 0f
                     _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
-                    return@withLock VoiceInputStartResult.Started(sessionId)
-                }
-                activeJob = scope.launch {
-                    try {
-                        eng.reset()
-                        runCapture(capture.buffer, eng, mode, sessionId, stop, discard)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "asr4all capture failed", e)
-                        JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
-                        if (!discard.get()) _events.tryEmit(VoiceInputEvent.Error(mode, e.message ?: "Voice input error", sessionId))
-                    } finally {
-                        capture.buffer.close()
-                        _inputLevel.value = 0f
-                        _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
-                    }
                 }
             }
             VoiceInputStartResult.Started(sessionId)
@@ -196,38 +216,52 @@ class Asr4allVoiceInputController @Inject constructor(
     }
 
     /**
-     * Opens the mic with speech focus and starts the reader that fills the pre-roll buffer. Returns
-     * null, with focus released, when the mic cannot be opened. The reader's `finally` closes the
-     * recorder and abandons focus, on every exit path.
+     * Opens the mic with its own focus hold and starts its reader. Returns null, with the focus
+     * released, when the mic cannot be opened. The reader releases the recorder and this
+     * capture's focus on every exit path, and nothing else.
      */
     @SuppressLint("MissingPermission")
     private fun openCapture(): Capture? {
-        requestAudioFocus()
+        val focus = requestAudioFocus()
         val recorder = recorderForTest?.invoke() ?: createAudioRecord()
         if (recorder == null) {
             JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
-            releaseAudioFocus()
+            releaseAudioFocus(focus)
             return null
         }
-        val buffer = PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES)
-        scope.launch {
-            val buf = ShortArray(CHUNK_SAMPLES)
-            try {
-                recorder.startRecording()
-                while (isActive && !buffer.isClosed) {
-                    val n = recorder.read(buf, 0, buf.size)
-                    if (n < 0) break
-                    if (n > 0) buffer.append(buf, n)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Pre-roll reader error", e)
-            } finally {
-                buffer.close()
-                stopRecorder(recorder)
-                releaseAudioFocus()
+        val capture = Capture(PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES), recorder, focus)
+        capture.reader = scope.launch { readLoop(capture) }
+        return capture
+    }
+
+    private fun readLoop(c: Capture) {
+        val buf = ShortArray(CHUNK_SAMPLES)
+        try {
+            if (!c.buffer.isClosed) c.recorder.startRecording()
+            while (!c.buffer.isClosed) {
+                val n = c.recorder.read(buf, 0, buf.size)
+                if (n < 0) break
+                if (n > 0) c.buffer.append(buf, n)
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Pre-roll reader error", e)
+        } finally {
+            c.buffer.close()
+            stopRecorder(c.recorder)
+            releaseAudioFocus(c.focus)
         }
-        return Capture(buffer)
+    }
+
+    /**
+     * Ends the mic side of [c] now: closes its buffer and stops a recorder that is recording, so
+     * a read blocked in the recorder returns. Idempotent. The reader releases the rest.
+     */
+    private fun halt(c: Capture) {
+        c.buffer.close()
+        try {
+            if (c.recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) c.recorder.stop()
+        } catch (_: Exception) {
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -253,9 +287,9 @@ class Asr4allVoiceInputController @Inject constructor(
         try { recorder.release() } catch (_: Exception) {}
     }
 
-    private fun requestAudioFocus() {
-        val audioManager = context.getSystemService(AudioManager::class.java) ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    private fun requestAudioFocus(): FocusHold? {
+        val audioManager = context.getSystemService(AudioManager::class.java) ?: return null
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
@@ -265,19 +299,20 @@ class Asr4allVoiceInputController @Inject constructor(
                 )
                 .setOnAudioFocusChangeListener { }
                 .build()
-            audioFocusRequest = req
             audioManager.requestAudioFocus(req)
+            FocusHold(req)
         } else {
             @Suppress("DEPRECATION")
             audioManager.requestAudioFocus({ }, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            FocusHold(null)
         }
     }
 
-    private fun releaseAudioFocus() {
+    private fun releaseAudioFocus(hold: FocusHold?) {
+        if (hold == null) return
         val audioManager = context.getSystemService(AudioManager::class.java) ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-            audioFocusRequest = null
+            hold.request?.let { audioManager.abandonAudioFocusRequest(it) }
         } else {
             @Suppress("DEPRECATION")
             audioManager.abandonAudioFocus(null)
@@ -299,8 +334,9 @@ class Asr4allVoiceInputController @Inject constructor(
     }
 
     /**
-     * Runs the capture loop over the pre-roll chunks, then live audio. Final text is decoded
-     * text, not an RMS result: any nonempty PCEC output is emitted.
+     * Runs the capture loop over the pre-roll chunks, then live audio, until the buffer ends
+     * (explicit stop drains what was already captured), the endpoint is reached, or the
+     * no-speech timeout expires. A discard ends it at once with nothing emitted.
      */
     private fun runCapture(
         buffer: PreRollAudioBuffer,
@@ -311,11 +347,12 @@ class Asr4allVoiceInputController @Inject constructor(
         discard: AtomicBoolean,
     ) {
         val preRoll = ArrayDeque(buffer.attach())
+        var rawHeard = false // the decoder has committed nonempty text
         var heard = false
         var chunks = 0
         var lastFrames = 0
         var lastPcec = ""
-        while (!stop.get() && chunks < MAX_UTTERANCE_CHUNKS) {
+        while (!discard.get() && chunks < MAX_UTTERANCE_CHUNKS) {
             val pcm = nextCaptureChunk(preRoll, buffer) ?: break
             chunks++
             val n = pcm.size
@@ -333,7 +370,8 @@ class Asr4allVoiceInputController @Inject constructor(
                 _events.tryEmit(VoiceInputEvent.SpeechDetected(mode, sessionId))
             }
 
-            eng.decodeStream(floats) // advances the decoder; its raw text is not used for partials
+            val raw = eng.decodeStream(floats)
+            if (raw.isNotBlank()) rawHeard = true
             if (eng.decodedFrameCount != lastFrames) {
                 lastFrames = eng.decodedFrameCount
                 val text = eng.decodePcec(decodeTail = true).trim()
@@ -343,18 +381,14 @@ class Asr4allVoiceInputController @Inject constructor(
                 }
             }
 
-            if (lastPcec.isNotEmpty() && eng.trailingBlankFrames >= ENDPOINT_BLANK_FRAMES) break
-            if (lastPcec.isEmpty() && chunks >= NO_SPEECH_TIMEOUT_CHUNKS) break
+            if (rawHeard && eng.trailingBlankFrames >= ENDPOINT_BLANK_FRAMES) break
+            if (!rawHeard && chunks >= NO_SPEECH_TIMEOUT_CHUNKS) break
         }
         _inputLevel.value = 0f
-        // Superseded by releaseEngine: no error, no finish, no transcript.
+        // Superseded: no finish, no error, no transcript.
         if (discard.get()) return
-        if (lastPcec.isEmpty() && !stop.get()) {
-            JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
-            _events.tryEmit(VoiceInputEvent.Error(mode, "No speech heard. Try again.", sessionId))
-            return
-        }
-        _events.tryEmit(VoiceInputEvent.SpeechEnded(mode, sessionId))
+        if (rawHeard) _events.tryEmit(VoiceInputEvent.SpeechEnded(mode, sessionId))
+        // Drain before deciding: PCEC holds the last open token until the stream is finished.
         eng.finish()
         val text = eng.decodePcec(decodeTail = true).trim()
         // A release may arrive during the final decode; a superseded transcript is dropped.
@@ -368,10 +402,12 @@ class Asr4allVoiceInputController @Inject constructor(
         }
     }
 
+    /** Explicit finalize: ends the mic now; the captured audio is decoded and emitted. */
     override fun stopListening() {
         synchronized(captureLock) {
             stopCount++
             activeStop?.set(true)
+            activeCapture?.let(::halt)
         }
     }
 
@@ -383,26 +419,39 @@ class Asr4allVoiceInputController @Inject constructor(
     }
 
     /**
-     * Supersedes any capture without emitting its result, waits for its job to end, and closes
-     * the engine. Flags and the stop count are set before taking [startLock] so an in-flight start
-     * stops promptly, and set again under the lock. Idempotent; a later start reopens the engine.
+     * Discards the current capture, if any, without emitting it, and ends its mic now. Callers
+     * that begin a newer start or switch engines call this before waiting for the start lock.
      */
-    suspend fun releaseEngine() {
-        supersedeActive()
+    fun supersedeCapture(): Unit = synchronized(captureLock) {
+        stopCount++
+        activeDiscard?.set(true)
+        activeStop?.set(true)
+        activeCapture?.let(::halt)
+    }
+
+    /**
+     * Supersedes any capture without emitting its result, waits for its job and reader to end,
+     * and closes the engine. Idempotent; a later start reopens the engine.
+     */
+    suspend fun releaseEngine() = withEngineReleased {}
+
+    /**
+     * Runs [block] with no capture and no engine open: the capture is discarded, its job and
+     * reader have ended, and the engine is closed, all under the start lock. Use this before
+     * deleting model files so no start can open them during the deletion.
+     */
+    suspend fun <T> withEngineReleased(block: () -> T): T {
+        supersedeCapture()
         releaseFencedForTest?.invoke()
-        startLock.withLock {
-            supersedeActive()
+        return startLock.withLock {
+            supersedeCapture()
             activeJob?.join()
+            lastCapture?.reader?.join()
             withContext(Dispatchers.IO) {
                 engine?.close()
                 engine = null
             }
+            block()
         }
-    }
-
-    private fun supersedeActive() = synchronized(captureLock) {
-        stopCount++
-        activeDiscard?.set(true)
-        activeStop?.set(true)
     }
 }

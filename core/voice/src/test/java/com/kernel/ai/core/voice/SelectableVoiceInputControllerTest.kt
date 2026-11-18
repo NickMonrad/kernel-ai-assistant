@@ -52,6 +52,7 @@ class SelectableVoiceInputControllerTest {
         every { sherpaOnnxVoiceInputController.events } returns sherpaEvents
         every { asr4allVoiceInputController.events } returns asr4allEvents
         every { asr4allVoiceInputController.stopListening() } just runs
+        every { asr4allVoiceInputController.supersedeCapture() } just runs
         coEvery { asr4allVoiceInputController.releaseEngine() } just runs
         every { nativeAndroidVoiceInputController.stopListening() } just runs
         every { sherpaOnnxVoiceInputController.stopListening() } just runs

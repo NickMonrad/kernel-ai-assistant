@@ -21,6 +21,7 @@ import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.asr4all.Asr4allModelFiles
+import com.kernel.ai.core.voice.Asr4allVoiceInputController
 import com.kernel.ai.core.voice.kernelModels
 import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -256,6 +257,7 @@ class VoiceViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController,
     private val piperVoiceSetup: PiperVoiceSetup,
+    private val asr4allVoiceInputController: Asr4allVoiceInputController,
 ) : ViewModel() {
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
@@ -633,12 +635,21 @@ class VoiceViewModel @Inject constructor(
     fun deleteSherpaStt(engine: VoiceInputEngine) {
         viewModelScope.launch(Dispatchers.IO) {
             val models = modelsFor(engine)
-            models.forEach { model ->
-                val file = model.localFile(context)
-                file.delete()
-                val tmp = java.io.File(file.absolutePath + ".tmp")
-                if (tmp.exists()) tmp.delete()
-                modelDownloadManager.refreshState(model)
+            val deleteFiles = {
+                models.forEach { model ->
+                    val file = model.localFile(context)
+                    file.delete()
+                    val tmp = java.io.File(file.absolutePath + ".tmp")
+                    if (tmp.exists()) tmp.delete()
+                    modelDownloadManager.refreshState(model)
+                }
+            }
+            // asr4all's engine reads these files: discard its capture and close it under its start
+            // lock first, so no start can reopen them while they are being deleted.
+            if (engine == VoiceInputEngine.Asr4all) {
+                asr4allVoiceInputController.withEngineReleased(deleteFiles)
+            } else {
+                deleteFiles()
             }
             if (_uiState.value.selectedInputEngine == engine) {
                 withContext(Dispatchers.Main) {

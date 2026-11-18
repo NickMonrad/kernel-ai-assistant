@@ -182,7 +182,12 @@ class SelectableVoiceInputController @Inject constructor(
             flow { emitAll(voiceInputPreferences.selectedEngine) }
                 .distinctUntilChanged()
                 .catch { Log.w(TAG, "asr4all selection observer stopped", it) }
-                .collect { engine -> if (engine != VoiceInputEngine.Asr4all) asr4allVoiceInputController.releaseEngine() }
+                .collect { engine ->
+                    if (engine != VoiceInputEngine.Asr4all) {
+                        asr4allStartSeq.incrementAndGet()
+                        asr4allVoiceInputController.releaseEngine()
+                    }
+                }
         }
     }
 
@@ -192,6 +197,10 @@ class SelectableVoiceInputController @Inject constructor(
     private var expectedNativeSessionId: Long? = null
     private var nativeFacts: NativeSessionFacts? = null
     private var handoff: ZipformerHandoff? = null
+    /** Bumped by every start and by every engine switch away from asr4all. Any thread. */
+    private val asr4allStartSeq = AtomicLong(0)
+    /** Start sequence each asr4all session was allocated under. Main only. */
+    private val asr4allSessionSeq = HashMap<Long, Long>()
 
     private val pipelineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val outbound = voiceEventFlow()
@@ -268,12 +277,17 @@ class SelectableVoiceInputController @Inject constructor(
         // Supersede any hand-off in flight before waiting for the start lock.
         val gen = generation.incrementAndGet()
         pendingZipformerStart.getAndSet(null)?.cancel()
+        val seq = asr4allStartSeq.incrementAndGet()
+        // Supersede any asr4all capture before waiting for the start lock: a stale start's
+        // events are fenced by session, and a pending explicit stop's final is dropped here.
+        asr4allVoiceInputController.supersedeCapture()
         return withContext(Dispatchers.Main.immediate) {
             startMutex.withLock {
                 openGeneration = -1L
                 handoff = null
                 nativeFacts = null
                 expectedNativeSessionId = null
+                asr4allSessionSeq.clear()
                 val allowOnlineFallback = voiceInputPreferences.allowOnlineSpeechFallback.first()
                 val engine = voiceInputPreferences.selectedEngine.first()
                 if (engine != VoiceInputEngine.Auto) {
@@ -283,7 +297,7 @@ class SelectableVoiceInputController @Inject constructor(
                 val result = when (engine) {
                     VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen)
                     VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen)
-                    VoiceInputEngine.Asr4all -> startAsr4all(mode, gen)
+                    VoiceInputEngine.Asr4all -> startAsr4all(mode, gen, seq)
                     else -> startSherpa(mode, gen) // All Sherpa families.
                 }
                 if (result is VoiceInputStartResult.Started) openGeneration = gen
@@ -420,9 +434,13 @@ class SelectableVoiceInputController @Inject constructor(
      * Starts the asr4all streaming recognizer for the capture with generation [gen]. Like
      * [startSherpa], a stop that raced the start is closed here too.
      */
-    private suspend fun startAsr4all(mode: VoiceCaptureMode, gen: Long): VoiceInputStartResult {
+    private suspend fun startAsr4all(mode: VoiceCaptureMode, gen: Long, seq: Long): VoiceInputStartResult {
         activate(asr4allVoiceInputController)
-        val result = asr4allVoiceInputController.startListening(mode)
+        val result = asr4allVoiceInputController.startListening(
+            mode,
+            isWanted = { gen == generation.get() },
+            onSession = { sessionId -> asr4allSessionSeq[sessionId] = seq },
+        )
         if (result is VoiceInputStartResult.Started && gen != generation.get()) {
             asr4allVoiceInputController.stopListening()
         }
@@ -494,6 +512,9 @@ class SelectableVoiceInputController @Inject constructor(
     private suspend fun routeEvent(controller: VoiceInputController, event: VoiceInputEvent) {
         // Events from a controller that is no longer active (native after a hand-off) are stale.
         if (controller !== activeController.value) return
+        if (controller === asr4allVoiceInputController &&
+            asr4allSessionSeq[event.captureSessionId] != asr4allStartSeq.get()
+        ) return
 
         if (controller === nativeAndroidVoiceInputController) {
             trackNative(event)

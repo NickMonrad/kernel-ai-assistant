@@ -279,10 +279,10 @@ class Asr4allVoiceInputControllerTest {
         val collected = Collected(c.events, scope)
         try {
             // The stop lands after the call started but before the mic-open decision.
-            val result = c.startListening(VoiceCaptureMode.Command) {
+            val result = c.startListening(VoiceCaptureMode.Command, isWanted = {
                 c.stopListening()
                 true
-            }
+            })
 
             assertTrue(result is VoiceInputStartResult.Started)
             collected.awaitStops(1)
