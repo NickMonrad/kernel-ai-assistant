@@ -50,6 +50,44 @@ and BSD MKL_support headers are preprocessed but contribute no compiled symbols.
 ONNX Runtime note: ONNX Runtime 1.24.3 is MIT-licensed and dynamically linked as
 libonnxruntime.so. Its licence is also supplied through resolved dependency attribution.
 
+Component-specific notices
+--------------------------
+
+These notices are component text that precedes or accompanies the Apache-2.0
+licence. The full Apache-2.0 text appears once, below, and applies to all
+Apache-2.0 components listed above.
+
+[OpenFST 1.8.5-2026-04-11: COPYING, verbatim]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use these files except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Copyright 2005-2026 Google LLC.
+
+[kaldifst v1.8.0: LICENSE, legal/copyright notice preceding the Apache-2.0 body, verbatim]
+
+
+                                 Legal Notices
+
+   NOTE (this is not from the Apache License): The copyright model is that
+   authors (or their employers, if noted in individual files) own their
+   individual contributions. The authors' contributions can be discerned
+   from the git history.
+
+ -------------------------------------------------------------------------
+
+[simple-sentencepiece v0.7: LICENSE contains no component-specific notice. The file is the
+Apache-2.0 text alone, covered by the Apache-2.0 text below.]
+
 Full licence texts follow, extracted verbatim from the pinned archives.
 
 
