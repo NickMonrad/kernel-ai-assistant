@@ -4,6 +4,7 @@ import android.os.Debug
 import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
+import com.kernel.ai.debug.inflect.InflectSpikeAndroidJUnitRunner
 import com.kernel.ai.core.voice.asr4all.Asr4allEngine
 import com.kernel.ai.core.voice.asr4all.Asr4allModelFiles
 import com.kernel.ai.core.voice.asr4all.Asr4allModelFiles.Size
@@ -26,6 +27,7 @@ class Asr4allTierMeasurementDeviceTest {
         val bytes: ByteArray,
         val samples: FloatArray,
         val seconds: Double,
+        val speechEndSample: Long?,
     )
 
     private data class FixtureSet(
@@ -33,6 +35,8 @@ class Asr4allTierMeasurementDeviceTest {
         val model: String?,
         val phraseDigest: String,
         val manifestDigest: String,
+        val speechEndDigest: String?,
+        val speechEndMethod: String?,
         val phraseIds: Set<String>,
         val manifestCount: Int,
         val phraseCount: Int,
@@ -41,16 +45,32 @@ class Asr4allTierMeasurementDeviceTest {
     )
 
     private data class PssSnapshot(val medianMiB: Double, val noiseRangeMiB: Double)
+    private data class SpeechEnd(val fixtureSha256: String, val sample: Long)
+    private data class ZipformerRows(val paired: JSONObject, val endpointTrial: JSONObject)
+    private data class RuntimeSetup(val environment: Any, val initializationMs: Double, val pssBaseline: PssSnapshot)
+    private data class ModelFileStamp(val path: String, val length: Long, val modified: Long)
 
     @Test
     fun measureOwnerAndSyntheticSets() {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue("Measurement is opt-in", args.getString("measure_enabled") == "true")
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val runner = InstrumentationRegistry.getInstrumentation() as? InflectSpikeAndroidJUnitRunner
+            ?: error("Measurement requires its instrumentation runner")
+        require(runner.targetApplicationOnCreateSuppressed) {
+            "Measurement requires debug app-startup suppression"
+        }
+        val context = runner.targetContext
         val ownerDir = privatePath(context.filesDir, arg(args, "owner_dir"))
         val ownerRefs = privatePath(context.filesDir, arg(args, "owner_phrases"))
         val ownerPhraseDigest = digestArg(args, "owner_phrases_sha256")
         val resultRoot = privatePath(context.filesDir, RESULT_ROOT)
+        val ownerSpeechEndsArg = args.getString("owner_speech_ends")
+        val ownerSpeechEndDigestArg = args.getString("owner_speech_ends_sha256")
+        require((ownerSpeechEndsArg == null) == (ownerSpeechEndDigestArg == null)) {
+            "Independent speech-end sidecar and trusted digest must be paired"
+        }
+        val ownerSpeechEnds = ownerSpeechEndsArg?.let { privatePath(context.filesDir, it) }
+        val ownerSpeechEndDigest = ownerSpeechEndDigestArg?.let { digestArg(args, "owner_speech_ends_sha256") }
         val syntheticDirArg = args.getString("synthetic_dir")
         val syntheticRefsArg = args.getString("synthetic_phrases")
         val syntheticDigestArg = args.getString("synthetic_phrases_sha256")
@@ -58,9 +78,15 @@ class Asr4allTierMeasurementDeviceTest {
         require((syntheticDirArg == null) == (syntheticDigestArg == null)) { "Synthetic phrase digest must accompany synthetic inputs" }
         val syntheticDir = syntheticDirArg?.let { privatePath(context.filesDir, it) }
         val syntheticRefs = syntheticRefsArg?.let { privatePath(context.filesDir, it) }
-        validateNoOutputOverlap(resultRoot, listOf(ownerDir, ownerRefs, syntheticDir, syntheticRefs).filterNotNull())
+        validateNoOutputOverlap(
+            resultRoot,
+            listOf(ownerDir, ownerRefs, ownerSpeechEnds, syntheticDir, syntheticRefs).filterNotNull(),
+        )
 
-        val owner = loadSet(ownerDir, ownerRefs, ownerPhraseDigest, OWNER_SET, OWNER_COUNT)
+        val owner = loadSet(
+            ownerDir, ownerRefs, ownerPhraseDigest, OWNER_SET, OWNER_COUNT,
+            ownerSpeechEnds, ownerSpeechEndDigest,
+        )
         require(owner.complete) { "Owner decision set is incomplete or mismatched" }
         val synthetic = if (syntheticDir == null) null else {
             require(syntheticDigestArg == BREADTH_PHRASE_SHA256) { "Breadth phrase digest is not the pinned trusted list" }
@@ -71,40 +97,72 @@ class Asr4allTierMeasurementDeviceTest {
         }
         val breadthComplete = synthetic?.complete == true &&
             synthetic.phraseIds == BREADTH_IDS && synthetic.clips.map { it.id }.toSet() == BREADTH_IDS
-        val modelFiles = modelBundleIdentities(context)
+        val modelFiles = modelBundleFiles(context)
+        val modelStamps = modelFileStamps(modelFiles)
+        val runtimeSetup = initializeMeasurementRuntime()
         val lanes = buildList {
             for (size in Size.entries) for (tier in TIERS) add(Asr4allMeasurementMetrics.Lane(size.name, tier.removePrefix("stream_")))
             add(Asr4allMeasurementMetrics.Lane("zipformer", "shipping"))
         }
         val rows = JSONArray()
+        val endpointTrials = JSONArray()
         val metricRows = ArrayList<Asr4allMeasurementMetrics.Row>()
+        val decisionRows = ArrayList<Asr4allMeasurementMetrics.DecisionRow>()
         val sets = listOfNotNull(owner to OWNER_SET, synthetic?.takeIf { breadthComplete }?.let { it to BREADTH_SET })
 
         for ((fixtureSet, setRole) in sets) {
             for ((clipIndex, clip) in fixtureSet.clips.withIndex()) {
                 val laneOrder = Asr4allMeasurementMetrics.counterbalanced(lanes, clipIndex)
                 for ((laneIndex, lane) in laneOrder.withIndex()) {
-                    val row = try {
-                        if (lane.model == ZIPFORMER) {
-                            measureZipformer(context, clip, setRole, lane, laneIndex, includeWer = setRole == OWNER_SET)
-                        } else {
-                            measureAsr4all(context, clip, setRole, lane, laneIndex, includeWer = setRole == OWNER_SET)
+                    val repetition = 0
+                    if (lane.model == ZIPFORMER) {
+                        val measured = try {
+                            measureZipformer(context, clip, setRole, lane, laneIndex, runtimeSetup.pssBaseline)
+                        } catch (_: Exception) {
+                            null
                         }
-                    } catch (_: Exception) {
-                        failedRow(clip.id, setRole, lane, laneIndex)
+                        val paired = measured?.paired ?: failedRow(clip, setRole, lane, laneIndex, repetition)
+                        val endpointTrial = measured?.endpointTrial
+                            ?: failedEndpointTrial(clip, setRole, lane, laneIndex, repetition)
+                        rows.put(paired)
+                        endpointTrials.put(endpointTrial)
+                        val metric = metricRow(paired)
+                        metricRows += metric
+                        if (setRole == OWNER_SET) decisionRows += decisionRow(paired)
+                    } else {
+                        val row = try {
+                            measureAsr4all(
+                                context, clip, setRole, lane, laneIndex, runtimeSetup.pssBaseline,
+                                includeWer = setRole == OWNER_SET,
+                            )
+                        } catch (_: Exception) {
+                            failedRow(clip, setRole, lane, laneIndex, repetition)
+                        }
+                        rows.put(row)
+                        metricRows += metricRow(row)
+                        if (setRole == OWNER_SET) decisionRows += decisionRow(row)
                     }
-                    rows.put(row)
-                    metricRows += metricRow(row)
                 }
             }
         }
 
+        val modelIdentities = modelBundleIdentities(modelFiles, modelStamps)
+        val ownerDecision = Asr4allMeasurementMetrics.pairedDecision(
+            rows = decisionRows,
+            expectedFixtureIds = owner.clips.map { it.id }.toSet(),
+            repetitions = 1,
+            lanes = lanes,
+        )
+        val ownerSpeechOffsetsComplete = owner.clips.all { it.speechEndSample != null }
         val summaries = Asr4allMeasurementMetrics.summarize(metricRows)
         val ownerSummary = summaries.filter { it.set == OWNER_SET }
         val breadthSummary = summaries.filter { it.set == BREADTH_SET }
+        val ownerSpeechLatencyDecisionGrade = ownerDecision.decisionValid &&
+            ownerSpeechOffsetsComplete &&
+            ownerSummary.all { it.speechEndLatencyCount == OWNER_COUNT }
         val runId = UUID.randomUUID().toString()
         val result = JSONObject()
-            .put("schema", "asr4all-device-measurement-v3")
+            .put("schema", "asr4all-device-measurement-v4")
             .put("run_id", runId)
             .put("device", JSONObject()
                 .put("model", android.os.Build.MODEL)
@@ -112,14 +170,19 @@ class Asr4allTierMeasurementDeviceTest {
                 .put("sdk", android.os.Build.VERSION.SDK_INT)
                 .put("package", context.packageName))
                 .put("app_git_sha", BuildConfig.GIT_SHA)
+            .put("runtime_setup", JSONObject()
+                .put("shared_runtime_initialization_ms", runtimeSetup.initializationMs)
+                .put("runtime_initialized_pss", runtimeSetup.pssBaseline.toJson()))
             .put("measurement_semantics", JSONObject()
+                .put("primary_trial", "Every lane receives the identical full paired PCM; WER and compute RTFx use that full signal")
                 .put("feed", "100ms chunks paced to scheduled chunk end; actual first-feed delay and per-chunk delivery lag are recorded")
-                .put("partial", "first changed nonempty partial after a complete per-chunk drain and one result read; offset is delivered chunk end")
-                .put("zipformer_endpoint", "decoder endpoint observed after chunk drain; not independently validated acoustic speech end")
-                .put("forced_flush", "forced file-end flush; WAV boundary is not acoustic speech end")
-                .put("compute_rtfx", "decode, drain, result rendering, PCEC and flush compute; scheduled pacing waits excluded")
+                .put("partial", "first changed nonempty partial after each fully delivered chunk; audio offset is scheduled delivered chunk end")
+                .put("endpoint_trials", "separate Zipformer-only early endpoint trial; excluded from paired WER and primary RTFx")
+                .put("forced_flush", "forced full-file flush; clip end is not acoustic speech end")
+                .put("speech_end_latency", "paced injected-input delivery relative to independently human-annotated speech-end sample; not acoustic microphone/service latency")
+                .put("compute_rtfx", "all decode, drain, result rendering, PCEC and flush compute; scheduled pacing waits excluded")
                 .put("paced_rtfx", "separate full wall-time throughput from scheduled clip start through final result")
-                .put("model_open", "recognizer construction to ready; backend native-library setup is separate; no process restart between lanes")
+                .put("model_open", "recognizer construction to ready after common runtime initialization; no process restart between lanes")
                 .put("wer", "raw-decoder WER: Unicode NFC, Locale.ROOT lowercase, apostrophes removed, other punctuation separates tokens; no production transcript correction"))
             .put("identity", JSONObject()
                 .put("owner_role", owner.role)
@@ -139,11 +202,22 @@ class Asr4allTierMeasurementDeviceTest {
                 .put("breadth_manifest_sha256", synthetic?.manifestDigest ?: JSONObject.NULL)
                 .put("breadth_manifest_fixture_count", synthetic?.manifestCount ?: JSONObject.NULL)
                 .put("breadth_phrase_count", synthetic?.phraseCount ?: JSONObject.NULL)
-                .put("model_file_sha256", modelFiles))
+                .put("owner_speech_ends_sha256", owner.speechEndDigest ?: JSONObject.NULL)
+                .put("owner_speech_end_method", owner.speechEndMethod ?: JSONObject.NULL)
+                .put("owner_speech_end_status", if (ownerSpeechOffsetsComplete) "available" else "not_run_missing_offsets")
+                .put("model_file_sha256", modelIdentities))
             .put("owner_decision", JSONObject()
-                .put("status", "measured_decision_set_only")
+                .put("status", "measured_owner_decision_set")
+                .put("wer_status", if (ownerDecision.decisionValid) "paired_complete" else "invalid_incomplete_or_incomparable")
+                .put("wer_by_lane", pairedWerJson(ownerDecision))
                 .put("expected_rows_per_lane", OWNER_COUNT)
-                .put("coverage_by_lane", summariesJson(ownerSummary, OWNER_COUNT, lanes, includeWer = true)))
+                .put("speech_end_latency_status", when {
+                    !ownerSpeechOffsetsComplete -> "not_decision_grade_missing_offsets"
+                    !ownerDecision.decisionValid -> "not_decision_grade_paired_audio_invalid"
+                    !ownerSpeechLatencyDecisionGrade -> "not_decision_grade_missing_final_latency"
+                    else -> "decision_grade_paced_injected_vs_human_annotation"
+                })
+                .put("coverage_by_lane", summariesJson(ownerSummary, OWNER_COUNT, lanes, includeWer = true, ownerDecision = ownerDecision, speechLatencyDecisionGrade = ownerSpeechLatencyDecisionGrade)))
             .put("synthetic_breadth", JSONObject()
                 .put("status", when {
                     synthetic == null -> "not_run_inputs_absent"
@@ -153,6 +227,8 @@ class Asr4allTierMeasurementDeviceTest {
                 .put("expected_rows_per_lane", BREADTH_COUNT)
                 .put("coverage_by_lane", summariesJson(breadthSummary, BREADTH_COUNT, lanes, includeWer = false)))
             .put("rows", rows)
+            .put("endpoint_trials", endpointTrials)
+            .put("endpoint_trial_coverage", endpointTrialCoverageJson(endpointTrials, breadthComplete))
         atomicReport(context.filesDir, resultRoot, runId, result.toString(2) + "\n")
         Log.i(TAG, "ASR4ALL_MEASUREMENT_COMPLETE owner_rows=${ownerSummary.sumOf { it.rows }} breadth_rows=${breadthSummary.sumOf { it.rows }}")
     }
@@ -163,6 +239,7 @@ class Asr4allTierMeasurementDeviceTest {
         setRole: String,
         lane: Asr4allMeasurementMetrics.Lane,
         laneOrder: Int,
+        runtimePssBaseline: PssSnapshot,
         includeWer: Boolean,
     ): JSONObject {
         val size = Size.valueOf(lane.model)
@@ -221,40 +298,36 @@ class Asr4allTierMeasurementDeviceTest {
             return measurementRow(
                 clip, setRole, lane, laneOrder, transcript,
                 outcome = if (transcript.isBlank()) OUTCOME_NO_FINAL else OUTCOME_FORCED_FINAL,
-                openMs = openMs, pss = pssFields(before, afterLoad, afterWarmup),
+                openMs = openMs, pss = pssFields(before, afterLoad, afterWarmup, runtimePssBaseline),
                 computeMs = computeNanos / 1e6,
                 pacedWallMs = (completedAt - audioStart) / 1e6,
                 firstFeedDelayMs = firstFeedDelayMs,
                 pacingMaxMs = pacingMaxMs,
                 pacingMeanMs = if (pacingCount == 0) null else pacingSumMs / pacingCount,
                 firstPartialMs = firstPartialMs, firstPartialOffset = firstPartialOffset,
-                finalLatencyMs = if (transcript.isBlank()) null else (completedAt - scheduledClipEnd) / 1e6,
+                clipEndLatencyMs = if (transcript.isBlank()) null else (completedAt - scheduledClipEnd) / 1e6,
+                speechEndLatencyMs = if (transcript.isBlank()) null else clip.speechEndSample?.let {
+                    (completedAt - (audioStart + it * NANOS_PER_SECOND / RATE)) / 1e6
+                },
                 endpointLatencyMs = null, deliveredSeconds = clip.seconds,
                 includeWer = includeWer,
             )
         }
     }
 
-    /** Mirrors controller cadence: feed, drain all ready chunks, check endpoint, then read once. */
+    /** The primary paired trial consumes all PCM; endpoint behavior is an independent secondary trial. */
     private fun measureZipformer(
         context: android.content.Context,
         clip: Clip,
         setRole: String,
         lane: Asr4allMeasurementMetrics.Lane,
         laneOrder: Int,
-        includeWer: Boolean,
-    ): JSONObject {
+        runtimePssBaseline: PssSnapshot,
+    ): ZipformerRows {
         val modelDir = context.getExternalFilesDir("models") ?: File(context.filesDir, "models")
         val prefix = "com.k2fsa.sherpa.onnx."
         fun cls(name: String) = Class.forName(prefix + name)
-        val nativeSetupStart = SystemClock.elapsedRealtimeNanos()
-        try {
-            System.loadLibrary("onnxruntime")
-        } catch (_: UnsatisfiedLinkError) {
-            // Match production: tolerate already-loaded ORT and let Sherpa class loading report failures.
-        }
         val onlineRecognizerClass = cls("OnlineRecognizer")
-        val nativeSetupMs = elapsedMs(nativeSetupStart)
         fun set(target: Any, name: String, value: Any) {
             val type = when (value) {
                 is Int -> Int::class.javaPrimitiveType
@@ -266,9 +339,12 @@ class Asr4allTierMeasurementDeviceTest {
                 .recoverCatching { target.javaClass.getDeclaredField(name).also { it.isAccessible = true }.set(target, value) }
                 .getOrThrow()
         }
-        fun file(name: String) = File(modelDir, name).canonicalFile.absolutePath.also { require(File(it).isFile) { "Zipformer model bundle unavailable" } }
+        fun file(name: String) = File(modelDir, name).canonicalFile.absolutePath.also {
+            require(File(it).isFile) { "Zipformer model bundle unavailable" }
+        }
         val feat = cls("FeatureConfig").getDeclaredConstructor().newInstance().also {
-            set(it, "sampleRate", RATE); set(it, "featureDim", 80)
+            set(it, "sampleRate", RATE)
+            set(it, "featureDim", 80)
         }
         val transducer = cls("OnlineTransducerModelConfig").getDeclaredConstructor().newInstance().also {
             set(it, "encoder", file("sherpa-stt-encoder.int8.onnx"))
@@ -276,50 +352,58 @@ class Asr4allTierMeasurementDeviceTest {
             set(it, "joiner", file("sherpa-stt-joiner.int8.onnx"))
         }
         val model = cls("OnlineModelConfig").getDeclaredConstructor().newInstance().also {
-            set(it, "transducer", transducer); set(it, "tokens", file("sherpa-stt-tokens.txt"))
-            set(it, "numThreads", 2); set(it, "debug", false); set(it, "provider", "cpu")
+            set(it, "transducer", transducer)
+            set(it, "tokens", file("sherpa-stt-tokens.txt"))
+            set(it, "numThreads", 2)
+            set(it, "debug", false)
+            set(it, "provider", "cpu")
         }
         val config = cls("OnlineRecognizerConfig").getDeclaredConstructor().newInstance().also {
-            set(it, "featConfig", feat); set(it, "modelConfig", model)
+            set(it, "featConfig", feat)
+            set(it, "modelConfig", model)
             set(it, "endpointConfig", cls("EndpointConfig").getDeclaredConstructor().newInstance())
-            set(it, "enableEndpoint", true); set(it, "decodingMethod", "greedy_search"); set(it, "maxActivePaths", 4)
+            set(it, "enableEndpoint", true)
+            set(it, "decodingMethod", "greedy_search")
+            set(it, "maxActivePaths", 4)
         }
-        val recognizerClass = onlineRecognizerClass
+
         val before = pssSnapshot()
         val loadStart = SystemClock.elapsedRealtimeNanos()
-        val recognizer = recognizerClass.getConstructor(
+        val recognizer = onlineRecognizerClass.getConstructor(
             android.content.res.AssetManager::class.java, cls("OnlineRecognizerConfig"),
         ).newInstance(null, config)
         val openMs = elapsedMs(loadStart)
         try {
             val afterLoad = pssSnapshot()
-        val createStream = recognizerClass.getDeclaredMethod("createStream", String::class.java)
-        val warmStream = createStream.invoke(recognizer, "")!!
-        val streamClass = warmStream.javaClass
-        val accept = streamClass.getDeclaredMethod("acceptWaveform", FloatArray::class.java, Int::class.javaPrimitiveType)
-        val finish = streamClass.getDeclaredMethod("inputFinished")
-        val releaseStream = streamClass.getDeclaredMethod("release")
-        val ready = recognizerClass.getDeclaredMethod("isReady", streamClass)
-        val decode = recognizerClass.getDeclaredMethod("decode", streamClass)
-        val endpoint = recognizerClass.getDeclaredMethod("isEndpoint", streamClass)
-        val reset = recognizerClass.getDeclaredMethod("reset", streamClass)
-        val result = recognizerClass.getDeclaredMethod("getResult", streamClass)
-        val resultTextMethod = result.invoke(recognizer, warmStream).javaClass.getDeclaredMethod("getText")
-        fun readText(stream: Any): String = resultTextMethod.invoke(result.invoke(recognizer, stream)).toString().trim()
-        try {
-            accept.invoke(warmStream, clip.samples, RATE)
-            while (ready.invoke(recognizer, warmStream) as Boolean) decode.invoke(recognizer, warmStream)
-            readText(warmStream)
-            finish.invoke(warmStream)
-            while (ready.invoke(recognizer, warmStream) as Boolean) decode.invoke(recognizer, warmStream)
-            readText(warmStream)
-        } finally {
-            releaseStream.invoke(warmStream)
-        }
-        val afterWarmup = pssSnapshot()
-        val stream = createStream.invoke(recognizer, "")!!
-        try {
-            val audioStart = SystemClock.elapsedRealtimeNanos()
+            val createStream = onlineRecognizerClass.getDeclaredMethod("createStream", String::class.java)
+            val warmStream = createStream.invoke(recognizer, "")!!
+            val streamClass = warmStream.javaClass
+            val accept = streamClass.getDeclaredMethod("acceptWaveform", FloatArray::class.java, Int::class.javaPrimitiveType)
+            val finish = streamClass.getDeclaredMethod("inputFinished")
+            val releaseStream = streamClass.getDeclaredMethod("release")
+            val ready = onlineRecognizerClass.getDeclaredMethod("isReady", streamClass)
+            val decode = onlineRecognizerClass.getDeclaredMethod("decode", streamClass)
+            val endpoint = onlineRecognizerClass.getDeclaredMethod("isEndpoint", streamClass)
+            val reset = onlineRecognizerClass.getDeclaredMethod("reset", streamClass)
+            val result = onlineRecognizerClass.getDeclaredMethod("getResult", streamClass)
+            val resultTextMethod = result.invoke(recognizer, warmStream).javaClass.getDeclaredMethod("getText")
+            fun readText(stream: Any): String = resultTextMethod.invoke(result.invoke(recognizer, stream)).toString().trim()
+            try {
+                accept.invoke(warmStream, clip.samples, RATE)
+                while (ready.invoke(recognizer, warmStream) as Boolean) decode.invoke(recognizer, warmStream)
+                readText(warmStream)
+                finish.invoke(warmStream)
+                while (ready.invoke(recognizer, warmStream) as Boolean) decode.invoke(recognizer, warmStream)
+                readText(warmStream)
+            } finally {
+                releaseStream.invoke(warmStream)
+            }
+            val afterWarmup = pssSnapshot()
+
+            val stream = createStream.invoke(recognizer, "")!!
+            val transcript: String
+            val completedAt: Long
+            val audioStart: Long
             var firstFeedDelayMs: Double? = null
             var firstPartialMs: Double? = null
             var firstPartialOffset: Double? = null
@@ -328,41 +412,122 @@ class Asr4allTierMeasurementDeviceTest {
             var pacingSumMs = 0.0
             var pacingCount = 0
             var previousPartial = ""
-            var endpointObservedAt: Long? = null
-            var firstFeed = true
+            try {
+                audioStart = SystemClock.elapsedRealtimeNanos()
+                var offset = 0
+                while (offset < clip.samples.size) {
+                    val end = minOf(offset + CHUNK_SAMPLES, clip.samples.size)
+                    val scheduledEnd = audioStart + end.toLong() * NANOS_PER_SECOND / RATE
+                    sleepUntil(scheduledEnd)
+                    val feedAt = SystemClock.elapsedRealtimeNanos()
+                    if (firstFeedDelayMs == null) firstFeedDelayMs = (feedAt - audioStart) / 1e6
+                    val lag = ((feedAt - scheduledEnd).coerceAtLeast(0)) / 1e6
+                    pacingMaxMs = maxOf(pacingMaxMs, lag)
+                    pacingSumMs += lag
+                    pacingCount++
+                    val computeStart = SystemClock.elapsedRealtimeNanos()
+                    accept.invoke(stream, clip.samples.copyOfRange(offset, end), RATE)
+                    while (ready.invoke(recognizer, stream) as Boolean) decode.invoke(recognizer, stream)
+                    val isEndpoint = endpoint.invoke(recognizer, stream) as Boolean
+                    if (!isEndpoint) {
+                        val partial = readText(stream)
+                        if (partial.isNotBlank() && partial != previousPartial) {
+                            previousPartial = partial
+                            if (firstPartialMs == null) {
+                                firstPartialMs = (SystemClock.elapsedRealtimeNanos() - audioStart) / 1e6
+                                firstPartialOffset = end.toDouble() / RATE
+                            }
+                        }
+                    }
+                    computeNanos += SystemClock.elapsedRealtimeNanos() - computeStart
+                    offset = end
+                }
+                val flushStart = SystemClock.elapsedRealtimeNanos()
+                finish.invoke(stream)
+                while (ready.invoke(recognizer, stream) as Boolean) decode.invoke(recognizer, stream)
+                transcript = readText(stream)
+                computeNanos += SystemClock.elapsedRealtimeNanos() - flushStart
+                completedAt = SystemClock.elapsedRealtimeNanos()
+            } finally {
+                releaseStream.invoke(stream)
+            }
+            val scheduledClipEnd = audioStart + clip.samples.size.toLong() * NANOS_PER_SECOND / RATE
+            val paired = measurementRow(
+                clip, setRole, lane, laneOrder, transcript,
+                outcome = if (transcript.isBlank()) OUTCOME_NO_FINAL else OUTCOME_FORCED_FINAL,
+                openMs = openMs, pss = pssFields(before, afterLoad, afterWarmup, runtimePssBaseline),
+                computeMs = computeNanos / 1e6,
+                pacedWallMs = (completedAt - audioStart) / 1e6,
+                firstFeedDelayMs = firstFeedDelayMs,
+                pacingMaxMs = pacingMaxMs,
+                pacingMeanMs = if (pacingCount == 0) null else pacingSumMs / pacingCount,
+                firstPartialMs = firstPartialMs, firstPartialOffset = firstPartialOffset,
+                clipEndLatencyMs = (completedAt - scheduledClipEnd) / 1e6,
+                speechEndLatencyMs = clip.speechEndSample?.let {
+                    (completedAt - (audioStart + it * NANOS_PER_SECOND / RATE)) / 1e6
+                },
+                endpointLatencyMs = null,
+                deliveredSeconds = clip.seconds,
+                includeWer = setRole == OWNER_SET,
+            )
+            val endpointTrial = try {
+                runZipformerEndpointTrial(
+                    clip, setRole, lane, laneOrder, createStream, accept, finish, releaseStream,
+                    ready, decode, endpoint, reset, resultTextMethod, recognizer,
+                )
+            } catch (_: Exception) {
+                failedEndpointTrial(clip, setRole, lane, laneOrder, 0)
+            }
+            return ZipformerRows(paired, endpointTrial)
+        } finally {
+            onlineRecognizerClass.getDeclaredMethod("release").invoke(recognizer)
+        }
+    }
+
+    private fun runZipformerEndpointTrial(
+        clip: Clip,
+        setRole: String,
+        lane: Asr4allMeasurementMetrics.Lane,
+        laneOrder: Int,
+        createStream: java.lang.reflect.Method,
+        accept: java.lang.reflect.Method,
+        finish: java.lang.reflect.Method,
+        releaseStream: java.lang.reflect.Method,
+        ready: java.lang.reflect.Method,
+        decode: java.lang.reflect.Method,
+        endpoint: java.lang.reflect.Method,
+        reset: java.lang.reflect.Method,
+        resultTextMethod: java.lang.reflect.Method,
+        recognizer: Any,
+    ): JSONObject {
+        val stream = createStream.invoke(recognizer, "")!!
+        val streamClass = stream.javaClass
+        val resultMethod = recognizer.javaClass.getDeclaredMethod("getResult", streamClass)
+        fun readText(): String = resultTextMethod.invoke(resultMethod.invoke(recognizer, stream)).toString().trim()
+        var endpointObservedAt: Long? = null
+        var finalText = ""
+        var firstPartialMs: Double? = null
+        var firstPartialOffset: Double? = null
+        var previousPartial = ""
+        var delivered = 0
+        val audioStart = SystemClock.elapsedRealtimeNanos()
+        try {
             var offset = 0
-            var transcript = ""
-            var deliveredSamples = 0
             while (offset < clip.samples.size) {
                 val end = minOf(offset + CHUNK_SAMPLES, clip.samples.size)
-                val scheduledEnd = audioStart + end.toLong() * NANOS_PER_SECOND / RATE
-                sleepUntil(scheduledEnd)
-                val feedAt = SystemClock.elapsedRealtimeNanos()
-                if (firstFeed) {
-                    firstFeed = false
-                    firstFeedDelayMs = (feedAt - audioStart) / 1e6
-                }
-                val lag = ((feedAt - scheduledEnd).coerceAtLeast(0)) / 1e6
-                pacingMaxMs = maxOf(pacingMaxMs, lag)
-                pacingSumMs += lag
-                pacingCount++
-                val start = SystemClock.elapsedRealtimeNanos()
+                sleepUntil(audioStart + end.toLong() * NANOS_PER_SECOND / RATE)
                 accept.invoke(stream, clip.samples.copyOfRange(offset, end), RATE)
                 while (ready.invoke(recognizer, stream) as Boolean) decode.invoke(recognizer, stream)
-                deliveredSamples = end
+                delivered = end
                 if (endpoint.invoke(recognizer, stream) as Boolean) {
                     endpointObservedAt = SystemClock.elapsedRealtimeNanos()
                     finish.invoke(stream)
                     while (ready.invoke(recognizer, stream) as Boolean) decode.invoke(recognizer, stream)
-                    transcript = readText(stream)
-                    if (transcript.isNotBlank()) {
-                        computeNanos += SystemClock.elapsedRealtimeNanos() - start
-                        offset = end
-                        break
-                    }
+                    finalText = readText()
+                    if (finalText.isNotBlank()) break
                     reset.invoke(recognizer, stream)
                 } else {
-                    val partial = readText(stream)
+                    val partial = readText()
                     if (partial.isNotBlank() && partial != previousPartial) {
                         previousPartial = partial
                         if (firstPartialMs == null) {
@@ -371,46 +536,34 @@ class Asr4allTierMeasurementDeviceTest {
                         }
                     }
                 }
-                computeNanos += SystemClock.elapsedRealtimeNanos() - start
                 offset = end
             }
-            val scheduledClipEnd = audioStart + clip.samples.size.toLong() * NANOS_PER_SECOND / RATE
-            var forcedFlush = endpointObservedAt == null || transcript.isBlank()
-            var endpointLatencyMs: Double? = null
+            val forcedFlush = finalText.isBlank()
             val flushStart = SystemClock.elapsedRealtimeNanos()
             if (forcedFlush) {
                 finish.invoke(stream)
                 while (ready.invoke(recognizer, stream) as Boolean) decode.invoke(recognizer, stream)
-                transcript = readText(stream)
+                finalText = readText()
             }
-            computeNanos += SystemClock.elapsedRealtimeNanos() - flushStart
             val completedAt = SystemClock.elapsedRealtimeNanos()
-            val outcome = if (transcript.isBlank()) OUTCOME_NO_FINAL else if (forcedFlush) {
-                OUTCOME_FORCED_FINAL
-            } else {
-                endpointLatencyMs = (completedAt - (endpointObservedAt ?: completedAt)) / 1e6
-                OUTCOME_ENDPOINT_FINAL
-            }
-            return measurementRow(
-                clip, setRole, lane, laneOrder, transcript, outcome,
-                openMs = openMs, pss = pssFields(before, afterLoad, afterWarmup),
-                computeMs = computeNanos / 1e6,
-                pacedWallMs = (completedAt - audioStart) / 1e6,
-                firstFeedDelayMs = firstFeedDelayMs,
-                pacingMaxMs = pacingMaxMs,
-                pacingMeanMs = if (pacingCount == 0) null else pacingSumMs / pacingCount,
-                firstPartialMs = firstPartialMs, firstPartialOffset = firstPartialOffset,
-                finalLatencyMs = if (outcome == OUTCOME_FORCED_FINAL) (completedAt - scheduledClipEnd) / 1e6 else null,
-                endpointLatencyMs = endpointLatencyMs,
-                deliveredSeconds = deliveredSamples.toDouble() / RATE,
-                includeWer = includeWer,
-                backendNativeSetupMs = nativeSetupMs,
-            )
+            return JSONObject()
+                .put("set", setRole).put("fixture_id", clip.id).put("fixture_sha256", sha(clip.bytes))
+                .put("model", lane.model).put("tier", lane.tier).put("counterbalanced_lane_order", laneOrder)
+                .put("outcome", when {
+                    finalText.isBlank() -> OUTCOME_NO_FINAL
+                    forcedFlush -> OUTCOME_FORCED_FINAL
+                    else -> OUTCOME_ENDPOINT_FINAL
+                })
+                .put("endpoint_observed", endpointObservedAt != null)
+                .put("endpoint_to_final_ms", if (endpointObservedAt != null && finalText.isNotBlank()) {
+                    (completedAt - endpointObservedAt!!) / 1e6
+                } else JSONObject.NULL)
+                .put("forced_flush_compute_ms", if (forcedFlush) (completedAt - flushStart) / 1e6 else JSONObject.NULL)
+                .put("delivered_audio_seconds", delivered.toDouble() / RATE)
+                .put("first_partial_latency_ms_from_scheduled_clip_start", firstPartialMs ?: JSONObject.NULL)
+                .put("first_partial_audio_offset_seconds", firstPartialOffset ?: JSONObject.NULL)
         } finally {
             releaseStream.invoke(stream)
-        }
-        } finally {
-            recognizerClass.getDeclaredMethod("release").invoke(recognizer)
         }
     }
 
@@ -448,19 +601,20 @@ class Asr4allTierMeasurementDeviceTest {
         pacingMeanMs: Double?,
         firstPartialMs: Double?,
         firstPartialOffset: Double?,
-        finalLatencyMs: Double?,
+        clipEndLatencyMs: Double?,
+        speechEndLatencyMs: Double?,
         endpointLatencyMs: Double?,
         deliveredSeconds: Double,
         includeWer: Boolean,
-        backendNativeSetupMs: Double? = null,
     ): JSONObject {
         val wer = if (includeWer) Asr4allMeasurementMetrics.wer(clip.reference, transcript) else null
+        val pairedPcmSha = sha(clip.bytes)
         return JSONObject()
-            .put("set", setRole).put("fixture_id", clip.id).put("fixture_sha256", sha(clip.bytes))
+            .put("set", setRole).put("fixture_id", clip.id).put("fixture_sha256", pairedPcmSha)
+            .put("paired_pcm_sha256", pairedPcmSha).put("repetition", 0)
             .put("model", lane.model).put("tier", lane.tier).put("counterbalanced_lane_order", laneOrder)
             .put("outcome", outcome).put("final_present", transcript.isNotBlank())
             .put("recognizer_open_ms", openMs).put("pss", pss)
-            .put("backend_native_setup_ms", backendNativeSetupMs ?: JSONObject.NULL)
             .put("audio_seconds_scheduled", clip.seconds)
             .put("audio_seconds_delivered", deliveredSeconds)
             .put("compute_ms", computeMs)
@@ -472,7 +626,8 @@ class Asr4allTierMeasurementDeviceTest {
             .put("mean_chunk_pacing_lag_ms", pacingMeanMs ?: JSONObject.NULL)
             .put("first_partial_latency_ms_from_scheduled_clip_start", firstPartialMs ?: JSONObject.NULL)
             .put("first_partial_audio_offset_seconds", firstPartialOffset ?: JSONObject.NULL)
-            .put("forced_clip_flush_latency_ms", finalLatencyMs ?: JSONObject.NULL)
+            .put("forced_clip_end_latency_ms", clipEndLatencyMs ?: JSONObject.NULL)
+            .put("speech_end_latency_ms_from_human_annotation", speechEndLatencyMs ?: JSONObject.NULL)
             .put("observed_decoder_endpoint_to_final_ms", endpointLatencyMs ?: JSONObject.NULL)
             .apply {
                 if (includeWer) {
@@ -485,34 +640,77 @@ class Asr4allTierMeasurementDeviceTest {
     }
 
     private fun failedRow(
-        id: String,
+        clip: Clip,
         set: String,
         lane: Asr4allMeasurementMetrics.Lane,
         order: Int,
+        repetition: Int,
     ): JSONObject = JSONObject()
-        .put("set", set).put("fixture_id", id).put("model", lane.model).put("tier", lane.tier)
+        .put("set", set).put("fixture_id", clip.id).put("fixture_sha256", sha(clip.bytes))
+        .put("paired_pcm_sha256", sha(clip.bytes)).put("repetition", repetition)
+        .put("model", lane.model).put("tier", lane.tier)
         .put("counterbalanced_lane_order", order).put("outcome", OUTCOME_ERROR)
         .put("final_present", false).put("error", "inference_error")
-        .put("forced_clip_flush_latency_ms", JSONObject.NULL)
+        .put("forced_clip_end_latency_ms", JSONObject.NULL)
+        .put("speech_end_latency_ms_from_human_annotation", JSONObject.NULL)
         .put("observed_decoder_endpoint_to_final_ms", JSONObject.NULL)
+
+    private fun failedEndpointTrial(
+        clip: Clip,
+        set: String,
+        lane: Asr4allMeasurementMetrics.Lane,
+        order: Int,
+        repetition: Int,
+    ): JSONObject = JSONObject()
+        .put("set", set).put("fixture_id", clip.id).put("fixture_sha256", sha(clip.bytes))
+        .put("repetition", repetition).put("model", lane.model).put("tier", lane.tier)
+        .put("counterbalanced_lane_order", order).put("outcome", OUTCOME_ERROR)
+        .put("endpoint_trial_status", "inference_error")
+
+    private fun decisionRow(row: JSONObject): Asr4allMeasurementMetrics.DecisionRow {
+        val wer = if (row.has("raw_decoder_wer_edits")) {
+            Asr4allMeasurementMetrics.Wer(row.getInt("raw_decoder_wer_edits"), row.getInt("raw_decoder_wer_reference_words"))
+        } else null
+        return Asr4allMeasurementMetrics.DecisionRow(
+            set = row.getString("set"),
+            model = row.getString("model"),
+            tier = row.getString("tier"),
+            fixtureId = row.getString("fixture_id"),
+            repetition = row.optInt("repetition", 0),
+            pairedPcmSha256 = row.optString("paired_pcm_sha256"),
+            outcome = row.getString("outcome"),
+            wer = wer,
+        )
+    }
+
+    private fun pairedWerJson(decision: Asr4allMeasurementMetrics.PairedDecision): JSONArray =
+        JSONArray().apply {
+            for (lane in decision.lanes) {
+                put(JSONObject()
+                    .put("model", lane.model).put("tier", lane.tier)
+                    .put("status", if (lane.decisionValid) "paired_complete" else "invalid_incomplete_or_incomparable")
+                    .put("expected_rows", lane.expectedRows).put("observed_rows", lane.observedRows)
+                    .put("missing_rows", lane.missingRows).put("extra_rows", lane.extraRows)
+                    .put("duplicate_rows", lane.duplicateRows).put("error_rows", lane.errorRows)
+                    .put("unscored_rows", lane.unscoredRows).put("paired_input_mismatch_keys", lane.inputMismatchKeys)
+                    .put("unexpected_lane_rows", decision.unexpectedLaneRows)
+                    .put("raw_decoder_wer", lane.wer?.let {
+                        JSONObject().put("edits", it.edits).put("reference_words", it.referenceWords).put("rate", it.rate)
+                    } ?: JSONObject.NULL))
+            }
+        }
 
     private fun metricRow(row: JSONObject): Asr4allMeasurementMetrics.Row {
         val wer = if (row.has("raw_decoder_wer_edits")) {
-            Asr4allMeasurementMetrics.Wer(
-                row.getInt("raw_decoder_wer_edits"),
-                row.getInt("raw_decoder_wer_reference_words"),
-            )
+            Asr4allMeasurementMetrics.Wer(row.getInt("raw_decoder_wer_edits"), row.getInt("raw_decoder_wer_reference_words"))
         } else null
         val outcome = row.getString("outcome")
-        val clipEndLatency = if (outcome == OUTCOME_FORCED_FINAL && row.opt("forced_clip_flush_latency_ms") is Number) {
-            row.getDouble("forced_clip_flush_latency_ms")
-        } else null
-        val endpointLatency = if (outcome == OUTCOME_ENDPOINT_FINAL && row.opt("observed_decoder_endpoint_to_final_ms") is Number) {
-            row.getDouble("observed_decoder_endpoint_to_final_ms")
-        } else null
+        fun numeric(name: String): Double? = (row.opt(name) as? Number)?.toDouble()
         return Asr4allMeasurementMetrics.Row(
             row.getString("set"), row.getString("model"), row.getString("tier"),
-            outcome, wer, clipEndLatency, endpointLatency,
+            outcome, wer, numeric("forced_clip_end_latency_ms"),
+            numeric("observed_decoder_endpoint_to_final_ms"),
+            numeric("speech_end_latency_ms_from_human_annotation"),
         )
     }
 
@@ -521,32 +719,55 @@ class Asr4allTierMeasurementDeviceTest {
         expectedRows: Int,
         lanes: List<Asr4allMeasurementMetrics.Lane>,
         includeWer: Boolean,
+        ownerDecision: Asr4allMeasurementMetrics.PairedDecision? = null,
+        speechLatencyDecisionGrade: Boolean = false,
     ): JSONArray = JSONArray().apply {
         val byLane = summaries.associateBy { it.model to it.tier }
+        val decisionByLane = ownerDecision?.lanes?.associateBy { it.model to it.tier }.orEmpty()
         for (lane in lanes) {
             val s = byLane[lane.model to lane.tier]
             val rows = s?.rows ?: 0
-            val item = JSONObject()
+            val decision = decisionByLane[lane.model to lane.tier]
+            put(JSONObject()
                 .put("model", lane.model).put("tier", lane.tier).put("rows", rows)
-                .put("expected_rows", expectedRows)
-                .put("coverage_complete", rows == expectedRows)
+                .put("expected_rows", expectedRows).put("coverage_complete", rows == expectedRows)
                 .put("missing_rows", (expectedRows - rows).coerceAtLeast(0))
                 .put("status", if (s == null) "not_run" else "measured")
                 .put("finals", s?.finals ?: 0).put("no_final", s?.noFinal ?: 0)
                 .put("errors", s?.errors ?: 0).put("wer_scored_rows", s?.werCoverage ?: 0)
+                .put("paired_wer_status", decision?.let {
+                    if (it.decisionValid) "paired_complete" else "invalid_incomplete_or_incomparable"
+                } ?: "not_applicable")
                 .put("forced_clip_end_latency_count", s?.clipEndLatencyCount ?: 0)
-                .put("mean_valid_forced_clip_end_latency_ms", s?.meanClipEndLatencyMs ?: JSONObject.NULL)
+                .put("mean_forced_clip_end_latency_ms", s?.meanClipEndLatencyMs ?: JSONObject.NULL)
+                .put("speech_end_latency_count", s?.speechEndLatencyCount ?: 0)
+                .put("speech_end_latency_status", when {
+                    !includeWer -> "regression_only"
+                    speechLatencyDecisionGrade -> "decision_grade_paced_injected_vs_human_annotation"
+                    else -> "not_decision_grade"
+                })
+                .put("mean_speech_end_latency_ms", s?.meanSpeechEndLatencyMs ?: JSONObject.NULL)
                 .put("decoder_endpoint_to_final_count", s?.endpointLatencyCount ?: 0)
-                .put("mean_observed_decoder_endpoint_to_final_ms", s?.meanEndpointLatencyMs ?: JSONObject.NULL)
-            if (includeWer && s?.wer != null) {
-                item.put("raw_decoder_wer", JSONObject()
-                    .put("edits", s.wer.edits)
-                    .put("reference_words", s.wer.referenceWords)
-                    .put("rate", s.wer.rate))
-            }
-            put(item)
+                .put("mean_observed_decoder_endpoint_to_final_ms", s?.meanEndpointLatencyMs ?: JSONObject.NULL))
         }
     }
+
+    private fun endpointTrialCoverageJson(rows: JSONArray, breadthIncluded: Boolean): JSONArray =
+        JSONArray().apply {
+            val expected = buildList {
+                add(OWNER_SET to OWNER_COUNT)
+                if (breadthIncluded) add(BREADTH_SET to BREADTH_COUNT)
+            }
+            for ((setRole, expectedRows) in expected) {
+                val setRows = (0 until rows.length()).map { rows.getJSONObject(it) }
+                    .filter { it.optString("set") == setRole }
+                val errors = setRows.count { it.optString("outcome") == OUTCOME_ERROR }
+                put(JSONObject()
+                    .put("set", setRole).put("model", ZIPFORMER).put("expected_rows", expectedRows)
+                    .put("observed_rows", setRows.size).put("errors", errors)
+                    .put("status", if (setRows.size == expectedRows && errors == 0) "complete" else "incomplete_or_error"))
+            }
+        }
 
     private fun loadSet(
         dir: File,
@@ -554,6 +775,8 @@ class Asr4allTierMeasurementDeviceTest {
         trustedPhraseDigest: String,
         expectedRole: String,
         expectedCount: Int,
+        speechEndsFile: File? = null,
+        trustedSpeechEndDigest: String? = null,
     ): FixtureSet {
         val manifestFile = File(dir, "manifest.json").canonicalFile
         require(manifestFile.parentFile == dir.canonicalFile) { "Manifest must be under the staged set root" }
@@ -565,6 +788,45 @@ class Asr4allTierMeasurementDeviceTest {
         validateSetEnvelope(refsRoot, expectedRole)
         val phraseDigest = sha(refsBytes)
         require(phraseDigest == trustedPhraseDigest) { "Staged phrase file does not match the trusted digest" }
+        require((speechEndsFile == null) == (trustedSpeechEndDigest == null)) {
+            "Independent speech-end sidecar and trusted digest must be paired"
+        }
+        require(speechEndsFile == null || expectedRole == OWNER_SET) {
+            "Independent speech-end annotations are accepted only for the owner set"
+        }
+        val speechEntries = linkedMapOf<String, SpeechEnd>()
+        var speechEndDigest: String? = null
+        var speechEndMethod: String? = null
+        if (speechEndsFile != null) {
+            val sidecarBytes = readPrivate(speechEndsFile)
+            speechEndDigest = sha(sidecarBytes)
+            require(speechEndDigest == trustedSpeechEndDigest) { "Speech-end sidecar does not match the trusted digest" }
+            val sidecar = parsePrivateJson(sidecarBytes)
+            require(jsonKeys(sidecar) == setOf("schema_version", "set", "method", "speech_ends")) {
+                "Speech-end sidecar schema keys mismatch"
+            }
+            require(sidecar.getInt("schema_version") == 1 && sidecar.getString("set") == OWNER_SET) {
+                "Speech-end sidecar envelope mismatch"
+            }
+            speechEndMethod = sidecar.getString("method")
+            require(speechEndMethod == "independent-human-annotation") { "Speech-end annotation method is not trusted" }
+            val annotations = sidecar.getJSONArray("speech_ends")
+            for (index in 0 until annotations.length()) {
+                val entry = annotations.getJSONObject(index)
+                require(jsonKeys(entry) == setOf("fixture_id", "fixture_sha256", "speech_end_sample")) {
+                    "Speech-end annotation keys mismatch"
+                }
+                val id = entry.getString("fixture_id")
+                val fixtureSha = entry.getString("fixture_sha256")
+                val sample = entry.getLong("speech_end_sample")
+                require(id.isNotBlank() && Regex("[0-9a-f]{64}").matches(fixtureSha) && sample > 0) {
+                    "Speech-end annotation fields invalid"
+                }
+                require(speechEntries.put(id, SpeechEnd(fixtureSha, sample)) == null) {
+                    "Duplicate speech-end fixture ID"
+                }
+            }
+        }
         val manifest = manifestRoot.getJSONArray("fixtures")
         val refs = linkedMapOf<String, String>()
         val phraseArray = refsRoot.getJSONArray("phrases")
@@ -587,11 +849,17 @@ class Asr4allTierMeasurementDeviceTest {
             else -> manifestIds == BREADTH_IDS && refs.keys == BREADTH_IDS
         }
         if (expectedRole == OWNER_SET) require(completeIds) { "Owner phrase and fixture IDs must be exactly one-to-one" }
+        if (speechEndsFile != null) {
+            require(completeIds && speechEntries.keys == manifestIds) {
+                "Speech-end annotation IDs must exactly match the owner decision set"
+            }
+        }
         val manifestDigest = sha(manifestBytes)
         if (!completeIds) {
             return FixtureSet(
                 expectedRole, manifestRoot.optString("model").takeIf { it.isNotEmpty() },
-                phraseDigest, manifestDigest, refs.keys, manifest.length(), refs.size, emptyList(), false,
+                phraseDigest, manifestDigest, speechEndDigest, speechEndMethod,
+                refs.keys, manifest.length(), refs.size, emptyList(), false,
             )
         }
         val ids = linkedSetOf<String>()
@@ -608,17 +876,28 @@ class Asr4allTierMeasurementDeviceTest {
             require(file.toPath().startsWith(dir.canonicalFile.toPath()) && file != dir.canonicalFile) { "Fixture path escapes staged set" }
             require(paths.add(file.path)) { "Fixture paths must be unique" }
             val bytes = readPrivate(file)
-            require(sha(bytes) == pcmMeta.getString("sha256")) { "Fixture hash mismatch" }
+            val fixtureSha = sha(bytes)
+            require(fixtureSha == pcmMeta.getString("sha256")) { "Fixture hash mismatch" }
             val pcm = wav(bytes)
             require(pcm.rate == RATE && pcm.channels == 1 && pcm.samples.isNotEmpty()) { "Fixture must be nonempty mono 16kHz PCM" }
             val duration = (pcm.samples.size * 1000.0 / RATE).roundToInt()
             require(pcmMeta.getInt("duration_ms") == duration) { "Fixture duration mismatch" }
-            clips += Clip(id, refs.getValue(id), bytes, pcm.samples, pcm.samples.size / RATE.toDouble())
+            val annotation = speechEntries[id]
+            if (speechEndsFile != null) {
+                require(annotation != null && annotation.fixtureSha256 == fixtureSha &&
+                    annotation.sample in 1..pcm.samples.size.toLong()) {
+                    "Speech-end annotation does not match the validated PCM"
+                }
+            }
+            clips += Clip(
+                id, refs.getValue(id), bytes, pcm.samples, pcm.samples.size / RATE.toDouble(), annotation?.sample,
+            )
         }
         require(ids == refs.keys) { "Phrase and fixture IDs differ" }
         return FixtureSet(
             expectedRole, manifestRoot.optString("model").takeIf { it.isNotEmpty() },
-            phraseDigest, manifestDigest, refs.keys, manifest.length(), refs.size, clips,
+            phraseDigest, manifestDigest, speechEndDigest, speechEndMethod,
+            refs.keys, manifest.length(), refs.size, clips,
             complete = clips.size == expectedCount,
         )
     }
@@ -630,28 +909,77 @@ class Asr4allTierMeasurementDeviceTest {
         require(root.getBoolean("synthetic") == synthetic) { "Fixture synthetic role mismatch" }
         require(root.getBoolean("decision_set") == !synthetic) { "Fixture decision-set role mismatch" }
     }
+    private fun jsonKeys(json: JSONObject): Set<String> {
+        val keys = linkedSetOf<String>()
+        val iterator = json.keys()
+        while (iterator.hasNext()) keys += iterator.next()
+        return keys
+    }
 
-    private fun modelBundleIdentities(context: android.content.Context): JSONObject {
-        val result = JSONObject()
+    private fun modelBundleFiles(context: android.content.Context): Map<String, Map<String, File>> {
+        val result = linkedMapOf<String, Map<String, File>>()
         for (size in Size.entries) {
             val directory = Asr4allModelFiles.releaseDir(context, size)
             val names = listOf(
                 "metadata.json", "stream_c16r4.onnx", "stream_c32r8.onnx",
                 "pcec_c16.onnx", "pcec_c16_flush.onnx", "asr4all.onnx.data",
             )
-            val sizeFiles = JSONObject()
-            for (name in names) sizeFiles.put(name, shaFile(File(directory, name).canonicalFile))
-            result.put("asr4all_${size.name.lowercase()}", sizeFiles)
+            result["asr4all_${size.name.lowercase()}"] = names.associateWith { File(directory, it).canonicalFile }
         }
         val zipDir = context.getExternalFilesDir("models") ?: File(context.filesDir, "models")
-        val zipNames = listOf(
+        result[ZIPFORMER] = listOf(
             "sherpa-stt-encoder.int8.onnx", "sherpa-stt-decoder.int8.onnx",
             "sherpa-stt-joiner.int8.onnx", "sherpa-stt-tokens.txt",
-        )
-        val zipFiles = JSONObject()
-        for (name in zipNames) zipFiles.put(name, shaFile(File(zipDir, name).canonicalFile))
-        result.put(ZIPFORMER, zipFiles)
+        ).associateWith { File(zipDir, it).canonicalFile }
+        for (files in result.values) {
+            require(files.values.all { it.isFile && it.length() > 0 }) { "Required model bundle is incomplete" }
+        }
         return result
+    }
+
+    private fun modelFileStamps(
+        files: Map<String, Map<String, File>>,
+    ): Map<String, Map<String, ModelFileStamp>> = files.mapValues { (_, byName) ->
+        byName.mapValues { (_, file) ->
+            ModelFileStamp(file.canonicalPath, file.length(), file.lastModified())
+        }
+    }
+
+    private fun modelBundleIdentities(
+        files: Map<String, Map<String, File>>,
+        stamps: Map<String, Map<String, ModelFileStamp>>,
+    ): JSONObject {
+        val result = JSONObject()
+        for ((bundle, byName) in files) {
+            val digests = JSONObject()
+            for ((name, file) in byName) {
+                val stamp = stamps.getValue(bundle).getValue(name)
+                require(file.canonicalPath == stamp.path && file.length() == stamp.length &&
+                    file.lastModified() == stamp.modified) {
+                    "Model bundle changed during measurement"
+                }
+                digests.put(name, shaFile(file))
+            }
+            result.put(bundle, digests)
+        }
+        return result
+    }
+
+    private fun initializeMeasurementRuntime(): RuntimeSetup {
+        val start = SystemClock.elapsedRealtimeNanos()
+        try {
+            System.loadLibrary("onnxruntime")
+        } catch (_: UnsatisfiedLinkError) {
+            // Production's Sherpa dependency can already have loaded ORT.
+        }
+        val environmentClass = Class.forName("ai.onnxruntime.OrtEnvironment")
+        val environment = environmentClass.getMethod("getEnvironment").invoke(null)!!
+        Class.forName("com.k2fsa.sherpa.onnx.OnlineRecognizer")
+        return RuntimeSetup(
+            environment,
+            elapsedMs(start),
+            pssSnapshot(),
+        )
     }
 
     private fun pssSnapshot(): PssSnapshot {
@@ -663,17 +991,29 @@ class Asr4allTierMeasurementDeviceTest {
         return PssSnapshot(readings[1], readings.last() - readings.first())
     }
 
-    private fun pssFields(before: PssSnapshot, afterLoad: PssSnapshot, afterWarmup: PssSnapshot) = JSONObject()
+    private fun PssSnapshot.toJson(): JSONObject = JSONObject()
+        .put("absolute_mib", medianMiB)
+        .put("background_noise_range_mib", noiseRangeMiB)
+
+    private fun pssFields(
+        before: PssSnapshot,
+        afterLoad: PssSnapshot,
+        afterWarmup: PssSnapshot,
+        runtimeBaseline: PssSnapshot,
+    ) = JSONObject()
+        .put("runtime_initialized_absolute_mib", runtimeBaseline.medianMiB)
+        .put("runtime_initialized_noise_range_mib", runtimeBaseline.noiseRangeMiB)
         .put("before_load_absolute_mib", before.medianMiB)
         .put("before_load_background_noise_range_mib", before.noiseRangeMiB)
+        .put("before_load_residual_from_runtime_initialized_mib", before.medianMiB - runtimeBaseline.medianMiB)
         .put("after_load_absolute_mib", afterLoad.medianMiB)
         .put("after_load_background_noise_range_mib", afterLoad.noiseRangeMiB)
         .put("after_load_delta_mib", afterLoad.medianMiB - before.medianMiB)
+        .put("after_load_delta_from_runtime_initialized_mib", afterLoad.medianMiB - runtimeBaseline.medianMiB)
         .put("after_warmup_resident_absolute_mib", afterWarmup.medianMiB)
         .put("after_warmup_background_noise_range_mib", afterWarmup.noiseRangeMiB)
         .put("after_warmup_resident_delta_mib", afterWarmup.medianMiB - before.medianMiB)
         .put("after_warmup_incremental_delta_mib", afterWarmup.medianMiB - afterLoad.medianMiB)
-
     private fun validateNoOutputOverlap(resultRoot: File, inputs: List<File>) {
         val output = resultRoot.canonicalFile.toPath()
         for (input in inputs) {

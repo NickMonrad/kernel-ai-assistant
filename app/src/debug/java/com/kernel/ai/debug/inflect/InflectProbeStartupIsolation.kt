@@ -7,6 +7,8 @@ object InflectProbeStartupIsolation {
     const val PROBE_PACKAGE = BuildConfig.PROBE_APPLICATION_ID
     const val RUNTIME_TEST_CLASS =
         "com.kernel.ai.debug.inflect.InflectSpikeReceiverRuntimeTest"
+    const val DEVICE_MEASUREMENT_TEST_CLASS =
+        "com.kernel.ai.Asr4allTierMeasurementDeviceTest"
 
     fun isRuntimeTestSelected(selectedTestClass: String?): Boolean =
         selectedTestClass?.split(',')?.any {
@@ -29,5 +31,5 @@ object InflectProbeStartupIsolation {
         selectedTestClass: String?,
     ): Boolean = targetPackage == DEBUG_PACKAGE &&
         targetIsDebuggable &&
-        selectedTestClass == RUNTIME_TEST_CLASS
+        (selectedTestClass == RUNTIME_TEST_CLASS || selectedTestClass == DEVICE_MEASUREMENT_TEST_CLASS)
 }

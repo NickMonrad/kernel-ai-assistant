@@ -6,14 +6,19 @@ import org.junit.jupiter.api.Test
 
 class InflectProbeStartupIsolationTest {
     @Test
-    fun `suppresses startup only for exact runtime test on debuggable debug app`() {
-        assertTrue(
-            InflectProbeStartupIsolation.shouldSuppressApplicationOnCreate(
-                targetPackage = InflectProbeStartupIsolation.DEBUG_PACKAGE,
-                targetIsDebuggable = true,
-                selectedTestClass = InflectProbeStartupIsolation.RUNTIME_TEST_CLASS,
-            ),
-        )
+    fun `suppresses startup only for exact runtime or device measurement test on debuggable debug app`() {
+        listOf(
+            InflectProbeStartupIsolation.RUNTIME_TEST_CLASS,
+            InflectProbeStartupIsolation.DEVICE_MEASUREMENT_TEST_CLASS,
+        ).forEach { selectedClass ->
+            assertTrue(
+                InflectProbeStartupIsolation.shouldSuppressApplicationOnCreate(
+                    targetPackage = InflectProbeStartupIsolation.DEBUG_PACKAGE,
+                    targetIsDebuggable = true,
+                    selectedTestClass = selectedClass,
+                ),
+            )
+        }
     }
 
     @Test
@@ -23,6 +28,7 @@ class InflectProbeStartupIsolationTest {
             "${InflectProbeStartupIsolation.RUNTIME_TEST_CLASS}#phonemizesAndSynthesizesSyntheticTextWithoutNormalApplicationStartup",
             "${InflectProbeStartupIsolation.RUNTIME_TEST_CLASS},com.kernel.ai.OtherTest",
             "com.kernel.ai.debug.inflect.*",
+            "${InflectProbeStartupIsolation.DEVICE_MEASUREMENT_TEST_CLASS}#measureOwnerAndSyntheticSets",
         )
         nonExactSelections.forEach { selectedClass ->
             assertFalse(
