@@ -65,10 +65,12 @@ internal class Asr4allPcec(
         for (t in frameIds.indices) {
             val fid = frameIds[t]
             if (fid != prev && fid != meta.blankId) {
+                // A new token starts here.
                 open?.let(::emit)
                 open = OpenToken(fid, DoubleArray(dim) { d -> hidden[t * dim + d].toDouble() }, 1, blanks)
                 blanks = 0
             } else {
+                // Repeats and blanks belong to the open token.
                 open?.let { o ->
                     for (d in 0 until dim) o.hiddenSum[d] += hidden[t * dim + d]
                     o.frames += 1
@@ -216,6 +218,7 @@ internal class Asr4allPcec(
     private fun pauseBucket(blanks: Int): Int = PAUSE_THRESHOLDS.count { blanks >= it }
 
     private companion object {
+        /** Blank-frame counts separating the pause buckets PCEC was trained on. */
         val PAUSE_THRESHOLDS = intArrayOf(1, 2, 4, 8, 16, 32, 64, 128)
     }
 }
