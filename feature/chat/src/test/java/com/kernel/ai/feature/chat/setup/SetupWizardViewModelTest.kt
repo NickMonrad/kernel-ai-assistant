@@ -74,8 +74,8 @@ class SetupWizardViewModelTest {
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns flowOf(false)
         every { downloadManager.downloadStates } returns MutableStateFlow(emptyMap())
         every { setupVoiceDevice.inflectEligible() } returns false
-        // Release rules unless a test says otherwise; debug builds also offer Inflect Micro everywhere.
-        every { setupVoiceDevice.isReleaseBuild() } returns true
+        // Most of this suite exercises the full debug speech stack. Release-only gating has focused tests below.
+        every { setupVoiceDevice.isReleaseBuild() } returns false
         coEvery { platformReader.read() } returns MakeYoursPlatform(
             hasMicrophone = true,
             micGranted = true,
@@ -366,6 +366,30 @@ class SetupWizardViewModelTest {
     }
 
     // ── Speech options by device capability (#1855 part 2) ──────────────────────
+
+    @Test
+    fun `release offers only platform speech and queues no Sherpa assets`() {
+        every { setupVoiceDevice.isReleaseBuild() } returns true
+        coEvery { downloadManager.plannedFirstRunModels() } returns VoiceDefaultsProvisioner.zipformerModels()
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf(VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
+        assertEquals(VoiceInputEngine.AndroidNative, vm.uiState.value.inputEngine)
+        assertEquals(listOf(VoiceOutputEngine.AndroidTts), vm.uiState.value.outputOptions)
+        assertEquals(VoiceOutputEngine.AndroidTts, vm.uiState.value.outputEngine)
+        assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
+        assertEquals(0L, vm.uiState.value.heyJandalExtraBytes)
+
+        vm.atDownloadStep()
+        vm.onContinue {}
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceDefaultsProvisioner.queueSpeechInput(any()) }
+        verify(exactly = 0) { voicePackDownloadManager.startDownload(any(), any(), any(), any()) }
+    }
 
     @Test
     fun `a phone where Android's listener is not ready offers Automatic and Cori only`() {

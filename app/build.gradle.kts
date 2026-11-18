@@ -713,9 +713,8 @@ dependencies {
     implementation(project(":feature:widget"))
     implementation(project(":feature:convert"))
 
-    // Release and debug use the same pinned Inflect-enabled Sherpa runtime. The AAR is the
-    // existing v1.13.0 rebuild from scripts/sherpa-onnx-v1.13.0-inflect-build.md; no native
-    // binary is rebuilt or duplicated by this release-exposure change.
+    // Debug keeps the pinned Inflect-enabled Sherpa runtime for ongoing speech work. v0.1 release
+    // deliberately excludes this AAR until the complete distribution obligations are evidenced.
     val inflectSherpaAar =
         rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar")
     // The custom Sherpa/Piper/eSpeak AAR remains debug-only until #1474 closes its

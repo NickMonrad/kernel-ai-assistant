@@ -51,13 +51,13 @@ class VoiceOutputPreferencesTest {
     }
 
     @Test
-    fun `resolveForBuild preserves Inflect for eligible release device`() {
+    fun `resolveForBuild demotes persisted Inflect even on eligible release device`() {
         val inflectEligible = InflectMicroModelSpec.isReleaseEligible(
             tier = HardwareTier.FLAGSHIP,
             supportedAbis = arrayOf("arm64-v8a"),
         )
         assertEquals(
-            VoiceOutputEngine.InflectMicroExperimental,
+            VoiceOutputEngine.AndroidTts,
             VoiceOutputEngine.resolveForBuild(
                 value = VoiceOutputEngine.InflectMicroExperimental.name,
                 isRelease = true,

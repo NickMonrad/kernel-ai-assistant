@@ -34,9 +34,8 @@ internal object SetupSpeechOptions {
         }
 
     /**
-     * The voices setup offers, in the order Cori, Inflect Micro, Android's built-in voice. Uses the same build rule
-     * as Settings ([VoiceOutputEngine.entriesForBuild]): release builds offer Inflect only where [inflectEligible],
-     * debug builds everywhere. Kokoro is never offered in setup. Android's built-in voice needs an installed TTS engine.
+     * Release v0.1 offers only Android's built-in voice while the Sherpa/Piper/eSpeak distribution obligations
+     * remain unresolved. Debug builds keep Cori and Inflect Micro for development. Kokoro is never offered here.
      */
     fun outputOptions(hasSystemTts: Boolean, isRelease: Boolean, inflectEligible: Boolean): List<VoiceOutputEngine> {
         if (isRelease) return listOf(VoiceOutputEngine.AndroidTts)
