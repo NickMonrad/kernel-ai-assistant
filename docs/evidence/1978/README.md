@@ -68,7 +68,7 @@ ANDROID_HOME=/home/lokhor/Android/Sdk ASR4ALL_PARITY=required ASR4ALL_PARITY_MOD
 ```
 M rerun uses `ASR4ALL_PARITY_MODEL=M` and `ASR4ALL_MODEL_DIR=/tmp/asr4all-ref-1987/m`; same remaining environment and Gradle arguments.
 
-Host harness: `Asr4allTierMeasurementTest` is a plain host-JVM test (`src/test`, `javax.sound`). It runs only as a smoke check that the harness executes. Its timings are host-only and are not decision evidence. It does not measure criterion 4 on Android; that needs an instrumentation test, which has not landed. No tier choice is made from it.
+Device harness: `Asr4allTierMeasurementDeviceTest` (`app/src/androidTest`, opt-in via `measure_enabled=true`) is documented in `docs/testing/asr4all-device-measurement.md`. Device measurements: not executed; no phone run is recorded in this evidence. The former host-JVM `Asr4allTierMeasurementTest` was removed. Host metrics unit tests verify the metric arithmetic only and are not decision evidence.
 
 Routing tests: `SelectableVoiceInputControllerTest` (28) and `SelectableVoiceInputHandoffTest` (15) pass, 0 failures.
 
