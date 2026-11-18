@@ -92,7 +92,7 @@ These assets are downloaded or bundled by the app rather than manually placed in
 | Sherpa SenseVoice STT | ~100 MB | Hugging Face `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | Offline/final-only ONNX recogniser: model + tokens. |
 | Sherpa Whisper tiny.en STT | ~117 MB | Hugging Face `csukuangfj/sherpa-onnx-whisper-tiny.en` | Offline/final-only ONNX recogniser: encoder, decoder, tokens. |
 | Sherpa Paraformer STT | ~220 MB | Hugging Face `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | Streaming/online ONNX recogniser: encoder, decoder, tokens. |
-| Sherpa Piper/VITS voice packs | ~64-116 MB each | Sherpa-ONNX GitHub `tts-models` release assets | Only CoriHigh is release-visible in v0.1; remaining catalogue entries are debug/internal pending per-voice source, dataset, and terms review. |
+| Sherpa Piper/VITS voice packs | ~64-116 MB each | Sherpa-ONNX GitHub `tts-models` release assets | All Piper/VITS voices, including CoriHigh, are debug/internal only for v0.1 under the #1263 Sherpa/Piper/eSpeak exclusion rule. |
 | Semaine Piper/VITS voice pack | ~70 MB | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | Excluded from release builds; see completed gating in #1258. |
 | Kokoro experimental voice pack | ~130 MB | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | Debug-only/post-launch for v0.1 under #1014; not release-visible. |
 
@@ -116,6 +116,6 @@ These assets are downloaded or bundled by the app rather than manually placed in
 - Do not imply Jandal owns or sublicenses upstream model files.
 - Keep model source links and approximate sizes current when model choices change.
 - Keep gated-model behaviour aligned with the app UI: `Ready`, `Preparing`, `Action Required`, or `Unavailable`.
-- Semaine remains excluded from Play builds under #1258 unless separately reviewed for release.
+- Sherpa STT, Piper/Cori/Semaine, Inflect Micro and Kokoro remain excluded from v0.1 release; debug builds retain them for development.
 - Kokoro remains debug-only/post-launch for v0.1 under #1014.
 - See [`../docs/LEGAL_AND_ATTRIBUTION.md`](../docs/LEGAL_AND_ATTRIBUTION.md) before release packaging or Play Store publication.

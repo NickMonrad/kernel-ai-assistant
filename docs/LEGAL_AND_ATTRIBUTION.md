@@ -4,7 +4,7 @@ This document supports #868 and the Play Store launch gate. It is a practical en
 
 ## Current position
 
-This PR now records the known licence position for the components we can identify from the repo and public upstream metadata. Final release still needs an automated release-variant notice/SBOM pass to catch transitive dependencies and confirm exactly what is bundled in the APK/AAB.
+PR #1793 generates release-variant AboutLibraries data and CycloneDX SBOMs and verifies the exact release AAB against explicit native-library metadata. Final release acceptance still requires the exact-head verifier and device-level legal-surface checks to pass.
 
 The current release-attribution snapshot for #1263 is [`RELEASE_ATTRIBUTION_SIGNOFF.md`](RELEASE_ATTRIBUTION_SIGNOFF.md). Use that document as the short-form launch sign-off view, and use this document as the detailed inventory.
 
@@ -67,7 +67,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 |---|---|---|---|
 | sqlite-vec | Local vector search extension in `core/memory/src/main/cpp` | Dual MIT OR Apache-2.0 upstream | Include chosen licence text/notice if source/native library is bundled. |
 | SQLite amalgamation | SQLite C source referenced by native build | Public domain / blessing text upstream | Confirm bundling; include SQLite public-domain notice/blessing if bundled. |
-| Sherpa-ONNX AAR/runtime | Local STT/TTS runtime; release currently wires the custom v1.13.0 Inflect AAR described in `scripts/sherpa-onnx-v1.13.0-inflect-build.md` | Sherpa's project licence does not establish the complete custom AAR's component terms; the build reuses Piper/eSpeak functionality, and exact component revisions/terms remain tracked by #1474 | Do not present the complete runtime bundle as Apache-2.0-only; #1474 still requires source, notice/SBOM, and exact release-artifact reconciliation. |
+| Sherpa-ONNX AAR/runtime | Local STT/TTS development runtime described in `scripts/sherpa-onnx-v1.13.0-inflect-build.md` | Sherpa's project licence does not establish the complete custom AAR's component terms; the build reuses Piper/eSpeak functionality | Debug/internal only. The custom AAR and its Sherpa/Piper/eSpeak runtime path are excluded from v0.1 release under the #1263 owner rule. |
 | Wake-word ONNX model assets | Bundled wake-word detector/verifier assets | openWakeWord Apache-2.0 lineage for Stage 1/2; Stage 3 `hey_jandal.onnx` generated from local training data recorded in `training/wakeword/README.md` | Nick (maintainer) confirmed in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577) that the real recordings are of him and his wife, made with consent for this use; additional synthetic audio was generated with Piper TTS, and no other human recordings were used. |
 | Local model binaries under `models/` | Dev/test local model cache | Not committed / not shipped from source | Keep gitignored; release artefact still needs audit. |
 
@@ -147,7 +147,7 @@ Avoid promising that every feature is offline if a skill may call an external so
 - [x] `models/README.md` documents approximate model sizes and gated-model requirements.
 - [x] `NOTICE` includes source-code adaptation notices and points to this review for runtime/downloadable assets.
 - [x] Direct dependency licence classes are recorded in this document.
-- [x] #1268: Semaine is excluded from release. CoriHigh is the sole release-visible Piper voice for v0.1; this allowlist is not full #1263/#1474 release sign-off.
+- [x] #1268: Semaine is excluded from release. All Piper voices, including CoriHigh, are excluded from v0.1 release; this allowlist is not full #1263/#1474 release sign-off.
 - [x] #1263: release-attribution snapshot added in `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`.
 - [x] Wake-word training/provenance path is traceable through `training/wakeword/README.md` and `NOTICE`.
 - [x] Release runtime dependency evidence generated and compared against this table. Formal SBOM (CycloneDX/SPDX) not generated; Durable dependency review documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.

@@ -101,7 +101,6 @@ object ReleaseAssetAttributionCatalog {
     }
 
     private val piperRows = SherpaPiperVoice.entries.map { voice ->
-        val releaseVoice = voice.releaseVisible
         ReleaseAssetAttribution(
             id = "piper:${voice.name}",
             name = "${voice.displayName} Piper voice pack",
@@ -112,7 +111,7 @@ object ReleaseAssetAttributionCatalog {
             lineageDisplay = if (voice == SherpaPiperVoice.CoriHigh) {
                 "rhasspy/piper-voices at 5041a7a49ae5b3a0f30e6837769eb03fdbb231bd; model card identifies LibriVox dataset"
             } else null,
-            releaseStatus = if (releaseVoice) "Release v0.1 · download on demand" else "Debug/internal only · excluded from release voice catalogue",
+            releaseStatus = EXCLUDED,
         )
     }
 
@@ -135,7 +134,7 @@ object ReleaseAssetAttributionCatalog {
         ReleaseAssetAttribution("tts:KokoroExperimental", "Kokoro-82M TTS", "Sherpa-ONNX Kokoro voice-pack release", "Apache-2.0 recorded upstream; pack terms under review", "hexgrad/Kokoro-82M; nvidia/kokoro-82M-onnx-opt", "Debug-only/post-launch · excluded from v0.1"),
         ReleaseAssetAttribution("wakeword:openwakeword-melspectrogram", "openWakeWord melspectrogram stage", "openWakeWord v0.1.1 release · melspectrogram.onnx", "Apache-2.0", "Pinned bundled SHA-256 ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f", "Bundled in release"),
         ReleaseAssetAttribution("wakeword:openwakeword-embedding", "openWakeWord embedding stage", "openWakeWord v0.1.1 release · embedding_model.onnx", "Apache-2.0", "Pinned bundled SHA-256 70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f", "Bundled in release"),
-        ReleaseAssetAttribution("wakeword:hey-jandal", "Hey Jandal wake-word classifier", "Jandal training/wakeword pipeline · app/src/main/assets/models/wakeword/hey_jandal.onnx", "Apache-2.0 (Jandal project)", "Jandal-specific Stage 3 classifier, SHA-256 11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206; maintainer recorded consent for the real-voice training clips", "Bundled in release"),
+        ReleaseAssetAttribution("wakeword:hey-jandal", "Hey Jandal wake-word classifier", "Jandal training/wakeword pipeline · app/src/main/assets/models/wakeword/hey_jandal.onnx", "Apache-2.0 (Jandal project)", "Jandal-specific Stage 3 classifier, SHA-256 11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206; training used consented maintainer/spouse recordings plus Piper-generated synthetic clips as recorded in training/wakeword/README.md", "Bundled in release"),
         ReleaseAssetAttribution("asset:vocab", "Bundled tokenizer vocabulary", "Snowflake/snowflake-arctic-embed-m-v1.5 · revision e58a8f756156a1293d763f17e3aae643474e9b8a", "Apache-2.0", "WordPiece vocabulary, SHA-256 07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3", "Bundled in release"),
         ReleaseAssetAttribution("asset:intent-vectors", "Bundled MiniLM intent phrase vectors", "Jandal-generated from the bundled MiniLM model, vocab.txt and intent_phrases.json", "Apache-2.0 (Jandal project)", "Hash-bound generated vector asset; generation and freshness checks are documented in docs/minilm-intent-phrase-vectors.md", "Bundled in release"),
     )
