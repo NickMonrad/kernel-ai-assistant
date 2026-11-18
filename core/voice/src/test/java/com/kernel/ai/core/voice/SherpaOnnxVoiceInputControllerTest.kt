@@ -313,14 +313,21 @@ class SherpaOnnxVoiceInputControllerTest {
     @Test
     fun `stop during model load after the mic opens releases the mic and focus`() = runTest {
         createAllStubModelFiles()
-        val recorder = micRecorder()
-        controller.audioRecordForTest = { recorder }
         val events = mutableListOf<String>()
         val stoppedEvents = mutableListOf<VoiceInputEvent.ListeningStopped>()
+        val recorder = micRecorder()
+        every { recorder.release() } answers { events += "recorder-release" }
+        every { audioManager.abandonAudioFocus(null) } answers {
+            events += "focus-abandon"
+            0
+        }
+        controller.audioRecordForTest = { recorder }
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             controller.events.collect {
-                events.add(it.javaClass.simpleName)
-                if (it is VoiceInputEvent.ListeningStopped) stoppedEvents += it
+                if (it is VoiceInputEvent.ListeningStopped) {
+                    events += "ListeningStopped"
+                    stoppedEvents += it
+                }
             }
         }
         val loading = holdRecognizerLoad()
@@ -335,7 +342,7 @@ class SherpaOnnxVoiceInputControllerTest {
         (privateField("lastReaderJob") as Job).join()
         verify(exactly = 1) { recorder.release() }
         verify(exactly = 1) { audioManager.abandonAudioFocus(null) }
-        assertEquals(listOf("ListeningStarted", "ListeningStopped"), events)
+        assertEquals(listOf("recorder-release", "focus-abandon", "ListeningStopped"), events)
         assertEquals(listOf(true), stoppedEvents.map { it.cancelled })
         assertNull(privateField("currentCapture"))
     }

@@ -86,10 +86,22 @@ internal fun ownsCurrentVoiceJournal(
 internal suspend fun runSnoozeAction(
     snooze: suspend () -> Boolean,
     dismiss: () -> Unit,
+    shouldPreserveVoiceSession: () -> Boolean = { false },
+    dismissPreservingVoiceSession: () -> Unit = dismiss,
 ) {
     if (snooze()) {
-        dismiss()
+        if (shouldPreserveVoiceSession()) dismissPreservingVoiceSession() else dismiss()
     }
+}
+
+internal suspend fun runAutoSnoozeAction(
+    snooze: suspend () -> Boolean,
+    dismiss: (preserveVoiceSession: Boolean) -> Unit,
+    shouldPreserveVoiceSession: () -> Boolean,
+): Boolean {
+    val success = snooze()
+    dismiss(shouldPreserveVoiceSession())
+    return success
 }
 
 /**
@@ -306,6 +318,7 @@ class ClockAlertService : Service() {
             ClockAlertContract.ACTION_SNOOZE_ALERT -> {
                 val alert = intent.toTriggeredClockAlert()?.let { findActiveAlert(it.ownerId) } ?: currentAlert()
                 if (alert != null) {
+                    val attemptJournal = voiceJournal
                     serviceScope.launch {
                         runSnoozeAction(
                             snooze = {
@@ -315,6 +328,10 @@ class ClockAlertService : Service() {
                                 )
                             },
                             dismiss = { dismissAlert(alert) },
+                            shouldPreserveVoiceSession = { voiceJournal !== attemptJournal },
+                            dismissPreservingVoiceSession = {
+                                dismissAlert(alert, preserveVoiceSession = true)
+                            },
                         )
                     }
                 }
@@ -902,17 +919,21 @@ class ClockAlertService : Service() {
     }
 
     private suspend fun performAutoSnooze(alert: TriggeredClockAlert, snoozeMs: Long = snoozeDurationMs) {
+        val attemptJournal = voiceJournal
         val snoozeDuration = if (alert.type == ClockEventType.ALARM && snoozeMs > 0L) snoozeMs else ALARM_SNOOZE_MS
-        val success = clockRepository.snoozeAlarm(
-            alarmId = alert.ownerId,
-            snoozedUntilMillis = System.currentTimeMillis() + snoozeDuration,
-            currentAutoSnoozeCount = alert.autoSnoozeCount,
+        runAutoSnoozeAction(
+            snooze = {
+                clockRepository.snoozeAlarm(
+                    alarmId = alert.ownerId,
+                    snoozedUntilMillis = System.currentTimeMillis() + snoozeDuration,
+                    currentAutoSnoozeCount = alert.autoSnoozeCount,
+                )
+            },
+            dismiss = { preserveVoiceSession ->
+                dismissAlert(alert, preserveVoiceSession = preserveVoiceSession)
+            },
+            shouldPreserveVoiceSession = { voiceJournal !== attemptJournal },
         )
-        if (success) {
-            dismissAlert(alert)
-        } else {
-            performAutoStop(alert)
-        }
     }
     private suspend fun performSnooze(
         alert: TriggeredClockAlert,

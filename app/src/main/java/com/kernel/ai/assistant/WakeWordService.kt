@@ -56,6 +56,7 @@ import com.kernel.ai.feature.widget.EXTRA_WAKE_TOKEN
 import java.io.File
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +72,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
 import java.security.MessageDigest
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import javax.inject.Inject
 
@@ -442,6 +444,17 @@ internal data class WakeCommandHandoffResult(
     val cancellationCategory: String,
 )
 
+internal fun deferWakeRearmForCaptureRace(
+    hasCaptureOrStart: () -> Boolean,
+    setPending: (Boolean) -> Unit,
+): Boolean {
+    if (!hasCaptureOrStart()) return false
+    setPending(true)
+    if (hasCaptureOrStart()) return true
+    setPending(false)
+    return false
+}
+
 /**
  * Execute the full wake-command handoff for one confirmed activation.
  *
@@ -553,6 +566,12 @@ internal suspend fun runWakeCommandHandoff(
         cancellationCategory = "session_failed"
         Log.e(TAG, "WakeWordService: wake session failed", e)
     } finally {
+        activeCaptureSessionId?.let { captureSessionId ->
+            withContext(NonCancellable) {
+                (voiceInputController as? VoiceCaptureAdmissionController)
+                    ?.awaitCaptureTeardown(captureSessionId)
+            }
+        }
         finalizeWakeSession(sessionJournal, completed, cancellationCategory)
         onSessionTerminal()
     }
@@ -1106,8 +1125,10 @@ class WakeWordService : Service() {
             recordServiceError(WakeCategory.RECORD_AUDIO_PERMISSION_MISSING)
             return
         }
-        if (voiceInputController.hasCaptureOrStart()) {
-            wakeRearmPending = true
+        if (deferWakeRearmForCaptureRace(
+                hasCaptureOrStart = voiceInputController::hasCaptureOrStart,
+                setPending = { wakeRearmPending = it },
+            )) {
             Log.i(TAG, "WakeWordService: another capture is active or starting — not re-arming detector")
             return
         }

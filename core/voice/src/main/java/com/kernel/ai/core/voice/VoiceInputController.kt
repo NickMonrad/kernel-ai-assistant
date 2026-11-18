@@ -132,7 +132,7 @@ interface VoiceCaptureAdmissionController {
     /** Discards only [captureSessionId], without finalizing or affecting a replacement. */
     fun cancelListening(captureSessionId: Long) {}
 
-    /** Waits for any asr4all capture owned by [captureSessionId] to finish reader/focus teardown. */
+    /** Waits until this capture's recorder and audio focus are released. */
     suspend fun awaitCaptureTeardown(captureSessionId: Long) {}
 
     /** True while a start is pending or an admitted capture remains active. */

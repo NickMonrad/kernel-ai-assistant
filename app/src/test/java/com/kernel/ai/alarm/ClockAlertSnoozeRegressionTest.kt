@@ -1,5 +1,7 @@
 package com.kernel.ai.alarm
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -67,5 +69,48 @@ class ClockAlertSnoozeRegressionTest {
             dismiss = {},
         )
         assertEquals(1, snoozeCount, "Snooze operation must not be called more than once")
+    }
+
+    @Test
+    fun `snooze completing after replacement preserves the new voice owner`() = runTest {
+        val repositoryResult = CompletableDeferred<Boolean>()
+        var currentOwner = "A"
+        var stoppedOwner: String? = null
+        var preserved = 0
+        val action = async {
+            runSnoozeAction(
+                snooze = { repositoryResult.await() },
+                dismiss = { stoppedOwner = currentOwner },
+                shouldPreserveVoiceSession = { currentOwner != "A" },
+                dismissPreservingVoiceSession = { preserved++ },
+            )
+        }
+
+        currentOwner = "B"
+        repositoryResult.complete(true)
+        action.await()
+
+        assertEquals(null, stoppedOwner)
+        assertEquals(1, preserved)
+    }
+
+    @Test
+    fun `auto snooze completing after replacement dismisses only the old alert`() = runTest {
+        val repositoryResult = CompletableDeferred<Boolean>()
+        var currentOwner = "A"
+        var dismissedWithPreserve = false
+        val action = async {
+            runAutoSnoozeAction(
+                snooze = { repositoryResult.await() },
+                dismiss = { preserve -> dismissedWithPreserve = preserve },
+                shouldPreserveVoiceSession = { currentOwner != "A" },
+            )
+        }
+
+        currentOwner = "B"
+        repositoryResult.complete(false)
+
+        assertEquals(false, action.await())
+        assertEquals(true, dismissedWithPreserve)
     }
 }

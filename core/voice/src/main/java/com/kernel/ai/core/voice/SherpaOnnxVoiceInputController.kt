@@ -361,14 +361,17 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                                     captureSessionId,
                                 ),
                             )
-                            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                         } finally {
-                            capture.close()
-                            isRecording = false
-                            _inputLevel.value = 0f
-                            synchronized(captureLock) {
-                                if (currentCapture === capture) currentCapture = null
-                                if (activeSessionId == captureSessionId) activeSessionId = null
+                            try {
+                                capture.close()
+                            } finally {
+                                isRecording = false
+                                _inputLevel.value = 0f
+                                synchronized(captureLock) {
+                                    if (currentCapture === capture) currentCapture = null
+                                    if (activeSessionId == captureSessionId) activeSessionId = null
+                                }
+                                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                             }
                         }
                     }
@@ -566,7 +569,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                     }
                     onlineMethods.reset!!.invoke(rec, stream)
                     if (text.isNotEmpty()) {
-                        _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                         exitedFromLoop = true
                         isRecording = false
                         break
@@ -591,7 +593,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                             ),
                         )
                     }
-                    _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
                     exitedFromLoop = true
                     isRecording = false
                     break
@@ -614,7 +615,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                 } else {
                     JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                 }
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
             }
         } finally {
             streamMethods.streamRelease!!.invoke(stream)
@@ -727,7 +727,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             }
         } finally {
             streamMethods.streamRelease!!.invoke(stream)
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId))
         }
     }
 

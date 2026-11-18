@@ -368,9 +368,12 @@ class SelectableVoiceInputHandoffTest {
     }
 
     @Test
-    fun `stop during the start-time zipformer load reports a capture that ended at once`() = runTest(dispatcher) {
+    fun `stop during start-time zipformer load returns admitted cancellation without ghost start`() = runTest(dispatcher) {
         coEvery { native.startListening(any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
         val loadCancelled = zipformerLoadHangs()
+        every { sherpa.cancelListeningForSession(2L) } answers {
+            sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
+        }
         val c = controller()
         val seen = eventsOf(c)
 
@@ -379,11 +382,10 @@ class SelectableVoiceInputHandoffTest {
         c.stopListening()
         advanceUntilIdle()
 
-        val result = start.await() as VoiceInputStartResult.Started
+        assertEquals(VoiceInputStartResult.Cancelled(2L), start.await())
         assertTrue(loadCancelled.isCompleted)
-        assertNotEquals(2L, result.captureSessionId)
-        assertEquals(listOf(VoiceInputEvent.ListeningStopped(mode, result.captureSessionId)), seen)
-        assertNull(c.latestNoticeFor(result.captureSessionId))
+        assertEquals(listOf(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true)), seen)
+        io.mockk.verify(exactly = 1) { sherpa.cancelListeningForSession(2L) }
     }
 
     @Test

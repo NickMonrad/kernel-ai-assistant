@@ -211,14 +211,14 @@ class SelectableVoiceInputControllerTest {
 
 
     @Test
-    fun `failed native admission retires its id without clearing a later capture`() = runTest(dispatcher) {
+    fun `cancelled native admission remains owned until its matching terminal`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.AndroidNative)
         coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(any()) } returns false
         var starts = 0L
         coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             val id = ++starts
             thirdArg<(Long) -> Unit>().invoke(id)
-            if (id == 1L) VoiceInputStartResult.Unavailable("startup failed")
+            if (id == 1L) VoiceInputStartResult.Cancelled(id)
             else VoiceInputStartResult.Started(id)
         }
         val c = controller()
@@ -226,12 +226,12 @@ class SelectableVoiceInputControllerTest {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
         advanceUntilIdle()
 
-        assertEquals(
-            VoiceInputStartResult.Unavailable("startup failed"),
-            c.startListening(VoiceCaptureMode.Command),
-        )
-        assertFalse(c.captureActivity.value)
+        assertEquals(VoiceInputStartResult.Cancelled(1L), c.startListening(VoiceCaptureMode.Command))
+        assertTrue(c.captureActivity.value)
         c.stopListening(1L)
+        nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
+        advanceUntilIdle()
+        assertFalse(c.captureActivity.value)
         assertEquals(VoiceInputStartResult.Started(2L), c.startListening(VoiceCaptureMode.Command))
 
         c.stopListening(1L)
@@ -239,7 +239,7 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
         assertTrue(c.hasCaptureOrStart())
         assertEquals(listOf(2L), seen.filterIsInstance<VoiceInputEvent.ListeningStarted>().map { it.captureSessionId })
-        verify(exactly = 0) { nativeAndroidVoiceInputController.stopListeningForSession(1L) }
+        verify(exactly = 1) { nativeAndroidVoiceInputController.cancelListeningForSession(1L) }
     }
 
     @Test
@@ -600,6 +600,10 @@ class SelectableVoiceInputControllerTest {
         assertEquals(VoiceInputStartResult.Started(21L), c.startListening(VoiceCaptureMode.Command))
         assertEquals(VoiceInputStartResult.Cancelled(), c.startListening(VoiceCaptureMode.Command))
 
+        assertEquals(listOf(false, true), activity)
+        assertTrue(c.hasCaptureOrStart())
+        asr4allEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 21L))
+        advanceUntilIdle()
         assertEquals(listOf(false, true, false), activity)
         assertFalse(c.hasCaptureOrStart())
     }

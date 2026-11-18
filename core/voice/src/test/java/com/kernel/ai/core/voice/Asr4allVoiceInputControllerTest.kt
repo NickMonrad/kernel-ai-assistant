@@ -54,6 +54,8 @@ class Asr4allVoiceInputControllerTest {
     private val engineEntered = CountDownLatch(1)
     /** When true, PCEC renders empty until the stream is finished (raw CTC still reports text). */
     @Volatile private var pcecEmptyUntilFinish = false
+    @Volatile private var pcecTextForFrame: ((Int, Boolean) -> String)? = null
+    private val rawCtcOutputs = CopyOnWriteArrayList<String>()
     /** Test-only: holds focus abandonment after it is entered, so a teardown can be parked mid-release. */
     @Volatile private var abandonGate: CountDownLatch? = null
     private val abandonEntered = CountDownLatch(1)
@@ -123,13 +125,15 @@ class Asr4allVoiceInputControllerTest {
         every { e.decodeStream(any()) } answers {
             calls++
             if (calls % advanceEvery == 0) frames++
+            rawCtcOutputs += "partial"
             "partial"
         }
         every { e.decodedFrameCount } answers { frames }
         every { e.trailingBlankFrames } answers { if (frames >= blankAfterFrames) ENDPOINT_FRAMES else 0 }
         every { e.decodePcec(any()) } answers {
             renderGate?.let { renderStarted.countDown(); it.await(5, TimeUnit.SECONDS) }
-            if (pcecEmptyUntilFinish && !finished) "" else "Final text."
+            pcecTextForFrame?.invoke(frames, finished)
+                ?: if (pcecEmptyUntilFinish && !finished) "" else "Final text."
         }
         every { e.reset() } answers { log += "reset#$index" }
         every { e.finish() } answers { finished = true; log += "finish#$index"; "" }
@@ -510,21 +514,29 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
-    fun `PCEC renders once per decoder frame advance, not per chunk`() = runBlocking(Dispatchers.IO) {
+    fun `live partials emit changed punctuated PCEC once per frame while raw CTC stays unchanged`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
         try {
-            // Decoder advances on every second chunk; endpoint after 10 committed frames.
             advanceEvery = 2
             blankAfterFrames = 10
+            pcecTextForFrame = { frame, finished ->
+                if (finished) "PCEC final 42."
+                else if (frame == 1) "weather"
+                else "Weather, 42."
+            }
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
             collected.awaitStops(1)
 
-            // 10 renders during the loop (one per advance) plus 1 final render.
             verify(exactly = 11) { engines.single().decodePcec(true) }
-            assertEquals(listOf("Final text."), collected.transcripts())
+            val partials = collected.events.filterIsInstance<VoiceInputEvent.PartialTranscript>()
+            assertEquals(listOf("weather", "Weather, 42."), partials.map { it.text })
+            assertEquals(listOf("PCEC final 42."), collected.transcripts())
+            assertTrue(rawCtcOutputs.isNotEmpty())
+            assertTrue(rawCtcOutputs.all { it == "partial" })
+            assertTrue(partials.none { it.text in rawCtcOutputs })
         } finally {
             collected.job.cancel()
             scope.cancel()

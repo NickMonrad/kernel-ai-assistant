@@ -907,4 +907,29 @@ class WakeCommandHandoffTest {
         )
         assertEquals(1, rearmCount, "the terminal handoff is still reported exactly once")
     }
+    @Test
+    fun `wake rearm clears pending when replacement becomes idle at admission check`() {
+        var checks = 0
+        var pending = false
+        val deferred = deferWakeRearmForCaptureRace(
+            hasCaptureOrStart = { ++checks == 1 },
+            setPending = { pending = it },
+        )
+
+        assertFalse(deferred)
+        assertFalse(pending)
+        assertEquals(2, checks)
+    }
+
+    @Test
+    fun `wake rearm remains pending while replacement capture is active`() {
+        var pending = false
+        val deferred = deferWakeRearmForCaptureRace(
+            hasCaptureOrStart = { true },
+            setPending = { pending = it },
+        )
+
+        assertTrue(deferred)
+        assertTrue(pending)
+    }
 }
