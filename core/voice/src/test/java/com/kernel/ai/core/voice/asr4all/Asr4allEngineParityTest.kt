@@ -50,6 +50,14 @@ class Asr4allEngineParityTest {
         }
         return modelDir!! to fixture!!
     }
+    /** Loads the fixture only after enforcing its complete model and audio identity. */
+    private fun checkedInputs(): Pair<File, FloatArray> {
+        val (dir, wav) = requireInputs()
+        checkFixtureSha(wav)
+        checkModelIdentity(dir)
+        return dir to clip(wav)
+    }
+
 
     private fun checkFixtureSha(file: File) {
         assertEquals(expectation.fixtureSha256, sha256(file), "fixture SHA-256 does not match")
@@ -137,29 +145,62 @@ class Asr4allEngineParityTest {
         }
     }
 
-    @Test
-    fun cancelMidUtteranceThenRestartMatchesFreshDecode() {
-        val (dir, wav) = requireInputs()
-        checkFixtureSha(wav)
-        val samples = clip(wav)
-        val tier = expectation.rowsFor(modelName!!).first().tier
-        Asr4allEngine.open(dir, tier).use { engine ->
-            engine.decodeStream(samples.copyOfRange(0, 8000))
-            engine.reset()
-            assertEquals(expectation.textFor(modelName, tier, "offline_pcec"), engine.decodeOffline(samples, applyPcec = true))
+    @TestFactory
+    fun resetAfterAcousticAndPcecCarryMatchesFreshStreaming(): List<DynamicTest> {
+        val (dir, samples) = checkedInputs()
+        return expectation.rowsFor(modelName!!).map { it.tier }.distinct().map { tier ->
+            DynamicTest.dynamicTest("$modelName $tier reset after acoustic and PCEC carry") {
+                Asr4allEngine.open(dir, tier).use { reused ->
+                    var seededPcecCarry = false
+                    for (iteration in 0 until MAX_SEED_CLIPS) {
+                        streamAll(reused, samples)
+                        assertTrue(reused.decodedFrameCount > 0, "seed fixture must decode acoustic frames")
+                        if (reused.decodePcec().isNotBlank()) {
+                            seededPcecCarry = true
+                            break
+                        }
+                    }
+                    assertTrue(seededPcecCarry, "seed fixture must produce committed PCEC output before reset")
+
+                    reused.reset()
+                    streamAll(reused, samples)
+                    val resetFrames = reused.decodedFrameCount
+                    val resetPartial = reused.decodePcec()
+                    reused.finish()
+                    val resetFinal = reused.decodePcec(decodeTail = true)
+
+                    Asr4allEngine.open(dir, tier).use { fresh ->
+                        streamAll(fresh, samples)
+                        assertEquals(resetFrames, fresh.decodedFrameCount, "reset and fresh streams must decode equal frame counts")
+                        assertEquals(
+                            fresh.decodePcec(),
+                            resetPartial,
+                            "partial output after reset must match a fresh stream",
+                        )
+                        fresh.finish()
+                        val freshFinal = fresh.decodePcec(decodeTail = true)
+                        assertEquals(freshFinal, resetFinal, "final output after reset must match a fresh stream")
+                        assertEquals(
+                            expectation.textFor(modelName!!, tier, "stream_pcec"),
+                            resetFinal,
+                            "reset stream must retain pinned-driver parity",
+                        )
+                    }
+                }
+            }
         }
     }
 
     @Test
     fun closedEngineRejectsUseAndReopenWorks() {
-        val (dir, wav) = requireInputs()
+        val (dir, samples) = checkedInputs()
         val tier = expectation.rowsFor(modelName!!).first().tier
         val engine = Asr4allEngine.open(dir, tier)
         engine.close()
         assertTrue(engine.isClosed)
         assertThrows(IllegalStateException::class.java) { engine.decodeStream(FloatArray(16)) }
         Asr4allEngine.open(dir, tier).use { reopened ->
-            assertEquals(expectation.textFor(modelName!!, tier, "offline_pcec"), reopened.decodeOffline(clip(wav), applyPcec = true))
+            assertEquals(expectation.textFor(modelName!!, tier, "offline_pcec"), reopened.decodeOffline(samples, applyPcec = true))
         }
     }
 
@@ -168,6 +209,7 @@ class Asr4allEngineParityTest {
         const val PARTIAL_CHUNK_INDEX = 6
         const val PINNED_DRIVER = "asr4all_onnx.py"
         const val PINNED_DRIVER_SHA256 = "f173c6d61a004d8596d6f9b3623716167176639440920a92917f902d5566bba4"
+        const val MAX_SEED_CLIPS = 3
     }
 }
 
