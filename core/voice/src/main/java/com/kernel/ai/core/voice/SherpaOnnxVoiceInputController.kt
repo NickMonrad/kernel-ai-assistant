@@ -53,10 +53,10 @@ private const val MODEL_UNAVAILABLE_MESSAGE =
  * The Sherpa-ONNX AAR is a runtime dependency in :app; :core:voice compiles without it.
  *
  * Threading model:
- * - [startListening] calls are serialised by [sessionMutex]. The model is checked first, then
- *   the stop check and the microphone open run together under [captureLock], which
- *   [stopListening] also takes. A stop before that point ends the start with no microphone,
- *   no audio focus and no `ListeningStarted`; a stop after it closes the open capture.
+ * - [startListening] and [prewarmSpec] are serialised by [sessionMutex]. A spec-changing prewarm
+ *   joins the current recording job before replacing its recognizer; same-spec prewarm reuses it.
+ *   The stop check and microphone open run together under [captureLock], which [stopListening]
+ *   also takes. A stop before that point ends the start with no microphone, focus or readiness.
  * - Pre-roll: the microphone is read from open until a recognizer loop attaches, so speech
  *   during the recognizer load is kept (#1850). The window is capped at
  *   [PreRollAudioBuffer.PRE_ROLL_SAMPLES] (15 s).
@@ -479,7 +479,13 @@ class SherpaOnnxVoiceInputController @Inject constructor(
      */
     internal suspend fun prewarmSpec(spec: SherpaSttModelSpec) {
         try {
-            ensureRecognizer(spec)
+            sessionMutex.withLock {
+                val active = activeLifecycle
+                if (active != null && activeSpec?.engine != spec.engine) {
+                    (active.recordingJob ?: activeJob)?.join()
+                }
+                ensureRecognizer(spec)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

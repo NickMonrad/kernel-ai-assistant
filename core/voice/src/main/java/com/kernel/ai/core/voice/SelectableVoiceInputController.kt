@@ -433,6 +433,30 @@ class SelectableVoiceInputController @Inject constructor(
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult = startListeningInternal(mode, onSessionAdmitted)
 
+    private suspend fun stopAndAwaitPreviousBackends(gen: Long): Boolean {
+        while (gen == generation.get()) {
+            val previous = synchronized(captureOwnerLock) {
+                admittedControllers.values.filter { capture ->
+                    capture.controller === nativeAndroidVoiceInputController ||
+                        capture.controller === sherpaOnnxVoiceInputController
+                }
+            }
+            if (previous.isEmpty()) return gen == generation.get()
+
+            for (capture in previous) {
+                if (gen != generation.get()) return false
+                when (capture.controller) {
+                    nativeAndroidVoiceInputController ->
+                        nativeAndroidVoiceInputController.stopListeningForSession(capture.backendSessionId)
+                    sherpaOnnxVoiceInputController ->
+                        sherpaOnnxVoiceInputController.stopListeningForSession(capture.backendSessionId)
+                }
+                capture.teardown?.await()
+            }
+        }
+        return false
+    }
+
     private suspend fun startListeningInternal(
         mode: VoiceCaptureMode,
         onSessionAdmitted: (Long) -> Unit,
@@ -452,16 +476,28 @@ class SelectableVoiceInputController @Inject constructor(
             withContext(Dispatchers.Main.immediate) {
                 startMutex.withLock {
                     if (gen != generation.get()) return@withLock VoiceInputStartResult.Cancelled()
+                    val selectedBeforeTeardown = voiceInputPreferences.selectedEngine.first()
+                    if (!stopAndAwaitPreviousBackends(gen)) {
+                        return@withLock VoiceInputStartResult.Cancelled()
+                    }
+                    if (gen != generation.get()) return@withLock VoiceInputStartResult.Cancelled()
+                    val engine = voiceInputPreferences.selectedEngine.first()
+                    if (engine != selectedBeforeTeardown) return@withLock VoiceInputStartResult.Cancelled()
+                    val allowOnlineFallback = voiceInputPreferences.allowOnlineSpeechFallback.first()
+                    if (gen != generation.get() || voiceInputPreferences.selectedEngine.first() != engine) {
+                        return@withLock VoiceInputStartResult.Cancelled()
+                    }
                     openGeneration = -1L
                     handoff = null
                     nativeFacts = null
                     expectedNativeSessionId = null
-                    val allowOnlineFallback = voiceInputPreferences.allowOnlineSpeechFallback.first()
-                    val engine = voiceInputPreferences.selectedEngine.first()
                     if (engine != VoiceInputEngine.Auto) {
                         JandalEvents.record("voice", "stt_route", "route" to engine, "online_fallback" to allowOnlineFallback)
                     }
                     if (engine != VoiceInputEngine.Asr4all) asr4allVoiceInputController.releaseEngine()
+                    if (gen != generation.get() || voiceInputPreferences.selectedEngine.first() != engine) {
+                        return@withLock VoiceInputStartResult.Cancelled()
+                    }
                     val result = when (engine) {
                         VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen, onSessionAdmitted)
                         VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen, onSessionAdmitted)
@@ -709,11 +745,9 @@ class SelectableVoiceInputController @Inject constructor(
 
     
 
+    /** Prior admitted backends have already been stopped and awaited by startListeningInternal. */
     private fun activate(controller: VoiceInputController) {
         activeController.value = controller
-        if (controller !== nativeAndroidVoiceInputController) nativeAndroidVoiceInputController.stopListening()
-        if (controller !== sherpaOnnxVoiceInputController) sherpaOnnxVoiceInputController.stopListening()
-        if (controller !== asr4allVoiceInputController) asr4allVoiceInputController.stopListening()
     }
 
     private suspend fun zipformerDownloaded(): Boolean =

@@ -345,6 +345,10 @@ class SelectableVoiceInputHandoffTest {
     fun `stop after zipformer started but before the hand-off commits stops zipformer`() = runTest(dispatcher) {
         val c = controller()
         val notices = noticesOf(c)
+        val seen = eventsOf(c)
+        every { sherpa.cancelListeningForSession(2L) } answers {
+            sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
+        }
         coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(2L)
             c.stopListening(1L) // lands after Zipformer opened the microphone
@@ -356,7 +360,12 @@ class SelectableVoiceInputHandoffTest {
         advanceUntilIdle()
 
         coVerify { sherpa.cancelListeningForSession(2L) }
-        verify(exactly = 1) { sherpa.stopListening() } // only the initial engine activation
+        verify(exactly = 1) { sherpa.stopListeningForSession(2L) }
+        verify(exactly = 0) { sherpa.stopListening() }
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
         assertTrue(notices.isEmpty())
     }
 
@@ -364,6 +373,9 @@ class SelectableVoiceInputHandoffTest {
     fun `newer start supersedes a hand-off in flight without deadlock`() = runTest(dispatcher) {
         val loadCancelled = zipformerLoadHangs()
         val c = controller()
+        every { sherpa.stopListeningForSession(2L) } answers {
+            sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
+        }
         val notices = noticesOf(c)
 
         c.startListening(mode)
@@ -385,6 +397,9 @@ class SelectableVoiceInputHandoffTest {
     @Test
     fun `stale native error from an earlier session is never handed off`() = runTest(dispatcher) {
         val c = controller()
+        every { native.stopListeningForSession(1L) } answers {
+            nativeEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 1L))
+        }
         val seen = eventsOf(c)
 
         c.startListening(mode)
@@ -396,7 +411,10 @@ class SelectableVoiceInputHandoffTest {
         nativeEvents.emit(stalled(1L))
         advanceUntilIdle()
 
-        assertEquals(listOf(stalled(1L)), seen)
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(mode, 1L), stalled(1L)),
+            seen,
+        )
         coVerify(exactly = 0) { sherpa.startListening(any(), any(), any()) }
         verify(exactly = 0) { native.stopListening() }
     }
@@ -484,8 +502,10 @@ class SelectableVoiceInputHandoffTest {
             nativeEvents.emit(notReady(1L))
             advanceUntilIdle()
             selectedEngine.value = VoiceInputEngine.SherpaZipformer
+            every { sherpa.stopListeningForSession(2L) } answers {
+                sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L))
+            }
             coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
-                sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 2L))
                 thirdArg<(Long) -> Unit>().invoke(3L)
                 sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, 3L))
                 VoiceInputStartResult.Started(3L)

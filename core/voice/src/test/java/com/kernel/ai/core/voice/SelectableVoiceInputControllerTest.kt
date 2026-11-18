@@ -243,17 +243,18 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `direct Sherpa route after native activates Sherpa before readiness and final events`() = runTest(dispatcher) {
+    fun `direct Sherpa waits for the previous native session teardown`() = runTest(dispatcher) {
         val nativeEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 1)
         every { nativeAndroidVoiceInputController.events } returns nativeEvents
         val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
         every { voiceInputPreferences.selectedEngine } returns selected
+        val nativeStops = mutableListOf<Long>()
+        every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } answers {
+            nativeStops += firstArg<Long>()
+        }
         coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(1L)
             VoiceInputStartResult.Started(1L)
-        }
-        every { nativeAndroidVoiceInputController.stopListening() } answers {
-            nativeEvents.tryEmit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
         }
         coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(2L)
@@ -268,13 +269,21 @@ class SelectableVoiceInputControllerTest {
 
         assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
         selected.value = VoiceInputEngine.SherpaZipformer
-        assertEquals(VoiceInputStartResult.Started(2L), c.startListening(VoiceCaptureMode.Command))
+        val replacement = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+
+        assertFalse(replacement.isCompleted)
+        assertEquals(listOf(1L), nativeStops)
+        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) }
+
+        nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
+        runCurrent()
+        assertEquals(VoiceInputStartResult.Started(2L), replacement.await())
         advanceUntilIdle()
 
         assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L)))
         assertTrue(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "sherpa final", 2L)))
-        assertTrue(seen.contains(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L)))
-        verify(exactly = 1) { nativeAndroidVoiceInputController.stopListening() }
+        verify(exactly = 0) { nativeAndroidVoiceInputController.stopListening() }
     }
 
     @Test
@@ -284,9 +293,6 @@ class SelectableVoiceInputControllerTest {
         coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(91L)
             VoiceInputStartResult.Started(91L)
-        }
-        every { asr4allVoiceInputController.stopListening() } answers {
-            asr4allEvents.tryEmit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 91L))
         }
         coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(92L)
@@ -304,10 +310,104 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
 
         assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 92L)))
-        verify(exactly = 1) { asr4allVoiceInputController.stopListening() }
+        coVerify(atLeast = 1) { asr4allVoiceInputController.releaseEngine() }
+        verify(exactly = 0) { asr4allVoiceInputController.stopListening() }
     }
 
     @Test
+    fun `direct native route waits for the previous Sherpa teardown`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.SherpaZipformer)
+        val sherpaStops = mutableListOf<Long>()
+        every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } answers {
+            sherpaStops += firstArg<Long>()
+        }
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(2L)
+            VoiceInputStartResult.Started(2L)
+        }
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(3L)
+            VoiceInputStartResult.Started(3L)
+        }
+        val c = controller()
+        advanceUntilIdle()
+        assertEquals(VoiceInputStartResult.Started(2L), c.startListening(VoiceCaptureMode.Command))
+
+        selectEngine(VoiceInputEngine.AndroidNative)
+        val replacement = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+
+        assertFalse(replacement.isCompleted)
+        assertEquals(listOf(2L), sherpaStops)
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any()) }
+
+        sherpaEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 2L))
+        runCurrent()
+        assertEquals(VoiceInputStartResult.Started(3L), replacement.await())
+    }
+
+    @Test
+    fun `direct asr4all route waits for the previous Sherpa teardown`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.SherpaZipformer)
+        val sherpaStops = mutableListOf<Long>()
+        every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } answers {
+            sherpaStops += firstArg<Long>()
+        }
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(2L)
+            VoiceInputStartResult.Started(2L)
+        }
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(3L)
+            VoiceInputStartResult.Started(3L)
+        }
+        val c = controller()
+        advanceUntilIdle()
+        assertEquals(VoiceInputStartResult.Started(2L), c.startListening(VoiceCaptureMode.Command))
+
+        selectEngine(VoiceInputEngine.Asr4all)
+        val replacement = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+
+        assertFalse(replacement.isCompleted)
+        assertEquals(listOf(2L), sherpaStops)
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
+
+        sherpaEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 2L))
+        runCurrent()
+        assertEquals(VoiceInputStartResult.Started(3L), replacement.await())
+    }
+
+    @Test
+    fun `engine selection change during teardown prevents the stale replacement start`() = runTest(dispatcher) {
+        val selected = MutableStateFlow(VoiceInputEngine.SherpaZipformer)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } just runs
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(2L)
+            VoiceInputStartResult.Started(2L)
+        }
+        val c = controller()
+        advanceUntilIdle()
+        assertEquals(VoiceInputStartResult.Started(2L), c.startListening(VoiceCaptureMode.Command))
+
+        selected.value = VoiceInputEngine.AndroidNative
+        val replacement = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        assertFalse(replacement.isCompleted)
+
+        selected.value = VoiceInputEngine.Asr4all
+        sherpaEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 2L))
+        runCurrent()
+
+        assertEquals(VoiceInputStartResult.Cancelled(), replacement.await())
+        coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
+        assertFalse(c.captureActivity.value)
+    }
+
+    @Test
+
     fun `failed sherpa admission retires its id without clearing a later capture`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.SherpaZipformer)
         var starts = 2L
@@ -355,7 +455,7 @@ class SelectableVoiceInputControllerTest {
         controller().startListening(VoiceCaptureMode.Command)
 
         coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any()) }
-        verify(exactly = 1) { sherpaOnnxVoiceInputController.stopListening() }
+        verify(exactly = 0) { sherpaOnnxVoiceInputController.stopListening() }
     }
 
     @Test

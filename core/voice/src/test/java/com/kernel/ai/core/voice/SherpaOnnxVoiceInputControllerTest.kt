@@ -347,6 +347,76 @@ class SherpaOnnxVoiceInputControllerTest {
     }
 
     @Test
+    fun `spec-changing prewarm waits for active decoder teardown and same-spec prewarm is a no-op`() = runTest {
+        createAllStubModelFiles()
+        createWhisperStubModelFiles()
+        selectedEngine.value = VoiceInputEngine.SherpaZipformer
+        val order = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val decodeGate = BlockingGate()
+        val streamCreated = CountDownLatch(1)
+        val recognizer = FakeOnlineRecognizer(order, decodeGate, streamCreated)
+        setPrivateField("activeSpec", SherpaSttModelSpec.ZIPFORMER)
+        setPrivateField("recognizer", recognizer)
+        installInteractiveMethods(recognizer)
+
+        val recorder = micRecorder()
+        every { recorder.release() } answers { order += "recorder-release" }
+        every { audioManager.abandonAudioFocus(null) } answers {
+            order += "focus-abandon"
+            0
+        }
+        controller.audioRecordForTest = { recorder }
+        val transcripts = mutableListOf<String>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.Transcript -> {
+                        order += "transcript"
+                        transcripts += event.text
+                    }
+                    is VoiceInputEvent.ListeningStopped -> order += "stopped"
+                    else -> Unit
+                }
+            }
+        }
+
+        val started = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
+        assertTrue(withContext(Dispatchers.IO) { streamCreated.await(5, TimeUnit.SECONDS) })
+
+        val sameSpec = async {
+            controller.prewarmSpec(SherpaSttModelSpec.ZIPFORMER)
+        }
+        runCurrent()
+        assertTrue(sameSpec.isCompleted)
+        assertEquals(0, recognizer.releaseCount)
+
+        val changedSpec = async {
+            controller.prewarmSpec(checkNotNull(SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaWhisper)))
+        }
+        runCurrent()
+        assertFalse(changedSpec.isCompleted)
+        assertEquals(0, recognizer.releaseCount)
+        assertFalse("stopped" in order)
+
+        controller.stopListeningForSession(started.captureSessionId)
+        assertTrue(withContext(Dispatchers.IO) { decodeGate.entered.await(5, TimeUnit.SECONDS) })
+        runCurrent()
+        assertFalse(changedSpec.isCompleted)
+        assertEquals(0, recognizer.releaseCount)
+
+        decodeGate.release.countDown()
+        sameSpec.await()
+        changedSpec.await()
+
+        assertEquals(1, recognizer.releaseCount)
+        assertEquals(listOf("hy general"), transcripts)
+        assertTrue(order.indexOf("online_stream_release") < order.indexOf("stopped"), order.toString())
+        assertTrue(order.indexOf("recorder-release") < order.indexOf("stopped"), order.toString())
+        assertTrue(order.indexOf("focus-abandon") < order.indexOf("stopped"), order.toString())
+        assertTrue(order.indexOf("stopped") < order.indexOf("online_release"), order.toString())
+    }
+
+    @Test
     fun `replacement waits for final decoder flush and capture teardown before releasing recognizer`() = runTest {
         createAllStubModelFiles()
         createWhisperStubModelFiles()
