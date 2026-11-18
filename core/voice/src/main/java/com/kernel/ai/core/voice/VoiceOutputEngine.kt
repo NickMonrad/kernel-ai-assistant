@@ -14,6 +14,7 @@ enum class VoiceOutputEngine(
     SherpaExperimental(
         displayName = "Piper",
         description = "Natural-sounding local voices. Falls back to Android TTS while the voice downloads or if playback fails.",
+        debugOnly = true,
     ),
     KokoroExperimental(
         displayName = "Kokoro (Experimental)",
@@ -23,7 +24,7 @@ enum class VoiceOutputEngine(
     InflectMicroExperimental(
         displayName = "Inflect Micro",
         description = "Higher-quality local Inflect Micro v2 speech for supported high-memory devices; falls back to Android TTS if unavailable.",
-        debugOnly = false,
+        debugOnly = true,
     ),
     ;
 

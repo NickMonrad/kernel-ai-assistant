@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -24,6 +25,8 @@ private val Context.voiceInputPrefsDataStore by preferencesDataStore(name = "voi
 class VoiceInputPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    private val isReleaseBuild: Boolean =
+        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
     private val selectedEngineKey = stringPreferencesKey("selected_voice_input_engine")
     private val micUseCountKey = intPreferencesKey("mic_use_count")
     private val autoStartAlertVoiceCommandsEnabledKey =
@@ -40,7 +43,7 @@ class VoiceInputPreferences @Inject constructor(
                 throw e
             }
         }
-        .map { prefs -> VoiceInputEngine.fromStorage(prefs[selectedEngineKey]) }
+        .map { prefs -> VoiceInputEngine.resolveForBuild(prefs[selectedEngineKey], isReleaseBuild) }
 
     /** True once an input engine has been stored, by the user or an earlier build (#1855 part 2). */
     suspend fun hasStoredEngine(): Boolean =
@@ -79,8 +82,9 @@ class VoiceInputPreferences @Inject constructor(
     }
 
     suspend fun setSelectedEngine(engine: VoiceInputEngine) {
+        val effective = VoiceInputEngine.resolveForBuild(engine.name, isReleaseBuild)
         context.voiceInputPrefsDataStore.edit { prefs ->
-            prefs[selectedEngineKey] = engine.name
+            prefs[selectedEngineKey] = effective.name
         }
     }
 

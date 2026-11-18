@@ -1058,7 +1058,9 @@ class WakeWordService : Service() {
             Log.i(TAG, "WakeWordService: wake capture suspended — not re-arming")
             return
         }
-        ensureWakeVerifierModels()
+        if (com.kernel.ai.BuildConfig.DEBUG) {
+            ensureWakeVerifierModels()
+        }
         if (!wakeWordDetector.isAvailable) {
             recordServiceError(WakeCategory.WAKE_MODEL_UNAVAILABLE)
             return
@@ -1081,15 +1083,19 @@ class WakeWordService : Service() {
                 )
                 handleDetection(generationId, sessionId)
             },
-            verifyWindow = { pcm ->
-                try {
-                    kotlinx.coroutines.runBlocking {
-                        verifyWakeWindow(voiceInputController, pcm)
+            verifyWindow = if (com.kernel.ai.BuildConfig.DEBUG) {
+                { pcm ->
+                    try {
+                        kotlinx.coroutines.runBlocking {
+                            verifyWakeWindow(voiceInputController, pcm)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "WakeWordService: wake word verification failed", e)
+                        false
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "WakeWordService: wake word verification failed", e)
-                    false
                 }
+            } else {
+                null
             },
         )
         AcousticJournalBridge.record(

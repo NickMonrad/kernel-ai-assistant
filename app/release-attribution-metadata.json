@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "local_dependencies": [],
+  "native_libraries": [
+    {
+      "name": "libLiteRt.so",
+      "source_component": "com.google.ai.edge.litert:litert",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libLiteRtOpenClAccelerator.so",
+      "source_component": "com.google.ai.edge.litert:litert",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libandroidx.graphics.path.so",
+      "source_component": "androidx.graphics:graphics-path",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libc++_shared.so",
+      "source_component": "Android NDK libc++ shared runtime",
+      "license_expression": "Apache-2.0 WITH LLVM-exception",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libdatastore_shared_counter.so",
+      "source_component": "androidx.datastore:datastore-core-android",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libkernelvec.so",
+      "source_component": "Jandal kernel_vec_jni.cpp + sqlite-vec 0.1.9 + SQLite 3.49.2",
+      "license_expression": "Apache-2.0 AND MIT AND LicenseRef-SQLite-Public-Domain",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "liblitertlm_jni.so",
+      "source_component": "com.google.ai.edge.litertlm:litertlm-android",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libonnxruntime.so",
+      "source_component": "com.microsoft.onnxruntime:onnxruntime-android",
+      "license_expression": "MIT",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libonnxruntime4j_jni.so",
+      "source_component": "com.microsoft.onnxruntime:onnxruntime-android",
+      "license_expression": "MIT",
+      "license_status": "reviewed"
+    }
+  ]
+}
