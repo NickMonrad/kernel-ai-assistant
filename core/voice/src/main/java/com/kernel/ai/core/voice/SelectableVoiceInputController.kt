@@ -815,7 +815,6 @@ class SelectableVoiceInputController @Inject constructor(
         return result
     }
 
-    
 
     /** Prior admitted backends have already been stopped and awaited by startListeningInternal. */
     private fun activate(controller: VoiceInputController) {

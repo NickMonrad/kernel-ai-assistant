@@ -1731,7 +1731,6 @@ class ChatViewModel @Inject constructor(
             (_voiceCaptureState.value == VoiceCaptureState.Preparing ||
                 _voiceCaptureState.value is VoiceCaptureState.Listening ||
                 _voiceCaptureState.value is VoiceCaptureState.Processing)
-    
     private fun beginChatVoiceAttempt(): Long {
         val attemptId = ++chatVoiceAttemptId
         chatVoiceStartJob?.cancel()
