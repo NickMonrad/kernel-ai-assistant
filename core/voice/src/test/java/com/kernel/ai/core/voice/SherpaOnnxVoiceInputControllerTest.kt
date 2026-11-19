@@ -565,9 +565,14 @@ class SherpaOnnxVoiceInputControllerTest {
             0
         }
         val recorders = ArrayDeque(listOf(first, second))
-        controller.audioRecordForTest = { recorders.removeFirst() }
+        controller.audioRecordForTest = {
+            recorders.removeFirst().also { recorder ->
+                if (recorder === second) order += "second-recorder-acquire"
+            }
+        }
         val events = mutableListOf<VoiceInputEvent>()
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+        // Unconfined collection observes SharedFlow.tryEmit inline, preserving publication order.
+        backgroundScope.launch(Dispatchers.Unconfined) {
             controller.events.collect {
                 events += it
                 when (it) {
@@ -580,21 +585,27 @@ class SherpaOnnxVoiceInputControllerTest {
 
         val firstResult = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
         val secondResult = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
-        runCurrent()
 
         verify(exactly = 1) { first.release() }
         verify(exactly = 0) { second.release() }
         assertTrue(recorders.isEmpty())
-        assertTrue(events.any {
-            it is VoiceInputEvent.ListeningStopped && it.captureSessionId == firstResult.captureSessionId
-        })
+        assertTrue(events.contains(
+            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, firstResult.captureSessionId, cancelled = true),
+        ))
+        val firstReleaseIndex = order.indexOf("first-release")
+        val focusAbandonIndex = order.indexOf("focus-abandon")
         val stoppedIndex = order.indexOf("stopped:${firstResult.captureSessionId}")
+        val secondRecorderAcquireIndex = order.indexOf("second-recorder-acquire")
         val secondStartedIndex = order.indexOf("started:${secondResult.captureSessionId}")
+        assertTrue(firstReleaseIndex >= 0)
+        assertTrue(focusAbandonIndex >= 0)
         assertTrue(stoppedIndex >= 0)
+        assertTrue(secondRecorderAcquireIndex >= 0)
         assertTrue(secondStartedIndex >= 0)
-        assertTrue(order.indexOf("first-release") < stoppedIndex)
-        assertTrue(order.indexOf("focus-abandon") < stoppedIndex)
-        assertTrue(stoppedIndex < secondStartedIndex)
+        assertTrue(firstReleaseIndex < stoppedIndex)
+        assertTrue(focusAbandonIndex < stoppedIndex)
+        assertTrue(stoppedIndex < secondRecorderAcquireIndex)
+        assertTrue(secondRecorderAcquireIndex < secondStartedIndex)
     }
 
 
