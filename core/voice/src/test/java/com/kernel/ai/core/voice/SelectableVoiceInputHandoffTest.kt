@@ -27,6 +27,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlin.concurrent.thread
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -622,6 +623,30 @@ class SelectableVoiceInputHandoffTest {
         assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(mode, 3L)))
         assertTrue(c.captureActivity.value)
         assertTrue(c.hasCaptureOrStart())
+    }
+
+    @Test
+    fun `terminal before off-main start continuation clears empty generation fence`() = runTest(dispatcher) {
+        selectedEngine.value = VoiceInputEngine.SherpaZipformer
+        val c = controller()
+        val seen = eventsOf(c)
+        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(44L)
+            sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 44L, cancelled = true))
+            VoiceInputStartResult.Started(44L)
+        }
+
+        val callerDispatcher = StandardTestDispatcher(testScheduler)
+        val start = async(callerDispatcher) { c.startListening(mode) }
+        runCurrent()
+
+        assertEquals(VoiceInputStartResult.Started(44L), start.await())
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(mode, 44L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+        assertFalse(c.captureActivity.value)
+        assertFalse(c.hasCaptureOrStart())
     }
 
     @Test

@@ -408,17 +408,22 @@ class SelectableVoiceInputController @Inject constructor(
         if (pendingZipformerStart.compareAndSet(pending, null)) pending.job.cancel()
     }
 
-    private fun retireAdmission(sessionId: Long, preserveGenerationFence: Boolean = false) {
+    private fun retireAdmission(
+        sessionId: Long,
+        preserveGenerationFence: Boolean = false,
+        preserveFenceWhileStartInFlight: Boolean = false,
+    ) {
         synchronized(captureOwnerLock) {
             val retired = admittedControllers.remove(sessionId) ?: return
             backendAdmissions.entries.removeAll { it.value == sessionId }
             retired.teardown?.complete(Unit)
-            if (captureOwner?.sessionId == sessionId) {
-                captureOwner = if (preserveGenerationFence) {
-                    CaptureOwnerState(retired.generation, null)
-                } else {
-                    null
-                }
+            captureOwner?.takeIf { it.sessionId == sessionId }?.let { owner ->
+                val preserve = preserveGenerationFence ||
+                    preserveFenceWhileStartInFlight &&
+                    owner.generation == retired.generation &&
+                    owner.generation == generation.get() &&
+                    inFlightStartGenerations.contains(owner.generation)
+                captureOwner = if (preserve) CaptureOwnerState(retired.generation, null) else null
             }
             updateCaptureActivityLocked()
         }
@@ -545,7 +550,6 @@ class SelectableVoiceInputController @Inject constructor(
         val seq = asr4allStartSeq.incrementAndGet()
         asr4allVoiceInputController.supersedeCapture()
         val asr4allEpoch = asr4allVoiceInputController.admissionEpochNow()
-        var admitted = false
         return try {
             withContext(Dispatchers.Main.immediate) {
                 startMutex.withLock {
@@ -593,7 +597,6 @@ class SelectableVoiceInputController @Inject constructor(
                         } == true
                         is VoiceInputStartResult.Unavailable -> false
                     }
-                    admitted = hasPhysicalAdmission
                     if (result is VoiceInputStartResult.Started && gen == generation.get()) {
                         openGeneration = gen
                     } else if (result is VoiceInputStartResult.Unavailable ||
@@ -610,7 +613,7 @@ class SelectableVoiceInputController @Inject constructor(
         } finally {
             synchronized(captureOwnerLock) {
                 inFlightStartGenerations.remove(gen)
-                if (!admitted && captureOwner?.generation == gen && captureOwner?.sessionId == null) {
+                if (captureOwner?.generation == gen && captureOwner?.sessionId == null) {
                     captureOwner = null
                 }
                 updateCaptureActivityLocked()
@@ -984,15 +987,10 @@ class SelectableVoiceInputController @Inject constructor(
             }
             val terminal = if (logicalOwnerCurrent) event else event.copy(cancelled = true)
             outbound.emit(terminal.withCaptureSessionId(backendOwnerSessionId))
-            val startStillInFlight = synchronized(captureOwnerLock) {
-                admittedControllers[backendOwnerSessionId]?.generation
-                    ?.let(inFlightStartGenerations::contains) == true
-            }
-            if (logicalOwnerCurrent && terminal.cancelled && startStillInFlight) {
-                retireAdmission(backendOwnerSessionId, preserveGenerationFence = true)
-            } else {
-                clearCaptureOwner(backendOwnerSessionId)
-            }
+            retireAdmission(
+                backendOwnerSessionId,
+                preserveFenceWhileStartInFlight = logicalOwnerCurrent && terminal.cancelled,
+            )
             return
         }
         if (controller !== activeController.value) return
