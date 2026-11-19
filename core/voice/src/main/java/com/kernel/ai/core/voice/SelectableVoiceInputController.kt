@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 
 private const val TAG = "SelectableVoiceInput"
@@ -200,10 +201,18 @@ class SelectableVoiceInputController @Inject constructor(
 
     private val generation = AtomicLong()
     private val captureOwnerLock = Any()
+    private var generationInvalidation = CompletableDeferred<Unit>()
     private var captureOwner: CaptureOwnerState? = null
     private val admittedControllers = HashMap<Long, AdmittedCapture>()
     private val backendAdmissions = HashMap<BackendCaptureKey, Long>()
     private var pendingNativeTeardownSettle: NativeTeardownSettle? = null
+
+    /** Called under [captureOwnerLock]; wakes a start holding the mutex on a native settle. */
+    private fun advanceGenerationLocked(): Pair<Long, CompletableDeferred<Unit>> {
+        val previousGenerationInvalidation = generationInvalidation
+        generationInvalidation = CompletableDeferred()
+        return generation.incrementAndGet() to previousGenerationInvalidation
+    }
     private val _captureActivity = MutableStateFlow(false)
     override val captureActivity: StateFlow<Boolean> = _captureActivity
     private val pendingZipformerStart = AtomicReference<PendingZipformerStart?>(null)
@@ -374,16 +383,19 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     private fun captureForScopedStop(sessionId: Long): AdmittedCapture? {
+        var invalidation: CompletableDeferred<Unit>? = null
         val (capture, invalidatedGeneration) = synchronized(captureOwnerLock) {
             val capture = admittedControllers[sessionId] ?: return null
             val owner = captureOwner
             if (owner?.sessionId == sessionId && owner.generation == capture.generation) {
-                generation.incrementAndGet()
+                val (_, previousGenerationInvalidation) = advanceGenerationLocked()
+                invalidation = previousGenerationInvalidation
                 capture to capture.generation
             } else {
                 capture to null
             }
         }
+        invalidation?.complete(Unit)
         if (invalidatedGeneration != null) cancelPendingZipformerStart(invalidatedGeneration)
         return capture
     }
@@ -466,10 +478,17 @@ class SelectableVoiceInputController @Inject constructor(
 
     private suspend fun awaitNativeTeardownSettle(gen: Long): Boolean {
         while (gen == generation.get()) {
-            val settle = synchronized(captureOwnerLock) { pendingNativeTeardownSettle }
-                ?: return gen == generation.get()
-            settle.settled.await()
-            if (gen != generation.get()) return false
+            val (settle, invalidation) = synchronized(captureOwnerLock) {
+                if (generation.get() != gen) return false
+                pendingNativeTeardownSettle to generationInvalidation
+            }
+            settle ?: return gen == generation.get()
+
+            val completed = select<Boolean> {
+                settle.settled.onAwait { true }
+                invalidation.onAwait { false }
+            }
+            if (!completed || gen != generation.get()) return false
             synchronized(captureOwnerLock) {
                 if (pendingNativeTeardownSettle === settle) pendingNativeTeardownSettle = null
             }
@@ -510,12 +529,13 @@ class SelectableVoiceInputController @Inject constructor(
         mode: VoiceCaptureMode,
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult {
-        val gen = synchronized(captureOwnerLock) {
-            generation.incrementAndGet().also {
-                captureOwner = CaptureOwnerState(it, null)
-                _captureActivity.value = true
-            }
+        val (gen, invalidation) = synchronized(captureOwnerLock) {
+            val (nextGeneration, previousGenerationInvalidation) = advanceGenerationLocked()
+            captureOwner = CaptureOwnerState(nextGeneration, null)
+            _captureActivity.value = true
+            nextGeneration to previousGenerationInvalidation
         }
+        invalidation.complete(Unit)
         pendingZipformerStart.getAndSet(null)?.job?.cancel()
         val seq = asr4allStartSeq.incrementAndGet()
         asr4allVoiceInputController.supersedeCapture()
@@ -1113,11 +1133,13 @@ class SelectableVoiceInputController @Inject constructor(
 
     /** Thread-safe: see the class concurrency notes. */
     override fun stopListening() {
-        synchronized(captureOwnerLock) {
-            generation.incrementAndGet()
+        val invalidation = synchronized(captureOwnerLock) {
+            val (_, previousGenerationInvalidation) = advanceGenerationLocked()
             if (captureOwner?.sessionId == null) captureOwner = null
             updateCaptureActivityLocked()
+            previousGenerationInvalidation
         }
+        invalidation.complete(Unit)
         pendingZipformerStart.getAndSet(null)?.job?.cancel()
         nativeAndroidVoiceInputController.stopListening()
         sherpaOnnxVoiceInputController.stopListening()

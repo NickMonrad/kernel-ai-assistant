@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
@@ -332,7 +333,7 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `cancelled local-start waiter leaves native settle deadline for replacement`() = runTest(dispatcher) {
+    fun `newer local start releases stale waiter but keeps the original native settle deadline`() = runTest(dispatcher) {
         val nativeEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 1)
         every { nativeAndroidVoiceInputController.events } returns nativeEvents
         val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
@@ -353,28 +354,67 @@ class SelectableVoiceInputControllerTest {
         assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
 
         selected.value = VoiceInputEngine.SherpaZipformer
-        val first = async { c.startListening(VoiceCaptureMode.Command) }
+        val stale = async { c.startListening(VoiceCaptureMode.Command) }
         runCurrent()
         nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
         runCurrent()
         advanceTimeBy(200)
         runCurrent()
-        first.cancel()
-        runCurrent()
-        assertTrue(first.isCancelled)
 
         val replacement = async { c.startListening(VoiceCaptureMode.Command) }
         runCurrent()
+        assertEquals(VoiceInputStartResult.Cancelled(), stale.await())
         assertFalse(replacement.isCompleted)
         assertEquals(0, sherpaStarts)
+
         advanceTimeBy(150)
         runCurrent()
         assertFalse(replacement.isCompleted)
         assertEquals(0, sherpaStarts)
-
-        advanceUntilIdle()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals(VoiceInputStartResult.Started(2L), replacement.await())
         assertEquals(1, sherpaStarts)
+    }
+
+    @Test
+    fun `newer native start proceeds immediately while stale local waiter is settling`() = runTest(dispatcher) {
+        val nativeEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 1)
+        every { nativeAndroidVoiceInputController.events } returns nativeEvents
+        val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } just runs
+        var nativeStarts = 0
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
+            val sessionId = (++nativeStarts).toLong()
+            thirdArg<(Long) -> Unit>().invoke(sessionId)
+            VoiceInputStartResult.Started(sessionId)
+        }
+        var sherpaStarts = 0
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            sherpaStarts++
+            thirdArg<(Long) -> Unit>().invoke(3L)
+            VoiceInputStartResult.Started(3L)
+        }
+        val c = controller()
+        advanceUntilIdle()
+        assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
+
+        selected.value = VoiceInputEngine.SherpaZipformer
+        val stale = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
+        runCurrent()
+        assertFalse(stale.isCompleted)
+
+        selected.value = VoiceInputEngine.AndroidNative
+        val replacement = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+
+        assertEquals(VoiceInputStartResult.Cancelled(), stale.await())
+        assertEquals(VoiceInputStartResult.Started(2L), replacement.await())
+        assertEquals(0, sherpaStarts)
+        assertEquals(0L, currentTime)
     }
 
     @Test

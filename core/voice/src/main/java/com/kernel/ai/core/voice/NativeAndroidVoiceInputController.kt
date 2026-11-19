@@ -567,9 +567,14 @@ class NativeAndroidVoiceInputController @Inject constructor(
             activeSessionId == sessionId && activeSessionWanted?.invoke() == true
         },
     ): Boolean {
+        if (!isWanted()) return false
         val recognizer = when (backend) {
             RecognizerBackend.OnDevice -> recognitionSupport.createOnDeviceSpeechRecognizer()
             RecognizerBackend.Platform -> recognitionSupport.createPlatformSpeechRecognizer()
+        }
+        if (!isWanted()) {
+            runCatching { recognizer.destroy() }
+            return false
         }
         speechRecognizer = recognizer
         Log.i(
@@ -714,35 +719,57 @@ class NativeAndroidVoiceInputController @Inject constructor(
     }
 
 
+    private enum class PlatformRetryResult {
+        Started,
+        Superseded,
+        Failed,
+    }
+
+    private fun isSessionWanted(sessionId: Long): Boolean =
+        activeSessionId == sessionId && activeSessionWanted?.invoke() == true
+
     private fun retryWithPlatformRecognizer(
         sessionId: Long,
         mode: VoiceCaptureMode,
         availability: AndroidNativeRecognitionAvailability,
-    ): Boolean {
-        if (activeSessionId != sessionId) return false
-        if (!allowPlatformFallback) return false
+    ): PlatformRetryResult {
+        if (!isSessionWanted(sessionId)) return PlatformRetryResult.Superseded
+        if (!allowPlatformFallback) return PlatformRetryResult.Failed
 
-        return runCatching {
-            cancelStartupFallback()
-            speechRecognizer?.apply {
-                runCatching { cancel() }
-                runCatching { destroy() }
-            }
+        cancelStartupFallback()
+        if (!isSessionWanted(sessionId)) return PlatformRetryResult.Superseded
+
+        val previousRecognizer = speechRecognizer
+        if (!isSessionWanted(sessionId)) return PlatformRetryResult.Superseded
+        previousRecognizer?.apply {
+            runCatching { cancel() }
+            runCatching { destroy() }
+        }
+        if (speechRecognizer === previousRecognizer) speechRecognizer = null
+        if (!isSessionWanted(sessionId)) return PlatformRetryResult.Superseded
+
+        return try {
             val started = startRecognizer(
                 sessionId = sessionId,
                 mode = mode,
                 availability = availability,
                 backend = RecognizerBackend.Platform,
+                isWanted = { isSessionWanted(sessionId) },
             )
-            if (!started) {
-                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
-                false
+            if (started) {
+                PlatformRetryResult.Started
             } else {
-                true
+                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                PlatformRetryResult.Superseded
             }
-        }.getOrElse { error ->
-            Log.e(TAG, "Failed to retry Android native STT with platform recognizer", error)
-            false
+        } catch (error: Exception) {
+            if (!isSessionWanted(sessionId)) {
+                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                PlatformRetryResult.Superseded
+            } else {
+                Log.e(TAG, "Failed to retry Android native STT with platform recognizer", error)
+                PlatformRetryResult.Failed
+            }
         }
     }
 
@@ -759,6 +786,13 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private var sawPartialTranscript = false
         private var sessionWatchdogJob: Job? = null
 
+        private fun suppressSupersededWork(): Boolean {
+            if (isSessionWanted(sessionId)) return false
+            sessionCompleted = true
+            cancelStartupFallback()
+            cancelSessionWatchdog()
+            return true
+        }
         private fun resetSessionWatchdog() {
             sessionWatchdogJob?.cancel()
             sessionWatchdogJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
@@ -769,29 +803,39 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         sessionResultTimeoutMs(mode, hasSpeechProgress = heardSpeech || sawPartialTranscript)
                     }
                 )
-                if (sessionCompleted || activeSessionId != sessionId) return@launch
+                if (sessionCompleted || suppressSupersededWork()) return@launch
                 if (
                     shouldRetryWithPlatformAfterWatchdogTimeout(
                         backend = backend,
                         sawPartialTranscript = sawPartialTranscript,
                         allowPlatformFallback = allowPlatformFallback,
-                    ) &&
-                    retryWithPlatformRecognizer(
-                        sessionId = sessionId,
-                        mode = mode,
-                        availability = availability,
                     )
                 ) {
-                    sessionCompleted = true
-                    Log.w(
-                        TAG,
-                        "Android native STT watchdog retried with platform recognizer for sessionId=$sessionId " +
-                            "mode=$mode backend=$backend heardSpeech=$heardSpeech " +
-                            "sawPartialTranscript=$sawPartialTranscript",
-                    )
-                    return@launch
+                    when (
+                        retryWithPlatformRecognizer(
+                            sessionId = sessionId,
+                            mode = mode,
+                            availability = availability,
+                        )
+                    ) {
+                        PlatformRetryResult.Started -> {
+                            sessionCompleted = true
+                            Log.w(
+                                TAG,
+                                "Android native STT watchdog retried with platform recognizer for sessionId=$sessionId " +
+                                    "mode=$mode backend=$backend heardSpeech=$heardSpeech " +
+                                    "sawPartialTranscript=$sawPartialTranscript",
+                            )
+                            return@launch
+                        }
+                        PlatformRetryResult.Superseded -> {
+                            suppressSupersededWork()
+                            return@launch
+                        }
+                        PlatformRetryResult.Failed -> Unit
+                    }
                 }
-
+                if (suppressSupersededWork()) return@launch
                 sessionCompleted = true
                 Log.w(
                     TAG,
@@ -879,6 +923,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
         override fun onError(error: Int) {
             if (sessionCompleted || activeSessionId != sessionId) return
+            if (suppressSupersededWork()) return
             JandalEvents.record("voice", "stt_error", "code" to error)
             if (
                 shouldRetryWithPlatformAfterRecognitionError(
@@ -888,21 +933,32 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     heardSpeech = heardSpeech,
                     sawPartialTranscript = sawPartialTranscript,
                     allowPlatformFallback = allowPlatformFallback,
-                ) &&
-                retryWithPlatformRecognizer(
-                    sessionId = sessionId,
-                    mode = mode,
-                    availability = availability,
                 )
             ) {
-                sessionCompleted = true
-                Log.w(
-                    TAG,
-                    "Android native STT retried with platform recognizer after error=$error for sessionId=$sessionId " +
-                        "heardSpeech=$heardSpeech sawPartialTranscript=$sawPartialTranscript",
-                )
-                return
+                when (
+                    retryWithPlatformRecognizer(
+                        sessionId = sessionId,
+                        mode = mode,
+                        availability = availability,
+                    )
+                ) {
+                    PlatformRetryResult.Started -> {
+                        sessionCompleted = true
+                        Log.w(
+                            TAG,
+                            "Android native STT retried with platform recognizer after error=$error for sessionId=$sessionId " +
+                                "heardSpeech=$heardSpeech sawPartialTranscript=$sawPartialTranscript",
+                        )
+                        return
+                    }
+                    PlatformRetryResult.Superseded -> {
+                        suppressSupersededWork()
+                        return
+                    }
+                    PlatformRetryResult.Failed -> Unit
+                }
             }
+            if (suppressSupersededWork()) return
             // #1433: the platform recognizer has its own no-speech timeout (~5 s
             // observed on the S21) that fires ERROR_NO_MATCH before the app's
             // alert-session budget when the wake command arrives after the cue

@@ -595,6 +595,85 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     }
 
     @Test
+    fun `superseded asynchronous onError skips platform retry teardown and emits no error`() = runTest {
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val listener = slot<RecognitionListener>()
+        var wanted = true
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns recognizer
+        every { recognizer.setRecognitionListener(capture(listener)) } just runs
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(
+            VoiceCaptureMode.Command,
+            allowPlatformFallback = true,
+            isWanted = { wanted },
+        )
+        wanted = false
+        listener.captured.onError(SpeechRecognizer.ERROR_SERVER_DISCONNECTED)
+        runCurrent()
+
+        verify(exactly = 0) { recognizer.cancel() }
+        verify(exactly = 0) { recognizer.destroy() }
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+        assertTrue(events.none { it is VoiceInputEvent.Error })
+        collector.cancel()
+    }
+
+    @Test
+    fun `watchdog superseded during old recognizer teardown skips platform construction and error`() = runTest {
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val listener = slot<RecognitionListener>()
+        var wanted = true
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns recognizer
+        every { recognizer.setRecognitionListener(capture(listener)) } just runs
+        every { recognizer.cancel() } answers { wanted = false }
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(
+            VoiceCaptureMode.Command,
+            allowPlatformFallback = true,
+            isWanted = { wanted },
+        )
+        listener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        advanceTimeBy(60_000)
+        runCurrent()
+
+        verify(exactly = 1) { recognizer.cancel() }
+        verify(exactly = 1) { recognizer.destroy() }
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+        assertTrue(events.none { it is VoiceInputEvent.Error })
+        collector.cancel()
+    }
+
+    @Test
+    fun `genuine asynchronous platform retry failure still emits one terminal error`() = runTest {
+        val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val listener = slot<RecognitionListener>()
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+        every { onDeviceRecognizer.setRecognitionListener(capture(listener)) } just runs
+        every { platformRecognizer.startListening(any()) } throws IllegalStateException("platform unavailable")
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true)
+        listener.captured.onError(SpeechRecognizer.ERROR_SERVER_DISCONNECTED)
+        runCurrent()
+
+        verify(exactly = 1) { recognitionSupport.createPlatformSpeechRecognizer() }
+        assertEquals(1, events.filterIsInstance<VoiceInputEvent.Error>().size)
+        assertEquals(1, events.filterIsInstance<VoiceInputEvent.ListeningStopped>().size)
+        collector.cancel()
+    }
+
+    @Test
     fun `without platform fallback an alert no-speech refresh stays on the on-device recognizer`() = runTest {
         val first = mockk<SpeechRecognizer>(relaxed = true)
         val second = mockk<SpeechRecognizer>(relaxed = true)
