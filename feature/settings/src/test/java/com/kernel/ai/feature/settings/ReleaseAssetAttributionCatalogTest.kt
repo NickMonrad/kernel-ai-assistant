@@ -25,7 +25,7 @@ class ReleaseAssetAttributionCatalogTest {
     }
 
     @Test
-    fun releaseExposedEntriesDiscloseSourceLicenceStatusAndLineage() {
+    fun releaseExposedEntriesDisclosePurposeSourceLicenceStatusAndLineage() {
         val releaseEntries = ReleaseAssetAttributionCatalog.entries.filterNot {
             it.releaseStatus.contains("excluded", ignoreCase = true) ||
                 it.releaseStatus.contains("debug", ignoreCase = true) ||
@@ -33,6 +33,12 @@ class ReleaseAssetAttributionCatalogTest {
         }
 
         assertFalse(releaseEntries.isEmpty())
+        assertTrue(ReleaseAssetAttributionCatalog.entries.all { it.purposeCategory.isNotBlank() })
+        assertTrue(releaseEntries.all { it.purposeCategory.isNotBlank() })
+        assertEquals("Conversation model", releaseEntries.single { it.id == "model:GEMMA_4_E2B" }.purposeCategory)
+        assertEquals("Memory search embedding model", releaseEntries.single { it.id == "model:ARCTIC_EMBED_M_V1_5" }.purposeCategory)
+        assertEquals("Speech recognition (STT) service", releaseEntries.single { it.id == "stt:AndroidNative" }.purposeCategory)
+        assertEquals("Speech synthesis (TTS) service", releaseEntries.single { it.id == "tts:AndroidTts" }.purposeCategory)
         assertTrue(releaseEntries.all { it.releaseStatus.isNotBlank() })
         assertTrue(releaseEntries.all { it.sourceText != ReleaseAssetAttributionCatalog.UNDER_REVIEW })
         assertTrue(releaseEntries.all { it.licenceText != ReleaseAssetAttributionCatalog.UNDER_REVIEW })
