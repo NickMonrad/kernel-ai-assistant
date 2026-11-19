@@ -205,6 +205,8 @@ class SelectableVoiceInputController @Inject constructor(
     private var captureOwner: CaptureOwnerState? = null
     private val admittedControllers = HashMap<Long, AdmittedCapture>()
     private val backendAdmissions = HashMap<BackendCaptureKey, Long>()
+    /** Start attempts remain separately owned until their caller's finally block unwinds. */
+    private val inFlightStartGenerations = HashSet<Long>()
     private var pendingNativeTeardownSettle: NativeTeardownSettle? = null
 
     /** Called under [captureOwnerLock]; wakes a start holding the mutex on a native settle. */
@@ -355,7 +357,8 @@ class SelectableVoiceInputController @Inject constructor(
         onSessionAdmitted(sessionId)
     }
     private fun updateCaptureActivityLocked() {
-        _captureActivity.value = captureOwner != null || admittedControllers.isNotEmpty()
+        _captureActivity.value =
+            captureOwner != null || admittedControllers.isNotEmpty() || inFlightStartGenerations.isNotEmpty()
     }
 
     override fun stopListening(captureSessionId: Long) {
@@ -435,8 +438,9 @@ class SelectableVoiceInputController @Inject constructor(
         capture?.teardown?.await()
     }
 
-    override fun hasCaptureOrStart(): Boolean =
-        synchronized(captureOwnerLock) { captureOwner != null || admittedControllers.isNotEmpty() }
+    override fun hasCaptureOrStart(): Boolean = synchronized(captureOwnerLock) {
+        captureOwner != null || admittedControllers.isNotEmpty() || inFlightStartGenerations.isNotEmpty()
+    }
 
     private fun clearCaptureOwner(sessionId: Long) {
         synchronized(captureOwnerLock) {
@@ -531,8 +535,9 @@ class SelectableVoiceInputController @Inject constructor(
     ): VoiceInputStartResult {
         val (gen, invalidation) = synchronized(captureOwnerLock) {
             val (nextGeneration, previousGenerationInvalidation) = advanceGenerationLocked()
+            inFlightStartGenerations.add(nextGeneration)
             captureOwner = CaptureOwnerState(nextGeneration, null)
-            _captureActivity.value = true
+            updateCaptureActivityLocked()
             nextGeneration to previousGenerationInvalidation
         }
         invalidation.complete(Unit)
@@ -604,6 +609,7 @@ class SelectableVoiceInputController @Inject constructor(
             }
         } finally {
             synchronized(captureOwnerLock) {
+                inFlightStartGenerations.remove(gen)
                 if (!admitted && captureOwner?.generation == gen && captureOwner?.sessionId == null) {
                     captureOwner = null
                 }
@@ -704,9 +710,9 @@ class SelectableVoiceInputController @Inject constructor(
             nativeResult.captureSessionId?.let(nativeAndroidVoiceInputController::cancelListeningForSession)
             return nativeResult
         }
-        retainStartFence(gen)
-        nativeSessionId?.let { retireAdmission(it, preserveGenerationFence = true) }
-
+        // Keep the backend mapping until its post-cleanup terminal is routed. A start-time
+        // fallback can suspend while that physical stop is queued.
+        // Its post-cleanup terminal retires the Native mapping after fallback suspension.
         Log.w(TAG, "Android native unavailable at start; trying Zipformer: ${(nativeResult as? VoiceInputStartResult.Unavailable)?.message}")
         activeController.value = sherpaOnnxVoiceInputController
         var fallbackSessionId: Long? = null
@@ -746,7 +752,7 @@ class SelectableVoiceInputController @Inject constructor(
         }
         if (fallbackResult is VoiceInputStartResult.Unavailable) {
             retainStartFence(gen)
-            fallbackSessionId?.let { retireAdmission(it, preserveGenerationFence = true) }
+            // Keep its admission until the backend's matching terminal is routed.
             return nativeResult
         }
         if (fallbackSessionId != null) return VoiceInputStartResult.Cancelled(fallbackSessionId)
@@ -777,9 +783,6 @@ class SelectableVoiceInputController @Inject constructor(
         if (result is VoiceInputStartResult.Started && gen != generation.get()) {
             sherpaOnnxVoiceInputController.cancelListeningForSession(result.captureSessionId)
             return VoiceInputStartResult.Cancelled(result.captureSessionId)
-        }
-        if (result is VoiceInputStartResult.Unavailable) {
-            reservedSessionId?.let { retireAdmission(it, preserveGenerationFence = true) }
         }
         return result
     }
@@ -872,8 +875,29 @@ class SelectableVoiceInputController @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to route voice event ${event::class.simpleName}; delivering it unchanged", e)
-            outbound.tryEmit(event)
+            Log.e(TAG, "Failed to route voice event ${event::class.simpleName}; delivering only if still owned", e)
+            val ownerSessionId = synchronized(captureOwnerLock) {
+                backendAdmissions[BackendCaptureKey(controller, event.captureSessionId)]
+            }
+            val current = ownerSessionId?.let { sessionId ->
+                synchronized(captureOwnerLock) {
+                    val capture = admittedControllers[sessionId]
+                    val owner = captureOwner
+                    capture != null && capture.generation == generation.get() &&
+                        owner?.generation == capture.generation && owner.sessionId == sessionId
+                }
+            } ?: false
+            if (event is VoiceInputEvent.ListeningStopped && ownerSessionId != null) {
+                val stopped = if (current) event else event.copy(cancelled = true)
+                outbound.tryEmit(stopped.withCaptureSessionId(ownerSessionId))
+                if (current && stopped.cancelled) {
+                    retireAdmission(ownerSessionId, preserveGenerationFence = true)
+                } else {
+                    clearCaptureOwner(ownerSessionId)
+                }
+            } else if (current) {
+                ownerSessionId?.let { outbound.tryEmit(event.withCaptureSessionId(it)) }
+            }
         }
     }
 
@@ -899,6 +923,7 @@ class SelectableVoiceInputController @Inject constructor(
         } else {
             synchronized(captureOwnerLock) { backendAdmissions[backendKey] }
         }
+        if (controller !== asr4allVoiceInputController && backendOwnerSessionId == null) return
         val currentBackend = backendOwnerSessionId?.let { ownerSessionId ->
             synchronized(captureOwnerLock) {
                 admittedControllers[ownerSessionId]?.let {
@@ -912,6 +937,18 @@ class SelectableVoiceInputController @Inject constructor(
             }
             return
         }
+        val logicalOwnerCurrent = backendOwnerSessionId?.let { ownerSessionId ->
+            synchronized(captureOwnerLock) {
+                val capture = admittedControllers[ownerSessionId]
+                val owner = captureOwner
+                capture != null &&
+                    capture.generation == generation.get() &&
+                    owner?.generation == capture.generation && owner.sessionId == ownerSessionId
+            }
+        } ?: false
+        if (backendOwnerSessionId != null && !logicalOwnerCurrent &&
+            event !is VoiceInputEvent.ListeningStopped
+        ) return
         if (controller === asr4allVoiceInputController) {
             val sessionId = event.captureSessionId
             val admission = asr4allSessionAdmission[sessionId] ?: return
@@ -941,19 +978,32 @@ class SelectableVoiceInputController @Inject constructor(
             }
             return
         }
-        if (controller === nativeAndroidVoiceInputController &&
-            event is VoiceInputEvent.ListeningStopped &&
-            backendOwnerSessionId != null
-        ) {
-            recordNativeTeardownSettle(backendOwnerSessionId)
-        }
-        if (controller !== activeController.value) {
-            if (event is VoiceInputEvent.ListeningStopped && backendOwnerSessionId != null) {
-                outbound.emit(event.withCaptureSessionId(backendOwnerSessionId))
+        if (event is VoiceInputEvent.ListeningStopped && backendOwnerSessionId != null) {
+            if (controller === nativeAndroidVoiceInputController) {
+                recordNativeTeardownSettle(backendOwnerSessionId)
+            }
+            val terminal = if (logicalOwnerCurrent) event else event.copy(cancelled = true)
+            outbound.emit(terminal.withCaptureSessionId(backendOwnerSessionId))
+            val startStillInFlight = synchronized(captureOwnerLock) {
+                admittedControllers[backendOwnerSessionId]?.generation
+                    ?.let(inFlightStartGenerations::contains) == true
+            }
+            if (logicalOwnerCurrent && terminal.cancelled && startStillInFlight) {
+                retireAdmission(backendOwnerSessionId, preserveGenerationFence = true)
+            } else {
                 clearCaptureOwner(backendOwnerSessionId)
             }
             return
         }
+        if (controller !== activeController.value) return
+        fun logicalCaptureStillCurrent(): Boolean = backendOwnerSessionId?.let { ownerSessionId ->
+            synchronized(captureOwnerLock) {
+                val capture = admittedControllers[ownerSessionId]
+                val owner = captureOwner
+                capture != null && capture.generation == generation.get() &&
+                    owner?.generation == capture.generation && owner.sessionId == ownerSessionId
+            }
+        } ?: false
 
         if (controller === nativeAndroidVoiceInputController) {
             trackNative(event)
@@ -969,6 +1019,7 @@ class SelectableVoiceInputController @Inject constructor(
                 // The native error is not surfaced: the capture continues on Zipformer, or the
                 // user stopped or restarted during the hand-off.
                 if (handled) return
+                if (!handled && !logicalCaptureStillCurrent()) return
             }
         }
 

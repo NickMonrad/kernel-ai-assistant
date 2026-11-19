@@ -489,7 +489,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 VoiceInputStartResult.Started(sessionId)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Android native voice capture", e)
-                admittedSessionId?.let { stopListeningInternal(emitStopped = false, expectedSessionId = it) }
+                admittedSessionId?.let {
+                    stopListeningInternal(emitStopped = true, expectedSessionId = it, cancelled = true)
+                }
                     ?: releaseAudioFocus()
                 VoiceInputStartResult.Unavailable(
                     e.message ?: "Failed to start Android speech recognition.",

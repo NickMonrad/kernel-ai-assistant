@@ -311,6 +311,32 @@ class SherpaOnnxVoiceInputControllerTest {
     }
 
     @Test
+    fun `mic unavailable after Sherpa admission emits a cancelled terminal and clears ownership`() = runTest {
+        createAllStubModelFiles()
+        controller.audioRecordForTest = { null }
+        val events = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.events.collect { events += it }
+        }
+        val admitted = mutableListOf<Long>()
+
+        val result = controller.startListening(
+            VoiceCaptureMode.Command,
+            isWanted = { true },
+            onSessionAdmitted = admitted::add,
+        )
+
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
+        assertEquals(1, admitted.size)
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, admitted.single(), cancelled = true)),
+            events.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+        assertFalse(controller.hasCaptureOrStart())
+        verify(atLeast = 1) { audioManager.abandonAudioFocus(null) }
+    }
+
+    @Test
     fun `ready stop before recording job body releases mic and focus before one terminal`() = runTest {
         createAllStubModelFiles()
         setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))

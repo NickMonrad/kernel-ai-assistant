@@ -341,6 +341,25 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     }
 
     @Test
+    fun `failed admitted native start emits terminal after cleanup without fallback`() = runTest {
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns recognizer
+        every { recognizer.startListening(any()) } throws RuntimeException("on-device unavailable")
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
+        val stopped = events.filterIsInstance<VoiceInputEvent.ListeningStopped>().single()
+        assertTrue(stopped.cancelled)
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+        verify(atLeast = 1) { recognizer.destroy() }
+        collector.cancel()
+    }
+
+    @Test
     fun `without platform fallback an on-device start failure never touches the platform recognizer`() = runTest {
         val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
         every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
@@ -351,7 +370,6 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
         verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
     }
-
     @Test
     fun `the single-argument start is on-device only`() = runTest {
         val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
@@ -860,7 +878,17 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         runCurrent()
 
         assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, failed)
-        assertEquals(listOf(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, first.captureSessionId)), events)
+        assertEquals(
+            listOf(
+                VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, first.captureSessionId),
+                VoiceInputEvent.ListeningStopped(
+                    VoiceCaptureMode.Command,
+                    first.captureSessionId + 1L,
+                    cancelled = true,
+                ),
+            ),
+            events,
+        )
         assertTrue(order.indexOf("first-destroy") < order.indexOf("stopped"))
         assertTrue(order.indexOf("focus-abandon") < order.indexOf("stopped"))
         collector.cancel()

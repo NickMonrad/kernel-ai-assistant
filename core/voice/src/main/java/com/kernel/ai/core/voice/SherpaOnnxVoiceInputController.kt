@@ -314,6 +314,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             if (stoppedEarly) return@withLock endStoppedBeforeMic(mode, captureSessionId)
             if (capture == null) {
                 clearActiveSession(captureSessionId)
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, captureSessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Microphone unavailable — check RECORD_AUDIO permission.",
                 )

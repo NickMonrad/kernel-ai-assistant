@@ -8,6 +8,7 @@ import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -130,6 +132,35 @@ class SelectableVoiceInputHandoffTest {
             }
         }
         return cancelled
+    }
+    /**
+     * Simulates a Zipformer start whose caller unwinds before NonCancellable mic teardown emits
+     * the terminal. A second start can then prove the old terminal cannot clear its owner.
+     */
+    private fun zipformerLoadHangsUntilTerminal(): Pair<CompletableDeferred<Boolean>, CompletableDeferred<Unit>> {
+        val cancelled = CompletableDeferred<Boolean>()
+        val allowTerminal = CompletableDeferred<Unit>()
+        var sessionId = 1L
+        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+            val id = ++sessionId
+            thirdArg<(Long) -> Unit>().invoke(id)
+            if (id == 2L) {
+                try {
+                    awaitCancellation()
+                } catch (e: CancellationException) {
+                    cancelled.complete(true)
+                    withContext(NonCancellable) {
+                        allowTerminal.await()
+                        sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, id, cancelled = true))
+                    }
+                    throw e
+                }
+            } else {
+                sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, id))
+                VoiceInputStartResult.Started(id)
+            }
+        }
+        return cancelled to allowTerminal
     }
 
     private fun stalled(id: Long) =
@@ -377,6 +408,7 @@ class SelectableVoiceInputHandoffTest {
             sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
         }
         val notices = noticesOf(c)
+        val seen = eventsOf(c)
 
         c.startListening(mode)
         nativeEvents.emit(stalled(1L))
@@ -392,6 +424,7 @@ class SelectableVoiceInputHandoffTest {
         assertEquals(VoiceInputStartResult.Started(3L), second.await())
         assertTrue(loadCancelled.isCompleted)
         assertTrue(notices.isEmpty())
+        assertTrue(seen.none { it is VoiceInputEvent.Error })
     }
 
     @Test
@@ -412,9 +445,10 @@ class SelectableVoiceInputHandoffTest {
         advanceUntilIdle()
 
         assertEquals(
-            listOf(VoiceInputEvent.ListeningStopped(mode, 1L), stalled(1L)),
-            seen,
+            listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
         )
+        assertTrue(seen.none { it is VoiceInputEvent.Error })
         coVerify(exactly = 0) { sherpa.startListening(any(), any(), any()) }
         verify(exactly = 0) { native.stopListening() }
     }
@@ -441,6 +475,7 @@ class SelectableVoiceInputHandoffTest {
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
                 thirdArg<(Long) -> Unit>().invoke(101L)
+                nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 101L, cancelled = true))
                 VoiceInputStartResult.Unavailable("native unavailable")
             }
             val fallbackAdmission = CompletableDeferred<Unit>()
@@ -471,13 +506,15 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
-    fun `unavailable fallback retires its reserved admission without waiting for a terminal`() = runTest(dispatcher) {
+    fun `unavailable fallback routes both post-cleanup terminals and retires admissions`() = runTest(dispatcher) {
         coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(101L)
+            nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 101L, cancelled = true))
             VoiceInputStartResult.Unavailable("native failed")
         }
         coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(202L)
+            sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 202L, cancelled = true))
             VoiceInputStartResult.Unavailable("mic unavailable")
         }
         val c = controller()
@@ -486,7 +523,13 @@ class SelectableVoiceInputHandoffTest {
         assertEquals(VoiceInputStartResult.Unavailable("native failed"), c.startListening(mode))
         advanceUntilIdle()
 
-        assertTrue(seen.isEmpty(), "unavailable backends do not owe a terminal event")
+        assertEquals(
+            listOf(
+                VoiceInputEvent.ListeningStopped(mode, 101L, cancelled = true),
+                VoiceInputEvent.ListeningStopped(mode, 202L, cancelled = true),
+            ),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
         assertFalse(c.captureActivity.value)
         assertFalse(c.hasCaptureOrStart())
     }
@@ -514,25 +557,71 @@ class SelectableVoiceInputHandoffTest {
             assertEquals(VoiceInputStartResult.Started(3L), c.startListening(mode))
             advanceUntilIdle()
 
-            assertTrue(seen.contains(VoiceInputEvent.ListeningStopped(mode, 1L)))
+            assertTrue(seen.contains(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)))
             assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(mode, 3L)))
             assertTrue(c.captureActivity.value)
             assertTrue(c.hasCaptureOrStart())
         }
 
     @Test
-    fun `cancelling the caller during the start-time zipformer load cancels the load`() = runTest(dispatcher) {
+    fun `caller cancellation leaves activity until gated teardown terminal then clears it`() = runTest(dispatcher) {
         coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
-        val loadCancelled = zipformerLoadHangs()
+        val (loadCancelled, allowTerminal) = zipformerLoadHangsUntilTerminal()
         val c = controller()
+        val seen = eventsOf(c)
 
         val start = async { c.startListening(mode) }
         advanceUntilIdle()
-        start.cancel() // no stopListening: the caller itself goes away
+        start.cancel() // no selector stop; the child performs its terminal cleanup later
         advanceUntilIdle()
 
         assertTrue(loadCancelled.isCompleted)
         assertTrue(start.isCancelled)
+        assertTrue(c.captureActivity.value)
+        assertTrue(c.hasCaptureOrStart())
+        assertTrue(seen.none { it is VoiceInputEvent.ListeningStopped })
+
+        allowTerminal.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+        assertFalse(c.captureActivity.value)
+        assertFalse(c.hasCaptureOrStart())
+    }
+
+    @Test
+    fun `late cancelled terminal from unwound start does not clear replacement owner`() = runTest(dispatcher) {
+        coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
+        val (loadCancelled, allowTerminal) = zipformerLoadHangsUntilTerminal()
+        val c = controller()
+        val seen = eventsOf(c)
+
+        val abandoned = async { c.startListening(mode) }
+        advanceUntilIdle()
+        abandoned.cancel()
+        advanceUntilIdle()
+        assertTrue(loadCancelled.isCompleted)
+        assertTrue(abandoned.isCancelled)
+
+        val replacement = async { c.startListening(mode) }
+        advanceUntilIdle()
+        assertFalse(replacement.isCompleted)
+        assertTrue(c.captureActivity.value)
+
+        allowTerminal.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(VoiceInputStartResult.Started(3L), replacement.await())
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+        assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(mode, 3L)))
+        assertTrue(c.captureActivity.value)
+        assertTrue(c.hasCaptureOrStart())
     }
 
     @Test
