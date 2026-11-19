@@ -775,19 +775,50 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         val collector = launch { controller.events.collect { events += it } }
         runCurrent()
 
-        controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+        val started = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false) as
+            VoiceInputStartResult.Started
         advanceTimeBy(ON_DEVICE_READY_TIMEOUT_NO_FALLBACK_MS - 100)
         runCurrent()
         assertTrue(events.none { it is VoiceInputEvent.Error }, "no error before the timeout")
 
         advanceTimeBy(200)
         runCurrent()
-        assertTrue(events.any { it is VoiceInputEvent.Error })
-        assertTrue(events.any { it is VoiceInputEvent.ListeningStopped })
+        val error = events.filterIsInstance<VoiceInputEvent.Error>().single()
+        assertEquals(started.captureSessionId, error.captureSessionId)
+        assertEquals(NATIVE_NOT_READY, error.category)
+        val stopped = events.filterIsInstance<VoiceInputEvent.ListeningStopped>().single()
+        assertEquals(started.captureSessionId, stopped.captureSessionId)
+        assertFalse(stopped.cancelled)
         verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
         collector.cancel()
     }
 
+    @Test
+    fun `superseded offline startup timeout retires its current session as cancelled`() = runTest {
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        var wanted = true
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns recognizer
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val started = controller.startListening(
+            VoiceCaptureMode.Command,
+            allowPlatformFallback = false,
+            isWanted = { wanted },
+        ) as VoiceInputStartResult.Started
+        wanted = false
+        advanceTimeBy(ON_DEVICE_READY_TIMEOUT_NO_FALLBACK_MS)
+        runCurrent()
+
+        val stopped = events.filterIsInstance<VoiceInputEvent.ListeningStopped>()
+        assertEquals(1, stopped.size)
+        assertEquals(started.captureSessionId, stopped.single().captureSessionId)
+        assertTrue(stopped.single().cancelled)
+        assertTrue(events.none { it is VoiceInputEvent.Error })
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+        collector.cancel()
+    }
     @Test
     fun `separate logical starts receive distinct capture session identifiers`() = runTest {
         val firstRecognizer = mockk<SpeechRecognizer>(relaxed = true)

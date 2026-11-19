@@ -620,6 +620,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
         startupFallbackJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
             delay(readyTimeoutMs)
             if (activeSessionId != sessionId) return@launch
+            if (!isSessionWanted(sessionId)) {
+                cancelSupersededSession(sessionId)
+                return@launch
+            }
             if (!shouldRetryWithPlatformAfterStartupTimeout(backend, allowPlatformFallback)) {
                 // Online fallback not allowed: end the session instead of leaving it waiting
                 // on a recognizer that never became ready.
