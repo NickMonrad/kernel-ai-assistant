@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import com.kernel.ai.debug.inflect.InflectSpikeAndroidJUnitRunner
+import com.kernel.ai.debug.inflect.InflectProbeStartupIsolation
 import com.kernel.ai.core.voice.asr4all.Asr4allEngine
 import com.kernel.ai.core.voice.asr4all.Asr4allModelFiles
 import com.kernel.ai.core.voice.asr4all.Asr4allModelFiles.Size
@@ -17,7 +18,6 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.UUID
-import kotlin.math.roundToInt
 
 /** Opt-in private-fixture instrumentation. This never records audio or dispatches app commands. */
 class Asr4allTierMeasurementDeviceTest {
@@ -53,13 +53,22 @@ class Asr4allTierMeasurementDeviceTest {
     @Test
     fun measureOwnerAndSyntheticSets() {
         val args = InstrumentationRegistry.getArguments()
-        assumeTrue("Measurement is opt-in", args.getString("measure_enabled") == "true")
+        val measurementEnabled = args.getString("measure_enabled") == "true"
+        assumeTrue("Measurement is opt-in", measurementEnabled)
         val runner = InstrumentationRegistry.getInstrumentation() as? InflectSpikeAndroidJUnitRunner
             ?: error("Measurement requires its instrumentation runner")
-        require(runner.targetApplicationOnCreateSuppressed) {
-            "Measurement requires debug app-startup suppression"
-        }
         val context = runner.targetContext
+        require(
+            InflectProbeStartupIsolation.shouldAllowDeviceMeasurement(
+                targetPackage = context.packageName,
+                isProbeBuild = BuildConfig.IS_INFLECT_PROBE,
+                selectedTestClass = args.getString("class"),
+                measurementEnabled = measurementEnabled,
+                applicationOnCreateSuppressed = runner.targetApplicationOnCreateSuppressed,
+            ),
+        ) {
+            "Measurement requires opt-in, the exact test class, and the isolated debug target with normal Application.onCreate"
+        }
         val ownerDir = privatePath(context.filesDir, arg(args, "owner_dir"))
         val ownerRefs = privatePath(context.filesDir, arg(args, "owner_phrases"))
         val ownerPhraseDigest = digestArg(args, "owner_phrases_sha256")
@@ -177,12 +186,13 @@ class Asr4allTierMeasurementDeviceTest {
                 .put("primary_trial", "Every lane receives the identical full paired PCM; WER and compute RTFx use that full signal")
                 .put("feed", "100ms chunks paced to scheduled chunk end; actual first-feed delay and per-chunk delivery lag are recorded")
                 .put("partial", "first changed nonempty partial after each fully delivered chunk; audio offset is scheduled delivered chunk end")
-                .put("endpoint_trials", "separate Zipformer-only early endpoint trial; excluded from paired WER and primary RTFx")
+                .put("endpoint_trials", "separate raw Zipformer decoder endpoint observation; not shipping controller/service latency; excluded from paired WER and primary RTFx")
                 .put("forced_flush", "forced full-file flush; clip end is not acoustic speech end")
-                .put("speech_end_latency", "paced injected-input delivery relative to independently human-annotated speech-end sample; not acoustic microphone/service latency")
+                .put("speech_end_latency", "paced injected full-clip forced-final completion relative to independent human annotation; includes trailing injected audio and is not endpoint or microphone/service latency")
                 .put("compute_rtfx", "all decode, drain, result rendering, PCEC and flush compute; scheduled pacing waits excluded")
                 .put("paced_rtfx", "separate full wall-time throughput from scheduled clip start through final result")
-                .put("model_open", "recognizer construction to ready after common runtime initialization; no process restart between lanes")
+                .put("model_open", "sequential same-process recognizer construction to ready after shared runtime init; not a cold or isolated load estimate")
+                .put("pss", "process-shared PSS snapshots; filesystem cache, thermal history and prior lane state are not reset")
                 .put("wer", "raw-decoder WER: Unicode NFC, Locale.ROOT lowercase, apostrophes removed, other punctuation separates tokens; no production transcript correction"))
             .put("identity", JSONObject()
                 .put("owner_role", owner.role)
@@ -384,7 +394,6 @@ class Asr4allTierMeasurementDeviceTest {
             val ready = onlineRecognizerClass.getDeclaredMethod("isReady", streamClass)
             val decode = onlineRecognizerClass.getDeclaredMethod("decode", streamClass)
             val endpoint = onlineRecognizerClass.getDeclaredMethod("isEndpoint", streamClass)
-            val reset = onlineRecognizerClass.getDeclaredMethod("reset", streamClass)
             val result = onlineRecognizerClass.getDeclaredMethod("getResult", streamClass)
             val resultTextMethod = result.invoke(recognizer, warmStream).javaClass.getDeclaredMethod("getText")
             fun readText(stream: Any): String = resultTextMethod.invoke(result.invoke(recognizer, stream)).toString().trim()
@@ -462,8 +471,8 @@ class Asr4allTierMeasurementDeviceTest {
                 pacingMaxMs = pacingMaxMs,
                 pacingMeanMs = if (pacingCount == 0) null else pacingSumMs / pacingCount,
                 firstPartialMs = firstPartialMs, firstPartialOffset = firstPartialOffset,
-                clipEndLatencyMs = (completedAt - scheduledClipEnd) / 1e6,
-                speechEndLatencyMs = clip.speechEndSample?.let {
+                clipEndLatencyMs = if (transcript.isBlank()) null else (completedAt - scheduledClipEnd) / 1e6,
+                speechEndLatencyMs = if (transcript.isBlank()) null else clip.speechEndSample?.let {
                     (completedAt - (audioStart + it * NANOS_PER_SECOND / RATE)) / 1e6
                 },
                 endpointLatencyMs = null,
@@ -473,7 +482,7 @@ class Asr4allTierMeasurementDeviceTest {
             val endpointTrial = try {
                 runZipformerEndpointTrial(
                     clip, setRole, lane, laneOrder, createStream, accept, finish, releaseStream,
-                    ready, decode, endpoint, reset, resultTextMethod, recognizer,
+                    ready, decode, endpoint, resultTextMethod, recognizer,
                 )
             } catch (_: Exception) {
                 failedEndpointTrial(clip, setRole, lane, laneOrder, 0)
@@ -496,7 +505,6 @@ class Asr4allTierMeasurementDeviceTest {
         ready: java.lang.reflect.Method,
         decode: java.lang.reflect.Method,
         endpoint: java.lang.reflect.Method,
-        reset: java.lang.reflect.Method,
         resultTextMethod: java.lang.reflect.Method,
         recognizer: Any,
     ): JSONObject {
@@ -524,8 +532,7 @@ class Asr4allTierMeasurementDeviceTest {
                     finish.invoke(stream)
                     while (ready.invoke(recognizer, stream) as Boolean) decode.invoke(recognizer, stream)
                     finalText = readText()
-                    if (finalText.isNotBlank()) break
-                    reset.invoke(recognizer, stream)
+                    break
                 } else {
                     val partial = readText()
                     if (partial.isNotBlank() && partial != previousPartial) {
@@ -538,7 +545,7 @@ class Asr4allTierMeasurementDeviceTest {
                 }
                 offset = end
             }
-            val forcedFlush = finalText.isBlank()
+            val forcedFlush = endpointObservedAt == null
             val flushStart = SystemClock.elapsedRealtimeNanos()
             if (forcedFlush) {
                 finish.invoke(stream)
@@ -546,19 +553,18 @@ class Asr4allTierMeasurementDeviceTest {
                 finalText = readText()
             }
             val completedAt = SystemClock.elapsedRealtimeNanos()
+            val classified = Asr4allMeasurementMetrics.endpointTrialResult(
+                endpointObserved = endpointObservedAt != null,
+                finalPresent = finalText.isNotBlank(),
+                endpointLatencyMs = endpointObservedAt?.let { (completedAt - it) / 1e6 },
+            )
             return JSONObject()
                 .put("set", setRole).put("fixture_id", clip.id).put("fixture_sha256", sha(clip.bytes))
                 .put("model", lane.model).put("tier", lane.tier).put("counterbalanced_lane_order", laneOrder)
-                .put("outcome", when {
-                    finalText.isBlank() -> OUTCOME_NO_FINAL
-                    forcedFlush -> OUTCOME_FORCED_FINAL
-                    else -> OUTCOME_ENDPOINT_FINAL
-                })
+                .put("outcome", classified.outcome)
                 .put("endpoint_observed", endpointObservedAt != null)
-                .put("endpoint_to_final_ms", if (endpointObservedAt != null && finalText.isNotBlank()) {
-                    (completedAt - endpointObservedAt!!) / 1e6
-                } else JSONObject.NULL)
-                .put("forced_flush_compute_ms", if (forcedFlush) (completedAt - flushStart) / 1e6 else JSONObject.NULL)
+                .put("endpoint_to_final_ms", classified.endpointLatencyMs ?: JSONObject.NULL)
+                .put("forced_flush_compute_ms", if (classified.forcedClipFlush) (completedAt - flushStart) / 1e6 else JSONObject.NULL)
                 .put("delivered_audio_seconds", delivered.toDouble() / RATE)
                 .put("first_partial_latency_ms_from_scheduled_clip_start", firstPartialMs ?: JSONObject.NULL)
                 .put("first_partial_audio_offset_seconds", firstPartialOffset ?: JSONObject.NULL)
@@ -711,6 +717,7 @@ class Asr4allTierMeasurementDeviceTest {
             outcome, wer, numeric("forced_clip_end_latency_ms"),
             numeric("observed_decoder_endpoint_to_final_ms"),
             numeric("speech_end_latency_ms_from_human_annotation"),
+            finalPresent = row.optBoolean("final_present", false),
         )
     }
 
@@ -783,11 +790,10 @@ class Asr4allTierMeasurementDeviceTest {
         val manifestBytes = readPrivate(manifestFile)
         val manifestRoot = parsePrivateJson(manifestBytes)
         val refsBytes = readPrivate(refsFile)
-        val refsRoot = parsePrivateJson(refsBytes)
         validateSetEnvelope(manifestRoot, expectedRole)
-        validateSetEnvelope(refsRoot, expectedRole)
         val phraseDigest = sha(refsBytes)
         require(phraseDigest == trustedPhraseDigest) { "Staged phrase file does not match the trusted digest" }
+        val refs = Asr4allMeasurementMetrics.parsePhraseReferences(refsBytes, expectedRole)
         require((speechEndsFile == null) == (trustedSpeechEndDigest == null)) {
             "Independent speech-end sidecar and trusted digest must be paired"
         }
@@ -828,15 +834,6 @@ class Asr4allTierMeasurementDeviceTest {
             }
         }
         val manifest = manifestRoot.getJSONArray("fixtures")
-        val refs = linkedMapOf<String, String>()
-        val phraseArray = refsRoot.getJSONArray("phrases")
-        for (index in 0 until phraseArray.length()) {
-            val phrase = phraseArray.getJSONObject(index)
-            val id = phrase.getString("id")
-            val text = phrase.getString("text")
-            require(id.isNotBlank() && text.isNotBlank()) { "Phrase ID and reference must be nonempty" }
-            require(refs.put(id, text) == null) { "Duplicate phrase ID" }
-        }
         val manifestIds = linkedSetOf<String>()
         for (index in 0 until manifest.length()) {
             val fixture = manifest.getJSONObject(index)
@@ -880,8 +877,9 @@ class Asr4allTierMeasurementDeviceTest {
             require(fixtureSha == pcmMeta.getString("sha256")) { "Fixture hash mismatch" }
             val pcm = wav(bytes)
             require(pcm.rate == RATE && pcm.channels == 1 && pcm.samples.isNotEmpty()) { "Fixture must be nonempty mono 16kHz PCM" }
-            val duration = (pcm.samples.size * 1000.0 / RATE).roundToInt()
-            require(pcmMeta.getInt("duration_ms") == duration) { "Fixture duration mismatch" }
+            Asr4allMeasurementMetrics.requireDurationMatches(
+                pcm.samples.size, pcm.rate, pcmMeta.getInt("duration_ms"),
+            )
             val annotation = speechEntries[id]
             if (speechEndsFile != null) {
                 require(annotation != null && annotation.fixtureSha256 == fixtureSha &&

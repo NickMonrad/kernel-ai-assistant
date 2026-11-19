@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import androidx.test.runner.AndroidJUnitRunner
+import com.kernel.ai.BuildConfig
 
 /**
  * Allows the Inflect runtime probe only on its isolated package, while retaining the main-branch
@@ -31,12 +32,26 @@ class InflectSpikeAndroidJUnitRunner : AndroidJUnitRunner() {
                     "${InflectProbeStartupIsolation.PROBE_PACKAGE} target"
             }
         }
-        suppressTargetApplicationOnCreate =
+        val suppressApplicationOnCreate =
             InflectProbeStartupIsolation.shouldSuppressApplicationOnCreate(
                 targetPackage = target.packageName,
                 targetIsDebuggable = targetIsDebuggable,
                 selectedTestClass = selectedTestClass,
             )
+        if (arguments?.getString(ARG_MEASURE_ENABLED) == "true") {
+            check(
+                InflectProbeStartupIsolation.shouldAllowDeviceMeasurement(
+                    targetPackage = target.packageName,
+                    isProbeBuild = BuildConfig.IS_INFLECT_PROBE,
+                    selectedTestClass = selectedTestClass,
+                    measurementEnabled = true,
+                    applicationOnCreateSuppressed = suppressApplicationOnCreate,
+                ),
+            ) {
+                "ASR measurement requires the exact test class on the isolated debug target"
+            }
+        }
+        suppressTargetApplicationOnCreate = suppressApplicationOnCreate
         super.onCreate(arguments)
     }
 
@@ -51,5 +66,6 @@ class InflectSpikeAndroidJUnitRunner : AndroidJUnitRunner() {
     }
     private companion object {
         const val ARG_CLASS = "class"
+        const val ARG_MEASURE_ENABLED = "measure_enabled"
     }
 }

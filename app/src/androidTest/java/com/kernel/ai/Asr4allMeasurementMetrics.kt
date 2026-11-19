@@ -1,5 +1,7 @@
 package com.kernel.ai
 
+import org.json.JSONObject
+
 internal object Asr4allMeasurementMetrics {
     data class Wer(val edits: Int, val referenceWords: Int) {
         val rate: Double get() = if (referenceWords == 0) if (edits == 0) 0.0 else 1.0 else edits.toDouble() / referenceWords
@@ -15,7 +17,97 @@ internal object Asr4allMeasurementMetrics {
         val clipEndLatencyMs: Double?,
         val endpointLatencyMs: Double?,
         val speechEndLatencyMs: Double? = null,
+        val finalPresent: Boolean = outcome == "decoder_endpoint_final" || outcome == "forced_clip_flush_final",
     )
+    data class EndpointTrialResult(
+        val outcome: String,
+        val endpointLatencyMs: Double?,
+        val forcedClipFlush: Boolean,
+    )
+
+    fun endpointTrialResult(
+        endpointObserved: Boolean,
+        finalPresent: Boolean,
+        endpointLatencyMs: Double?,
+    ): EndpointTrialResult {
+        require(endpointLatencyMs == null || endpointLatencyMs >= 0.0)
+        return EndpointTrialResult(
+            outcome = when {
+                !finalPresent -> "no_final"
+                endpointObserved -> "decoder_endpoint_final"
+                else -> "forced_clip_flush_final"
+            },
+            endpointLatencyMs = endpointLatencyMs.takeIf { endpointObserved && finalPresent },
+            forcedClipFlush = !endpointObserved,
+        )
+    }
+
+
+    /** Parses the separate trusted phrase-list formats; never accepts private manifest roles as owner metadata. */
+    fun parsePhraseReferences(bytes: ByteArray, expectedRole: String): Map<String, String> {
+        val root = try {
+            JSONObject(String(bytes, Charsets.UTF_8))
+        } catch (_: Exception) {
+            error("Phrase-list metadata is invalid")
+        }
+        require(root.getInt("schema_version") == 1) { "Unsupported phrase-list schema" }
+        when (expectedRole) {
+            "owner-decision" -> require(jsonKeys(root) == setOf("schema_version", "phrases")) {
+                "Owner phrase-list envelope mismatch"
+            }
+            "voice-cloned-breadth" -> {
+                require(root.getString("set") == expectedRole) { "Breadth phrase-list role mismatch" }
+                require(root.getBoolean("synthetic") && !root.getBoolean("decision_set")) {
+                    "Breadth phrase-list flags mismatch"
+                }
+            }
+            else -> error("Unknown phrase-list role")
+        }
+
+        val phrases = root.getJSONArray("phrases")
+        val references = linkedMapOf<String, String>()
+        for (index in 0 until phrases.length()) {
+            val phrase = phrases.getJSONObject(index)
+            if (expectedRole == "owner-decision") {
+                require(jsonKeys(phrase) == setOf("id", "text")) { "Owner phrase entry keys mismatch" }
+            }
+            val id = phrase.getString("id")
+            val text = phrase.getString("text")
+            require(id.isNotBlank() && text.isNotBlank()) { "Phrase ID and reference must be nonempty" }
+            require(references.put(id, text) == null) { "Duplicate phrase ID" }
+        }
+        return references
+    }
+
+    private fun jsonKeys(json: JSONObject): Set<String> {
+        val keys = linkedSetOf<String>()
+        val iterator = json.keys()
+        while (iterator.hasNext()) keys += iterator.next()
+        return keys
+    }
+
+    /** Rounds sampleCount * 1000 / sampleRate to the nearest millisecond, with exact ties to even. */
+    fun roundDurationMsTiesToEven(sampleCount: Int, sampleRate: Int): Long {
+        require(sampleCount >= 0 && sampleRate > 0)
+        val numerator = sampleCount.toLong() * 1_000L
+        val quotient = numerator / sampleRate
+        val remainder = numerator % sampleRate
+        val doubledRemainder = remainder * 2
+        return when {
+            doubledRemainder < sampleRate -> quotient
+            doubledRemainder > sampleRate -> quotient + 1
+            quotient % 2L == 0L -> quotient
+            else -> quotient + 1
+        }
+    }
+
+    fun requireDurationMatches(sampleCount: Int, sampleRate: Int, declaredDurationMs: Int) {
+        require(roundDurationMsTiesToEven(sampleCount, sampleRate) == declaredDurationMs.toLong()) {
+            "Fixture duration mismatch"
+        }
+    }
+
+
     data class DecisionRow(
         val set: String,
         val model: String,
@@ -93,15 +185,16 @@ internal object Asr4allMeasurementMetrics {
     /** Produces set/lane outcome and latency coverage; paired WER is gated separately. */
     fun summarize(rows: Iterable<Row>): List<Summary> =
         rows.groupBy { Triple(it.set, it.model, it.tier) }.map { (key, entries) ->
-            val clipEndLatencies = entries.mapNotNull { it.clipEndLatencyMs }
-            val endpointLatencies = entries.mapNotNull { it.endpointLatencyMs }
-            val speechEndLatencies = entries.mapNotNull { it.speechEndLatencyMs }
+            val finalRows = entries.filter { it.finalPresent && it.outcome in FINAL_OUTCOMES }
+            val clipEndLatencies = finalRows.mapNotNull { it.clipEndLatencyMs }
+            val endpointLatencies = finalRows.mapNotNull { it.endpointLatencyMs }
+            val speechEndLatencies = finalRows.mapNotNull { it.speechEndLatencyMs }
             Summary(
                 set = key.first,
                 model = key.second,
                 tier = key.third,
                 rows = entries.size,
-                finals = entries.count { it.outcome == "decoder_endpoint_final" || it.outcome == "forced_clip_flush_final" },
+                finals = finalRows.size,
                 noFinal = entries.count { it.outcome == "no_final" },
                 errors = entries.count { it.outcome == "error" },
                 werCoverage = entries.count { it.wer != null },
@@ -185,6 +278,7 @@ internal object Asr4allMeasurementMetrics {
         )
     }
 
+    private val FINAL_OUTCOMES = setOf("decoder_endpoint_final", "forced_clip_flush_final")
     private val SCORED_OUTCOMES = setOf("decoder_endpoint_final", "forced_clip_flush_final", "no_final")
 
     fun counterbalanced(lanes: List<Lane>, pairIndex: Int): List<Lane> {

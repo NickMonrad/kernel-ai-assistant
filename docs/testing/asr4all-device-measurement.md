@@ -31,10 +31,11 @@ $PRIVATE_INPUT_ROOT/
 
 ## App-private staging and run
 
-Use the same verified private input tree and owner phrase digest on each phone. `$SERIAL`, `$OWNER_PHRASES_SHA256`, and all host paths below are operator-supplied; no measurement has been run by this harness work. The tar stream writes directly into the target app's private `filesDir` without creating a device-side shared-storage copy. For breadth, include `breadth` and `breadth-phrases.json` in the tar source list too. If the independently supplied sidecar is used, stage `owner-speech-ends.json` the same way and provide its coordinator-trusted digest.
+Use the same verified private input tree and owner phrase digest on each phone. `$SERIAL`, `$OWNER_PHRASES_SHA256`, and all host paths below are operator-supplied; no measurement has been run by this harness work. Run only in the isolated `-PisolatedInflectProbe=true` package: it executes `Application.onCreate` and Hilt/WorkManager injection normally, while the existing `IS_INFLECT_PROBE` guard skips normal background jobs. The instrumentation runner rejects any opt-in run before app startup unless the exact measurement class, isolated package, and probe BuildConfig are selected. Ordinary connected-test runs omit opt-in and the measurement test assumes/skips. The tar stream writes directly into the isolated target's app-private `filesDir`. For breadth, include `breadth` and `breadth-phrases.json` in the tar source list too. If the independently supplied sidecar is used, stage `owner-speech-ends.json` the same way and provide its coordinator-trusted digest.
 
 ```sh
-APP_ID=ai.jandal.assistant.debug
+APP_ID=ai.jandal.assistant.debug.inflectprobe
+TEST_ID=ai.jandal.assistant.debug.inflectprobe.test
 adb -s "$SERIAL" shell run-as "$APP_ID" mkdir -p files/asr4all-measure-input
 # Owner-only staging:
 tar -C "$PRIVATE_INPUT_ROOT" -cf - owner owner-phrases.json |
@@ -42,21 +43,22 @@ tar -C "$PRIVATE_INPUT_ROOT" -cf - owner owner-phrases.json |
 # Optional sidecar staging:
 tar -C "$PRIVATE_INPUT_ROOT" -cf - owner-speech-ends.json |
   adb -s "$SERIAL" shell run-as "$APP_ID" tar -xf - -C files/asr4all-measure-input
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
-adb -s "$SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
-adb -s "$SERIAL" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+./gradlew -PisolatedInflectProbe=true :app:assembleDebug :app:assembleDebugAndroidTest
+adb -s "$SERIAL" install -r app/build/inflectProbe/outputs/apk/debug/app-debug.apk
+adb -s "$SERIAL" install -r app/build/inflectProbe/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 ```
 
 Run owner-only once per phone, supplying the trusted digest independently:
 
 ```sh
+TEST_ID=ai.jandal.assistant.debug.inflectprobe.test
 adb -s "$SERIAL" shell am instrument -w \
   -e measure_enabled true \
   -e class com.kernel.ai.Asr4allTierMeasurementDeviceTest \
   -e owner_dir asr4all-measure-input/owner \
   -e owner_phrases asr4all-measure-input/owner-phrases.json \
   -e owner_phrases_sha256 "$OWNER_PHRASES_SHA256" \
-  ai.jandal.assistant.debug.test/com.kernel.ai.debug.inflect.InflectSpikeAndroidJUnitRunner
+  "$TEST_ID/com.kernel.ai.debug.inflect.InflectSpikeAndroidJUnitRunner"
 ```
 
 If the independently supplied sidecar is staged, add both arguments to the same invocation:
@@ -74,18 +76,18 @@ For breadth, stage both optional files and add all three arguments to the same i
 -e synthetic_phrases_sha256 72790822ff96cc1c4e0de6d4169ac7e2afda11deb11ee06d8716ecd44fd01271
 ```
 
-The test is skipped in normal connected-test runs unless `measure_enabled=true`; when enabled, missing or invalid required owner inputs fail before inference. Each run atomically creates a unique JSON file under `files/asr4all-measurement-results/<run-id>/measurement.json`. Keep run IDs and all report contents private. Retrieve directly to a private host destination; never print the JSON to a terminal:
+The test is skipped in normal connected-test runs unless `measure_enabled=true`; the runner requires the exact class and isolated probe package when opt-in is supplied, before target `Application.onCreate`. With correct selection, Hilt and WorkManager initialization run normally; only normal background work is skipped by the existing isolated-build guard. Missing or invalid owner inputs fail before inference. Each run atomically creates a unique JSON file under `files/asr4all-measurement-results/<run-id>/measurement.json`. Keep run IDs and all report contents private. Retrieve directly to a private host destination; never print the JSON to a terminal:
 
 ```sh
-adb -s "$SERIAL" exec-out run-as ai.jandal.assistant.debug cat \
+adb -s "$SERIAL" exec-out run-as "$APP_ID" cat \
   "files/asr4all-measurement-results/$RUN_ID/measurement.json" \
   > "$PRIVATE_RESULTS/$DEVICE-$RUN_ID.json"
 ```
 
 ## Interpretation
 
-The report records device/model identities, manifest/phrase/sidecar digests, per-lane outcomes and coverage, shared ORT/Sherpa runtime initialization, comparable recognizer-open time, pre-load/post-load/post-warmup absolute PSS and deltas, shared-runtime residuals and sampling-noise ranges, compute-only RTFx, and paced delivery metrics. Runtime initialization and app startup are outside candidate model-open timings; the exact debug measurement test class runs with application `onCreate` suppressed. Model bundle file hashes are calculated after all trials; preflight uses only file existence/size/mtime. Compare all recorded identities across both phones before combining results.
+The report records device/model identities, manifest/phrase/sidecar digests, per-lane outcomes and coverage, shared ORT/Sherpa runtime initialization, recognizer-open time, process PSS snapshots, compute-only RTFx, and paced delivery metrics. The harness runs in the separate `ai.jandal.assistant.debug.inflectprobe` package with normal `Application.onCreate` and Hilt/WorkManager configuration active; its existing `IS_INFLECT_PROBE` guard skips normal background work. Common runtime initialization is measured separately and excluded from per-lane recognizer-open time. Trials remain sequential in one process. Model-open and PSS values are not isolated cold-load evidence: filesystem cache, thermal history, and prior lane state are not reset. Model bundle hashes are calculated after all trials; preflight reads only file existence/size/mtime.
 
-Every primary lane, including Zipformer, consumes the same full paired PCM; paired WER and compute RTFx use that full signal. Zipformer's early-endpoint behavior is a separate `endpoint_trials` section and is excluded from WER and primary RTFx. First-partial offsets refer to each scheduled delivered chunk end. `forced_clip_end_latency_ms` is relative to the scheduled end of the full injected WAV and is emitted only for a nonblank final; it is not a speech-end measurement. With the optional sidecar, `speech_end_latency_ms_from_human_annotation` is paced injected-input completion relative to the independently human-annotated speech-end sample—not acoustic microphone/service latency. Without offsets, status is `not_decision_grade_missing_offsets`; paired WER still runs. Blank finals count as WER deletions but are excluded from final-latency coverage. Compute-only RTFx excludes pacing waits; `rtfx_paced` includes scheduled full-clip delivery and final result work.
+Every primary lane, including Zipformer, consumes the same full paired PCM; paired WER and compute RTFx use that full signal. Zipformer's raw decoder endpoint observation is a separate trial, not shipping controller/service latency, and is excluded from paired WER and primary RTFx. First-partial offsets refer to each scheduled delivered chunk end. `forced_clip_end_latency_ms` is relative to the scheduled end of the full injected WAV and is emitted only for a nonblank final; it is not a speech-end measurement. With the optional sidecar, `speech_end_latency_ms_from_human_annotation` is paced injected-input completion after full-clip forced flush relative to the independently human-annotated speech-end sample; it may include trailing injected audio. This is neither a claimed shipping endpoint nor microphone/service latency. Without offsets, status is `not_decision_grade_missing_offsets`; paired WER still runs. Blank finals count as WER deletions but are excluded from final-latency coverage. Compute-only RTFx excludes pacing waits; `rtfx_paced` includes scheduled full-clip delivery and final result work.
 
 WER is raw-decoder WER with one NFC/case/punctuation tokenizer that preserves Māori macrons and removes apostrophes; no production transcript correction is applied. The report exposes lane WER only if every expected owner fixture/repetition is scored in every lane and all lanes carry the same validated PCM hash per key; an error, missing/extra/duplicate key, or paired-input mismatch invalidates WER across the decision set. WER sums edits and reference words per lane, not per-clip ratios. Synthetic rows have no WER and never enter owner selection. A device comparison/recommendation requires complete owner coverage and matching input/model/phrase identities on both phones. No device measurements have been run by this harness work.

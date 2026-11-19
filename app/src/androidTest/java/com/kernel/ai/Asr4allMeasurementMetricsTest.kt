@@ -1,6 +1,8 @@
 package com.kernel.ai
 
+import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class Asr4allMeasurementMetricsTest {
@@ -15,6 +17,74 @@ class Asr4allMeasurementMetricsTest {
         assertEquals(Asr4allMeasurementMetrics.Wer(1, 1), Asr4allMeasurementMetrics.wer("Taupō", "Taupo"))
     }
 
+    @Test fun phraseParserUsesSeparateOwnerAndBreadthSchemas() {
+        assertEquals(
+            mapOf("A-01" to "Kia ora Jandal."),
+            parsePhraseFile(
+                """{"schema_version":1,"phrases":[{"id":"A-01","text":"Kia ora Jandal."}]}""",
+                "owner-decision",
+            ),
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            parsePhraseFile(
+                """{"schema_version":1,"set":"owner-decision","synthetic":false,"decision_set":true,"phrases":[{"id":"A-01","text":"Kia ora"}]}""",
+                "owner-decision",
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            parsePhraseFile(
+                """{"schema_version":1,"phrases":[{"id":"A-01","text":"Kia ora","skill":"extra"}]}""",
+                "owner-decision",
+            )
+        }
+        assertEquals(
+            mapOf("CL-001" to "Set an alarm for six thirty tomorrow."),
+            parsePhraseFile(
+                """{"schema_version":1,"issue":1984,"set":"voice-cloned-breadth","synthetic":true,"decision_set":false,"note":"breadth only","phrases":[{"id":"CL-001","skill":"alarm","text":"Set an alarm for six thirty tomorrow."}]}""",
+                "voice-cloned-breadth",
+            ),
+        )
+    }
+
+    private fun parsePhraseFile(contents: String, role: String): Map<String, String> {
+        val file = File.createTempFile("phrase-schema-", ".json")
+        return try {
+            file.writeText(contents)
+            Asr4allMeasurementMetrics.parsePhraseReferences(file.readBytes(), role)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun durationsUseIntegerNearestMillisecondTiesToEvenAndRejectMismatch() {
+        assertEquals(2_500L, Asr4allMeasurementMetrics.roundDurationMsTiesToEven(40_008, 16_000))
+        assertEquals(2_502L, Asr4allMeasurementMetrics.roundDurationMsTiesToEven(40_024, 16_000))
+        assertEquals(2_501L, Asr4allMeasurementMetrics.roundDurationMsTiesToEven(40_020, 16_000))
+
+        Asr4allMeasurementMetrics.requireDurationMatches(40_008, 16_000, 2_500)
+        Asr4allMeasurementMetrics.requireDurationMatches(40_024, 16_000, 2_502)
+        assertThrows(IllegalArgumentException::class.java) {
+            Asr4allMeasurementMetrics.requireDurationMatches(40_020, 16_000, 2_502)
+        }
+    }
+
+    @Test fun endpointTrialDoesNotAttributeBlankEndpointFlushOrNoEndpointFlushAsEndpoint() {
+        assertEquals(
+            Asr4allMeasurementMetrics.EndpointTrialResult("no_final", null, forcedClipFlush = false),
+            Asr4allMeasurementMetrics.endpointTrialResult(
+                endpointObserved = true, finalPresent = false, endpointLatencyMs = 15.0,
+            ),
+        )
+        assertEquals(
+            Asr4allMeasurementMetrics.EndpointTrialResult(
+                "forced_clip_flush_final", null, forcedClipFlush = true,
+            ),
+            Asr4allMeasurementMetrics.endpointTrialResult(
+                endpointObserved = false, finalPresent = true, endpointLatencyMs = null,
+            ),
+        )
+    }
+
     @Test fun summariesKeepLatencyOriginsAndSetsSeparate() {
         val summaries = Asr4allMeasurementMetrics.summarize(
             listOf(
@@ -24,7 +94,7 @@ class Asr4allMeasurementMetricsTest {
                 ),
                 Asr4allMeasurementMetrics.Row(
                     "owner-decision", "S", "c16r4", "no_final",
-                    Asr4allMeasurementMetrics.wer("c d", ""), null, null,
+                    Asr4allMeasurementMetrics.wer("c d", ""), 220.0, 320.0, 420.0,
                 ),
                 Asr4allMeasurementMetrics.Row(
                     "owner-decision", "S", "c16r4", "decoder_endpoint_final",
@@ -38,6 +108,10 @@ class Asr4allMeasurementMetricsTest {
                     "owner-decision", "S", "c16r4", "error", null, null, null,
                 ),
                 Asr4allMeasurementMetrics.Row(
+                    "owner-decision", "S", "c16r4", "forced_clip_flush_final",
+                    null, 820.0, null, 920.0, finalPresent = false,
+                ),
+                Asr4allMeasurementMetrics.Row(
                     "owner-decision", "S", "c32r8", "forced_clip_flush_final",
                     Asr4allMeasurementMetrics.wer("x", "x"), 60.0, null,
                 ),
@@ -47,7 +121,7 @@ class Asr4allMeasurementMetricsTest {
             ),
         )
         val ownerS = summaries.single { it.set == "owner-decision" && it.model == "S" && it.tier == "c16r4" }
-        assertEquals(4, ownerS.rows)
+        assertEquals(5, ownerS.rows)
         assertEquals(2, ownerS.finals)
         assertEquals(1, ownerS.noFinal)
         assertEquals(1, ownerS.errors)

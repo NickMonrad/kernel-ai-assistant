@@ -31,5 +31,17 @@ object InflectProbeStartupIsolation {
         selectedTestClass: String?,
     ): Boolean = targetPackage == DEBUG_PACKAGE &&
         targetIsDebuggable &&
-        (selectedTestClass == RUNTIME_TEST_CLASS || selectedTestClass == DEVICE_MEASUREMENT_TEST_CLASS)
+        selectedTestClass == RUNTIME_TEST_CLASS
+
+    fun shouldAllowDeviceMeasurement(
+        targetPackage: String,
+        isProbeBuild: Boolean,
+        selectedTestClass: String?,
+        measurementEnabled: Boolean,
+        applicationOnCreateSuppressed: Boolean,
+    ): Boolean = measurementEnabled &&
+        targetPackage == PROBE_PACKAGE &&
+        isProbeBuild &&
+        selectedTestClass == DEVICE_MEASUREMENT_TEST_CLASS &&
+        !applicationOnCreateSuppressed
 }
