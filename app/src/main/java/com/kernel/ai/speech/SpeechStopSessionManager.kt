@@ -4,12 +4,14 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.ContextCompat
 import com.kernel.ai.R
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -47,6 +49,7 @@ class SpeechStopSessionManager @Inject constructor(
     }
 
     private fun open() {
+        ContextCompat.startForegroundService(context, Intent(context, SpeechPlaybackService::class.java))
         val mediaSession = MediaSession(context, SESSION_TAG).apply {
             setCallback(
                 object : MediaSession.Callback() {
@@ -95,6 +98,7 @@ class SpeechStopSessionManager @Inject constructor(
             release()
         }
         session = null
+        context.stopService(Intent(context, SpeechPlaybackService::class.java))
         context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
     }
 
