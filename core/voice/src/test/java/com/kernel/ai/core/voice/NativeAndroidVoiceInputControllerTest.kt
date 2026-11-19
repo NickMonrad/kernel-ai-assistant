@@ -294,6 +294,53 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     }
 
     @Test
+    fun `superseded during recognizer listener setup never starts the framework recognizer`() = runTest {
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        var wanted = true
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns recognizer
+        every { recognizer.setRecognitionListener(any()) } answers { wanted = false }
+        val terminal = async {
+            controller.events.first { it is VoiceInputEvent.ListeningStopped }
+        }
+        runCurrent()
+
+        val result = controller.startListening(
+            VoiceCaptureMode.Command,
+            allowPlatformFallback = true,
+            isWanted = { wanted },
+        )
+
+        val stopped = terminal.await() as VoiceInputEvent.ListeningStopped
+        assertEquals(VoiceInputStartResult.Cancelled(stopped.captureSessionId), result)
+        verify(exactly = 0) { recognizer.startListening(any()) }
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+    }
+
+    @Test
+    fun `superseded while cleaning failed on-device recognizer skips platform retry`() = runTest {
+        val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        var wanted = true
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
+        every { onDeviceRecognizer.startListening(any()) } throws RuntimeException("on-device unavailable")
+        every { onDeviceRecognizer.cancel() } answers { wanted = false }
+        val terminal = async {
+            controller.events.first { it is VoiceInputEvent.ListeningStopped }
+        }
+        runCurrent()
+
+        val result = controller.startListening(
+            VoiceCaptureMode.Command,
+            allowPlatformFallback = true,
+            isWanted = { wanted },
+        )
+
+        val stopped = terminal.await() as VoiceInputEvent.ListeningStopped
+        assertEquals(VoiceInputStartResult.Cancelled(stopped.captureSessionId), result)
+        verify(exactly = 1) { onDeviceRecognizer.startListening(any()) }
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+    }
+
+    @Test
     fun `without platform fallback an on-device start failure never touches the platform recognizer`() = runTest {
         val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
         every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer

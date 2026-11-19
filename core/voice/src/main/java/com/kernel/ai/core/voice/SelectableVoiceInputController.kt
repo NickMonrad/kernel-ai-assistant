@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice
 
+import android.os.SystemClock
 import android.util.Log
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.NativeFallbackReason
@@ -140,6 +141,11 @@ private data class AdmittedCapture(
     val teardown: CompletableDeferred<Unit>? = null,
 )
 private data class BackendCaptureKey(val controller: VoiceInputController, val sessionId: Long)
+private data class NativeTeardownSettle(
+    val ownerSessionId: Long,
+    val settleUntilElapsedMs: Long,
+    val settled: CompletableDeferred<Unit>,
+)
 private data class PendingZipformerStart(val generation: Long, val job: Job)
 
 /**
@@ -197,6 +203,7 @@ class SelectableVoiceInputController @Inject constructor(
     private var captureOwner: CaptureOwnerState? = null
     private val admittedControllers = HashMap<Long, AdmittedCapture>()
     private val backendAdmissions = HashMap<BackendCaptureKey, Long>()
+    private var pendingNativeTeardownSettle: NativeTeardownSettle? = null
     private val _captureActivity = MutableStateFlow(false)
     override val captureActivity: StateFlow<Boolean> = _captureActivity
     private val pendingZipformerStart = AtomicReference<PendingZipformerStart?>(null)
@@ -318,6 +325,9 @@ class SelectableVoiceInputController @Inject constructor(
         onSessionAdmitted: (Long) -> Unit,
     ) {
         synchronized(captureOwnerLock) {
+            if (pendingNativeTeardownSettle?.ownerSessionId != sessionId) {
+                pendingNativeTeardownSettle = null
+            }
             admittedControllers[sessionId] = AdmittedCapture(
                 controller = controller,
                 backendSessionId = sessionId,
@@ -425,6 +435,26 @@ class SelectableVoiceInputController @Inject constructor(
             updateCaptureActivityLocked()
         }
     }
+    private fun recordNativeTeardownSettle(ownerSessionId: Long) {
+        val settle = synchronized(captureOwnerLock) {
+            val capture = admittedControllers[ownerSessionId]
+            if (capture?.controller !== nativeAndroidVoiceInputController) {
+                null
+            } else {
+                NativeTeardownSettle(
+                    ownerSessionId = ownerSessionId,
+                    settleUntilElapsedMs = SystemClock.elapsedRealtime() + NATIVE_TEARDOWN_SETTLE_MS,
+                    settled = CompletableDeferred(),
+                ).also { pendingNativeTeardownSettle = it }
+            }
+        } ?: return
+
+        pipelineScope.launch {
+            val remainingMs = (settle.settleUntilElapsedMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+            delay(remainingMs)
+            settle.settled.complete(Unit)
+        }
+    }
 
     override suspend fun startListening(mode: VoiceCaptureMode): VoiceInputStartResult =
         startListeningInternal(mode, onSessionAdmitted = {})
@@ -433,6 +463,19 @@ class SelectableVoiceInputController @Inject constructor(
         mode: VoiceCaptureMode,
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult = startListeningInternal(mode, onSessionAdmitted)
+
+    private suspend fun awaitNativeTeardownSettle(gen: Long): Boolean {
+        while (gen == generation.get()) {
+            val settle = synchronized(captureOwnerLock) { pendingNativeTeardownSettle }
+                ?: return gen == generation.get()
+            settle.settled.await()
+            if (gen != generation.get()) return false
+            synchronized(captureOwnerLock) {
+                if (pendingNativeTeardownSettle === settle) pendingNativeTeardownSettle = null
+            }
+        }
+        return false
+    }
 
     private suspend fun stopAndAwaitPreviousBackends(
         gen: Long,
@@ -445,7 +488,9 @@ class SelectableVoiceInputController @Inject constructor(
                         capture.controller === sherpaOnnxVoiceInputController
                 }
             }
-            if (previous.isEmpty()) return gen == generation.get()
+            if (previous.isEmpty()) {
+                return if (settleNativeToLocal) awaitNativeTeardownSettle(gen) else gen == generation.get()
+            }
 
             for (capture in previous) {
                 if (gen != generation.get()) return false
@@ -456,10 +501,6 @@ class SelectableVoiceInputController @Inject constructor(
                         sherpaOnnxVoiceInputController.stopListeningForSession(capture.backendSessionId)
                 }
                 capture.teardown?.await()
-                if (settleNativeToLocal && capture.controller === nativeAndroidVoiceInputController) {
-                    delay(NATIVE_TEARDOWN_SETTLE_MS)
-                    if (gen != generation.get()) return false
-                }
             }
         }
         return false
@@ -880,7 +921,14 @@ class SelectableVoiceInputController @Inject constructor(
                 else -> if (current) outbound.emit(event)
             }
             return
-        } else if (controller !== activeController.value) {
+        }
+        if (controller === nativeAndroidVoiceInputController &&
+            event is VoiceInputEvent.ListeningStopped &&
+            backendOwnerSessionId != null
+        ) {
+            recordNativeTeardownSettle(backendOwnerSessionId)
+        }
+        if (controller !== activeController.value) {
             if (event is VoiceInputEvent.ListeningStopped && backendOwnerSessionId != null) {
                 outbound.emit(event.withCaptureSessionId(backendOwnerSessionId))
                 clearCaptureOwner(backendOwnerSessionId)

@@ -282,6 +282,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
     @Volatile
     private var activeSessionId: Long = 0L
+    @Volatile
+    private var activeSessionWanted: (() -> Boolean)? = null
 
     @Volatile
     private var startupFallbackJob: Job? = null
@@ -398,6 +400,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 )
             }
 
+            var admittedSessionId: Long? = null
             try {
                 if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
                 requestAudioFocus()
@@ -406,8 +409,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     return@withContext VoiceInputStartResult.Cancelled()
                 }
                 val sessionId = VoiceCaptureSessionIds.allocate()
+                admittedSessionId = sessionId
                 currentMode = mode
                 activeSessionId = sessionId
+                activeSessionWanted = isWanted
                 noSpeechRefreshCount = 0
                 readinessEmittedForSession = false
                 sessionStartRequestedAtMs = startRequestedAtMs
@@ -432,13 +437,22 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
                         return@withContext VoiceInputStartResult.Cancelled(sessionId)
                     }
-                    startRecognizer(
-                        sessionId = sessionId,
-                        mode = mode,
-                        availability = availability,
-                        backend = startBackend,
-                    )
+                    if (!startRecognizer(
+                            sessionId = sessionId,
+                            mode = mode,
+                            availability = availability,
+                            backend = startBackend,
+                            isWanted = isWanted,
+                        )
+                    ) {
+                        stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                        return@withContext VoiceInputStartResult.Cancelled(sessionId)
+                    }
                 } catch (startEx: Exception) {
+                    if (!isWanted()) {
+                        stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                        return@withContext VoiceInputStartResult.Cancelled(sessionId)
+                    }
                     // On-device recognizer failed to start (e.g. not installed, OOM). Clean up
                     // any partially-constructed recognizer before retrying with Platform, so we
                     // don't orphan an instance that could fire stale callbacks.
@@ -453,12 +467,21 @@ class NativeAndroidVoiceInputController @Inject constructor(
                             "On-device recognizer failed to start; retrying with platform backend",
                             startEx,
                         )
-                        startRecognizer(
-                            sessionId = sessionId,
-                            mode = mode,
-                            availability = availability,
-                            backend = RecognizerBackend.Platform,
-                        )
+                        if (!isWanted()) {
+                            stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                            return@withContext VoiceInputStartResult.Cancelled(sessionId)
+                        }
+                        if (!startRecognizer(
+                                sessionId = sessionId,
+                                mode = mode,
+                                availability = availability,
+                                backend = RecognizerBackend.Platform,
+                                isWanted = isWanted,
+                            )
+                        ) {
+                            stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                            return@withContext VoiceInputStartResult.Cancelled(sessionId)
+                        }
                     } else {
                         throw startEx
                     }
@@ -466,7 +489,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 VoiceInputStartResult.Started(sessionId)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Android native voice capture", e)
-                stopListeningInternal(emitStopped = false)
+                admittedSessionId?.let { stopListeningInternal(emitStopped = false, expectedSessionId = it) }
+                    ?: releaseAudioFocus()
                 VoiceInputStartResult.Unavailable(
                     e.message ?: "Failed to start Android speech recognition.",
                 )
@@ -504,6 +528,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         inPlaceRefreshJob?.cancel()
         inPlaceRefreshJob = null
         speechRecognizer = null
+        activeSessionWanted = null
         currentMode = null
         _inputLevel.value = 0f
         activeSessionId = 0L
@@ -538,7 +563,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
         availability: AndroidNativeRecognitionAvailability,
         backend: RecognizerBackend,
         isRefreshed: Boolean = false,
-    ) {
+        isWanted: () -> Boolean = {
+            activeSessionId == sessionId && activeSessionWanted?.invoke() == true
+        },
+    ): Boolean {
         val recognizer = when (backend) {
             RecognizerBackend.OnDevice -> recognitionSupport.createOnDeviceSpeechRecognizer()
             RecognizerBackend.Platform -> recognitionSupport.createPlatformSpeechRecognizer()
@@ -560,8 +588,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 backend = backend,
             ),
         )
-        recognizer.startListening(buildRecognizerIntent(availability))
+        val intent = buildRecognizerIntent(availability)
+        if (!isWanted()) return false
+        recognizer.startListening(intent)
         scheduleStartupFallback(sessionId, mode, availability, backend)
+        return true
     }
 
     private fun scheduleStartupFallback(
@@ -639,7 +670,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             try {
                 delay(REFRESH_SETTLE_MS)
                 if (activeSessionId != sessionId) return@launch
-                startRecognizer(
+                val started = startRecognizer(
                     sessionId = sessionId,
                     mode = mode,
                     availability = availability,
@@ -648,6 +679,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     backend = backend,
                     isRefreshed = true,
                 )
+                if (!started) {
+                    stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -694,13 +728,18 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 runCatching { cancel() }
                 runCatching { destroy() }
             }
-            startRecognizer(
+            val started = startRecognizer(
                 sessionId = sessionId,
                 mode = mode,
                 availability = availability,
                 backend = RecognizerBackend.Platform,
             )
-            true
+            if (!started) {
+                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                false
+            } else {
+                true
+            }
         }.getOrElse { error ->
             Log.e(TAG, "Failed to retry Android native STT with platform recognizer", error)
             false

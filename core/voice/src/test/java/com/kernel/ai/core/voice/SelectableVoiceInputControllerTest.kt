@@ -280,11 +280,10 @@ class SelectableVoiceInputControllerTest {
 
         nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
         runCurrent()
-        assertFalse(replacement.isCompleted)
-        advanceTimeBy(NATIVE_TEARDOWN_SETTLE_MS - 1)
+        advanceTimeBy(350)
         runCurrent()
         coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) }
-        advanceTimeBy(1)
+        advanceUntilIdle()
         runCurrent()
         assertEquals(VoiceInputStartResult.Started(2L), replacement.await())
         advanceUntilIdle()
@@ -329,6 +328,90 @@ class SelectableVoiceInputControllerTest {
 
         assertEquals(VoiceInputStartResult.Cancelled(), stale.await())
         assertEquals(VoiceInputStartResult.Started(2L), latest.await())
+        assertEquals(1, sherpaStarts)
+    }
+
+    @Test
+    fun `cancelled local-start waiter leaves native settle deadline for replacement`() = runTest(dispatcher) {
+        val nativeEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 1)
+        every { nativeAndroidVoiceInputController.events } returns nativeEvents
+        val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } just runs
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(1L)
+            VoiceInputStartResult.Started(1L)
+        }
+        var sherpaStarts = 0
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            sherpaStarts++
+            thirdArg<(Long) -> Unit>().invoke(2L)
+            VoiceInputStartResult.Started(2L)
+        }
+        val c = controller()
+        advanceUntilIdle()
+        assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
+
+        selected.value = VoiceInputEngine.SherpaZipformer
+        val first = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
+        runCurrent()
+        advanceTimeBy(200)
+        runCurrent()
+        first.cancel()
+        runCurrent()
+        assertTrue(first.isCancelled)
+
+        val replacement = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        assertFalse(replacement.isCompleted)
+        assertEquals(0, sherpaStarts)
+        advanceTimeBy(150)
+        runCurrent()
+        assertFalse(replacement.isCompleted)
+        assertEquals(0, sherpaStarts)
+
+        advanceUntilIdle()
+        assertEquals(VoiceInputStartResult.Started(2L), replacement.await())
+        assertEquals(1, sherpaStarts)
+    }
+
+    @Test
+    fun `drained native terminal still fences the next direct local start`() = runTest(dispatcher) {
+        val nativeEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 1)
+        every { nativeAndroidVoiceInputController.events } returns nativeEvents
+        val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(1L)
+            VoiceInputStartResult.Started(1L)
+        }
+        var sherpaStarts = 0
+        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            sherpaStarts++
+            thirdArg<(Long) -> Unit>().invoke(2L)
+            VoiceInputStartResult.Started(2L)
+        }
+        val c = controller()
+        advanceUntilIdle()
+        assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
+
+        nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
+        runCurrent()
+        assertFalse(c.hasCaptureOrStart())
+        selected.value = VoiceInputEngine.SherpaZipformer
+
+        val replacement = async { c.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        assertFalse(replacement.isCompleted)
+        advanceTimeBy(350)
+        runCurrent()
+        assertFalse(replacement.isCompleted)
+        assertEquals(0, sherpaStarts)
+
+        advanceUntilIdle()
+        assertEquals(VoiceInputStartResult.Started(2L), replacement.await())
         assertEquals(1, sherpaStarts)
     }
 
