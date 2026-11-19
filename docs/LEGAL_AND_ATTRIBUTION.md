@@ -4,7 +4,7 @@ This document supports #868 and the Play Store launch gate. It is a practical en
 
 ## Current position
 
-PR #1793 generates release-variant AboutLibraries data and CycloneDX SBOMs and verifies the exact release AAB against explicit native-library metadata. Final release acceptance still requires the exact-head verifier and device-level legal-surface checks to pass.
+PR #1793 generates release-variant AboutLibraries data and CycloneDX SBOMs. On the last verified release build (`9edad299`), all 249 resolved release modules had licence metadata, the nine packaged native library names were mapped, the six pinned notices matched the unsigned AAB, and `:app:verifyReleaseAttributionMetadata` passed. The build excludes Sherpa, Vosk, JNA, Piper, Inflect and wake-word payloads. Final acceptance still requires successful checks on the updated PR head and release-build device validation.
 
 The current release-attribution snapshot for #1263 is [`RELEASE_ATTRIBUTION_SIGNOFF.md`](RELEASE_ATTRIBUTION_SIGNOFF.md). Use that document as the short-form launch sign-off view, and use this document as the detailed inventory.
 
@@ -85,7 +85,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 
 | Engine/model | Role | Licence / terms | Launch treatment |
 |---|---|---|---|
-| Android native STT | Platform speech recognition path | Android platform/system service; offline behaviour device-dependent | Do not describe as guaranteed offline; include privacy/platform dependency wording. |
+| Android native STT | Release speech-input path | Android platform/system service; offline behaviour device-dependent | Release-visible; do not claim guaranteed offline recognition. |
 | Sherpa Zipformer STT | Optional/default Sherpa STT model | Sherpa model source/licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa SenseVoice STT | Optional Sherpa STT model | Model licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa Whisper tiny.en STT | Optional Sherpa STT model | Code comments indicate Apache-2.0; verify upstream model page | Document source/licence before shipping/download exposure. |
@@ -96,10 +96,10 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 
 | Engine/voice asset | Role | Licence / terms | Launch treatment |
 |---|---|---|---|
-| Android TTS | Platform TTS fallback | Android platform/system service | Safe fallback; document platform dependency. |
-| Piper runtime/project | Source project for Piper voices | MIT | Include MIT notice if Piper runtime/code is bundled; the project licence does not establish per-voice dataset provenance. |
-| rhasspy/piper-voices repository | Source for many Piper ONNX voice files | Hugging Face page lists `mit` for repository | Repository-level MIT is not enough for all dataset provenance; only CoriHigh is release-visible for v0.1 pending per-voice review of the remaining catalogue. |
-| en_GB-cori-high Piper voice | Release-visible British English female voice | Sourced from `rhasspy/piper-voices` (MIT-licensed repo); upstream model card identifies LibriVox (public domain) as dataset | Sole release-visible Piper voice for v0.1, based on the documented source and provenance. |
+| Android TTS | Release speech-output path | Android platform/system service | Sole v0.1 release TTS engine; voice availability depends on the installed Android engine. |
+| Piper runtime/project | Debug-only Piper voice playback | MIT | Not shipped or selectable in v0.1 release. Per-voice dataset provenance remains separate from the project licence. |
+| rhasspy/piper-voices repository | Source of debug-only Piper ONNX voices | Hugging Face page lists `mit` for repository | No Piper voices are release-visible in v0.1. Repository-level MIT does not establish every voice's dataset provenance. |
+| en_GB-cori-high Piper voice | Debug-only British English female voice | Sourced from `rhasspy/piper-voices` (MIT-licensed repo); upstream model card identifies LibriVox (public domain) as dataset | Excluded from v0.1 release, along with all other Piper voice packs and the Sherpa runtime. Source details are recorded for development, not release clearance. |
 | Kokoro experimental voice pack | Debug-only/post-launch TTS path for v0.1 | Exact app asset is Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage is recorded as Apache-2.0 | Not release-visible for v0.1 under #1014; this trace is not release sign-off. |
 
 ## External services and data sources
@@ -119,12 +119,7 @@ These are not all OSS attribution items, but they must be reflected in Play Stor
 
 ### #1258 / #1268 - Semaine voice pack
 
-Decision implemented in #1268:
-- Semaine is hidden from release builds (releaseVisible=false).
-- Retained for debug/internal research and future licence review.
-- Replacement: en_GB-cori-high voice pack (~116 MB, `rhasspy/piper-voices` MIT repository, upstream model card lists LibriVox public-domain dataset).
-
-Semaine is not deleted. If compatible rights are later obtained, Semaine can be re-enabled by setting releaseVisible=true.
+The earlier #1268 voice allowlist substituted en_GB-cori-high for Semaine. PR #1793 applies the stricter #1263 v0.1 release rule: **all Piper voices, including CoriHigh and Semaine, and their Sherpa runtime are debug/internal only and excluded from release**. Android TTS is the release speech-output path. This does not delete the development assets or resolve their future distribution terms.
 
 ### asr4all (#1979, #1980, #1987) - open blocker
 
@@ -150,9 +145,9 @@ Avoid promising that every feature is offline if a skill may call an external so
 - [x] #1268: Semaine is excluded from release. All Piper voices, including CoriHigh, are excluded from v0.1 release; this allowlist is not full #1263/#1474 release sign-off.
 - [x] #1263: release-attribution snapshot added in `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`.
 - [x] Wake-word training/provenance path is traceable through `training/wakeword/README.md` and `NOTICE`.
-- [x] Release runtime dependency evidence generated and compared against this table. Formal SBOM (CycloneDX/SPDX) not generated; Durable dependency review documented in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.
+- [x] Release runtime dependency evidence and CycloneDX SBOM generated from `releaseRuntimeClasspath` and checked against the AAB; see `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`. The earlier dependency review remains in `docs/release-audit/DEPENDENCY_EVIDENCE.md`.
 - [x] Vosk model provenance: no longer applicable. Vosk, its bundled model and its JNA dependency were removed under #1008.
 - [x] Nick confirmed ownership/consent for the real recordings used in the generated Hey Jandal Stage 3 wake-word model in [#1263 comment 6415038577](https://github.com/NickMonrad/kernel-ai-assistant/issues/1263#issuecomment-6415038577).
-- [ ] #1263: Implement and validate both offline in-app disclosure views required for v0.1 through #1260 Legal & Privacy; this requirement is not conditional on SBOM findings.
+- [ ] #1263: Both offline in-app disclosure views are implemented through #1260 Legal & Privacy; exact-head release-build device, accessibility and theme validation remain outstanding.
 - [ ] Play Store privacy/data disclosures match the actual release build.
 - [ ] Confirm #868's closed state still reflects the final release scope after the SBOM/AAB audit.
