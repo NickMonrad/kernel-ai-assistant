@@ -8,6 +8,7 @@ import com.kernel.ai.core.voice.SherpaSttModelSpec
 data class ReleaseAssetAttribution(
     val id: String,
     val name: String,
+    val purposeCategory: String,
     val sourceDisplay: String?,
     val licenceDisplay: String?,
     val lineageDisplay: String?,
@@ -69,9 +70,25 @@ object ReleaseAssetAttributionCatalog {
                 "Inflect Micro v2 ONNX duration/decode graph; exact artifact revision under review",
             )
         }
+        val purposeCategory = when (model) {
+            KernelModel.GEMMA_4_E2B, KernelModel.GEMMA_4_E4B -> "Conversation model"
+            KernelModel.ARCTIC_EMBED_M_V1_5 -> "Memory search embedding model"
+            KernelModel.ARCTIC_EMBED_V1_5_VOCAB -> "Memory search tokenizer"
+            KernelModel.MINI_LM -> "Intent classification model"
+            KernelModel.SHERPA_STT_ENCODER, KernelModel.SHERPA_STT_DECODER,
+            KernelModel.SHERPA_STT_JOINER, KernelModel.SHERPA_STT_TOKENS,
+            KernelModel.SHERPA_SENSEVOICE_MODEL, KernelModel.SHERPA_SENSEVOICE_TOKENS,
+            KernelModel.SHERPA_WHISPER_TINY_EN_ENCODER, KernelModel.SHERPA_WHISPER_TINY_EN_DECODER,
+            KernelModel.SHERPA_WHISPER_TINY_EN_TOKENS,
+            KernelModel.SHERPA_PARAFORMER_ENCODER, KernelModel.SHERPA_PARAFORMER_DECODER,
+            KernelModel.SHERPA_PARAFORMER_TOKENS -> "Speech recognition (STT) model"
+            KernelModel.INFLECT_MICRO_DURATION, KernelModel.INFLECT_MICRO_DECODE ->
+                "Speech synthesis (TTS) model"
+        }
         ReleaseAssetAttribution(
             id = "model:${model.name}",
             name = model.displayName,
+            purposeCategory = purposeCategory,
             sourceDisplay = details.first,
             licenceDisplay = details.second,
             lineageDisplay = details.third,
@@ -92,6 +109,7 @@ object ReleaseAssetAttributionCatalog {
             ReleaseAssetAttribution(
                 id = "stt:$fileName",
                 name = "${spec.displayLabel} · $fileName",
+                purposeCategory = row?.purposeCategory ?: "Speech recognition (STT) model",
                 sourceDisplay = row?.sourceDisplay,
                 licenceDisplay = row?.licenceDisplay,
                 lineageDisplay = row?.lineageDisplay,
@@ -104,6 +122,7 @@ object ReleaseAssetAttributionCatalog {
         ReleaseAssetAttribution(
             id = "piper:${voice.name}",
             name = "${voice.displayName} Piper voice pack",
+            purposeCategory = "Speech synthesis (TTS) voice",
             sourceDisplay = voice.downloadUrl,
             licenceDisplay = if (voice == SherpaPiperVoice.CoriHigh) {
                 "Piper repository MIT metadata; individual voice/data distribution terms under review"
@@ -119,6 +138,7 @@ object ReleaseAssetAttributionCatalog {
         ReleaseAssetAttribution(
             id = "kokoro:${voice.name}",
             name = "${voice.displayName} Kokoro voice pack",
+            purposeCategory = "Speech synthesis (TTS) voice",
             sourceDisplay = voice.downloadUrl,
             licenceDisplay = "Apache-2.0 recorded for Kokoro upstream; Sherpa pack terms under review",
             lineageDisplay = "Sherpa-ONNX ${voice.assetDirectoryName}; upstream hexgrad/Kokoro-82M and nvidia/kokoro-82M-onnx-opt",
@@ -127,16 +147,16 @@ object ReleaseAssetAttributionCatalog {
     }
 
     private val engineRows = listOf(
-        ReleaseAssetAttribution("stt:AndroidNative", "Android native speech recognizer", "Android platform speech recognition service", "Platform terms; device/provider-specific", "Runs on the device platform; offline availability varies", "Release-exposed platform service"),
-        ReleaseAssetAttribution("tts:AndroidTts", "Android text-to-speech", "Android platform text-to-speech service", "Platform terms; installed engine-specific", "Runs on the device platform", "Release fallback"),
-        ReleaseAssetAttribution("tts:SherpaExperimental", "Sherpa-ONNX Piper runtime", "Jandal's pinned Inflect-enabled Sherpa-ONNX AAR and Sherpa-ONNX project", null, "Sherpa-ONNX JNI runtime; exact native build source/notice mapping tracked by #1474", EXCLUDED),
-        ReleaseAssetAttribution("tts:InflectMicroExperimental", "Inflect Micro v2 TTS", "owensong/Inflect-Micro-v2-ONNX", "Apache-2.0 (upstream repository)", "Two ONNX graphs require the Inflect-enabled Sherpa-ONNX JNI extension", EXCLUDED),
-        ReleaseAssetAttribution("tts:KokoroExperimental", "Kokoro-82M TTS", "Sherpa-ONNX Kokoro voice-pack release", "Apache-2.0 recorded upstream; pack terms under review", "hexgrad/Kokoro-82M; nvidia/kokoro-82M-onnx-opt", "Debug-only/post-launch · excluded from v0.1"),
-        ReleaseAssetAttribution("wakeword:openwakeword-melspectrogram", "openWakeWord melspectrogram stage", "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx", "Terms for this exported model are unresolved; it is not distributed in v0.1.", "Pinned upstream artifact SHA-256 ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f", "Debug-only · excluded from v0.1 release"),
-        ReleaseAssetAttribution("wakeword:openwakeword-embedding", "openWakeWord embedding stage", "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx", "Terms for this exported model are unresolved; it is not distributed in v0.1.", "Pinned upstream artifact SHA-256 70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f", "Debug-only · excluded from v0.1 release"),
-        ReleaseAssetAttribution("wakeword:hey-jandal", "Hey Jandal wake-word classifier", "Jandal training/wakeword pipeline · app/src/main/assets/models/wakeword/hey_jandal.onnx", "Apache-2.0 (Jandal project)", "Jandal-specific Stage 3 classifier, SHA-256 11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206; training used consented maintainer/spouse recordings plus Piper-generated synthetic clips as recorded in training/wakeword/README.md", "Debug-only · excluded from v0.1 release"),
-        ReleaseAssetAttribution("asset:vocab", "Bundled tokenizer vocabulary", "Snowflake/snowflake-arctic-embed-m-v1.5 · revision e58a8f756156a1293d763f17e3aae643474e9b8a", "Apache-2.0", "WordPiece vocabulary, SHA-256 07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3", "Bundled in release"),
-        ReleaseAssetAttribution("asset:intent-vectors", "Bundled MiniLM intent phrase vectors", "Jandal-generated from the bundled MiniLM model, vocab.txt and intent_phrases.json", "Apache-2.0 (Jandal project)", "Hash-bound generated vector asset; generation and freshness checks are documented in docs/minilm-intent-phrase-vectors.md", "Bundled in release"),
+        ReleaseAssetAttribution("stt:AndroidNative", "Android native speech recognizer", "Speech recognition (STT) service", "Android platform speech recognition service", "Platform terms; device/provider-specific", "Runs on the device platform; offline availability varies", "Release-exposed platform service"),
+        ReleaseAssetAttribution("tts:AndroidTts", "Android text-to-speech", "Speech synthesis (TTS) service", "Android platform text-to-speech service", "Platform terms; installed engine-specific", "Runs on the device platform", "Release fallback"),
+        ReleaseAssetAttribution("tts:SherpaExperimental", "Sherpa-ONNX Piper runtime", "Speech synthesis (TTS) engine", "Jandal's pinned Inflect-enabled Sherpa-ONNX AAR and Sherpa-ONNX project", null, "Sherpa-ONNX JNI runtime; exact native build source/notice mapping tracked by #1474", EXCLUDED),
+        ReleaseAssetAttribution("tts:InflectMicroExperimental", "Inflect Micro v2 TTS", "Speech synthesis (TTS) engine", "owensong/Inflect-Micro-v2-ONNX", "Apache-2.0 (upstream repository)", "Two ONNX graphs require the Inflect-enabled Sherpa-ONNX JNI extension", EXCLUDED),
+        ReleaseAssetAttribution("tts:KokoroExperimental", "Kokoro-82M TTS", "Speech synthesis (TTS) engine", "Sherpa-ONNX Kokoro voice-pack release", "Apache-2.0 recorded upstream; pack terms under review", "hexgrad/Kokoro-82M; nvidia/kokoro-82M-onnx-opt", "Debug-only/post-launch · excluded from v0.1"),
+        ReleaseAssetAttribution("wakeword:openwakeword-melspectrogram", "openWakeWord melspectrogram stage", "Wake-word audio preprocessing", "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx", "Terms for this exported model are unresolved; it is not distributed in v0.1.", "Pinned upstream artifact SHA-256 ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f", "Debug-only · excluded from v0.1 release"),
+        ReleaseAssetAttribution("wakeword:openwakeword-embedding", "openWakeWord embedding stage", "Wake-word audio embedding", "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx", "Terms for this exported model are unresolved; it is not distributed in v0.1.", "Pinned upstream artifact SHA-256 70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f", "Debug-only · excluded from v0.1 release"),
+        ReleaseAssetAttribution("wakeword:hey-jandal", "Hey Jandal wake-word classifier", "Wake-word detection", "Jandal training/wakeword pipeline · app/src/main/assets/models/wakeword/hey_jandal.onnx", "Apache-2.0 (Jandal project)", "Jandal-specific Stage 3 classifier, SHA-256 11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206; training used consented maintainer/spouse recordings plus Piper-generated synthetic clips as recorded in training/wakeword/README.md", "Debug-only · excluded from v0.1 release"),
+        ReleaseAssetAttribution("asset:vocab", "Bundled tokenizer vocabulary", "Memory search tokenizer", "Snowflake/snowflake-arctic-embed-m-v1.5 · revision e58a8f756156a1293d763f17e3aae643474e9b8a", "Apache-2.0", "WordPiece vocabulary, SHA-256 07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3", "Bundled in release"),
+        ReleaseAssetAttribution("asset:intent-vectors", "Bundled MiniLM intent phrase vectors", "Intent matching vectors", "Jandal-generated from the bundled MiniLM model, vocab.txt and intent_phrases.json", "Apache-2.0 (Jandal project)", "Hash-bound generated vector asset; generation and freshness checks are documented in docs/minilm-intent-phrase-vectors.md", "Bundled in release"),
     )
 
     val entries: List<ReleaseAssetAttribution> = modelRows + sttRows + piperRows + kokoroRows + engineRows
