@@ -1,18 +1,26 @@
 # asr4all parity expectations. Text only; no audio in Git.
 # upstream futo-org/asr4all-s@87a6b5d093723fe37e9f69ad26307a3b95a31af0 (onnx/asr4all_onnx.py)
-# fixture sha256 010e545272bfbe2a58f7f3633886edd7e35fd6ca96ca70a1b6bdcacd88ed6ffd (16 kHz mono s16 wav, not committed)
-# S = trimmed onnx-min (c16r4, c32r8); M = pinned m bundle (c16r4, c32r8). Final outputs from matrix.sh; partial rows are pinned-driver streaming outputs at chunk 6.
+# fixture sha256 5b8e2fd35bf3d63db1e106eea1f2d860210572850c4d147f499506e761cf21f2 (16 kHz mono s16 wav; generated outside Git by scripts/generate_asr4all_parity_fixture.sh)
+# S = full official pinned onnx/ tree; M = full official pinned onnx/ tree. Finals from the pinned Python driver; partial PCEC at chunk index 6.
 # model	tier	mode	text
 
 # Pinned full-directory model identity: SHA-256 of every file in the selected model directory.
-# S is the exact trimmed onnx-min input; M is the exact pinned m bundle.
+# Both complete bundles contain 13 model files from their pinned official onnx/ trees.
+# asr4all_onnx.py is an adjacent reference helper, not a model file; its SHA-256 is pinned in the JVM test.
 # model-sha256	model	file	sha256
-# model-sha256	S	metadata.json	3242d2eb30fa4c353c766b76fdccf6f15a506864f3f9a7b4c248c049dd2e1f4e
-# model-sha256	S	stream_c16r4.onnx	9e1fc04c729606231a3a3f6794c92f790ba04eef5cdbf65d09ea5c1cb4ea8821
-# model-sha256	S	stream_c32r8.onnx	9075799dd97a16297f2948d460de2eefc248c793425de51aa220c7034be8fe21
+# model-sha256	S	asr4all.onnx.data	9e6b8b118bbbc0139ecd788825c1d993d82653db4ab63467476606bd7dc271e0
+# model-sha256	S	metadata.json	b73014a78a53883202752c6c451eb8aa4bd691e8eb96d7de083bb0c3b2894926
 # model-sha256	S	pcec_c16.onnx	b1a7c11bcdd123e87756e585f930f03fb9818f3569099e5b1e4d3a56ea25a04e
 # model-sha256	S	pcec_c16_flush.onnx	a1a716ad9932fc6956e025589a0563c0546ec6691f302b336cb867d35c16071b
-# model-sha256	S	asr4all.onnx.data	9e6b8b118bbbc0139ecd788825c1d993d82653db4ab63467476606bd7dc271e0
+# model-sha256	S	pcec_c64.onnx	ecd0fe45a97df4d55cd93e8370aa7247c0f6624151e9bbf6a9354f43f26e3e96
+# model-sha256	S	pcec_c64_flush.onnx	b6fe820e89d414c570db9b5c568915e5ae48961c205340617d54902fcc3388cd
+# model-sha256	S	stream_c128r24.onnx	594aa7b80ecb186e9dc612a2c58e4c6db6330bc3eee31c58d6085080757e77de
+# model-sha256	S	stream_c16r4.onnx	9e1fc04c729606231a3a3f6794c92f790ba04eef5cdbf65d09ea5c1cb4ea8821
+# model-sha256	S	stream_c256r32.onnx	2510876e2be3dda4ea654b88295ea607e87c4b1d6fa446d275340e599d766324
+# model-sha256	S	stream_c32r8.onnx	9075799dd97a16297f2948d460de2eefc248c793425de51aa220c7034be8fe21
+# model-sha256	S	stream_c512r8.onnx	fd53d23d2389d12fd0714cd4d131fd8aeb6308128f65c06fb636524b6e39b06f
+# model-sha256	S	stream_c64r16.onnx	81eef9e892591a001b29e7a92e3b819fc6367a8a0d84c87632a3a930f05b80ba
+# model-sha256	S	vad.onnx	2f5d03c3bd904938fdb2917f37d78792572fc7188cefad3a20e7ab3c7c993d3e
 # model-sha256	M	metadata.json	e32f62550eaf2de70fadf7bd043ee96e1e34a9c3cb74ca968e5d5f258538edc5
 # model-sha256	M	stream_c16r4.onnx	a91550578e1f02f2e53a99a6102969b862bc142a88c5dbe89d8eb96dc4758b3c
 # model-sha256	M	stream_c32r8.onnx	0e462a809e254026385e6deca4677ed961278918b17c64384acd82d000a3d24d
@@ -26,20 +34,19 @@
 # model-sha256	M	pcec_c64_flush.onnx	85089b3f00e874766f56646aaba7d47f73f3529d2321e59313fc7fcef241356e
 # model-sha256	M	vad.onnx	22a811e376a988ff5a59ea77288bd07077a9d5f910378b4152237efa6efe5187
 # model-sha256	M	asr4all.onnx.data	f915ab3cb21b0012b8c65214d8920b349ae8ddaa133511407b605dd8d6ae54a6
-S	stream_c16r4	offline_pcec	Weher like in p on tomorrow. Remind me to call them at five.
-S	stream_c16r4	offline_plain	weather like in p on tomorrow remind me to call m at five
-S	stream_c16r4	stream_pcec	Weher like in p on tomorrow. Remind me to call them at five.
-S	stream_c32r8	offline_pcec	Hey gandle, what weather like in Peton tomorrow? Remind me to call them at five.
-S	stream_c32r8	offline_plain	hey gandle what weather like in peton tomorrow remind me to call m at five
-S	stream_c32r8	stream_pcec	Hey gandle, what weather like in Peton tomorrow? Remind me to call them at five.
-# Intermediate PCEC partials at stream chunk index 6 (before finish), pinned driver outputs.
-S	stream_c16r4	partial_pcec	Weather like in p on to
-S	stream_c32r8	partial_pcec	Hey gandle.
-M	stream_c16r4	partial_pcec	Candandle, what is the weather like can p on?
-M	stream_c32r8	partial_pcec	A candandle, what is
-M	stream_c16r4	offline_pcec	Candandle, what is the weather like can p on tomorrow? Remind me to call my at five.
-M	stream_c16r4	offline_plain	he candle what is the weather like can pet on tomorrow remind me to call my at five
-M	stream_c16r4	stream_pcec	Candandle, what is the weather like can p on tomorrow? Remind me to call my at five.
-M	stream_c32r8	offline_pcec	A candle, what is the weather like can p on tomorrow? Remind me to call them at five.
-M	stream_c32r8	offline_plain	a candle what is the weather like can pet on tomorrow remind me to call the at five
-M	stream_c32r8	stream_pcec	A candle, what is the weather like can p on tomorrow? Remind me to call them at five.
+S	stream_c16r4	offline_pcec	Small green notebook is besides an open window. This is an speech fixture for offline recognition par. Not a real recording.
+S	stream_c16r4	offline_plain	small green notebook is besides it open window this is ynfabic sach fixture f offline recognition paroy not a real recording
+S	stream_c16r4	stream_pcec	Small green notebook is besides an open window. This is an speech fixture for offline recognition par. Not a real recording.
+S	stream_c32r8	offline_pcec	Small green notebook is besides an open window. This is a synthatic speech fixture for offline recognition par. Not a real record.
+S	stream_c32r8	offline_plain	small green notebook is besides it open window this is a synthatic sach fixture f offline recognition paroy not a real recardding
+S	stream_c32r8	stream_pcec	Small green notebook is besides an open window. This is a synthatic speech fixture for offline recognition par. Not a real record.
+S	stream_c16r4	partial_pcec	Small green notebook is besides it open.
+S	stream_c32r8	partial_pcec	Small green noteb.
+M	stream_c16r4	partial_pcec	Small Green Notebook is besided the open w.
+M	stream_c32r8	partial_pcec	Small reb
+M	stream_c16r4	offline_pcec	Small Green Notebook is besided the open window. This is a synthetic speech fixture far offline recognition parody. Not a real recording.
+M	stream_c16r4	offline_plain	mall green notebook is besided the open window this is a synthetic speech fixture far offline recognition parody not a real recording
+M	stream_c16r4	stream_pcec	Small Green Notebook is besided the open window. This is a synthetic speech fixture far offline recognition parody. Not a real recording.
+M	stream_c32r8	offline_pcec	Small Renebook is besided the open window. This is a synthetic speech fixture far offline recognition parody. Not a real recording.
+M	stream_c32r8	offline_plain	small renebook is besided the open window this is a synthetic speech fixture far offline recognition parody not a real recording
+M	stream_c32r8	stream_pcec	Small Renebook is besided the open window. This is a synthetic speech fixture far offline recognition parody. Not a real recording.

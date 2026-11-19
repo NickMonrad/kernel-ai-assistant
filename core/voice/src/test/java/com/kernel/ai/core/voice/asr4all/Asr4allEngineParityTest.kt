@@ -18,7 +18,7 @@ import javax.sound.sampled.AudioSystem
  * Expectations, model-file SHA-256 values, and partial outputs live in
  * `src/test/resources/asr4all/parity-expected.tsv` (text only). Audio and model files are never
  * committed. Inputs:
- *   ASR4ALL_MODEL_DIR     exact model dir (S: trimmed onnx-min, M: pinned m bundle)
+ *   ASR4ALL_MODEL_DIR     exact pinned model dir (S: full S bundle, M: full M bundle)
  *   ASR4ALL_PARITY_MODEL  S or M; selects the expected rows for that model dir
  *   ASR4ALL_FIXTURE_WAV   16 kHz mono s16 wav; its SHA-256 must equal the one in the expectation file
  *
@@ -242,7 +242,12 @@ private class ParityFile(
                 .mapValues { (_, entries) -> entries.toMap() }
             assertEquals(setOf("S", "M"), hashes.keys, "model hash manifest must cover exactly S and M")
             assertEquals(
-                setOf("metadata.json", "stream_c16r4.onnx", "stream_c32r8.onnx", "pcec_c16.onnx", "pcec_c16_flush.onnx", "asr4all.onnx.data"),
+                setOf(
+                    "metadata.json", "stream_c16r4.onnx", "stream_c32r8.onnx", "stream_c64r16.onnx",
+                    "stream_c128r24.onnx", "stream_c256r32.onnx", "stream_c512r8.onnx",
+                    "pcec_c16.onnx", "pcec_c16_flush.onnx", "pcec_c64.onnx", "pcec_c64_flush.onnx",
+                    "vad.onnx", "asr4all.onnx.data",
+                ),
                 hashes.getValue("S").keys,
                 "S model hash manifest file set differs",
             )
