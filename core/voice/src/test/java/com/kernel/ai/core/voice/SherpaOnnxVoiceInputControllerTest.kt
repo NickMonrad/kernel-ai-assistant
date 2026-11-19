@@ -580,6 +580,7 @@ class SherpaOnnxVoiceInputControllerTest {
 
         val firstResult = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
         val secondResult = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
+        runCurrent()
 
         verify(exactly = 1) { first.release() }
         verify(exactly = 0) { second.release() }
