@@ -515,7 +515,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
         }
     }
 
-    private fun stopListeningInternal(emitStopped: Boolean, expectedSessionId: Long? = null) {
+    private fun stopListeningInternal(
+        emitStopped: Boolean,
+        expectedSessionId: Long? = null,
+        cancelled: Boolean = false,
+    ) {
         if (expectedSessionId != null && activeSessionId != expectedSessionId) {
             return
         }
@@ -542,7 +546,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         releaseAudioFocus()
 
         if (emitStopped && mode != null) {
-            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = cancelled))
         }
     }
 
@@ -728,25 +732,37 @@ class NativeAndroidVoiceInputController @Inject constructor(
     private fun isSessionWanted(sessionId: Long): Boolean =
         activeSessionId == sessionId && activeSessionWanted?.invoke() == true
 
+    private fun cancelSupersededSession(sessionId: Long): PlatformRetryResult {
+        if (activeSessionId == sessionId) {
+            stopListeningInternal(
+                emitStopped = true,
+                expectedSessionId = sessionId,
+                cancelled = true,
+            )
+        }
+        return PlatformRetryResult.Superseded
+    }
+
     private fun retryWithPlatformRecognizer(
         sessionId: Long,
         mode: VoiceCaptureMode,
         availability: AndroidNativeRecognitionAvailability,
     ): PlatformRetryResult {
-        if (!isSessionWanted(sessionId)) return PlatformRetryResult.Superseded
+        if (activeSessionId != sessionId) return PlatformRetryResult.Superseded
+        if (!isSessionWanted(sessionId)) return cancelSupersededSession(sessionId)
         if (!allowPlatformFallback) return PlatformRetryResult.Failed
 
         cancelStartupFallback()
-        if (!isSessionWanted(sessionId)) return PlatformRetryResult.Superseded
+        if (!isSessionWanted(sessionId)) return cancelSupersededSession(sessionId)
 
         val previousRecognizer = speechRecognizer
-        if (!isSessionWanted(sessionId)) return PlatformRetryResult.Superseded
+        if (!isSessionWanted(sessionId)) return cancelSupersededSession(sessionId)
         previousRecognizer?.apply {
             runCatching { cancel() }
             runCatching { destroy() }
         }
         if (speechRecognizer === previousRecognizer) speechRecognizer = null
-        if (!isSessionWanted(sessionId)) return PlatformRetryResult.Superseded
+        if (!isSessionWanted(sessionId)) return cancelSupersededSession(sessionId)
 
         return try {
             val started = startRecognizer(
@@ -759,13 +775,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
             if (started) {
                 PlatformRetryResult.Started
             } else {
-                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
-                PlatformRetryResult.Superseded
+                cancelSupersededSession(sessionId)
             }
         } catch (error: Exception) {
             if (!isSessionWanted(sessionId)) {
-                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
-                PlatformRetryResult.Superseded
+                cancelSupersededSession(sessionId)
             } else {
                 Log.e(TAG, "Failed to retry Android native STT with platform recognizer", error)
                 PlatformRetryResult.Failed
@@ -789,7 +803,6 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private fun suppressSupersededWork(): Boolean {
             if (isSessionWanted(sessionId)) return false
             sessionCompleted = true
-            cancelStartupFallback()
             cancelSessionWatchdog()
             return true
         }
@@ -803,7 +816,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         sessionResultTimeoutMs(mode, hasSpeechProgress = heardSpeech || sawPartialTranscript)
                     }
                 )
-                if (sessionCompleted || suppressSupersededWork()) return@launch
+                if (sessionCompleted || activeSessionId != sessionId) return@launch
+                if (suppressSupersededWork()) return@launch
                 if (
                     shouldRetryWithPlatformAfterWatchdogTimeout(
                         backend = backend,

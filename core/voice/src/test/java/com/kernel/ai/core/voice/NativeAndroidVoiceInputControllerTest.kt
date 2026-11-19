@@ -674,6 +674,81 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     }
 
     @Test
+    fun `retired watchdog cannot cancel replacement startup fallback`() = runTest {
+        val firstRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val secondRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val firstListener = slot<RecognitionListener>()
+        val secondListener = slot<RecognitionListener>()
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returnsMany
+            listOf(firstRecognizer, secondRecognizer)
+        every { firstRecognizer.setRecognitionListener(capture(firstListener)) } just runs
+        every { secondRecognizer.setRecognitionListener(capture(secondListener)) } just runs
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val first = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true) as
+            VoiceInputStartResult.Started
+        firstListener.captured.onReadyForSpeech(mockk<Bundle>(relaxed = true))
+        runCurrent()
+        advanceTimeBy(5_000)
+        controller.stopListening()
+        val second = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true) as
+            VoiceInputStartResult.Started
+        assertTrue(second.captureSessionId > first.captureSessionId)
+
+        // A's six-second watchdog expires before B's 1.5-second readiness fallback.
+        advanceTimeBy(1_000)
+        runCurrent()
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+        advanceTimeBy(499)
+        runCurrent()
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+        advanceTimeBy(1)
+        runCurrent()
+
+        verify(exactly = 1) { recognitionSupport.createPlatformSpeechRecognizer() }
+        verify(exactly = 1) { platformRecognizer.startListening(any()) }
+        assertTrue(events.none { it is VoiceInputEvent.Error })
+        collector.cancel()
+    }
+
+    @Test
+    fun `superseded platform setup exception emits one cancelled terminal for its session`() = runTest {
+        val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val platformRecognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val listener = slot<RecognitionListener>()
+        var wanted = true
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer
+        every { recognitionSupport.createPlatformSpeechRecognizer() } returns platformRecognizer
+        every { onDeviceRecognizer.setRecognitionListener(capture(listener)) } just runs
+        every { platformRecognizer.setRecognitionListener(any()) } answers {
+            wanted = false
+            throw IllegalStateException("capture superseded during setup")
+        }
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val started = controller.startListening(
+            VoiceCaptureMode.Command,
+            allowPlatformFallback = true,
+            isWanted = { wanted },
+        ) as VoiceInputStartResult.Started
+        listener.captured.onError(SpeechRecognizer.ERROR_SERVER_DISCONNECTED)
+        runCurrent()
+
+        val stopped = events.filterIsInstance<VoiceInputEvent.ListeningStopped>()
+        assertEquals(1, stopped.size)
+        assertEquals(started.captureSessionId, stopped.single().captureSessionId)
+        assertTrue(stopped.single().cancelled)
+        assertTrue(events.none { it is VoiceInputEvent.Error })
+        verify(exactly = 0) { platformRecognizer.startListening(any()) }
+        collector.cancel()
+    }
+    @Test
     fun `without platform fallback an alert no-speech refresh stays on the on-device recognizer`() = runTest {
         val first = mockk<SpeechRecognizer>(relaxed = true)
         val second = mockk<SpeechRecognizer>(relaxed = true)
