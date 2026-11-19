@@ -1037,14 +1037,12 @@ fun KernelNavHost(
 
                 composable(ROUTE_OPEN_SOURCE_LICENSES) {
                     val context = androidx.compose.ui.platform.LocalContext.current
-                    val aboutLibrariesJson = remember {
-                        context.resources.openRawResource(com.kernel.ai.R.raw.aboutlibraries)
-                            .bufferedReader()
-                            .use { it.readText() }
-                    }
                     OpenSourceLicensesScreen(
                         onBack = { navController.popBackOrNavigateHome() },
-                        aboutLibrariesJson = aboutLibrariesJson,
+                        loadAboutLibrariesJson = {
+                            context.resources.openRawResource(com.kernel.ai.R.raw.aboutlibraries)
+                                .bufferedReader().use { it.readText() }
+                        },
                     )
                 }
 

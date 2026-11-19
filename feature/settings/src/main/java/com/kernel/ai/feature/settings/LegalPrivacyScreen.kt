@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -21,14 +22,28 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal const val PRIVACY_POLICY_URL = "https://nickmonrad.github.io/kernel-ai-assistant/privacy/"
 internal const val TERMS_OF_USE_URL = "https://nickmonrad.github.io/kernel-ai-assistant/terms/"
 private const val NOTICE_ASSET_PATH = "legal/NOTICE.txt"
+private val RUNTIME_NOTICES = listOf(
+    "LiteRT 2.1.0 licence" to "litert-2.1.0-licence.txt",
+    "LiteRT-LM 0.19.1 third-party notices" to "litert-lm-0.19.1-third-party-notices.txt",
+    "Android NDK r28c libc++ licence" to "ndk-r28c-libcxx-licence.txt",
+    "Android NDK r28c libc++abi licence" to "ndk-r28c-libcxxabi-licence.txt",
+    "ONNX Runtime 1.24.3 licence" to "onnxruntime-1.24.3-licence.txt",
+    "ONNX Runtime 1.24.3 third-party notices" to "onnxruntime-1.24.3-third-party-notices.txt",
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,13 +124,26 @@ fun LegalPrivacyScreen(
 @Composable
 fun OpenSourceLicensesScreen(
     onBack: () -> Unit,
-    aboutLibrariesJson: String,
+    loadAboutLibrariesJson: suspend () -> String,
 ) {
     val context = LocalContext.current
-    val notice = remember(context) {
-        context.assets.open(NOTICE_ASSET_PATH).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    val notice by produceState("", context) {
+        value = withContext(Dispatchers.IO) {
+            context.assets.open(NOTICE_ASSET_PATH).bufferedReader().use { it.readText() }
+        }
     }
-    val libraries = com.mikepenz.aboutlibraries.ui.compose.produceLibraries { aboutLibrariesJson }.value
+    var selectedNotice by rememberSaveable { mutableStateOf<String?>(null) }
+    val noticePages by produceState(emptyList<String>(), context, selectedNotice) {
+        value = emptyList()
+        val filename = selectedNotice ?: return@produceState
+        value = withContext(Dispatchers.IO) {
+            // Keep each layout small even for a vendor's multi-megabyte notice.
+            context.assets.open("legal/$filename").bufferedReader().useLines { lines ->
+                lines.chunked(48) { it.joinToString("\n") }.toList()
+            }
+        }
+    }
+    val libraries = com.mikepenz.aboutlibraries.ui.compose.produceLibraries(loadAboutLibrariesJson).value
 
     Scaffold(
         topBar = {
@@ -138,6 +166,26 @@ fun OpenSourceLicensesScreen(
                     SelectionContainer {
                         Text(notice, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                     }
+                }
+                RUNTIME_NOTICES.forEach { (title, filename) ->
+                    item(key = filename) {
+                        ListItem(
+                            modifier = Modifier.clickable {
+                                selectedNotice = if (selectedNotice == filename) null else filename
+                            },
+                            headlineContent = { Text(title) },
+                            supportingContent = { Text(if (selectedNotice == filename) "Hide notice" else "Read offline") },
+                        )
+                    }
+                    if (selectedNotice == filename) {
+                        items(noticePages) { page ->
+                            SelectionContainer {
+                                Text(page, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
+                            }
+                        }
+                    }
+                }
+                item {
                     Text("Resolved release dependencies", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp))
                 }
             },

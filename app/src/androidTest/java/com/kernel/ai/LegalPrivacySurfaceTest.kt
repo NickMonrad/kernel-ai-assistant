@@ -3,6 +3,7 @@ package com.kernel.ai
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -77,8 +78,11 @@ class LegalPrivacySurfaceTest {
             .use { it.readText() }
         composeRule.setContent {
             MaterialTheme {
-                OpenSourceLicensesScreen(onBack = {}, aboutLibrariesJson = aboutLibrariesJson)
+                OpenSourceLicensesScreen(onBack = {}, loadAboutLibrariesJson = { aboutLibrariesJson })
             }
+        }
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText(originalNotice).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(originalNotice).assertExists()
         composeRule.onNodeWithText("openWakeWord", substring = true).assertExists()

@@ -25,7 +25,7 @@ class ReleaseAssetAttributionCatalogTest {
     }
 
     @Test
-    fun releaseExposedEntriesHaveResolvedSourceLicenceAndLineage() {
+    fun releaseExposedEntriesDiscloseSourceLicenceStatusAndLineage() {
         val releaseEntries = ReleaseAssetAttributionCatalog.entries.filterNot {
             it.releaseStatus.contains("excluded", ignoreCase = true) ||
                 it.releaseStatus.contains("debug", ignoreCase = true) ||

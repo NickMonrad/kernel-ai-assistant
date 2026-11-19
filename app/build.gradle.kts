@@ -1,12 +1,11 @@
 import java.io.File
 import java.time.Instant
 import java.util.Properties
+import java.util.HexFormat
 import java.util.zip.ZipFile
-import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import java.security.MessageDigest
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
-import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import com.github.triplet.gradle.androidpublisher.ReleaseStatus
 import com.github.triplet.gradle.androidpublisher.ResolutionStrategy
 
@@ -363,7 +362,8 @@ tasks.register("verifyReleaseJniKeepRules") {
             "com.google.ai.edge.litertlm.LiteRtLmJni",
             "com.google.ai.edge.litertlm.LiteRtLmJniException",
             "com.google.ai.edge.litertlm.NativeLibraryLoader",
-            "com.k2fsa.sherpa.onnx.OfflineTts",
+            // No Sherpa JNI runtime is packaged in release until attribution is resolved.
+            // verifyReleaseAttributionMetadata checks this against the packaged native inventory.
             "org.tensorflow.lite.InterpreterFactoryImpl",
             "org.tensorflow.lite.NativeInterpreterWrapper",
             "org.tensorflow.lite.NativeInterpreterWrapperExperimental",
@@ -713,12 +713,9 @@ dependencies {
     implementation(project(":feature:widget"))
     implementation(project(":feature:convert"))
 
-    // Debug keeps the pinned Inflect-enabled Sherpa runtime for ongoing speech work. v0.1 release
-    // deliberately excludes this AAR until the complete distribution obligations are evidenced.
+    // Keep the Inflect/Piper/eSpeak runtime out of release until its distribution obligations are met.
     val inflectSherpaAar =
         rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar")
-    // The custom Sherpa/Piper/eSpeak AAR remains debug-only until #1474 closes its
-    // corresponding-source and notice obligations. v0.1 release uses platform speech.
     debugImplementation(files(inflectSherpaAar.absolutePath))
 
     implementation(platform(libs.compose.bom))
@@ -798,18 +795,34 @@ tasks.named<org.cyclonedx.gradle.CyclonedxDirectTask>("cyclonedxDirectBom") {
     xmlOutput = layout.buildDirectory.file("reports/sbom/release-runtime-bom.xml")
 }
 
+fun attributionSha256(stream: java.io.InputStream): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val buffer = ByteArray(64 * 1024)
+    while (true) {
+        val read = stream.read(buffer)
+        if (read == -1) break
+        digest.update(buffer, 0, read)
+    }
+    return HexFormat.of().formatHex(digest.digest())
+}
+
 tasks.register("verifyReleaseAttributionMetadata") {
     group = "verification"
-    description = "Checks releaseRuntimeClasspath licence coverage, local binary metadata, and packaged native libraries."
+    description = "Checks resolved release licences, local binaries, packaged native libraries and bundled wake-word assets."
     dependsOn("exportLibraryDefinitionsRelease", "cyclonedxDirectBom", "bundleRelease")
 
     val aboutLibrariesFile = layout.buildDirectory.file(
         "generated/aboutLibraries/release/res/raw/aboutlibraries.json",
     )
     val metadataFile = layout.projectDirectory.file("release-attribution-metadata.json")
+    val runtimeConfiguration = configurations.getByName("releaseRuntimeClasspath")
+    val runtimeFiles = runtimeConfiguration.allDependencies
+        .withType(org.gradle.api.artifacts.FileCollectionDependency::class.java)
     val bundleFile = layout.buildDirectory.file("outputs/bundle/release/app-release.aab")
     val reportFile = layout.buildDirectory.file("reports/release-audit/attribution-verification.json")
     inputs.files(aboutLibrariesFile, metadataFile, bundleFile)
+    inputs.files(provider { runtimeFiles.flatMap { it.files.files } })
+    inputs.dir(layout.projectDirectory.dir("src/main/assets/legal"))
     outputs.file(reportFile)
 
     doLast {
@@ -822,7 +835,6 @@ tasks.register("verifyReleaseAttributionMetadata") {
             val library = row as Map<*, *>
             library["uniqueId"].toString() to library
         }
-        val runtimeConfiguration = configurations.getByName("releaseRuntimeClasspath")
         val moduleIds = runtimeConfiguration.incoming.resolutionResult.allComponents
             .mapNotNull { component ->
                 (component.id as? ModuleComponentIdentifier)?.let { "${it.group}:${it.module}" }
@@ -846,10 +858,7 @@ tasks.register("verifyReleaseAttributionMetadata") {
         }
 
         val repositoryRoot = rootProject.projectDir.canonicalFile.toPath()
-        val fileDependencies = runtimeConfiguration.allDependencies
-            .withType(org.gradle.api.artifacts.FileCollectionDependency::class.java)
-            .flatMap { it.files.files }
-            .filter { it.isFile }
+        val fileDependencies = runtimeFiles.flatMap { it.files.files }
             .associate { file ->
                 val canonical = file.canonicalFile.toPath()
                 val relative = if (canonical.startsWith(repositoryRoot)) {
@@ -857,7 +866,7 @@ tasks.register("verifyReleaseAttributionMetadata") {
                 } else {
                     canonical.fileName.toString()
                 }
-                "file:$relative" to relative
+                "file:$relative" to file
             }
         val metadata = JsonSlurper().parse(metadataFile.asFile) as Map<*, *>
         val localRows = metadata["local_dependencies"] as? List<*> ?: emptyList<Any>()
@@ -875,9 +884,29 @@ tasks.register("verifyReleaseAttributionMetadata") {
                 errors += "$id has no reviewed licence expression; owner decision required."
             }
             val path = local["artifact_path"]?.toString()
-            if (path.isNullOrBlank() || !rootProject.file(path).isFile) errors += "$id is missing its artifact file."
-            val noticePath = local["required_notice"]?.toString()
-            if (noticePath.isNullOrBlank() || !rootProject.file(noticePath).isFile) errors += "$id is missing its required notice file."
+            val artifact = fileDependencies[id]
+            if (artifact == null || path.isNullOrBlank() || rootProject.file(path).canonicalFile != artifact.canonicalFile || !artifact.isFile) {
+                errors += "$id does not identify its resolved artifact file."
+            } else {
+                if (artifact.inputStream().use(::attributionSha256) != local["artifact_sha256"]) {
+                    errors += "$id does not match its reviewed SHA-256."
+                }
+            }
+            if (local["source_component"]?.toString().isNullOrBlank()) errors += "$id has no source component mapping."
+            val noticePath = local["required_notice"] as? String
+            val noticePrefix = "app/src/main/assets/"
+            if (noticePath == null || !noticePath.startsWith("${noticePrefix}legal/") ||
+                !rootProject.file(noticePath).isFile
+            ) {
+                errors += "$id is missing its required notice file."
+            } else {
+                ZipFile(bundleFile.get().asFile).use { zip ->
+                    val entry = zip.getEntry("base/assets/${noticePath.removePrefix(noticePrefix)}")
+                    if (entry == null || !zip.getInputStream(entry).use { it.readBytes().contentEquals(rootProject.file(noticePath).readBytes()) }) {
+                        errors += "$id is missing its exact required notice in the release bundle."
+                    }
+                }
+            }
         }
 
         val nativeRows = metadata["native_libraries"] as? List<*> ?: emptyList<Any>()
@@ -888,7 +917,7 @@ tasks.register("verifyReleaseAttributionMetadata") {
         val bundle = bundleFile.get().asFile
         val packagedNativeNames = ZipFile(bundle).use { zip ->
             zip.entries().asSequence()
-                .filter { !it.isDirectory && it.name.startsWith("base/lib/") && it.name.endsWith(".so") }
+                .filter { !it.isDirectory && it.name.matches(Regex("[^/]+/lib/[^/]+/[^/]+\\.so")) }
                 .map { it.name.substringAfterLast('/') }
                 .toSet()
         }
@@ -904,6 +933,39 @@ tasks.register("verifyReleaseAttributionMetadata") {
             if (sourceComponent.isNullOrBlank()) errors += "$name has no source component mapping."
         }
 
+        val wakeAssets = metadata["wake_word_assets"] as List<*>
+        val wakeByName = wakeAssets.associate { row ->
+            val asset = row as Map<*, *>
+            asset["name"].toString() to asset
+        }
+        val wakePrefix = "base/assets/models/wakeword/"
+        ZipFile(bundle).use { zip ->
+            val noticeAssets = metadata["native_notice_assets"] as Map<*, *>
+            check(noticeAssets.isNotEmpty()) { "No reviewed native notice assets declared." }
+            noticeAssets.forEach { (filename, expectedSha256) ->
+                val entry = zip.getEntry("base/assets/legal/$filename")
+                if (entry == null || zip.getInputStream(entry).use(::attributionSha256) != expectedSha256) {
+                    errors += "$filename is missing or differs from the reviewed native notice."
+                }
+            }
+            val packagedWakeAssets = zip.entries().asSequence()
+                .filter { !it.isDirectory && it.name.startsWith(wakePrefix) }
+                .associateBy { it.name.removePrefix(wakePrefix) }
+            if (packagedWakeAssets.keys != wakeByName.keys) {
+                errors += "Packaged wake-word asset metadata mismatch; missing=${(packagedWakeAssets.keys - wakeByName.keys).sorted()}, stale=${(wakeByName.keys - packagedWakeAssets.keys).sorted()}."
+            }
+            wakeByName.forEach { (name, row) ->
+                if (row["license_status"] != "reviewed" || (row["license_expression"] as? String).isNullOrBlank()) {
+                    errors += "$name has no reviewed licence expression for the bundled wake-word asset."
+                }
+                if ((row["source_component"] as? String).isNullOrBlank()) errors += "$name has no source mapping."
+                val entry = packagedWakeAssets[name] ?: return@forEach
+                if (zip.getInputStream(entry).use(::attributionSha256) != row["artifact_sha256"]) {
+                    errors += "$name does not match its reviewed SHA-256."
+                }
+            }
+        }
+
         val result = mapOf(
             "format" to "jandal-release-attribution-verification",
             "schema_version" to 1,
@@ -912,6 +974,7 @@ tasks.register("verifyReleaseAttributionMetadata") {
             "module_count_with_licence_metadata" to moduleIds.size - missingModuleLicences.size,
             "local_dependency_count" to fileDependencies.size,
             "packaged_native_library_count" to packagedNativeNames.size,
+            "bundled_wake_word_asset_count" to wakeByName.size,
             "status" to if (errors.isEmpty()) "verified" else "owner_review_required",
             "errors" to errors,
         )

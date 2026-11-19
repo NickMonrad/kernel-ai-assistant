@@ -24,8 +24,8 @@ PR #1793 adds reproducible release evidence from the resolved release variant:
 
 - AboutLibraries release dependency data for the offline Open-source licences view;
 - CycloneDX JSON and XML SBOMs from `releaseRuntimeClasspath`;
-- `:app:verifyReleaseAttributionMetadata`, which fails the build when a resolved release module lacks licence metadata, a local runtime file lacks explicit reviewed metadata, or the exact release AAB native-library set differs from the reviewed native inventory;
-- `app/release-attribution-metadata.json` for packaged native libraries that need explicit source/licence mapping beyond the Gradle dependency graph.
+- `:app:verifyReleaseAttributionMetadata`, which checks licence coverage for the resolved release modules and matches local binaries, packaged native libraries, notice files and bundled wake-word models against reviewed metadata;
+- `app/release-attribution-metadata.json` for explicit source/licence mappings and SHA-256 pins for the bundled notices and wake assets.
 
 The verifier runs against the exact AAB produced by `bundleRelease`. CI evidence for the final PR head must be green before this snapshot is treated as review-ready.
 
@@ -42,7 +42,7 @@ The verifier runs against the exact AAB produced by `bundleRelease`. CI evidence
 | Piper/Cori/Semaine voices | Debug/internal only | Excluded from v0.1. Cori provenance remains documented but is not release clearance. |
 | Inflect Micro | Debug/internal only | Upstream ONNX model is documented; runtime depends on the excluded custom Sherpa AAR. |
 | Kokoro | Debug/post-launch only | Sherpa package and upstream Kokoro lineage remain documented. |
-| openWakeWord Stage 1/2 | Bundled | Apache-2.0; bundled asset hashes recorded in the in-app catalogue. |
+| openWakeWord Stage 1/2 | Bundled in the candidate; **release blocked** | Both files hash-match the [openWakeWord v0.5.1 release](https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1). The [tagged README](https://github.com/dscripka/openWakeWord/blob/v0.5.1/README.md#license) distinguishes Apache-2.0 code from CC BY-NC-SA 4.0 pretrained models, but does not explicitly classify these two exports. |
 | Hey Jandal Stage 3 | Bundled | Jandal-generated classifier. The training record includes consented maintainer/spouse recordings plus Piper-generated synthetic clips; no third-party human recordings were used. |
 
 Vosk has been removed and is not part of the current release.
@@ -61,20 +61,24 @@ The app's existing About surface displays version name and version code.
 
 ## Native release inventory
 
-The exact release AAB is checked against `app/release-attribution-metadata.json`. Current expected source families are:
+The release AAB is checked against `app/release-attribution-metadata.json`. Expressions identify the named components' governing licences; packaged vendor notices carry additional third-party terms and copyright text.
 
-- LiteRT / LiteRT OpenCL accelerator — Apache-2.0;
-- AndroidX graphics-path and DataStore native support — Apache-2.0;
-- Android NDK libc++ — Apache-2.0 WITH LLVM-exception;
-- Jandal `libkernelvec.so` — Jandal JNI plus sqlite-vec (MIT) and SQLite (public domain);
-- LiteRT-LM JNI — Apache-2.0;
-- ONNX Runtime JNI/runtime — MIT.
+| Packaged libraries | Source and notice evidence |
+|---|---|
+| `libLiteRt.so`, `libLiteRtOpenClAccelerator.so` | `com.google.ai.edge.litert:litert:2.1.0` Android AAR supplies both JNI files and declares Apache-2.0 in the POM. The AAR's `LICENSE`, including its Caffe notice, is bundled. |
+| `libandroidx.graphics.path.so`, `libdatastore_shared_counter.so` | AndroidX `graphics-path:1.0.1` and `datastore-core-android:1.1.4` AARs supply these JNI files; their published POMs declare Apache-2.0. |
+| `libc++_shared.so` | Both packaged ABIs match `llvm-strip --strip-unneeded` output from NDK `28.2.13676358` byte-for-byte. Its `clang_source_info.md` identifies LLVM base revision [`3b5e7c83`](https://github.com/llvm/llvm-project/commit/3b5e7c83a6e226d5bd7ed2e9b67449b64812074c); the libc++ and libc++abi texts include the LLVM exception and legacy notices. |
+| `libkernelvec.so` | Jandal Apache-2.0 JNI, vendored [sqlite-vec 0.1.9](https://github.com/asg017/sqlite-vec/tree/v0.1.9) (MIT OR Apache-2.0; Jandal supplies the MIT notice), and [SQLite 3.49.2](https://www.sqlite.org/copyright.html) (public domain). |
+| `liblitertlm_jni.so` | `com.google.ai.edge.litertlm:litertlm-android:0.19.1` supplies the JNI file, Apache-2.0 licence and `THIRD_PARTY_NOTICE.txt`; the vendor notice is bundled. |
+| `libonnxruntime.so`, `libonnxruntime4j_jni.so` | Maven `com.microsoft.onnxruntime:onnxruntime-android:1.24.3` declares MIT. All eight JNI entries match those in `runtimes/android/native/onnxruntime.aar` from [Microsoft.ML.OnnxRuntime 1.24.3](https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime/1.24.3). The official package's `LICENSE` and `ThirdPartyNotices.txt` are bundled. |
 
-The custom Sherpa AAR, Sherpa JNI, Vosk and JNA are not expected in v0.1 after the release-scope correction. The fail-closed verifier must confirm the actual AAB rather than relying on this list.
+Vendor notice text is retained with LF line endings. The original Inflect AAR, Sherpa JNI, Vosk and JNA must not be packaged. The TTS-free Sherpa AAR in this branch is not a release dependency: the [Whisper ONNX export repository](https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/tree/d026532c022fa99fd789d6b32446a1df7b6bfc43) identifies no licence for the exact exported files. Its [export recipe](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/whisper/export-onnx.html) establishes lineage, not an express grant for that export.
 
 ## Remaining release acceptance
 
-The code/metadata work in #1793 is complete only when exact-head CI passes the release bundle, attribution verifier, unit tests, lint, Android test compilation and repository checks.
+The attribution verifier intentionally blocks the release on the two shared openWakeWord feature assets. Both match upstream bytes, but upstream's file-specific terms are still open in [openWakeWord #338](https://github.com/dscripka/openWakeWord/issues/338) and [#348](https://github.com/dscripka/openWakeWord/issues/348). Keep Hey Jandal's existing candidate behaviour until the owner can approve an evidenced licence determination or a replacement/exclusion; free distribution alone does not resolve the published wording.
+
+Do not mark #1793 ready until exact-head CI and the release attribution gate pass.
 
 The following remain release-acceptance activities outside this code repair and must not be claimed without evidence:
 

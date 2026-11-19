@@ -23,7 +23,7 @@ Google LiteRT Interpreter 2.1.0
 ONNX Runtime 1.24.3
   Copyright Microsoft Corporation
   Licensed under the MIT License
-  https://github.com/microsoft/onnxruntime/blob/v1.24.3/LICENSE
+  https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime/1.24.3
   Used: Android ONNX Runtime library and native runtime.
 
 Android NDK libc++
@@ -63,10 +63,12 @@ SQLite 3.49.2
 
 openWakeWord
   Copyright openWakeWord contributors
-  Licensed under the Apache License, Version 2.0
+  The openWakeWord source code is licensed under the Apache License, Version 2.0.
   https://github.com/dscripka/openWakeWord
-  Used/adapted: wake-word model lineage and wake-word detection approach for the
-  bundled "Hey Jandal" wake-word ONNX assets. The Jandal-specific Stage 3 model was
+  The separately published v0.5.1 feature backbones are used by the bundled
+  "Hey Jandal" detector; terms for those two files are pending clarification.
+  https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1
+  The Jandal-specific Stage 3 model was
   trained from consented maintainer/spouse recordings plus Piper-generated synthetic
   clips; training/wakeword/README.md records the detailed provenance. The Piper runtime
   and voice packs themselves are not distributed in the v0.1 release.

@@ -4,56 +4,87 @@
   "native_libraries": [
     {
       "name": "libLiteRt.so",
-      "source_component": "com.google.ai.edge.litert:litert",
+      "source_component": "com.google.ai.edge.litert:litert:2.1.0 (published Android AAR)",
       "license_expression": "Apache-2.0",
       "license_status": "reviewed"
     },
     {
       "name": "libLiteRtOpenClAccelerator.so",
-      "source_component": "com.google.ai.edge.litert:litert",
+      "source_component": "com.google.ai.edge.litert:litert:2.1.0 (published Android AAR)",
       "license_expression": "Apache-2.0",
       "license_status": "reviewed"
     },
     {
       "name": "libandroidx.graphics.path.so",
-      "source_component": "androidx.graphics:graphics-path",
+      "source_component": "androidx.graphics:graphics-path:1.0.1 (published Android AAR)",
       "license_expression": "Apache-2.0",
       "license_status": "reviewed"
     },
     {
       "name": "libc++_shared.so",
-      "source_component": "Android NDK libc++ shared runtime",
+      "source_component": "Android NDK r28c (28.2.13676358) libc++; AAB matches NDK llvm-strip --strip-unneeded output",
       "license_expression": "Apache-2.0 WITH LLVM-exception",
       "license_status": "reviewed"
     },
     {
       "name": "libdatastore_shared_counter.so",
-      "source_component": "androidx.datastore:datastore-core-android",
+      "source_component": "androidx.datastore:datastore-core-android:1.1.4 (published Android AAR)",
       "license_expression": "Apache-2.0",
       "license_status": "reviewed"
     },
     {
       "name": "libkernelvec.so",
       "source_component": "Jandal kernel_vec_jni.cpp + sqlite-vec 0.1.9 + SQLite 3.49.2",
-      "license_expression": "Apache-2.0 AND MIT AND LicenseRef-SQLite-Public-Domain",
+      "license_expression": "Apache-2.0 AND (MIT OR Apache-2.0) AND LicenseRef-SQLite-Public-Domain",
       "license_status": "reviewed"
     },
     {
       "name": "liblitertlm_jni.so",
-      "source_component": "com.google.ai.edge.litertlm:litertlm-android",
+      "source_component": "com.google.ai.edge.litertlm:litertlm-android:0.19.1 (published Android AAR)",
       "license_expression": "Apache-2.0",
       "license_status": "reviewed"
     },
     {
       "name": "libonnxruntime.so",
-      "source_component": "com.microsoft.onnxruntime:onnxruntime-android",
+      "source_component": "com.microsoft.onnxruntime:onnxruntime-android:1.24.3 (matched to Microsoft.ML.OnnxRuntime 1.24.3 Android JNI payload)",
       "license_expression": "MIT",
       "license_status": "reviewed"
     },
     {
       "name": "libonnxruntime4j_jni.so",
-      "source_component": "com.microsoft.onnxruntime:onnxruntime-android",
+      "source_component": "com.microsoft.onnxruntime:onnxruntime-android:1.24.3 (matched to Microsoft.ML.OnnxRuntime 1.24.3 Android JNI payload)",
       "license_expression": "MIT",
+      "license_status": "reviewed"
+    }
+  ],
+  "native_notice_assets": {
+    "litert-2.1.0-licence.txt": "71c6915d04265772a0339bed47276942c678b45cc01534210ebe6984fd1aec65",
+    "litert-lm-0.19.1-third-party-notices.txt": "5002d7ae99d7bfa56b8a97490fc05e6f65cbc97061333aa0e672654bedd7a4b1",
+    "ndk-r28c-libcxx-licence.txt": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
+    "ndk-r28c-libcxxabi-licence.txt": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
+    "onnxruntime-1.24.3-licence.txt": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+    "onnxruntime-1.24.3-third-party-notices.txt": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+  },
+  "wake_word_assets": [
+    {
+      "name": "melspectrogram.onnx",
+      "artifact_sha256": "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f",
+      "source_component": "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx",
+      "license_expression": null,
+      "license_status": "unresolved"
+    },
+    {
+      "name": "embedding_model.onnx",
+      "artifact_sha256": "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
+      "source_component": "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx",
+      "license_expression": null,
+      "license_status": "unresolved"
+    },
+    {
+      "name": "hey_jandal.onnx",
+      "artifact_sha256": "11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206",
+      "source_component": "Jandal Stage 3 classifier; training/wakeword/README.md; recording consent confirmed in issue #1263 comment 6415038577",
+      "license_expression": "Apache-2.0",
       "license_status": "reviewed"
     }
   ]
