@@ -47,14 +47,16 @@ class LegalPrivacySurfaceTest {
     }
 
     @Test
-    fun modelsAndPrivacySummaryNameThePendingReviewAndOwnerContent() {
+    fun modelAttributionNamesTheBundledWakeAssetSource() {
         composeRule.setContent {
             MaterialTheme {
                 ModelsVoicesWakeWordScreen(onBack = {})
             }
         }
         composeRule.onNodeWithText("Models, voices & wake word").assertIsDisplayed()
-        composeRule.onNodeWithText("Under review", substring = true).assertExists()
+        composeRule.onNodeWithText(
+            "Source: https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx",
+        ).assertExists()
     }
 
     @Test
