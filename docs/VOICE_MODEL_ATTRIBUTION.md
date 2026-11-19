@@ -6,7 +6,7 @@ This document supplements `docs/LEGAL_AND_ATTRIBUTION.md` for #868. It captures 
 
 | Asset family | App use | Source / lineage | Licence position | Release action |
 |---|---|---|---|---|
-| Hey Jandal ONNX activation assets | Bundled app assets used for local voice activation | Derived from the openWakeWord ecosystem | openWakeWord is Apache-2.0 | Keep openWakeWord attribution in `NOTICE`; record local generated asset provenance before Play Store release. |
+| Hey Jandal ONNX activation assets | Debug-only assets used for local voice-activation development | openWakeWord v0.5.1 shared Stage 1/2 exports; Jandal-generated Stage 3 classifier | Stage 1/2 file-specific terms remain unresolved; Stage 3 provenance is documented in `training/wakeword/README.md` | All three models are excluded from v0.1 release artifacts; enable release wake-word only after authoritative terms or replacement are recorded. |
 
 ## Sherpa-ONNX STT models
 

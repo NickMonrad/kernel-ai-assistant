@@ -65,13 +65,13 @@ openWakeWord
   Copyright openWakeWord contributors
   The openWakeWord source code is licensed under the Apache License, Version 2.0.
   https://github.com/dscripka/openWakeWord
-  The separately published v0.5.1 feature backbones are used by the bundled
-  "Hey Jandal" detector; terms for those two files are pending clarification.
+  The upstream v0.5.1 feature backbones and Jandal-specific Stage 3 classifier
+  remain in debug assets only and are excluded from the v0.1 release.
+  The file-specific terms for the Stage 1/2 exports remain unresolved.
   https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1
-  The Jandal-specific Stage 3 model was
-  trained from consented maintainer/spouse recordings plus Piper-generated synthetic
-  clips; training/wakeword/README.md records the detailed provenance. The Piper runtime
-  and voice packs themselves are not distributed in the v0.1 release.
+  The Stage 3 training record is in training/wakeword/README.md; debug fixtures
+  include consented maintainer/spouse recordings and Piper-generated synthetic clips.
+  The Piper runtime and voice packs themselves are not distributed in v0.1.
 
 asr4all speech recognition weights (Asr4All, 28M and 56M sizes)
   Licensed under the FUTO Model Weights License (Restricted Use) 1.0. The full text is

@@ -47,16 +47,16 @@ class LegalPrivacySurfaceTest {
     }
 
     @Test
-    fun modelAttributionNamesTheBundledWakeAssetSource() {
+    fun unresolvedWakeWordAssetsAreMarkedDebugOnly() {
         composeRule.setContent {
             MaterialTheme {
                 ModelsVoicesWakeWordScreen(onBack = {})
             }
         }
-        composeRule.onNodeWithText("Models, voices & wake word").assertIsDisplayed()
-        composeRule.onNodeWithText(
-            "Source: https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx",
-        ).assertExists()
+        composeRule.onNodeWithText("openWakeWord melspectrogram stage").assertExists()
+        composeRule.onNodeWithText("Terms for this exported model are unresolved; it is not distributed in v0.1.")
+            .assertExists()
+        composeRule.onNodeWithText("Debug-only · excluded from v0.1 release").assertExists()
     }
 
     @Test

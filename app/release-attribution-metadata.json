@@ -65,27 +65,5 @@
     "onnxruntime-1.24.3-licence.txt": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
     "onnxruntime-1.24.3-third-party-notices.txt": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
   },
-  "wake_word_assets": [
-    {
-      "name": "melspectrogram.onnx",
-      "artifact_sha256": "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f",
-      "source_component": "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx",
-      "license_expression": null,
-      "license_status": "unresolved"
-    },
-    {
-      "name": "embedding_model.onnx",
-      "artifact_sha256": "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
-      "source_component": "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx",
-      "license_expression": null,
-      "license_status": "unresolved"
-    },
-    {
-      "name": "hey_jandal.onnx",
-      "artifact_sha256": "11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206",
-      "source_component": "Jandal Stage 3 classifier; training/wakeword/README.md; recording consent confirmed in issue #1263 comment 6415038577",
-      "license_expression": "Apache-2.0",
-      "license_status": "reviewed"
-    }
-  ]
+  "wake_word_assets": []
 }

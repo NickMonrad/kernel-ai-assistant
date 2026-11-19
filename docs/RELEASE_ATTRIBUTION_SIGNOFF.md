@@ -13,7 +13,7 @@ The release build therefore uses:
 
 - Android native speech recognition for voice input;
 - Android text-to-speech for spoken output;
-- the bundled openWakeWord-based Hey Jandal detector, using its primary high-confidence detector path;
+- no wake-word model assets are included in the v0.1 release; the Hey Jandal detector is unavailable and its models remain debug-only;
 - no custom Sherpa/Piper/eSpeak AAR, Sherpa STT runtime, Piper voice pack, Inflect Micro runtime, or Kokoro runtime.
 
 Debug builds retain the full Sherpa/Inflect/Piper/Kokoro development paths.
@@ -24,8 +24,8 @@ PR #1793 adds reproducible release evidence from the resolved release variant:
 
 - AboutLibraries release dependency data for the offline Open-source licences view;
 - CycloneDX JSON and XML SBOMs from `releaseRuntimeClasspath`;
-- `:app:verifyReleaseAttributionMetadata`, which checks licence coverage for the resolved release modules and matches local binaries, packaged native libraries, notice files and bundled wake-word models against reviewed metadata;
-- `app/release-attribution-metadata.json` for explicit source/licence mappings and SHA-256 pins for the bundled notices and wake assets.
+- `:app:verifyReleaseAttributionMetadata`, which checks licence coverage for the resolved release modules and matches local binaries, packaged native libraries and notice files against reviewed metadata;
+- `app/release-attribution-metadata.json` for explicit source/licence mappings and SHA-256 pins for the bundled notices.
 
 The verifier runs against the exact AAB produced by `bundleRelease`. CI evidence for the final PR head must be green before this snapshot is treated as review-ready.
 
@@ -42,8 +42,7 @@ The verifier runs against the exact AAB produced by `bundleRelease`. CI evidence
 | Piper/Cori/Semaine voices | Debug/internal only | Excluded from v0.1. Cori provenance remains documented but is not release clearance. |
 | Inflect Micro | Debug/internal only | Upstream ONNX model is documented; runtime depends on the excluded custom Sherpa AAR. |
 | Kokoro | Debug/post-launch only | Sherpa package and upstream Kokoro lineage remain documented. |
-| openWakeWord Stage 1/2 | Bundled in the candidate; **release blocked** | Both files hash-match the [openWakeWord v0.5.1 release](https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1). The [tagged README](https://github.com/dscripka/openWakeWord/blob/v0.5.1/README.md#license) distinguishes Apache-2.0 code from CC BY-NC-SA 4.0 pretrained models, but does not explicitly classify these two exports. |
-| Hey Jandal Stage 3 | Bundled | Jandal-generated classifier. The training record includes consented maintainer/spouse recordings plus Piper-generated synthetic clips; no third-party human recordings were used. |
+| openWakeWord Stage 1/2 and Hey Jandal Stage 3 | Debug-only; excluded from v0.1 | The Stage 1/2 export terms are unresolved. All three assets are excluded from release artifacts; the attribution view and verifier require this exclusion. The Stage 3 classifier remains Jandal-generated with provenance recorded in `training/wakeword/README.md`. |
 
 Vosk has been removed and is not part of the current release.
 
@@ -76,7 +75,7 @@ Vendor notice text is retained with LF line endings. The original Inflect AAR, S
 
 ## Remaining release acceptance
 
-The attribution verifier intentionally blocks the release on the two shared openWakeWord feature assets. Both match upstream bytes, but upstream's file-specific terms are still open in [openWakeWord #338](https://github.com/dscripka/openWakeWord/issues/338) and [#348](https://github.com/dscripka/openWakeWord/issues/348). Keep Hey Jandal's existing candidate behaviour until the owner can approve an evidenced licence determination or a replacement/exclusion; free distribution alone does not resolve the published wording.
+The attribution verifier does not package or accept any wake-word model assets in v0.1. The openWakeWord Stage 1/2 export terms remain unresolved, so the shared Gradle asset source is excluded from release while debug builds retain the feature for development. Re-enable release wake-word assets only after an authoritative license determination or an acceptable replacement is recorded.
 
 Do not mark #1793 ready until exact-head CI and the release attribution gate pass.
 

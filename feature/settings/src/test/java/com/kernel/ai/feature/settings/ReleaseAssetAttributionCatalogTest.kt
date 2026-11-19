@@ -40,6 +40,18 @@ class ReleaseAssetAttributionCatalogTest {
     }
 
     @Test
+    fun wakeWordAssetsAreExplicitlyDebugOnly() {
+        val wakeWordEntries = ReleaseAssetAttributionCatalog.entries.filter { it.id.startsWith("wakeword:") }
+        assertEquals(3, wakeWordEntries.size)
+        assertTrue(wakeWordEntries.all { it.releaseStatus == "Debug-only · excluded from v0.1 release" })
+        assertTrue(wakeWordEntries.all { it.sourceText.isNotBlank() && it.lineageText.isNotBlank() })
+        assertTrue(
+            wakeWordEntries.filter { it.id != "wakeword:hey-jandal" }
+                .all { it.licenceText.contains("unresolved", ignoreCase = true) },
+        )
+    }
+
+    @Test
     fun unresolvedSherpaPiperAndKokoroEntriesAreExplicitlyExcludedFromV01() {
         val speechRuntimeEntries = ReleaseAssetAttributionCatalog.entries.filter {
             it.id.startsWith("stt:") && it.id != "stt:AndroidNative" ||

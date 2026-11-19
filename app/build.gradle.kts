@@ -8,6 +8,13 @@ import java.security.MessageDigest
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import com.github.triplet.gradle.androidpublisher.ReleaseStatus
 import com.github.triplet.gradle.androidpublisher.ResolutionStrategy
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.android.application)
@@ -304,12 +311,53 @@ android {
         }
     }
 }
+// The shared preprocessing exports have unresolved file-specific terms. Keep all three
+// wake-word assets available to debug builds, but exclude them from release artifacts.
+abstract class FilterReleaseAssetsTask : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val inputDirectory: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun filterAssets() {
+        val source = inputDirectory.get().asFile
+        val output = outputDirectory.get().asFile
+        output.deleteRecursively()
+        source.walkTopDown()
+            .filter { it.isFile }
+            .filterNot {
+                val path = it.relativeTo(source).invariantSeparatorsPath
+                path == "models/wakeword" || path.startsWith("models/wakeword/")
+            }
+            .forEach { file ->
+                val destination = output.resolve(file.relativeTo(source).path)
+                destination.parentFile.mkdirs()
+                file.copyTo(destination, overwrite = true)
+            }
+    }
+}
+
+val filterReleaseAssets = tasks.register<FilterReleaseAssetsTask>("filterReleaseAssets") {
+    inputDirectory.set(layout.projectDirectory.dir("src/main/assets"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/filteredReleaseAssets"))
+}
+android.sourceSets.getByName("main").assets.directories.clear()
 
 // Release builds (Play bundle and tester APK) report "<major.minor>.<versionCode>", with the
 // prefix taken from defaultConfig.versionName. The mapping is lazy, so it picks up the code
 // GPP's AUTO resolution assigns during a publish run.
 androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.sources.assets?.addStaticSourceDirectory("src/main/assets")
+    }
     onVariants(selector().withBuildType("release")) { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            filterReleaseAssets,
+            FilterReleaseAssetsTask::outputDirectory,
+        )
         variant.outputs.forEach { output ->
             output.versionName.set(output.versionCode.map { "$releaseVersionPrefix.$it" })
         }
