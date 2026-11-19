@@ -214,6 +214,7 @@ fun ModelsVoicesWakeWordScreen(onBack: () -> Unit) {
             ReleaseAssetAttributionCatalog.entries.forEach { asset ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Text(asset.name, style = MaterialTheme.typography.titleSmall)
+                    Text("Purpose / category: ${asset.purposeCategory}", style = MaterialTheme.typography.bodySmall)
                     Text("Source: ${asset.sourceText}", style = MaterialTheme.typography.bodySmall)
                     Text("Licence / terms: ${asset.licenceText}", style = MaterialTheme.typography.bodySmall)
                     Text("Lineage: ${asset.lineageText}", style = MaterialTheme.typography.bodySmall)
