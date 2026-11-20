@@ -53,4 +53,4 @@ These terms may be updated. The current version is published at this page with i
 
 Questions or reports: **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)**
 
-_Effective date: 18 November 2026._
+_Effective date: 20 November 2026._

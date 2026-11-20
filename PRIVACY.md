@@ -84,4 +84,4 @@ This policy may be updated when Jandal's features or the services it connects to
 
 Jandal AI is open-source software developed at [github.com/NickMonrad/kernel-ai-assistant](https://github.com/NickMonrad/kernel-ai-assistant). For privacy questions or requests, email **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)**.
 
-_Effective date: 14 November 2026._
+_Effective date: 20 November 2026._
