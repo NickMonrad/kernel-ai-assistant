@@ -102,6 +102,7 @@ fun LegalPrivacyScreen(
                 supportingContent = { Text("Licences for third-party software in Jandal") },
                 trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
             )
+            HorizontalDivider()
             ListItem(
                 modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenModelsVoicesWakeWord),
                 headlineContent = { Text("Models, voices & wake word") },
