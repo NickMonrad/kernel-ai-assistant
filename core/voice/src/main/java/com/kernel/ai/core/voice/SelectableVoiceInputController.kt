@@ -575,9 +575,10 @@ class SelectableVoiceInputController @Inject constructor(
 
     /**
      * Retires a superseded capture whose backend never settled. Keyed by owner because a hand-off
-     * re-keys the admission to a new backend id. A wedged native gets a settle window so the next
-     * native start waits before opening the mic. Consumers get a synthetic cancelled stop, and a
-     * backend terminal that arrives later is dropped with its admission.
+     * re-keys the admission to a new backend id. A wedged native records a settle window, which the
+     * next start awaits only when its engine is Sherpa-family or asr4all (settleNativeToLocal). Consumers
+     * get one synthetic cancelled stop, only if this call removed the admission; a backend terminal that
+     * arrives later is dropped with its admission.
      */
     private fun retireWedgedAdmission(ownerSessionId: Long, capture: AdmittedCapture) {
         if (capture.controller === nativeAndroidVoiceInputController) recordNativeTeardownSettle(ownerSessionId)
