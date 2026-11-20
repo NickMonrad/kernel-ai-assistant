@@ -593,6 +593,26 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
+    fun `a throw from the native start releases its held terminal and the fallback slot`() = runTest(dispatcher) {
+        val c = controller()
+        val seen = eventsOf(c)
+        coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(1L)
+            // The native stop is held while the fallback would decide; the throw must not strand it.
+            nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true))
+            throw IllegalStateException("binder died")
+        }
+
+        val failure = runCatching { c.startListening(mode) }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException, "the native throw must reach the caller")
+        advanceUntilIdle()
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+    }
+
+    @Test
     fun `native reservation failure keeps capture activity fenced while zipformer fallback is pending`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {

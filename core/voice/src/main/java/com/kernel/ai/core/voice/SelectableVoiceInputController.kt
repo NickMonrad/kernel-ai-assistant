@@ -748,16 +748,22 @@ class SelectableVoiceInputController @Inject constructor(
         val nativeStart = NativeStartFallback()
         nativeStartFallback = nativeStart
         var nativeSessionId: Long? = null
-        val nativeResult = nativeAndroidVoiceInputController.startListening(
-            mode,
-            allowOnlineFallback,
-            onSessionAdmitted = { sessionId ->
-                nativeSessionId = sessionId
-                nativeStart.sessionId = sessionId
-                admitSession(gen, nativeAndroidVoiceInputController, sessionId, mode, onSessionAdmitted)
-            },
-            isWanted = { gen == generation.get() },
-        )
+        val nativeResult = try {
+            nativeAndroidVoiceInputController.startListening(
+                mode,
+                allowOnlineFallback,
+                onSessionAdmitted = { sessionId ->
+                    nativeSessionId = sessionId
+                    nativeStart.sessionId = sessionId
+                    admitSession(gen, nativeAndroidVoiceInputController, sessionId, mode, onSessionAdmitted)
+                },
+                isWanted = { gen == generation.get() },
+            )
+        } catch (e: Throwable) {
+            // A throw from the native start must still release the held terminal and the fallback slot.
+            endNativeStart(nativeStart)
+            throw e
+        }
         if (nativeResult is VoiceInputStartResult.Started) {
             endNativeStart(nativeStart)
             if (gen != generation.get()) {
