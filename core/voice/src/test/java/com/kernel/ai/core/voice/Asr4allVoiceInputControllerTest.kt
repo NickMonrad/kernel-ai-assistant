@@ -11,6 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -407,6 +408,54 @@ class Asr4allVoiceInputControllerTest {
                 Dispatchers.resetMain()
             }
         }
+    @Test
+    fun `a reselect during the final preference read keeps the warm engine for the new capture`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller()
+            val preferenceReadEntered = CountDownLatch(1)
+            val allowPreferenceRead = CompletableDeferred<Boolean>()
+            try {
+                firstFrame = CountDownLatch(1)
+                startedId(c.startListening(VoiceCaptureMode.Command))
+                assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+
+                val releaseEpoch = c.supersedeCaptureIfAdmissionEpoch(c.admissionEpochNow())
+                assertTrue(releaseEpoch != null)
+                assertTrue(micReleasedSignal.tryAcquire(1, 5, TimeUnit.SECONDS))
+
+                var preferenceReads = 0
+                val release = async {
+                    c.releaseEngineIf(releaseEpoch!!) {
+                        preferenceReads++
+                        if (preferenceReads == 3) {
+                            preferenceReadEntered.countDown()
+                            allowPreferenceRead.await()
+                        } else {
+                            true
+                        }
+                    }
+                }
+                assertTrue(
+                    preferenceReadEntered.await(5, TimeUnit.SECONDS),
+                    "the stale release must be suspended at its final preference read",
+                )
+
+                c.supersedeCapture()
+                firstFrame = CountDownLatch(1)
+                val replacement = async { startedId(c.startListening(VoiceCaptureMode.Command)) }
+                allowPreferenceRead.complete(true)
+
+                assertFalse(release.await(), "the newer admission epoch must defeat the stale engine release")
+                replacement.await()
+                assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+                assertEquals(listOf("open#1"), log.filter { it.startsWith("open#") })
+                assertFalse(log.contains("close#1"), "the warm engine remains available to the replacement")
+                c.releaseEngine()
+            } finally {
+                allowPreferenceRead.complete(false)
+            }
+        }
+
 
 
     @Test

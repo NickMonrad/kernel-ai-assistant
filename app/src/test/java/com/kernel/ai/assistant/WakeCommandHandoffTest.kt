@@ -337,6 +337,87 @@ class WakeCommandHandoffTest {
         assertEquals(listOf(12L), controller.startCalls)
         assertEquals(1, rearmCount)
     }
+    @Test
+    fun `camera yield during retryable error teardown prevents retry and fresh handoff still works`() = runTest {
+        val detector = OrderingDetector(mutableListOf())
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(13L), VoiceInputStartResult.Started(15L)),
+            sharedOrder = mutableListOf(),
+        ).apply { requireTeardown(13L) }
+        var capturePermitted = true
+        var captureGeneration = 0L
+        var routedCount = 0
+        var terminalCount = 0
+        val handoff = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 10L,
+                routeTranscript = { routedCount++; true },
+                onSessionTerminal = { terminalCount++ },
+                capturePermitted = { capturePermitted },
+                captureGeneration = captureGeneration,
+                currentCaptureGeneration = { captureGeneration },
+            )
+        }
+        runCurrent()
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, 13L))
+        controller.emit(
+            VoiceInputEvent.Error(
+                VoiceCaptureMode.AlertCommand,
+                "temporary recognizer failure",
+                captureSessionId = 13L,
+                category = "recognizer_failure",
+            ),
+        )
+        runCurrent()
+        assertFalse(handoff.isCompleted, "the retryable error waits for physical teardown")
+        assertEquals(listOf(13L), controller.startCalls)
+
+        capturePermitted = false
+        captureGeneration++
+        capturePermitted = true
+        controller.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, 13L))
+        runCurrent()
+        assertEquals(listOf(13L), controller.startCalls, "the yielded handoff must skip its retry")
+        handoff.join()
+        assertEquals(listOf(13L), controller.startCalls, "a yielded handoff must not retry")
+        assertEquals(0, routedCount)
+        assertEquals(1, terminalCount)
+
+        val freshDetector = OrderingDetector(mutableListOf())
+        val freshController = RecordingController(
+            detectorReleased = { freshDetector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(14L)),
+            sharedOrder = mutableListOf(),
+        )
+        val freshHandoff = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = freshDetector,
+                voiceInputController = freshController,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 11L,
+                routeTranscript = { routedCount++; true },
+                onSessionTerminal = { terminalCount++ },
+                capturePermitted = { capturePermitted },
+                captureGeneration = captureGeneration,
+                currentCaptureGeneration = { captureGeneration },
+            )
+        }
+        runCurrent()
+        freshController.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, 14L))
+        freshController.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "fresh request", 14L))
+        runCurrent()
+        freshHandoff.join()
+        assertEquals(listOf(14L), freshController.startCalls)
+        assertEquals(1, routedCount, "a later fresh handoff may route normally")
+        assertEquals(2, terminalCount)
+    }
+
 
 
     @Test

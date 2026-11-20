@@ -503,19 +503,34 @@ class Asr4allVoiceInputController @Inject constructor(
         isStillUnselected: suspend () -> Boolean,
     ): Boolean = startLock.withLock {
         suspend fun releaseStillCurrent(): Boolean =
-            admissionEpochNow() == expectedAdmissionEpoch && isStillUnselected()
+            isStillUnselected() && admissionEpochNow() == expectedAdmissionEpoch
 
         if (!releaseStillCurrent()) return@withLock false
         activeJob?.join()
         lastCapture?.reader?.join()
         if (!releaseStillCurrent()) return@withLock false
         withContext(Dispatchers.IO) {
-            if (!releaseStillCurrent()) {
+            if (!isStillUnselected()) {
                 false
             } else {
-                engine?.close()
-                engine = null
-                true
+                // Claim the close while the epoch is locked. A tap that advanced the epoch during
+                // the suspending preference read keeps the warm engine; a later tap waits for this
+                // close under startLock and reopens it normally.
+                var ownershipCurrent = false
+                val engineToClose = synchronized(captureLock) {
+                    if (admissionEpoch != expectedAdmissionEpoch) {
+                        null
+                    } else {
+                        ownershipCurrent = true
+                        engine.also { engine = null }
+                    }
+                }
+                if (!ownershipCurrent) {
+                    false
+                } else {
+                    engineToClose?.close()
+                    true
+                }
             }
         }
     }

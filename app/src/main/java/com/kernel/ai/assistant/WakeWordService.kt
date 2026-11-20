@@ -507,13 +507,12 @@ internal suspend fun runWakeCommandHandoff(
 
     try {
         val sessionResult = runWakeCaptureSession(onFinalError = onError) { attempt ->
-            // #1502: the microphone can be yielded mid-session (Honor Camera taking the
-            // foreground). Starting another attempt would take it straight back and block
-            // camera recording again, so the retry loop is closed instead.
-            if (!capturePermitted()) {
+            // A camera yield invalidates this handoff across the teardown suspend, even if capture
+            // becomes permitted again before the retry is considered.
+            if (!capturePermitted() || currentCaptureGeneration() != captureGeneration) {
                 throw WakeAttemptCollectionException(
                     category = "wake_capture_suspended",
-                    cause = IllegalStateException("wake capture suspended before attempt $attempt"),
+                    cause = IllegalStateException("wake capture yielded before attempt $attempt"),
                 )
             }
             runWakeAttempt(
