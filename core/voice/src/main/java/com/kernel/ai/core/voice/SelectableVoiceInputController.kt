@@ -554,7 +554,10 @@ class SelectableVoiceInputController @Inject constructor(
                 }
                 val teardown = capture.teardown
                 // A wedged backend must not block every later start. On timeout its admission is
-                // retired so the next start proceeds; the backend may still hold the mic.
+                // retired so the next start proceeds, but the backend may still hold the mic. A wedged
+                // Sherpa can also still block inside its session mutex (joins of the previous job and
+                // reader); that is why retirement, not a clean settle, is the only bound here. Once
+                // retired, capture activity goes false while that backend may still hold the mic.
                 // Retire by owner key: after a Native->Zipformer hand-off the backend id is Zipformer's,
                 // so retiring by backend id found no entry and the loop re-waited forever.
                 if (teardown != null && withTimeoutOrNull(BACKEND_TEARDOWN_TIMEOUT_MS) { teardown.await() } == null) {
