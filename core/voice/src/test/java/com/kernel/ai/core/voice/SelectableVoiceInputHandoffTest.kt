@@ -562,6 +562,37 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
+    fun `a retired wedged capture gets one synthetic cancelled stop and its late terminal is dropped`() =
+        runTest(dispatcher) {
+            val c = controller()
+            val seen = eventsOf(c)
+            assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
+            nativeEvents.emit(VoiceInputEvent.ListeningStarted(mode, 1L))
+            coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+                thirdArg<(Long) -> Unit>().invoke(2L)
+                VoiceInputStartResult.Started(2L)
+            }
+
+            // Session 1 never emits its terminal. Retirement must tell consumers it ended.
+            val second = async { c.startListening(mode) }
+            advanceTimeBy(BACKEND_TEARDOWN_TIMEOUT_MS)
+            runCurrent()
+            assertTrue(second.isCompleted)
+            assertEquals(
+                listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+                seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+            )
+
+            // The backend's late, uncancelled terminal must not duplicate the stop.
+            nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
+            advanceUntilIdle()
+            assertEquals(
+                listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+                seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+            )
+        }
+
+    @Test
     fun `native reservation failure keeps capture activity fenced while zipformer fallback is pending`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {

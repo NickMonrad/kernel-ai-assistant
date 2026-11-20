@@ -143,6 +143,7 @@ private data class AdmittedCapture(
     val controller: VoiceInputController,
     val backendSessionId: Long,
     val generation: Long,
+    val mode: VoiceCaptureMode,
     val teardown: CompletableDeferred<Unit>? = null,
 )
 private data class BackendCaptureKey(val controller: VoiceInputController, val sessionId: Long)
@@ -348,6 +349,7 @@ class SelectableVoiceInputController @Inject constructor(
         gen: Long,
         controller: VoiceInputController,
         sessionId: Long,
+        mode: VoiceCaptureMode,
         onSessionAdmitted: (Long) -> Unit,
     ) {
         synchronized(captureOwnerLock) {
@@ -356,6 +358,7 @@ class SelectableVoiceInputController @Inject constructor(
             }
             admittedControllers[sessionId] = AdmittedCapture(
                 controller = controller,
+                mode = mode,
                 backendSessionId = sessionId,
                 generation = gen,
                 teardown = CompletableDeferred(),
@@ -556,11 +559,23 @@ class SelectableVoiceInputController @Inject constructor(
                 // so retiring by backend id found no entry and the loop re-waited forever.
                 if (teardown != null && withTimeoutOrNull(BACKEND_TEARDOWN_TIMEOUT_MS) { teardown.await() } == null) {
                     Log.w(TAG, "backend for session ${capture.backendSessionId} (owner $ownerSessionId) did not settle; retiring its admission")
-                    retireAdmission(ownerSessionId)
+                    retireWedgedAdmission(ownerSessionId, capture)
                 }
             }
         }
         return false
+    }
+
+    /**
+     * Retires a superseded capture whose backend never settled. Keyed by owner because a hand-off
+     * re-keys the admission to a new backend id. A wedged native gets a settle window so the next
+     * native start waits before opening the mic. Consumers get a synthetic cancelled stop, and a
+     * backend terminal that arrives later is dropped with its admission.
+     */
+    private fun retireWedgedAdmission(ownerSessionId: Long, capture: AdmittedCapture) {
+        if (capture.controller === nativeAndroidVoiceInputController) recordNativeTeardownSettle(ownerSessionId)
+        retireAdmission(ownerSessionId)
+        outbound.tryEmit(VoiceInputEvent.ListeningStopped(capture.mode, ownerSessionId, cancelled = true))
     }
 
     private suspend fun startListeningInternal(
@@ -736,7 +751,7 @@ class SelectableVoiceInputController @Inject constructor(
             onSessionAdmitted = { sessionId ->
                 nativeSessionId = sessionId
                 nativeStart.sessionId = sessionId
-                admitSession(gen, nativeAndroidVoiceInputController, sessionId, onSessionAdmitted)
+                admitSession(gen, nativeAndroidVoiceInputController, sessionId, mode, onSessionAdmitted)
             },
             isWanted = { gen == generation.get() },
         )
@@ -771,7 +786,7 @@ class SelectableVoiceInputController @Inject constructor(
                     isWanted = { gen == generation.get() },
                     onSessionAdmitted = { sessionId ->
                         fallbackSessionId = sessionId
-                        admitSession(gen, sherpaOnnxVoiceInputController, sessionId, onSessionAdmitted)
+                        admitSession(gen, sherpaOnnxVoiceInputController, sessionId, mode, onSessionAdmitted)
                     },
                 )
                 fallbackResult = result
@@ -867,7 +882,7 @@ class SelectableVoiceInputController @Inject constructor(
             isWanted = { gen == generation.get() },
             onSessionAdmitted = { sessionId ->
                 reservedSessionId = sessionId
-                admitSession(gen, sherpaOnnxVoiceInputController, sessionId, onSessionAdmitted)
+                admitSession(gen, sherpaOnnxVoiceInputController, sessionId, mode, onSessionAdmitted)
             },
         )
         if (result is VoiceInputStartResult.Started && gen != generation.get()) {
@@ -898,7 +913,7 @@ class SelectableVoiceInputController @Inject constructor(
             },
             onSession = { sessionId ->
                 asr4allSessionAdmission[sessionId] = Asr4allAdmission(seq, epoch, gen)
-                admitSession(gen, asr4allVoiceInputController, sessionId, onSessionAdmitted)
+                admitSession(gen, asr4allVoiceInputController, sessionId, mode, onSessionAdmitted)
             },
         )
         if (result is VoiceInputStartResult.Started && gen != generation.get()) {
