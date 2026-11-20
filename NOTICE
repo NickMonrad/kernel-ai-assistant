@@ -55,12 +55,14 @@ openWakeWord
 asr4all speech recognition weights (FUTO Asr4All, 28M and 56M sizes)
   Licensed under the FUTO Model Weights License (Restricted Use) 1.0. The full text is
   shown at the end of this screen and bundled as legal/FUTO-Model-Weights-License-1.0.txt.
-  https://huggingface.co/futo-org/asr4all-s/blob/main/LICENSE
-  https://huggingface.co/futo-org/asr4all-m/blob/main/LICENSE
+  https://huggingface.co/futo-org/asr4all-s/blob/87a6b5d093723fe37e9f69ad26307a3b95a31af0/LICENSE
+  https://huggingface.co/futo-org/asr4all-m/blob/7d6e9145109a5bece4f05831d046e93d27e38a99/LICENSE
   Used: unmodified ONNX speech-recognition weights downloaded from FUTO's Hugging Face
-  repositories. Commercial use is permitted. The Limitations section prohibits
-  surveillance, profiling and discrimination, intelligence gathering, monitoring people
-  in custody, targeting protected activity, and circumvention of those limits.
+  repositories (asr4all-s at revision 87a6b5d0, asr4all-m at revision 7d6e9145). Commercial
+  use is permitted. The Limitations section prohibits surveillance, profiling and
+  discrimination, intelligence gathering, monitoring people in custody, targeting protected
+  activity, and circumvention of those limits. asr4all-l-plus is under a different licence
+  and is not covered by this entry.
 
 Additional third-party libraries and downloadable model/voice assets
   Jandal AI depends on third-party Android/Kotlin libraries, local inference runtimes,
