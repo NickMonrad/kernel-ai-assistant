@@ -715,17 +715,21 @@ class SelectableVoiceInputController @Inject constructor(
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult {
         activate(nativeAndroidVoiceInputController)
+        val nativeStart = NativeStartFallback()
+        nativeStartFallback = nativeStart
         var nativeSessionId: Long? = null
         val nativeResult = nativeAndroidVoiceInputController.startListening(
             mode,
             allowOnlineFallback,
             onSessionAdmitted = { sessionId ->
                 nativeSessionId = sessionId
+                nativeStart.sessionId = sessionId
                 admitSession(gen, nativeAndroidVoiceInputController, sessionId, onSessionAdmitted)
             },
             isWanted = { gen == generation.get() },
         )
         if (nativeResult is VoiceInputStartResult.Started) {
+            endNativeStart(nativeStart)
             if (gen != generation.get()) {
                 nativeAndroidVoiceInputController.cancelListeningForSession(nativeResult.captureSessionId)
                 return VoiceInputStartResult.Cancelled(nativeResult.captureSessionId)
@@ -736,9 +740,11 @@ class SelectableVoiceInputController @Inject constructor(
             return nativeResult
         }
         if (nativeResult is VoiceInputStartResult.Cancelled) {
+            endNativeStart(nativeStart)
             nativeResult.captureSessionId?.let(nativeAndroidVoiceInputController::cancelListeningForSession)
             return nativeResult
         }
+        if (nativeSessionId == null) endNativeStart(nativeStart)
         // Keep the backend mapping until its post-cleanup terminal is routed. A start-time
         // fallback can suspend while that physical stop is queued.
         // Its post-cleanup terminal retires the Native mapping after fallback suspension.
@@ -746,26 +752,32 @@ class SelectableVoiceInputController @Inject constructor(
         activeController.value = sherpaOnnxVoiceInputController
         var fallbackSessionId: Long? = null
         var fallbackResult: VoiceInputStartResult? = null
-        val zipformer = runZipformerStart(gen) {
-            val result = sherpaOnnxVoiceInputController.startListening(
-                mode,
-                isWanted = { gen == generation.get() },
-                onSessionAdmitted = { sessionId ->
-                    fallbackSessionId = sessionId
-                    admitSession(gen, sherpaOnnxVoiceInputController, sessionId, onSessionAdmitted)
-                },
-            )
-            fallbackResult = result
-            val started = result as? VoiceInputStartResult.Started
-            when {
-                started == null -> null
-                gen != generation.get() -> {
-                    sherpaOnnxVoiceInputController.cancelListeningForSession(started.captureSessionId)
-                    null
+        val zipformer = try {
+            runZipformerStart(gen) {
+                val result = sherpaOnnxVoiceInputController.startListening(
+                    mode,
+                    isWanted = { gen == generation.get() },
+                    onSessionAdmitted = { sessionId ->
+                        fallbackSessionId = sessionId
+                        admitSession(gen, sherpaOnnxVoiceInputController, sessionId, onSessionAdmitted)
+                    },
+                )
+                fallbackResult = result
+                val started = result as? VoiceInputStartResult.Started
+                when {
+                    started == null -> null
+                    gen != generation.get() -> {
+                        sherpaOnnxVoiceInputController.cancelListeningForSession(started.captureSessionId)
+                        null
+                    }
+                    else -> started
                 }
-                else -> started
             }
+        } catch (e: CancellationException) {
+            endNativeStart(nativeStart)
+            throw e
         }
+        if (nativeSessionId != null) settleNativeFallback(nativeStart, zipformerStarted = zipformer != null)
         if (zipformer != null) {
             recordZipformerFallback(
                 reason = NATIVE_NOT_READY,
@@ -788,6 +800,43 @@ class SelectableVoiceInputController @Inject constructor(
         if (gen != generation.get()) return VoiceInputStartResult.Cancelled()
         return nativeResult
     }
+
+    /** Ends a Native start's terminal hold, delivering a terminal that was held for it. */
+    private fun endNativeStart(start: NativeStartFallback) {
+        if (nativeStartFallback === start) nativeStartFallback = null
+        start.held?.let { outbound.tryEmit(it) }
+        start.held = null
+    }
+
+    /**
+     * Settles a Native start that was admitted and then handed to Zipformer. If the fallback
+     * started, the Native terminal is superseded: drop it when already held, else drop it on arrival.
+     */
+    private fun settleNativeFallback(start: NativeStartFallback, zipformerStarted: Boolean) {
+        if (!zipformerStarted) {
+            endNativeStart(start)
+            return
+        }
+        if (start.held != null) {
+            start.held = null
+            if (nativeStartFallback === start) nativeStartFallback = null
+        } else {
+            start.suppressLate = true
+        }
+    }
+
+    /**
+     * Holds the terminal of a Native start while its Zipformer fallback decides. Consumers end
+     * capture on any cancelled stop, so a superseded Native stop must not reach them mid-fallback.
+     * Main thread only.
+     */
+    private class NativeStartFallback {
+        var sessionId: Long? = null
+        var held: VoiceInputEvent? = null
+        var suppressLate = false
+    }
+
+    private var nativeStartFallback: NativeStartFallback? = null
 
     /**
      * Starts Sherpa for the capture with generation [gen]. Sherpa's mic open is gated on
@@ -1014,7 +1063,15 @@ class SelectableVoiceInputController @Inject constructor(
                 recordNativeTeardownSettle(backendOwnerSessionId)
             }
             val terminal = if (logicalOwnerCurrent) event else event.copy(cancelled = true)
-            outbound.emit(terminal.withCaptureSessionId(backendOwnerSessionId))
+            val ownedTerminal = terminal.withCaptureSessionId(backendOwnerSessionId)
+            val start = nativeStartFallback?.takeIf {
+                controller === nativeAndroidVoiceInputController && it.sessionId == backendOwnerSessionId
+            }
+            when {
+                start == null -> outbound.emit(ownedTerminal)
+                start.suppressLate -> nativeStartFallback = null
+                else -> start.held = ownedTerminal
+            }
             retireAdmission(
                 backendOwnerSessionId,
                 preserveFenceWhileStartInFlight = logicalOwnerCurrent && terminal.cancelled,

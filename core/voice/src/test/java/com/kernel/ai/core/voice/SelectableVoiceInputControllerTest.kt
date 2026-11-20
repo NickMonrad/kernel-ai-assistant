@@ -340,15 +340,15 @@ class SelectableVoiceInputControllerTest {
         val fallback = async { c.startListening(VoiceCaptureMode.Command) }
         runCurrent()
         assertTrue(c.captureActivity.value)
-        assertEquals(
-            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 70L, cancelled = true),
-            seen.single { it.captureSessionId == 70L && it is VoiceInputEvent.ListeningStopped },
-        )
+        // The native cancelled stop is held while the fallback decides, so consumers must not see it yet.
+        assertTrue(seen.none { it.captureSessionId == 70L })
 
         fallbackAdmission.complete(Unit)
         advanceUntilIdle()
         assertEquals(VoiceInputStartResult.Started(71L), fallback.await())
         assertTrue(c.captureActivity.value)
+        // Superseded by the Zipformer start: the native stop is dropped and never reaches consumers.
+        assertTrue(seen.none { it.captureSessionId == 70L })
     }
     @Test
     fun `camera rearm is allowed after admitted native and unavailable sherpa both retire`() = runTest(dispatcher) {
@@ -374,13 +374,10 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
 
         assertFalse(c.hasCaptureOrStart())
-        assertEquals(
-            listOf(
-                VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 80L, cancelled = true),
-                VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 81L, cancelled = true),
-            ),
-            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
-        )
+        // Both failed-start stops are delivered; their order is not part of the contract.
+        val stops = seen.filterIsInstance<VoiceInputEvent.ListeningStopped>()
+        assertEquals(setOf(80L, 81L), stops.map { it.captureSessionId }.toSet())
+        assertEquals(2, stops.size)
         assertTrue(
             mayRearmAfterCamera(
                 heyJandalEnabled = true,

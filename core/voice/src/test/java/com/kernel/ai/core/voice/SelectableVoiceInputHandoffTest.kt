@@ -475,6 +475,43 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
+    fun `native cancelled stop from a failed start is held until zipformer settles`() =
+        runTest(dispatcher) {
+            coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+                thirdArg<(Long) -> Unit>().invoke(101L)
+                nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 101L, cancelled = true))
+                VoiceInputStartResult.Unavailable("native failed")
+            }
+            zipformerStartsAs(202L)
+            val c = controller()
+            val seen = eventsOf(c)
+
+            assertEquals(VoiceInputStartResult.Started(202L), c.startListening(mode))
+            advanceUntilIdle()
+
+            // Consumers treat any cancelled stop as ending the capture: the superseded native stop must not reach them.
+            assertEquals(listOf(VoiceInputEvent.ListeningStarted(mode, 202L)), seen)
+        }
+
+    @Test
+    fun `late native cancelled stop after zipformer takes over is never emitted`() =
+        runTest(dispatcher) {
+            coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+                thirdArg<(Long) -> Unit>().invoke(101L)
+                VoiceInputStartResult.Unavailable("native failed")
+            }
+            zipformerStartsAs(202L)
+            val c = controller()
+            val seen = eventsOf(c)
+
+            assertEquals(VoiceInputStartResult.Started(202L), c.startListening(mode))
+            nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 101L, cancelled = true))
+            advanceUntilIdle()
+
+            assertEquals(listOf(VoiceInputEvent.ListeningStarted(mode, 202L)), seen)
+        }
+
+    @Test
     fun `native reservation failure keeps capture activity fenced while zipformer fallback is pending`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
