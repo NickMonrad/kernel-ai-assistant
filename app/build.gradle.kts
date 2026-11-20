@@ -139,6 +139,8 @@ tasks.configureEach {
     }
     if (name == "publishReleaseBundle") {
         dependsOn(verifyReleaseBundleForPlayUpload)
+        // Play releases must pass the release attribution gate even when CI on this commit did not run it.
+        dependsOn(verifyReleaseAttributionMetadata)
         // Requested by play-release.yml only when the tester APK is published too. The APK is
         // checked (and built) before this task runs, so a bad APK never reaches Play.
         if (isTesterApkRequested) dependsOn(verifyTesterApkForPlayPublish)
