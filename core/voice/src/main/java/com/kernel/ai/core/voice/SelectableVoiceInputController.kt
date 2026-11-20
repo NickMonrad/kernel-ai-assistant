@@ -584,6 +584,9 @@ class SelectableVoiceInputController @Inject constructor(
         if (capture.controller === nativeAndroidVoiceInputController) recordNativeTeardownSettle(ownerSessionId)
         // A backend terminal can retire this admission between the timeout and here; that terminal has
         // already reported the stop, so a synthetic one would duplicate it.
+        // Correct only because the terminal route and this wedge wait both run on Main and outbound is
+        // UNLIMITED (tryEmit never suspends), so the terminal's emit-then-retire cannot interleave with
+        // this retire-then-emit. Revisit if either assumption changes.
         retireAdmission(ownerSessionId) ?: return
         outbound.tryEmit(VoiceInputEvent.ListeningStopped(capture.mode, ownerSessionId, cancelled = true))
     }
