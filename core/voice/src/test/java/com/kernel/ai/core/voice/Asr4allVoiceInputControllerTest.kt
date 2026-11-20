@@ -645,16 +645,23 @@ class Asr4allVoiceInputControllerTest {
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
         val gate = CountDownLatch(1)
+        val loadOpen = CountDownLatch(1)
+        val joinReached = CountDownLatch(1)
         try {
-            engineGate = CountDownLatch(1)
+            engineGate = loadOpen
             readGate = gate
+            c.beforeCancelledStopJoinForTest = { joinReached.countDown() }
             var result: VoiceInputStartResult? = null
             val caller = launch { result = c.startListening(VoiceCaptureMode.Command) }
             assertTrue(engineEntered.await(5, TimeUnit.SECONDS))
+            // The reader must be parked in read before the stop, or it would exit without reading.
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
             c.stopListening()
-            engineGate!!.countDown()
-            // The reader is still parked, so no stop may be reported before it drains.
-            assertEquals(0, collected.stoppedCount(), "no stop before the reader drains")
+            loadOpen.countDown()
+            assertTrue(joinReached.await(5, TimeUnit.SECONDS))
+            assertEquals(0, micReleases.get(), "the reader is still parked in read")
+            // Bounded absence check: the gate stays closed, so a stop reported now would arrive inside this window.
+            assertFalse(collected.stopped.tryAcquire(1, TimeUnit.SECONDS), "no stop before the reader drains")
             gate.countDown()
             caller.join()
 
@@ -663,6 +670,7 @@ class Asr4allVoiceInputControllerTest {
             collected.awaitStops(1)
             assertEquals(1, collected.stoppedCount())
         } finally {
+            engineGate = null
             readGate = null
             collected.job.cancel()
             scope.cancel()
