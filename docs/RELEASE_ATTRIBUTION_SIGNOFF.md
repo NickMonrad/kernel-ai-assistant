@@ -39,7 +39,7 @@ The verifier runs against the exact AAB produced by `bundleRelease`. CI evidence
 | Android native STT | Release-visible | Android platform/provider terms; offline availability is device/provider dependent. |
 | Sherpa STT engines/models | Debug/internal only | Excluded from v0.1 with the unresolved Sherpa runtime distribution path. |
 | Android TTS | Release-visible | Android platform/installed-engine terms. |
-| Piper/Cori/Semaine voices | Debug/internal only | Excluded from v0.1. Cori provenance remains documented but is not release clearance. |
+| Piper/Cori/Semaine voices | Debug/internal only | Excluded from v0.1. Cori provenance remains documented but is not release clearance. `docs/legal/piper-voice-review.md` reviews the other catalogue voices: each one's Sherpa archive contains weights derived from Lessac or Ryan, so none of them is releasable as downloaded. |
 | Inflect Micro | Debug/internal only | Upstream ONNX model is documented; runtime depends on the excluded custom Sherpa AAR. |
 | Kokoro | Debug/post-launch only | Sherpa package and upstream Kokoro lineage remain documented. |
 | openWakeWord Stage 1/2 and Hey Jandal Stage 3 | Debug-only; excluded from v0.1 | The Stage 1/2 export terms are unresolved. All three assets are excluded from release artifacts; the attribution view and verifier require this exclusion. The Stage 3 classifier remains Jandal-generated with provenance recorded in `training/wakeword/README.md`. |
