@@ -36,6 +36,7 @@ import kotlinx.coroutines.withContext
 internal const val PRIVACY_POLICY_URL = "https://nickmonrad.github.io/kernel-ai-assistant/privacy/"
 internal const val TERMS_OF_USE_URL = "https://nickmonrad.github.io/kernel-ai-assistant/terms/"
 private const val NOTICE_ASSET_PATH = "legal/NOTICE.txt"
+private const val FUTO_LICENCE_ASSET_PATH = "legal/FUTO-Model-Weights-License-1.0.txt"
 private val RUNTIME_NOTICES = listOf(
     "LiteRT 2.1.0 licence" to "litert-2.1.0-licence.txt",
     "LiteRT-LM 0.19.1 third-party notices" to "litert-lm-0.19.1-third-party-notices.txt",
@@ -132,6 +133,11 @@ fun OpenSourceLicensesScreen(
             context.assets.open(NOTICE_ASSET_PATH).bufferedReader().use { it.readText() }
         }
     }
+    val futoLicence by produceState("", context) {
+        value = withContext(Dispatchers.IO) {
+            context.assets.open(FUTO_LICENCE_ASSET_PATH).bufferedReader().use { it.readText() }
+        }
+    }
     var selectedNotice by rememberSaveable { mutableStateOf<String?>(null) }
     val noticePages by produceState(emptyList<String>(), context, selectedNotice) {
         value = emptyList()
@@ -187,6 +193,14 @@ fun OpenSourceLicensesScreen(
                 }
                 item {
                     Text("Resolved release dependencies", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp))
+                }
+            },
+            footer = {
+                item {
+                    Text("asr4all speech model licence text", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp))
+                    SelectionContainer {
+                        Text(futoLicence, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    }
                 }
             },
         )

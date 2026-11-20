@@ -88,6 +88,7 @@ class LegalPrivacySurfaceTest {
         }
         composeRule.onNodeWithText(originalNotice).assertExists()
         composeRule.onNodeWithText("openWakeWord", substring = true).assertExists()
+        composeRule.onNodeWithText("asr4all speech model licence text").performScrollTo().assertIsDisplayed()
     }
 
 }
