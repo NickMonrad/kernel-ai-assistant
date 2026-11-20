@@ -1,0 +1,81 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+// Jandal's ONNX Runtime FP32 asr4all engine is compiled from PR #1987's exact head, read straight out of
+// Git, so the comparison lane runs that code unmodified and nothing is copied into this branch.
+val onnxEngineCommit = providers.gradleProperty("onnxEngineCommit")
+    .orElse("591e82919851bdd77e4490446fe61162f7109eb0")
+val onnxEngineFiles = listOf(
+    "Asr4allEngine.kt",
+    "Asr4allExternalData.kt",
+    "Asr4allMetadata.kt",
+    "Asr4allPcec.kt",
+    "Asr4allTensors.kt",
+)
+val onnxEngineDir = layout.buildDirectory.dir("generated/onnxEngine/kotlin")
+val repoRoot = rootProject.projectDir.parentFile.parentFile
+val extractOnnxEngine by tasks.registering {
+    val commit = onnxEngineCommit
+    val out = onnxEngineDir
+    inputs.property("commit", commit)
+    outputs.dir(out)
+    doLast {
+        val pkg = out.get().dir("com/kernel/ai/core/voice/asr4all").asFile.apply { deleteRecursively(); mkdirs() }
+        for (name in onnxEngineFiles) {
+            val path = "core/voice/src/main/java/com/kernel/ai/core/voice/asr4all/$name"
+            val proc = ProcessBuilder("git", "show", "${commit.get()}:$path")
+                .directory(repoRoot).redirectErrorStream(false).start()
+            val bytes = proc.inputStream.readBytes()
+            check(proc.waitFor() == 0) { "git show ${commit.get()}:$path failed" }
+            pkg.resolve(name).writeBytes(bytes)
+        }
+    }
+}
+
+android {
+    namespace = "ai.jandal.spike1988"
+    compileSdk = libs.versions.compileSdk.get().toInt()
+
+    defaultConfig {
+        // Isolated package: never the production app or its debug build.
+        applicationId = "ai.jandal.spike1988.etprobe"
+        minSdk = libs.versions.minSdk.get().toInt()
+        targetSdk = libs.versions.targetSdk.get().toInt()
+        versionCode = 1
+        versionName = "1988"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters += "arm64-v8a" }
+        buildConfigField("String", "ONNX_ENGINE_COMMIT", "\"${onnxEngineCommit.get()}\"")
+    }
+
+    buildFeatures { buildConfig = true }
+
+    sourceSets.getByName("main").kotlin.directories.add(onnxEngineDir.get().asFile.path)
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            pickFirsts += "lib/arm64-v8a/libc++_shared.so"
+        }
+    }
+}
+
+tasks.matching { it.name.startsWith("compile") && it.name.contains("Kotlin") }.configureEach {
+    dependsOn(extractOnnxEngine)
+}
+
+dependencies {
+    // ExecuTorch 1.5.1 is the release that loads the pinned FUTO PTEs (tag 3b60683923245cf472b7323426920e15623ba361).
+    implementation("org.pytorch:executorch-android:1.5.1")
+    // Same versions as the #1987 engine (core/voice).
+    implementation(libs.onnxruntime.android)
+    implementation(libs.gson)
+    androidTestImplementation(libs.test.runner)
+    androidTestImplementation(libs.test.ext.junit)
+}
