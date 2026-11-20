@@ -613,17 +613,49 @@ class Asr4allVoiceInputControllerTest {
         try {
             openFails = true
             readGate = gate
+            val joinReached = CountDownLatch(1)
+            c.beforeFailedLoadJoinForTest = { joinReached.countDown() }
             val caller = launch { c.startListening(VoiceCaptureMode.Command) }
             assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
             assertTrue(engineEntered.await(5, TimeUnit.SECONDS))
-            // The load has failed and the caller is joining the reader, which stays parked in read until the gate opens.
-            Thread.sleep(200)
+            // The load has failed; the seam fires just before the caller joins the reader, which stays parked in read.
+            assertTrue(joinReached.await(5, TimeUnit.SECONDS))
             caller.cancel()
             gate.countDown()
             caller.join()
 
             collected.awaitStops(1)
             assertEquals(1, collected.stoppedCount(), "a cancelled caller must still report the stop")
+        } finally {
+            readGate = null
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a stop during the engine load joins the reader before the cancelled stop is reported`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        val gate = CountDownLatch(1)
+        try {
+            engineGate = CountDownLatch(1)
+            readGate = gate
+            var result: VoiceInputStartResult? = null
+            val caller = launch { result = c.startListening(VoiceCaptureMode.Command) }
+            assertTrue(engineEntered.await(5, TimeUnit.SECONDS))
+            c.stopListening()
+            engineGate!!.countDown()
+            // The reader is still parked, so no stop may be reported before it drains.
+            assertEquals(0, collected.stoppedCount(), "no stop before the reader drains")
+            gate.countDown()
+            caller.join()
+
+            assertTrue(result is VoiceInputStartResult.Cancelled)
+            assertEquals(1, micReleases.get(), "the reader releases the mic before the stop is reported")
+            collected.awaitStops(1)
+            assertEquals(1, collected.stoppedCount())
         } finally {
             readGate = null
             collected.job.cancel()

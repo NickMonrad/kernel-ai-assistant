@@ -116,6 +116,8 @@ class Asr4allVoiceInputController @Inject constructor(
     internal var recorderForTest: (() -> AudioRecord?)? = null
     internal var engineForTest: (() -> Asr4allEngine)? = null
     internal var releaseFencedForTest: (() -> Unit)? = null
+    /** Runs on the caller just before a failed load joins its reader; lets a test cancel the caller at that point. */
+    internal var beforeFailedLoadJoinForTest: (() -> Unit)? = null
 
     fun isAvailable(): Boolean = availableForTest?.invoke() ?: Asr4allModelFiles.isDownloaded(context)
 
@@ -194,6 +196,7 @@ class Asr4allVoiceInputController @Inject constructor(
             }
             if (eng == null) {
                 halt(capture)
+                beforeFailedLoadJoinForTest?.invoke()
                 withContext(NonCancellable) {
                     capture.reader.join()
                 }
