@@ -613,6 +613,74 @@ class SelectableVoiceInputHandoffTest {
     }
 
     @Test
+    fun `caller cancel during native fallback releases the held native terminal`() = runTest(dispatcher) {
+        val cancelledLoad = zipformerLoadHangs()
+        val c = controller()
+        val seen = eventsOf(c)
+        coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(1L)
+            // The native stop is held while the Zipformer fallback decides.
+            nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true))
+            VoiceInputStartResult.Unavailable("Android speech unavailable")
+        }
+
+        val start = async { c.startListening(mode) }
+        advanceUntilIdle()
+        assertTrue(seen.none { it is VoiceInputEvent.ListeningStopped }, "the native stop stays held mid-fallback")
+        start.cancel()
+        advanceUntilIdle()
+
+        assertTrue(cancelledLoad.await())
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+    }
+
+    @Test
+    fun `a newer start supersedes a native fallback still loading zipformer`() = runTest(dispatcher) {
+        val loadCancelled = zipformerLoadHangs()
+        val c = controller()
+        every { sherpa.stopListeningForSession(2L) } answers {
+            sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
+        }
+        var nativeCalls = 0
+        coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+            if (++nativeCalls == 1) {
+                thirdArg<(Long) -> Unit>().invoke(1L)
+                nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true))
+                VoiceInputStartResult.Unavailable("Android speech unavailable")
+            } else {
+                thirdArg<(Long) -> Unit>().invoke(3L)
+                VoiceInputStartResult.Started(3L)
+            }
+        }
+
+        val first = async { c.startListening(mode) }
+        advanceUntilIdle()
+        val second = async { c.startListening(mode) }
+        advanceUntilIdle()
+
+        assertTrue(loadCancelled.isCompleted, "the superseded Zipformer load must be cancelled")
+        assertEquals(VoiceInputStartResult.Cancelled(2L), first.await())
+        assertEquals(VoiceInputStartResult.Started(3L), second.await())
+    }
+
+    @Test
+    fun `native fallback admits the native session then the zipformer session in order`() = runTest(dispatcher) {
+        zipformerStartsAs(202L)
+        val c = controller()
+        coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(101L)
+            VoiceInputStartResult.Unavailable("Android speech unavailable")
+        }
+
+        val admitted = mutableListOf<Long>()
+        assertEquals(VoiceInputStartResult.Started(202L), c.startListening(mode) { admitted += it })
+        assertEquals(listOf(101L, 202L), admitted)
+    }
+
+    @Test
     fun `native reservation failure keeps capture activity fenced while zipformer fallback is pending`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
