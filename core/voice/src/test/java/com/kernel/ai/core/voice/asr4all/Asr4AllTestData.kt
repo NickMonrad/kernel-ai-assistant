@@ -9,7 +9,7 @@ import java.nio.ByteOrder
 /** Loads the unmodified FUTO config files and recorded model outputs under `src/test/resources/asr4all`. */
 object Asr4AllTestData {
     private fun resource(path: String): File {
-        val url = checkNotNull(javaClass.classLoader.getResource("asr4all/$path")) { "missing test resource asr4all/$path" }
+        val url = checkNotNull(javaClass.getResource("/asr4all/$path")) { "missing test resource asr4all/$path" }
         return File(url.toURI())
     }
 

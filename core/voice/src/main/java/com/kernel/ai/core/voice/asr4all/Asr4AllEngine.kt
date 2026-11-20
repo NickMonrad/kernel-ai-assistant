@@ -90,10 +90,12 @@ class Asr4AllEngine private constructor(
         resetUtterance()
     }
 
-    override fun close() = synchronized(lock) {
-        if (closed) return
-        closed = true
-        program.close()
+    override fun close() {
+        synchronized(lock) {
+            if (closed) return
+            closed = true
+            program.close()
+        }
     }
 
     private fun ensureOpen() {
