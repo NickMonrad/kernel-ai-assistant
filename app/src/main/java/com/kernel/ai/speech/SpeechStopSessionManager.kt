@@ -1,16 +1,13 @@
 package com.kernel.ai.speech
 
-import android.app.ForegroundServiceStartNotAllowedException
 import android.app.NotificationManager
 import android.content.Context
-import android.content.Intent
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import com.kernel.ai.R
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -89,7 +86,7 @@ class SpeechStopSessionManager @Inject constructor(
         }
         session = mediaSession
         val token = mediaSession.sessionToken
-        cardPostedWithoutService = !startPlaybackService(token)
+        cardPostedWithoutService = !SpeechPlaybackService.start(context, token)
         if (cardPostedWithoutService) postCard(token)
     }
 
@@ -99,24 +96,11 @@ class SpeechStopSessionManager @Inject constructor(
             release()
         }
         session = null
-        context.stopService(Intent(context, SpeechPlaybackService::class.java))
+        SpeechPlaybackService.stop(context)
         if (cardPostedWithoutService) {
             cardPostedWithoutService = false
             context.getSystemService(NotificationManager::class.java).cancel(SpeechStopNotification.NOTIFICATION_ID)
         }
-    }
-
-    /** Returns false when the OS denied the foreground start; the Stop card is then posted directly. */
-    private fun startPlaybackService(token: MediaSession.Token): Boolean = try {
-        context.startForegroundService(
-            Intent(context, SpeechPlaybackService::class.java).apply {
-                putExtra(SpeechPlaybackService.EXTRA_SESSION_TOKEN, token)
-            },
-        )
-        true
-    } catch (e: ForegroundServiceStartNotAllowedException) {
-        Log.w(LOG_TAG, "Speech foreground service start denied", e)
-        false
     }
 
     private fun postCard(token: MediaSession.Token) {
@@ -127,7 +111,6 @@ class SpeechStopSessionManager @Inject constructor(
     private companion object {
         const val SESSION_TAG = "JandalSpeech"
         const val ACTION_STOP_CUSTOM = "com.kernel.ai.speech.STOP_SPEECH"
-        const val LOG_TAG = "SpeechStopSession"
     }
 }
 
