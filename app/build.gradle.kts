@@ -826,7 +826,7 @@ aboutLibraries {
         strictMode = com.mikepenz.aboutlibraries.plugin.StrictMode.FAIL
         // These are observed license identifiers, not legal distribution approvals.
         // Adding any new identifier requires review; unresolved licenses remain a hard build failure.
-        allowedLicenses.addAll("ASDKL", "Apache-2.0", "BSD-3-Clause", "LGPL-2.1-or-later", "MIT", "PCSDKToS")
+        allowedLicenses.addAll("ASDKL", "Apache-2.0", "BSD-3-Clause", "MIT", "PCSDKToS")
     }
 }
 
