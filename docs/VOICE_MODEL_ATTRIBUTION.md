@@ -93,10 +93,10 @@ Release obligations:
 
 Provenance of the planned Kotlin engine (#1987): it is a port of FUTO's Python reference driver `onnx/asr4all_onnx.py`, pinned at `futo-org/asr4all-s` revision `87a6b5d093723fe37e9f69ad26307a3b95a31af0` (the same file blob exists at `futo-org/asr4all-m` revision `7d6e9145109a5bece4f05831d046e93d27e38a99`). The weights licence covers the weights only. The reference driver has no licence we have found, so the port is not cleared for release. No code is copied from `futo-org/voice-input`, which uses the non-commercial FUTO Source First licence.
 
-**Open blocker (gates #1987 and #1980):** before either merges or the asr4all default ships, one of the following must be recorded here:
+**Open blocker (gates #1987 and #1980; tracked in #1999):** before either merges or the asr4all default ships, one of the following must be recorded here:
 
 1. a written licence from FUTO covering the reference driver (owner is contacting FUTO; record the grant, its scope, and the date here when received); or
-2. a clean-room rewrite of the ONNX Runtime pipeline that does not derive from the Python driver, verified by parity against the official ONNX bundles.
+2. a clean-room rewrite of the ONNX Runtime pipeline that does not derive from the Python driver, verified by parity against the official ONNX bundles. The implementer must not have read `onnx/asr4all_onnx.py`; they work only from `onnx/metadata.json`, the model card/README and observed model I/O, and parity is checked against reference outputs (method and results recorded in the PR).
 
 **Merge sequencing (owner-agreed):** #1986 (licence notices and terms) merges first, then #1987 (engine), then #1793 is rebased onto that. #1987 and #1980 must not merge ahead of this blocker being resolved.
 
