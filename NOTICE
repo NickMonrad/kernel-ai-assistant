@@ -57,8 +57,9 @@ asr4all speech recognition weights (Asr4All, 28M and 56M sizes)
   shown at the end of this screen.
   https://huggingface.co/futo-org/asr4all-s/blob/87a6b5d093723fe37e9f69ad26307a3b95a31af0/LICENSE
   https://huggingface.co/futo-org/asr4all-m/blob/7d6e9145109a5bece4f05831d046e93d27e38a99/LICENSE
-  Used: unmodified ONNX speech-recognition weights downloaded from the publisher's Hugging Face
-  repositories (asr4all-s at revision 87a6b5d0, asr4all-m at revision 7d6e9145). Commercial
+  Planned use, not yet enabled in this build: unmodified ONNX speech-recognition weights to be
+  downloaded from the publisher's Hugging Face repositories (asr4all-s at revision 87a6b5d0,
+  asr4all-m at revision 7d6e9145). Commercial
   use is permitted. The Limitations section prohibits surveillance, profiling and
   discrimination, intelligence gathering, monitoring people in custody, targeting protected
   activity, and circumvention of those limits. asr4all-l-plus is under a different licence
