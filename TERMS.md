@@ -26,6 +26,8 @@ Don't use Jandal to break the law, to harm, harass, or deceive others, or to int
 
 Jandal's offline speech recognition uses a model provided under the [FUTO Model Weights License (Restricted Use) 1.0](https://huggingface.co/futo-org/asr4all-s/blob/main/LICENSE). The licence text is also available in the app under Settings › Legal & privacy › Open-source licences. You agree not to use Jandal's speech recognition, or the text it produces, for any of the purposes that licence prohibits: bulk or untargeted monitoring, interception, recording, transcription or analysis of people's speech; voiceprint tracking; inferring protected characteristics such as race, religion, political opinion, sexual orientation, disability or health from a person's voice; intelligence gathering; monitoring people in custody; targeting journalists, activists, whistleblowers, protesters or similar groups; or routing any of this through another person or service to get around these limits.
 
+You agree to comply with the Limitations section of that licence, which forms part of these terms; the summary above is for convenience and the licence text controls.
+
 ## 6. Third-party services
 
 Some features you choose to use connect to services that Jandal does not operate, including:
