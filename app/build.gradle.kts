@@ -299,6 +299,11 @@ android {
                 "lib/armeabi-v7a/libonnxruntime.so",
                 "lib/x86/libonnxruntime.so",
                 "lib/x86_64/libonnxruntime.so",
+                // ExecuTorch's fbjni 0.7.0 (NDK r27b) and :core:memory (NDK r28c) both ship
+                // libc++_shared.so. Merge order puts project modules first, so the newer r28c
+                // runtime is kept; libc++ is backward compatible with older-NDK binaries.
+                "lib/arm64-v8a/libc++_shared.so",
+                "lib/x86_64/libc++_shared.so",
             )
             excludes += setOf(
                 "lib/arm64-v8a/libsherpa-onnx-c-api.so",
@@ -309,6 +314,12 @@ android {
                 "lib/armeabi-v7a/libsherpa-onnx-cxx-api.so",
                 "lib/x86/libsherpa-onnx-cxx-api.so",
                 "lib/x86_64/libsherpa-onnx-cxx-api.so",
+                // ExecuTorch ships only arm64-v8a and x86_64; fbjni's 32-bit copies would be
+                // unreachable (no 32-bit library needs libfbjni or libc++_shared).
+                "lib/armeabi-v7a/libfbjni.so",
+                "lib/x86/libfbjni.so",
+                "lib/armeabi-v7a/libc++_shared.so",
+                "lib/x86/libc++_shared.so",
             )
         }
     }
@@ -392,8 +403,10 @@ tasks.register("verifyReleaseJniKeepRules") {
         val jniPackages = listOf(
             "ai.onnxruntime.",
             "androidx.graphics.path.",
+            "com.facebook.jni.",
             "com.google.ai.edge.",
             "com.k2fsa.sherpa.onnx.",
+            "org.pytorch.executorch.",
             "org.tensorflow.lite.",
         )
         val requiredClasses = listOf(
@@ -401,6 +414,8 @@ tasks.register("verifyReleaseJniKeepRules") {
             "androidx.datastore.core.NativeSharedCounter",
             "androidx.graphics.path.ConicConverter",
             "androidx.graphics.path.PathIteratorPreApi34Impl",
+            // fbjni's destructor is reached from ExecuTorch native code (pytorch/executorch#22174).
+            "com.facebook.jni.HybridData\$Destructor",
             "com.google.ai.edge.litert.CompiledModel",
             "com.google.ai.edge.litert.Environment",
             "com.google.ai.edge.litert.LiteRtException",
@@ -414,6 +429,10 @@ tasks.register("verifyReleaseJniKeepRules") {
             "com.google.ai.edge.litertlm.NativeLibraryLoader",
             // No Sherpa JNI runtime is packaged in release until attribution is resolved.
             // verifyReleaseAttributionMetadata checks this against the packaged native inventory.
+            "org.pytorch.executorch.EValue",
+            "org.pytorch.executorch.ExecutorchRuntimeException",
+            "org.pytorch.executorch.Module",
+            "org.pytorch.executorch.Tensor",
             "org.tensorflow.lite.InterpreterFactoryImpl",
             "org.tensorflow.lite.NativeInterpreterWrapper",
             "org.tensorflow.lite.NativeInterpreterWrapperExperimental",
@@ -758,6 +777,7 @@ dependencies {
     implementation(project(":core:wasm"))
     implementation(project(":core:ui"))
     implementation(project(":core:skills"))
+    implementation(project(":core:executorch"))
     implementation(project(":feature:chat"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:widget"))
