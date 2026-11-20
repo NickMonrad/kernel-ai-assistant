@@ -38,8 +38,8 @@ enum class VoiceInputEngine(
         isSherpaFamily = true,
     ),
     Asr4all(
-        displayName = "asr4all streaming (FUTO)",
-        description = "Offline streaming speech recognition with the FUTO asr4all model. ~110 MB. Streaming partial results.",
+        displayName = "asr4all streaming",
+        description = "Offline streaming speech recognition with the asr4all model. ~110 MB. Streaming partial results.",
         warning = "Experimental. Accuracy has not yet been compared with Sherpa-ONNX Zipformer; compare on your own speech before relying on it.",
     ),
     ;
