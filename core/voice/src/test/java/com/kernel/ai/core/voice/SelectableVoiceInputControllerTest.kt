@@ -42,6 +42,7 @@ class SelectableVoiceInputControllerTest {
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(false)
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns true
         every { nativeAndroidVoiceInputController.events } returns nativeEvents
         every { sherpaOnnxVoiceInputController.events } returns sherpaEvents
         every { nativeAndroidVoiceInputController.stopListening() } just runs
@@ -133,6 +134,23 @@ class SelectableVoiceInputControllerTest {
         coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command, any()) }
         coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any()) }
         verify(exactly = 0) { recognitionSupport.getCaptureAvailability() }
+    }
+
+    @Test
+    fun `release Android native does not fall back to Sherpa when native cannot start`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any()) } returns
+            VoiceInputStartResult.Unavailable("not ready")
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable("not ready"),
+            controller().startListening(VoiceCaptureMode.Command),
+        )
+
+        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.isSpecAvailable(any()) }
+        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any()) }
     }
 
     @Test

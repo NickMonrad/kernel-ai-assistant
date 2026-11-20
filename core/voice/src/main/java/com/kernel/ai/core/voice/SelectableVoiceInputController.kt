@@ -228,7 +228,9 @@ class SelectableVoiceInputController @Inject constructor(
                     androidNativeRecognitionSupport.getAvailability()
                 }
             }
-            else -> sherpaOnnxVoiceInputController.prewarm()
+            else -> if (voiceInputPreferences.allowsSherpaRuntime()) {
+                sherpaOnnxVoiceInputController.prewarm()
+            }
         }
     }
 
@@ -259,7 +261,11 @@ class SelectableVoiceInputController @Inject constructor(
                 val result = when (engine) {
                     VoiceInputEngine.Auto -> startAuto(mode, allowOnlineFallback, gen)
                     VoiceInputEngine.AndroidNative -> startNative(mode, allowOnlineFallback, gen)
-                    else -> startSherpa(mode, gen) // All Sherpa families.
+                    else -> if (voiceInputPreferences.allowsSherpaRuntime()) {
+                        startSherpa(mode, gen) // All Sherpa families.
+                    } else {
+                        VoiceInputStartResult.Unavailable("This speech engine is not available in this release.")
+                    }
                 }
                 if (result is VoiceInputStartResult.Started) openGeneration = gen
                 result
@@ -398,7 +404,8 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     private suspend fun zipformerDownloaded(): Boolean =
-        sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER)
+        voiceInputPreferences.allowsSherpaRuntime() &&
+            sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER)
 
     /**
      * Runs [block] as the cancellable Zipformer start for the capture with generation [gen].
@@ -503,6 +510,7 @@ class SelectableVoiceInputController @Inject constructor(
 
     /** The error belongs to the open capture's native session and qualifies for a hand-off. */
     private fun isHandoffCandidate(error: VoiceInputEvent.Error): Boolean {
+        if (!voiceInputPreferences.allowsSherpaRuntime()) return false
         val facts = nativeFacts ?: return false
         return openGeneration != -1L &&
             openGeneration == generation.get() &&
@@ -590,5 +598,9 @@ class SelectableVoiceInputController @Inject constructor(
      * currently selected engine keeps its normal capture behaviour.
      */
     override suspend fun transcribeBlocking(pcm: ShortArray): String? =
-        sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
+        if (voiceInputPreferences.allowsSherpaRuntime()) {
+            sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
+        } else {
+            null
+        }
 }

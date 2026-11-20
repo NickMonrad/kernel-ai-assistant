@@ -55,7 +55,7 @@ enum class SherpaPiperVoice(
         assetDirectoryName = "vits-piper-en_GB-cori-high",
         downloadKey = "en_GB-cori-high",
         approxDownloadBytes = 115_574_061L,
-        releaseVisible = true,
+        releaseVisible = false,
     ),
     AlbaMedium(
         displayName = "Alba",

@@ -5,10 +5,12 @@ enum class VoiceInputEngine(
     val description: String,
     val warning: String? = null,
     val isSherpaFamily: Boolean = false,
+    val debugOnly: Boolean = false,
 ) {
     Auto(
         displayName = "Automatic (recommended)",
         description = "Uses the offline Sherpa-ONNX Zipformer model. If you allow online speech recognition, uses Android speech recognition instead.",
+        debugOnly = true,
     ),
     AndroidNative(
         displayName = "Android native",
@@ -19,23 +21,27 @@ enum class VoiceInputEngine(
         displayName = "Sherpa-ONNX Zipformer",
         description = "Fully offline streaming speech recognition using the Sherpa-ONNX Zipformer model. Highest accuracy for NZ English with no network dependency.",
         isSherpaFamily = true,
+        debugOnly = true,
     ),
     SherpaSenseVoice(
         displayName = "Sherpa-ONNX SenseVoice",
         description = "Local offline batch speech recognition via Sherpa-ONNX SenseVoice int8. ~100 MB. Final result only — no streaming partials.",
         warning = "SenseVoice processes the complete utterance after recording stops. No partial/streaming results.",
         isSherpaFamily = true,
+        debugOnly = true,
     ),
     SherpaWhisper(
         displayName = "Sherpa-ONNX Whisper tiny.en",
         description = "Local offline batch speech recognition via Sherpa-ONNX Whisper tiny.en int8. ~117 MB. Final result only — no streaming partials.",
         warning = "Whisper processes the complete utterance after recording stops. No partial/streaming results.",
         isSherpaFamily = true,
+        debugOnly = true,
     ),
     SherpaParaformer(
         displayName = "Sherpa-ONNX Paraformer",
         description = "Local streaming speech recognition via Sherpa-ONNX Paraformer int8. ~226 MB. Streaming partial results.",
         isSherpaFamily = true,
+        debugOnly = true,
     ),
     ;
 
@@ -48,5 +54,15 @@ enum class VoiceInputEngine(
         fun fromStorage(value: String?): VoiceInputEngine =
             if (value == "SherpaOnnx") SherpaZipformer
             else entries.firstOrNull { it.name == value } ?: Auto
+
+        /** Release v0.1 excludes the unresolved Sherpa runtime; debug keeps the full catalogue. */
+        fun entriesForBuild(isRelease: Boolean): List<VoiceInputEngine> =
+            entries.filter { engine -> !isRelease || !engine.debugOnly }
+
+        /** Stored debug/Sherpa choices resolve safely to Android native in release builds. */
+        fun resolveForBuild(value: String?, isRelease: Boolean): VoiceInputEngine {
+            val engine = fromStorage(value)
+            return engine.takeIf { it in entriesForBuild(isRelease) } ?: AndroidNative
+        }
     }
 }

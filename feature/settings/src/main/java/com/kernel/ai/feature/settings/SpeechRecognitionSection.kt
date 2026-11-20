@@ -68,7 +68,9 @@ internal fun SpeechRecognitionSection(
     modifier: Modifier = Modifier,
 ) {
     var onlineSheetOpen by rememberSaveable { mutableStateOf(false) }
-    val zipformerDownloaded = uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
+    val zipformerAvailable = VoiceInputEngine.SherpaZipformer in uiState.availableInputEngines
+    val zipformerDownloaded = zipformerAvailable &&
+        uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
     val accentOutlinedColors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent)
     val accentTextColors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent)
 
@@ -78,10 +80,10 @@ internal fun SpeechRecognitionSection(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
         ChoiceGroup(
-            count = VoiceInputEngine.entries.size,
+            count = uiState.availableInputEngines.size,
             modifier = Modifier.padding(horizontal = 16.dp),
         ) {
-            VoiceInputEngine.entries.forEachIndexed { index, engine ->
+            uiState.availableInputEngines.forEachIndexed { index, engine ->
                 val selected = uiState.selectedInputEngine == engine
                 val sttState = uiState.sherpaSttStates[engine]
                 val isReady = !engine.isSherpaFamily || sttState?.isDownloaded == true
@@ -92,6 +94,7 @@ internal fun SpeechRecognitionSection(
                         localeReady = uiState.androidNativeLocaleReady,
                         onlineAllowed = uiState.allowOnlineSpeechFallback,
                         zipformerDownloaded = zipformerDownloaded,
+                        zipformerAvailable = zipformerAvailable,
                     )
                 } else {
                     null
@@ -117,11 +120,13 @@ internal fun SpeechRecognitionSection(
                     {
                         if (nativeWarning != null) {
                             VoiceWarningCard(message = nativeWarning)
-                            TextButton(
-                                onClick = { onSelect(VoiceInputEngine.Auto) },
-                                colors = accentTextColors,
-                            ) {
-                                Text("Use Automatic")
+                            if (VoiceInputEngine.Auto in uiState.availableInputEngines) {
+                                TextButton(
+                                    onClick = { onSelect(VoiceInputEngine.Auto) },
+                                    colors = accentTextColors,
+                                ) {
+                                    Text("Use Automatic")
+                                }
                             }
                         }
                         if (engineWarning != null) {
@@ -243,11 +248,15 @@ private fun androidNativeSettingsWarning(
     localeReady: Boolean,
     onlineAllowed: Boolean,
     zipformerDownloaded: Boolean,
+    zipformerAvailable: Boolean,
 ): String? {
-    val fallback = if (zipformerDownloaded) {
-        "Sherpa-ONNX Zipformer is downloaded and is used if Android speech fails to start or stalls."
-    } else {
-        "Download Sherpa-ONNX Zipformer below as an offline fallback."
+    val fallback = when {
+        zipformerDownloaded ->
+            "Sherpa-ONNX Zipformer is downloaded and is used if Android speech fails to start or stalls."
+        zipformerAvailable ->
+            "Download Sherpa-ONNX Zipformer below as an offline fallback."
+        else ->
+            "This release uses Android speech recognition without a Sherpa fallback."
     }
     val capabilityWarning = capabilities?.let {
         androidNativeWarning(it, localeReady, onlineAllowed || zipformerDownloaded)
