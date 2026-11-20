@@ -1,8 +1,5 @@
 package com.kernel.ai.core.voice.asr4all
 
-import kotlin.math.floor
-import kotlin.math.ln
-
 /** One acoustic token as the PCEC head consumes it. */
 class PcecToken(
     val id: Int,
@@ -40,13 +37,16 @@ internal object PcecFeatures {
     fun pauseBucket(pcec: Asr4AllPcecConfig, blankFramesBefore: Int?): Int {
         if (blankFramesBefore == null) return pcec.pauseBlackout
         if (blankFramesBefore <= 0) return 0
-        val log2 = floor(ln(blankFramesBefore.toDouble()) / ln(2.0) + 1e-9).toInt()
-        return (log2 + 1).coerceAtMost(pcec.pauseBuckets - 1)
+        val floorLog2 = 31 - Integer.numberOfLeadingZeros(blankFramesBefore)
+        return (floorLog2 + 1).coerceAtMost(pcec.pauseBuckets - 1)
     }
 
-    /** Value of the head's per-token float input (fourth input). */
-    @Suppress("UNUSED_PARAMETER")
-    fun floatFeature(token: PcecToken): Float = 0f
+    /**
+     * The head's per-token float input (its fourth input). Measured: values near 0 leave the
+     * words as decoded, negative values make the head rewrite heavily; 0 gave the lowest WER of
+     * the encodings tried (CLEANROOM.md).
+     */
+    const val FLOAT_INPUT = 0f
 }
 
 /**
@@ -68,9 +68,7 @@ internal class PcecStream(
     private var seen = 0L
     private var settled = IntArray(256)
     private var settledCount = 0
-    val renderer = PcecTextRenderer(pcec)
-
-    val pendingCount: Int get() = pending.size
+    private val renderer = PcecTextRenderer(pcec)
 
     fun add(token: PcecToken) {
         pending.addLast(token)
@@ -90,7 +88,7 @@ internal class PcecStream(
         }
         check(tail.size <= rung) { "PCEC tail ${tail.size} exceeds rung $rung" }
         val n = tail.size
-        val flush = program.pcecFlush(tier, encode(tail, 0, n), n, state, seen)
+        val flush = program.pcecFlush(tier, encode(tail), n, state, seen)
         val tokenSlots = pcec.slotsPerToken * (pcec.lagTokens + n)
         val used = if (final) tokenSlots + 1 else tokenSlots
         val ids = renderer.collapse(IntSlice(settled, 0, settledCount), IntSlice(flush, 0, used))
@@ -107,7 +105,7 @@ internal class PcecStream(
     private fun commitRung() {
         val tokens = ArrayList<PcecToken>(rung)
         repeat(rung) { tokens += pending.removeFirst() }
-        val out = program.pcecStream(tier, encode(tokens, 0, rung), state, seen)
+        val out = program.pcecStream(tier, encode(tokens), state, seen)
         state = out.state
         seen = out.seen
         appendSettled(out.slots)
@@ -121,18 +119,17 @@ internal class PcecStream(
         settledCount += slots.size
     }
 
-    /** Packs `tokens[start until start + n]` into one rung of inputs, padding the rest. */
-    private fun encode(tokens: List<PcecToken>, start: Int, n: Int): PcecInputs {
+    /** Packs [tokens] (at most one rung) into one rung of inputs, padding the rest. */
+    private fun encode(tokens: List<PcecToken>): PcecInputs {
         val ids = LongArray(rung) { pcec.padInputId.toLong() }
         val pauses = LongArray(rung)
         val hidden = FloatArray(rung * hiddenDim)
         val floats = FloatArray(rung)
-        for (i in 0 until n) {
-            val t = tokens[start + i]
+        for ((i, t) in tokens.withIndex()) {
             ids[i] = t.id.toLong()
             pauses[i] = t.pauseBucket.toLong()
             t.pooledHidden(hidden, i * hiddenDim)
-            floats[i] = PcecFeatures.floatFeature(t)
+            floats[i] = PcecFeatures.FLOAT_INPUT
         }
         return PcecInputs(ids, pauses, hidden, floats)
     }
