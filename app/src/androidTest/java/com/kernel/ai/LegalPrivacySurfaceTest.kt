@@ -56,11 +56,13 @@ class LegalPrivacySurfaceTest {
             }
         }
         composeRule.onNodeWithText("openWakeWord melspectrogram stage").assertExists()
-        composeRule.onNodeWithText(
+        // Two wake-word stages (melspectrogram, embedding) share this terms text, so expect both.
+        composeRule.onAllNodesWithText(
             "Terms for this exported model are unresolved; it is not distributed in v0.1.",
             substring = true,
-        ).assertExists()
-        composeRule.onNodeWithText("Debug-only · excluded from v0.1 release", substring = true).assertExists()
+        ).assertCountEquals(2)
+        // All three wake-word entries (melspectrogram, embedding, Hey Jandal) carry this status.
+        composeRule.onAllNodesWithText("Debug-only · excluded from v0.1 release", substring = true).assertCountEquals(3)
     }
 
     @Test
