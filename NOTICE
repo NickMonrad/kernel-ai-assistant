@@ -28,7 +28,7 @@ ONNX Runtime 1.24.3
 
 Android NDK libc++
   Licensed under the Apache License, Version 2.0 with LLVM Exceptions.
-  https://github.com/llvm/llvm-project/blob/main/libcxx/LICENSE.TXT
+  https://github.com/llvm/llvm-project/blob/3b5e7c83a6e226d5bd7ed2e9b67449b64812074c/libcxx/LICENSE.TXT
   Used: shared C++ runtime packaged by the Android release build.
 
 sqlite-vec 0.1.9
