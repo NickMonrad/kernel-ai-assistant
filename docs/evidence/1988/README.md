@@ -129,7 +129,8 @@ the S23U 67 s stream (S and M 1.23–1.35×), where both runtimes mostly wait on
 Same isolated APK, same session, three runtimes interleaved per lane: ET (as above), ONNX with #1987's settings,
 and **ONNX 4 thr + arena/prepack** = the identical #1987 engine source compiled into a second package whose only
 change is `openSession`: `setIntraOpNumThreads(4)`, CPU arena and weight prepacking left at ORT defaults (enabled)
-(`probe/build.gradle.kts` generates it; the build fails if #1987's `openSession` text changes). Lanes: M/c16r4 and
+(`probe/build.gradle.kts` generates it; the build fails if the two replaced `openSession` lines are not found
+verbatim, and the #1987 commit is pinned by default). Lanes: M/c16r4 and
 S/c32r8 (the #1980 proposal), on both phones. Single run per lane; the ET rows here are a second session and differ
 from the main tables by run-to-run variance (e.g. S23U ET M breadth RTFx 19.8 vs 14.7 earlier), which is the
 practical noise floor for these timings.
@@ -153,8 +154,10 @@ practical noise floor for these timings.
 - compute RTFx ET/ORT-tuned: S23U owner 1.53× (M) / 1.46× (S), breadth 2.29× / 2.09×, 67 s stream 1.23× / 1.21×;
   S21 owner 2.03× / 1.52×, breadth 1.76× / 1.55×, 67 s 1.57× / 1.29×. (Against #1987's config the same lanes were
   1.26–2.67×.) Tuning ORT recovers only 1.04–1.27× of throughput.
-- tuned ORT costs memory: peak PSS 1.58–1.80× of #1987's config (M/c16r4 559–576 MiB vs 331–347), so ET uses
-  29–40% of tuned ORT's PSS. Load gets slower (prepacking copies weights).
+- tuned ORT costs memory: peak PSS 1.58–1.80× of #1987's config and ET at 29–40% of tuned ORT's PSS, both computed
+  **per set** (owner, breadth, 67 s) from each set's peak PSS Δ; on the table's max-of-3-sets column the same
+  ratios are 1.58–1.69× and 32–40% (M/c16r4 559–576 MiB vs 331–347). Tuned loads are slower in all 12 cases
+  (1.09–1.44×; prepacking copies weights).
 - on the S21 67 s stream, tuned ORT M/c16r4 still queues up to 3 chunks (p95 203 ms, final 601 ms after audio end)
   vs ET M/c16r4 1 chunk (p95 127 ms, 336 ms).
 - WER is unchanged by the ORT settings (identical edits).
@@ -233,9 +236,10 @@ room, NZ and Māori place names; 85 reference words); the column is summed PCEC 
 - Memory is per-process PSS/VmHWM, including the ~37 MiB test-process baseline in VmHWM; PSS Δ excludes it.
 - **Single run per lane** for every timing and memory figure (load, RTFx, lag, queued chunks, PSS); no repeats or
   variance. The ORT-control session re-ran ET and #1987-config ONNX on 4 lanes per phone: owner and 67 s RTFx moved
-  by ≤6% except S21 ET M owner (4.8 → 6.0, +25%); S23U breadth RTFx rose 24–36% for both runtimes alike; load
-  moved by up to ±50% (S21 ET M 791 → 405 ms); PSS by ≤10% except S23U ONNX S breadth (+22%). Treat speed ratios
-  below ~1.3× and load differences below ~2× as within noise; ratios within one session are more reliable.
+  by ≤6% except S21 ET M owner (4.8 → 6.0, +25%); breadth RTFx rose 24–36% on the S23U for both runtimes alike and
+  up to +13% on the S21 (ET M 6.3 → 7.2); load moved by up to −55% (S23U ET M breadth 463 → 207 ms; S21 ET M
+  owner 791 → 405 ms); PSS by ≤10% except S23U ONNX S breadth (+22%). Treat speed ratios below ~1.3× and load
+  differences below ~2× as within noise; ratios within one session are more reliable.
 - Thread counts and ORT session options differ in the main tables (see "Configuration confound"); §3.1 controls
   for them on two lanes only.
 - Parity figures in §2 exclude Spanish clip 4 in the first and fourth columns; all-clip figures are alongside.
@@ -244,8 +248,8 @@ room, NZ and Māori place names; 85 reference words); the column is summed PCEC 
   (platform binder assertion, SIGABRT, 0.7 s after launch, before any model load); it was re-run alone in a new
   locked session and completed.
 - Test APK SHA-256 `757209c6…` for the S23U owner/breadth/public lanes; `493a9163…` for S23U 67 s and all S21
-  lanes (only `StepProbeTest` changed between them). App APK `5bd1bcd8…` for those; the ORT-control runs used a
-  rebuilt app APK that adds the `onnxt4` lane.
+  lanes (only `StepProbeTest` changed between them). App APK `5bd1bcd8…` for those. The ORT-control runs (§3.1)
+  used app APK `66f80c1f…` (adds the `onnxt4` lane) with the unchanged test APK `493a9163…`.
 
 ## 4. Recommendation
 
@@ -257,19 +261,23 @@ Why:
   (ET better on M/c16r4 and L/c32r8, worse on S/c32r8), and ≤0.5 points on breadth. Nothing here says INT8 costs
   accuracy.
 - **ExecuTorch is cheaper on every resource measured**, across all sets: peak PSS 33.6–57.2% lower, load
-  1.40–4.99× faster, compute 1.23–2.99× faster vs #1987's ORT config. Against ORT tuned to 4 threads with arena and
-  prepacking (§3.1) it is still 1.21–2.29× faster at 29–40% of the PSS. Download: one PTE of 32.5 / 60.0 /
+  1.40–4.99× faster, compute 1.23–2.99× faster vs #1987's ORT config (PSS ranges are per lane and set, from each
+  set's peak PSS Δ). Against ORT tuned to 4 threads with arena and prepacking (§3.1) it is still 1.21–2.29× faster
+  at 29–40% of the PSS (per set; 32–40% on the max-of-3-sets column). Download: one PTE of 32.5 / 60.0 /
   101.0 MB (S/M/L) vs 109 / 215 / 375 MB for the ONNX tier sets.
 - **Against the incumbent #1980 proposal (ONNX S/c32r8), ET M/c16r4 is not an accuracy win on the decision set**:
   37 vs 40 owner edits on 146 words, which is noise. The case for M rests on:
   - resources: S23U/S21 peak PSS 161/158 vs 186/200 MiB, load 269/791 vs 551/1752 ms, similar owner RTFx
     (10.0/4.8 vs 10.9/5.0);
-  - latency: first raw partial ~1.7 s on 18/20 owner clips vs ~2.8–2.9 s on 11/20 (c16r4 window vs c32r8);
-    S21 67 s stream p95 lag 124 vs 179 ms, final 373 vs 546 ms after audio end; both ≤2 queued chunks;
+  - latency: first raw partial ~1.7 s on 18/20 owner clips vs ~2.8–2.9 s on 11/20. **This comes from the c16r4
+    tier, not the runtime**: ONNX M/c16r4 already gives 1719 ms on 18/20 (S23U) at 38 edits. S21 67 s stream:
+    p95 lag 124 vs 179 ms, final 373 vs 546 ms after audio end; both ≤2 queued chunks;
   - breadth (diagnostic only, not a decision input per #1984): 7.37% vs 10.82% WER on 638 voice-cloned words.
-- **On the S21, ONNX M/L do not fit comfortably**: 3–7 queued chunks on the 67 s stream (L c32r8 p95 527 ms,
-  final 1.4 s after audio end), and tuned ORT M still queues 3. ET M stays at ≤2 chunks with less memory than
-  ONNX S.
+- **The runtime-specific win is that M/c16r4 fits the S21 on ExecuTorch.** On the S21 67 s stream ET M/c16r4
+  queues at most 2 chunks (p95 124 ms; 1 chunk / 127 ms in the control session), while ONNX M/c16r4 queues 3
+  (p95 252 ms) and tuned ORT M/c16r4 also 3 (p95 203 ms); ONNX L queues 6–7 (c32r8 p95 527 ms, final 1.4 s after
+  audio end). ET M does this with less memory than ONNX S. So choosing M/c16r4 (c16r4's early partials with M's
+  accuracy) is only comfortable on the S21 with ExecuTorch.
 - **L**: best owner WER (19.18% ET c32r8) but ~1 s load, ~230 MiB and 2–3 queued chunks on S21; keep
   benchmark-only unless accuracy on Māori place names becomes the priority (L hits 2/17 exact vs 1/17 for M;
   all sizes miss most of them, which is #1983's job).
@@ -291,4 +299,5 @@ Trade-offs and costs for the integration issue:
 - Endpoint latency and live-mic acceptance must be measured in that issue; they were not measured here.
 
 If the owner prefers not to take on a second native runtime, ONNX S/c32r8 (the current #1980 proposal) remains
-valid; ExecuTorch does not change accuracy, only cost, first-partial latency headroom and which size fits the S21.
+valid; ExecuTorch does not change accuracy, only cost and whether M/c16r4 fits the S21. The earlier first partial
+of M/c16r4 is a tier choice that ONNX can also make, at higher S21 lag.
