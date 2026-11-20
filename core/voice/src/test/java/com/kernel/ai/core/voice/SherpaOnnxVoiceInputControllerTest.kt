@@ -554,9 +554,13 @@ class SherpaOnnxVoiceInputControllerTest {
     @Test
     fun `a second start releases and retires the previous capture before opening the microphone`() = runTest {
         createAllStubModelFiles()
+        // The first recording loop must park in the reader wait (the mic never yields audio), not fail
+        // on a missing stream: that failure raced the second start and made the terminal's `cancelled` flag timing-dependent.
+        val order = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val recognizer = FakeOnlineRecognizer(order)
         setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))
-        setPrivateField("recognizer", Any())
-        val order = mutableListOf<String>()
+        setPrivateField("recognizer", recognizer)
+        installInteractiveMethods(recognizer)
         val first = micRecorder()
         val second = micRecorder()
         every { first.release() } answers { order += "first-release" }
@@ -570,7 +574,7 @@ class SherpaOnnxVoiceInputControllerTest {
                 if (recorder === second) order += "second-recorder-acquire"
             }
         }
-        val events = mutableListOf<VoiceInputEvent>()
+        val events = java.util.Collections.synchronizedList(mutableListOf<VoiceInputEvent>())
         // Unconfined collection observes SharedFlow.tryEmit inline, preserving publication order.
         backgroundScope.launch(Dispatchers.Unconfined) {
             controller.events.collect {
@@ -606,6 +610,7 @@ class SherpaOnnxVoiceInputControllerTest {
         assertTrue(focusAbandonIndex < stoppedIndex)
         assertTrue(stoppedIndex < secondRecorderAcquireIndex)
         assertTrue(secondRecorderAcquireIndex < secondStartedIndex)
+        controller.stopListeningForSession(secondResult.captureSessionId)
     }
 
 
