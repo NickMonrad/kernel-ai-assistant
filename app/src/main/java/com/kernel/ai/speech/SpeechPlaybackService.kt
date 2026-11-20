@@ -1,44 +1,32 @@
 package com.kernel.ai.speech
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.os.Build
+import android.content.pm.ServiceInfo
+import android.media.session.MediaSession
 import android.os.IBinder
-import com.kernel.ai.R
 
-/** Keeps speech synthesis on foreground scheduling only while speech is active. */
+/**
+ * Keeps local speech foreground-scheduled while the screen is off (#1959).
+ *
+ * This service owns the speech Stop card while it runs: [onStartCommand] promotes it with the
+ * MediaStyle notification bound to the [MediaSession.Token] passed in [EXTRA_SESSION_TOKEN]. The
+ * manager posts the card itself only when the OS denies the foreground start.
+ */
 class SpeechPlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val manager = getSystemService(NotificationManager::class.java)
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    getString(R.string.speech_stop_channel_name),
-                    NotificationManager.IMPORTANCE_LOW,
-                ),
-            )
-        }
-        val notification = Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_speech_stop)
-            .setContentTitle(getString(R.string.speech_stop_title))
-            .setOngoing(true)
-            .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        val token = intent?.getParcelableExtra(EXTRA_SESSION_TOKEN, MediaSession.Token::class.java)
+        startForeground(
+            SpeechStopNotification.NOTIFICATION_ID,
+            SpeechStopNotification.build(this, token),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+        )
         return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private companion object {
-        const val CHANNEL_ID = "speech_playback"
-        const val NOTIFICATION_ID = 1873
+    companion object {
+        const val EXTRA_SESSION_TOKEN = "com.kernel.ai.speech.SESSION_TOKEN"
     }
 }

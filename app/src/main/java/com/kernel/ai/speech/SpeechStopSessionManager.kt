@@ -1,8 +1,6 @@
 package com.kernel.ai.speech
 
 import android.app.ForegroundServiceStartNotAllowedException
-import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -40,6 +38,7 @@ class SpeechStopSessionManager @Inject constructor(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var session: MediaSession? = null
+    private var cardPostedWithoutService = false
     private val lifecycle = SpeechStopSessionLifecycle(open = ::open, close = ::close)
 
     fun start(scope: CoroutineScope): Job {
@@ -50,13 +49,6 @@ class SpeechStopSessionManager @Inject constructor(
     }
 
     private fun open() {
-        try {
-            context.startForegroundService(Intent(context, SpeechPlaybackService::class.java))
-        } catch (e: ForegroundServiceStartNotAllowedException) {
-            // Android 12+ denies background foreground starts. Speech and the MediaSession still work;
-            // only foreground scheduling is lost, so the process may be deprioritised while the screen is off.
-            Log.w(LOG_TAG, "Speech foreground service start denied", e)
-        }
         val mediaSession = MediaSession(context, SESSION_TAG).apply {
             setCallback(
                 object : MediaSession.Callback() {
@@ -96,7 +88,9 @@ class SpeechStopSessionManager @Inject constructor(
             isActive = true
         }
         session = mediaSession
-        postCard(mediaSession.sessionToken)
+        val token = mediaSession.sessionToken
+        cardPostedWithoutService = !startPlaybackService(token)
+        if (cardPostedWithoutService) postCard(token)
     }
 
     private fun close() {
@@ -106,35 +100,33 @@ class SpeechStopSessionManager @Inject constructor(
         }
         session = null
         context.stopService(Intent(context, SpeechPlaybackService::class.java))
-        context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        if (cardPostedWithoutService) {
+            cardPostedWithoutService = false
+            context.getSystemService(NotificationManager::class.java).cancel(SpeechStopNotification.NOTIFICATION_ID)
+        }
+    }
+
+    /** Returns false when the OS denied the foreground start; the Stop card is then posted directly. */
+    private fun startPlaybackService(token: MediaSession.Token): Boolean = try {
+        context.startForegroundService(
+            Intent(context, SpeechPlaybackService::class.java).apply {
+                putExtra(SpeechPlaybackService.EXTRA_SESSION_TOKEN, token)
+            },
+        )
+        true
+    } catch (e: ForegroundServiceStartNotAllowedException) {
+        Log.w(LOG_TAG, "Speech foreground service start denied", e)
+        false
     }
 
     private fun postCard(token: MediaSession.Token) {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    context.getString(R.string.speech_stop_channel_name),
-                    NotificationManager.IMPORTANCE_LOW,
-                ),
-            )
-        }
-        val notification = Notification.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_speech_stop)
-            .setContentTitle(context.getString(R.string.speech_stop_title))
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setOngoing(true)
-            .setStyle(Notification.MediaStyle().setMediaSession(token))
-            .build()
-        manager.notify(NOTIFICATION_ID, notification)
+        context.getSystemService(NotificationManager::class.java)
+            .notify(SpeechStopNotification.NOTIFICATION_ID, SpeechStopNotification.build(context, token))
     }
 
     private companion object {
         const val SESSION_TAG = "JandalSpeech"
         const val ACTION_STOP_CUSTOM = "com.kernel.ai.speech.STOP_SPEECH"
-        const val CHANNEL_ID = "speech_playback"
-        const val NOTIFICATION_ID = 1873
         const val LOG_TAG = "SpeechStopSession"
     }
 }
