@@ -23,10 +23,15 @@ import kotlinx.coroutines.launch
  *
  * While [SpeechStopCoordinator.isSpeaking] is true a [MediaSession] is active. Its PlaybackState
  * advertises ACTION_STOP plus a "Stop" custom action, and its callbacks route Stop, Pause and the
- * custom action to [SpeechStopCoordinator.requestStop]. A MediaStyle notification bound to the
- * session lets System UI draw the media card in the shade (verified on S23U). Lock-screen display is
- * not verified: the S21 lock-screen check failed (PR #1913). Its Stop routes through the same session callbacks, so no receiver is needed. The notification and session are
- * released when speech ends.
+ * custom action to [SpeechStopCoordinator.requestStop]. The Stop card is a MediaStyle notification
+ * bound to that session: System UI draws it in the shade (verified on S23U). Lock-screen display is
+ * not verified: the S21 lock-screen check failed (PR #1913).
+ *
+ * Foreground scheduling (#1959): [open] promotes [SpeechPlaybackService], which posts the card as ID
+ * 1873 while it runs. If the OS denies the background start, the manager posts the same card itself
+ * so the shade control still exists. Exactly one party posts ID 1873 in either case ([SpeechStopCard]).
+ * [close] stops the service, deferred until promotion if the start is still pending. The session and
+ * card are released when speech ends.
  */
 @Singleton
 class SpeechStopSessionManager @Inject constructor(
@@ -35,7 +40,17 @@ class SpeechStopSessionManager @Inject constructor(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var session: MediaSession? = null
-    private var cardPostedWithoutService = false
+    private val card = SpeechStopCard<MediaSession.Token>(
+        startForeground = { token -> SpeechPlaybackService.start(context, token) },
+        postCard = { token ->
+            context.getSystemService(NotificationManager::class.java)
+                .notify(SpeechStopNotification.NOTIFICATION_ID, SpeechStopNotification.build(context, token))
+        },
+        cancelCard = {
+            context.getSystemService(NotificationManager::class.java).cancel(SpeechStopNotification.NOTIFICATION_ID)
+        },
+        stopForeground = { SpeechPlaybackService.stop(context) },
+    )
     private val lifecycle = SpeechStopSessionLifecycle(open = ::open, close = ::close)
 
     fun start(scope: CoroutineScope): Job {
@@ -85,9 +100,7 @@ class SpeechStopSessionManager @Inject constructor(
             isActive = true
         }
         session = mediaSession
-        val token = mediaSession.sessionToken
-        cardPostedWithoutService = !SpeechPlaybackService.start(context, token)
-        if (cardPostedWithoutService) postCard(token)
+        card.show(mediaSession.sessionToken)
     }
 
     private fun close() {
@@ -96,16 +109,7 @@ class SpeechStopSessionManager @Inject constructor(
             release()
         }
         session = null
-        SpeechPlaybackService.stop(context)
-        if (cardPostedWithoutService) {
-            cardPostedWithoutService = false
-            context.getSystemService(NotificationManager::class.java).cancel(SpeechStopNotification.NOTIFICATION_ID)
-        }
-    }
-
-    private fun postCard(token: MediaSession.Token) {
-        context.getSystemService(NotificationManager::class.java)
-            .notify(SpeechStopNotification.NOTIFICATION_ID, SpeechStopNotification.build(context, token))
+        card.hide()
     }
 
     private companion object {
