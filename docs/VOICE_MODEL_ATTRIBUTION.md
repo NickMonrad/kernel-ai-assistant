@@ -98,6 +98,8 @@ Provenance of the planned Kotlin engine (#1987): it is a port of FUTO's Python r
 1. a written licence from FUTO covering the reference driver (owner is contacting FUTO; record the grant, its scope, and the date here when received); or
 2. a clean-room rewrite of the ONNX Runtime pipeline that does not derive from the Python driver, verified by parity against the official ONNX bundles.
 
+**Merge sequencing (owner-agreed):** #1986 (licence notices and terms) merges first, then #1987 (engine), then #1793 is rebased onto that. #1987 and #1980 must not merge ahead of this blocker being resolved.
+
 ## Code references
 
 - `core/inference/src/main/java/com/kernel/ai/core/inference/download/KernelModel.kt` records the Hugging Face model URLs for STT ONNX assets.
