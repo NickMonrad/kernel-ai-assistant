@@ -593,6 +593,37 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
+    fun `a backend terminal that lands at the wedge timeout retires the admission without a synthetic stop`() =
+        runTest(dispatcher) {
+            val c = controller()
+            val seen = eventsOf(c)
+            assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
+            nativeEvents.emit(VoiceInputEvent.ListeningStarted(mode, 1L))
+            coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+                thirdArg<(Long) -> Unit>().invoke(2L)
+                VoiceInputStartResult.Started(2L)
+            }
+            // The wedged backend's terminal lands just after its timeout. It retires the admission
+            // first, so the timed-out retirement finds nothing and must not emit a second stop.
+            c.beforeWedgedRetireForTest = {
+                nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
+                // Routing is asynchronous: wait until the terminal has retired owner 1, so the timed-out retirement runs second.
+                c.awaitCaptureTeardown(1L)
+            }
+
+            val second = async { c.startListening(mode) }
+            advanceTimeBy(BACKEND_TEARDOWN_TIMEOUT_MS)
+            runCurrent()
+            advanceUntilIdle()
+
+            assertTrue(second.isCompleted)
+            assertEquals(
+                listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+                seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+            )
+        }
+
+    @Test
     fun `a throw from the native start releases its held terminal and the fallback slot`() = runTest(dispatcher) {
         val c = controller()
         val seen = eventsOf(c)

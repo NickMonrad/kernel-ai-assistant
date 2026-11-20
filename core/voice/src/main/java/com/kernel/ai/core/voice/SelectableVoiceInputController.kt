@@ -213,6 +213,8 @@ class SelectableVoiceInputController @Inject constructor(
     /** Start attempts remain separately owned until their caller's finally block unwinds. */
     private val inFlightStartGenerations = HashSet<Long>()
     private var pendingNativeTeardownSettle: NativeTeardownSettle? = null
+    /** Test seam, null in production: runs after a wedged backend times out, just before its admission is retired. */
+    internal var beforeWedgedRetireForTest: (suspend () -> Unit)? = null
 
     /** Called under [captureOwnerLock]; wakes a start holding the mutex on a native settle. */
     private fun advanceGenerationLocked(): Pair<Long, CompletableDeferred<Unit>> {
@@ -436,9 +438,9 @@ class SelectableVoiceInputController @Inject constructor(
         sessionId: Long,
         preserveGenerationFence: Boolean = false,
         preserveFenceWhileStartInFlight: Boolean = false,
-    ) {
+    ): AdmittedCapture? {
         synchronized(captureOwnerLock) {
-            val retired = admittedControllers.remove(sessionId) ?: return
+            val retired = admittedControllers.remove(sessionId) ?: return null
             backendAdmissions.entries.removeAll { it.value == sessionId }
             retired.teardown?.complete(Unit)
             captureOwner?.takeIf { it.sessionId == sessionId }?.let { owner ->
@@ -450,6 +452,7 @@ class SelectableVoiceInputController @Inject constructor(
                 captureOwner = if (preserve) CaptureOwnerState(retired.generation, null) else null
             }
             updateCaptureActivityLocked()
+            return retired
         }
     }
 
@@ -562,6 +565,7 @@ class SelectableVoiceInputController @Inject constructor(
                 // so retiring by backend id found no entry and the loop re-waited forever.
                 if (teardown != null && withTimeoutOrNull(BACKEND_TEARDOWN_TIMEOUT_MS) { teardown.await() } == null) {
                     Log.w(TAG, "backend for session ${capture.backendSessionId} (owner $ownerSessionId) did not settle; retiring its admission")
+                    beforeWedgedRetireForTest?.invoke()
                     retireWedgedAdmission(ownerSessionId, capture)
                 }
             }
@@ -577,7 +581,9 @@ class SelectableVoiceInputController @Inject constructor(
      */
     private fun retireWedgedAdmission(ownerSessionId: Long, capture: AdmittedCapture) {
         if (capture.controller === nativeAndroidVoiceInputController) recordNativeTeardownSettle(ownerSessionId)
-        retireAdmission(ownerSessionId)
+        // A backend terminal can retire this admission between the timeout and here; that terminal has
+        // already reported the stop, so a synthetic one would duplicate it.
+        retireAdmission(ownerSessionId) ?: return
         outbound.tryEmit(VoiceInputEvent.ListeningStopped(capture.mode, ownerSessionId, cancelled = true))
     }
 
