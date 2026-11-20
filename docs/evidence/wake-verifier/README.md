@@ -7,17 +7,17 @@ audio, transcripts and per-ring verdicts stayed in a private directory outside G
 - Harness: [`harness/`](harness/) (see [Reproduce](#reproduce)).
 - Aggregates: [`results/host-aggregates.json`](results/host-aggregates.json) and the device files in [`results/`](results/).
 
-Status: host comparison complete for all six options. Device confirmation: Whisper on the S23U (partial,
-826/1,118 rings, agrees with the host verdict on 98.8%); the S21 run of Whisper, asr4all M and KWS is pending
-the S21 lock (see [Device confirmation](#device-confirmation)).
+Status: host comparison complete for all six options; device confirmation on the S21 (Whisper, asr4all M in both
+tiers, KWS; all 1,118 rings) and a partial Whisper run on the S23U (826 rings, stopped when the phone was found
+PIN-locked). Device verdicts agree with the host on 98.8–99.6% of rings.
 
 ## Answer
 
 | | Verdict |
 |---|---|
-| **Verifier to use** | **sherpa-onnx open-vocabulary keyword spotter** (`sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01`, int8, Apache-2.0) with the single keyword `HEY JANDAL`. Highest genuine acceptance of every option, 5/5 on the owner's natural recording, no background-speech false accepts, ~5 MB instead of ~104 MB, ~40 ms per check on the host and about a fifth of Whisper's memory. It runs on the sherpa-onnx 1.13.0 runtime the app already ships (`KeywordSpotter` is in the pinned AAR). It needs its own implementation issue, with acoustic device validation, before it replaces Whisper. |
-| **Interim verifier (#1982)** | **Whisper tiny.en, as #1982 already says.** Second-best acceptance, needs no matcher change, already wired and proven on device. Remove Zipformer (0% acceptance here). |
-| **asr4all (M or L, either tier)** | **Not as a verifier.** It does not know the word "Jandal": with the production matcher it accepts 6–8% of genuine rings. Reaching ~50–55% needs extra name spellings learnt from this same corpus (`jandle`, `gendal`, `janel`, `jand`, …), which also raises near-miss false accepts to 2–3%. The c16r4 and c32r8 tiers are within noise of each other; L is not better than M on the owner's recording. asr4all's only real advantage here, no extra download, does not outweigh that. |
+| **Verifier to use** | **sherpa-onnx open-vocabulary keyword spotter** (`sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01`, int8, Apache-2.0) with the single keyword `HEY JANDAL`. Highest genuine acceptance of every option on the host and on the S21 (S21: 61.6% at the default threshold vs Whisper 45.6% on the same rings), every owner natural ring accepted, no background-speech false accepts, ~5 MB download instead of ~104 MB, and on the S21 ~212 ms per check vs Whisper's ~507 ms with about half the memory. It runs on the sherpa-onnx 1.13.0 runtime the app already ships (`KeywordSpotter` is in the pinned AAR). Its one weakness here: it accepts `Okay Jandal` (1.0–1.2% near-miss FA vs Whisper's 0.7%). It needs its own implementation issue, with acoustic device validation, before it replaces Whisper. |
+| **Interim verifier (#1982)** | **Whisper tiny.en, as #1982 already says.** The best option that needs no new matcher forms and no tuning on this corpus; already wired and proven on device. Remove Zipformer (0% acceptance here). |
+| **asr4all (M or L, either tier)** | **Not as a verifier.** It does not know the word "Jandal": with the production matcher it accepts 6–8% of genuine rings on the host and 9–10% on the S21. Reaching ~50–60% needs extra name spellings learnt from this same corpus (`jandle`, `gendal`, `janel`, `jand`, …), which also raises near-miss false accepts to 2–4%. The c16r4 and c32r8 tiers are within noise of each other; L is not better than M on the owner's recording. On the S21 an M check takes ~384–418 ms (Whisper ~507 ms) with ~170–179 MiB peak PSS in its own process (Whisper adds ~143 MiB to the app), so it is not materially cheaper. Its only real advantage, no extra download when M is the STT model, does not outweigh the recognition gap. |
 | **No STT verification, one tuned threshold** | **Not viable.** Near-miss phrases (`Hey Handle`, `Hey Jungle`, `Hey Kendall`, …) reach detector scores of 0.93, as high as genuine ones. No single threshold separates them: at 0.90 the detector still passes 6.9% of near-misses while dropping genuine acceptance to 55.5%. |
 | **Bigger finding** | The verifier only sees the 0.50–0.65 band. Every near-miss false accept on this corpus (12.9% of near-miss items) came through the ≥ 0.65 fast path, which no verifier touches. Verifying every candidate ≥ 0.50 removes them all on this corpus (KWS: 0/700) but also costs genuine acceptance (49.6–55.4% vs 71–72%). That is a policy change for its own issue, and only a cheap verifier such as KWS makes it affordable. |
 
@@ -227,11 +227,38 @@ Whisper files, staged rings and `/data/local/tmp` files removed, stay-awake sett
 |---|---|---|---|---|---|---|---|---|
 | Whisper tiny.en, `prod` | 826 | 45.6% (171/375) | 0.7% (3/420) | 1/31 | 98.8% (816/826) | 100% | 218 / 294 / 478 | 777 |
 
-### S21 (`R5CR605B71K`), all three lanes
+### S21 (`R5CR605B71K`), all lanes
 
-Pending: the S21 lock (`/tmp/jandal-s21.lock`) is held by another agent's long run. The run starts
-automatically when the lock is free and this section will be updated with Whisper, asr4all M (c16r4 and
-c32r8) and KWS results.
+Rings: 375 genuine, 420 near-miss, 290 background-speech, 33 non-speech. Owner natural = the 3 owner rings in
+the device subset (clean, reverb, music).
+
+| Lane | Genuine TA | Owner natural | Near-miss FA | Background FA | Non-speech FA | Agrees with host verdict | Verify p50 / p95 / max ms | Load / cold | Memory |
+|---|---|---|---|---|---|---|---|---|---|
+| Whisper tiny.en, `prod` (production app path) | 45.6% (171/375) | 1/3 | 0.7% (3/420) | 0.7% (2/290) | 0/33 | 99.1% (1108/1118) | 507 / 713 / 1006 (warm) | first verify after process start ≈ 1156 ms | app PSS +143 MiB |
+| asr4all M c16r4, `prod` (ET probe) | 9.9% (37/375) | 1/3 | 2.9% (12/420) | 0.3% (1/290) | 0/33 | 99.4% (1111/1118) | 418 / 473 / 551 | load 767 ms | PSS +119 MiB after load, +170 MiB peak |
+| asr4all M c16r4, `prod+forms` | 58.7% (220/375) | 3/3 | 3.6% (15/420) | 0.3% (1/290) | 0/33 | 98.9% (1106/1118) | same | same | same |
+| asr4all M c32r8, `prod` (ET probe) | 9.3% (35/375) | 0/3 | 1.9% (8/420) | 0.3% (1/290) | 0/33 | 99.4% (1111/1118) | 384 / 462 / 563 | load 502 ms | PSS +123 MiB after load, +179 MiB peak |
+| asr4all M c32r8, `prod+forms` | 59.7% (224/375) | 1/3 | 2.9% (12/420) | 0.3% (1/290) | 0/33 | 99.3% (1110/1118) | same | same | same |
+| KWS t0.25 / s1.0 (default) | 61.6% (231/375) | **3/3** | 1.0% (4/420) | **0/290** | 0/33 | 99.0% (1107/1118) | **212 / 248 / 316** | load 3290 ms (incl. first ORT load) | PSS +50 MiB after load, +81 MiB peak |
+| KWS t0.08 / s2.0 | **70.1% (263/375)** | **3/3** | 1.2% (5/420) | **0/290** | 0/33 | 99.6% (1114/1118) | 217 / 252 / 445 | load 3503 ms (incl. first ORT load) | PSS +50 MiB after load, +80 MiB peak |
+
+Reverb is the hardest condition on the phone as on the host (Whisper 28.0%, asr4all M + forms 44.0–46.4%, KWS
+39.2–48.0%). asr4all's PCEC text matched the host's exactly on 88.5% (c16r4) and 89.1% (c32r8) of rings,
+consistent with the ARM vs x86 kernel drift #1988 measured; it changed a verdict on ≤ 1.1% of rings. Whisper's two
+runs per ring were identical on all 1,118.
+
+Caveats: the lanes run in different processes, so memory is not like-for-like. Whisper's figure is the app's
+PSS growth while its verifier is resident; asr4all's and KWS's are the growth of their own process from start,
+which for KWS includes loading onnxruntime itself (the app already has it loaded for the wake detector, so
+KWS's load time and memory in the app would be lower). asr4all ran with 4 threads, Whisper and KWS with 2.
+
+Device state: on both phones the script installed the `main@00025895` debug APK with `install -r -d` (data
+kept), pushed the three catalogue Whisper files only where missing, and staged rings in app-private storage and
+`/data/local/tmp`. Cleanup reinstalled the exact previous debug APK (S21 `26bb36fa…`, S23U `8e0ec402…`),
+removed every pushed and staged file, uninstalled the isolated #1988 probe packages it had installed, restored
+the recorded `stay_on_while_plugged_in` value and released the lock. Nothing was uninstalled or cleared in
+`ai.jandal.assistant*` and no Gradle connected task ran. The first S23U attempt sent one `KEYCODE_WAKEUP`
+before the phone was reported PIN-locked; the script no longer touches the screen.
 
 ## Reproduce
 
