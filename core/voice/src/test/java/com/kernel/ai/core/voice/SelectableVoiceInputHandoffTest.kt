@@ -538,6 +538,7 @@ class SelectableVoiceInputHandoffTest {
         runTest(dispatcher) {
             zipformerStartsAs(2L)
             val c = controller()
+            val seen = eventsOf(c)
             assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
             nativeEvents.emit(VoiceInputEvent.ListeningStarted(mode, 1L))
             nativeEvents.emit(stalled(1L))
@@ -559,6 +560,18 @@ class SelectableVoiceInputHandoffTest {
             // Pre-fix, retirement looked up backend id 2 and found nothing, so the loop waited again.
             assertTrue(second.isCompleted, "a wedged hand-off backend must be retired after one bounded wait")
             assertTrue(second.await() is VoiceInputStartResult.Started)
+            // The synthetic stop is keyed by owner 1, not by the Zipformer backend id 2.
+            assertEquals(
+                listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+                seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+            )
+            // The late Zipformer terminal for backend id 2 is dropped with its retired admission.
+            sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 2L))
+            advanceUntilIdle()
+            assertEquals(
+                listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
+                seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+            )
         }
 
     @Test
