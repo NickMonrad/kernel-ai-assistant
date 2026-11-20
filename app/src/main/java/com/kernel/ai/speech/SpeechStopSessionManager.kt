@@ -23,8 +23,10 @@ import kotlinx.coroutines.launch
  * While [SpeechStopCoordinator.isSpeaking] is true a [MediaSession] is active. Its PlaybackState
  * advertises ACTION_STOP plus a "Stop" custom action, and its callbacks route Stop, Pause and the
  * custom action to [SpeechStopCoordinator.requestStop]. The Stop card is a MediaStyle notification
- * bound to that session: System UI draws it in the shade (verified on S23U). Lock-screen display is
- * not verified: the S21 lock-screen check failed (PR #1913).
+ * bound to that session: System UI draws it in the shade. Shade display is verified on S23U only for
+ * the fallback-notify path, where the manager posts the card itself after a denied foreground start.
+ * The card posted by [SpeechPlaybackService] after promotion is unverified on device. Lock-screen
+ * display is not verified: the S21 lock-screen check failed (PR #1913).
  *
  * Foreground scheduling (#1959): [open] promotes [SpeechPlaybackService], which posts the card as ID
  * 1873 while it runs. If the OS denies the background start, the manager posts the same card itself
