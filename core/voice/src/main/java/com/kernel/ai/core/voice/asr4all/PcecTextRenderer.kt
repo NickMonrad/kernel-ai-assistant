@@ -49,10 +49,13 @@ class PcecTextRenderer(private val pcec: Asr4AllPcecConfig) {
                         allCapsPending = false
                     }
                     var out = if (allCapsWord) piece.uppercase() else piece
-                    if (capNext) {
+                    // `cap` waits for the next piece that has a letter: a bare space piece starts the word.
+                    if (capNext && out.any { it.isLetter() }) {
                         out = capitaliseFirstLetter(out)
                         capNext = false
                     }
+                    // A deleted word can leave a bare space piece; keep single spaces.
+                    if (out.startsWith(" ") && (text.isEmpty() || text.endsWith(" "))) out = out.trimStart(' ')
                     text.append(out)
                 }
             }
@@ -61,8 +64,9 @@ class PcecTextRenderer(private val pcec: Asr4AllPcecConfig) {
     }
 
     private fun appendMark(text: StringBuilder, mark: Char) {
+        while (text.endsWith(" ")) text.setLength(text.length - 1)
         // A mark before any word has nothing to attach to.
-        if (text.isBlank()) return
+        if (text.isEmpty()) return
         text.append(mark)
     }
 

@@ -47,7 +47,8 @@ Write a config (relative paths resolve against the config file's directory):
 }
 ```
 
-Clips must be 16-bit mono little-endian PCM WAV at 16 kHz. Then:
+Clips must be 16-bit mono little-endian PCM WAV at 16 kHz. Optional `"check_chunk_ms": 37` re-runs
+every clip with a second chunk size and fails if the final text differs. Then:
 
 ```bash
 ANDROID_HOME=$HOME/Android/Sdk ASR4ALL_HARNESS_CONFIG=/path/to/config.json \

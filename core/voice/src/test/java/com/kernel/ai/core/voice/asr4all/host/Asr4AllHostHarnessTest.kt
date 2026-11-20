@@ -38,6 +38,8 @@ class Asr4AllHostHarnessTest {
         val loader = PythonBridgeProgram.loader(python, bridge, stderrLog)
         val chunkMs = cfg["chunk_ms"]?.asInt ?: 100
         val repeat = cfg["repeat"]?.asInt ?: 1
+        // Optional second chunk size: the final text must not depend on how audio is chunked.
+        val checkChunkMs = cfg["check_chunk_ms"]?.asInt
         val clips = cfg["clips"].asJsonArray.map { it.asJsonObject.let { c -> c["id"].asString to path(c["wav"].asString) } }
         val gson = GsonBuilder().disableHtmlEscaping().create()
 
@@ -55,6 +57,10 @@ class Asr4AllHostHarnessTest {
                             val pcm = readWav(wav, engine.config.sampleRate)
                             val runs = (1..repeat).map { runClip(engine, pcm, chunk) }
                             runs.drop(1).forEach { assertEquals(runs[0], it, "non-deterministic output for $id $sizeName $tierName") }
+                            if (checkChunkMs != null) {
+                                val other = runClip(engine, pcm, engine.config.sampleRate * checkChunkMs / 1000).second
+                                assertEquals(runs[0].second, other, "final text depends on chunking for $id $sizeName $tierName")
+                            }
                             val (events, final) = runs[0]
                             val row = JsonObject().apply {
                                 addProperty("clip", id)

@@ -15,7 +15,7 @@ class PcecTextRendererTest {
         val ids = renderer.collapse(*stream.map { IntSlice(it) }.toTypedArray(), IntSlice(clip.flushSlots, 0, flushUsed))
 
         assertEquals(
-            "Mrister quilter is the apostle of the middle classes, and we are glad to welcome his gospel.",
+            "Mrister Quilter is the apostle of the middle classes, and we are glad to welcome his gospel.",
             renderer.render(ids),
         )
     }
@@ -40,6 +40,13 @@ class PcecTextRendererTest {
         )
 
         assertEquals("It, NASA Says? Yes.", renderer.render(ids))
+    }
+
+    @Test
+    fun `cap skips a bare space piece and spaces stay single`() {
+        val ids = intArrayOf(id(" mr"), pcec.capId, id(" "), id("qu"), id("il"), id("ter"), id(" "), id(" is"), id(" "), pcec.periodId)
+
+        assertEquals("Mr Quilter is.", renderer.render(ids))
     }
 
     private fun id(piece: String): Int = pcec.vocab.indexOf(piece).also { check(it >= 0) { "no piece '$piece'" } }

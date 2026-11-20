@@ -10,7 +10,8 @@
 
 ## Statement
 
-I did not read, download, open, print, search or import any file outside the allowed list below.
+I did not read, download, open, print, search or import any asr4all-specific material outside the
+allowed list below, and nothing on the #2004 forbidden list.
 In particular I did not read any script or code file in the `futo-org/asr4all-*` repositories
 (`executorch/asr4all_executorch.py`, `onnx/asr4all_onnx.py`, `modeling_asr4all.py` or their
 history), anything in `futo-org/voice-input` or transcribe.cpp, PR #1987 or branch
@@ -20,6 +21,10 @@ listed `/var/tmp` and `/tmp` paths, other agents' worktrees or logs, or any thir
 asr4all decoding. The only GitHub issue bodies read were #2004, #2003, #2007 and #1999 (bodies
 only, no comments). No PR for #2003 existed when I searched (`gh pr list --search 2003`, empty),
 so no #2003 code was read.
+
+Incidental: a `ps` listing I ran to check my own Gradle process also showed another agent's Gradle
+command line, whose working directory was a worktree named `feat-core-executorch-runtime`. No file
+in that worktree was read; nothing from it informed the engine.
 
 Model files were fetched one by one by exact path
 (`https://huggingface.co/<repo>/resolve/<revision>/<path>`); no repository snapshot or file
@@ -123,9 +128,10 @@ parity failure can be traced:
    blackout bucket 9. Float input: 0. Padding positions: id `pad_in`, pause 0, zero hidden, 0.
 4. Streaming calls take full rungs; partials use the flush method on the current state without
    committing it, and omit the closing-mark slot; the final text includes it.
-5. Text: CTC-collapse all slots, drop blanks, apply `cap`/`allcaps` to the next piece/word,
-   attach marks to the preceding text (marks before the first word are dropped), then
-   sentence-initial capitals after `.`/`?`, as the model card describes.
+5. Text: CTC-collapse all slots, drop blanks, apply `cap` to the next piece that has a letter
+   and `allcaps` to the next word, attach marks to the preceding text without a space (marks
+   before the first word are dropped), keep single spaces, then sentence-initial capitals after
+   `.`/`?`, as the model card describes.
 
 Items 3 and 5 are the least certain; they were chosen by black-box measurement against public
 references (see below). Parity results from the verifier decide whether they stand.
@@ -148,3 +154,26 @@ Used only to choose between candidate input encodings by running the model:
 Metrics: WER against the references, punctuation precision/recall against LibriSpeech-PC, and the
 rate of output words absent from a LibriSpeech training-text word list (a proxy for the garbled
 non-words the head is meant to repair).
+
+Findings (M, `stream_c16r4`; raw greedy CTC WER 3.71 % on the 600 LibriSpeech utterances):
+
+| question | result | chosen |
+|---|---|---|
+| PCEC input unit | frame-aligned inputs give repeated words; collapsed CTC tokens give clean text | tokens |
+| pause bucket scale | log2 buckets: punctuation F1 0.817; linear (gap, capped at 8): 0.723; gap/2: 0.757; threshold-at-9 schemes: 0.787–0.790 | log2 |
+| pause gap measure | blank frames after the previous run, or start-to-start distance: F1 0.817 vs 0.819 | blank frames |
+| first token's pause | blackout 9, bucket of the leading silence, or 0: identical WER; 0 adds leading marks (85 vs 62 of 600 rows) | blackout |
+| hidden pooling | WER on 300 utterances: mean over the run 3.76 %; start frame 3.78 %; last frame 3.81 %; up to the next token 3.75 %; from the previous token 4.75 % | run mean |
+| hidden alignment | shifting the pooled frames by −2/−1/+1/+2 gives WER 35.1/7.7/4.2/7.7 % vs 4.2 % unshifted (150 utterances) | no shift |
+| float input | 0: WER 3.65 %; token log-probability: 3.80 %; pause in seconds: 3.66 %; a constant −1: 41 %; pause in frames capped at 9: 22 % | 0 |
+
+The float input is the main parity risk: the plausible encodings change the final text in 10–15 %
+of rows against each other. About 10 % of rows get a mark before the first word under every
+encoding tried; the renderer drops it.
+
+## Harness checks run by the implementer
+
+- S, M and L × all six tiers × 3 LibriSpeech dev-clean clips through the host harness: every
+  combination opens, passes the open-time validation and the per-call shape checks, and gives
+  identical partials and final text on a repeated run.
+- M at `stream_c16r4` and `stream_c64r16`: final text identical with 100 ms and 37 ms chunks.
