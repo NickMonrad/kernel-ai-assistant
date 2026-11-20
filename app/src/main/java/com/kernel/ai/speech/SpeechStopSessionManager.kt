@@ -1,5 +1,6 @@
 package com.kernel.ai.speech
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -11,7 +12,7 @@ import android.media.session.PlaybackState
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import androidx.core.content.ContextCompat
+import android.util.Log
 import com.kernel.ai.R
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -49,7 +50,13 @@ class SpeechStopSessionManager @Inject constructor(
     }
 
     private fun open() {
-        ContextCompat.startForegroundService(context, Intent(context, SpeechPlaybackService::class.java))
+        try {
+            context.startForegroundService(Intent(context, SpeechPlaybackService::class.java))
+        } catch (e: ForegroundServiceStartNotAllowedException) {
+            // Android 12+ denies background foreground starts. Speech and the MediaSession still work;
+            // only foreground scheduling is lost, so the process may be deprioritised while the screen is off.
+            Log.w(LOG_TAG, "Speech foreground service start denied", e)
+        }
         val mediaSession = MediaSession(context, SESSION_TAG).apply {
             setCallback(
                 object : MediaSession.Callback() {
@@ -128,6 +135,7 @@ class SpeechStopSessionManager @Inject constructor(
         const val ACTION_STOP_CUSTOM = "com.kernel.ai.speech.STOP_SPEECH"
         const val CHANNEL_ID = "speech_playback"
         const val NOTIFICATION_ID = 1873
+        const val LOG_TAG = "SpeechStopSession"
     }
 }
 
