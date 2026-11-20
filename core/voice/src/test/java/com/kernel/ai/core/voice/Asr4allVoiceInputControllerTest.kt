@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 
 /**
  * Deterministic controller tests for the asr4all capture lifecycle. The recorder returns frames
@@ -121,7 +122,7 @@ class Asr4allVoiceInputControllerTest {
                 val buf = firstArg<ShortArray>()
                 buf.fill(amplitude)
                 firstFrame.countDown()
-                readGate?.await(5, TimeUnit.SECONDS)
+                readGate?.await()
                 buf.size
             }
         }
@@ -605,6 +606,7 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
     fun `a failed load still reports the stop when the caller is cancelled while the reader drains`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
@@ -632,6 +634,7 @@ class Asr4allVoiceInputControllerTest {
             collected.awaitStops(1)
             assertEquals(1, collected.stoppedCount(), "a cancelled caller must still report the stop")
         } finally {
+            gate.countDown() // release the untimed reader wait so a failing assertion cannot hang the suite
             engineGate = null
             readGate = null
             collected.job.cancel()
@@ -640,6 +643,7 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
     fun `a stop during the engine load joins the reader before the cancelled stop is reported`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
@@ -670,6 +674,7 @@ class Asr4allVoiceInputControllerTest {
             collected.awaitStops(1)
             assertEquals(1, collected.stoppedCount())
         } finally {
+            gate.countDown() // release the untimed reader wait so a failing assertion cannot hang the suite
             engineGate = null
             readGate = null
             collected.job.cancel()
