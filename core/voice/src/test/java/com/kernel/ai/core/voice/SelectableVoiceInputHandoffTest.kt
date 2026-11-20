@@ -534,6 +534,34 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
+    fun `a wedged zipformer after a native hand-off is retired by owner so the next start proceeds`() =
+        runTest(dispatcher) {
+            zipformerStartsAs(2L)
+            val c = controller()
+            assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
+            nativeEvents.emit(VoiceInputEvent.ListeningStarted(mode, 1L))
+            nativeEvents.emit(stalled(1L))
+            nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
+            advanceUntilIdle()
+            // The hand-off re-keys the admission under owner 1 with backend id 2. Zipformer never settles.
+            coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+                thirdArg<(Long) -> Unit>().invoke(3L)
+                VoiceInputStartResult.Started(3L)
+            }
+
+            val second = async { c.startListening(mode) }
+            advanceTimeBy(BACKEND_TEARDOWN_TIMEOUT_MS - 1)
+            runCurrent()
+            assertFalse(second.isCompleted)
+            advanceTimeBy(1)
+            runCurrent()
+
+            // Pre-fix, retirement looked up backend id 2 and found nothing, so the loop waited again.
+            assertTrue(second.isCompleted, "a wedged hand-off backend must be retired after one bounded wait")
+            assertTrue(second.await() is VoiceInputStartResult.Started)
+        }
+
+    @Test
     fun `native reservation failure keeps capture activity fenced while zipformer fallback is pending`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {

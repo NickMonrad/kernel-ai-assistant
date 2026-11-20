@@ -532,16 +532,16 @@ class SelectableVoiceInputController @Inject constructor(
     ): Boolean {
         while (gen == generation.get()) {
             val previous = synchronized(captureOwnerLock) {
-                admittedControllers.values.filter { capture ->
+                admittedControllers.entries.filter { (_, capture) ->
                     capture.controller === nativeAndroidVoiceInputController ||
                         capture.controller === sherpaOnnxVoiceInputController
-                }
+                }.map { (ownerSessionId, capture) -> ownerSessionId to capture }
             }
             if (previous.isEmpty()) {
                 return if (settleNativeToLocal) awaitNativeTeardownSettle(gen) else gen == generation.get()
             }
 
-            for (capture in previous) {
+            for ((ownerSessionId, capture) in previous) {
                 if (gen != generation.get()) return false
                 when (capture.controller) {
                     nativeAndroidVoiceInputController ->
@@ -552,9 +552,11 @@ class SelectableVoiceInputController @Inject constructor(
                 val teardown = capture.teardown
                 // A wedged backend must not block every later start. On timeout its admission is
                 // retired so the next start proceeds; the backend may still hold the mic.
+                // Retire by owner key: after a Native->Zipformer hand-off the backend id is Zipformer's,
+                // so retiring by backend id found no entry and the loop re-waited forever.
                 if (teardown != null && withTimeoutOrNull(BACKEND_TEARDOWN_TIMEOUT_MS) { teardown.await() } == null) {
-                    Log.w(TAG, "backend for session ${capture.backendSessionId} did not settle; retiring its admission")
-                    retireAdmission(capture.backendSessionId)
+                    Log.w(TAG, "backend for session ${capture.backendSessionId} (owner $ownerSessionId) did not settle; retiring its admission")
+                    retireAdmission(ownerSessionId)
                 }
             }
         }
