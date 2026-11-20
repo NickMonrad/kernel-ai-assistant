@@ -90,6 +90,7 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Sherpa SenseVoice STT | Optional Sherpa STT model | Model licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa Whisper tiny.en STT | Optional Sherpa STT model | Code comments indicate Apache-2.0; verify upstream model page | Document source/licence before shipping/download exposure. |
 | Sherpa Paraformer STT | Optional Sherpa STT model | Code comments indicate Apache-2.0; verify upstream model page | Document source/licence before shipping/download exposure. |
+| asr4all STT (FUTO, 28M and 56M) | Planned default offline STT model (#1977/#1980); ONNX Runtime | FUTO Model Weights License (Restricted Use) 1.0 (pinned LICENSE: [`futo-org/asr4all-s` @ `87a6b5d0`](https://huggingface.co/futo-org/asr4all-s/blob/87a6b5d093723fe37e9f69ad26307a3b95a31af0/LICENSE), [`futo-org/asr4all-m` @ `7d6e9145`](https://huggingface.co/futo-org/asr4all-m/blob/7d6e9145109a5bece4f05831d046e93d27e38a99/LICENSE); byte-identical text). `asr4all-l-plus` has a different licence and is not covered by this row. Commercial use permitted; Limitations prohibit surveillance, profiling/discrimination, intelligence gathering, custody monitoring, targeting protected activity, and circumvention. Full text bundled in app (`legal/FUTO-Model-Weights-License-1.0.txt`) and listed in `NOTICE`. Terms of Use clause binds users to the Limitations. | Unmodified weights downloaded from FUTO's Hugging Face repos; no model-card derivation notice needed. Any modification or rehosting requires a modification notice and the FUTO terms alongside the files. ONNX Runtime port blocker: see the asr4all section of Launch-blocking decisions. |
 
 ### Text-to-speech voices/assets
 
@@ -124,6 +125,11 @@ Decision implemented in #1268:
 - Replacement: en_GB-cori-high voice pack (~116 MB, `rhasspy/piper-voices` MIT repository, upstream model card lists LibriVox public-domain dataset).
 
 Semaine is not deleted. If compatible rights are later obtained, Semaine can be re-enabled by setting releaseVisible=true.
+
+### asr4all (#1979, #1980, #1987) - open blocker
+
+- The asr4all weights (`futo-org/asr4all-s`, `futo-org/asr4all-m`) are licensed under the FUTO Model Weights License (Restricted Use) 1.0. That licence does not cover FUTO's Python reference driver `onnx/asr4all_onnx.py`, which #1987's Kotlin ONNX Runtime engine is a port of.
+- Blocker: a written licence from FUTO for the reference driver (owner is contacting FUTO), or a clean-room rewrite verified by parity. Tracked in #1999. Until one is recorded in `VOICE_MODEL_ATTRIBUTION.md`, #1987 and #1980 must not merge or ship the asr4all default. #1998 (Terms acceptance) also blocks #1980.
 
 ## Suggested README / Play Store wording
 

@@ -77,6 +77,29 @@ For release attribution, cite both:
 
 Use `openai/whisper-tiny.en`, not multilingual `openai/whisper-tiny`, because Jandal's app-side model selection is the English-only `tiny.en` ONNX export.
 
+## asr4all source notes
+
+Planned offline STT default (#1977, #1980). Jandal will download the unmodified FUTO ONNX export files from FUTO's Hugging Face repositories, `futo-org/asr4all-s` (28M) and `futo-org/asr4all-m` (56M), and run them with ONNX Runtime.
+
+Licence: FUTO Model Weights License (Restricted Use) 1.0, in each repository's `LICENSE`. The two copies are byte-identical (checked 18 Nov 2026). The text is bundled at `app/src/main/assets/legal/FUTO-Model-Weights-License-1.0.txt` and shown offline on the Open-source licences screen, which also lists asr4all in `NOTICE`.
+
+Release obligations:
+
+- Commercial use is permitted. No attribution is required for model outputs.
+- The Limitations section prohibits surveillance, profiling and discrimination by voice, intelligence gathering, monitoring people in custody, targeting protected activity, and circumvention. Jandal's Terms of Use (section 5) bind users to these Limitations, as the licence requires for hosted or embedded services.
+- Recipients must receive the terms. The app bundles them and the Terms of Use link to them.
+- Do not modify, re-quantise, or rehost the weights without first adding a modification notice and the FUTO terms alongside the files.
+- The licence prohibits using the name, trademarks, service marks, or logos of FUTO for any purpose, including endorsing or promoting Derivative Models or suggesting a relationship with FUTO beyond licensor and licensee. Jandal's own rule is stricter: FUTO's name appears only as the licence's own title ("FUTO Model Weights License (Restricted Use) 1.0"), and nowhere else in user-facing UI, marketing copy, or the NOTICE text, except (a) the verbatim licence text, which must be reproduced unaltered, and (b) the pinned source URLs in NOTICE, which are factual locators for the licence's canonical, revision-pinned source. The bundled licence file name `legal/FUTO-Model-Weights-License-1.0.txt` is kept because `LegalPrivacyScreen.kt` loads the asset by that name; it is not shown to users, and renaming it would be a code change, not a licence requirement.
+
+Provenance of the planned Kotlin engine (#1987): it is a port of FUTO's Python reference driver `onnx/asr4all_onnx.py`, pinned at `futo-org/asr4all-s` revision `87a6b5d093723fe37e9f69ad26307a3b95a31af0` (the same file blob exists at `futo-org/asr4all-m` revision `7d6e9145109a5bece4f05831d046e93d27e38a99`). The weights licence covers the weights only. The reference driver has no licence we have found, so the port is not cleared for release. No code is copied from `futo-org/voice-input`, which uses the non-commercial FUTO Source First licence.
+
+**Open blocker (gates #1987 and #1980; tracked in #1999):** before either merges or the asr4all default ships, one of the following must be recorded here:
+
+1. a written licence from FUTO covering the reference driver (owner is contacting FUTO; record the grant, its scope, and the date here when received); or
+2. a clean-room rewrite of the ONNX Runtime pipeline that does not derive from the Python driver, verified by parity against the official ONNX bundles. The implementer must not have read `onnx/asr4all_onnx.py`, nor #1987's Kotlin engine or its review threads, since that engine is a port of the same file; they work only from `onnx/metadata.json`, the model card/README and observed model I/O, and parity is checked against reference outputs (method and results recorded in the PR).
+
+**Merge sequencing (owner-agreed):** #1986 (licence notices and terms) merges first, then #1987 (engine), then #1793 is rebased onto that. #1987 and #1980 must not merge ahead of this blocker being resolved.
+
 ## Code references
 
 - `core/inference/src/main/java/com/kernel/ai/core/inference/download/KernelModel.kt` records the Hugging Face model URLs for STT ONNX assets.
