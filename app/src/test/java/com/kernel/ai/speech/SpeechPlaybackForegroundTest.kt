@@ -8,6 +8,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -64,5 +65,21 @@ class SpeechPlaybackForegroundTest {
         foreground.stop(context)
 
         verify(exactly = 1) { context.stopService(any()) }
+    }
+
+    @Test
+    fun `a start during pending promotion promotes with the newest token, not the released one`() {
+        val context = mockk<Context>(relaxed = true)
+        val released = mockk<MediaSession.Token>()
+        val current = mockk<MediaSession.Token>()
+        val foreground = SpeechPlaybackForeground()
+
+        assertTrue(foreground.start(context, released))
+        foreground.stop(context)
+        assertTrue(foreground.start(context, current))
+
+        assertSame(current, foreground.promotionToken())
+        assertFalse(foreground.promoted {})
+        verify(exactly = 1) { context.startForegroundService(any()) }
     }
 }
