@@ -512,6 +512,28 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
+    fun `a previous capture whose backend never settles is retired so the next start proceeds`() =
+        runTest(dispatcher) {
+            val c = controller()
+            assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
+            coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+                thirdArg<(Long) -> Unit>().invoke(2L)
+                VoiceInputStartResult.Started(2L)
+            }
+
+            // Session 1's backend never emits its terminal, so its teardown never completes.
+            val second = async { c.startListening(mode) }
+            advanceTimeBy(BACKEND_TEARDOWN_TIMEOUT_MS - 1)
+            runCurrent()
+            assertFalse(second.isCompleted)
+            advanceTimeBy(1)
+            runCurrent()
+
+            assertTrue(second.isCompleted, "the next start must not wait on a wedged backend forever")
+            assertEquals(VoiceInputStartResult.Started(2L), second.await())
+        }
+
+    @Test
     fun `native reservation failure keeps capture activity fenced while zipformer fallback is pending`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
@@ -648,7 +670,9 @@ class SelectableVoiceInputHandoffTest {
         assertTrue(abandoned.isCancelled)
 
         val replacement = async { c.startListening(mode) }
-        advanceUntilIdle()
+        // The late terminal arrives inside the teardown bound, so the replacement must still be waiting for it.
+        advanceTimeBy(BACKEND_TEARDOWN_TIMEOUT_MS - 1)
+        runCurrent()
         assertFalse(replacement.isCompleted)
         assertTrue(c.captureActivity.value)
 

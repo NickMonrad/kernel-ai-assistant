@@ -41,6 +41,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "SelectableVoiceInput"
 
@@ -53,6 +54,9 @@ internal const val LIVE_CHECK_SETTLE_MS = 400L
  * proof of remote recorder release.
  */
 internal const val NATIVE_TEARDOWN_SETTLE_MS = 400L
+
+/** Bound on waiting for a superseded capture's backend to settle before its admission is retired. */
+internal const val BACKEND_TEARDOWN_TIMEOUT_MS = 3000L
 
 internal const val AUTO_STT_UNAVAILABLE_MESSAGE =
     "Voice input is still getting ready. The offline speech model is downloading, so try again in a minute."
@@ -545,7 +549,13 @@ class SelectableVoiceInputController @Inject constructor(
                     sherpaOnnxVoiceInputController ->
                         sherpaOnnxVoiceInputController.stopListeningForSession(capture.backendSessionId)
                 }
-                capture.teardown?.await()
+                val teardown = capture.teardown
+                // A wedged backend must not block every later start. On timeout its admission is
+                // retired so the next start proceeds; the backend may still hold the mic.
+                if (teardown != null && withTimeoutOrNull(BACKEND_TEARDOWN_TIMEOUT_MS) { teardown.await() } == null) {
+                    Log.w(TAG, "backend for session ${capture.backendSessionId} did not settle; retiring its admission")
+                    retireAdmission(capture.backendSessionId)
+                }
             }
         }
         return false

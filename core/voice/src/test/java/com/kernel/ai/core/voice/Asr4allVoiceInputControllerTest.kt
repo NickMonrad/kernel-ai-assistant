@@ -58,6 +58,7 @@ class Asr4allVoiceInputControllerTest {
     @Volatile private var blankAfterFrames = Int.MAX_VALUE
     /** Set to block engine construction until the test releases it. */
     @Volatile private var engineGate: CountDownLatch? = null
+    @Volatile private var readGate: CountDownLatch? = null
     private val engineEntered = CountDownLatch(1)
     /** When true, PCEC renders empty until the stream is finished (raw CTC still reports text). */
     @Volatile private var pcecEmptyUntilFinish = false
@@ -120,6 +121,7 @@ class Asr4allVoiceInputControllerTest {
                 val buf = firstArg<ShortArray>()
                 buf.fill(amplitude)
                 firstFrame.countDown()
+                readGate?.await(5, TimeUnit.SECONDS)
                 buf.size
             }
         }
@@ -597,6 +599,33 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(1, collected.started(), "ListeningStarted fires at mic open")
             assertEquals(1, collected.stoppedCount(), "cancel must pair it with ListeningStopped")
         } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a failed load still reports the stop when the caller is cancelled while the reader drains`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        val gate = CountDownLatch(1)
+        try {
+            openFails = true
+            readGate = gate
+            val caller = launch { c.startListening(VoiceCaptureMode.Command) }
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            assertTrue(engineEntered.await(5, TimeUnit.SECONDS))
+            // The load has failed and the caller is joining the reader, which stays parked in read until the gate opens.
+            Thread.sleep(200)
+            caller.cancel()
+            gate.countDown()
+            caller.join()
+
+            collected.awaitStops(1)
+            assertEquals(1, collected.stoppedCount(), "a cancelled caller must still report the stop")
+        } finally {
+            readGate = null
             collected.job.cancel()
             scope.cancel()
         }

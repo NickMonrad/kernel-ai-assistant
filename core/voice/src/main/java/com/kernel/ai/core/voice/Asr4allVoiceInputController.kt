@@ -194,7 +194,9 @@ class Asr4allVoiceInputController @Inject constructor(
             }
             if (eng == null) {
                 halt(capture)
-                capture.reader.join()
+                withContext(NonCancellable) {
+                    capture.reader.join()
+                }
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Offline speech model could not be loaded. Re-download it in Settings → Voice.",
@@ -206,7 +208,9 @@ class Asr4allVoiceInputController @Inject constructor(
             // finalized by an explicit stop; a supersede discards in every case.
             if (discard.get() || stop.get()) {
                 halt(capture)
-                capture.reader.join()
+                withContext(NonCancellable) {
+                    capture.reader.join()
+                }
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Cancelled(sessionId)
             }
