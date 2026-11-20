@@ -613,12 +613,17 @@ class Asr4allVoiceInputControllerTest {
         try {
             openFails = true
             readGate = gate
+            val loadOpen = CountDownLatch(1)
+            engineGate = loadOpen
             val joinReached = CountDownLatch(1)
             c.beforeFailedLoadJoinForTest = { joinReached.countDown() }
             val caller = launch { c.startListening(VoiceCaptureMode.Command) }
-            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
             assertTrue(engineEntered.await(5, TimeUnit.SECONDS))
-            // The load has failed; the seam fires just before the caller joins the reader, which stays parked in read.
+            // The load is held until the reader is parked in read; a load that failed first would
+            // close the buffer before the reader starts, so no frame would ever be read.
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            loadOpen.countDown()
+            // The load fails; the seam fires just before the caller joins the reader, which stays parked in read.
             assertTrue(joinReached.await(5, TimeUnit.SECONDS))
             caller.cancel()
             gate.countDown()
@@ -627,6 +632,7 @@ class Asr4allVoiceInputControllerTest {
             collected.awaitStops(1)
             assertEquals(1, collected.stoppedCount(), "a cancelled caller must still report the stop")
         } finally {
+            engineGate = null
             readGate = null
             collected.job.cancel()
             scope.cancel()
