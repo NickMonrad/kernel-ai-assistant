@@ -91,7 +91,12 @@ Release obligations:
 - Do not modify, re-quantise, or rehost the weights without first adding a modification notice and the FUTO terms alongside the files.
 - The FUTO name and logos may not be used to endorse Jandal.
 
-The FUTO inference code is not used. Jandal's ONNX Runtime port is written from FUTO's published Python reference; no code is copied from `futo-org/voice-input`, which uses the non-commercial FUTO Source First licence.
+Provenance of the planned Kotlin engine (#1987): it is a port of FUTO's Python reference driver `onnx/asr4all_onnx.py`, pinned at `futo-org/asr4all-s` revision `87a6b5d093723fe37e9f69ad26307a3b95a31af0` (the same file blob exists at `futo-org/asr4all-m` revision `7d6e9145109a5bece4f05831d046e93d27e38a99`). The weights licence covers the weights only. The reference driver has no licence we have found, so the port is not cleared for release. No code is copied from `futo-org/voice-input`, which uses the non-commercial FUTO Source First licence.
+
+**Open blocker (gates #1987 and #1980):** before either merges or the asr4all default ships, one of the following must be recorded here:
+
+1. a written licence from FUTO covering the reference driver (owner is contacting FUTO; record the grant, its scope, and the date here when received); or
+2. a clean-room rewrite of the ONNX Runtime pipeline that does not derive from the Python driver, verified by parity against the official ONNX bundles.
 
 ## Code references
 
