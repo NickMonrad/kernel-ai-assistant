@@ -24,12 +24,16 @@ and ONNX Runtime (MIT) are used as published binaries.
 
 - `probe/src/main/.../EtAsr4allDecoder.kt`: Kotlin port of FUTO's `asr4all_executorch.py` (stream tier +
   `pcec_c16`/`pcec_c16_flush`). Logits rows are 257 wide (256 vocab + blank); see "Root cause" below.
-- `StreamingLane.kt`: ET and ONNX lanes behind one interface; `BenchmarkTest` (one lane per process: load,
+- `StreamingLane.kt`: lanes behind one interface: `et` (ExecuTorch), `onnx` (#1987 engine as-is), `onnxt4`
+  (ORT control: the same #1987 source generated into package `...asr4all.tuned` with only `openSession` changed
+  to 4 intra-op threads, arena + prepacking enabled). `BenchmarkTest` (one lane per process: load,
   PSS/VmHWM, paced 100 ms feed with per-chunk lag/backlog, first partials, flushed finals), `ParityTest`
   (public clips, frame ids + top-2 margins), `StepProbeTest` (first steps under XNNPACK option variants).
-- `scripts/`: `run_device.sh` (lock, stage, run, pull, clean, release), `device-lock.sh`,
-  `reference_outputs.py` / `check_parity.py` / `frame_agreement.py` (host oracle and parity),
-  `repro_prior_harness_bug.py` (minimal root-cause reproduction), `score.py` (WER and aggregates).
+- `scripts/`: `run_device.sh` (lock, stage, run, pull, clean, release; phases `parity,bench,breadth,long,control,
+  retry`; `UNINSTALL=1` removes the probe packages at the end), `device-lock.sh`,
+  `reference_outputs.py` / `check_parity.py` / `frame_agreement.py` (host oracle and parity; run the oracle under
+  qemu-user aarch64 for the ARM-kernel comparison), `repro_prior_harness_bug.py` (minimal root-cause
+  reproduction), `score.py` (WER and aggregates), `report_table.py` / `control_table.py` (aggregate tables).
 - `host/`: `extension::Module` runner used to rule out XNNPACK weight-cache / shared-workspace options.
 
 ## Root cause of the earlier "Android divergence"

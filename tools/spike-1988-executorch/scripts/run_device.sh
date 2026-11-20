@@ -26,6 +26,10 @@ cleanup() {
   adb -s $S shell "run-as $A rm -rf files/spike1988/owner files/spike1988/breadth files/spike1988-out" || true
   adb -s $S shell rm -rf /data/local/tmp/spike1988 || true
   adb -s $S shell settings put global stay_on_while_plugged_in "$stay" || true
+  if [[ ${UNINSTALL:-0} == 1 ]]; then
+    adb -s $S uninstall $A.test >/dev/null || true
+    adb -s $S uninstall $A >/dev/null || true
+  fi
   "$here/device-lock.sh" release "$phone" "$agent"
 }
 trap cleanup EXIT
@@ -51,9 +55,9 @@ for sz in s m l; do
   done
 done
 for f in 1 2 3 4 mlk; do stage "$CACHE/public/$f.wav" spike1988/public; done
-[[ $phases == *bench* ]] && for f in "$OWNER"/*.wav; do stage "$f" spike1988/owner; done
-[[ $phases == *breadth* ]] && for f in "$BREADTH"/*.wav; do stage "$f" spike1988/breadth; done
-[[ $phases == *long* ]] && stage "$CACHE/public/long-public.wav" spike1988/long
+[[ $phases == *bench* || $phases == *control* || $phases == *retry* ]] && for f in "$OWNER"/*.wav; do stage "$f" spike1988/owner; done
+[[ $phases == *breadth* || $phases == *control* || $phases == *retry* ]] && for f in "$BREADTH"/*.wav; do stage "$f" spike1988/breadth; done
+[[ $phases == *long* || $phases == *control* || $phases == *retry* ]] && stage "$CACHE/public/long-public.wav" spike1988/long
 adb -s $S shell "run-as $A sh -c 'cd files/spike1988 && sha256sum */*.pte */*.onnx */*.data */*.json public/*.wav'" > "$out/staged.sha256"
 
 instr() { adb -s $S shell am instrument -w "$@" "$RUNNER" | tr -d '\r'; }
@@ -102,5 +106,30 @@ if [[ $phases == *long* ]]; then
     pull bench/long-paced-$rt-$sz-$tier-default.json
     sleep 10
   done; done; done
+fi
+if [[ $phases == *control* ]]; then
+  # ORT control (#1988 review): onnxt4 = same #1987 engine with 4 intra-op threads, arena + prepacking on.
+  # ET and #1987-config ONNX are re-run in the same session so all three lanes share device state.
+  for lane in "m stream_c16r4" "s stream_c32r8"; do set -- $lane; sz=$1 tier=$2
+    for rt in et onnx onnxt4; do
+      for spec in "owner paced" "breadth compute" "long paced"; do set -- $spec; set_=$1 mode=$2
+        echo "$(date +%T) lane $rt $sz $tier $set_ temp=$(bat)C" | tee -a "$out/lanes.log"
+        instr -e class ai.jandal.spike1988.BenchmarkTest -e runtime $rt -e size $sz -e tier $tier \
+          -e mode $mode -e set $set_ -e clips spike1988/$set_ | tail -1 | tee -a "$out/lanes.log"
+        pull bench/$set_-$mode-$rt-$sz-$tier-default.json
+      done
+      sleep 10
+    done
+  done
+fi
+if [[ $phases == *retry* ]]; then
+  # Re-run single lanes after a transient crash: RETRY="rt size tier set mode;rt size tier set mode"
+  IFS=';' read -ra lanes <<< "${RETRY:?RETRY lanes required}"
+  for spec in "${lanes[@]}"; do set -- $spec; rt=$1 sz=$2 tier=$3 set_=$4 mode=$5
+    echo "$(date +%T) retry lane $rt $sz $tier $set_ temp=$(bat)C" | tee -a "$out/lanes.log"
+    instr -e class ai.jandal.spike1988.BenchmarkTest -e runtime $rt -e size $sz -e tier $tier \
+      -e mode $mode -e set $set_ -e clips spike1988/$set_ | tail -1 | tee -a "$out/lanes.log"
+    pull bench/$set_-$mode-$rt-$sz-$tier-default.json
+  done
 fi
 echo DONE

@@ -53,11 +53,14 @@ class ProgramProxy:
 engine.model = ProgramProxy(engine.model)
 total = agree = 0
 worst = 0.0
+text_rows = text_same = 0
 for row in json.load(open(sys.argv[2])):
     engine.set_tier(row["tier"])
     recorded.clear()
     clip = ref.load_wav(str(Path(sys.argv[3]) / row["clip"]))
-    engine.decode_offline(clip, apply_pcec=True)
+    host_pcec = engine.decode_offline(clip, apply_pcec=True)
+    text_rows += 1
+    text_same += host_pcec == row["pcec"]
     host_ids = list(engine.ids)
     margins = []
     for lp in recorded:
@@ -73,6 +76,8 @@ for row in json.load(open(sys.argv[2])):
     dev_m = [row["frame_margins"][i] for i in diff]
     worst = max([worst] + [min(a, b) for a, b in zip(dm, dev_m)])
     print(f"{row['tier']} {row['clip']:>8}: {len(host_ids)} frames, {len(diff)} differ; "
-          f"host margins at diffs {np.round(dm, 3).tolist()} device margins {np.round(dev_m, 3).tolist()}")
+          f"host margins at diffs {np.round(dm, 3).tolist()} device margins {np.round(dev_m, 3).tolist()}; "
+          f"PCEC text {'same' if host_pcec == row['pcec'] else 'DIFFERS'}")
 print(f"TOTAL {agree}/{total} frames agree ({100 * agree / total:.2f}%); "
-      f"largest min(host, device) top-2 margin at a disagreeing frame: {worst:.3f}")
+      f"largest min(host, device) top-2 margin at a disagreeing frame: {worst:.3f}; "
+      f"PCEC final text identical in {text_same}/{text_rows} rows")

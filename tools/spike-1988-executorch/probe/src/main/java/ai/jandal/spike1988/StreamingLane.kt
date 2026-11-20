@@ -22,7 +22,8 @@ interface StreamingLane : AutoCloseable {
             when (runtime) {
                 "et" -> EtLane(File(modelRoot, size), size, tier, variant)
                 "onnx" -> OnnxLane(File(modelRoot, "onnx-$size"), tier)
-                else -> error("runtime must be et or onnx")
+                "onnxt4" -> OnnxTunedLane(File(modelRoot, "onnx-$size"), tier)
+                else -> error("runtime must be et, onnx or onnxt4")
             }
     }
 }
@@ -57,6 +58,24 @@ class EtLane(dir: File, size: String, tier: String, variant: String) : Streaming
 class OnnxLane(dir: File, tier: String) : StreamingLane {
     private val engine = Asr4allEngine.open(dir, tier)
     override val description = "onnxruntime-android/fp32 (#1987 Asr4allEngine) ${dir.name} $tier"
+
+    override fun reset() = engine.reset()
+    override fun feed(chunk: FloatArray): String = engine.decodeStream(chunk)
+    override fun correctedPartial(): String = engine.decodePcec(decodeTail = false)
+    override fun finish(): Pair<String, String> {
+        val raw = engine.finish()
+        return raw to engine.decodePcec(decodeTail = true)
+    }
+    override fun close() = engine.close()
+}
+
+/**
+ * ORT control lane: the same #1987 engine code, but sessions use 4 intra-op threads (matching ExecuTorch's
+ * cores/2 default) with ORT's CPU arena and weight prepacking enabled (#1987 disables both to save memory).
+ */
+class OnnxTunedLane(dir: File, tier: String) : StreamingLane {
+    private val engine = com.kernel.ai.core.voice.asr4all.tuned.Asr4allEngine.open(dir, tier)
+    override val description = "onnxruntime-android/fp32 4 threads, arena+prepacking on ${dir.name} $tier"
 
     override fun reset() = engine.reset()
     override fun feed(chunk: FloatArray): String = engine.decodeStream(chunk)

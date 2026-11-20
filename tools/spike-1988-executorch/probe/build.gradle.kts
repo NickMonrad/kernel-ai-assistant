@@ -4,6 +4,8 @@ plugins {
 
 // Jandal's ONNX Runtime FP32 asr4all engine is compiled from PR #1987's exact head, read straight out of
 // Git, so the comparison lane runs that code unmodified and nothing is copied into this branch.
+// A second copy in package `...asr4all.tuned` is the ORT control lane (#1988 review): identical code except
+// openSession uses 4 intra-op threads with the CPU arena and weight prepacking left enabled.
 val onnxEngineCommit = providers.gradleProperty("onnxEngineCommit")
     .orElse("591e82919851bdd77e4490446fe61162f7109eb0")
 val onnxEngineFiles = listOf(
@@ -21,14 +23,26 @@ val extractOnnxEngine by tasks.registering {
     inputs.property("commit", commit)
     outputs.dir(out)
     doLast {
-        val pkg = out.get().dir("com/kernel/ai/core/voice/asr4all").asFile.apply { deleteRecursively(); mkdirs() }
+        val root = out.get().dir("com/kernel/ai/core/voice/asr4all").asFile.apply { deleteRecursively(); mkdirs() }
+        val tuned = root.resolve("tuned").apply { mkdirs() }
         for (name in onnxEngineFiles) {
             val path = "core/voice/src/main/java/com/kernel/ai/core/voice/asr4all/$name"
             val proc = ProcessBuilder("git", "show", "${commit.get()}:$path")
                 .directory(repoRoot).redirectErrorStream(false).start()
             val bytes = proc.inputStream.readBytes()
             check(proc.waitFor() == 0) { "git show ${commit.get()}:$path failed" }
-            pkg.resolve(name).writeBytes(bytes)
+            root.resolve(name).writeBytes(bytes)
+            var text = String(bytes).replaceFirst(
+                "package com.kernel.ai.core.voice.asr4all",
+                "package com.kernel.ai.core.voice.asr4all.tuned",
+            )
+            if (name == "Asr4allEngine.kt") {
+                val original = "so.setCPUArenaAllocator(false)\n" +
+                    "                so.addConfigEntry(\"session.disable_prepacking\", \"1\")"
+                check(original in text) { "#1987 openSession changed; update the ORT control patch" }
+                text = text.replace(original, "so.setIntraOpNumThreads(4)")
+            }
+            tuned.resolve(name).writeText(text)
         }
     }
 }
