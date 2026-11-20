@@ -131,7 +131,7 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
                 )
             }
             Text(
-                text = "FUTO Model Weights License text",
+                text = "asr4all speech model licence text",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 24.dp),
             )

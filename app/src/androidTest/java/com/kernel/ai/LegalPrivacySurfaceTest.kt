@@ -47,7 +47,7 @@ class LegalPrivacySurfaceTest {
         composeRule.onNodeWithText("Third-party software notices").assertIsDisplayed()
         composeRule.onNodeWithText("openWakeWord", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("asr4all speech recognition weights", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("FUTO Model Weights License text").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("asr4all speech model licence text").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Copyright License", substring = true).performScrollTo()
     }
 }
