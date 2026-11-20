@@ -1,5 +1,9 @@
 package com.kernel.ai.speech
 
+import android.app.NotificationManager
+import android.content.Context
+import android.media.session.MediaSession
+
 /**
  * Decides which single party posts the speech Stop card (notification ID 1873, #1873/#1959).
  *
@@ -29,3 +33,16 @@ internal class SpeechStopCard<T>(
         }
     }
 }
+
+/** The manager's card: starts [SpeechPlaybackService] first and posts directly only when the OS denies that start. */
+internal fun speechStopCard(context: Context): SpeechStopCard<MediaSession.Token> = SpeechStopCard(
+    startForeground = { token -> SpeechPlaybackService.start(context, token) },
+    postCard = { token ->
+        context.getSystemService(NotificationManager::class.java)
+            .notify(SpeechStopNotification.NOTIFICATION_ID, SpeechStopNotification.build(context, token))
+    },
+    cancelCard = {
+        context.getSystemService(NotificationManager::class.java).cancel(SpeechStopNotification.NOTIFICATION_ID)
+    },
+    stopForeground = { SpeechPlaybackService.stop(context) },
+)

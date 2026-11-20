@@ -1,6 +1,5 @@
 package com.kernel.ai.speech
 
-import android.app.NotificationManager
 import android.content.Context
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -40,17 +39,7 @@ class SpeechStopSessionManager @Inject constructor(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var session: MediaSession? = null
-    private val card = SpeechStopCard<MediaSession.Token>(
-        startForeground = { token -> SpeechPlaybackService.start(context, token) },
-        postCard = { token ->
-            context.getSystemService(NotificationManager::class.java)
-                .notify(SpeechStopNotification.NOTIFICATION_ID, SpeechStopNotification.build(context, token))
-        },
-        cancelCard = {
-            context.getSystemService(NotificationManager::class.java).cancel(SpeechStopNotification.NOTIFICATION_ID)
-        },
-        stopForeground = { SpeechPlaybackService.stop(context) },
-    )
+    private val card = speechStopCard(context)
     private val lifecycle = SpeechStopSessionLifecycle(open = ::open, close = ::close)
 
     fun start(scope: CoroutineScope): Job {
