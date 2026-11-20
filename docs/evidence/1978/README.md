@@ -76,9 +76,9 @@ Each required-mode run covers 11 tests: eight parity rows (six final modes and t
 
 Earlier repo-fixture run: a different parity run reported 6/7 failures. Its input was different or unverified (fixture hash not recorded), so it is not a known failure on this pinned WAV and is not reproduced by these results.
 
-Device harness: `Asr4allTierMeasurementDeviceTest` (`app/src/androidTest`, opt-in via `measure_enabled=true`) is documented in `docs/testing/asr4all-device-measurement.md`. Device measurements: not executed; no phone run is recorded in this evidence. The former host-JVM `Asr4allTierMeasurementTest` was removed. Host metrics unit tests verify the metric arithmetic only and are not decision evidence.
+Device harness: `Asr4allTierMeasurementDeviceTest` (`app/src/androidTest`, opt-in via `measure_enabled=true`) is documented in `docs/testing/asr4all-device-measurement.md`. Device measurements: not executed; no phone run is recorded in this evidence. The former host-JVM `Asr4allTierMeasurementTest` was removed. The instrumented metrics tests (`app/src/androidTest/java/com/kernel/ai/Asr4allMeasurementMetricsTest.kt`) verify the metric arithmetic only and are not decision evidence.
 
-Routing tests: `SelectableVoiceInputControllerTest` (32) and `SelectableVoiceInputHandoffTest` (15) pass, 0 failures (XML 03:57:17 and 03:57:18).
+Routing tests on the remediation head: `SelectableVoiceInputControllerTest` (54) and `SelectableVoiceInputHandoffTest` (24) pass, 0 failures (`core/voice` unit-test XML, 2026-11-20 10:39). The earlier 32/15 counts were from the opening head.
 
 ## S23U smoke (RFCW11265XH), debug build
 - Installed `app-debug.apk` built from the opening head (the PR head before remediation; exact build SHA not recorded in this README) via `adb install -r`; `lastUpdateTime` 2026-11-18 10:49:12. Remediated head (`47be1ed4` and later) has not been installed or run on device.
@@ -91,7 +91,7 @@ Routing tests: `SelectableVoiceInputControllerTest` (32) and `SelectableVoiceInp
 - Source S21 (`R5CR605B71K`): `AcousticStimulusReceiver` events `prepared` → `started` → `completed` → `cleanup_completed`, `exact_restoration_verified=true`, for trials smoke-1978-001/002/003.
 - **Trial 001: invalid.** No S23U capture was active, so it measured nothing.
 - **Trial 002, volume index 7 (lower-volume trial, not a proven safe level): timeout.** The S23U capture ran and ended with `No speech heard` after the 10 s no-speech timeout.
-- **Trial 003, volume 15: captured.** Chat push-to-talk on S23U (accessibility bounds `[305,1876][380,1928]`): AudioRecord opened (VOICE_RECOGNITION, 16 kHz). Trace `ADB_INTENT_TRACE submitMode=Voice` at 11:01:22.338 with the final `The quick brown fox stump over the lazy dog.` (cased and punctuated).
+- **Trial 003, volume 15: captured.** Chat push-to-talk on S23U (accessibility bounds `[305,1876][380,1928]`): AudioRecord opened (VOICE_RECOGNITION per the opening head's trace, 16 kHz). The current code opens `MediaRecorder.AudioSource.MIC` (`Asr4allVoiceInputController.kt:297`), so this trial does not confirm the current audio source. Trace `ADB_INTENT_TRACE submitMode=Voice` at 11:01:22.338 with the final `The quick brown fox stump over the lazy dog.` (cased and punctuated).
 - Coupling: the captured final is observed for trial 003 only.
 - **Not verified:** streaming partials (`PartialTranscript` was not captured; no asr4all journal instrumentation), voice-mode entry point not separately exercised, and no on-device evaluation beyond this one phrase.
 - Device state: S23U mic grant for `ai.jandal.assistant.debug` was given through the in-app dialog, not ADB; still `granted=true`, left unchanged pending Nick. S21 temp WAV `/sdcard/Download/asr4all-stim.wav` removed.
