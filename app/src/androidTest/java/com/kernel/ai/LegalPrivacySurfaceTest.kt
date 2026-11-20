@@ -6,7 +6,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNode
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.kernel.ai.feature.settings.LegalPrivacyScreen
 import com.kernel.ai.feature.settings.DataPrivacySummaryScreen
@@ -88,7 +91,9 @@ class LegalPrivacySurfaceTest {
         }
         composeRule.onNodeWithText(originalNotice).assertExists()
         composeRule.onNodeWithText("openWakeWord", substring = true).assertExists()
-        composeRule.onNodeWithText("asr4all speech model licence text").performScrollTo().assertIsDisplayed()
+        composeRule.onNode(hasScrollToNodeAction())
+            .performScrollToNode(hasText("asr4all speech model licence text"))
+        composeRule.onNodeWithText("asr4all speech model licence text").assertIsDisplayed()
     }
 
 }
