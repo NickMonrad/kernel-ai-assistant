@@ -1,5 +1,10 @@
 {
   "schema_version": 1,
+  "issue": 1984,
+  "set": "owner-decision",
+  "synthetic": false,
+  "decision_set": true,
+  "note": "Owner-recorded decision set (sections A-C). Used for model size/tier choice, go/no-go and vocabulary accuracy. Audio and manifests are private and never committed. Text must match the recordings; do not edit it.",
   "phrases": [
     {"id": "A-01", "text": "Kia ora Jandal, what's the weather in Tauranga tomorrow?"},
     {"id": "A-02", "text": "Navigate to Pūkekohe."},
