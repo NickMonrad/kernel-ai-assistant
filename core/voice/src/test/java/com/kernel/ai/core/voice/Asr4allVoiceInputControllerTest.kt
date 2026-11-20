@@ -14,11 +14,17 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -348,6 +354,60 @@ class Asr4allVoiceInputControllerTest {
             scope.cancel()
         }
     }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `deselection releases a cold mic immediately and stale release does not block reselection`() =
+        runBlocking(Dispatchers.IO) {
+            Dispatchers.setMain(UnconfinedTestDispatcher())
+            val gate = CountDownLatch(1)
+            engineGate = gate
+            val selectedEngine = MutableStateFlow(VoiceInputEngine.Asr4all)
+            val preferences = mockk<VoiceInputPreferences>()
+            every { preferences.selectedEngine } returns selectedEngine
+            every { preferences.allowOnlineSpeechFallback } returns MutableStateFlow(false)
+            val native = mockk<NativeAndroidVoiceInputController>(relaxed = true)
+            val sherpa = mockk<SherpaOnnxVoiceInputController>(relaxed = true)
+            every { native.events } returns emptyFlow()
+            every { sherpa.events } returns emptyFlow()
+            val asr = controller()
+            val selector = SelectableVoiceInputController(
+                voiceInputPreferences = preferences,
+                nativeAndroidVoiceInputController = native,
+                sherpaOnnxVoiceInputController = sherpa,
+                asr4allVoiceInputController = asr,
+                androidNativeRecognitionSupport = mockk(relaxed = true),
+            )
+            try {
+                val oldStart = async { selector.startListening(VoiceCaptureMode.Command) }
+                assertTrue(engineEntered.await(5, TimeUnit.SECONDS), "cold engine load must be entered")
+                assertEquals(1, micOpens.get())
+
+                selectedEngine.value = VoiceInputEngine.AndroidNative
+                assertTrue(
+                    micReleasedSignal.tryAcquire(1, 5, TimeUnit.SECONDS),
+                    "deselection must discard the old mic without waiting for the cold engine load",
+                )
+                assertEquals(0, log.count { it == "open#1" }, "the engine remains gated")
+
+                selectedEngine.value = VoiceInputEngine.Asr4all
+                val replacementStart = async { selector.startListening(VoiceCaptureMode.Command) }
+                gate.countDown()
+
+                assertTrue(oldStart.await() is VoiceInputStartResult.Cancelled)
+                val replacement = replacementStart.await()
+                assertTrue(replacement is VoiceInputStartResult.Started)
+                assertEquals(2, micOpens.get(), "the reselected capture opens after the old reader exits")
+                assertTrue(focusOrder.contains("abandon-done"), "the discarded route must abandon its focus")
+                assertTrue(focusOrder.indexOf("abandon-done") < focusOrder.lastIndexOf("mic-open"))
+                selector.cancelListening((replacement as VoiceInputStartResult.Started).captureSessionId)
+                asr.releaseEngine()
+            } finally {
+                gate.countDown()
+                engineGate = null
+                Dispatchers.resetMain()
+            }
+        }
+
 
     @Test
     fun `a new route opens focus and mic only after a blocked teardown abandons the old focus`() = runBlocking(Dispatchers.IO) {

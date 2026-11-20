@@ -633,9 +633,10 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
 
-        viewModel.startVoiceInput()
+        viewModel.startBackAndForthVoiceInput()
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
         runCurrent()
+        assertEquals(ChatViewModel.VoiceMode.BackAndForth, viewModel.voiceMode.value)
 
         viewModel.onScreenStopped(screenOff = false)
         clearMocks(voiceOutputController, answers = false)
@@ -645,6 +646,7 @@ class ChatViewModelVoiceTest {
         coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
         coVerify(exactly = 0) { voiceOutputController.speak(any()) }
         assertEquals(emptyList<Pair<String, Boolean>>(), streamedChunks, "generation finishing after Home must not speak")
+        assertNull(viewModel.voiceMode.value, "Home exits Chat Loop mode")
     }
 
     @Test

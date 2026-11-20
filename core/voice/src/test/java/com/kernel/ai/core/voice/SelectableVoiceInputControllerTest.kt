@@ -59,6 +59,9 @@ class SelectableVoiceInputControllerTest {
         every { sherpaOnnxVoiceInputController.events } returns sherpaEvents
         every { asr4allVoiceInputController.events } returns asr4allEvents
         every { asr4allVoiceInputController.admissionEpochNow() } returns 0L
+        every { asr4allVoiceInputController.supersedeCaptureIfAdmissionEpoch(any()) } answers {
+            firstArg<Long>() + 1L
+        }
         every { asr4allVoiceInputController.stopListeningForSession(any()) } just runs
         every { asr4allVoiceInputController.cancelListeningForSession(any()) } just runs
         coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
@@ -69,9 +72,7 @@ class SelectableVoiceInputControllerTest {
         every { asr4allVoiceInputController.stopListening() } just runs
         every { asr4allVoiceInputController.supersedeCapture() } just runs
         coEvery { asr4allVoiceInputController.releaseEngineIf(any(), any()) } coAnswers {
-            val release = firstArg<suspend () -> Boolean>().invoke()
-            if (release) secondArg<() -> Unit>().invoke()
-            release
+            secondArg<suspend () -> Boolean>().invoke()
         }
         every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } just runs
         every { nativeAndroidVoiceInputController.cancelListeningForSession(any()) } just runs
@@ -1038,8 +1039,7 @@ class SelectableVoiceInputControllerTest {
         coEvery { asr4allVoiceInputController.releaseEngineIf(any(), any()) } coAnswers {
             releaseEntered.complete(Unit)
             allowReleaseCheck.await()
-            val shouldRelease = firstArg<suspend () -> Boolean>().invoke()
-            if (shouldRelease) secondArg<() -> Unit>().invoke()
+            val shouldRelease = secondArg<suspend () -> Boolean>().invoke()
             releaseResult.complete(shouldRelease)
             shouldRelease
         }
@@ -1070,11 +1070,8 @@ class SelectableVoiceInputControllerTest {
         every { voiceInputPreferences.selectedEngine } returns selected
         val released = CompletableDeferred<Unit>()
         coEvery { asr4allVoiceInputController.releaseEngineIf(any(), any()) } coAnswers {
-            val release = firstArg<suspend () -> Boolean>().invoke()
-            if (release) {
-                secondArg<() -> Unit>().invoke()
-                released.complete(Unit)
-            }
+            val release = secondArg<suspend () -> Boolean>().invoke()
+            if (release) released.complete(Unit)
             release
         }
 
@@ -1338,9 +1335,7 @@ class SelectableVoiceInputControllerTest {
         var prewarmAdmitted: Boolean? = null
         coEvery { asr4allVoiceInputController.releaseEngineIf(any(), any()) } coAnswers {
             releaseObserved.complete(Unit)
-            val release = firstArg<suspend () -> Boolean>().invoke()
-            if (release) secondArg<() -> Unit>().invoke()
-            release
+            secondArg<suspend () -> Boolean>().invoke()
         }
         coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             startEntered.complete(Unit)

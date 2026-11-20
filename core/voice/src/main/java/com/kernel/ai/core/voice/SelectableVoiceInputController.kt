@@ -234,15 +234,20 @@ class SelectableVoiceInputController @Inject constructor(
                 .distinctUntilChanged()
                 .catch { Log.w(TAG, "asr4all selection observer stopped", it) }
                 .collect { engine ->
+                    val startIntent = asr4allStartSeq.get()
+                    val admissionEpoch = asr4allVoiceInputController.admissionEpochNow()
                     if (engine != VoiceInputEngine.Asr4all &&
-                        voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all
+                        voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all &&
+                        asr4allStartSeq.compareAndSet(startIntent, startIntent + 1)
                     ) {
-                        asr4allVoiceInputController.releaseEngineIf(
-                            isStillUnselected = {
-                                voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all
-                            },
-                            beforeRelease = { asr4allStartSeq.incrementAndGet() },
-                        )
+                        // Discard the old mic before waiting behind a cold start's lock; close only
+                        // if the same selection and admission intent still own the release.
+                        val releaseEpoch =
+                            asr4allVoiceInputController.supersedeCaptureIfAdmissionEpoch(admissionEpoch)
+                                ?: return@collect
+                        asr4allVoiceInputController.releaseEngineIf(releaseEpoch) {
+                            voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all
+                        }
                     }
                 }
         }
@@ -592,12 +597,9 @@ class SelectableVoiceInputController @Inject constructor(
                         JandalEvents.record("voice", "stt_route", "route" to engine, "online_fallback" to allowOnlineFallback)
                     }
                     if (engine != VoiceInputEngine.Asr4all) {
-                        asr4allVoiceInputController.releaseEngineIf(
-                            isStillUnselected = {
-                                voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all
-                            },
-                            beforeRelease = { asr4allStartSeq.incrementAndGet() },
-                        )
+                        asr4allVoiceInputController.releaseEngineIf(asr4allEpoch) {
+                            voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all
+                        }
                     }
                     if (gen != generation.get() || voiceInputPreferences.selectedEngine.first() != engine) {
                         return@withLock VoiceInputStartResult.Cancelled()

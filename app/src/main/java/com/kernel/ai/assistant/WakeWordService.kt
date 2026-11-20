@@ -53,6 +53,7 @@ import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
 import com.kernel.ai.feature.widget.EXTRA_WAKE_OVERLAY
 import com.kernel.ai.feature.widget.EXTRA_WAKE_TOKEN
+import java.util.concurrent.atomic.AtomicLong
 import java.io.File
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -487,6 +488,8 @@ internal suspend fun runWakeCommandHandoff(
     onSessionTerminal: () -> Unit,
     journal: WakeSessionJournal? = null,
     capturePermitted: () -> Boolean = { true },
+    captureGeneration: Long = 0L,
+    currentCaptureGeneration: () -> Long = { captureGeneration },
     onWakeEvent: (VoiceInputEvent) -> Unit = {},
     onCaptureReady: () -> Unit = {},
     isCancelled: () -> Boolean = { false },
@@ -534,8 +537,10 @@ internal suspend fun runWakeCommandHandoff(
         if (transcript != null && isCancelled()) {
             // #1930: the user closed the overlay after capture; the command must not run.
             cancellationCategory = "wake_overlay_cancelled"
-        } else if (transcript != null && !capturePermitted()) {
-            // Camera suspension may arrive while the final waits for teardown; never dispatch or retry it.
+        } else if (transcript != null &&
+            (!capturePermitted() || currentCaptureGeneration() != captureGeneration)
+        ) {
+            // Camera suspension is sticky for this handoff: resume cannot resurrect its final.
             cancellationCategory = "wake_capture_suspended"
         } else if (transcript != null) {
             if (routeTranscript(transcript)) {
@@ -596,7 +601,9 @@ internal suspend fun runWakeOverlayHandoff(
     routeTranscript: (String) -> Boolean,
     onSessionTerminal: () -> Unit,
     capturePermitted: () -> Boolean,
-    openOverlay: (token: Long) -> Unit,
+    openOverlay: (Long) -> Unit,
+    captureGeneration: Long = 0L,
+    currentCaptureGeneration: () -> Long = { captureGeneration },
     onSessionAdmitted: (Long) -> Unit = {},
 ): Unit = coroutineScope {
     val token = WakeOverlayChannel.begin()
@@ -615,6 +622,8 @@ internal suspend fun runWakeOverlayHandoff(
                 onSessionTerminal()
             },
             capturePermitted = capturePermitted,
+            captureGeneration = captureGeneration,
+            currentCaptureGeneration = currentCaptureGeneration,
             onWakeEvent = WakeOverlayChannel::onEvent,
             onCaptureReady = {
                 if (!overlayRequested) {
@@ -766,6 +775,7 @@ class WakeWordService : Service() {
      * camera-coexistence capability was lost). Re-arm paths refuse to take the microphone while it
      * is set, so a camera-suspension cannot be undone by a concurrent voice-session event.
      */
+    private val wakeCaptureYieldGeneration = AtomicLong()
     @Volatile private var isWakeCaptureSuspended = false
 
     /** True while a Jandal voice session (push-to-talk, assistant, widget) owns the microphone. */
@@ -986,10 +996,15 @@ class WakeWordService : Service() {
      * The service and its foreground notification stay alive; only Jandal-owned captures are
      * released.
      */
+    private fun suspendWakeCapture() {
+        isWakeCaptureSuspended = true
+        wakeCaptureYieldGeneration.incrementAndGet()
+    }
+
     private fun suspendForHonorCamera() {
         Log.i(TAG, "WakeWordService: ${HonorCameraCoexistence.CAMERA_PACKAGE} foreground — releasing microphone")
         releaseWakeCaptureForCamera(
-            suspendLatch = { isWakeCaptureSuspended = true },
+            suspendLatch = ::suspendWakeCapture,
             releaseWakeDetector = { wakeWordDetector.stop() },
             releaseVoiceCapture = { voiceInputController.stopListening() },
         )
@@ -1042,7 +1057,7 @@ class WakeWordService : Service() {
         Log.w(TAG, "WakeWordService: Usage Access lost — releasing microphone and stopping")
         recordServiceError(WakeCategory.USAGE_ACCESS_REVOKED)
         releaseWakeCaptureThenStop(
-            suspendLatch = { isWakeCaptureSuspended = true },
+            suspendLatch = ::suspendWakeCapture,
             releaseWakeDetector = { wakeWordDetector.stop() },
             releaseVoiceCapture = { voiceInputController.stopListening() },
             stopService = { stopSelf() },
@@ -1050,8 +1065,9 @@ class WakeWordService : Service() {
     }
 
     // ── Detection handoff ──────────────────────────────────────────────────────
-
     private fun handleDetection(generationId: Long, sessionId: Long) {
+        val captureGeneration = wakeCaptureYieldGeneration.get()
+
         serviceScope.launch {
             isHandlingDetection = true
             try {
@@ -1069,6 +1085,8 @@ class WakeWordService : Service() {
                     },
                     // #1502: a camera-driven yield must not be undone by the session's retry.
                     capturePermitted = { !isWakeCaptureSuspended },
+                    captureGeneration = captureGeneration,
+                    currentCaptureGeneration = { wakeCaptureYieldGeneration.get() },
                     openOverlay = ::showWakeOverlay,
                     onSessionAdmitted = { captureSessionId ->
                         isVoiceSessionCaptureId = captureSessionId

@@ -472,12 +472,54 @@ class Asr4allVoiceInputController @Inject constructor(
      * that begin a newer start or switch engines call this before waiting for the start lock.
      */
     fun supersedeCapture(): Unit = synchronized(captureLock) {
+        supersedeCaptureLocked()
+    }
+
+    /**
+     * Discards the capture only if no newer asr4all admission intent has superseded this release.
+     * Engine-selection observers use this before waiting for [startLock] so a cold model load
+     * cannot keep the old microphone open.
+     */
+    fun supersedeCaptureIfAdmissionEpoch(expectedEpoch: Long): Long? = synchronized(captureLock) {
+        if (admissionEpoch != expectedEpoch) return null
+        supersedeCaptureLocked()
+        admissionEpoch
+    }
+
+    private fun supersedeCaptureLocked() {
         stopCount++
         admissionEpoch++
         activeDiscard?.set(true)
         activeStop?.set(true)
         activeCapture?.let(::halt)
     }
+
+    /**
+     * Closes the engine only while the selection and admission intent still belong to this
+     * release. The capture itself was discarded before acquiring [startLock].
+     */
+    suspend fun releaseEngineIf(
+        expectedAdmissionEpoch: Long,
+        isStillUnselected: suspend () -> Boolean,
+    ): Boolean = startLock.withLock {
+        suspend fun releaseStillCurrent(): Boolean =
+            admissionEpochNow() == expectedAdmissionEpoch && isStillUnselected()
+
+        if (!releaseStillCurrent()) return@withLock false
+        activeJob?.join()
+        lastCapture?.reader?.join()
+        if (!releaseStillCurrent()) return@withLock false
+        withContext(Dispatchers.IO) {
+            if (!releaseStillCurrent()) {
+                false
+            } else {
+                engine?.close()
+                engine = null
+                true
+            }
+        }
+    }
+
 
     /**
      * The current admission epoch. Every supersede bumps it, and so does an engine release
@@ -491,25 +533,6 @@ class Asr4allVoiceInputController @Inject constructor(
      */
     suspend fun releaseEngine() = withEngineReleased {}
 
-    /**
-     * Releases the engine only if the selection is still away from asr4all after acquiring the
-     * delegate start lock. [beforeRelease] invalidates selector admissions at that same fence.
-     */
-    suspend fun releaseEngineIf(
-        isStillUnselected: suspend () -> Boolean,
-        beforeRelease: () -> Unit,
-    ): Boolean = startLock.withLock {
-        if (!isStillUnselected()) return@withLock false
-        beforeRelease()
-        supersedeCapture()
-        activeJob?.join()
-        lastCapture?.reader?.join()
-        withContext(Dispatchers.IO) {
-            engine?.close()
-            engine = null
-        }
-        true
-    }
 
     /**
      * Runs [block] with no capture and no engine open: the capture is discarded, its job and

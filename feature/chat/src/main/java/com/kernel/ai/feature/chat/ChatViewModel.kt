@@ -4342,6 +4342,7 @@ class ChatViewModel @Inject constructor(
         // Home: full voice-input cleanup (mic, loop, pending reply, hand-off notice) plus playback stop.
         // stopVoicePlayback() makes the single voiceOutputController.stop() call (via stopChatSpeech).
         clearChatVoiceCapture(discard = true)
+        _voiceMode.value = null
         speakMessageJob?.cancel()
         speakMessageJob = null
         stopVoicePlayback(SpeechStopReason.BACKGROUND)

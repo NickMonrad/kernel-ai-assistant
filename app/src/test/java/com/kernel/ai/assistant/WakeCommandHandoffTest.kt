@@ -302,6 +302,7 @@ class WakeCommandHandoffTest {
         ).apply { requireTeardown(12L) }
         var capturePermitted = true
         var routedCount = 0
+        var captureGeneration = 0L
         var rearmCount = 0
         val job = launch {
             runWakeCommandHandoff(
@@ -313,6 +314,8 @@ class WakeCommandHandoffTest {
                 routeTranscript = { routedCount++; true },
                 onSessionTerminal = { rearmCount++ },
                 capturePermitted = { capturePermitted },
+                captureGeneration = captureGeneration,
+                currentCaptureGeneration = { captureGeneration },
             )
         }
         runCurrent()
@@ -324,7 +327,9 @@ class WakeCommandHandoffTest {
         assertEquals(0, routedCount)
 
         capturePermitted = false
-        controller.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, 12L, cancelled = true))
+        captureGeneration++
+        capturePermitted = true
+        controller.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, 12L))
         runCurrent()
         job.join()
 
