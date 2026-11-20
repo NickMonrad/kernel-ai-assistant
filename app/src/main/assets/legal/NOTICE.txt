@@ -52,12 +52,12 @@ openWakeWord
   bundled "Hey Jandal" wake-word ONNX assets. Final release notes must also record
   the provenance/training data ownership of the generated Jandal-specific model files.
 
-asr4all speech recognition weights (FUTO Asr4All, 28M and 56M sizes)
+asr4all speech recognition weights (Asr4All, 28M and 56M sizes)
   Licensed under the FUTO Model Weights License (Restricted Use) 1.0. The full text is
   shown at the end of this screen and bundled as legal/FUTO-Model-Weights-License-1.0.txt.
   https://huggingface.co/futo-org/asr4all-s/blob/87a6b5d093723fe37e9f69ad26307a3b95a31af0/LICENSE
   https://huggingface.co/futo-org/asr4all-m/blob/7d6e9145109a5bece4f05831d046e93d27e38a99/LICENSE
-  Used: unmodified ONNX speech-recognition weights downloaded from FUTO's Hugging Face
+  Used: unmodified ONNX speech-recognition weights downloaded from the publisher's Hugging Face
   repositories (asr4all-s at revision 87a6b5d0, asr4all-m at revision 7d6e9145). Commercial
   use is permitted. The Limitations section prohibits surveillance, profiling and
   discrimination, intelligence gathering, monitoring people in custody, targeting protected
