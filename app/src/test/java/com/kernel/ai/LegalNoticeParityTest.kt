@@ -1,16 +1,16 @@
 package com.kernel.ai
 
-import org.junit.jupiter.api.Assertions.assertArrayEquals
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.io.File
 
 class LegalNoticeParityTest {
     @Test
-    fun `root NOTICE is byte-identical to the bundled licences notice`() {
+    fun `root NOTICE has the same text as the bundled licences notice`() {
         val bundled = appAssetsDirectory().resolve("legal/NOTICE.txt")
         val root = repositoryRoot().resolve("NOTICE")
 
-        assertArrayEquals(bundled.readBytes(), root.readBytes())
+        assertEquals(bundled.readText(), root.readText())
     }
 
     private fun appAssetsDirectory(): File {
