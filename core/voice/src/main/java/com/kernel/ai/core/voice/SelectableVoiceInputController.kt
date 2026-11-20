@@ -234,9 +234,15 @@ class SelectableVoiceInputController @Inject constructor(
                 .distinctUntilChanged()
                 .catch { Log.w(TAG, "asr4all selection observer stopped", it) }
                 .collect { engine ->
-                    if (engine != VoiceInputEngine.Asr4all) {
-                        asr4allStartSeq.incrementAndGet()
-                        asr4allVoiceInputController.releaseEngine()
+                    if (engine != VoiceInputEngine.Asr4all &&
+                        voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all
+                    ) {
+                        asr4allVoiceInputController.releaseEngineIf(
+                            isStillUnselected = {
+                                voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all
+                            },
+                            beforeRelease = { asr4allStartSeq.incrementAndGet() },
+                        )
                     }
                 }
         }
@@ -374,7 +380,7 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     override fun cancelListening(captureSessionId: Long) {
-        val capture = captureForScopedStop(captureSessionId) ?: return
+        val capture = captureForScopedStop(captureSessionId, discardAsr4allResults = true) ?: return
         when (capture.controller) {
             asr4allVoiceInputController ->
                 asr4allVoiceInputController.cancelListeningForSession(capture.backendSessionId)
@@ -385,7 +391,10 @@ class SelectableVoiceInputController @Inject constructor(
         }
     }
 
-    private fun captureForScopedStop(sessionId: Long): AdmittedCapture? {
+    private fun captureForScopedStop(
+        sessionId: Long,
+        discardAsr4allResults: Boolean = false,
+    ): AdmittedCapture? {
         var invalidation: CompletableDeferred<Unit>? = null
         val (capture, invalidatedGeneration) = synchronized(captureOwnerLock) {
             val capture = admittedControllers[sessionId] ?: return null
@@ -393,6 +402,9 @@ class SelectableVoiceInputController @Inject constructor(
             if (owner?.sessionId == sessionId && owner.generation == capture.generation) {
                 val (_, previousGenerationInvalidation) = advanceGenerationLocked()
                 invalidation = previousGenerationInvalidation
+                if (discardAsr4allResults && capture.controller === asr4allVoiceInputController) {
+                    asr4allStartSeq.incrementAndGet()
+                }
                 capture to capture.generation
             } else {
                 capture to null
@@ -538,7 +550,11 @@ class SelectableVoiceInputController @Inject constructor(
         mode: VoiceCaptureMode,
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult {
+        var previousNativeSessionId: Long? = null
         val (gen, invalidation) = synchronized(captureOwnerLock) {
+            previousNativeSessionId = captureOwner?.sessionId?.let(admittedControllers::get)
+                ?.takeIf { it.controller === nativeAndroidVoiceInputController }
+                ?.backendSessionId
             val (nextGeneration, previousGenerationInvalidation) = advanceGenerationLocked()
             inFlightStartGenerations.add(nextGeneration)
             captureOwner = CaptureOwnerState(nextGeneration, null)
@@ -546,6 +562,7 @@ class SelectableVoiceInputController @Inject constructor(
             nextGeneration to previousGenerationInvalidation
         }
         invalidation.complete(Unit)
+        previousNativeSessionId?.let(nativeAndroidVoiceInputController::cancelListeningForSession)
         pendingZipformerStart.getAndSet(null)?.job?.cancel()
         val seq = asr4allStartSeq.incrementAndGet()
         asr4allVoiceInputController.supersedeCapture()
@@ -574,7 +591,14 @@ class SelectableVoiceInputController @Inject constructor(
                     if (engine != VoiceInputEngine.Auto) {
                         JandalEvents.record("voice", "stt_route", "route" to engine, "online_fallback" to allowOnlineFallback)
                     }
-                    if (engine != VoiceInputEngine.Asr4all) asr4allVoiceInputController.releaseEngine()
+                    if (engine != VoiceInputEngine.Asr4all) {
+                        asr4allVoiceInputController.releaseEngineIf(
+                            isStillUnselected = {
+                                voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all
+                            },
+                            beforeRelease = { asr4allStartSeq.incrementAndGet() },
+                        )
+                    }
                     if (gen != generation.get() || voiceInputPreferences.selectedEngine.first() != engine) {
                         return@withLock VoiceInputStartResult.Cancelled()
                     }
@@ -891,13 +915,15 @@ class SelectableVoiceInputController @Inject constructor(
                 }
             } ?: false
             if (event is VoiceInputEvent.ListeningStopped && ownerSessionId != null) {
+                if (controller === nativeAndroidVoiceInputController) {
+                    recordNativeTeardownSettle(ownerSessionId)
+                }
                 val stopped = if (current) event else event.copy(cancelled = true)
                 outbound.tryEmit(stopped.withCaptureSessionId(ownerSessionId))
-                if (current && stopped.cancelled) {
-                    retireAdmission(ownerSessionId, preserveGenerationFence = true)
-                } else {
-                    clearCaptureOwner(ownerSessionId)
-                }
+                retireAdmission(
+                    ownerSessionId,
+                    preserveFenceWhileStartInFlight = current && stopped.cancelled,
+                )
             } else if (current) {
                 ownerSessionId?.let { outbound.tryEmit(event.withCaptureSessionId(it)) }
             }
@@ -1183,6 +1209,7 @@ class SelectableVoiceInputController @Inject constructor(
     override fun stopListening() {
         val invalidation = synchronized(captureOwnerLock) {
             val (_, previousGenerationInvalidation) = advanceGenerationLocked()
+            asr4allStartSeq.incrementAndGet()
             if (captureOwner?.sessionId == null) captureOwner = null
             updateCaptureActivityLocked()
             previousGenerationInvalidation
@@ -1191,7 +1218,7 @@ class SelectableVoiceInputController @Inject constructor(
         pendingZipformerStart.getAndSet(null)?.job?.cancel()
         nativeAndroidVoiceInputController.stopListening()
         sherpaOnnxVoiceInputController.stopListening()
-        asr4allVoiceInputController.stopListening()
+        asr4allVoiceInputController.supersedeCapture()
     }
 
     /**

@@ -99,6 +99,7 @@ import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.stopListening
+import com.kernel.ai.core.voice.cancelListening
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -2019,20 +2020,27 @@ class ChatViewModel @Inject constructor(
     }
 
 
-    fun stopVoiceInput() {
+    private fun clearChatVoiceCapture(discard: Boolean) {
         chatVoiceAttemptId++
         chatVoiceStartJob?.cancel()
         chatVoiceStartJob = null
-        awaitingVoicePlaybackCompletion = false
-        _voiceMode.value = null
-        pendingVoiceReply = false
         chatVoiceNoticeJob?.cancel()
         chatVoiceNoticeJob = null
         val sessionId = chatVoiceSessionId
         chatVoiceSessionId = null
         chatVoiceAwaitingFinal = false
-        if (sessionId != null) voiceInputController.stopListening(sessionId)
+        if (sessionId != null) {
+            if (discard) voiceInputController.cancelListening(sessionId)
+            else voiceInputController.stopListening(sessionId)
+        }
         _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    fun stopVoiceInput() {
+        clearChatVoiceCapture(discard = false)
+        awaitingVoicePlaybackCompletion = false
+        _voiceMode.value = null
+        pendingVoiceReply = false
     }
 
     fun stopVoiceOutput() {
@@ -4327,14 +4335,13 @@ class ChatViewModel @Inject constructor(
             // Screen off: a reply still generating is spoken when it completes, and speech keeps playing.
             // Only the mic closes; pendingVoiceReply and awaitingVoicePlaybackCompletion stay set (#1927).
             _voiceMode.value = null
-            voiceInputController.stopListening()
-            _voiceCaptureState.value = VoiceCaptureState.Idle
+            clearChatVoiceCapture(discard = true)
             return
         }
         stoppedByHome = true
         // Home: full voice-input cleanup (mic, loop, pending reply, hand-off notice) plus playback stop.
         // stopVoicePlayback() makes the single voiceOutputController.stop() call (via stopChatSpeech).
-        stopVoiceInput()
+        clearChatVoiceCapture(discard = true)
         speakMessageJob?.cancel()
         speakMessageJob = null
         stopVoicePlayback(SpeechStopReason.BACKGROUND)
@@ -4399,7 +4406,7 @@ class ChatViewModel @Inject constructor(
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             pendingVoiceReply = false
-            voiceInputController.stopListening()
+            clearChatVoiceCapture(discard = true)
             voiceOutputController.stop()
             _voiceCaptureState.value = VoiceCaptureState.Idle
             _voicePlaybackState.value = VoicePlaybackState.Idle
@@ -4591,7 +4598,7 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
-        voiceInputController.stopListening()
+        clearChatVoiceCapture(discard = true)
         voiceOutputController.stop()
         stopVoicePlayback()
         // Flush any in-progress streamed content to Room before the ViewModel is destroyed.
@@ -4889,7 +4896,7 @@ class ChatViewModel @Inject constructor(
                 stopVoicePlayback()
                 _voiceMode.value = null
                 pendingVoiceReply = false
-                voiceInputController.stopListening()
+                clearChatVoiceCapture(discard = true)
                 voiceOutputController.stop()
                 _voiceCaptureState.value = VoiceCaptureState.Idle
                 _voicePlaybackState.value = VoicePlaybackState.Idle

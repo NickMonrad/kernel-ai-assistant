@@ -53,6 +53,7 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceCaptureAdmissionController
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceNotice
 import com.kernel.ai.core.voice.VoiceOutputController
@@ -657,7 +658,8 @@ class ChatViewModelVoiceTest {
             emit(GenerationResult.Complete(durationMs = 1L))
         }
 
-        val viewModel = createViewModel()
+        val admissionAwareController = ChatAdmissionAwareVoiceInputController(voiceInputController)
+        val viewModel = createViewModel(voiceInputController = admissionAwareController)
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
@@ -668,7 +670,10 @@ class ChatViewModelVoiceTest {
 
         viewModel.onScreenStopped(screenOff = true)
         advanceUntilIdle()
+        assertEquals(listOf(1L), admissionAwareController.cancelledSessionIds)
+        verify(exactly = 0) { voiceInputController.stopListening() }
         assertEquals(emptyList<Pair<String, Boolean>>(), streamedChunks, "nothing spoken while generating")
+
 
         generationGate.complete(Unit)
         advanceUntilIdle()
@@ -2342,6 +2347,7 @@ class ChatViewModelVoiceTest {
     private fun createViewModel(
         savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("conversationId" to "conv-existing")),
         speechStopCoordinator: SpeechStopCoordinator = SpeechStopCoordinator(voiceOutputController),
+        voiceInputController: VoiceInputController = this.voiceInputController,
     ): ChatViewModel = ChatViewModel(savedStateHandle = savedStateHandle, chatPreferences = chatPreferences, authRepository = authRepository,
     speechStopCoordinator = speechStopCoordinator,
     inferenceEngine = inferenceEngine,
@@ -2374,4 +2380,24 @@ class ChatViewModelVoiceTest {
     mealPlanSessionRepository = mealPlanSessionRepository,
     mealPlannerCoordinator = mealPlannerCoordinator,
 )
+}
+
+private class ChatAdmissionAwareVoiceInputController(
+    private val delegate: VoiceInputController,
+) : VoiceInputController by delegate, VoiceCaptureAdmissionController {
+    val cancelledSessionIds = mutableListOf<Long>()
+    override val captureActivity = MutableStateFlow(false)
+
+    override suspend fun startListening(
+        mode: VoiceCaptureMode,
+        onSessionAdmitted: (Long) -> Unit,
+    ): VoiceInputStartResult {
+        val result = delegate.startListening(mode)
+        if (result is VoiceInputStartResult.Started) onSessionAdmitted(result.captureSessionId)
+        return result
+    }
+
+    override fun cancelListening(captureSessionId: Long) {
+        cancelledSessionIds += captureSessionId
+    }
 }

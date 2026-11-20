@@ -58,10 +58,21 @@ class SelectableVoiceInputControllerTest {
         every { nativeAndroidVoiceInputController.events } returns nativeEvents
         every { sherpaOnnxVoiceInputController.events } returns sherpaEvents
         every { asr4allVoiceInputController.events } returns asr4allEvents
+        every { asr4allVoiceInputController.admissionEpochNow() } returns 0L
+        every { asr4allVoiceInputController.stopListeningForSession(any()) } just runs
+        every { asr4allVoiceInputController.cancelListeningForSession(any()) } just runs
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            val id = 99L
+            thirdArg<(Long) -> Unit>().invoke(id)
+            VoiceInputStartResult.Started(id)
+        }
         every { asr4allVoiceInputController.stopListening() } just runs
         every { asr4allVoiceInputController.supersedeCapture() } just runs
-        every { asr4allVoiceInputController.admissionEpochNow() } returns 0L
-        coEvery { asr4allVoiceInputController.releaseEngine() } just runs
+        coEvery { asr4allVoiceInputController.releaseEngineIf(any(), any()) } coAnswers {
+            val release = firstArg<suspend () -> Boolean>().invoke()
+            if (release) secondArg<() -> Unit>().invoke()
+            release
+        }
         every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } just runs
         every { nativeAndroidVoiceInputController.cancelListeningForSession(any()) } just runs
         every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } just runs
@@ -652,7 +663,7 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
 
         assertTrue(seen.contains(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 92L)))
-        coVerify(atLeast = 1) { asr4allVoiceInputController.releaseEngine() }
+        coVerify(atLeast = 1) { asr4allVoiceInputController.releaseEngineIf(any(), any()) }
         verify(exactly = 0) { asr4allVoiceInputController.stopListening() }
     }
 
@@ -803,10 +814,11 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `user stop reaches the asr4all capture`() {
+    fun `user stop discards the asr4all capture`() {
         controller().stopListening()
 
-        verify(exactly = 1) { asr4allVoiceInputController.stopListening() }
+        verify(exactly = 1) { asr4allVoiceInputController.supersedeCapture() }
+        verify(exactly = 0) { asr4allVoiceInputController.stopListening() }
     }
 
     @Test
@@ -816,7 +828,7 @@ class SelectableVoiceInputControllerTest {
         controller().startListening(VoiceCaptureMode.Command)
 
         coVerifyOrder {
-            asr4allVoiceInputController.releaseEngine()
+            asr4allVoiceInputController.releaseEngineIf(any(), any())
             nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any(), any())
         }
     }
@@ -1017,11 +1029,54 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `stale non-asr selection observer cannot release reselected asr4all capture`() = runTest(dispatcher) {
+        val selected = MutableStateFlow(VoiceInputEngine.Asr4all)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        val releaseEntered = CompletableDeferred<Unit>()
+        val allowReleaseCheck = CompletableDeferred<Unit>()
+        val releaseResult = CompletableDeferred<Boolean>()
+        coEvery { asr4allVoiceInputController.releaseEngineIf(any(), any()) } coAnswers {
+            releaseEntered.complete(Unit)
+            allowReleaseCheck.await()
+            val shouldRelease = firstArg<suspend () -> Boolean>().invoke()
+            if (shouldRelease) secondArg<() -> Unit>().invoke()
+            releaseResult.complete(shouldRelease)
+            shouldRelease
+        }
+        val c = controller()
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        selected.value = VoiceInputEngine.AndroidNative
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) { releaseEntered.await() }
+        }
+        selected.value = VoiceInputEngine.Asr4all
+        assertEquals(VoiceInputStartResult.Started(99L), c.startListening(VoiceCaptureMode.Command))
+        allowReleaseCheck.complete(Unit)
+        withContext(Dispatchers.Default) {
+            assertFalse(withTimeout(5_000) { releaseResult.await() })
+        }
+        asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "current", 99L))
+        advanceUntilIdle()
+
+        assertEquals(listOf("current"), seen.filterIsInstance<VoiceInputEvent.Transcript>().map { it.text })
+    }
+
+    @Test
     fun `moving the selection away from asr4all releases its engine without another capture`() = runBlocking {
         val selected = MutableStateFlow(VoiceInputEngine.Asr4all)
         every { voiceInputPreferences.selectedEngine } returns selected
         val released = CompletableDeferred<Unit>()
-        coEvery { asr4allVoiceInputController.releaseEngine() } coAnswers { released.complete(Unit) }
+        coEvery { asr4allVoiceInputController.releaseEngineIf(any(), any()) } coAnswers {
+            val release = firstArg<suspend () -> Boolean>().invoke()
+            if (release) {
+                secondArg<() -> Unit>().invoke()
+                released.complete(Unit)
+            }
+            release
+        }
 
         controller()
         selected.value = VoiceInputEngine.AndroidNative
@@ -1118,7 +1173,7 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `events from a superseded asr4all session never forward and the current session does`() = runTest(dispatcher) {
+    fun `superseded asr4all results are dropped while scoped stop finalizes current session`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Asr4all)
         var starts = 0L
         coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } answers {
@@ -1142,7 +1197,7 @@ class SelectableVoiceInputControllerTest {
         asr4allEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "second", 6L))
         advanceUntilIdle()
 
-        c.stopListening()
+        c.stopListening(6L)
         asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "final", 6L))
         advanceUntilIdle()
 
@@ -1156,6 +1211,31 @@ class SelectableVoiceInputControllerTest {
                 .map { it.cancelled },
         )
     }
+    @Test
+    fun `global stop discards an asr4all final queued before its teardown terminal`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Asr4all)
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(70L)
+            VoiceInputStartResult.Started(70L)
+        }
+        val c = controller()
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        assertEquals(VoiceInputStartResult.Started(70L), c.startListening(VoiceCaptureMode.Command))
+        c.stopListening()
+        asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "stale final", 70L))
+        asr4allEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 70L))
+        advanceUntilIdle()
+
+        assertTrue(seen.none { it is VoiceInputEvent.Transcript })
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 70L, cancelled = true)),
+            seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+    }
+
 
     @Test
     fun `an engine release drops queued asr4all results but forwards the cancellation terminal`() = runTest(dispatcher) {
@@ -1256,8 +1336,11 @@ class SelectableVoiceInputControllerTest {
         val releaseStart = CompletableDeferred<Unit>()
         val releaseObserved = CompletableDeferred<Unit>()
         var prewarmAdmitted: Boolean? = null
-        coEvery { asr4allVoiceInputController.releaseEngine() } coAnswers {
+        coEvery { asr4allVoiceInputController.releaseEngineIf(any(), any()) } coAnswers {
             releaseObserved.complete(Unit)
+            val release = firstArg<suspend () -> Boolean>().invoke()
+            if (release) secondArg<() -> Unit>().invoke()
+            release
         }
         coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             startEntered.complete(Unit)

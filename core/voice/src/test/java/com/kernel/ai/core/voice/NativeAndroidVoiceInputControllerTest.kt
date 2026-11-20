@@ -360,6 +360,26 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     }
 
     @Test
+    fun `session scoped cancellation emits a cancelled terminal for the matched session`() = runTest {
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns recognizer
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+        val sessionId = (result as VoiceInputStartResult.Started).captureSessionId
+        controller.cancelListeningForSession(sessionId)
+        runCurrent()
+
+        val stopped = events.filterIsInstance<VoiceInputEvent.ListeningStopped>().single()
+        assertEquals(sessionId, stopped.captureSessionId)
+        assertTrue(stopped.cancelled)
+        verify(atLeast = 1) { recognizer.destroy() }
+        collector.cancel()
+    }
+
+    @Test
     fun `without platform fallback an on-device start failure never touches the platform recognizer`() = runTest {
         val onDeviceRecognizer = mockk<SpeechRecognizer>(relaxed = true)
         every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDeviceRecognizer

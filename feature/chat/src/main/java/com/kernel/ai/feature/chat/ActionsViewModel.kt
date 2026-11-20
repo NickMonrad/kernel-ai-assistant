@@ -38,6 +38,7 @@ import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import com.kernel.ai.core.voice.stopListening
+import com.kernel.ai.core.voice.cancelListening
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import com.kernel.ai.core.voice.SpeechStopReason
 import com.kernel.ai.core.voice.stopFor
@@ -707,15 +708,22 @@ class ActionsViewModel @Inject constructor(
         startVoiceCapture(VoiceCaptureMode.SlotReply, userInitiated = userInitiated)
     }
 
-    fun stopVoiceCapture() {
+    private fun clearActionsVoiceCapture(discard: Boolean) {
         actionsVoiceAttemptId++
         actionsVoiceStartJob?.cancel()
         actionsVoiceStartJob = null
         val sessionId = actionsVoiceSessionId
         unbindActionsVoiceSession()
         actionsVoiceAwaitingFinal = false
-        if (sessionId != null) voiceInputController.stopListening(sessionId)
+        if (sessionId != null) {
+            if (discard) voiceInputController.cancelListening(sessionId)
+            else voiceInputController.stopListening(sessionId)
+        }
         _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    fun stopVoiceCapture() {
+        clearActionsVoiceCapture(discard = false)
     }
 
     /** Shows this screen's capture notes (#1853 Zipformer hand-off, #1866) until unbound. */
@@ -878,9 +886,7 @@ class ActionsViewModel @Inject constructor(
         )
         setSlotReplyAutoRearmArmed(false, "pauseTransientVoiceUi:$reason")
         cancelPendingVoiceSlotReplyRestart()
-        unbindActionsVoiceSession()
-        voiceInputController.stopListening()
-        _voiceCaptureState.value = VoiceCaptureState.Idle
+        clearActionsVoiceCapture(discard = true)
         if (keepSpeech) return
         clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSpeech()
@@ -1862,7 +1868,7 @@ class ActionsViewModel @Inject constructor(
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         _pendingSlot.value = null
-        stopVoiceCapture()
+        clearActionsVoiceCapture(discard = true)
         stopAllVoiceOutput(SpeechStopReason.USER)
     }
 

@@ -94,7 +94,11 @@ class SelectableVoiceInputHandoffTest {
             every { it.stopListening() } just runs
             every { it.supersedeCapture() } just runs
             every { it.admissionEpochNow() } returns 0L
-            coEvery { it.releaseEngine() } just runs
+            coEvery { it.releaseEngineIf(any(), any()) } coAnswers {
+                val release = firstArg<suspend () -> Boolean>().invoke()
+                if (release) secondArg<() -> Unit>().invoke()
+                release
+            }
         },
         androidNativeRecognitionSupport = recognitionSupport,
     )

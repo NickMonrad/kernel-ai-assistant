@@ -291,6 +291,48 @@ class WakeCommandHandoffTest {
         assertEquals(1, routedCount)
         assertEquals(1, rearmCount)
     }
+    @Test
+    fun `camera yield while wake final awaits teardown discards the delivered final without retry`() = runTest {
+        val order = mutableListOf<String>()
+        val detector = OrderingDetector(order)
+        val controller = RecordingController(
+            detectorReleased = { detector.released },
+            startResults = mutableListOf(VoiceInputStartResult.Started(12L)),
+            sharedOrder = order,
+        ).apply { requireTeardown(12L) }
+        var capturePermitted = true
+        var routedCount = 0
+        var rearmCount = 0
+        val job = launch {
+            runWakeCommandHandoff(
+                wakeWordDetector = detector,
+                voiceInputController = controller,
+                cuePlayer = cuePlayer(),
+                generationId = 7L,
+                sessionId = 9L,
+                routeTranscript = { routedCount++; true },
+                onSessionTerminal = { rearmCount++ },
+                capturePermitted = { capturePermitted },
+            )
+        }
+        runCurrent()
+
+        controller.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, 12L))
+        controller.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "open garage", 12L))
+        runCurrent()
+        assertFalse(job.isCompleted)
+        assertEquals(0, routedCount)
+
+        capturePermitted = false
+        controller.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.AlertCommand, 12L, cancelled = true))
+        runCurrent()
+        job.join()
+
+        assertEquals(0, routedCount)
+        assertEquals(listOf(12L), controller.startCalls)
+        assertEquals(1, rearmCount)
+    }
+
 
     @Test
     fun `handoff stop joins the detecting thread and completes without deadlock`() = runTest {

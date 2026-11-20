@@ -534,6 +534,9 @@ internal suspend fun runWakeCommandHandoff(
         if (transcript != null && isCancelled()) {
             // #1930: the user closed the overlay after capture; the command must not run.
             cancellationCategory = "wake_overlay_cancelled"
+        } else if (transcript != null && !capturePermitted()) {
+            // Camera suspension may arrive while the final waits for teardown; never dispatch or retry it.
+            cancellationCategory = "wake_capture_suspended"
         } else if (transcript != null) {
             if (routeTranscript(transcript)) {
                 sessionJournal.record(

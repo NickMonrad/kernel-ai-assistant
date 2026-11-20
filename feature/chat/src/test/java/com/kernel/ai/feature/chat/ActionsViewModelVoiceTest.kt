@@ -17,6 +17,7 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceCaptureAdmissionController
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceNotice
 import com.kernel.ai.core.voice.VoiceOutputController
@@ -72,6 +73,8 @@ class ActionsViewModelVoiceTest {
     private val voiceInputController: VoiceInputController = mockk()
     private val voiceOutputController: VoiceOutputController = mockk()
     private val speechStopCoordinator = SpeechStopCoordinator(voiceOutputController)
+    private val admissionAwareVoiceInputController =
+        ActionsAdmissionAwareVoiceInputController(voiceInputController)
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
@@ -139,7 +142,7 @@ class ActionsViewModelVoiceTest {
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
             speechStopCoordinator = speechStopCoordinator,
-            voiceInputController = voiceInputController,
+            voiceInputController = admissionAwareVoiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
@@ -699,8 +702,23 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
-        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(emptyList<Long>(), admissionAwareVoiceInputController.cancelledSessionIds)
+        verify(exactly = 0) { voiceInputController.stopListening() }
         verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `screen-off discards only Actions own admitted capture`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(42L)
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+        viewModel.onScreenStopped(screenOff = true)
+
+        assertEquals(listOf(42L), admissionAwareVoiceInputController.cancelledSessionIds)
+        verify(exactly = 0) { voiceInputController.stopListening() }
     }
 
     @Test
@@ -721,7 +739,8 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         verify(exactly = 0) { voiceOutputController.stop() }
-        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(emptyList<Long>(), admissionAwareVoiceInputController.cancelledSessionIds)
+        verify(exactly = 0) { voiceInputController.stopListening() }
         assertEquals(
             ActionsViewModel.VoicePlaybackState.Speaking("What would you like to say to your wife?"),
             viewModel.voicePlaybackState.value,
@@ -752,7 +771,8 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         verify(atLeast = 1) { voiceOutputController.stop() }
-        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(emptyList<Long>(), admissionAwareVoiceInputController.cancelledSessionIds)
+        verify(exactly = 0) { voiceInputController.stopListening() }
         assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
     }
 
@@ -5018,5 +5038,25 @@ class ActionsViewModelVoiceTest {
             ActionsViewModel.VoiceCaptureState.Listening(VoiceCaptureMode.Command),
             viewModel.voiceCaptureState.value,
         )
+    }
+}
+
+private class ActionsAdmissionAwareVoiceInputController(
+    private val delegate: VoiceInputController,
+) : VoiceInputController by delegate, VoiceCaptureAdmissionController {
+    val cancelledSessionIds = mutableListOf<Long>()
+    override val captureActivity = MutableStateFlow(false)
+
+    override suspend fun startListening(
+        mode: VoiceCaptureMode,
+        onSessionAdmitted: (Long) -> Unit,
+    ): VoiceInputStartResult {
+        val result = delegate.startListening(mode)
+        if (result is VoiceInputStartResult.Started) onSessionAdmitted(result.captureSessionId)
+        return result
+    }
+
+    override fun cancelListening(captureSessionId: Long) {
+        cancelledSessionIds += captureSessionId
     }
 }

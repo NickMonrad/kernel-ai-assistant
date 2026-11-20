@@ -492,6 +492,26 @@ class Asr4allVoiceInputController @Inject constructor(
     suspend fun releaseEngine() = withEngineReleased {}
 
     /**
+     * Releases the engine only if the selection is still away from asr4all after acquiring the
+     * delegate start lock. [beforeRelease] invalidates selector admissions at that same fence.
+     */
+    suspend fun releaseEngineIf(
+        isStillUnselected: suspend () -> Boolean,
+        beforeRelease: () -> Unit,
+    ): Boolean = startLock.withLock {
+        if (!isStillUnselected()) return@withLock false
+        beforeRelease()
+        supersedeCapture()
+        activeJob?.join()
+        lastCapture?.reader?.join()
+        withContext(Dispatchers.IO) {
+            engine?.close()
+            engine = null
+        }
+        true
+    }
+
+    /**
      * Runs [block] with no capture and no engine open: the capture is discarded, its job and
      * reader have ended, and the engine is closed, all under the start lock. Use this before
      * deleting model files so no start can open them during the deletion.

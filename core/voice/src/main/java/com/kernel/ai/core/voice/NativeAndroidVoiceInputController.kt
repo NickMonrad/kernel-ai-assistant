@@ -513,7 +513,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
     internal fun cancelListeningForSession(captureSessionId: Long) {
         context.mainExecutor.execute {
-            stopListeningInternal(emitStopped = true, expectedSessionId = captureSessionId)
+            stopListeningInternal(
+                emitStopped = true,
+                expectedSessionId = captureSessionId,
+                cancelled = true,
+            )
         }
     }
 
