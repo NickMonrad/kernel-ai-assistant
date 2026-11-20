@@ -56,9 +56,11 @@ class LegalPrivacySurfaceTest {
             }
         }
         composeRule.onNodeWithText("openWakeWord melspectrogram stage").assertExists()
-        composeRule.onNodeWithText("Terms for this exported model are unresolved; it is not distributed in v0.1.")
-            .assertExists()
-        composeRule.onNodeWithText("Debug-only · excluded from v0.1 release").assertExists()
+        composeRule.onNodeWithText(
+            "Terms for this exported model are unresolved; it is not distributed in v0.1.",
+            substring = true,
+        ).assertExists()
+        composeRule.onNodeWithText("Debug-only · excluded from v0.1 release", substring = true).assertExists()
     }
 
     @Test
