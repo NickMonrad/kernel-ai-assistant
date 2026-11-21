@@ -1055,23 +1055,27 @@ tasks.register("verifyReleaseAttributionMetadata") {
     }
 }
 
-// Single-version guard for the ExecuTorch runtime (#2003 AC1). The ExecuTorch AAR must be
-// declared directly exactly once across the build, and fbjni must resolve to one version in the
-// app's runtime graphs. Resolution happens in :app because Gradle forbids resolving another
-// project's configurations from a task. Wired into :app:check and CI.
+// Version guard for the ExecuTorch runtime (#2003 AC1). The ExecuTorch AAR must be declared
+// directly exactly once across the build. Both executorch-android and fbjni must resolve, in
+// every app runtime classpath, to the pinned version: any constraint, override or newer
+// transitive version fails the build. Resolution happens in :app because Gradle forbids
+// resolving another project's configurations from a task. Wired into :app:check and CI.
+// fbjni is not declared by the app; its pin is the version executorch-android 1.5.1 declares,
+// which the attribution metadata reviews.
 val executorchGuardedArtifacts = listOf(
-    // group, name, must be declared directly exactly once (fbjni arrives transitively via executorch-android)
-    Triple("org.pytorch", "executorch-android", true),
-    Triple("com.facebook.fbjni", "fbjni", false),
+    // (group to name), pinned version, must be declared directly exactly once
+    Triple("org.pytorch" to "executorch-android", libs.versions.executorch.get(), true),
+    Triple("com.facebook.fbjni" to "fbjni", "0.7.0", false),
 )
 val appRuntimeConfigurations = listOf("debugRuntimeClasspath", "releaseRuntimeClasspath")
 
 val verifyExecuTorchSingleVersion by tasks.registering {
     group = "verification"
-    description = "Fails if ExecuTorch or fbjni is declared more than once, or the app runtime graph resolves either to more than one version."
+    description = "Fails if ExecuTorch or fbjni is declared more than once, or an app runtime classpath resolves either to a version other than its pin."
     doLast {
         val problems = mutableListOf<String>()
-        executorchGuardedArtifacts.forEach { (group, name, requiresDirectDeclaration) ->
+        executorchGuardedArtifacts.forEach { (coordinates, pinned, requiresDirectDeclaration) ->
+            val (group, name) = coordinates
             val declarations = rootProject.allprojects.flatMap { p ->
                 p.configurations.flatMap { c ->
                     c.dependencies
@@ -1091,15 +1095,15 @@ val verifyExecuTorchSingleVersion by tasks.registering {
                     .filter { it.group == group && it.name == name }
                     .map { it.version }
                     .toSortedSet()
-                if (versions.size != 1) {
-                    problems += ":app:$cfgName resolves $group:$name to $versions (expected exactly one version)"
+                if (versions != setOf(pinned)) {
+                    problems += ":app:$cfgName resolves $group:$name to $versions (pinned $pinned)"
                 }
             }
         }
         if (problems.isNotEmpty()) {
             throw GradleException("ExecuTorch single-version guard failed:\n  " + problems.joinToString("\n  "))
         }
-        println("ExecuTorch single-version guard passed: ${executorchGuardedArtifacts.joinToString { "${it.first}:${it.second}" }}")
+        println("ExecuTorch version guard passed: ${executorchGuardedArtifacts.joinToString { "${it.first.second}@${it.second}" }}")
     }
 }
 

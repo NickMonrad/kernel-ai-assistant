@@ -59,7 +59,7 @@
     {
       "name": "libexecutorch.so",
       "source_component": "org.pytorch:executorch-android:1.5.1 (published Android AAR; ExecuTorch v1.5.1 with the LLM tokenizers and XNNPACK statically linked; third-party components listed in executorch-1.5.1-third-party-notices.txt)",
-      "license_expression": "BSD-3-Clause AND Apache-2.0 AND MIT AND BSD-3-Clause WITH PCRE2-exception",
+      "license_expression": "BSD-3-Clause AND Apache-2.0 AND MIT AND MPL-2.0 AND BSD-3-Clause WITH PCRE2-exception",
       "license_status": "reviewed"
     },
     {
@@ -77,7 +77,7 @@
     "onnxruntime-1.24.3-licence.txt": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
     "onnxruntime-1.24.3-third-party-notices.txt": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
     "executorch-1.5.1-licence.txt": "c58707ea5d5c0ee17af7e16f1377e4d31ad1533492ab0bf9b87ebd9f718f9e7b",
-    "executorch-1.5.1-third-party-notices.txt": "acca9c57b5b8c96498e5e290520c973e2f322441a79459df338f8ce1b280019c",
+    "executorch-1.5.1-third-party-notices.txt": "4b7d6714fa03137e41bcd65a611009c1ba100335815ddb46d12b2c6809be159f",
     "fbjni-0.7.0-licence.txt": "f62d190c08e2b300b45780f0b3cabcacc78d0e373f7a0de79d31f82b084d35ea"
   },
   "wake_word_assets": []

@@ -38,7 +38,8 @@ ExecuTorch 1.5.1
   Used: Android ExecuTorch library and native runtime (org.pytorch:executorch-android). Full
   licence: legal/executorch-1.5.1-licence.txt. Third-party code statically linked into
   libexecutorch.so (XNNPACK, cpuinfo, pthreadpool, pocketfft, SentencePiece with protobuf-lite
-  and Darts-clone, RE2, Abseil, PCRE2, nlohmann/json) with full texts: legal/executorch-1.5.1-third-party-notices.txt.
+  and Darts-clone, RE2, Abseil, PCRE2, nlohmann/json, Eigen BLAS under MPL-2.0 (libeigen/eigen
+  @ 72944340, 3.4.90)) with full texts: legal/executorch-1.5.1-third-party-notices.txt.
 
 fbjni 0.7.0 and SoLoader nativeloader 0.10.5
   Copyright (c) Meta Platforms, Inc. and affiliates.
