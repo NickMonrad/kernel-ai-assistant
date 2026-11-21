@@ -42,17 +42,19 @@ class SetupSpeechOptionsTest {
     }
 
     @Test
-    fun `release always offers only Android TTS so setup remains non-empty`() {
-        listOf(true, false).forEach { hasSystemTts ->
-            assertEquals(
-                listOf(VoiceOutputEngine.AndroidTts),
-                SetupSpeechOptions.outputOptions(
-                    hasSystemTts = hasSystemTts,
-                    isRelease = true,
-                    inflectEligible = true,
-                ),
-            )
-        }
+    fun `release offers Piper and Android TTS, and Inflect Micro only on eligible devices`() {
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental, VoiceOutputEngine.AndroidTts),
+            SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = true, inflectEligible = true),
+        )
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+            SetupSpeechOptions.outputOptions(hasSystemTts = false, isRelease = true, inflectEligible = true),
+        )
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
+            SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = true, inflectEligible = false),
+        )
     }
 
     @Test

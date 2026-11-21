@@ -18,18 +18,18 @@ class VoiceOutputEngineTest {
     fun `release resolves an unavailable default to Android TTS while a stored Android choice is kept`() {
         assertEquals(
             VoiceOutputEngine.AndroidTts,
-            VoiceOutputEngine.resolveForBuild(null, isRelease = true, inflectEligible = false, default = VoiceOutputEngine.SherpaExperimental),
+            VoiceOutputEngine.resolveForBuild(null, isRelease = true, inflectEligible = false, default = VoiceOutputEngine.KokoroExperimental),
         )
         assertEquals(
             VoiceOutputEngine.AndroidTts,
-            VoiceOutputEngine.resolveForBuild("AndroidTts", isRelease = true, inflectEligible = false, default = VoiceOutputEngine.SherpaExperimental),
+            VoiceOutputEngine.resolveForBuild("AndroidTts", isRelease = true, inflectEligible = false, default = VoiceOutputEngine.KokoroExperimental),
         )
     }
 
     @Test
-    fun `release catalogue contains only Android TTS`() {
+    fun `release catalogue offers Piper, Inflect on eligible devices, and Android TTS`() {
         assertEquals(
-            listOf(VoiceOutputEngine.AndroidTts),
+            listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
             VoiceOutputEngine.entriesForBuild(
                 isRelease = true,
                 inflectEligible = true,
