@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -505,6 +506,23 @@ class Asr4allVoiceInputControllerTest {
         } finally {
             gate.countDown()
             readGate = null
+        }
+    }
+
+    @Test
+    fun `prewarm returns without waiting for a live capture and opens no engine`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        firstFrame = CountDownLatch(1)
+        try {
+            startedId(c.startListening(VoiceCaptureMode.Command))
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            val opened = log.count { it.startsWith("open#") }
+            // Bounded: a prewarm that waited for the live capture to end would never return here.
+            val warmed = withTimeout(5_000) { c.prewarmIfCurrent { true } }
+            assertFalse(warmed)
+            assertEquals(opened, log.count { it.startsWith("open#") })
+        } finally {
+            c.stopListening()
         }
     }
 

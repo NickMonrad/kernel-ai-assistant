@@ -17,7 +17,9 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.PiperVoiceSetup
-import com.kernel.ai.core.voice.Asr4allVoiceInputController
+import com.kernel.ai.core.voice.Asr4allSizeSwitcher
+import com.kernel.ai.core.voice.Asr4allSwitchFailure
+import com.kernel.ai.core.voice.Asr4allSwitchState
 import com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -109,7 +111,10 @@ class VoiceViewModelTest {
     private lateinit var viewModel: VoiceViewModel
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
     private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
-    private val asr4allVoiceInputController: Asr4allVoiceInputController = mockk(relaxed = true)
+    private val asr4allSwitchState = MutableStateFlow(Asr4allSwitchState())
+    private val asr4allSizeSwitcher: Asr4allSizeSwitcher = mockk(relaxed = true) {
+        every { state } returns asr4allSwitchState
+    }
     @org.junit.jupiter.api.io.TempDir
     lateinit var tempDir: java.nio.file.Path
 
@@ -156,7 +161,7 @@ class VoiceViewModelTest {
         context,
         sherpaVoiceOutputController,
         piperVoiceSetup,
-        asr4allVoiceInputController,
+        asr4allSizeSwitcher,
     )
 
     @BeforeEach
@@ -313,7 +318,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
-            asr4allVoiceInputController,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -346,7 +351,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
-            asr4allVoiceInputController,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -379,7 +384,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
-            asr4allVoiceInputController,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -489,7 +494,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
-            asr4allVoiceInputController,
+            asr4allSizeSwitcher,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -523,7 +528,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
-            asr4allVoiceInputController,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -549,7 +554,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
-            asr4allVoiceInputController,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -909,7 +914,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
-            asr4allVoiceInputController,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -959,7 +964,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
-            asr4allVoiceInputController,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1201,150 +1206,51 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `deleting asr4all files removes only its model files after the engine release and converges selection to Auto`() = runTest {
-        // Real files in a temp models dir: every Asr4all model file plus one unrelated file that must survive.
-        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
-        every { context.filesDir } returns tempDir.toFile()
-        val modelFiles = Asr4AllInstall.models(Asr4AllSize.M).map { it.localFile(context) }
-        modelFiles.forEach { it.parentFile.mkdirs(); it.writeText("x") }
-        val unrelated = java.io.File(tempDir.toFile(), "unrelated.bin").apply { writeText("keep") }
-        every { modelDownloadManager.refreshState(any()) } just Runs
-
-        val entered = CompletableDeferred<Unit>()
-        val gate = CompletableDeferred<Unit>()
-        coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } coAnswers {
-            entered.complete(Unit)
-            gate.await() // the release is held here; the deletion body must not have run yet
-            firstArg<() -> Unit>().invoke()
-        }
-
-        viewModel.setVoiceInputEngine(VoiceInputEngine.Asr4all)
-        viewModel.deleteSherpaStt(VoiceInputEngine.Asr4all)
-        entered.await()
-        assertTrue(modelFiles.all { it.exists() }, "files must survive until the release is held and the body runs")
-
-        gate.complete(Unit)
-        viewModel.uiState.first { it.selectedInputEngine == VoiceInputEngine.Auto }
-
-        assertTrue(modelFiles.none { it.exists() }, "every Asr4all model file is removed")
-        assertTrue(unrelated.exists(), "an unrelated file is untouched")
-        testDispatcher.scheduler.advanceUntilIdle() // the Auto preference write is launched on Main after the state flip
-        coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto) }
-    }
-
-    private fun writeAsr4allModelFiles(size: Asr4AllSize): List<java.io.File> =
-        Asr4AllInstall.models(size).map { model ->
-            model.localFile(context).also { it.parentFile.mkdirs(); it.writeText("x") }
-        }
-
-    @Test
-    fun `a size switch keeps the active model until the new one is verified then deletes it`() = runTest {
-        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
-        every { context.filesDir } returns tempDir.toFile()
-        every { modelDownloadManager.refreshState(any()) } just Runs
-        val oldFiles = writeAsr4allModelFiles(Asr4AllSize.M)
-        coEvery { voiceInputPreferences.setAsr4allSize(any()) } coAnswers { asr4allSize.value = firstArg() }
-        coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } coAnswers { firstArg<() -> Unit>().invoke() }
-
+    fun `setAsr4allSize hands the choice to the switcher`() = runTest {
         viewModel.setAsr4allSize(Asr4AllSize.L)
-        viewModel.uiState.first { it.asr4allPendingSize == Asr4AllSize.L }
-        coVerify(timeout = 5_000) { modelDownloadManager.startDownload(any()) }
-        assertTrue(oldFiles.all { it.exists() }, "the active model stays installed while the new one downloads")
-        coVerify(exactly = 0) { voiceInputPreferences.setAsr4allSize(any()) }
-
-        writeAsr4allModelFiles(Asr4AllSize.L)
-        modelDownloadStates.value = modelDownloadStates.value +
-            Asr4AllInstall.models(Asr4AllSize.L).associateWith { DownloadState.Downloaded("/models/${it.fileName}") }
-        coVerify(timeout = 5_000) { voiceInputPreferences.setAsr4allSize(Asr4AllSize.L) }
-        assertTrue(oldFiles.none { it.exists() }, "the old size is deleted once the new one is verified")
-        viewModel.uiState.first { it.asr4allSize == Asr4AllSize.L && it.asr4allPendingSize == null }
-        assertTrue(viewModel.uiState.value.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == true)
+        verify(exactly = 1) { asr4allSizeSwitcher.select(Asr4AllSize.L) }
     }
 
     @Test
-    fun `a failed size switch download keeps the active size installed and stored`() = runTest {
-        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
-        every { context.filesDir } returns tempDir.toFile()
-        val oldFiles = writeAsr4allModelFiles(Asr4AllSize.M)
-
-        viewModel.setAsr4allSize(Asr4AllSize.L)
-        viewModel.uiState.first { it.asr4allPendingSize == Asr4AllSize.L }
-        coVerify(timeout = 5_000) { modelDownloadManager.startDownload(any()) }
-        modelDownloadStates.value = modelDownloadStates.value +
-            (Asr4AllInstall.models(Asr4AllSize.L).first() to DownloadState.Error("download failed"))
-        viewModel.uiState.first { it.asr4allPendingSize == null }
-
-        assertTrue(oldFiles.all { it.exists() }, "a failed download keeps the active model")
-        coVerify(exactly = 0) { voiceInputPreferences.setAsr4allSize(any()) }
-        coVerify(exactly = 0) { asr4allVoiceInputController.withEngineReleased<Unit>(any()) }
-    }
-
-    @Test
-    fun `cancelling the new size download keeps the active size installed and stored`() = runTest {
-        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
-        every { context.filesDir } returns tempDir.toFile()
-        val oldFiles = writeAsr4allModelFiles(Asr4AllSize.M)
-
-        viewModel.setAsr4allSize(Asr4AllSize.L)
-        viewModel.uiState.first { it.asr4allPendingSize == Asr4AllSize.L }
-        coVerify(timeout = 5_000) { modelDownloadManager.startDownload(any()) }
-        modelDownloadStates.value = modelDownloadStates.value +
-            Asr4AllInstall.models(Asr4AllSize.L).associateWith { DownloadState.Downloading() }
-        viewModel.cancelSherpaSttDownload(VoiceInputEngine.Asr4all)
-        viewModel.uiState.first { it.asr4allPendingSize == null }
-
-        coVerify(exactly = Asr4AllInstall.models(Asr4AllSize.L).size) { modelDownloadManager.cancelDownload(any()) }
-        assertTrue(oldFiles.all { it.exists() }, "a cancelled download keeps the active model")
-        coVerify(exactly = 0) { voiceInputPreferences.setAsr4allSize(any()) }
-    }
-
-    @Test
-    fun `a size switch with no size installed stores the choice at once`() = runTest {
-        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
-        every { context.filesDir } returns tempDir.toFile()
-        every { modelDownloadManager.refreshState(any()) } just Runs
-        coEvery { voiceInputPreferences.setAsr4allSize(any()) } coAnswers { asr4allSize.value = firstArg() }
-
-        viewModel.setAsr4allSize(Asr4AllSize.L)
-        viewModel.uiState.first { it.asr4allSize == Asr4AllSize.L }
-
-        coVerify(exactly = 1) { voiceInputPreferences.setAsr4allSize(Asr4AllSize.L) }
-        verify(exactly = 0) { modelDownloadManager.startDownload(any()) }
-        coVerify(exactly = 0) { asr4allVoiceInputController.withEngineReleased<Unit>(any()) }
-    }
-
-    @Test
-    fun `a size switch that cannot release the engine keeps the old files and the stored size`() = runTest {
-        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
-        every { context.filesDir } returns tempDir.toFile()
-        every { modelDownloadManager.refreshState(any()) } just Runs
-        val oldFiles = writeAsr4allModelFiles(Asr4AllSize.M)
-        writeAsr4allModelFiles(Asr4AllSize.L)
-        coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } returns null
-
-        viewModel.setAsr4allSize(Asr4AllSize.L)
-        coVerify(timeout = 5_000) { modelDownloadManager.refreshState(any()) } // the commit refreshes last
-        assertTrue(oldFiles.all { it.exists() }, "a wedged capture must keep the model it still reads")
-        coVerify(exactly = 0) { voiceInputPreferences.setAsr4allSize(any()) }
-        assertTrue(viewModel.uiState.value.asr4allPendingSize == null)
-    }
-
-    @Test
-    fun `the asr4all card follows the size being downloaded`() = runTest {
-        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
-        every { context.filesDir } returns tempDir.toFile()
-        writeAsr4allModelFiles(Asr4AllSize.M)
+    fun `the asr4all card shows the size being downloaded, not the installed one`() = runTest {
         modelDownloadStates.value = modelDownloadStates.value +
             Asr4AllInstall.models(Asr4AllSize.M).associateWith { DownloadState.Downloaded("/models/${it.fileName}") }
         viewModel.uiState.first { it.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == true }
 
-        viewModel.setAsr4allSize(Asr4AllSize.L)
+        asr4allSwitchState.value = Asr4allSwitchState(pendingSize = Asr4AllSize.L)
         viewModel.uiState.first { it.asr4allPendingSize == Asr4AllSize.L }
         assertTrue(
             viewModel.uiState.value.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == false,
             "the card shows the size being downloaded, not the installed one",
         )
+    }
+
+    @Test
+    fun `a failed size switch shows its message on the asr4all card`() = runTest {
+        asr4allSwitchState.value = Asr4allSwitchState(
+            failure = Asr4allSwitchFailure(Asr4AllSize.L, "Download of L did not finish."),
+        )
+        viewModel.uiState.first { it.sherpaSttStates[VoiceInputEngine.Asr4all]?.issue != null }
+
+        assertEquals(
+            "Download of L did not finish.",
+            viewModel.uiState.value.sherpaSttStates[VoiceInputEngine.Asr4all]?.issue?.message,
+        )
+    }
+
+    @Test
+    fun `cancelling an asr4all download cancels the switcher`() = runTest {
         viewModel.cancelSherpaSttDownload(VoiceInputEngine.Asr4all)
-        viewModel.uiState.first { it.asr4allPendingSize == null }
+        verify(exactly = 1) { asr4allSizeSwitcher.cancel() }
+    }
+
+    @Test
+    fun `deleting asr4all converges the selection to Auto once the switcher deletes`() = runTest {
+        coEvery { asr4allSizeSwitcher.deleteActive() } returns true
+        viewModel.setVoiceInputEngine(VoiceInputEngine.Asr4all)
+        viewModel.deleteSherpaStt(VoiceInputEngine.Asr4all)
+        viewModel.uiState.first { it.selectedInputEngine == VoiceInputEngine.Auto }
+        testDispatcher.scheduler.advanceUntilIdle() // the Auto preference write is launched on Main after the state flip
+        coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto) }
     }
 }

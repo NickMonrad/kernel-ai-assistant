@@ -20,6 +20,9 @@ object Asr4AllInstall {
     /** Size used until the user chooses another; the same on every tier (#2013). */
     val defaultSize: Asr4AllSize = Asr4AllSize.M
 
+    /** Sizes with shipped exports; S is not shipped and has no files to sweep. */
+    val shippedSizes: List<Asr4AllSize> = listOf(Asr4AllSize.M, Asr4AllSize.L)
+
     /** Sizes the user may choose on [tier]. L is not offered on LOW_POWER (#2013). */
     fun selectableSizes(tier: HardwareTier): List<Asr4AllSize> =
         if (tier == HardwareTier.LOW_POWER) listOf(Asr4AllSize.M) else listOf(Asr4AllSize.M, Asr4AllSize.L)
@@ -62,4 +65,7 @@ object Asr4AllInstall {
     fun deleteFiles(context: Context, size: Asr4AllSize) {
         root(context, size).deleteRecursively()
     }
+
+    /** True when [size]'s directory exists, including partial downloads. */
+    fun hasFiles(context: Context, size: Asr4AllSize): Boolean = root(context, size).exists()
 }

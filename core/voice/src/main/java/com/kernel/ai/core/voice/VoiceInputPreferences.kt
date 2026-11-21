@@ -38,6 +38,7 @@ class VoiceInputPreferences @Inject constructor(
     private val allowOnlineSpeechFallbackKey =
         booleanPreferencesKey("allow_online_speech_fallback")
     private val asr4allSizeKey = stringPreferencesKey("asr4all_model_size")
+    private val asr4allPendingSizeKey = stringPreferencesKey("asr4all_pending_model_size")
 
     val selectedEngine: Flow<VoiceInputEngine> = context.voiceInputPrefsDataStore.data
         .catch { e ->
@@ -104,6 +105,26 @@ class VoiceInputPreferences @Inject constructor(
     suspend fun setAsr4allSize(size: Asr4AllSize) {
         context.voiceInputPrefsDataStore.edit { prefs ->
             prefs[asr4allSizeKey] = size.name
+        }
+    }
+
+    /** A size whose download is pending a switch; null when none. Survives a process restart. */
+    val asr4allPendingSize: Flow<Asr4AllSize?> = context.voiceInputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice input preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs ->
+            prefs[asr4allPendingSizeKey]?.let { stored -> Asr4AllSize.entries.firstOrNull { it.name == stored } }
+        }
+
+    suspend fun setAsr4allPendingSize(size: Asr4AllSize?) {
+        context.voiceInputPrefsDataStore.edit { prefs ->
+            if (size == null) prefs.remove(asr4allPendingSizeKey) else prefs[asr4allPendingSizeKey] = size.name
         }
     }
 

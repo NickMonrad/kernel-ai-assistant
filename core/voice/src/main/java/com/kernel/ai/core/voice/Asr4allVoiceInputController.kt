@@ -558,9 +558,11 @@ class Asr4allVoiceInputController internal constructor(
 
     internal suspend fun prewarmIfCurrent(isCurrent: suspend () -> Boolean): Boolean {
         if (!isAvailable()) return false
+        // A live capture would make this wait for its end while the caller holds its start mutex.
+        if (hasActiveCapture()) return false
         return startLock.withLock {
             if (!isCurrent()) return@withLock false
-            if (!awaitCaptureEnded()) return@withLock false
+            if (hasActiveCapture() || !awaitCaptureEnded()) return@withLock false
             withContext(Dispatchers.IO) { ensureEngine() }
             true
         }
@@ -595,13 +597,15 @@ class Asr4allVoiceInputController internal constructor(
 
     /**
      * Runs [block] with no capture and no engine open: the capture is discarded, its job and
-     * reader have ended, and the engine is closed, all under the start lock. Use this before
-     * deleting model files so no start can open them during the deletion.
+     * reader have ended, and the engine is closed, all under the start lock. [block] runs before
+     * the lock is released, so a state change it makes (such as the stored size) is visible to
+     * every start that follows. Use this before deleting model files so no start can open them
+     * during the deletion.
      *
      * Returns null without running [block] if the capture is still running after
      * [captureJoinTimeoutMs]; the engine stays open in that case.
      */
-    suspend fun <T> withEngineReleased(block: () -> T): T? {
+    suspend fun <T> withEngineReleased(block: suspend () -> T): T? {
         supersedeCapture()
         releaseFencedForTest?.invoke()
         return startLock.withLock {
