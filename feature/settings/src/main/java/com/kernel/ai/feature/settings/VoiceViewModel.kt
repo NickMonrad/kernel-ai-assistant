@@ -831,9 +831,11 @@ class VoiceViewModel @Inject constructor(
 
     /** Abandons a pending switch: its job stops, its downloads are cancelled, and the active size stays selected. */
     private fun cancelAsr4allSwitch() {
+        // Read the pending size before cancelling: the job's finally clears it on the IO thread once cancelled.
+        val pending = asr4allPendingSize.value
         asr4allSwitchJob?.cancel()
         asr4allSwitchJob = null
-        val pending = asr4allPendingSize.value ?: return
+        if (pending == null) return
         asr4allPendingSize.value = null
         Asr4AllInstall.models(pending)
             .filter { modelDownloadManager.downloadStates.value[it] is DownloadState.Downloading }
