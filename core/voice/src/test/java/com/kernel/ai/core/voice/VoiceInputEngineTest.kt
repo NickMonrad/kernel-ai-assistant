@@ -59,9 +59,9 @@ class VoiceInputEngineTest {
         )
     }
     @Test
-    fun `release catalogue contains only Android native input`() {
+    fun `release catalogue contains Android native and asr4all input`() {
         assertEquals(
-            listOf(VoiceInputEngine.AndroidNative),
+            listOf(VoiceInputEngine.AndroidNative, VoiceInputEngine.Asr4all),
             VoiceInputEngine.entriesForBuild(isRelease = true),
         )
     }

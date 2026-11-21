@@ -7,6 +7,8 @@ import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
@@ -15,6 +17,7 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.PiperVoiceSetup
+import com.kernel.ai.core.voice.Asr4allVoiceInputController
 import com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -30,7 +33,8 @@ import com.kernel.ai.core.permissions.MicrophoneReadiness
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import io.mockk.Runs
-import io.mockk.coEvery
+import com.kernel.ai.core.inference.download.localFile
+ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
@@ -39,6 +43,8 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -71,6 +77,7 @@ class VoiceViewModelTest {
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Auto)
     private val autoStartAlertVoiceCommandsEnabled = MutableStateFlow(true)
     private val allowOnlineSpeechFallback = MutableStateFlow(false)
+    private val asr4allSize = MutableStateFlow(Asr4AllSize.M)
     private val spokenResponsesEnabled = MutableStateFlow(true)
     private val selectedOutputEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
     private val selectedSherpaVoice = MutableStateFlow(SherpaPiperVoice.JennyDioco)
@@ -101,6 +108,9 @@ class VoiceViewModelTest {
     private lateinit var viewModel: VoiceViewModel
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
     private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
+    private val asr4allVoiceInputController: Asr4allVoiceInputController = mockk(relaxed = true)
+    @org.junit.jupiter.api.io.TempDir
+    lateinit var tempDir: java.nio.file.Path
 
     @Test
     fun `play sample speaks through Sherpa only for a downloaded voice`() = runTest {
@@ -145,6 +155,7 @@ class VoiceViewModelTest {
         context,
         sherpaVoiceOutputController,
         piperVoiceSetup,
+        asr4allVoiceInputController,
     )
 
     @BeforeEach
@@ -161,6 +172,8 @@ class VoiceViewModelTest {
         every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
         every { voiceInputPreferences.autoStartAlertVoiceCommandsEnabled } returns autoStartAlertVoiceCommandsEnabled
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns allowOnlineSpeechFallback
+        every { voiceInputPreferences.asr4allSize } returns asr4allSize
+        coEvery { voiceInputPreferences.setAsr4allSize(any()) } just Runs
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
@@ -299,6 +312,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -331,6 +345,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -363,6 +378,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -472,6 +488,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -505,6 +522,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -861,6 +879,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -910,6 +929,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allVoiceInputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1148,5 +1168,37 @@ class VoiceViewModelTest {
         viewModel.refreshAssistantStatus(isRoleHeld = true)
 
         assertTrue(viewModel.uiState.value.isDefaultAssistant)
+    }
+
+    @Test
+    fun `deleting asr4all files removes only its model files after the engine release and converges selection to Auto`() = runTest {
+        // Real files in a temp models dir: every Asr4all model file plus one unrelated file that must survive.
+        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
+        every { context.filesDir } returns tempDir.toFile()
+        val modelFiles = Asr4AllInstall.models(Asr4AllSize.M).map { it.localFile(context) }
+        modelFiles.forEach { it.parentFile.mkdirs(); it.writeText("x") }
+        val unrelated = java.io.File(tempDir.toFile(), "unrelated.bin").apply { writeText("keep") }
+        every { modelDownloadManager.refreshState(any()) } just Runs
+
+        val entered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } coAnswers {
+            entered.complete(Unit)
+            gate.await() // the release is held here; the deletion body must not have run yet
+            firstArg<() -> Unit>().invoke()
+        }
+
+        viewModel.setVoiceInputEngine(VoiceInputEngine.Asr4all)
+        viewModel.deleteSherpaStt(VoiceInputEngine.Asr4all)
+        entered.await()
+        assertTrue(modelFiles.all { it.exists() }, "files must survive until the release is held and the body runs")
+
+        gate.complete(Unit)
+        viewModel.uiState.first { it.selectedInputEngine == VoiceInputEngine.Auto }
+
+        assertTrue(modelFiles.none { it.exists() }, "every Asr4all model file is removed")
+        assertTrue(unrelated.exists(), "an unrelated file is untouched")
+        testDispatcher.scheduler.advanceUntilIdle() // the Auto preference write is launched on Main after the state flip
+        coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto) }
     }
 }

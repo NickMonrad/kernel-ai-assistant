@@ -20,6 +20,9 @@ import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import com.kernel.ai.core.voice.Asr4allVoiceInputController
 import com.kernel.ai.core.voice.kernelModels
 import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -80,6 +83,8 @@ data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
     val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Auto,
     val availableInputEngines: List<VoiceInputEngine> = VoiceInputEngine.entries,
+    val asr4allSize: Asr4AllSize = Asr4AllInstall.defaultSize,
+    val asr4allSizes: List<Asr4AllSize> = listOf(Asr4AllInstall.defaultSize),
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
@@ -256,6 +261,7 @@ class VoiceViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController,
     private val piperVoiceSetup: PiperVoiceSetup,
+    private val asr4allVoiceInputController: Asr4allVoiceInputController,
 ) : ViewModel() {
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
@@ -458,6 +464,17 @@ class VoiceViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            voiceInputPreferences.asr4allSize.collect { stored ->
+                val tier = hardwareProfileDetector.profile.tier
+                _uiState.update {
+                    it.copy(
+                        asr4allSize = Asr4AllInstall.effectiveSize(stored, tier),
+                        asr4allSizes = Asr4AllInstall.selectableSizes(tier),
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
             wakeWordPreferences.heyJandalEnabled.collect { enabled ->
                 _uiState.update { it.copy(heyJandalEnabled = enabled) }
                 if (enabled) {
@@ -473,9 +490,12 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
         viewModelScope.launch {
             modelDownloadManager.downloadStates.collect { states ->
-                val perFamilyStates = SherpaSttModelSpec.ALL.mapValues { (engine, spec) ->
-                    computeDownloadState(spec, states)
-                }
+                val perFamilyStates = (SherpaSttModelSpec.ALL.mapValues { (_, spec) ->
+                    computeDownloadState(
+                        spec.requiredFileNames.mapNotNull { fileName -> KernelModel.entries.firstOrNull { it.fileName == fileName } },
+                        states,
+                    )
+                }) + (VoiceInputEngine.Asr4all to computeDownloadState(Asr4AllInstall.models(_uiState.value.asr4allSize), states))
                 val inflectStates = inflectModels.associateWith { model ->
                     states[model] ?: DownloadState.NotDownloaded
                 }
@@ -506,12 +526,9 @@ class VoiceViewModel @Inject constructor(
      * Computes a [SherpaSttDownloadState] from the download states of the required models.
      */
     private fun computeDownloadState(
-        spec: SherpaSttModelSpec,
+        requiredModels: List<KernelModel>,
         states: Map<KernelModel, DownloadState>,
     ): SherpaSttDownloadState {
-        val requiredModels = spec.requiredFileNames.mapNotNull { fileName ->
-            KernelModel.entries.firstOrNull { it.fileName == fileName }
-        }
         val allDownloaded = requiredModels.all { states[it] is DownloadState.Downloaded }
         val anyDownloading = requiredModels.any { states[it] is DownloadState.Downloading }
         val totalBytes = requiredModels.sumOf { it.approxSizeBytes }.toFloat()
@@ -558,12 +575,13 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    private fun modelsForSpec(spec: SherpaSttModelSpec): List<KernelModel> = spec.kernelModels()
+    private fun modelsFor(engine: VoiceInputEngine): List<KernelModel> =
+        if (engine == VoiceInputEngine.Asr4all) Asr4AllInstall.models(_uiState.value.asr4allSize)
+        else SherpaSttModelSpec.forEngine(engine)?.kernelModels().orEmpty()
 
     fun downloadSherpaStt(engine: VoiceInputEngine) {
-        if (isReleaseBuild) return
-        val spec = SherpaSttModelSpec.forEngine(engine) ?: return
-        modelsForSpec(spec).forEach { modelDownloadManager.startDownload(it) }
+        if (isReleaseBuild && engine.isSherpaFamily) return
+        modelsFor(engine).forEach { modelDownloadManager.startDownload(it) }
     }
 
     fun downloadInflectMicro() {
@@ -626,22 +644,30 @@ class VoiceViewModel @Inject constructor(
 
 
     fun cancelSherpaSttDownload(engine: VoiceInputEngine) {
-        val spec = SherpaSttModelSpec.forEngine(engine) ?: return
         val currentStates = modelDownloadManager.downloadStates.value
-        modelsForSpec(spec)
+        modelsFor(engine)
             .filter { currentStates[it] is DownloadState.Downloading }
             .forEach { modelDownloadManager.cancelDownload(it) }
     }
 
     fun deleteSherpaStt(engine: VoiceInputEngine) {
         viewModelScope.launch(Dispatchers.IO) {
-            val spec = SherpaSttModelSpec.forEngine(engine) ?: return@launch
-            modelsForSpec(spec).forEach { model ->
-                val file = model.localFile(context)
-                file.delete()
-                val tmp = java.io.File(file.absolutePath + ".tmp")
-                if (tmp.exists()) tmp.delete()
-                modelDownloadManager.refreshState(model)
+            val models = modelsFor(engine)
+            val deleteFiles = {
+                models.forEach { model ->
+                    val file = model.localFile(context)
+                    file.delete()
+                    val tmp = java.io.File(file.absolutePath + ".tmp")
+                    if (tmp.exists()) tmp.delete()
+                    modelDownloadManager.refreshState(model)
+                }
+            }
+            // asr4all's engine reads these files: discard its capture and close it under its start
+            // lock first, so no start can reopen them while they are being deleted.
+            if (engine == VoiceInputEngine.Asr4all) {
+                asr4allVoiceInputController.withEngineReleased(deleteFiles)
+            } else {
+                deleteFiles()
             }
             if (_uiState.value.selectedInputEngine == engine) {
                 withContext(Dispatchers.Main) {
@@ -768,6 +794,26 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(allowOnlineSpeechFallback = allowed) }
         viewModelScope.launch {
             voiceInputPreferences.setAllowOnlineSpeechFallback(allowed)
+        }
+    }
+
+    /**
+     * Chooses the asr4all size. Only the selected size stays installed: the previous size's files
+     * are deleted, and the new size is not downloaded automatically.
+     */
+    fun setAsr4allSize(size: Asr4AllSize) {
+        if (size !in Asr4AllInstall.selectableSizes(hardwareProfileDetector.profile.tier)) return
+        val previous = _uiState.value.asr4allSize
+        if (previous == size) return
+        _uiState.update { it.copy(asr4allSize = size) }
+        viewModelScope.launch(Dispatchers.IO) {
+            // The engine reads the files being deleted; release it under its start lock first.
+            asr4allVoiceInputController.withEngineReleased {
+                Asr4AllInstall.deleteFiles(context, previous)
+            }
+            voiceInputPreferences.setAsr4allSize(size)
+            (Asr4AllInstall.models(previous) + Asr4AllInstall.models(size))
+                .forEach { modelDownloadManager.refreshState(it) }
         }
     }
 

@@ -17,6 +17,7 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceCaptureAdmissionController
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceNotice
 import com.kernel.ai.core.voice.VoiceOutputController
@@ -72,6 +73,8 @@ class ActionsViewModelVoiceTest {
     private val voiceInputController: VoiceInputController = mockk()
     private val voiceOutputController: VoiceOutputController = mockk()
     private val speechStopCoordinator = SpeechStopCoordinator(voiceOutputController)
+    private val admissionAwareVoiceInputController =
+        ActionsAdmissionAwareVoiceInputController(voiceInputController)
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val startListeningCuePlayer: StartListeningCuePlayer = mockk(relaxed = true)
     private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences = mockk(relaxed = true)
@@ -139,7 +142,7 @@ class ActionsViewModelVoiceTest {
             skillRegistry = skillRegistry,
             quickActionDao = quickActionDao,
             speechStopCoordinator = speechStopCoordinator,
-            voiceInputController = voiceInputController,
+            voiceInputController = admissionAwareVoiceInputController,
             voiceOutputController = voiceOutputController,
             voiceOutputPreferences = voiceOutputPreferences,
             startListeningCuePlayer = startListeningCuePlayer,
@@ -174,7 +177,7 @@ class ActionsViewModelVoiceTest {
 
     @Test
     fun `alert command transcript does not execute quick actions`() = runTest(dispatcher) {
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "stop"))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.AlertCommand, "stop", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
@@ -184,7 +187,7 @@ class ActionsViewModelVoiceTest {
 
     @Test
     fun `idle actions viewmodel ignores command transcript it did not start`() = runTest(dispatcher) {
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "cancel timer"))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "cancel timer", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
@@ -699,8 +702,23 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
-        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(emptyList<Long>(), admissionAwareVoiceInputController.cancelledSessionIds)
+        verify(exactly = 0) { voiceInputController.stopListening() }
         verify(atLeast = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `screen-off discards only Actions own admitted capture`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(42L)
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+        viewModel.onScreenStopped(screenOff = true)
+
+        assertEquals(listOf(42L), admissionAwareVoiceInputController.cancelledSessionIds)
+        verify(exactly = 0) { voiceInputController.stopListening() }
     }
 
     @Test
@@ -721,7 +739,8 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         verify(exactly = 0) { voiceOutputController.stop() }
-        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(emptyList<Long>(), admissionAwareVoiceInputController.cancelledSessionIds)
+        verify(exactly = 0) { voiceInputController.stopListening() }
         assertEquals(
             ActionsViewModel.VoicePlaybackState.Speaking("What would you like to say to your wife?"),
             viewModel.voicePlaybackState.value,
@@ -752,7 +771,8 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         verify(atLeast = 1) { voiceOutputController.stop() }
-        verify(atLeast = 1) { voiceInputController.stopListening() }
+        assertEquals(emptyList<Long>(), admissionAwareVoiceInputController.cancelledSessionIds)
+        verify(exactly = 0) { voiceInputController.stopListening() }
         assertEquals(ActionsViewModel.VoicePlaybackState.Idle, viewModel.voicePlaybackState.value)
     }
 
@@ -787,9 +807,9 @@ class ActionsViewModelVoiceTest {
             voiceInputController.startListening(VoiceCaptureMode.Command)
         } returns VoiceInputStartResult.Started(1L)
         viewModel.startVoiceCommand()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything."))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything.", captureSessionId = 1L))
         advanceUntilIdle()
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
         coVerify(exactly = 1) { voiceInputPreferences.recordMicUseStarted() }
@@ -841,9 +861,9 @@ class ActionsViewModelVoiceTest {
         // Opening the mic stops output too; only stops after the first capture end the retry prompt.
         clearMocks(voiceOutputController, answers = false)
         every { voiceOutputController.stop() } answers { playbackEnds.complete(Unit) }
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything."))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything.", captureSessionId = 1L))
         runCurrent()
         coVerify(exactly = 1) {
             voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
@@ -985,8 +1005,8 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.startVoiceCommand()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
-        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "turn on"))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "turn on", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(
@@ -1068,9 +1088,9 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.startVoiceCommand()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
-        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "set timer for 5"))
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 1L))
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "set timer for 5", 1L))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
         advanceUntilIdle()
 
         assertEquals(
@@ -2806,7 +2826,7 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.startVoiceCommand()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
 
         verify(exactly = 1) { startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND) }
@@ -2820,7 +2840,7 @@ class ActionsViewModelVoiceTest {
         val haptics = mutableListOf<Unit>()
         val collectJob = launch { viewModel.listeningHaptics.collect { haptics += it } }
         viewModel.startVoiceCommand()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(1, haptics.size)
@@ -2857,7 +2877,7 @@ class ActionsViewModelVoiceTest {
     fun `ListeningStarted for unowned mode does not trigger cue player`() = runTest(dispatcher) {
         // ActionsViewModel is Idle — it owns nothing. An event from an AlertCommand
         // session started elsewhere should be silently ignored.
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 1L))
         advanceUntilIdle()
 
         verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
@@ -2885,7 +2905,7 @@ class ActionsViewModelVoiceTest {
 
         // Manually trigger voice slot reply (as the user would press mic)
         viewModel.startVoiceSlotReply()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
 
         verify(atLeast = 1) { startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND) }
@@ -2915,12 +2935,12 @@ class ActionsViewModelVoiceTest {
 
         // Put ViewModel into SlotReply capture state so it owns the mode.
         viewModel.startVoiceSlotReply()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
 
         // First error → retry 1: should speak reprompt and keep slot active.
         voiceInputEvents.emit(
-            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that."),
+            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that.", captureSessionId = 1L),
         )
         advanceUntilIdle()
 
@@ -2944,10 +2964,10 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         // Second error → retry 2: should speak reprompt again and keep slot active.
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
         voiceInputEvents.emit(
-            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that."),
+            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that.", captureSessionId = 1L),
         )
         advanceUntilIdle()
 
@@ -2970,10 +2990,10 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         // Third error → budget exhausted: slot should remain visible but no further TTS retry.
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
         voiceInputEvents.emit(
-            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that."),
+            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that.", captureSessionId = 1L),
         )
         advanceUntilIdle()
 
@@ -3012,11 +3032,11 @@ class ActionsViewModelVoiceTest {
         assertNotNull(viewModel.pendingSlot.value)
 
         viewModel.startVoiceSlotReply()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
 
         // Emit "cancel" as the transcript — should abort the slot-fill.
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "cancel"))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "cancel", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(null, viewModel.pendingSlot.value)
@@ -3044,10 +3064,10 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceSlotReply()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
 
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "stop"))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "stop", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(null, viewModel.pendingSlot.value)
@@ -3075,10 +3095,10 @@ class ActionsViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceSlotReply()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
 
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "stop that"))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.SlotReply, "stop that", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(null, viewModel.pendingSlot.value)
@@ -3092,12 +3112,12 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.startVoiceCommand()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
 
         // First error → should auto-retry (1 retry allowed for Command mode).
         voiceInputEvents.emit(
-            VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything."),
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything.", captureSessionId = 1L),
         )
         advanceUntilIdle()
 
@@ -3107,10 +3127,10 @@ class ActionsViewModelVoiceTest {
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
 
         // Second error → budget exhausted, surface the error.
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
         voiceInputEvents.emit(
-            VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything."),
+            VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything.", captureSessionId = 1L),
         )
         advanceUntilIdle()
 
@@ -3157,22 +3177,22 @@ class ActionsViewModelVoiceTest {
 
         // First session: exhaust retry budget.
         viewModel.startVoiceCommand()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Error 1"))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Error 1", captureSessionId = 1L))
         advanceUntilIdle()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Error 2"))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Error 2", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals("Error 2", viewModel.error.value)
 
         // Fresh user-initiated press — retry budget must reset.
         viewModel.startVoiceCommand()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Error 3"))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Error 3", captureSessionId = 1L))
         advanceUntilIdle()
 
         // Retry should have kicked in (no error shown yet after the fresh press).
@@ -3205,11 +3225,11 @@ class ActionsViewModelVoiceTest {
 
         // Initial mic session.
         viewModel.startVoiceSlotReply()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
 
         // Error 1 → retry 1: reprompt spoken, auto-rearm armed.
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech", captureSessionId = 1L))
         advanceUntilIdle()
 
         // Simulate TTS completing → auto-rearm restarts mic.
@@ -3222,9 +3242,9 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         // Error 2 → retry 2: reprompt spoken again, auto-rearm armed.
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech", captureSessionId = 1L))
         advanceUntilIdle()
 
         // Simulate TTS completing → auto-rearm restarts mic.
@@ -3237,9 +3257,9 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         // Error 3 → budget exhausted: slot visible, voice idle, no further TTS retry.
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertNotNull(viewModel.pendingSlot.value)
@@ -3254,11 +3274,11 @@ class ActionsViewModelVoiceTest {
         // ── User manually re-taps the mic — budget must reset ──
 
         viewModel.startVoiceSlotReply()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
 
         // First error of the new session → reprompt should fire (retry budget is fresh).
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech"))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech", captureSessionId = 1L))
         advanceUntilIdle()
 
         // A 3rd reprompt speak confirms the retry path fired (not the exhaustion path).
@@ -4939,7 +4959,7 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
-    fun `voice capture runs Preparing to Listening to Processing and stop returns to Idle`() = runTest(dispatcher) {
+    fun `voice capture cancellation clears Processing while waiting for final transcript`() = runTest(dispatcher) {
         coEvery { voiceInputController.startListening(any()) } returns VoiceInputStartResult.Started(1L)
 
         viewModel.startVoiceCommand()
@@ -4948,14 +4968,14 @@ class ActionsViewModelVoiceTest {
             viewModel.voiceCaptureState.value,
         )
 
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 1L))
         advanceUntilIdle()
         assertEquals(
             ActionsViewModel.VoiceCaptureState.Listening(VoiceCaptureMode.Command),
             viewModel.voiceCaptureState.value,
         )
 
-        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "turn on"))
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "turn on", 1L))
         voiceInputEvents.emit(VoiceInputEvent.SpeechEnded(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
         assertEquals(
@@ -4963,8 +4983,80 @@ class ActionsViewModelVoiceTest {
             viewModel.voiceCaptureState.value,
         )
 
-        viewModel.stopVoiceCapture()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
         advanceUntilIdle()
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+    @Test
+    fun `never-admitted cancellation returns Actions capture to Idle without retry`() = runTest(dispatcher) {
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns VoiceInputStartResult.Cancelled()
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
+    fun `foreign prior-session events cannot change a preparing or listening replacement`() = runTest(dispatcher) {
+        val secondStart = CompletableDeferred<VoiceInputStartResult>()
+        var starts = 0
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } coAnswers {
+            if (starts++ == 0) VoiceInputStartResult.Started(1L) else secondStart.await()
+        }
+
+        viewModel.startVoiceCommand()
+        runCurrent()
+        viewModel.stopVoiceCapture()
+        viewModel.startVoiceCommand()
+        runCurrent()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Preparing(VoiceCaptureMode.Command),
+            viewModel.voiceCaptureState.value,
+        )
+
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "A", 1L))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Preparing(VoiceCaptureMode.Command),
+            viewModel.voiceCaptureState.value,
+        )
+
+        secondStart.complete(VoiceInputStartResult.Started(2L))
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Listening(VoiceCaptureMode.Command),
+            viewModel.voiceCaptureState.value,
+        )
+
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
+        advanceUntilIdle()
+        assertEquals(
+            ActionsViewModel.VoiceCaptureState.Listening(VoiceCaptureMode.Command),
+            viewModel.voiceCaptureState.value,
+        )
+    }
+}
+
+private class ActionsAdmissionAwareVoiceInputController(
+    private val delegate: VoiceInputController,
+) : VoiceInputController by delegate, VoiceCaptureAdmissionController {
+    val cancelledSessionIds = mutableListOf<Long>()
+    override val captureActivity = MutableStateFlow(false)
+
+    override suspend fun startListening(
+        mode: VoiceCaptureMode,
+        onSessionAdmitted: (Long) -> Unit,
+    ): VoiceInputStartResult {
+        val result = delegate.startListening(mode)
+        if (result is VoiceInputStartResult.Started) onSessionAdmitted(result.captureSessionId)
+        return result
+    }
+
+    override fun cancelListening(captureSessionId: Long) {
+        cancelledSessionIds += captureSessionId
     }
 }

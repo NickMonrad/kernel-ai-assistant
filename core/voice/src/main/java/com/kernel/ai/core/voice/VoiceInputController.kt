@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
 sealed interface VoiceInputStartResult {
     data class Started(val captureSessionId: Long) : VoiceInputStartResult
     data class Unavailable(val message: String) : VoiceInputStartResult
+    data class Cancelled(val captureSessionId: Long? = null) : VoiceInputStartResult
 }
 
 internal object VoiceCaptureSessionIds {
@@ -55,9 +56,14 @@ sealed interface VoiceInputEvent {
          */
         val category: String? = null,
     ) : VoiceInputEvent
+    /**
+     * The capture ended without a result: it was superseded or its engine was released (engine
+     * switch or deletion). Consumers clear listening and must not submit any partial text.
+     */
     data class ListeningStopped(
         override val mode: VoiceCaptureMode,
         override val captureSessionId: Long = 0L,
+        val cancelled: Boolean = false,
     ) : VoiceInputEvent
     /** End of user speech; the engine is now transcribing (#1850). */
     data class SpeechEnded(
@@ -111,6 +117,55 @@ interface VoiceInputController {
      * [kotlinx.coroutines.runBlocking] when calling a [suspend] override.
      */
     suspend fun transcribeBlocking(pcm: ShortArray): String? = null
+}
+
+/** Controllers that can bind an owner before emitting events expose this admission handshake. */
+interface VoiceCaptureAdmissionController {
+    suspend fun startListening(
+        mode: VoiceCaptureMode,
+        onSessionAdmitted: (Long) -> Unit,
+    ): VoiceInputStartResult
+
+    /** Stops only [captureSessionId]; stale UI owners must never stop a replacement capture. */
+    fun stopListening(captureSessionId: Long) {}
+
+    /** Discards only [captureSessionId], without finalizing or affecting a replacement. */
+    fun cancelListening(captureSessionId: Long) {}
+
+    /** Waits until this capture's recorder and audio focus are released. */
+    suspend fun awaitCaptureTeardown(captureSessionId: Long) {}
+
+    /** True while a start is pending or an admitted capture remains active. */
+    fun hasCaptureOrStart(): Boolean = false
+    /** Emits whether the selector currently owns a pending start or active capture. */
+    val captureActivity: StateFlow<Boolean>
+}
+
+fun VoiceInputController.stopListening(captureSessionId: Long) {
+    (this as? VoiceCaptureAdmissionController)?.stopListening(captureSessionId)
+}
+
+fun VoiceInputController.cancelListening(captureSessionId: Long) {
+    (this as? VoiceCaptureAdmissionController)?.cancelListening(captureSessionId)
+}
+
+fun VoiceInputController.hasCaptureOrStart(): Boolean =
+    (this as? VoiceCaptureAdmissionController)?.hasCaptureOrStart() == true
+
+suspend fun VoiceInputController.startListening(
+    mode: VoiceCaptureMode,
+    onSessionAdmitted: (Long) -> Unit,
+): VoiceInputStartResult {
+    if (this is VoiceCaptureAdmissionController) {
+        return startListening(mode, onSessionAdmitted)
+    }
+    val result = startListening(mode)
+    when (result) {
+        is VoiceInputStartResult.Started -> onSessionAdmitted(result.captureSessionId)
+        is VoiceInputStartResult.Cancelled -> result.captureSessionId?.let(onSessionAdmitted)
+        is VoiceInputStartResult.Unavailable -> Unit
+    }
+    return result
 }
 
 private val NO_NOTICES: SharedFlow<VoiceNotice> = MutableSharedFlow<VoiceNotice>().asSharedFlow()

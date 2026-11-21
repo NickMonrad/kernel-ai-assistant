@@ -79,7 +79,7 @@ Use `openai/whisper-tiny.en`, not multilingual `openai/whisper-tiny`, because Ja
 
 ## asr4all source notes
 
-Planned offline STT default (#1977, #1980). Jandal will download the unmodified FUTO ExecuTorch INT8 (XNNPACK) export files (`executorch/xnnpack_int8/asr_encoder.pte` and its `metadata.json`, with `config.json`, `release_geom.json` and `preprocessor_config.json`) from FUTO's Hugging Face repositories, `futo-org/asr4all-m` (56M) and `futo-org/asr4all-l` (97M), and run them with ExecuTorch through the shared runtime module (#2003). The ONNX Runtime route (#1978, #1987) was superseded on 21 Nov 2026 (#2007).
+Offline STT (#1977, #2005): M is the default size and L is an optional size. Jandal downloads the unmodified FUTO ExecuTorch INT8 (XNNPACK) export files (`executorch/xnnpack_int8/asr_encoder.pte` and its `metadata.json`, with `config.json`, `release_geom.json` and `preprocessor_config.json`) from FUTO's Hugging Face repositories, `futo-org/asr4all-m` (M, about 60 MB) and `futo-org/asr4all-l` (L, about 101 MB), and runs them with ExecuTorch through the shared runtime module (#2003). The ONNX Runtime route (#1978, #1987) was superseded on 21 Nov 2026 (#2007).
 
 Licence: FUTO Model Weights License (Restricted Use) 1.0, in each repository's `LICENSE`. The two copies are byte-identical (checked 18 Nov 2026). The text is bundled at `app/src/main/assets/legal/FUTO-Model-Weights-License-1.0.txt` and shown offline on the Open-source licences screen, which also lists asr4all in `NOTICE`.
 
