@@ -2,15 +2,20 @@ package com.kernel.ai.feature.chat
 
 import android.util.Log
 import com.kernel.ai.core.inference.BackendType
+import com.kernel.ai.core.inference.ContextWindowManager
+import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.hardware.recommendedMaxTokensFor
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.google.ai.edge.litertlm.InternalJsonTool
+import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
@@ -22,6 +27,7 @@ import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
 import com.kernel.ai.core.skills.KernelAIToolSet
+import com.kernel.ai.core.skills.RunIntentSkill
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
@@ -36,6 +42,7 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
+import org.json.JSONObject
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.just
@@ -286,5 +293,50 @@ class ChatViewModelToolUsePromptTest {
         val hasRetain = p.contains("retain their existing intents") || p.contains("retain their existing")
         assertTrue(hasAlarmsTimers && hasRetain,
             "Calendar rule must clarify alarms/timers/reminders retain their intents\n$p")
+    }
+
+    // #1961: E-2B (MID_RANGE) LiteRT rejected a ~3.4k-token tool-path prefill at 3072.
+    // Estimate = fixed tool-path text + serialized native tool declarations from the real
+    // KernelAIToolSet provider + RESPONSE_RESERVE, using the app's 3 chars/token estimator.
+    // The sum is ~5.1k tokens, so this fails at 3072 and 4000 and passes at the detector value.
+    @Test
+    fun `tool-path prompt with native declarations and reply reserve fits MID_RANGE window`() {
+        val fixedToolPath = MINIMAL_SYSTEM_PROMPT +
+            createViewModel().buildToolUsePrompt() +
+            toolTurnInstruction(isFirstReply = true).orEmpty()
+        val required = ContextWindowManager().estimateTokens(fixedToolPath + nativeToolDeclarations()) +
+            ContextWindowManager.RESPONSE_RESERVE
+        val window = recommendedMaxTokensFor(HardwareTier.MID_RANGE)
+        assertTrue(required <= window,
+            "Tool-path prompt + declarations + reserve needs $required tokens, MID_RANGE window is $window\n")
+    }
+
+    // #1961 reason for 7000: a load_skill("run_intent") result must still fit after the tool-path prompt.
+    // Compact run_intent instructions are the smallest result LoadSkillSkill returns. Their JSON envelope,
+    // added to the same prefill and reply reserve, needs more than 5.5k tokens here. A window below that
+    // withholds every load_skill result ("Insufficient context").
+    @Test
+    fun `tool-path prompt plus compact run_intent load_skill envelope fits MID_RANGE window`() {
+        val fixedToolPath = MINIMAL_SYSTEM_PROMPT +
+            createViewModel().buildToolUsePrompt() +
+            toolTurnInstruction(isFirstReply = true).orEmpty()
+        val compactRunIntent = RunIntentSkill(mockk(relaxed = true)).compactInstructions
+        val loadSkillEnvelope = JSONObject(mapOf("result" to compactRunIntent)).toString()
+        val estimator = ContextWindowManager()
+        val required = estimator.estimateTokens(fixedToolPath + nativeToolDeclarations()) +
+            ContextWindowManager.RESPONSE_RESERVE +
+            estimator.estimateTokens(loadSkillEnvelope)
+        val window = recommendedMaxTokensFor(HardwareTier.MID_RANGE)
+        assertTrue(required <= window,
+            "Tool-path prompt + declarations + reserve + compact run_intent envelope needs $required tokens, " +
+                "MID_RANGE window is $window\n")
+    }
+
+    private fun nativeToolDeclarations(): String {
+        val provider = tool(KernelAIToolSet(dagger.Lazy { mockk<SkillRegistry>(relaxed = true) }))
+        val provideTools = provider.javaClass.methods.single { it.name.startsWith("provideTools") }
+        @Suppress("UNCHECKED_CAST")
+        val tools = provideTools.invoke(provider) as Map<String, InternalJsonTool>
+        return tools.toSortedMap().values.joinToString("\n") { it.getToolDescription().toString() }
     }
 }

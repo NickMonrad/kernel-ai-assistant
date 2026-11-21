@@ -5,7 +5,7 @@ import com.kernel.ai.core.memory.entity.ModelSettingsEntity
 interface ModelSettingsRepository {
     /**
      * Returns saved settings for [modelId], or sensible defaults if none are stored.
-     * Default [ModelSettingsEntity.contextWindowSize] is RAM-aware: ≥12 GB → 8192, else 4096.
+     * Default [ModelSettingsEntity.contextWindowSize] is [HardwareProfile.recommendedMaxTokens] (per hardware tier).
      */
     suspend fun getSettings(modelId: String): ModelSettingsEntity
 
