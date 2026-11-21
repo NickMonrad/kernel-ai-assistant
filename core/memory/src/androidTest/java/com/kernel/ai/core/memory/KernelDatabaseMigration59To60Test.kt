@@ -31,15 +31,16 @@ class KernelDatabaseMigration59To60Test {
     }
 
     /**
-     * 59 -> 60 (#1961) rewrites only model_settings rows at the exact old MID_RANGE default (3072) to
-     * 7000. Rows at other sizes, including 4000 (the slider minimum) and user-chosen values, are untouched.
-     * runMigrationsAndValidate checks the schema against the exported 60.json.
+     * 59 -> 60 (#1961) rewrites only model_settings rows at the old MID_RANGE defaults (3072 and the
+     * pre-#186 4096) to 7000. Rows at other sizes, including 4000 (the slider minimum) and user-chosen
+     * values, are untouched. runMigrationsAndValidate checks the schema against the exported 60.json.
      */
     @Test
-    fun `migration 59 to 60 rewrites only rows at the old 3072 default`() {
+    fun `migration 59 to 60 rewrites only rows at the old 3072 and 4096 defaults`() {
         helper.createDatabase(testDbName, 59).apply {
             listOf(
                 "model-at-old-default" to 3072,
+                "model-at-pre-186-default" to 4096,
                 "model-at-slider-minimum" to 4000,
                 "model-user-4500" to 4500,
                 "model-user-8000" to 8000,
@@ -70,6 +71,7 @@ class KernelDatabaseMigration59To60Test {
         assertEquals(
             mapOf(
                 "model-at-old-default" to 7000,
+                "model-at-pre-186-default" to 7000,
                 "model-at-slider-minimum" to 4000,
                 "model-user-4500" to 4500,
                 "model-user-8000" to 8000,

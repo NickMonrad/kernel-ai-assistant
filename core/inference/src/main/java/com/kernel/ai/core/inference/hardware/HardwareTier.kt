@@ -5,7 +5,7 @@ package com.kernel.ai.core.inference.hardware
  *
  * Thresholds are based on total RAM:
  * - [FLAGSHIP] ≥10 GB  → Full RAG + E-4B + GPU (OpenCL / Adreno 740), maxTokens=8000
- * - [MID_RANGE] ≥6 GB  → E-2B + GPU, maxTokens=4000 (MID_RANGE_RECOMMENDED_MAX_TOKENS)
+ * - [MID_RANGE] ≥6 GB  → E-2B + GPU, maxTokens=recommendedMaxTokensFor(MID_RANGE) = 7000 (#1961)
  * - [LOW_POWER] <6 GB  → Intent routing only + CPU, maxTokens=1000
  */
 enum class HardwareTier {

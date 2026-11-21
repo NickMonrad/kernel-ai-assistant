@@ -27,6 +27,7 @@ import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.EpisodicDistillationUseCase
 import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
 import com.kernel.ai.core.skills.KernelAIToolSet
+import com.kernel.ai.core.skills.RunIntentSkill
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillExecutor
 import com.kernel.ai.core.skills.SkillRegistry
@@ -41,6 +42,7 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.inference.auth.HuggingFaceAuthRepository
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
+import org.json.JSONObject
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.just
@@ -307,6 +309,27 @@ class ChatViewModelToolUsePromptTest {
         val window = recommendedMaxTokensFor(HardwareTier.MID_RANGE)
         assertTrue(required <= window,
             "Tool-path prompt + declarations + reserve needs $required tokens, MID_RANGE window is $window\n")
+    }
+
+    // #1961 reason for 7000: a load_skill("run_intent") result must still fit after the tool-path prompt.
+    // Compact run_intent instructions are the smallest result LoadSkillSkill returns. Their JSON envelope,
+    // added to the same prefill and reply reserve, needs more than 5.5k tokens here. A window below that
+    // withholds every load_skill result ("Insufficient context").
+    @Test
+    fun `tool-path prompt plus compact run_intent load_skill envelope fits MID_RANGE window`() {
+        val fixedToolPath = MINIMAL_SYSTEM_PROMPT +
+            createViewModel().buildToolUsePrompt() +
+            toolTurnInstruction(isFirstReply = true).orEmpty()
+        val compactRunIntent = RunIntentSkill(mockk(relaxed = true)).compactInstructions
+        val loadSkillEnvelope = JSONObject(mapOf("result" to compactRunIntent)).toString()
+        val estimator = ContextWindowManager()
+        val required = estimator.estimateTokens(fixedToolPath + nativeToolDeclarations()) +
+            ContextWindowManager.RESPONSE_RESERVE +
+            estimator.estimateTokens(loadSkillEnvelope)
+        val window = recommendedMaxTokensFor(HardwareTier.MID_RANGE)
+        assertTrue(required <= window,
+            "Tool-path prompt + declarations + reserve + compact run_intent envelope needs $required tokens, " +
+                "MID_RANGE window is $window\n")
     }
 
     private fun nativeToolDeclarations(): String {

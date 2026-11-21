@@ -14,17 +14,24 @@ private const val TAG = "HardwareProfileDetector"
 /**
  * Default LiteRT `maxNumTokens` per tier, used by [HardwareProfileDetector.profile].
  *
- * MID_RANGE = 7000 (#1961). Budget, using the app's 3 chars/token estimator (it overestimates
- * LiteRT's real count by ~1.3x):
+ * MID_RANGE = 7000 (#1961). Budget (the app's 3 chars/token estimator overestimates LiteRT's
+ * count by ~1.3x):
  * - fixed prompt floor 2400 (FixedPromptTokenBudget), or 2612 measured on S21
  *   (minimal system 876 + native tool declarations 1736)
  * - current prompt incl. tool-use rules 1631 (measured on S21)
  * - RESPONSE_RESERVE 1024
  * - largest full load_skill envelope 1507 (run_intent instructions, JSON-escaped)
- * 2612 + 1631 + 1024 + 1507 = 6774. 7000 leaves 226 tokens, so the full result fits
- * after a calibrated turn. A 4000-token limit gives load_skill a budget of 0 and the
- * 3072 limit fails LiteRT prefill (3382 tokens, S21). 7000 is not a power of 2 (see
- * safeTokenCount).
+ * 2612 + 1631 + 1024 + 1507 = 6774. 7000 leaves 226 tokens. A 4000 limit gives load_skill a
+ * budget of 0. The 3072 limit fails LiteRT prefill (3382 tokens, S21). 7000 is not a power of
+ * 2 (see safeTokenCount).
+ *
+ * History (#684): 9143816b raised MID_RANGE 2000 → 4000. 809d4f62 cut it to 3072 after Samsung's
+ * LMKD killed the foreground app on the S21 at PSS 2.75 GB with MemFree below ~200 MB.
+ *
+ * Soak at 7000 (#1961, S21, docs/evidence/1961/s21-e2b-soak.md): 9 turns plus two load_skill
+ * probes. lmkd killed the app at 02:02:07 (oom_score_adj 100, low watermark breached, swap low)
+ * after a camera launch moved it to the background. Not a foreground kill, but the same
+ * mechanism as #684. The value was NOT changed; the decision is open.
  */
 fun recommendedMaxTokensFor(tier: HardwareTier): Int = when (tier) {
     HardwareTier.FLAGSHIP -> 8000
