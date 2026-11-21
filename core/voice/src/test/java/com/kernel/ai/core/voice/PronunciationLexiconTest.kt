@@ -161,6 +161,27 @@ class PronunciationLexiconTest {
     }
 
     @Test
+    fun `shipped asset respells mahi as ma-hee in any case, with a macron, and inside a sentence`() {
+        val json = File("src/lexicon/assets/${PronunciationLexicon.ASSET_NAME}").readText()
+        PronunciationLexicon.install(PronunciationLexicon.parse(json))
+        assertEquals("ma-hee", PronunciationLexicon.apply("mahi"))
+        assertEquals("ma-hee", PronunciationLexicon.apply("Mahi"))
+        assertEquals("ma-hee", PronunciationLexicon.apply("MAHI"))
+        assertEquals("ma-hee", PronunciationLexicon.apply("Māhi"))
+        assertEquals("Ka pai tō ma-hee.", SherpaSpeechText.prepare("Ka pai tō mahi."))
+    }
+
+    @Test
+    fun `mahi is respelled only as a whole word`() {
+        val json = File("src/lexicon/assets/${PronunciationLexicon.ASSET_NAME}").readText()
+        PronunciationLexicon.install(PronunciationLexicon.parse(json))
+        assertEquals("mahimahi", PronunciationLexicon.apply("mahimahi"))
+        assertEquals("omahi", PronunciationLexicon.apply("omahi"))
+        assertEquals("mahis", PronunciationLexicon.apply("mahis"))
+        assertEquals("mahi2", PronunciationLexicon.apply("mahi2"))
+    }
+
+    @Test
     fun `Sherpa speech preparation applies the lexicon before number handling`() {
         install("Petone" to "Pih-toe-nee")
         assertEquals(
