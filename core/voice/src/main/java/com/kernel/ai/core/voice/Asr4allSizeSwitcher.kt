@@ -15,11 +15,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -47,7 +50,8 @@ data class Asr4allSwitchState(
  *   release that stores the new size. A killed process resumes the pending switch at [start], or drops
  *   it when the stored size already matches.
  * - Only the active size is ever opened by the engine. Every other shipped size's files are removed by
- *   [sweepInactiveLocked] (abandoned, cancelled, failed, superseded, and partial `.tmp` files alike).
+ *   [sweepInactiveLocked] (abandoned, cancelled, failed, superseded, and partial `.tmp` files alike),
+ *   except a complete pending size whose commit is deferred; its record keeps it until a commit or drop.
  */
 @Singleton
 class Asr4allSizeSwitcher internal constructor(
@@ -77,6 +81,7 @@ class Asr4allSizeSwitcher internal constructor(
     private val mutex = Mutex()
     private val jobLock = Any()
     private var switchJob: Job? = null // guarded by jobLock
+    private val commitRetryDelaysMs = listOf(1_000L, 4_000L, 16_000L, 60_000L)
 
     private val _state = MutableStateFlow(Asr4allSwitchState())
 
@@ -91,13 +96,19 @@ class Asr4allSizeSwitcher internal constructor(
         scope.launch {
             val pending = voiceInputPreferences.asr4allPendingSize.first()
             if (pending != null) {
-                if (pending == activeSize()) {
+                val selectable = Asr4AllInstall.selectableSizes(hardwareProfileDetector.profile.tier)
+                if (pending == activeSize() || pending !in selectable) {
                     voiceInputPreferences.setAsr4allPendingSize(null)
                 } else {
                     synchronized(jobLock) { launchSwitch(pending) }
                 }
             }
-            combine(voiceInputPreferences.asr4allSize, modelDownloadManager.downloadStates) { _, _ -> Unit }
+            // Only the shipped sizes' states decide sweeps; other models' progress ticks must not trigger one.
+            val asr4allModels = Asr4AllInstall.shippedSizes.flatMap { Asr4AllInstall.models(it) }
+            val asr4allStates = modelDownloadManager.downloadStates
+                .map { states -> asr4allModels.map { states[it] } }
+                .distinctUntilChanged()
+            combine(voiceInputPreferences.asr4allSize, asr4allStates) { _, _ -> Unit }
                 .collect {
                     // A queued or running switch owns its partial files; sweep only when none is pending.
                     if (!switchRunning()) mutex.withLock { sweepInactiveLocked() }
@@ -162,26 +173,33 @@ class Asr4allSizeSwitcher internal constructor(
         hardwareProfileDetector.profile.tier,
     )
 
-    /** Caller holds [mutex]. */
+    /** Caller holds [mutex]. The finally clears the pending record unless its commit is deferred. */
     private suspend fun runSwitchLocked(size: Asr4AllSize) {
-        val active = activeSize()
-        if (size == active) return
-        _state.update { it.copy(pendingSize = size) }
-        voiceInputPreferences.setAsr4allPendingSize(size)
+        var keepPending = false
         try {
+            val active = activeSize()
+            if (size == active) return
+            _state.update { it.copy(pendingSize = size) }
+            voiceInputPreferences.setAsr4allPendingSize(size)
             val ready = when {
                 // Nothing installed to keep: store the choice at once.
                 !Asr4AllInstall.isDownloaded(context, active) -> true
                 Asr4AllInstall.isDownloaded(context, size) -> true
                 else -> awaitDownload(size)
             }
-            when {
-                !ready -> setFailure(size, "Download of ${size.name} did not finish. The current size stays selected.")
-                !commit(size) -> setFailure(size, "A recording is still ending. Try ${size.name} again in a moment.")
+            if (!ready) {
+                setFailure(size, "Download of ${size.name} did not finish. The current size stays selected.")
+            } else if (!commitWhenIdle(size)) {
+                // The download is complete and kept; the record stays, so the next start retries the commit.
+                keepPending = true
+                val message = "Could not switch to ${size.name}: the voice engine did not release. " +
+                    "The download is kept and the switch retries on the next app start."
+                setFailure(size, message)
             }
         } finally {
             withContext(NonCancellable) {
-                if (_state.value.pendingSize == size) clearPending()
+                _state.update { it.copy(pendingSize = null) }
+                if (!keepPending) voiceInputPreferences.setAsr4allPendingSize(null)
                 sweepInactiveLocked()
             }
         }
@@ -211,26 +229,31 @@ class Asr4allSizeSwitcher internal constructor(
     }
 
     /**
-     * Stores [size] as active and clears the pending record, inside an engine release. The release
-     * closes the engine before the write and holds the start lock through it, so no start can open
-     * the old size after the write. False when the release could not happen; nothing is stored then.
+     * Stores [size] once no capture is live. A release that cannot happen (a capture began after the
+     * wait, or a reader is still parked) is retried with backoff; the download is never swept for it.
+     * False when every attempt failed.
+     */
+    private suspend fun commitWhenIdle(size: Asr4AllSize): Boolean {
+        for (attempt in 0..commitRetryDelaysMs.size) {
+            controller.awaitCaptureIdle()
+            if (commit(size)) return true
+            commitRetryDelaysMs.getOrNull(attempt)?.let { delay(it) }
+        }
+        return false
+    }
+
+    /**
+     * Stores [size] as active and clears the pending record, inside an engine release that refuses rather
+     * than supersedes a live capture. The release closes the engine before the write and holds the start
+     * lock through it, so no start can open the old size after the write. False when the release could not
+     * happen; nothing is stored then.
      */
     private suspend fun commit(size: Asr4AllSize): Boolean = withContext(NonCancellable) {
-        val released = controller.withEngineReleased {
+        val released = controller.withEngineReleasedIfIdle {
             voiceInputPreferences.setAsr4allSize(size)
             voiceInputPreferences.setAsr4allPendingSize(null)
         }
-        if (released == null) {
-            false
-        } else {
-            _state.update { it.copy(pendingSize = null) }
-            true
-        }
-    }
-
-    private suspend fun clearPending() {
-        _state.update { it.copy(pendingSize = null) }
-        voiceInputPreferences.setAsr4allPendingSize(null)
+        released != null
     }
 
     private fun setFailure(size: Asr4AllSize, message: String) {
@@ -238,14 +261,15 @@ class Asr4allSizeSwitcher internal constructor(
     }
 
     /**
-     * Removes every shipped size other than the active one that has a running download or any
-     * directory left on disk. Caller holds [mutex].
+     * Removes every shipped size other than the active one and the kept pending one that has a running
+     * download or any directory left on disk. Caller holds [mutex].
      */
     private suspend fun sweepInactiveLocked() {
         val active = activeSize()
+        val keep = voiceInputPreferences.asr4allPendingSize.first()
         val states = modelDownloadManager.downloadStates.value
         for (size in Asr4AllInstall.shippedSizes) {
-            if (size == active) continue
+            if (size == active || size == keep) continue
             val models = Asr4AllInstall.models(size)
             val downloading = models.filter { states[it] is DownloadState.Downloading }
             if (downloading.isEmpty() && !Asr4AllInstall.hasFiles(context, size)) continue

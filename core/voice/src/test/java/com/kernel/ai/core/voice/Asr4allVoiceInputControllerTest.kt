@@ -510,6 +510,38 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
+    fun `withEngineReleasedIfIdle refuses a live capture and leaves it recording`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        firstFrame = CountDownLatch(1)
+        try {
+            startedId(c.startListening(VoiceCaptureMode.Command))
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            var ran = false
+            // Bounded: a release that superseded the capture would return here at once; one that waited would hang.
+            val released = withTimeout(5_000) { c.withEngineReleasedIfIdle { ran = true } }
+            assertTrue(released == null, "a live capture must be refused, got $released")
+            assertFalse(ran, "the block must not run while the capture is live")
+            assertTrue(c.hasActiveCapture(), "the refused release must leave the capture running")
+        } finally {
+            c.stopListening()
+        }
+    }
+
+    @Test
+    fun `awaitCaptureIdle returns only after the live capture has ended`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        firstFrame = CountDownLatch(1)
+        startedId(c.startListening(VoiceCaptureMode.Command))
+        assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+        val idle = async { c.awaitCaptureIdle() }
+        // The capture is live for the whole of this check, so the waiter must still be parked.
+        assertFalse(idle.isCompleted, "must not return while the capture is live")
+        c.stopListening()
+        withTimeout(5_000) { idle.await() }
+        assertFalse(c.hasActiveCapture())
+    }
+
+    @Test
     fun `prewarm returns without waiting for a live capture and opens no engine`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         firstFrame = CountDownLatch(1)

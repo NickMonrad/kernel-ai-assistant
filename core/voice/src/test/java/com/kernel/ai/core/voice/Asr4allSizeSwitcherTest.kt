@@ -20,6 +20,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -34,7 +35,8 @@ import org.junit.jupiter.api.io.TempDir
 
 /**
  * Deterministic tests for the app-scoped asr4all size switch. Files live in a temp dir; the download
- * manager is a mock whose [DownloadState] flow the test drives.
+ * manager is a mock whose [DownloadState] flow the test drives, and [captureLive] stands in for the
+ * controller's capture state (the controller's own primitives are tested in its test class).
  *
  * Switch jobs run on the test's foreground scope, so [advanceUntilIdle] drains them. The `start()`
  * collectors run forever, so those tests use `backgroundScope` and drive it with [runCurrent].
@@ -45,6 +47,7 @@ class Asr4allSizeSwitcherTest {
     private val stored = MutableStateFlow(Asr4AllSize.M)
     private val pending = MutableStateFlow<Asr4AllSize?>(null)
     private val downloads = MutableStateFlow<Map<KernelModel, DownloadState>>(emptyMap())
+    private val captureLive = MutableStateFlow(false)
     private val context = mockk<Context>(relaxed = true)
     private val prefs = mockk<VoiceInputPreferences>(relaxed = true)
     private val detector = mockk<HardwareProfileDetector>(relaxed = true)
@@ -68,6 +71,19 @@ class Asr4allSizeSwitcherTest {
             val present = model.localFile(context).let { it.exists() && it.length() > 0 }
             val next = if (present) DownloadState.Downloaded("/models/${model.fileName}") else DownloadState.NotDownloaded
             downloads.update { current -> current + (model to next) }
+        }
+        coEvery { controller.awaitCaptureIdle() } coAnswers {
+            captureLive.first { !it }
+            Unit
+        }
+        // Mirrors the controller: refuses while a capture is live, otherwise runs the block with the engine closed.
+        coEvery { controller.withEngineReleasedIfIdle<Unit>(any()) } coAnswers {
+            if (captureLive.value) {
+                null
+            } else {
+                firstArg<suspend () -> Unit>().invoke()
+                Unit
+            }
         }
         coEvery { controller.withEngineReleased<Unit>(any()) } coAnswers {
             firstArg<suspend () -> Unit>().invoke()
@@ -106,7 +122,8 @@ class Asr4allSizeSwitcherTest {
         markDownloaded(Asr4AllSize.L)
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { controller.withEngineReleased<Unit>(any()) }
+        coVerify(exactly = 1) { controller.withEngineReleasedIfIdle<Unit>(any()) }
+        coVerify(exactly = 0) { controller.withEngineReleased<Unit>(any()) }
         assertEquals(Asr4AllSize.L, stored.value)
         assertNull(pending.value)
         assertNull(switcher.state.value.pendingSize)
@@ -132,7 +149,7 @@ class Asr4allSizeSwitcherTest {
         assertEquals(Asr4AllSize.L, switcher.state.value.failure?.size)
         assertTrue(switcher.state.value.failure?.message?.contains("did not finish") == true)
         assertTrue(oldFiles.all { it.exists() }, "a failed download keeps the active model")
-        coVerify(exactly = 0) { controller.withEngineReleased<Unit>(any()) }
+        coVerify(exactly = 0) { controller.withEngineReleasedIfIdle<Unit>(any()) }
     }
 
     @Test
@@ -171,7 +188,7 @@ class Asr4allSizeSwitcherTest {
         advanceUntilIdle()
 
         verify(exactly = 0) { manager.startDownload(any()) }
-        coVerify(exactly = 1) { controller.withEngineReleased<Unit>(any()) }
+        coVerify(exactly = 1) { controller.withEngineReleasedIfIdle<Unit>(any()) }
         assertEquals(Asr4AllSize.L, stored.value)
         assertNull(switcher.state.value.pendingSize)
         verify(exactly = Asr4AllInstall.models(Asr4AllSize.M).size) { manager.cancelDownload(any()) }
@@ -179,23 +196,100 @@ class Asr4allSizeSwitcherTest {
     }
 
     @Test
-    fun `a wedged engine release keeps the old size, stores nothing, and reports the failure`() = runTest {
+    fun `a live capture at commit time is not superseded and the commit waits for it to end`() = runTest {
+        writeFiles(Asr4AllSize.M)
+        captureLive.value = true
+        val switcher = switcher()
+
+        switcher.select(Asr4AllSize.L)
+        runCurrent()
+        val newFiles = writeFiles(Asr4AllSize.L)
+        markDownloaded(Asr4AllSize.L)
+        runCurrent()
+
+        coVerify(exactly = 0) { controller.withEngineReleasedIfIdle<Unit>(any()) }
+        assertEquals(Asr4AllSize.M, stored.value, "nothing is stored while the capture is live")
+
+        captureLive.value = false
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { controller.withEngineReleasedIfIdle<Unit>(any()) }
+        coVerify(exactly = 0) { controller.withEngineReleased<Unit>(any()) }
+        assertEquals(Asr4AllSize.L, stored.value)
+        assertNull(pending.value)
+        assertTrue(newFiles.all { it.exists() })
+    }
+
+    @Test
+    fun `a wedged engine release keeps the downloaded size and retries until it commits`() = runTest {
+        writeFiles(Asr4AllSize.M)
+        val newFiles = writeFiles(Asr4AllSize.L)
+        markDownloaded(Asr4AllSize.L)
+        var attempts = 0
+        coEvery { controller.withEngineReleasedIfIdle<Unit>(any()) } coAnswers {
+            attempts++
+            if (attempts < 3) {
+                null
+            } else {
+                firstArg<suspend () -> Unit>().invoke()
+                Unit
+            }
+        }
+        val switcher = switcher()
+
+        switcher.select(Asr4AllSize.L)
+        runCurrent()
+        assertEquals(1, attempts)
+        assertTrue(newFiles.all { it.exists() }, "a wedged release must not sweep the complete download")
+        assertEquals(Asr4AllSize.M, stored.value)
+
+        advanceUntilIdle()
+
+        assertEquals(3, attempts)
+        assertEquals(Asr4AllSize.L, stored.value)
+        assertNull(pending.value)
+        assertNull(switcher.state.value.failure)
+    }
+
+    @Test
+    fun `a release that never happens keeps the download and its record for the next start`() = runTest {
         val oldFiles = writeFiles(Asr4AllSize.M)
         val newFiles = writeFiles(Asr4AllSize.L)
         markDownloaded(Asr4AllSize.L)
-        coEvery { controller.withEngineReleased<Unit>(any()) } returns null
+        coEvery { controller.withEngineReleasedIfIdle<Unit>(any()) } returns null
         val switcher = switcher()
 
         switcher.select(Asr4AllSize.L)
         advanceUntilIdle()
 
+        coVerify(exactly = 5) { controller.withEngineReleasedIfIdle<Unit>(any()) }
         assertEquals(Asr4AllSize.M, stored.value)
-        coVerify(exactly = 0) { prefs.setAsr4allSize(any()) }
-        assertNull(pending.value)
+        assertEquals(Asr4AllSize.L, pending.value, "the record keeps the switch for the next start")
         assertNull(switcher.state.value.pendingSize)
         assertEquals(Asr4AllSize.L, switcher.state.value.failure?.size)
-        assertTrue(oldFiles.all { it.exists() }, "a wedged capture must keep the model it still reads")
-        assertTrue(newFiles.none { it.exists() }, "the unstored size is swept, so no orphan is left")
+        assertTrue(newFiles.all { it.exists() }, "the complete download is kept")
+        assertTrue(oldFiles.all { it.exists() })
+    }
+
+    @Test
+    fun `choosing the active size while a commit waits for a capture removes the downloaded size`() = runTest {
+        writeFiles(Asr4AllSize.M)
+        val newFiles = writeFiles(Asr4AllSize.L)
+        markDownloaded(Asr4AllSize.L)
+        captureLive.value = true
+        val switcher = switcher()
+
+        switcher.select(Asr4AllSize.L)
+        runCurrent()
+        coVerify(exactly = 0) { controller.withEngineReleasedIfIdle<Unit>(any()) }
+
+        switcher.select(Asr4AllSize.M)
+        advanceUntilIdle()
+
+        assertNull(pending.value)
+        assertNull(switcher.state.value.pendingSize)
+        assertEquals(Asr4AllSize.M, stored.value)
+        assertTrue(newFiles.none { it.exists() }, "an abandoned switch removes its downloaded size")
     }
 
     @Test
@@ -212,7 +306,7 @@ class Asr4allSizeSwitcherTest {
         assertNull(switcher.state.value.pendingSize)
         assertNull(pending.value)
         assertEquals(Asr4AllSize.M, stored.value)
-        coVerify(exactly = 0) { controller.withEngineReleased<Unit>(any()) }
+        coVerify(exactly = 0) { controller.withEngineReleasedIfIdle<Unit>(any()) }
         assertTrue(oldFiles.all { it.exists() })
     }
 
@@ -242,7 +336,7 @@ class Asr4allSizeSwitcherTest {
         val newFiles = writeFiles(Asr4AllSize.L)
         markDownloaded(Asr4AllSize.L)
         val gate = CompletableDeferred<Unit>()
-        coEvery { controller.withEngineReleased<Unit>(any()) } coAnswers {
+        coEvery { controller.withEngineReleasedIfIdle<Unit>(any()) } coAnswers {
             gate.await() // the commit is parked inside the engine release
             firstArg<suspend () -> Unit>().invoke()
             Unit
@@ -305,6 +399,21 @@ class Asr4allSizeSwitcherTest {
 
         assertNull(pending.value)
         verify(exactly = 0) { manager.startDownload(any()) }
+    }
+
+    @Test
+    fun `start drops a persisted pending size that this tier no longer offers`() = runTest {
+        writeFiles(Asr4AllSize.M)
+        pending.value = Asr4AllSize.L
+        every { detector.profile.tier } returns HardwareTier.LOW_POWER
+        val switcher = backgroundScope.switcher()
+
+        switcher.start()
+        runCurrent()
+
+        assertNull(pending.value)
+        verify(exactly = 0) { manager.startDownload(any()) }
+        coVerify(exactly = 0) { controller.withEngineReleasedIfIdle<Unit>(any()) }
     }
 
     @Test

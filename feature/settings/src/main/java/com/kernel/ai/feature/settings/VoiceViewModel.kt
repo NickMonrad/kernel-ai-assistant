@@ -23,7 +23,6 @@ import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.Asr4allSizeSwitcher
-import com.kernel.ai.core.voice.Asr4allSwitchFailure
 import com.kernel.ai.core.voice.kernelModels
 import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -88,6 +87,8 @@ data class VoiceUiState(
     val asr4allSizes: List<Asr4AllSize> = listOf(Asr4AllInstall.defaultSize),
     /** The size being downloaded before it replaces [asr4allSize]; null when no switch is pending. */
     val asr4allPendingSize: Asr4AllSize? = null,
+    /** The message of the last failed size switch. Shown under the asr4all card whatever the card's state. */
+    val asr4allSwitchFailure: String? = null,
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
@@ -501,7 +502,7 @@ class VoiceViewModel @Inject constructor(
                         spec.requiredFileNames.mapNotNull { fileName -> KernelModel.entries.firstOrNull { it.fileName == fileName } },
                         states,
                     )
-                }) + (VoiceInputEngine.Asr4all to asr4allDownloadState(Asr4AllInstall.models(pendingSize ?: asr4allSize), states, switchState.failure))
+                }) + (VoiceInputEngine.Asr4all to computeDownloadState(Asr4AllInstall.models(pendingSize ?: asr4allSize), states))
                 val inflectStates = inflectModels.associateWith { model ->
                     states[model] ?: DownloadState.NotDownloaded
                 }
@@ -522,6 +523,7 @@ class VoiceViewModel @Inject constructor(
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
                         asr4allPendingSize = pendingSize,
+                        asr4allSwitchFailure = switchState.failure?.message,
                         sherpaSttStates = perFamilyStates,
                     )
                 }
@@ -580,19 +582,6 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceInputPreferences.setSelectedEngine(effective)
         }
-    }
-
-    /** Card state of an asr4all size; a failed switch shows its message unless a file already reports an error. */
-    private fun asr4allDownloadState(
-        models: List<KernelModel>,
-        states: Map<KernelModel, DownloadState>,
-        failure: Asr4allSwitchFailure?,
-    ): SherpaSttDownloadState {
-        val state = computeDownloadState(models, states)
-        if (state.issue != null || failure == null) return state
-        return state.copy(
-            issue = SherpaSttDownloadIssue(message = failure.message, licenceRequired = false, licenceUrl = null),
-        )
     }
 
     private fun modelsFor(engine: VoiceInputEngine): List<KernelModel> =

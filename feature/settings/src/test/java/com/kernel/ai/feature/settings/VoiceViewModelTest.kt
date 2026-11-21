@@ -1226,16 +1226,18 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `a failed size switch shows its message on the asr4all card`() = runTest {
-        asr4allSwitchState.value = Asr4allSwitchState(
-            failure = Asr4allSwitchFailure(Asr4AllSize.L, "Download of L did not finish."),
-        )
-        viewModel.uiState.first { it.sherpaSttStates[VoiceInputEngine.Asr4all]?.issue != null }
+    fun `a failed size switch shows its message while the installed size stays ready`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value +
+            Asr4AllInstall.models(Asr4AllSize.M).associateWith { DownloadState.Downloaded("/models/${it.fileName}") }
+        viewModel.uiState.first { it.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == true }
 
-        assertEquals(
-            "Download of L did not finish.",
-            viewModel.uiState.value.sherpaSttStates[VoiceInputEngine.Asr4all]?.issue?.message,
+        asr4allSwitchState.value = Asr4allSwitchState(
+            failure = Asr4allSwitchFailure(Asr4AllSize.L, "Could not switch to L."),
         )
+        viewModel.uiState.first { it.asr4allSwitchFailure != null }
+
+        assertEquals("Could not switch to L.", viewModel.uiState.value.asr4allSwitchFailure)
+        assertTrue(viewModel.uiState.value.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == true)
     }
 
     @Test

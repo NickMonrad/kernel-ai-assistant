@@ -148,6 +148,8 @@ class Asr4allVoiceInputController internal constructor(
     /** Most recent mic open; its reader must end before the next mic open or engine release. */
     @Volatile private var lastCapture: Capture? = null
     @Volatile private var activeCapture: Capture? = null
+    /** True while [activeCapture] is set. Written under [captureLock] together with [activeCapture]. */
+    private val captureActive = MutableStateFlow(false)
 
     // Test seams (internal, asr4all only). Null in production.
     internal var availableForTest: (() -> Boolean)? = null
@@ -218,6 +220,7 @@ class Asr4allVoiceInputController internal constructor(
                     openCapture(sessionId)?.also {
                         lastCapture = it
                         activeCapture = it
+                        captureActive.value = true
                         activeStop = stop
                         activeDiscard = discard
                         _events.tryEmit(VoiceInputEvent.ListeningStarted(mode, sessionId))
@@ -349,6 +352,7 @@ class Asr4allVoiceInputController internal constructor(
             synchronized(captureLock) {
                 if (activeCapture === c) {
                     activeCapture = null
+                    captureActive.value = false
                     activeStop = null
                     activeDiscard = null
                 }
@@ -617,5 +621,25 @@ class Asr4allVoiceInputController internal constructor(
             }
             block()
         }
+    }
+
+    /** Suspends while a capture is live; returns at once when none is. */
+    internal suspend fun awaitCaptureIdle() {
+        captureActive.first { !it }
+    }
+
+    /**
+     * Like [withEngineReleased], but never supersedes a capture: returns null without running [block]
+     * while a capture is live or still ending past [captureJoinTimeoutMs]. The check runs under
+     * [startLock], and every capture starts under it, so no capture can begin between the check and
+     * [block].
+     */
+    internal suspend fun <T> withEngineReleasedIfIdle(block: suspend () -> T): T? = startLock.withLock {
+        if (hasActiveCapture() || !awaitCaptureEnded()) return@withLock null
+        withContext(Dispatchers.IO) {
+            engine?.close()
+            engine = null
+        }
+        block()
     }
 }

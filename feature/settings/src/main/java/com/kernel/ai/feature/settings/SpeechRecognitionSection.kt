@@ -164,6 +164,16 @@ internal fun SpeechRecognitionSection(
                                 state = sttState.toModelAvailability(),
                                 modifier = Modifier.padding(vertical = 4.dp),
                             )
+                            if (engine == VoiceInputEngine.Asr4all) {
+                                uiState.asr4allSwitchFailure?.let { message ->
+                                    Text(
+                                        text = message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(vertical = 4.dp),
+                                    )
+                                }
+                            }
                             when {
                                 sttState.isDownloading -> {
                                     OutlinedButton(
