@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -69,20 +70,127 @@ class SpeakingSectionTest {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
-                selectedOutputEngine = VoiceOutputEngine.AndroidTts,
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
                 sherpaVoices = listOf(SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh)),
             ),
         )
 
-        composeTestRule
-            .onNode(
-                hasText("Download") and hasAnyAncestor(hasTestTag(piperCardTag(SherpaPiperVoice.CoriHigh))),
-                useUnmergedTree = true,
-            )
-            .performScrollTo()
-            .performClick()
+        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Download").performScrollTo().performClick()
 
         assertEquals(listOf("download(CoriHigh)"), calls)
+    }
+
+    @Test
+    fun piperCardActionsHiddenWhileAnotherEngineSelected() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
+                selectedOutputEngine = VoiceOutputEngine.AndroidTts,
+                selectedSherpaVoice = SherpaPiperVoice.CoriHigh,
+                sherpaVoices = listOf(
+                    SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh, VoicePackDownloadState.Downloaded("")),
+                ),
+            ),
+        )
+
+        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Delete").assertDoesNotExist()
+        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Play sample").assertDoesNotExist()
+    }
+
+    @Test
+    fun playSampleRecordsSampleWhilePiperSelected() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                selectedSherpaVoice = SherpaPiperVoice.CoriHigh,
+                sherpaVoices = listOf(
+                    SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh, VoicePackDownloadState.Downloaded("")),
+                ),
+            ),
+        )
+
+        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Play sample").performScrollTo().performClick()
+
+        assertEquals(listOf("sample(CoriHigh)"), calls)
+    }
+
+    @Test
+    fun coriDeleteAndPlaySampleHiddenWhileInflectSelected() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.InflectMicroExperimental,
+                selectedSherpaVoice = SherpaPiperVoice.CoriHigh,
+                sherpaVoices = listOf(
+                    SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh, VoicePackDownloadState.Downloaded("")),
+                ),
+                inflectMicroAvailability = ModelAvailabilityState.Ready,
+            ),
+        )
+
+        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Delete").assertDoesNotExist()
+        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Play sample").assertDoesNotExist()
+    }
+
+    @Test
+    fun inflectPreparingWithPiperSelectedKeepsCoriCancel() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                selectedSherpaVoice = SherpaPiperVoice.CoriHigh,
+                sherpaVoices = listOf(
+                    SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh, VoicePackDownloadState.Downloading(progress = 0.3f)),
+                ),
+                inflectMicroAvailability = ModelAvailabilityState.Preparing(progress = 0.4f),
+            ),
+        )
+
+        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Cancel").performScrollTo().performClick()
+
+        assertEquals(listOf("cancel(CoriHigh)"), calls)
+    }
+
+    @Test
+    fun inflectPreparingWithPiperNotSelectedLetsInflectOwnCoriCancel() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.InflectMicroExperimental,
+                selectedSherpaVoice = SherpaPiperVoice.CoriHigh,
+                sherpaVoices = listOf(
+                    SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh, VoicePackDownloadState.Downloading(progress = 0.3f)),
+                ),
+                inflectMicroAvailability = ModelAvailabilityState.Preparing(progress = 0.4f),
+            ),
+        )
+
+        composeTestRule.onNode(hasText("Preparing 40%"), useUnmergedTree = true).assertExists()
+        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Cancel").assertDoesNotExist()
+        cardButton(inflectCardTag, "Cancel").performScrollTo().performClick()
+
+        assertEquals(listOf("cancelInflect"), calls)
+    }
+
+    @Test
+    fun useMobileDataHiddenWhileInflectOwnsCoriDownload() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.InflectMicroExperimental,
+                selectedSherpaVoice = SherpaPiperVoice.CoriHigh,
+                sherpaVoices = listOf(
+                    SherpaVoiceRowUiState(
+                        SherpaPiperVoice.CoriHigh,
+                        VoicePackDownloadState.Downloading(progress = 0.3f, waitingForWifi = true),
+                    ),
+                ),
+                inflectMicroAvailability = ModelAvailabilityState.Preparing(progress = 0.4f),
+            ),
+        )
+
+        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Use mobile data").assertDoesNotExist()
     }
 
     @Test
@@ -117,6 +225,11 @@ class SpeakingSectionTest {
     private fun tapCard(tag: String) {
         composeTestRule.onNode(hasTestTag(tag)).performScrollTo().performClick()
     }
+
+    private val inflectCardTag = speakingCardTestTag(SpeakingOption.InflectMicro)
+
+    private fun cardButton(tag: String, text: String) =
+        composeTestRule.onNode(hasText(text) and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true)
 
     private fun setSection(uiState: VoiceUiState) {
         calls.clear()

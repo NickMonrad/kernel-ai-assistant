@@ -26,6 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
@@ -140,10 +142,12 @@ internal fun SpeakingSection(
                         val isCori = voice == SherpaPiperVoice.CoriHigh
                         val isMultiSpeaker = voice == SherpaPiperVoice.VctkMedium ||
                             voice == SherpaPiperVoice.SemaineMedium
-                        // While Inflect prepares, its card owns the Cori download and shows the only Cancel.
-                        val inflectOwnsDownload =
+                        // Piper controls follow the old voice list: they show only while Piper is selected.
+                        // Inflect Preparing owns the Cori download only while Piper is not selected.
+                        val inflectOwnsDownload = !sherpaSelected &&
                             uiState.inflectMicroAvailability is ModelAvailabilityState.Preparing &&
-                                uiState.selectedSherpaVoice == voice
+                            uiState.selectedSherpaVoice == voice
+                        val isSelectedVoice = uiState.selectedSherpaVoice == voice
                         ChoiceCard(
                             title = if (isCori) {
                                 VoiceOutputCopy.title(VoiceOutputEngine.SherpaExperimental)
@@ -163,14 +167,21 @@ internal fun SpeakingSection(
                             index = index,
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
                             tag = if (downloaded) downloadedChip() else sizeTag(voice.approxDownloadBytes),
-                            extraLine = downloadStatusLine(downloadState),
+                            extraLine = downloadStatusLine(downloadState) ?: if (sherpaSelected && isSelectedVoice && !downloaded) {
+                                "Selected. The phone's voice speaks until this downloads."
+                            } else {
+                                null
+                            },
                             subContent = {
-                                when (downloadState) {
-                                    is VoicePackDownloadState.NotDownloaded -> Button(
-                                        onClick = { onDownloadSherpaVoice(voice) },
-                                    ) { Text("Download") }
-                                    is VoicePackDownloadState.Downloading -> {
-                                        if (downloadState.waitingForWifi) {
+                                if (sherpaSelected) {
+                                    when (downloadState) {
+                                        is VoicePackDownloadState.NotDownloaded -> Button(
+                                            onClick = { onDownloadSherpaVoice(voice) },
+                                            modifier = Modifier.semantics {
+                                                contentDescription = "Download ${voice.displayName}"
+                                            },
+                                        ) { Text("Download") }
+                                        is VoicePackDownloadState.Downloading -> if (downloadState.waitingForWifi) {
                                             Text(
                                                 text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this voice only.",
                                                 style = MaterialTheme.typography.bodySmall,
@@ -180,31 +191,43 @@ internal fun SpeakingSection(
                                                 Text("Use mobile data")
                                             }
                                         }
-                                        if (!inflectOwnsDownload) {
+                                        is VoicePackDownloadState.Downloaded -> Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            if (isSelectedVoice) {
+                                                Button(onClick = { onPlaySherpaSample(voice) }) { Text("Play sample") }
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            }
                                             OutlinedButton(
-                                                onClick = { onCancelSherpaVoice(voice) },
+                                                onClick = { onDeleteSherpaVoice(voice) },
                                                 colors = accentOutlinedColors,
-                                            ) { Text("Cancel") }
+                                                modifier = Modifier.semantics {
+                                                    contentDescription = "Delete ${voice.displayName}"
+                                                },
+                                            ) { Text("Delete") }
                                         }
-                                    }
-                                    is VoicePackDownloadState.Downloaded -> Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        if (uiState.selectedSherpaVoice == voice) {
-                                            Button(onClick = { onPlaySherpaSample(voice) }) { Text("Play sample") }
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                        }
-                                        OutlinedButton(
-                                            onClick = { onDeleteSherpaVoice(voice) },
+                                        is VoicePackDownloadState.Error -> OutlinedButton(
+                                            onClick = { onDownloadSherpaVoice(voice) },
                                             colors = accentOutlinedColors,
-                                        ) { Text("Delete") }
+                                            modifier = Modifier.semantics {
+                                                contentDescription = "Retry ${voice.displayName} download"
+                                            },
+                                        ) { Text("Retry") }
                                     }
-                                    is VoicePackDownloadState.Error -> OutlinedButton(
-                                        onClick = { onDownloadSherpaVoice(voice) },
-                                        colors = accentOutlinedColors,
-                                    ) { Text("Retry") }
                                 }
-                                if (isMultiSpeaker && downloaded && uiState.selectedSherpaVoice == voice) {
+                                // Cancel shows under any engine for the selected voice, as the old status line did.
+                                if (downloadState is VoicePackDownloadState.Downloading &&
+                                    (sherpaSelected || isSelectedVoice) && !inflectOwnsDownload
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { onCancelSherpaVoice(voice) },
+                                        colors = accentOutlinedColors,
+                                        modifier = Modifier.semantics {
+                                            contentDescription = "Cancel ${voice.displayName} download"
+                                        },
+                                    ) { Text("Cancel") }
+                                }
+                                if (sherpaSelected && isMultiSpeaker && downloaded && isSelectedVoice) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
@@ -261,9 +284,9 @@ internal fun SpeakingSection(
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
                             tag = if (state is ModelAvailabilityState.Ready) downloadedChip() else null,
                             extraLine = when {
-                                state is ModelAvailabilityState.Preparing -> "Preparing"
-                                state is ModelAvailabilityState.ActionRequired ->
-                                    "Setup did not finish. Retry to try again."
+                                state is ModelAvailabilityState.Preparing ->
+                                    "Preparing ${(state.progress.coerceIn(0f, 1f) * 100).toInt()}%"
+                                state is ModelAvailabilityState.ActionRequired -> "Setup did not finish. Tap Retry."
                                 selected && state !is ModelAvailabilityState.Ready -> "Selected, setup needed"
                                 else -> null
                             },
@@ -272,22 +295,29 @@ internal fun SpeakingSection(
                                     state is ModelAvailabilityState.Preparing -> OutlinedButton(
                                         onClick = onCancelInflectMicro,
                                         colors = accentOutlinedColors,
+                                        modifier = Modifier.semantics { contentDescription = "Cancel Inflect Micro setup" },
                                     ) { Text("Cancel") }
                                     state is ModelAvailabilityState.Ready -> OutlinedButton(
                                         onClick = onDeleteInflectMicro,
                                         colors = accentOutlinedColors,
+                                        modifier = Modifier.semantics { contentDescription = "Delete Inflect Micro" },
                                     ) { Text("Delete") }
                                     state is ModelAvailabilityState.ActionRequired -> OutlinedButton(
                                         onClick = onDownloadInflectMicro,
                                         colors = accentOutlinedColors,
+                                        modifier = Modifier.semantics { contentDescription = "Retry Inflect Micro download" },
                                     ) { Text("Retry") }
                                     state is ModelAvailabilityState.NotDisplayed &&
                                         inflectGraphsReady && coriDownloading && sherpaSelected -> Text(
-                                        text = "The Piper voice above is still downloading. Inflect is ready once it finishes.",
+                                        text = "${uiState.selectedSherpaVoice.displayName} is still downloading. " +
+                                            "Inflect is ready once it finishes.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    else -> Button(onClick = onDownloadInflectMicro) { Text("Download") }
+                                    else -> Button(
+                                        onClick = onDownloadInflectMicro,
+                                        modifier = Modifier.semantics { contentDescription = "Download Inflect Micro" },
+                                    ) { Text("Download") }
                                 }
                             },
                         )
@@ -310,29 +340,43 @@ internal fun SpeakingSection(
                             tag = if (downloaded) downloadedChip() else sizeTag(voice.approxDownloadBytes),
                             extraLine = downloadStatusLine(downloadState),
                             subContent = {
-                                when (downloadState) {
-                                    is VoicePackDownloadState.NotDownloaded -> Button(
-                                        onClick = { onDownloadKokoroVoice(voice) },
-                                    ) { Text("Download") }
-                                    is VoicePackDownloadState.Downloading -> OutlinedButton(
-                                        onClick = { onCancelKokoroVoice(voice) },
-                                        colors = accentOutlinedColors,
-                                    ) { Text("Cancel") }
-                                    is VoicePackDownloadState.Downloaded -> OutlinedButton(
-                                        onClick = { onDeleteKokoroVoice(voice) },
-                                        colors = accentOutlinedColors,
-                                    ) { Text("Delete") }
-                                    is VoicePackDownloadState.Error -> OutlinedButton(
-                                        onClick = { onDownloadKokoroVoice(voice) },
-                                        colors = accentOutlinedColors,
-                                    ) { Text("Retry") }
-                                }
-                                if (uiState.selectedKokoroVoice == voice && downloaded && voice.speakerCount > 1) {
-                                    KokoroSpeakerSelector(
-                                        voice = voice,
-                                        activeSpeakerId = uiState.kokoroActiveSpeakerId,
-                                        onSpeakerSelected = onKokoroActiveSpeakerIdChanged,
-                                    )
+                                if (kokoroSelected) {
+                                    when (downloadState) {
+                                        is VoicePackDownloadState.NotDownloaded -> Button(
+                                            onClick = { onDownloadKokoroVoice(voice) },
+                                            modifier = Modifier.semantics {
+                                                contentDescription = "Download ${voice.displayName}"
+                                            },
+                                        ) { Text("Download") }
+                                        is VoicePackDownloadState.Downloading -> OutlinedButton(
+                                            onClick = { onCancelKokoroVoice(voice) },
+                                            colors = accentOutlinedColors,
+                                            modifier = Modifier.semantics {
+                                                contentDescription = "Cancel ${voice.displayName} download"
+                                            },
+                                        ) { Text("Cancel") }
+                                        is VoicePackDownloadState.Downloaded -> OutlinedButton(
+                                            onClick = { onDeleteKokoroVoice(voice) },
+                                            colors = accentOutlinedColors,
+                                            modifier = Modifier.semantics {
+                                                contentDescription = "Delete ${voice.displayName}"
+                                            },
+                                        ) { Text("Delete") }
+                                        is VoicePackDownloadState.Error -> OutlinedButton(
+                                            onClick = { onDownloadKokoroVoice(voice) },
+                                            colors = accentOutlinedColors,
+                                            modifier = Modifier.semantics {
+                                                contentDescription = "Retry ${voice.displayName} download"
+                                            },
+                                        ) { Text("Retry") }
+                                    }
+                                    if (uiState.selectedKokoroVoice == voice && downloaded && voice.speakerCount > 1) {
+                                        KokoroSpeakerSelector(
+                                            voice = voice,
+                                            activeSpeakerId = uiState.kokoroActiveSpeakerId,
+                                            onSpeakerSelected = onKokoroActiveSpeakerIdChanged,
+                                        )
+                                    }
                                 }
                             },
                         )
