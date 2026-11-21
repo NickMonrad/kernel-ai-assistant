@@ -133,7 +133,7 @@ jobs:
       - name: Unit tests
         continue-on-error: true
         id: gradle-unit-tests
-        run: ./gradlew :core:memory:testDebugUnitTest :core:skills:testDebugUnitTest :core:voice:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
+        run: ./gradlew :core:memory:testDebugUnitTest :core:skills:testDebugUnitTest :core:voice:testDebugUnitTest :core:executorch:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
 
       - name: Upload test results
         if: always() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
@@ -175,6 +175,9 @@ jobs:
 
       - name: Verify release licence metadata and generate SBOM
         run: ./gradlew :app:verifyReleaseAttributionMetadata -PversionCode=${{ github.run_number }}
+
+      - name: Verify single ExecuTorch runtime version
+        run: ./gradlew :app:verifyExecuTorchSingleVersion -PversionCode=${{ github.run_number }}
 
       - name: Upload release attribution artifacts
         if: always() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))

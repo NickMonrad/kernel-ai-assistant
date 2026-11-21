@@ -299,6 +299,11 @@ android {
                 "lib/armeabi-v7a/libonnxruntime.so",
                 "lib/x86/libonnxruntime.so",
                 "lib/x86_64/libonnxruntime.so",
+                // ExecuTorch's fbjni 0.7.0 and :core:memory (NDK r28c) both ship
+                // libc++_shared.so. Merge order puts project modules first, so the newer r28c
+                // runtime is kept; libc++ is backward compatible with older-NDK binaries.
+                "lib/arm64-v8a/libc++_shared.so",
+                "lib/x86_64/libc++_shared.so",
             )
             excludes += setOf(
                 "lib/arm64-v8a/libsherpa-onnx-c-api.so",
@@ -309,57 +314,21 @@ android {
                 "lib/armeabi-v7a/libsherpa-onnx-cxx-api.so",
                 "lib/x86/libsherpa-onnx-cxx-api.so",
                 "lib/x86_64/libsherpa-onnx-cxx-api.so",
+                // ExecuTorch ships only arm64-v8a and x86_64; fbjni's 32-bit copies would be
+                // unreachable (no 32-bit library needs libfbjni or libc++_shared).
+                "lib/armeabi-v7a/libfbjni.so",
+                "lib/x86/libfbjni.so",
+                "lib/armeabi-v7a/libc++_shared.so",
+                "lib/x86/libc++_shared.so",
             )
         }
     }
 }
-// The shared preprocessing exports have unresolved file-specific terms. Keep all three
-// wake-word assets available to debug builds, but exclude them from release artifacts.
-abstract class FilterReleaseAssetsTask : DefaultTask() {
-    @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val inputDirectory: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val outputDirectory: DirectoryProperty
-
-    @TaskAction
-    fun filterAssets() {
-        val source = inputDirectory.get().asFile
-        val output = outputDirectory.get().asFile
-        output.deleteRecursively()
-        source.walkTopDown()
-            .filter { it.isFile }
-            .filterNot {
-                val path = it.relativeTo(source).invariantSeparatorsPath
-                path == "models/wakeword" || path.startsWith("models/wakeword/")
-            }
-            .forEach { file ->
-                val destination = output.resolve(file.relativeTo(source).path)
-                destination.parentFile.mkdirs()
-                file.copyTo(destination, overwrite = true)
-            }
-    }
-}
-
-val filterReleaseAssets = tasks.register<FilterReleaseAssetsTask>("filterReleaseAssets") {
-    inputDirectory.set(layout.projectDirectory.dir("src/main/assets"))
-    outputDirectory.set(layout.buildDirectory.dir("generated/filteredReleaseAssets"))
-}
-android.sourceSets.getByName("main").assets.directories.clear()
-
 // Release builds (Play bundle and tester APK) report "<major.minor>.<versionCode>", with the
 // prefix taken from defaultConfig.versionName. The mapping is lazy, so it picks up the code
 // GPP's AUTO resolution assigns during a publish run.
 androidComponents {
-    onVariants(selector().withBuildType("debug")) { variant ->
-        variant.sources.assets?.addStaticSourceDirectory("src/main/assets")
-    }
     onVariants(selector().withBuildType("release")) { variant ->
-        variant.sources.assets?.addGeneratedSourceDirectory(
-            filterReleaseAssets,
-            FilterReleaseAssetsTask::outputDirectory,
-        )
         variant.outputs.forEach { output ->
             output.versionName.set(output.versionCode.map { "$releaseVersionPrefix.$it" })
         }
@@ -392,8 +361,10 @@ tasks.register("verifyReleaseJniKeepRules") {
         val jniPackages = listOf(
             "ai.onnxruntime.",
             "androidx.graphics.path.",
+            "com.facebook.jni.",
             "com.google.ai.edge.",
             "com.k2fsa.sherpa.onnx.",
+            "org.pytorch.executorch.",
             "org.tensorflow.lite.",
         )
         val requiredClasses = listOf(
@@ -401,6 +372,8 @@ tasks.register("verifyReleaseJniKeepRules") {
             "androidx.datastore.core.NativeSharedCounter",
             "androidx.graphics.path.ConicConverter",
             "androidx.graphics.path.PathIteratorPreApi34Impl",
+            // fbjni's destructor is reached from ExecuTorch native code (pytorch/executorch#22174).
+            "com.facebook.jni.HybridData\$Destructor",
             "com.google.ai.edge.litert.CompiledModel",
             "com.google.ai.edge.litert.Environment",
             "com.google.ai.edge.litert.LiteRtException",
@@ -412,8 +385,12 @@ tasks.register("verifyReleaseJniKeepRules") {
             "com.google.ai.edge.litertlm.LiteRtLmJni",
             "com.google.ai.edge.litertlm.LiteRtLmJniException",
             "com.google.ai.edge.litertlm.NativeLibraryLoader",
-            // No Sherpa JNI runtime is packaged in release until attribution is resolved.
+            "com.k2fsa.sherpa.onnx.OfflineTts",
             // verifyReleaseAttributionMetadata checks this against the packaged native inventory.
+            "org.pytorch.executorch.EValue",
+            "org.pytorch.executorch.ExecutorchRuntimeException",
+            "org.pytorch.executorch.Module",
+            "org.pytorch.executorch.Tensor",
             "org.tensorflow.lite.InterpreterFactoryImpl",
             "org.tensorflow.lite.NativeInterpreterWrapper",
             "org.tensorflow.lite.NativeInterpreterWrapperExperimental",
@@ -758,15 +735,17 @@ dependencies {
     implementation(project(":core:wasm"))
     implementation(project(":core:ui"))
     implementation(project(":core:skills"))
+    implementation(project(":core:executorch"))
     implementation(project(":feature:chat"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:widget"))
     implementation(project(":feature:convert"))
 
-    // Keep the Inflect/Piper/eSpeak runtime out of release until its distribution obligations are met.
+    // Sherpa-ONNX (Cori/Piper and Inflect Micro TTS) ships in release. Its eSpeak-ng GPL posture and per-component
+    // notices are recorded in release-attribution-metadata.json (#2016).
     val inflectSherpaAar =
         rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar")
-    debugImplementation(files(inflectSherpaAar.absolutePath))
+    implementation(files(inflectSherpaAar.absolutePath))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -1033,4 +1012,60 @@ tasks.register("verifyReleaseAttributionMetadata") {
             "Release attribution verification failed. See ${report.relativeTo(rootProject.projectDir)}:\n- ${errors.joinToString("\n- ")}"
         }
     }
+}
+
+// Version guard for the ExecuTorch runtime (#2003 AC1). The ExecuTorch AAR must be declared
+// directly exactly once across the build. Both executorch-android and fbjni must resolve, in
+// every app runtime classpath, to the pinned version: any constraint, override or newer
+// transitive version fails the build. Resolution happens in :app because Gradle forbids
+// resolving another project's configurations from a task. Wired into :app:check and CI.
+// fbjni is not declared by the app; its pin is the version executorch-android 1.5.1 declares,
+// which the attribution metadata reviews.
+val executorchGuardedArtifacts = listOf(
+    // (group to name), pinned version, must be declared directly exactly once
+    Triple("org.pytorch" to "executorch-android", libs.versions.executorch.get(), true),
+    Triple("com.facebook.fbjni" to "fbjni", "0.7.0", false),
+)
+val appRuntimeConfigurations = listOf("debugRuntimeClasspath", "releaseRuntimeClasspath")
+
+val verifyExecuTorchSingleVersion by tasks.registering {
+    group = "verification"
+    description = "Fails if ExecuTorch or fbjni is declared more than once, or an app runtime classpath resolves either to a version other than its pin."
+    doLast {
+        val problems = mutableListOf<String>()
+        executorchGuardedArtifacts.forEach { (coordinates, pinned, requiresDirectDeclaration) ->
+            val (group, name) = coordinates
+            val declarations = rootProject.allprojects.flatMap { p ->
+                p.configurations.flatMap { c ->
+                    c.dependencies
+                        .filter { it.group == group && it.name == name }
+                        .map { "${p.path}:${c.name} -> ${it.version}" }
+                }
+            }
+            if (declarations.size > 1) {
+                problems += "$group:$name declared ${declarations.size} times: ${declarations.joinToString(", ")}"
+            }
+            if (requiresDirectDeclaration && declarations.size != 1) {
+                problems += "$group:$name must be declared exactly once, found ${declarations.size}"
+            }
+            appRuntimeConfigurations.forEach { cfgName ->
+                val versions = project.configurations.getByName(cfgName).incoming.resolutionResult.allComponents
+                    .mapNotNull { it.moduleVersion }
+                    .filter { it.group == group && it.name == name }
+                    .map { it.version }
+                    .toSortedSet()
+                if (versions != setOf(pinned)) {
+                    problems += ":app:$cfgName resolves $group:$name to $versions (pinned $pinned)"
+                }
+            }
+        }
+        if (problems.isNotEmpty()) {
+            throw GradleException("ExecuTorch single-version guard failed:\n  " + problems.joinToString("\n  "))
+        }
+        println("ExecuTorch version guard passed: ${executorchGuardedArtifacts.joinToString { "${it.first.second}@${it.second}" }}")
+    }
+}
+
+tasks.matching { it.name == "check" }.configureEach {
+    dependsOn(verifyExecuTorchSingleVersion)
 }

@@ -14,7 +14,7 @@ import android.util.Log
 /**
  * Defers stop requests until `startForeground()` has completed in `onStartCommand()`.
  */
-internal class ForegroundServiceLifecycle {
+class ForegroundServiceLifecycle {
     private val lock = Any()
     private var promotionPending = false
     private var stopAfterPromotion = false

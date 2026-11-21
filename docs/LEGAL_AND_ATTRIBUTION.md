@@ -55,6 +55,8 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Google Play Services Location | `com.google.android.gms:play-services-location` | Google Play services / SDK terms, not normal OSS | Include privacy disclosure for location use; generated OSS notice may not apply. |
 | Coil | `io.coil-kt.coil3:coil-compose` | Apache-2.0 | Include runtime notice if bundled. |
 | ONNX Runtime Android | `com.microsoft.onnxruntime:onnxruntime-android` | MIT | Include MIT notice if bundled. |
+| ExecuTorch Android | `org.pytorch:executorch-android` 1.5.1 (via `:core:executorch`) | BSD-3-Clause, with bundled XNNPACK/cpuinfo/pthreadpool notices | Listed in `NOTICE`; include runtime notices from generated notice/SBOM. |
+| fbjni / SoLoader nativeloader | `com.facebook.fbjni:fbjni` 0.7.0, `com.facebook.soloader:nativeloader` 0.10.5 (ExecuTorch runtime dependencies) | Apache-2.0 | Listed in `NOTICE`. |
 | LiteRT Interpreter API | `com.google.ai.edge.litert:litert` | Apache-2.0 plus bundled third-party notices | Include runtime notices from generated notice/SBOM. |
 | UIAutomator / AndroidX Test | `androidx.test:*` | Apache-2.0 | Test-only; exclude unless bundled in release. |
 | JUnit / JUnit Platform | `org.junit.*` | Eclipse Public License 2.0 | Test-only; exclude from app notices unless bundled. |
