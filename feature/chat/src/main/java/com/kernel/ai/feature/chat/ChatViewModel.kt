@@ -97,6 +97,9 @@ import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.startListening
+import com.kernel.ai.core.voice.stopListening
+import com.kernel.ai.core.voice.cancelListening
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -401,6 +404,7 @@ class ChatViewModel @Inject constructor(
     private var activeStreamingThinking = StringBuilder()
     private var assistantSpeechJob: Job? = null
     private var suppressVoiceOutputForCurrentResponse = false
+    private val voicePresynthesis = VoicePresynthesis(voiceOutputController, viewModelScope)
     private var spokenResponsesEnabled = true
     private var autoSpeakEnabled = true
     private val _isSpeakingResponse = MutableStateFlow(false)
@@ -477,7 +481,10 @@ class ChatViewModel @Inject constructor(
 
     /** Capture session of the current chat voice input; its notes are shown (#1853, #1866). */
     private var chatVoiceSessionId: Long? = null
+    private var chatVoiceAwaitingFinal = false
     private var chatVoiceNoticeJob: Job? = null
+    private var chatVoiceAttemptId = 0L
+    private var chatVoiceStartJob: Job? = null
 
     /**
      * True from the chat screen's ON_STOP until its next ON_RESUME (#1927). While set, no automatic
@@ -803,8 +810,10 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             voiceInputController.events.collect { event ->
                 when (event) {
+                    // #2027: the pre-start event only moves the wake mic; readiness state stays with ListeningStarted.
+                    is VoiceInputEvent.ListeningRequested -> Unit
                     is VoiceInputEvent.ListeningStarted -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
                         _listeningHaptics.trySend(Unit)
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
@@ -814,43 +823,35 @@ class ChatViewModel @Inject constructor(
                     }
                     is VoiceInputEvent.SpeechDetected -> Unit
                     is VoiceInputEvent.SpeechEnded -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        chatVoiceAwaitingFinal = true
                         (_voiceCaptureState.value as? VoiceCaptureState.Listening)?.let { listening ->
                             _voiceCaptureState.value = VoiceCaptureState.Processing(listening.transcript)
                         }
                     }
                     is VoiceInputEvent.PartialTranscript -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.text)
                     }
                     is VoiceInputEvent.Transcript -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        chatVoiceAwaitingFinal = false
                         submitVoiceTranscript(event.text)
                     }
                     is VoiceInputEvent.Error -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
+                        voicePresynthesis.discard()
                         // #790: Retry once before surfacing the error to the user. #1853: not after
                         // a Zipformer hand-off; a retry would start the failing native recognizer again.
                         val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
                         if (chatCommandVoiceRetryCount < 1 && !handedOff) {
                             chatCommandVoiceRetryCount++
                             Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
+                            val attemptId = beginChatVoiceAttempt()
                             _voiceCaptureState.value = VoiceCaptureState.Preparing
-                            when (val r = voiceInputController.startListening(VoiceCaptureMode.Command)) {
-                                is VoiceInputStartResult.Started -> {
-                                    bindChatVoiceSession(r.captureSessionId)
-                                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
-                                        _voiceCaptureState.value = VoiceCaptureState.Listening()
-                                    }
-                                }
-                                is VoiceInputStartResult.Unavailable -> {
-                                    _voiceMode.value = null
-                                    _voiceCaptureState.value = VoiceCaptureState.Idle
-                                    _error.value = withVoiceSettingsHint(r.message)
-                                }
-                            }
+                            launchChatVoiceAttempt(attemptId) { _error.value = null }
                         } else {
                             _voiceMode.value = null
                             _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -858,18 +859,22 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                     is VoiceInputEvent.ListeningStopped -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
+                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         when (val currentState = _voiceCaptureState.value) {
                             is VoiceCaptureState.Listening -> {
-                                if (currentState.transcript.isBlank()) {
+                                if (event.cancelled || currentState.transcript.isBlank()) {
                                     _voiceMode.value = null
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
                                 } else {
                                     submitVoiceTranscript(currentState.transcript)
                                 }
                             }
-                            is VoiceCaptureState.Processing -> Unit
-                            else -> {
+                            is VoiceCaptureState.Processing -> if (event.cancelled && chatVoiceAwaitingFinal) {
+                                chatVoiceAwaitingFinal = false
+                                _voiceMode.value = null
+                                _voiceCaptureState.value = VoiceCaptureState.Idle
+                            }
+                            else -> if (event.cancelled) {
                                 _voiceMode.value = null
                                 _voiceCaptureState.value = VoiceCaptureState.Idle
                             }
@@ -1726,15 +1731,79 @@ class ChatViewModel @Inject constructor(
      */
     fun startBackAndForthVoiceInput() = startVoiceInput(VoiceMode.BackAndForth)
 
-    private fun ownsCommandVoiceCapture(): Boolean =
-        _voiceCaptureState.value != VoiceCaptureState.Idle
+    private fun ownsCommandVoiceCapture(captureSessionId: Long): Boolean =
+        chatVoiceSessionId == captureSessionId &&
+            (_voiceCaptureState.value == VoiceCaptureState.Preparing ||
+                _voiceCaptureState.value is VoiceCaptureState.Listening ||
+                _voiceCaptureState.value is VoiceCaptureState.Processing)
+    private fun beginChatVoiceAttempt(): Long {
+        val attemptId = ++chatVoiceAttemptId
+        chatVoiceStartJob?.cancel()
+        chatVoiceStartJob = null
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceNoticeJob = null
+        chatVoiceSessionId = null
+        chatVoiceAwaitingFinal = false
+        return attemptId
+    }
 
-    /** Shows the notes for this chat capture (#1853 Zipformer hand-off, #1866) in the error line. */
-    private fun bindChatVoiceSession(captureSessionId: Long) {
+    private fun bindChatVoiceSession(captureSessionId: Long, attemptId: Long) {
+        if (attemptId != chatVoiceAttemptId || _voiceCaptureState.value != VoiceCaptureState.Preparing) return
         chatVoiceNoticeJob?.cancel()
         chatVoiceSessionId = captureSessionId
+        chatVoiceAwaitingFinal = false
         chatVoiceNoticeJob = viewModelScope.launch {
-            voiceInputController.noticesFor(captureSessionId).collect { _error.value = it }
+            voiceInputController.noticesFor(captureSessionId).collect {
+                if (attemptId == chatVoiceAttemptId && chatVoiceSessionId == captureSessionId) _error.value = it
+            }
+        }
+    }
+
+    private fun finishCancelledChatVoiceStart(attemptId: Long, captureSessionId: Long?) {
+        if (attemptId != chatVoiceAttemptId) return
+        if (captureSessionId != null && chatVoiceSessionId != captureSessionId) return
+        if (_voiceCaptureState.value !is VoiceCaptureState.Preparing &&
+            !(_voiceCaptureState.value is VoiceCaptureState.Processing && chatVoiceAwaitingFinal)
+        ) return
+        chatVoiceStartJob = null
+        chatVoiceSessionId = null
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceNoticeJob = null
+        chatVoiceAwaitingFinal = false
+        _voiceMode.value = null
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
+    private fun launchChatVoiceAttempt(
+        attemptId: Long,
+        beforeStart: suspend () -> Unit = {},
+    ) {
+        chatVoiceStartJob = viewModelScope.launch {
+            beforeStart()
+            if (attemptId != chatVoiceAttemptId) return@launch
+            when (
+                val result = voiceInputController.startListening(VoiceCaptureMode.Command) { sessionId ->
+                    bindChatVoiceSession(sessionId, attemptId)
+                }
+            ) {
+                is VoiceInputStartResult.Started -> {
+                    if (attemptId == chatVoiceAttemptId &&
+                        _voiceCaptureState.value == VoiceCaptureState.Preparing
+                    ) _voiceCaptureState.value = VoiceCaptureState.Listening()
+                }
+                is VoiceInputStartResult.Unavailable -> {
+                    if (attemptId == chatVoiceAttemptId) {
+                        chatVoiceStartJob = null
+                        awaitingVoicePlaybackCompletion = false
+                        _voiceMode.value = null
+                        pendingVoiceReply = false
+                        _voiceCaptureState.value = VoiceCaptureState.Idle
+                        _error.value = withVoiceSettingsHint(result.message)
+                    }
+                }
+                is VoiceInputStartResult.Cancelled ->
+                    finishCancelledChatVoiceStart(attemptId, result.captureSessionId)
+            }
         }
     }
 
@@ -1746,32 +1815,17 @@ class ChatViewModel @Inject constructor(
             val uses = voiceInputPreferences.recordMicUseStarted()
             _micHintVisible.value = com.kernel.ai.core.voice.MicHintPolicy.shouldShowHint(uses)
         }
-        // #790: Fresh mic press resets the retry budget.
         chatCommandVoiceRetryCount = 0
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = mode
-        viewModelScope.launch {
+        val attemptId = beginChatVoiceAttempt()
+        _voiceCaptureState.value = VoiceCaptureState.Preparing
+        launchChatVoiceAttempt(attemptId) {
             // Synthesis of the first chunk has no playback state yet; a mic tap must cancel it too.
             if (_voicePlaybackState.value != VoicePlaybackState.Idle || assistantSpeechJob?.isActive == true) {
                 stopChatSpeech()
             }
             _error.value = null
-            _voiceCaptureState.value = VoiceCaptureState.Preparing
-            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
-                is VoiceInputStartResult.Started -> {
-                    bindChatVoiceSession(result.captureSessionId)
-                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
-                        _voiceCaptureState.value = VoiceCaptureState.Listening()
-                    }
-                }
-                is VoiceInputStartResult.Unavailable -> {
-                    awaitingVoicePlaybackCompletion = false
-                    _voiceMode.value = null
-                    pendingVoiceReply = false
-                    _voiceCaptureState.value = VoiceCaptureState.Idle
-                    _error.value = withVoiceSettingsHint(result.message)
-                }
-            }
         }
     }
 
@@ -1783,24 +1837,9 @@ class ChatViewModel @Inject constructor(
         if (_voiceMode.value != VoiceMode.BackAndForth) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
         if (backgroundPaused) return
-        viewModelScope.launch {
-            _error.value = null
-            _voiceCaptureState.value = VoiceCaptureState.Preparing
-            when (val result = voiceInputController.startListening(VoiceCaptureMode.Command)) {
-                is VoiceInputStartResult.Started -> {
-                    bindChatVoiceSession(result.captureSessionId)
-                    if (_voiceCaptureState.value == VoiceCaptureState.Preparing) {
-                        _voiceCaptureState.value = VoiceCaptureState.Listening()
-                    }
-                }
-                is VoiceInputStartResult.Unavailable -> {
-                    awaitingVoicePlaybackCompletion = false
-                    _voiceMode.value = null
-                    _voiceCaptureState.value = VoiceCaptureState.Idle
-                    _error.value = withVoiceSettingsHint(result.message)
-                }
-            }
-        }
+        val attemptId = beginChatVoiceAttempt()
+        _voiceCaptureState.value = VoiceCaptureState.Preparing
+        launchChatVoiceAttempt(attemptId) { _error.value = null }
     }
 
     fun onMicrophonePermissionDenied(shouldShowRationale: Boolean = false, requestedAction: String? = null) {
@@ -1985,16 +2024,28 @@ class ChatViewModel @Inject constructor(
     }
 
 
+    private fun clearChatVoiceCapture(discard: Boolean) {
+        chatVoiceAttemptId++
+        chatVoiceStartJob?.cancel()
+        chatVoiceStartJob = null
+        chatVoiceNoticeJob?.cancel()
+        chatVoiceNoticeJob = null
+        val sessionId = chatVoiceSessionId
+        chatVoiceSessionId = null
+        chatVoiceAwaitingFinal = false
+        if (sessionId != null) {
+            if (discard) voiceInputController.cancelListening(sessionId)
+            else voiceInputController.stopListening(sessionId)
+        }
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+    }
+
     fun stopVoiceInput() {
+        clearChatVoiceCapture(discard = false)
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
-        // A note from a hand-off that lands just before the stop must not show while idle.
-        chatVoiceNoticeJob?.cancel()
-        chatVoiceNoticeJob = null
-        chatVoiceSessionId = null
-        voiceInputController.stopListening()
-        _voiceCaptureState.value = VoiceCaptureState.Idle
+        voicePresynthesis.discard()
     }
 
     fun stopVoiceOutput() {
@@ -3492,6 +3543,7 @@ class ChatViewModel @Inject constructor(
                     safeModelTestScope = kernelAIToolSet.beginSafeModelTestSandbox()
                 }
                 kernelAIToolSet.resetTurnState(userMessage = text)
+                voicePresynthesis.startTurn()
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
                 var systemOnlyToolRetryAttempted = false
@@ -3532,7 +3584,9 @@ class ChatViewModel @Inject constructor(
                 }
 
             var debugGenerationAttempt = 0
+            var generationPasses = 0
             do {
+                if (++generationPasses > 1) voicePresynthesis.retry()
                 val debugGenerationId = if (BuildConfig.DEBUG) {
                     "$commandId-g${++debugGenerationAttempt}"
                 } else {
@@ -3603,6 +3657,11 @@ class ChatViewModel @Inject constructor(
                                 terminalToolStartOffset = accumulatedContent.length
                             }
                             accumulatedContent.append(result.text)
+                            voicePresynthesis.onStreamedText(
+                                text = accumulatedContent.toString(),
+                                eligible = pendingVoiceReply && autoSpeakEnabled && !suppressVoiceOutputForCurrentResponse,
+                                toolCalled = kernelAIToolSet.wasToolCalled(),
+                            )
                             _messages.update { msgs ->
                                 msgs.map { msg ->
                                     if (msg.id == assistantMsgId) {
@@ -3636,6 +3695,7 @@ class ChatViewModel @Inject constructor(
                             val shouldCalibrateToolDeclarations = shouldMeasureToolDeclarations
                             if (shouldCalibrateToolDeclarations) shouldMeasureToolDeclarations = false
                             val fullContent = accumulatedContent.toString()
+                            if (kernelAIToolSet.wasToolCalled()) voicePresynthesis.discard()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                                 ?: preservedThinkingText
                             kernelAIToolSet.logToolSequence()
@@ -4130,7 +4190,12 @@ class ChatViewModel @Inject constructor(
                     // KV cache was corrupted (model emitted EOS immediately).
                     // Reset conversation so the retry gets a clean cache.
                     // Flag needsHistoryReplay so the next user turn re-injects full context.
-                    if (!resetInferenceConversation("resetConversationBeforeRetry")) return@launch
+                    // Defensive: a hold exists only on pass 1 (retry() disables holding), and this branch is reached
+                    // only after a blank pass 1, which opens none. The discard is a no-op today; keep it so no reset path leaks.
+                    if (!resetInferenceConversation("resetConversationBeforeRetry")) {
+                        voicePresynthesis.discard()
+                        return@launch
+                    }
                     needsHistoryReplay = true
                 }
             } while (needsHallucinationRetry)
@@ -4289,14 +4354,14 @@ class ChatViewModel @Inject constructor(
             // Screen off: a reply still generating is spoken when it completes, and speech keeps playing.
             // Only the mic closes; pendingVoiceReply and awaitingVoicePlaybackCompletion stay set (#1927).
             _voiceMode.value = null
-            voiceInputController.stopListening()
-            _voiceCaptureState.value = VoiceCaptureState.Idle
+            clearChatVoiceCapture(discard = true)
             return
         }
         stoppedByHome = true
         // Home: full voice-input cleanup (mic, loop, pending reply, hand-off notice) plus playback stop.
         // stopVoicePlayback() makes the single voiceOutputController.stop() call (via stopChatSpeech).
-        stopVoiceInput()
+        clearChatVoiceCapture(discard = true)
+        _voiceMode.value = null
         speakMessageJob?.cancel()
         speakMessageJob = null
         stopVoicePlayback(SpeechStopReason.BACKGROUND)
@@ -4323,6 +4388,7 @@ class ChatViewModel @Inject constructor(
     private fun stopChatSpeech(reason: SpeechStopReason? = null) {
         assistantSpeechJob?.cancel()
         assistantSpeechJob = null
+        voicePresynthesis.discard()
         if (reason != null) voiceOutputController.stopFor(reason) else voiceOutputController.stop()
     }
 
@@ -4361,7 +4427,7 @@ class ChatViewModel @Inject constructor(
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             pendingVoiceReply = false
-            voiceInputController.stopListening()
+            clearChatVoiceCapture(discard = true)
             voiceOutputController.stop()
             _voiceCaptureState.value = VoiceCaptureState.Idle
             _voicePlaybackState.value = VoicePlaybackState.Idle
@@ -4550,10 +4616,11 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        voicePresynthesis.discard()
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
-        voiceInputController.stopListening()
+        clearChatVoiceCapture(discard = true)
         voiceOutputController.stop()
         stopVoicePlayback()
         // Flush any in-progress streamed content to Room before the ViewModel is destroyed.
@@ -4618,6 +4685,7 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
         if (!shouldSpeak || !autoSpeakEnabled) {
+            voicePresynthesis.discard()
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             return
@@ -4627,6 +4695,7 @@ class ChatViewModel @Inject constructor(
         // normalised form, so a reply that normalises to nothing is never sent to the chunker.
         val spokenText = spokenOverride?.trim()?.takeIf { it.isNotBlank() } ?: content.trim()
         if (normalizeChatTextForSpeech(spokenText).isBlank()) {
+            voicePresynthesis.discard()
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             return
@@ -4636,7 +4705,7 @@ class ChatViewModel @Inject constructor(
         assistantSpeechJob?.cancel()
         assistantSpeechJob = viewModelScope.launch {
             val result = try {
-                speakInSentenceChunks(voiceOutputController, spokenText)
+                speakInSentenceChunks(voiceOutputController, spokenText, voicePresynthesis.take())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -4851,7 +4920,7 @@ class ChatViewModel @Inject constructor(
                 stopVoicePlayback()
                 _voiceMode.value = null
                 pendingVoiceReply = false
-                voiceInputController.stopListening()
+                clearChatVoiceCapture(discard = true)
                 voiceOutputController.stop()
                 _voiceCaptureState.value = VoiceCaptureState.Idle
                 _voicePlaybackState.value = VoicePlaybackState.Idle

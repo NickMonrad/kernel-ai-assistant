@@ -1,0 +1,9 @@
+# runtime size tier variant cpus sets   (S23U, Snapdragon 8 Gen 2)
+et s stream_c16r4 default all owner,long,breadth
+et s stream_c32r8 default all owner,long,breadth
+et m stream_c16r4 default all owner,long,breadth
+et m stream_c32r8 default all owner,long,breadth
+et l stream_c16r4 default all owner,long,breadth
+et l stream_c32r8 default all owner,long,breadth
+zipformer - - default all owner,long,breadth
+native - - default all owner,breadth

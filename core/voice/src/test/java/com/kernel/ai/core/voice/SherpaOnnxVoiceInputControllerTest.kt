@@ -52,6 +52,7 @@ class SherpaOnnxVoiceInputControllerTest {
 
     init {
         every { voiceInputPreferences.selectedEngine } returns selectedEngine
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns true
     }
 
     @AfterEach
@@ -138,6 +139,20 @@ class SherpaOnnxVoiceInputControllerTest {
         ).forEach { engine ->
             selectedEngine.value = engine
             assertEquals(SherpaSttModelSpec.ZIPFORMER, controller.resolveWakeVerifierSpec())
+        }
+    }
+
+    @Test
+    fun `release resolves Whisper for wake verification and never Zipformer, even when Zipformer is installed`() = runTest {
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        createAllStubModelFiles() // Zipformer only; Whisper absent
+        listOf(
+            VoiceInputEngine.SherpaZipformer,
+            VoiceInputEngine.Auto,
+            VoiceInputEngine.SherpaParaformer,
+        ).forEach { engine ->
+            selectedEngine.value = engine
+            assertEquals(SherpaSttModelSpec.WHISPER, controller.resolveWakeVerifierSpec())
         }
     }
 
@@ -295,58 +310,324 @@ class SherpaOnnxVoiceInputControllerTest {
     @Test
     fun `stop before the microphone opens starts no capture`() = runTest {
         createAllStubModelFiles()
+        val events = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.events.collect { events += it }
+        }
         // B2: a stop that lands after the model check but before the mic open must win.
         controller.beforeMicOpenForTest = { controller.stopListening() }
 
         val result = controller.startListening(VoiceCaptureMode.Command)
 
-        assertInstanceOf(VoiceInputStartResult.Started::class.java, result)
+        assertInstanceOf(VoiceInputStartResult.Cancelled::class.java, result)
         verify(exactly = 0) { audioManager.requestAudioFocus(any(), any(), any()) }
         assertNull(privateField("currentCapture"))
+        assertTrue(events.none { it is VoiceInputEvent.ListeningStarted })
     }
 
     @Test
-    fun `stop during model load after the mic opens releases the mic and focus`() = runTest {
+    fun `mic unavailable after Sherpa admission emits a cancelled terminal and clears ownership`() = runTest {
         createAllStubModelFiles()
-        val recorder = micRecorder()
-        controller.audioRecordForTest = { recorder }
-        val events = mutableListOf<String>()
+        controller.audioRecordForTest = { null }
+        val events = mutableListOf<VoiceInputEvent>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            controller.events.collect { events.add(it.javaClass.simpleName) }
+            controller.events.collect { events += it }
         }
-        val loading = holdRecognizerLoad()
-        val start = async { controller.startListening(VoiceCaptureMode.Command) }
-        awaitCaptureOpen()
-        assertNotNull(privateField("currentCapture"))
+        val admitted = mutableListOf<Long>()
 
-        controller.stopListening()
-        loading.finish()
+        val result = controller.startListening(
+            VoiceCaptureMode.Command,
+            isWanted = { true },
+            onSessionAdmitted = admitted::add,
+        )
 
-        assertInstanceOf(VoiceInputStartResult.Started::class.java, start.await())
-        (privateField("lastReaderJob") as Job).join()
-        verify(exactly = 1) { recorder.release() }
-        verify(exactly = 1) { audioManager.abandonAudioFocus(null) }
-        assertEquals(listOf("ListeningStarted", "ListeningStopped"), events)
-        assertNull(privateField("currentCapture"))
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, result)
+        assertEquals(1, admitted.size)
+        assertEquals(
+            listOf(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, admitted.single(), cancelled = true)),
+            events.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
+        )
+        assertFalse(controller.hasCaptureOrStart())
+        verify(atLeast = 1) { audioManager.abandonAudioFocus(null) }
     }
 
     @Test
-    fun `a second start releases the previous capture before opening the microphone`() = runTest {
+    fun `ready stop before recording job body releases mic and focus before one terminal`() = runTest {
         createAllStubModelFiles()
         setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))
         setPrivateField("recognizer", Any())
+        val order = mutableListOf<String>()
+        val stoppedEvents = mutableListOf<VoiceInputEvent.ListeningStopped>()
+        val recorder = micRecorder()
+        every { recorder.release() } answers { order += "recorder-release" }
+        every { audioManager.abandonAudioFocus(null) } answers {
+            order += "focus-abandon"
+            0
+        }
+        controller.audioRecordForTest = { recorder }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.events.collect {
+                if (it is VoiceInputEvent.ListeningStopped) {
+                    order += "stopped"
+                    stoppedEvents += it
+                }
+            }
+        }
+        controller.beforeRecordingJobStartForTest = { controller.stopListening() }
+
+        val result = controller.startListening(VoiceCaptureMode.Command)
+
+        assertInstanceOf(VoiceInputStartResult.Cancelled::class.java, result)
+        (privateField("lastReaderJob") as Job).join()
+        assertEquals(listOf("recorder-release", "focus-abandon", "stopped"), order)
+        assertEquals(1, stoppedEvents.size)
+        assertTrue(stoppedEvents.single().cancelled)
+        verify(exactly = 1) { recorder.release() }
+        verify(exactly = 1) { audioManager.abandonAudioFocus(null) }
+        assertNull(privateField("currentCapture"))
+    }
+
+    @Test
+    fun `spec-changing prewarm waits for active decoder teardown and same-spec prewarm is a no-op`() = runTest {
+        createAllStubModelFiles()
+        createWhisperStubModelFiles()
+        selectedEngine.value = VoiceInputEngine.SherpaZipformer
+        val order = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val decodeGate = BlockingGate()
+        val streamCreated = CountDownLatch(1)
+        val recognizer = FakeOnlineRecognizer(order, decodeGate, streamCreated)
+        setPrivateField("activeSpec", SherpaSttModelSpec.ZIPFORMER)
+        setPrivateField("recognizer", recognizer)
+        installInteractiveMethods(recognizer)
+
+        val recorder = micRecorder()
+        every { recorder.release() } answers { order += "recorder-release" }
+        every { audioManager.abandonAudioFocus(null) } answers {
+            order += "focus-abandon"
+            0
+        }
+        controller.audioRecordForTest = { recorder }
+        val transcripts = mutableListOf<String>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.Transcript -> {
+                        order += "transcript"
+                        transcripts += event.text
+                    }
+                    is VoiceInputEvent.ListeningStopped -> order += "stopped"
+                    else -> Unit
+                }
+            }
+        }
+
+        val started = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
+        assertTrue(withContext(Dispatchers.IO) { streamCreated.await(5, TimeUnit.SECONDS) })
+
+        val sameSpec = async {
+            controller.prewarmSpec(SherpaSttModelSpec.ZIPFORMER)
+        }
+        runCurrent()
+        assertTrue(sameSpec.isCompleted)
+        assertEquals(0, recognizer.releaseCount)
+
+        val changedSpec = async {
+            controller.prewarmSpec(checkNotNull(SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaWhisper)))
+        }
+        runCurrent()
+        assertFalse(changedSpec.isCompleted)
+        assertEquals(0, recognizer.releaseCount)
+        assertFalse("stopped" in order)
+
+        controller.stopListeningForSession(started.captureSessionId)
+        assertTrue(withContext(Dispatchers.IO) { decodeGate.entered.await(5, TimeUnit.SECONDS) })
+        runCurrent()
+        assertFalse(changedSpec.isCompleted)
+        assertEquals(0, recognizer.releaseCount)
+
+        decodeGate.release.countDown()
+        sameSpec.await()
+        changedSpec.await()
+
+        assertEquals(1, recognizer.releaseCount)
+        assertEquals(listOf("hy general"), transcripts)
+        assertTrue(order.indexOf("online_stream_release") < order.indexOf("stopped"), order.toString())
+        assertTrue(order.indexOf("recorder-release") < order.indexOf("stopped"), order.toString())
+        assertTrue(order.indexOf("focus-abandon") < order.indexOf("stopped"), order.toString())
+        assertTrue(order.indexOf("stopped") < order.indexOf("online_release"), order.toString())
+    }
+
+    @Test
+    fun `replacement waits for final decoder flush and capture teardown before releasing recognizer`() = runTest {
+        createAllStubModelFiles()
+        createWhisperStubModelFiles()
+        selectedEngine.value = VoiceInputEngine.SherpaZipformer
+        val order = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val decodeGate = BlockingGate()
+        val streamCreated = CountDownLatch(1)
+        val recognizer = FakeOnlineRecognizer(order, decodeGate, streamCreated)
+        setPrivateField("activeSpec", SherpaSttModelSpec.ZIPFORMER)
+        setPrivateField("recognizer", recognizer)
+        installInteractiveMethods(recognizer)
+
+        val firstRecorder = micRecorder()
+        val replacementRecorder = micRecorder()
+        every { firstRecorder.release() } answers { order += "recorder-release" }
+        every { audioManager.abandonAudioFocus(null) } answers {
+            order += "focus-abandon"
+            0
+        }
+        val recorders = ArrayDeque(listOf(firstRecorder, replacementRecorder))
+        controller.audioRecordForTest = { recorders.removeFirst() }
+        val transcripts = mutableListOf<String>()
+        val stopped = mutableListOf<Long>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            controller.events.collect { event ->
+                when (event) {
+                    is VoiceInputEvent.Transcript -> {
+                        order += "transcript"
+                        transcripts += event.text
+                    }
+                    is VoiceInputEvent.ListeningStopped -> {
+                        order += "stopped"
+                        stopped += event.captureSessionId
+                    }
+                    else -> Unit
+                }
+            }
+        }
+
+        val started = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
+        assertTrue(withContext(Dispatchers.IO) { streamCreated.await(5, TimeUnit.SECONDS) })
+        controller.stopListeningForSession(started.captureSessionId)
+        assertTrue(withContext(Dispatchers.IO) { decodeGate.entered.await(5, TimeUnit.SECONDS) })
+
+        selectedEngine.value = VoiceInputEngine.SherpaWhisper
+        val replacement = async { controller.startListening(VoiceCaptureMode.Command) }
+        runCurrent()
+        assertFalse(replacement.isCompleted)
+        assertEquals(0, recognizer.releaseCount)
+        assertTrue(stopped.isEmpty())
+
+        decodeGate.release.countDown()
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, replacement.await())
+
+        assertEquals(listOf("hy general"), transcripts)
+        assertEquals(started.captureSessionId, stopped.first())
+        assertEquals(2, stopped.size)
+        val finalDecode = order.indexOf("online_decode")
+        val transcript = order.indexOf("transcript")
+        val streamRelease = order.indexOf("online_stream_release")
+        val micRelease = order.indexOf("recorder-release")
+        val focusRelease = order.indexOf("focus-abandon")
+        val terminal = order.indexOf("stopped")
+        val recognizerRelease = order.indexOf("online_release")
+        assertTrue(finalDecode >= 0 && finalDecode < transcript, order.toString())
+        assertTrue(transcript < streamRelease, order.toString())
+        assertTrue(streamRelease < terminal, order.toString())
+        assertTrue(micRelease < terminal, order.toString())
+        assertTrue(focusRelease < terminal, order.toString())
+        assertTrue(terminal < recognizerRelease, order.toString())
+        assertEquals(1, recognizer.releaseCount)
+    }
+
+    private fun installInteractiveMethods(recognizer: FakeOnlineRecognizer) {
+        val streamClass = FakeOnlineStream::class.java
+        val online = privateField("onlineMethods")!!
+        setObjectField(online, "isReady", FakeOnlineRecognizer::class.java.getDeclaredMethod("isReady", streamClass))
+        setObjectField(online, "decode", FakeOnlineRecognizer::class.java.getDeclaredMethod("decode", streamClass))
+        setObjectField(online, "isEndpoint", FakeOnlineRecognizer::class.java.getDeclaredMethod("isEndpoint", streamClass))
+        setObjectField(online, "getResult", FakeOnlineRecognizer::class.java.getDeclaredMethod("getResult", streamClass))
+        setObjectField(online, "reset", FakeOnlineRecognizer::class.java.getDeclaredMethod("reset", streamClass))
+        val streams = privateField("streamMethods")!!
+        setObjectField(streams, "createStream", FakeOnlineRecognizer::class.java.getDeclaredMethod("createStream", String::class.java))
+        setObjectField(
+            streams,
+            "acceptWaveform",
+            streamClass.getDeclaredMethod("acceptWaveform", FloatArray::class.java, Int::class.javaPrimitiveType),
+        )
+        setObjectField(streams, "inputFinished", streamClass.getDeclaredMethod("inputFinished"))
+        setObjectField(streams, "getText", FakeResult::class.java.getDeclaredMethod("getText"))
+        setObjectField(streams, "streamRelease", streamClass.getDeclaredMethod("release"))
+        // Reflection invokes methods on private test doubles, so make their access explicit.
+        listOf(online, streams).forEach { target ->
+            target.javaClass.declaredFields.forEach { field ->
+                field.isAccessible = true
+                (field.get(target) as? java.lang.reflect.Method)?.isAccessible = true
+            }
+        }
+        assertSame(recognizer, privateField("recognizer"))
+    }
+
+    private fun setObjectField(target: Any, name: String, value: Any) {
+        target.javaClass.getDeclaredField(name).apply {
+            isAccessible = true
+            set(target, value)
+        }
+    }
+
+    @Test
+    fun `a second start releases and retires the previous capture before opening the microphone`() = runTest {
+        createAllStubModelFiles()
+        // The first recording loop must park in the reader wait (the mic never yields audio), not fail
+        // on a missing stream: that failure raced the second start and made the terminal's `cancelled` flag timing-dependent.
+        val order = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val recognizer = FakeOnlineRecognizer(order)
+        setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))
+        setPrivateField("recognizer", recognizer)
+        installInteractiveMethods(recognizer)
         val first = micRecorder()
         val second = micRecorder()
+        every { first.release() } answers { order += "first-release" }
+        every { audioManager.abandonAudioFocus(null) } answers {
+            order += "focus-abandon"
+            0
+        }
         val recorders = ArrayDeque(listOf(first, second))
-        controller.audioRecordForTest = { recorders.removeFirst() }
+        controller.audioRecordForTest = {
+            recorders.removeFirst().also { recorder ->
+                if (recorder === second) order += "second-recorder-acquire"
+            }
+        }
+        val events = java.util.Collections.synchronizedList(mutableListOf<VoiceInputEvent>())
+        // Unconfined collection observes SharedFlow.tryEmit inline, preserving publication order.
+        backgroundScope.launch(Dispatchers.Unconfined) {
+            controller.events.collect {
+                events += it
+                when (it) {
+                    is VoiceInputEvent.ListeningStopped -> order += "stopped:${it.captureSessionId}"
+                    is VoiceInputEvent.ListeningStarted -> order += "started:${it.captureSessionId}"
+                    else -> Unit
+                }
+            }
+        }
 
-        assertInstanceOf(VoiceInputStartResult.Started::class.java, controller.startListening(VoiceCaptureMode.Command))
-        assertInstanceOf(VoiceInputStartResult.Started::class.java, controller.startListening(VoiceCaptureMode.Command))
+        val firstResult = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
+        val secondResult = controller.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Started
 
         verify(exactly = 1) { first.release() }
-        verify(exactly = 2) { audioManager.requestAudioFocus(any(), any(), any()) }
+        verify(exactly = 0) { second.release() }
         assertTrue(recorders.isEmpty())
+        assertTrue(events.contains(
+            VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, firstResult.captureSessionId, cancelled = true),
+        ))
+        val firstReleaseIndex = order.indexOf("first-release")
+        val focusAbandonIndex = order.indexOf("focus-abandon")
+        val stoppedIndex = order.indexOf("stopped:${firstResult.captureSessionId}")
+        val secondRecorderAcquireIndex = order.indexOf("second-recorder-acquire")
+        val secondStartedIndex = order.indexOf("started:${secondResult.captureSessionId}")
+        assertTrue(firstReleaseIndex >= 0)
+        assertTrue(focusAbandonIndex >= 0)
+        assertTrue(stoppedIndex >= 0)
+        assertTrue(secondRecorderAcquireIndex >= 0)
+        assertTrue(secondStartedIndex >= 0)
+        assertTrue(firstReleaseIndex < stoppedIndex)
+        assertTrue(focusAbandonIndex < stoppedIndex)
+        assertTrue(stoppedIndex < secondRecorderAcquireIndex)
+        assertTrue(secondRecorderAcquireIndex < secondStartedIndex)
+        controller.stopListeningForSession(secondResult.captureSessionId)
     }
+
 
     private fun micRecorder(): AudioRecord = mockk(relaxed = true) {
         every { read(any<ShortArray>(), any(), any()) } answers { Thread.sleep(1); 0 }
@@ -466,24 +747,37 @@ class SherpaOnnxVoiceInputControllerTest {
         val release = CountDownLatch(1)
     }
 
-    private class FakeOnlineRecognizer(private val events: MutableList<String>) {
+    private class FakeOnlineRecognizer(
+        private val events: MutableList<String>,
+        private val decodeGate: BlockingGate? = null,
+        private val streamCreated: CountDownLatch? = null,
+    ) {
         var releaseCount = 0
             private set
         val streams = mutableListOf<FakeOnlineStream>()
 
         fun createStream(hotwords: String): FakeOnlineStream {
             events.add("online_createStream")
+            streamCreated?.countDown()
             return FakeOnlineStream(events).also { streams += it }
         }
 
         fun isReady(stream: FakeOnlineStream): Boolean = !stream.decoded
 
         fun decode(stream: FakeOnlineStream) {
+            decodeGate?.let {
+                it.entered.countDown()
+                it.release.await()
+            }
             stream.decoded = true
             events.add("online_decode")
         }
 
+
         fun getResult(stream: FakeOnlineStream): FakeResult = FakeResult("hy general")
+        fun isEndpoint(stream: FakeOnlineStream): Boolean = false
+
+        fun reset(stream: FakeOnlineStream) = Unit
 
         fun release() {
             releaseCount++

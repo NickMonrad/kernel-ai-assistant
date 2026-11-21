@@ -7,6 +7,8 @@ import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.WakeWordDetector
+import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.WAKE_WORD_DEFAULT_THRESHOLD
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
@@ -15,6 +17,9 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.PiperVoiceSetup
+import com.kernel.ai.core.voice.Asr4allSizeSwitcher
+import com.kernel.ai.core.voice.Asr4allSwitchFailure
+import com.kernel.ai.core.voice.Asr4allSwitchState
 import com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -30,15 +35,19 @@ import com.kernel.ai.core.permissions.MicrophoneReadiness
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import io.mockk.Runs
-import io.mockk.coEvery
+import com.kernel.ai.core.inference.download.localFile
+ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.verify
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -71,6 +80,7 @@ class VoiceViewModelTest {
     private val selectedInputEngine = MutableStateFlow(VoiceInputEngine.Auto)
     private val autoStartAlertVoiceCommandsEnabled = MutableStateFlow(true)
     private val allowOnlineSpeechFallback = MutableStateFlow(false)
+    private val asr4allSize = MutableStateFlow(Asr4AllSize.M)
     private val spokenResponsesEnabled = MutableStateFlow(true)
     private val selectedOutputEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
     private val selectedSherpaVoice = MutableStateFlow(SherpaPiperVoice.JennyDioco)
@@ -101,6 +111,12 @@ class VoiceViewModelTest {
     private lateinit var viewModel: VoiceViewModel
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
     private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
+    private val asr4allSwitchState = MutableStateFlow(Asr4allSwitchState())
+    private val asr4allSizeSwitcher: Asr4allSizeSwitcher = mockk(relaxed = true) {
+        every { state } returns asr4allSwitchState
+    }
+    @org.junit.jupiter.api.io.TempDir
+    lateinit var tempDir: java.nio.file.Path
 
     @Test
     fun `play sample speaks through Sherpa only for a downloaded voice`() = runTest {
@@ -145,6 +161,7 @@ class VoiceViewModelTest {
         context,
         sherpaVoiceOutputController,
         piperVoiceSetup,
+        asr4allSizeSwitcher,
     )
 
     @BeforeEach
@@ -161,6 +178,8 @@ class VoiceViewModelTest {
         every { voiceInputPreferences.selectedEngine } returns selectedInputEngine
         every { voiceInputPreferences.autoStartAlertVoiceCommandsEnabled } returns autoStartAlertVoiceCommandsEnabled
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns allowOnlineSpeechFallback
+        every { voiceInputPreferences.asr4allSize } returns asr4allSize
+        coEvery { voiceInputPreferences.setAsr4allSize(any()) } just Runs
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
@@ -299,6 +318,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -331,6 +351,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -363,6 +384,7 @@ class VoiceViewModelTest {
             context,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -472,6 +494,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allSizeSwitcher,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -482,7 +505,7 @@ class VoiceViewModelTest {
         )
     }
     @Test
-    fun `release builds mirror shared Inflect eligibility while debug builds expose all engines`() = runTest {
+    fun `release builds expose Android TTS and Sherpa while debug builds keep Inflect`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(
@@ -505,15 +528,43 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            InflectMicroModelSpec.isReleaseEligible(HardwareTier.FLAGSHIP),
-            releaseViewModel.uiState.value.availableOutputEngines.contains(
-                VoiceOutputEngine.InflectMicroExperimental,
-            ),
+            listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental),
+            releaseViewModel.uiState.value.availableOutputEngines,
         )
+    }
+
+    @Test
+    fun `release builds offer asr4all and start its model downloads`() = runTest {
+        val releaseContext: Context = mockk(relaxed = true)
+        every { releaseContext.applicationInfo } returns ApplicationInfo().apply { flags = 0 }
+        val releaseViewModel = VoiceViewModel(
+            androidNativeRecognitionSupport,
+            voiceInputPreferences,
+            voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
+            wakeWordPreferences,
+            wakeWordDetector,
+            modelDownloadManager,
+            hardwareProfileDetector,
+            releaseContext,
+            sherpaVoiceOutputController,
+            piperVoiceSetup,
+            asr4allSizeSwitcher,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(VoiceInputEngine.Asr4all in releaseViewModel.uiState.value.availableInputEngines)
+
+        releaseViewModel.downloadSherpaStt(VoiceInputEngine.Asr4all)
+
+        Asr4AllInstall.models(Asr4AllSize.M).forEach { model ->
+            verify { modelDownloadManager.startDownload(model) }
+        }
     }
 
     @Test
@@ -863,6 +914,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -912,6 +964,7 @@ class VoiceViewModelTest {
             releaseContext,
             sherpaVoiceOutputController,
             piperVoiceSetup,
+            asr4allSizeSwitcher,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1150,5 +1203,56 @@ class VoiceViewModelTest {
         viewModel.refreshAssistantStatus(isRoleHeld = true)
 
         assertTrue(viewModel.uiState.value.isDefaultAssistant)
+    }
+
+    @Test
+    fun `setAsr4allSize hands the choice to the switcher`() = runTest {
+        viewModel.setAsr4allSize(Asr4AllSize.L)
+        verify(exactly = 1) { asr4allSizeSwitcher.select(Asr4AllSize.L) }
+    }
+
+    @Test
+    fun `the asr4all card shows the size being downloaded, not the installed one`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value +
+            Asr4AllInstall.models(Asr4AllSize.M).associateWith { DownloadState.Downloaded("/models/${it.fileName}") }
+        viewModel.uiState.first { it.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == true }
+
+        asr4allSwitchState.value = Asr4allSwitchState(pendingSize = Asr4AllSize.L)
+        viewModel.uiState.first { it.asr4allPendingSize == Asr4AllSize.L }
+        assertTrue(
+            viewModel.uiState.value.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == false,
+            "the card shows the size being downloaded, not the installed one",
+        )
+    }
+
+    @Test
+    fun `a failed size switch shows its message while the installed size stays ready`() = runTest {
+        modelDownloadStates.value = modelDownloadStates.value +
+            Asr4AllInstall.models(Asr4AllSize.M).associateWith { DownloadState.Downloaded("/models/${it.fileName}") }
+        viewModel.uiState.first { it.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == true }
+
+        asr4allSwitchState.value = Asr4allSwitchState(
+            failure = Asr4allSwitchFailure(Asr4AllSize.L, "Could not switch to L."),
+        )
+        viewModel.uiState.first { it.asr4allSwitchFailure != null }
+
+        assertEquals("Could not switch to L.", viewModel.uiState.value.asr4allSwitchFailure)
+        assertTrue(viewModel.uiState.value.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == true)
+    }
+
+    @Test
+    fun `cancelling an asr4all download cancels the switcher`() = runTest {
+        viewModel.cancelSherpaSttDownload(VoiceInputEngine.Asr4all)
+        verify(exactly = 1) { asr4allSizeSwitcher.cancel() }
+    }
+
+    @Test
+    fun `deleting asr4all converges the selection to Auto once the switcher deletes`() = runTest {
+        coEvery { asr4allSizeSwitcher.deleteActive() } returns true
+        viewModel.setVoiceInputEngine(VoiceInputEngine.Asr4all)
+        viewModel.deleteSherpaStt(VoiceInputEngine.Asr4all)
+        viewModel.uiState.first { it.selectedInputEngine == VoiceInputEngine.Auto }
+        testDispatcher.scheduler.advanceUntilIdle() // the Auto preference write is launched on Main after the state flip
+        coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto) }
     }
 }

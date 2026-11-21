@@ -1,0 +1,274 @@
+         1795288994.025 15700 15700 I adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:log -t Evidence1923 thermal_status_at_start=2'
+         1795288994.065  2752  2752 I Evidence1923: thermal_status_at_start=2
+         1795288994.213 31739 31739 I KernelAI: external_prompt_trust callerUid=-1 trust=DIRECT
+         1795288994.304 31739 31739 D VoiceTiming: firstChunkQueued epochMs=1795288994304 chars=34
+         1795288994.363 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=accepted t_ms=0
+         1795288994.363 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=coroutine_started t_ms=0
+         1795288995.892 31739 32500 D LiteRtInferenceEngine: TTFT_STAGE engine conversation_reset lock_wait_ms=0 close_ms=39 create_ms=1459 backend=GPU
+         1795288995.907 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=first_feedback_visible t_ms=1544
+         1795288995.933 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=route_done t_ms=1570
+         1795288995.948 31739 31739 D KernelAI: llm_tools_route: result=fallthrough best_guess=null confidence=0.0
+         1795288995.949 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=model_ready t_ms=1586
+         1795288996.419 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=rag_done t_ms=2056
+         1795288996.422 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=generate_called t_ms=2059
+         1795288996.422 31739 32500 D LiteRtInferenceEngine: TTFT_STAGE engine generation_lock_wait_ms=0
+         1795288996.425 31739 32500 D LiteRtInferenceEngine: generation_diagnostic generation_id=714ace7f-1-g1 send_attempt=1 stage=initial_prompt event=send_start
+         1795289002.631 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=1 type=callback channels=[] raw="<|channel>[thinking 22 chars]" toolCalls=
+         1795289002.633 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=first_thinking_text t_ms=8270
+         1795289002.660 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=first_thinking_text_visible t_ms=8297
+         1795289002.775 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=2 type=callback channels=[] raw="[thinking 19 chars]" toolCalls=
+         1795289002.911 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=3 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289003.054 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=4 type=callback channels=[] raw="[thinking 17 chars]" toolCalls=
+         1795289003.195 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=5 type=callback channels=[] raw="[thinking 12 chars]" toolCalls=
+         1795289003.340 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=6 type=callback channels=[] raw="[thinking 11 chars]" toolCalls=
+         1795289003.486 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=7 type=callback channels=[] raw="[thinking 1 chars]" toolCalls=
+         1795289003.640 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=8 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289003.782 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=9 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289003.920 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=10 type=callback channels=[] raw="[thinking 29 chars]" toolCalls=
+         1795289004.059 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=11 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289004.200 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=12 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289004.340 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=13 type=callback channels=[] raw="[thinking 13 chars]" toolCalls=
+         1795289004.488 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=14 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289004.650 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=15 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289004.792 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=16 type=callback channels=[] raw="[thinking 10 chars]" toolCalls=
+         1795289004.934 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=17 type=callback channels=[] raw="[thinking 22 chars]" toolCalls=
+         1795289005.070 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=18 type=callback channels=[] raw="[thinking 17 chars]" toolCalls=
+         1795289005.211 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=19 type=callback channels=[] raw="[thinking 19 chars]" toolCalls=
+         1795289005.357 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=20 type=callback channels=[] raw="[thinking 15 chars]" toolCalls=
+         1795289005.517 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=21 type=callback channels=[] raw="[thinking 24 chars]" toolCalls=
+         1795289005.674 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=22 type=callback channels=[] raw="[thinking 19 chars]" toolCalls=
+         1795289005.837 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=23 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289005.988 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=24 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289006.132 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=25 type=callback channels=[] raw="[thinking 1 chars]" toolCalls=
+         1795289006.292 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=26 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289006.455 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=27 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289006.628 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=28 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289006.782 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=29 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289006.928 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=30 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289007.086 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=31 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289007.235 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=32 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289007.385 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=33 type=callback channels=[] raw="[thinking 1 chars]" toolCalls=
+         1795289007.560 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=34 type=callback channels=[] raw="[thinking 10 chars]" toolCalls=
+         1795289007.726 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=35 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289007.890 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=36 type=callback channels=[] raw="[thinking 1 chars]" toolCalls=
+         1795289008.053 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=37 type=callback channels=[] raw="[thinking 23 chars]" toolCalls=
+         1795289008.202 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=38 type=callback channels=[] raw="[thinking 20 chars]" toolCalls=
+         1795289008.365 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=39 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289008.545 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=40 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289008.723 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=41 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289008.881 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=42 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289009.032 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=43 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289009.183 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=44 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289009.338 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=45 type=callback channels=[] raw="[thinking 1 chars]" toolCalls=
+         1795289009.494 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=46 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289009.667 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=47 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289009.836 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=48 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289009.986 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=49 type=callback channels=[] raw="[thinking 11 chars]" toolCalls=
+         1795289010.136 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=50 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289010.286 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=51 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289010.433 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=52 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289010.609 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=53 type=callback channels=[] raw="[thinking 10 chars]" toolCalls=
+         1795289010.777 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=54 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289010.936 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=55 type=callback channels=[] raw="[thinking 22 chars]" toolCalls=
+         1795289011.089 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=56 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289011.237 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=57 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289011.384 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=58 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289011.554 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=59 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289011.727 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=60 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289011.881 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=61 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289012.049 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=62 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289012.208 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=63 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289012.361 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=64 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289012.523 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=65 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289012.693 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=66 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289012.858 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=67 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289013.021 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=68 type=callback channels=[] raw="[thinking 15 chars]" toolCalls=
+         1795289013.175 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=69 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289013.325 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=70 type=callback channels=[] raw="[thinking 23 chars]" toolCalls=
+         1795289013.483 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=71 type=callback channels=[] raw="[thinking 24 chars]" toolCalls=
+         1795289013.664 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=72 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289013.832 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=73 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289013.994 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=74 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289014.153 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=75 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289014.309 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=76 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289014.463 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=77 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289014.639 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=78 type=callback channels=[] raw="[thinking 12 chars]" toolCalls=
+         1795289014.805 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=79 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289014.955 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=80 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289015.107 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=81 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289015.264 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=82 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289015.428 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=83 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289015.603 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=84 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289015.777 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=85 type=callback channels=[] raw="[thinking 22 chars]" toolCalls=
+         1795289015.948 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=86 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289016.130 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=87 type=callback channels=[] raw="[thinking 22 chars]" toolCalls=
+         1795289016.308 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=88 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289016.484 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=89 type=callback channels=[] raw="[thinking 17 chars]" toolCalls=
+         1795289016.657 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=90 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289016.830 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=91 type=callback channels=[] raw="[thinking 10 chars]" toolCalls=
+         1795289017.008 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=92 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289017.186 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=93 type=callback channels=[] raw="[thinking 29 chars]" toolCalls=
+         1795289017.363 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=94 type=callback channels=[] raw="[thinking 15 chars]" toolCalls=
+         1795289017.539 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=95 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289017.719 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=96 type=callback channels=[] raw="[thinking 11 chars]" toolCalls=
+         1795289017.894 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=97 type=callback channels=[] raw="[thinking 1 chars]" toolCalls=
+         1795289018.070 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=98 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289018.242 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=99 type=callback channels=[] raw="[thinking 18 chars]" toolCalls=
+         1795289018.417 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=100 type=callback channels=[] raw="[thinking 11 chars]" toolCalls=
+         1795289018.590 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=101 type=callback channels=[] raw="[thinking 20 chars]" toolCalls=
+         1795289018.770 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=102 type=callback channels=[] raw="[thinking 12 chars]" toolCalls=
+         1795289018.951 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=103 type=callback channels=[] raw="[thinking 17 chars]" toolCalls=
+         1795289019.127 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=104 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289019.300 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=105 type=callback channels=[] raw="[thinking 12 chars]" toolCalls=
+         1795289019.475 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=106 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289019.652 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=107 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289019.829 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=108 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289020.007 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=109 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289020.183 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=110 type=callback channels=[] raw="[thinking 24 chars]" toolCalls=
+         1795289020.359 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=111 type=callback channels=[] raw="[thinking 1 chars]" toolCalls=
+         1795289020.536 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=112 type=callback channels=[] raw="[thinking 10 chars]" toolCalls=
+         1795289020.712 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=113 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289020.891 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=114 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289021.073 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=115 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289021.253 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=116 type=callback channels=[] raw="[thinking 10 chars]" toolCalls=
+         1795289021.431 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=117 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289021.604 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=118 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289021.782 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=119 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289021.962 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=120 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289022.136 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=121 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289022.314 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=122 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289022.498 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=123 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289022.672 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=124 type=callback channels=[] raw="[thinking 13 chars]" toolCalls=
+         1795289022.848 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=125 type=callback channels=[] raw="[thinking 21 chars]" toolCalls=
+         1795289023.024 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=126 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289023.204 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=127 type=callback channels=[] raw="[thinking 29 chars]" toolCalls=
+         1795289023.380 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=128 type=callback channels=[] raw="[thinking 21 chars]" toolCalls=
+         1795289023.558 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=129 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289023.730 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=130 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289023.907 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=131 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289024.083 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=132 type=callback channels=[] raw="[thinking 18 chars]" toolCalls=
+         1795289024.261 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=133 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289024.437 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=134 type=callback channels=[] raw="[thinking 11 chars]" toolCalls=
+         1795289024.614 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=135 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289024.793 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=136 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289024.968 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=137 type=callback channels=[] raw="[thinking 11 chars]" toolCalls=
+         1795289025.149 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=138 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289025.327 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=139 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289025.504 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=140 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289025.679 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=141 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289025.857 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=142 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289026.032 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=143 type=callback channels=[] raw="[thinking 18 chars]" toolCalls=
+         1795289026.210 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=144 type=callback channels=[] raw="[thinking 27 chars]" toolCalls=
+         1795289026.392 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=145 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289026.573 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=146 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289026.753 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=147 type=callback channels=[] raw="[thinking 20 chars]" toolCalls=
+         1795289026.930 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=148 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289027.108 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=149 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289027.288 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=150 type=callback channels=[] raw="[thinking 12 chars]" toolCalls=
+         1795289027.465 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=151 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289027.646 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=152 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289027.824 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=153 type=callback channels=[] raw="[thinking 22 chars]" toolCalls=
+         1795289028.000 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=154 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289028.182 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=155 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289028.355 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=156 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289028.532 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=157 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289028.710 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=158 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289028.887 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=159 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289029.069 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=160 type=callback channels=[] raw="[thinking 20 chars]" toolCalls=
+         1795289029.244 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=161 type=callback channels=[] raw="[thinking 24 chars]" toolCalls=
+         1795289029.413 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=162 type=callback channels=[] raw="[thinking 11 chars]" toolCalls=
+         1795289029.588 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=163 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289029.765 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=164 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289029.942 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=165 type=callback channels=[] raw="[thinking 10 chars]" toolCalls=
+         1795289030.119 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=166 type=callback channels=[] raw="[thinking 12 chars]" toolCalls=
+         1795289030.301 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=167 type=callback channels=[] raw="[thinking 13 chars]" toolCalls=
+         1795289030.480 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=168 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289030.655 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=169 type=callback channels=[] raw="[thinking 19 chars]" toolCalls=
+         1795289030.832 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=170 type=callback channels=[] raw="[thinking 23 chars]" toolCalls=
+         1795289031.013 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=171 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289031.186 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=172 type=callback channels=[] raw="[thinking 23 chars]" toolCalls=
+         1795289031.365 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=173 type=callback channels=[] raw="[thinking 24 chars]" toolCalls=
+         1795289031.547 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=174 type=callback channels=[] raw="[thinking 4 chars]" toolCalls=
+         1795289031.721 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=175 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289031.896 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=176 type=callback channels=[] raw="[thinking 17 chars]" toolCalls=
+         1795289032.072 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=177 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289032.252 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=178 type=callback channels=[] raw="[thinking 20 chars]" toolCalls=
+         1795289032.433 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=179 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289032.611 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=180 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289032.795 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=181 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289032.972 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=182 type=callback channels=[] raw="[thinking 19 chars]" toolCalls=
+         1795289033.153 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=183 type=callback channels=[] raw="[thinking 15 chars]" toolCalls=
+         1795289033.333 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=184 type=callback channels=[] raw="[thinking 7 chars]" toolCalls=
+         1795289033.514 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=185 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289033.691 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=186 type=callback channels=[] raw="[thinking 24 chars]" toolCalls=
+         1795289033.868 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=187 type=callback channels=[] raw="[thinking 24 chars]" toolCalls=
+         1795289034.044 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=188 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289034.224 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=189 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289034.399 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=190 type=callback channels=[] raw="[thinking 11 chars]" toolCalls=
+         1795289034.579 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=191 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289034.752 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=192 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289034.932 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=193 type=callback channels=[] raw="[thinking 8 chars]" toolCalls=
+         1795289035.111 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=194 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289035.298 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=195 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289035.483 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=196 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289035.664 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=197 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289035.850 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=198 type=callback channels=[] raw="[thinking 1 chars]" toolCalls=
+         1795289036.036 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=199 type=callback channels=[] raw="[thinking 17 chars]" toolCalls=
+         1795289036.219 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=200 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289036.396 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=201 type=callback channels=[] raw="[thinking 22 chars]" toolCalls=
+         1795289036.575 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=202 type=callback channels=[] raw="[thinking 1 chars]" toolCalls=
+         1795289036.762 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=203 type=callback channels=[] raw="[thinking 2 chars]" toolCalls=
+         1795289036.948 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=204 type=callback channels=[] raw="[thinking 17 chars]" toolCalls=
+         1795289037.133 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=205 type=callback channels=[] raw="[thinking 16 chars]" toolCalls=
+         1795289037.315 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=206 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289037.495 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=207 type=callback channels=[] raw="[thinking 14 chars]" toolCalls=
+         1795289037.678 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=208 type=callback channels=[] raw="[thinking 24 chars]" toolCalls=
+         1795289037.869 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=209 type=callback channels=[] raw="[thinking 24 chars]" toolCalls=
+         1795289038.051 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=210 type=callback channels=[] raw="[thinking 11 chars]" toolCalls=
+         1795289038.233 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=211 type=callback channels=[] raw="[thinking 5 chars]" toolCalls=
+         1795289038.416 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=212 type=callback channels=[] raw="[thinking 3 chars]" toolCalls=
+         1795289038.601 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=213 type=callback channels=[] raw="[thinking 9 chars]" toolCalls=
+         1795289038.786 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=214 type=callback channels=[] raw="[thinking 6 chars]" toolCalls=
+         1795289038.969 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=215 type=callback channels=[] raw="[thinking 18 chars]<channel|>More" toolCalls=
+         1795289038.970 31739 32675 I LiteRtInferenceEngine: TTFT (Time to First Token): 42548ms [backend=GPU]
+         1795289038.973 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=first_token t_ms=44610
+         1795289038.979 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=first_ui_update t_ms=44616
+         1795289039.008 31739 31739 D KernelAI: TTFT_STAGE commandId=714ace7f-1 stage=first_answer_token_visible t_ms=44645
+         1795289039.160 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=216 type=callback channels=[] raw="na." toolCalls=
+         1795289039.345 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=217 type=callback channels=[] raw="\n\n" toolCalls=
+         1795289039.527 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=218 type=callback channels=[] raw="Here are three short" toolCalls=
+         1795289039.709 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=219 type=callback channels=[] raw=" facts about" toolCalls=
+         1795289039.894 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=220 type=callback channels=[] raw=" kiwis" toolCalls=
+         1795289040.077 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=221 type=callback channels=[] raw="," toolCalls=
+         1795289040.260 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=222 type=callback channels=[] raw=" eh:\n\n1" toolCalls=
+         1795289040.438 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=223 type=callback channels=[] raw=". Kiwis are" toolCalls=
+         1795289040.613 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=224 type=callback channels=[] raw=" flightless, nocturnal" toolCalls=
+         1795289040.806 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=225 type=callback channels=[] raw="," toolCalls=
+         1795289041.020 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=226 type=callback channels=[] raw=" ground-dwelling" toolCalls=
+         1795289041.222 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=227 type=callback channels=[] raw=" birds native to New" toolCalls=
+         1795289041.422 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=228 type=callback channels=[] raw=" Zealand.\n2" toolCalls=
+         1795289041.639 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=229 type=callback channels=[] raw=". They are the" toolCalls=
+         1795289041.872 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=230 type=callback channels=[] raw=" national symbol" toolCalls=
+         1795289042.099 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=231 type=callback channels=[] raw=" of the country." toolCalls=
+         1795289042.332 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=232 type=callback channels=[] raw="\n3." toolCalls=
+         1795289042.547 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=233 type=callback channels=[] raw=" They are" toolCalls=
+         1795289042.750 31739 32675 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=234 type=callback channels=[] raw=" strictly protected." toolCalls=
+         1795289042.754 31739 32737 D LiteRtInferenceEngine: generation_diagnostic generation_id=714ace7f-1-g1 send_attempt=1 stage=initial_prompt event=on_done tool_response_pending=false
+         1795289042.754 31739 32737 I LiteRtInferenceEngine: LiteRT benchmark: init=36.848852797s, TTFT=6.023994706s, prefill=2559 tokens @ 429.46448316968036 tokens/s, decode=617 tokens @ 15.28790945988029 tokens/s [backend=GPU]
+         1795289042.754 31739 32737 I LiteRtInferenceEngine: Generation complete: total=46332ms, TTFT=42548ms, visibleChunks=20 [backend=GPU]
+         1795289042.754 31739 32737 D LiteRtInferenceEngine: event_seq: 714ace7f-1-g1 seq=235 type=complete callbacks=20 thinkingChars=2236
+         1795289042.754 31739 32737 D LiteRtInferenceEngine: VoiceTiming lastToken epochMs=1795289042754
+         1795289042.755 31739 31739 D KernelAI: llm_tools_tool_sequence: attempt=none turn=none terminal=none
+         1795289042.755 31739 31739 D KernelAI: thinking_save: thinkingLen=2236, contentLen=214
+         1795289042.755 31739 31739 D KernelAI: llm_tools_assistant_reply: len=214
+         1795289042.791 31739 31739 D VoiceTiming: firstChunkQueued epochMs=1795289042791 chars=56
+         1795289042.937 31739 31911 I VoiceTiming: synth token=7 chunk=0 chars=56 sid=0 startEpochMs=1795289040317 endEpochMs=1795289042937 synthMs=2620 audioMs=4020 rtf=0.65
+         1795289042.937 31739  2482 I KernelAI: SpeakingStarted engine=sherpa chars=56 epochMs=1795289042937
+         1795289042.939 31739  2482 I VoiceTiming: playStart token=7 chunk=0 epochMs=1795289042939
+         1795289046.455 31739 31911 I VoiceTiming: synth token=7 chunk=1 chars=77 sid=0 startEpochMs=1795289042937 endEpochMs=1795289046455 synthMs=3518 audioMs=4727 rtf=0.74
+         1795289047.107 31739  2482 I VoiceTiming: playEnd token=7 chunk=0 epochMs=1795289047107
+         1795289047.107 31739  2482 I VoiceTiming: playStart token=7 chunk=1 epochMs=1795289047107 gapMs=0
+         1795289048.962 31739 31911 I VoiceTiming: synth token=7 chunk=2 chars=73 sid=0 startEpochMs=1795289046455 endEpochMs=1795289048962 synthMs=2507 audioMs=3824 rtf=0.66
+         1795289051.988 31739  2482 I VoiceTiming: playEnd token=7 chunk=1 epochMs=1795289051988
+         1795289051.988 31739  2482 I VoiceTiming: playStart token=7 chunk=2 epochMs=1795289051988 gapMs=0
+         1795289055.929 31739  2482 I VoiceTiming: playEnd token=7 chunk=2 epochMs=1795289055929

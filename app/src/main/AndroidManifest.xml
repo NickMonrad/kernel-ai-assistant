@@ -166,6 +166,12 @@
             android:name=".alarm.ClockAlertService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <!-- Short-lived service keeps local speech synthesis foreground-scheduled during playback. -->
+        <service
+            android:name=".speech.SpeechPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
 
         <!-- Fires when a scheduled exact alarm triggers (#327) -->
         <receiver

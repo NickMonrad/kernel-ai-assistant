@@ -1,0 +1,2 @@
+# #2013 review follow-up (S23U): native with segments kept on error.
+native - - default all owner

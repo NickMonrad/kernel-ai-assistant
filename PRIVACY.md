@@ -12,7 +12,7 @@ Jandal's language-model inference uses models running on your device; the app do
 
 ### Speech, microphone, and wake word
 
-Speech features require microphone access. Sherpa-ONNX speech recognition processes audio with local models. Android native speech recognition uses the device's on-device recognizer. By default, Jandal does not fall back to the recognition provider configured on the device. If you turn on **Use online speech recognition** in Settings › Voice, Jandal uses Android speech recognition: voice commands retry with that provider when on-device recognition fails, and Hey Jandal and alarm commands use it directly. The provider may send audio over the network; the actual backend and processing then depend on the device and provider, and Jandal does not control or verify that provider's processing, retention, or deletion practices.
+Speech features require microphone access. Sherpa-ONNX speech recognition processes audio with local models, and Jandal can also use a local asr4all model, downloaded on demand, for offline speech recognition. Android native speech recognition uses the device's on-device recognizer. By default, Jandal does not fall back to the recognition provider configured on the device. If you turn on **Use online speech recognition** in Settings › Voice, Jandal uses Android speech recognition: voice commands retry with that provider when on-device recognition fails, and Hey Jandal and alarm commands use it directly. The provider may send audio over the network; the actual backend and processing then depend on the device and provider, and Jandal does not control or verify that provider's processing, retention, or deletion practices.
 
 If you enable **Listen for Hey Jandal**, the app keeps a microphone foreground service active and analyses audio on-device to detect the wake phrase. When the wake phrase is detected, Jandal starts a voice command using the selected speech-recognition engine. The selected engine therefore determines whether command audio may be handled by an Android-provided recognition service. You can turn off the wake-word feature in the app and revoke microphone permission in Android settings.
 
@@ -84,4 +84,4 @@ This policy may be updated when Jandal's features or the services it connects to
 
 Jandal AI is open-source software developed at [github.com/NickMonrad/kernel-ai-assistant](https://github.com/NickMonrad/kernel-ai-assistant). For privacy questions or requests, email **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)**.
 
-_Effective date: 14 November 2026._
+_Effective date: 20 November 2026._

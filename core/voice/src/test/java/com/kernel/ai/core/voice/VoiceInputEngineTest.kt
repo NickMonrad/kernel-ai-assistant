@@ -58,4 +58,25 @@ class VoiceInputEngineTest {
             VoiceDefaultsProvisioner.legacyVoskDirsToDelete(listOf(withVosk, otherVoice, noVoice)),
         )
     }
+    @Test
+    fun `release catalogue contains Android native and asr4all input`() {
+        assertEquals(
+            listOf(VoiceInputEngine.AndroidNative, VoiceInputEngine.Asr4all),
+            VoiceInputEngine.entriesForBuild(isRelease = true),
+        )
+    }
+
+    @Test
+    fun `release resolves stored Sherpa and Automatic choices to Android native`() {
+        assertEquals(VoiceInputEngine.AndroidNative, VoiceInputEngine.resolveForBuild("Auto", isRelease = true))
+        assertEquals(
+            VoiceInputEngine.AndroidNative,
+            VoiceInputEngine.resolveForBuild("SherpaZipformer", isRelease = true),
+        )
+    }
+
+    @Test
+    fun `debug catalogue keeps existing speech engines`() {
+        assertEquals(VoiceInputEngine.entries, VoiceInputEngine.entriesForBuild(isRelease = false))
+    }
 }

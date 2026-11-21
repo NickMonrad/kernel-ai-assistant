@@ -20,6 +20,9 @@ import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import com.kernel.ai.core.voice.Asr4allSizeSwitcher
 import com.kernel.ai.core.voice.kernelModels
 import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -40,8 +43,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
@@ -79,6 +82,13 @@ data class KokoroVoiceRowUiState(
 data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
     val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Auto,
+    val availableInputEngines: List<VoiceInputEngine> = VoiceInputEngine.entries,
+    val asr4allSize: Asr4AllSize = Asr4AllInstall.defaultSize,
+    val asr4allSizes: List<Asr4AllSize> = listOf(Asr4AllInstall.defaultSize),
+    /** The size being downloaded before it replaces [asr4allSize]; null when no switch is pending. */
+    val asr4allPendingSize: Asr4AllSize? = null,
+    /** The message of the last failed size switch. Shown under the asr4all card whatever the card's state. */
+    val asr4allSwitchFailure: String? = null,
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
@@ -255,6 +265,7 @@ class VoiceViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController,
     private val piperVoiceSetup: PiperVoiceSetup,
+    private val asr4allSizeSwitcher: Asr4allSizeSwitcher,
 ) : ViewModel() {
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
@@ -266,6 +277,7 @@ class VoiceViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(
         VoiceUiState(
+            availableInputEngines = VoiceInputEngine.entriesForBuild(isReleaseBuild),
             availableOutputEngines = VoiceOutputEngine.entriesForBuild(
                 isRelease = isReleaseBuild,
                 inflectEligible = inflectReleaseEligible,
@@ -456,11 +468,21 @@ class VoiceViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            voiceInputPreferences.asr4allSize.collect { stored ->
+                val tier = hardwareProfileDetector.profile.tier
+                _uiState.update {
+                    it.copy(
+                        asr4allSize = Asr4AllInstall.effectiveSize(stored, tier),
+                        asr4allSizes = Asr4AllInstall.selectableSizes(tier),
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
             wakeWordPreferences.heyJandalEnabled.collect { enabled ->
                 _uiState.update { it.copy(heyJandalEnabled = enabled) }
                 if (enabled) {
-                    // Ensure the selected online STT model is downloaded for wake-word verification.
-                    queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager)
+                    queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager, isReleaseBuild)
                 }
             }
         }
@@ -471,10 +493,16 @@ class VoiceViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
         viewModelScope.launch {
-            modelDownloadManager.downloadStates.collect { states ->
-                val perFamilyStates = SherpaSttModelSpec.ALL.mapValues { (engine, spec) ->
-                    computeDownloadState(spec, states)
-                }
+            combine(modelDownloadManager.downloadStates, voiceInputPreferences.asr4allSize, asr4allSizeSwitcher.state) { states, stored, switchState ->
+                Triple(states, Asr4AllInstall.effectiveSize(stored, hardwareProfileDetector.profile.tier), switchState)
+            }.collect { (states, asr4allSize, switchState) ->
+                val pendingSize = switchState.pendingSize
+                val perFamilyStates = (SherpaSttModelSpec.ALL.mapValues { (_, spec) ->
+                    computeDownloadState(
+                        spec.requiredFileNames.mapNotNull { fileName -> KernelModel.entries.firstOrNull { it.fileName == fileName } },
+                        states,
+                    )
+                }) + (VoiceInputEngine.Asr4all to computeDownloadState(Asr4AllInstall.models(pendingSize ?: asr4allSize), states))
                 val inflectStates = inflectModels.associateWith { model ->
                     states[model] ?: DownloadState.NotDownloaded
                 }
@@ -494,6 +522,8 @@ class VoiceViewModel @Inject constructor(
                         inflectMicroStates = inflectStates,
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
+                        asr4allPendingSize = pendingSize,
+                        asr4allSwitchFailure = switchState.failure?.message,
                         sherpaSttStates = perFamilyStates,
                     )
                 }
@@ -505,12 +535,9 @@ class VoiceViewModel @Inject constructor(
      * Computes a [SherpaSttDownloadState] from the download states of the required models.
      */
     private fun computeDownloadState(
-        spec: SherpaSttModelSpec,
+        requiredModels: List<KernelModel>,
         states: Map<KernelModel, DownloadState>,
     ): SherpaSttDownloadState {
-        val requiredModels = spec.requiredFileNames.mapNotNull { fileName ->
-            KernelModel.entries.firstOrNull { it.fileName == fileName }
-        }
         val allDownloaded = requiredModels.all { states[it] is DownloadState.Downloaded }
         val anyDownloading = requiredModels.any { states[it] is DownloadState.Downloading }
         val totalBytes = requiredModels.sumOf { it.approxSizeBytes }.toFloat()
@@ -544,22 +571,26 @@ class VoiceViewModel @Inject constructor(
     }
 
     private fun heyJandalDownloadBytes(input: VoiceInputEngine, states: Map<KernelModel, DownloadState>): Long =
-        heyJandalDownloadModels(input)
+        heyJandalDownloadModels(input, isReleaseBuild)
             .filterNot { states[it] is DownloadState.Downloaded }
             .sumOf { it.approxSizeBytes }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
-        _uiState.update { it.copy(selectedInputEngine = engine) }
+        val effective = engine.takeIf { it in _uiState.value.availableInputEngines }
+            ?: VoiceInputEngine.AndroidNative
+        _uiState.update { it.copy(selectedInputEngine = effective) }
         viewModelScope.launch {
-            voiceInputPreferences.setSelectedEngine(engine)
+            voiceInputPreferences.setSelectedEngine(effective)
         }
     }
 
-    private fun modelsForSpec(spec: SherpaSttModelSpec): List<KernelModel> = spec.kernelModels()
+    private fun modelsFor(engine: VoiceInputEngine): List<KernelModel> =
+        if (engine == VoiceInputEngine.Asr4all) Asr4AllInstall.models(asr4allSizeSwitcher.state.value.pendingSize ?: _uiState.value.asr4allSize)
+        else SherpaSttModelSpec.forEngine(engine)?.kernelModels().orEmpty()
 
     fun downloadSherpaStt(engine: VoiceInputEngine) {
-        val spec = SherpaSttModelSpec.forEngine(engine) ?: return
-        modelsForSpec(spec).forEach { modelDownloadManager.startDownload(it) }
+        if (isReleaseBuild && engine.isSherpaFamily) return
+        modelsFor(engine).forEach { modelDownloadManager.startDownload(it) }
     }
 
     fun downloadInflectMicro() {
@@ -622,28 +653,37 @@ class VoiceViewModel @Inject constructor(
 
 
     fun cancelSherpaSttDownload(engine: VoiceInputEngine) {
-        val spec = SherpaSttModelSpec.forEngine(engine) ?: return
+        if (engine == VoiceInputEngine.Asr4all) asr4allSizeSwitcher.cancel()
         val currentStates = modelDownloadManager.downloadStates.value
-        modelsForSpec(spec)
+        modelsFor(engine)
             .filter { currentStates[it] is DownloadState.Downloading }
             .forEach { modelDownloadManager.cancelDownload(it) }
     }
 
     fun deleteSherpaStt(engine: VoiceInputEngine) {
         viewModelScope.launch(Dispatchers.IO) {
-            val spec = SherpaSttModelSpec.forEngine(engine) ?: return@launch
-            modelsForSpec(spec).forEach { model ->
-                val file = model.localFile(context)
-                file.delete()
-                val tmp = java.io.File(file.absolutePath + ".tmp")
-                if (tmp.exists()) tmp.delete()
-                modelDownloadManager.refreshState(model)
+            if (engine == VoiceInputEngine.Asr4all) {
+                // The switcher deletes the active size under an engine release. False means the capture
+                // could not be released: nothing was deleted, so the engine stays selected.
+                if (!asr4allSizeSwitcher.deleteActive()) return@launch
+            } else {
+                deleteModelFiles(modelsFor(engine))
             }
             if (_uiState.value.selectedInputEngine == engine) {
                 withContext(Dispatchers.Main) {
                     setVoiceInputEngine(VoiceInputEngine.Auto)
                 }
             }
+        }
+    }
+
+    private fun deleteModelFiles(models: List<KernelModel>) {
+        models.forEach { model ->
+            val file = model.localFile(context)
+            file.delete()
+            val tmp = java.io.File(file.absolutePath + ".tmp")
+            if (tmp.exists()) tmp.delete()
+            modelDownloadManager.refreshState(model)
         }
     }
 
@@ -767,6 +807,12 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Chooses the asr4all size. [Asr4allSizeSwitcher] downloads it while the active size stays selected,
+     * and stores it once every file is present.
+     */
+    fun setAsr4allSize(size: Asr4AllSize) = asr4allSizeSwitcher.select(size)
+
     fun setAutoStartAlertVoiceCommandsEnabled(enabled: Boolean) {
         _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
         viewModelScope.launch {
@@ -786,6 +832,7 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun downloadKokoroVoice(voice: SherpaKokoroVoice) {
+        if (isReleaseBuild) return
         sherpaVoicePackDownloadManager.startKokoroDownload(voice)
     }
 
@@ -809,7 +856,7 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             wakeWordPreferences.setHeyJandalEnabled(enabled)
             if (enabled) {
-                queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager)
+                queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager, isReleaseBuild)
             }
         }
     }

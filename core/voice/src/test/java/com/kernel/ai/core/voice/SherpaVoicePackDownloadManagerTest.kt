@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test
 class SherpaVoicePackDownloadManagerTest {
 
     @Test
-    fun `canDownloadVoice allows release-visible voice in release build`() {
+    fun `canDownloadVoice allows Cori in release build`() {
         assertTrue(SherpaVoicePackDownloadManager.canDownloadVoice(
             isReleaseBuild = true,
             voice = SherpaPiperVoice.CoriHigh,
@@ -41,7 +41,7 @@ class SherpaVoicePackDownloadManagerTest {
     }
 
     @Test
-    fun `canDownloadVoice allows release-visible voice in debug build`() {
+    fun `canDownloadVoice allows Cori in debug build`() {
         assertTrue(SherpaVoicePackDownloadManager.canDownloadVoice(
             isReleaseBuild = false,
             voice = SherpaPiperVoice.CoriHigh,

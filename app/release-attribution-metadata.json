@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "local_dependencies": [
+    {
+      "component_id": "file:third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar",
+      "artifact_path": "third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar",
+      "artifact_sha256": "46a8e806833066bc657d8508e66e35dae8b1a04dff207ebd8538517d58b6567d",
+      "source_component": "Jandal custom Sherpa-ONNX v1.13.0 Inflect AAR (sherpa-onnx b0592803 with Inflect patch; eSpeak-ng f6fed6c5; piper-phonemize 78a788e0); corresponding source third_party/sherpa-onnx/sherpa-onnx-v1.13.0-inflect-source-inputs.tar.gz",
+      "license_expression": "Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND GPL-3.0-or-later AND MIT AND MPL-2.0 AND Unicode-DFS-2016 AND Unlicense",
+      "license_status": "reviewed",
+      "required_notice": "app/src/main/assets/legal/sherpa-onnx-1.13.0-inflect-third-party-notices.txt"
+    }
+  ],
+  "native_libraries": [
+    {
+      "name": "libLiteRt.so",
+      "source_component": "com.google.ai.edge.litert:litert:2.1.0 (published Android AAR)",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libLiteRtOpenClAccelerator.so",
+      "source_component": "com.google.ai.edge.litert:litert:2.1.0 (published Android AAR)",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libandroidx.graphics.path.so",
+      "source_component": "androidx.graphics:graphics-path:1.0.1 (published Android AAR)",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libc++_shared.so",
+      "source_component": "Android NDK r28c (28.2.13676358) libc++; AAB matches NDK llvm-strip --strip-unneeded output",
+      "license_expression": "Apache-2.0 WITH LLVM-exception",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libdatastore_shared_counter.so",
+      "source_component": "androidx.datastore:datastore-core-android:1.1.4 (published Android AAR)",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libkernelvec.so",
+      "source_component": "Jandal kernel_vec_jni.cpp + sqlite-vec 0.1.9 + SQLite 3.49.2",
+      "license_expression": "Apache-2.0 AND (MIT OR Apache-2.0) AND LicenseRef-SQLite-Public-Domain",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "liblitertlm_jni.so",
+      "source_component": "com.google.ai.edge.litertlm:litertlm-android:0.19.1 (published Android AAR)",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libonnxruntime.so",
+      "source_component": "com.microsoft.onnxruntime:onnxruntime-android:1.24.3 (matched to Microsoft.ML.OnnxRuntime 1.24.3 Android JNI payload)",
+      "license_expression": "MIT",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libonnxruntime4j_jni.so",
+      "source_component": "com.microsoft.onnxruntime:onnxruntime-android:1.24.3 (matched to Microsoft.ML.OnnxRuntime 1.24.3 Android JNI payload)",
+      "license_expression": "MIT",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libexecutorch.so",
+      "source_component": "org.pytorch:executorch-android:1.5.1 (published Android AAR; ExecuTorch v1.5.1 with the LLM tokenizers and XNNPACK statically linked; third-party components listed in executorch-1.5.1-third-party-notices.txt)",
+      "license_expression": "BSD-3-Clause AND Apache-2.0 AND MIT AND MPL-2.0 AND BSD-3-Clause WITH PCRE2-exception",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libfbjni.so",
+      "source_component": "com.facebook.fbjni:fbjni:0.7.0 (published Android AAR)",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libsherpa-onnx-jni.so",
+      "source_component": "Jandal custom Sherpa-ONNX v1.13.0 Inflect AAR jni/<abi>/libsherpa-onnx-jni.so (arm64-v8a, armeabi-v7a, x86, x86_64); eSpeak-ng GPL-3.0-or-later statically linked; c-api and cxx-api libraries are excluded from the bundle",
+      "license_expression": "Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND GPL-3.0-or-later AND MIT AND MPL-2.0 AND Unicode-DFS-2016 AND Unlicense",
+      "license_status": "reviewed"
+    }
+  ],
+  "native_notice_assets": {
+    "litert-2.1.0-licence.txt": "71c6915d04265772a0339bed47276942c678b45cc01534210ebe6984fd1aec65",
+    "litert-lm-0.19.1-third-party-notices.txt": "5002d7ae99d7bfa56b8a97490fc05e6f65cbc97061333aa0e672654bedd7a4b1",
+    "ndk-r28c-libcxx-licence.txt": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
+    "ndk-r28c-libcxxabi-licence.txt": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
+    "onnxruntime-1.24.3-licence.txt": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+    "onnxruntime-1.24.3-third-party-notices.txt": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
+    "executorch-1.5.1-licence.txt": "c58707ea5d5c0ee17af7e16f1377e4d31ad1533492ab0bf9b87ebd9f718f9e7b",
+    "executorch-1.5.1-third-party-notices.txt": "4b7d6714fa03137e41bcd65a611009c1ba100335815ddb46d12b2c6809be159f",
+    "fbjni-0.7.0-licence.txt": "f62d190c08e2b300b45780f0b3cabcacc78d0e373f7a0de79d31f82b084d35ea",
+    "sherpa-onnx-1.13.0-inflect-third-party-notices.txt": "d7c46702a4bf7613738dc1e5464975f51d7a1327512ae1e362f4cd8ab40d866c",
+    "openwakeword-0.5.1-notices.txt": "e4d2610b04bcc7c1cbac038a4e881f66be59693fa1893092b669c9d9a16986c9",
+    "cc-by-nc-sa-4.0-legalcode.txt": "e66c269d4819aaab34b49ef5220c4ddab6756f21bb5180761a4eb8561f2b7bbd"
+  },
+  "wake_word_assets": [
+    {
+      "name": "melspectrogram.onnx",
+      "artifact_sha256": "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f",
+      "license_expression": "CC-BY-NC-SA-4.0",
+      "license_status": "reviewed",
+      "source_component": "dscripka/openWakeWord v0.5.1 (commit 1eec2158c5c54150ac5f4c15065adacb1003b1e7) release asset; unmodified"
+    },
+    {
+      "name": "embedding_model.onnx",
+      "artifact_sha256": "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
+      "license_expression": "CC-BY-NC-SA-4.0",
+      "license_status": "reviewed",
+      "source_component": "dscripka/openWakeWord v0.5.1 (commit 1eec2158c5c54150ac5f4c15065adacb1003b1e7) release asset; unmodified"
+    },
+    {
+      "name": "hey_jandal.onnx",
+      "artifact_sha256": "11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206",
+      "license_expression": "CC-BY-NC-SA-4.0",
+      "license_status": "reviewed",
+      "source_component": "Jandal-trained Stage 3 classifier over the openWakeWord Stage 1/2 backbone (training/wakeword)"
+    }
+  ]
+}

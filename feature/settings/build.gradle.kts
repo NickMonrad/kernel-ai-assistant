@@ -28,6 +28,13 @@ android {
         unitTests.isReturnDefaultValues = true
         unitTests.all { it.useJUnitPlatform() }
     }
+    // The androidTest APK carries :core:memory and :core:voice → :core:executorch (fbjni), which
+    // both ship libc++_shared.so; keep :core:memory's copy, as :app does (see app/build.gradle.kts).
+    packaging {
+        jniLibs {
+            pickFirsts += setOf("lib/arm64-v8a/libc++_shared.so", "lib/x86_64/libc++_shared.so")
+        }
+    }
 }
 
 dependencies {
@@ -69,6 +76,7 @@ dependencies {
         exclude(group = "org.junit.jupiter")
         exclude(group = "org.junit.platform")
     }
+    implementation(libs.aboutlibraries.compose.m3)
     implementation(libs.coil.compose)
 
     implementation(libs.datastore.preferences)

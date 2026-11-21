@@ -79,6 +79,7 @@ class SpeechRecognitionSectionTest {
                     onDownload = {},
                     onCancel = {},
                     onDelete = {},
+                    onAsr4allSize = {},
                 )
             }
         }

@@ -28,6 +28,14 @@ interface VoiceOutputStreamingSession {
     suspend fun cancel() {
         append("", isFinal = true)
     }
+
+    /**
+     * Starts playback of a session from [VoiceOutputController.openPreSynthesisedSession] (#1923). [request]
+     * supplies the text SpeakingStarted reports: the full reply, not the blank open request. Returns false when
+     * playback can no longer start (the held audio was cancelled or failed to synthesise), so the caller must
+     * speak the reply another way. Default: false, for sessions that are not held.
+     */
+    suspend fun release(request: VoiceSpeakRequest): Boolean = false
 }
 
 sealed interface VoiceOutputResult {
@@ -76,6 +84,14 @@ interface VoiceOutputController {
     suspend fun openStreamingSession(
         request: VoiceSpeakRequest = VoiceSpeakRequest(text = ""),
     ): VoiceOutputStreamingSession = BufferedVoiceOutputStreamingSession(this, request)
+
+    /**
+     * Opens a streaming session whose first chunk is synthesised before the reply is confirmed (#1923). The
+     * first chunk is not played until [VoiceOutputStreamingSession.release]; [VoiceOutputStreamingSession.cancel]
+     * before that discards it without emitting [VoiceOutputEvent.SpeakingStopped]. Null when this backend cannot
+     * synthesise ahead, so the caller speaks on confirmation as before.
+     */
+    suspend fun openPreSynthesisedSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession? = null
 
     fun stop()
 

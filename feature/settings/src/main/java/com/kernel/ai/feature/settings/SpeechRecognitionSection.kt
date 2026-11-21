@@ -14,6 +14,7 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -45,6 +46,7 @@ import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.androidNativeWarning
@@ -65,10 +67,13 @@ internal fun SpeechRecognitionSection(
     onDownload: (VoiceInputEngine) -> Unit,
     onCancel: (VoiceInputEngine) -> Unit,
     onDelete: (VoiceInputEngine) -> Unit,
+    onAsr4allSize: (Asr4AllSize) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var onlineSheetOpen by rememberSaveable { mutableStateOf(false) }
-    val zipformerDownloaded = uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
+    val zipformerAvailable = VoiceInputEngine.SherpaZipformer in uiState.availableInputEngines
+    val zipformerDownloaded = zipformerAvailable &&
+        uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
     val accentOutlinedColors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent)
     val accentTextColors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent)
 
@@ -78,13 +83,13 @@ internal fun SpeechRecognitionSection(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
         ChoiceGroup(
-            count = VoiceInputEngine.entries.size,
+            count = uiState.availableInputEngines.size,
             modifier = Modifier.padding(horizontal = 16.dp),
         ) {
-            VoiceInputEngine.entries.forEachIndexed { index, engine ->
+            uiState.availableInputEngines.forEachIndexed { index, engine ->
                 val selected = uiState.selectedInputEngine == engine
                 val sttState = uiState.sherpaSttStates[engine]
-                val isReady = !engine.isSherpaFamily || sttState?.isDownloaded == true
+                val isReady = !engine.hasDownloadableModel || sttState?.isDownloaded == true
                 val nativeWarning = if (engine == VoiceInputEngine.AndroidNative && selected) {
                     androidNativeSettingsWarning(
                         blockingMessage = uiState.androidNativeAvailabilityMessage,
@@ -92,17 +97,18 @@ internal fun SpeechRecognitionSection(
                         localeReady = uiState.androidNativeLocaleReady,
                         onlineAllowed = uiState.allowOnlineSpeechFallback,
                         zipformerDownloaded = zipformerDownloaded,
+                        zipformerAvailable = zipformerAvailable,
                     )
                 } else {
                     null
                 }
                 val engineWarning = if (engine != VoiceInputEngine.AndroidNative && selected) engine.warning else null
                 val showOnline = onlineSpeechToggleVisible(selected = uiState.selectedInputEngine, row = engine)
-                val showDownloadCard = engine.isSherpaFamily && sttState != null && (!sttState.isDownloaded || selected)
+                val showDownloadCard = engine.hasDownloadableModel && sttState != null && (!sttState.isDownloaded || selected)
                 val hasSub = nativeWarning != null || engineWarning != null || showOnline || showDownloadCard
                 val tag: (@Composable () -> Unit)? = if (engine == VoiceInputEngine.Auto) {
                     { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
-                } else if (sttState != null && engine.isSherpaFamily) {
+                } else if (sttState != null && engine.hasDownloadableModel) {
                     {
                         if (sttState.isDownloaded) {
                             StatusChip(status = ChipStatus.On, label = "Downloaded")
@@ -117,11 +123,13 @@ internal fun SpeechRecognitionSection(
                     {
                         if (nativeWarning != null) {
                             VoiceWarningCard(message = nativeWarning)
-                            TextButton(
-                                onClick = { onSelect(VoiceInputEngine.Auto) },
-                                colors = accentTextColors,
-                            ) {
-                                Text("Use Automatic")
+                            if (VoiceInputEngine.Auto in uiState.availableInputEngines) {
+                                TextButton(
+                                    onClick = { onSelect(VoiceInputEngine.Auto) },
+                                    colors = accentTextColors,
+                                ) {
+                                    Text("Use Automatic")
+                                }
                             }
                         }
                         if (engineWarning != null) {
@@ -142,6 +150,13 @@ internal fun SpeechRecognitionSection(
                             )
                         }
                         if (showDownloadCard) {
+                            if (engine == VoiceInputEngine.Asr4all) {
+                                Asr4AllSizeRow(
+                                    selected = uiState.asr4allPendingSize ?: uiState.asr4allSize,
+                                    sizes = uiState.asr4allSizes,
+                                    onSelect = onAsr4allSize,
+                                )
+                            }
                             val spec = SherpaSttModelSpec.forEngine(engine)
                             ModelCardCompact(
                                 title = spec?.displayLabel ?: engine.displayName,
@@ -149,6 +164,16 @@ internal fun SpeechRecognitionSection(
                                 state = sttState.toModelAvailability(),
                                 modifier = Modifier.padding(vertical = 4.dp),
                             )
+                            if (engine == VoiceInputEngine.Asr4all) {
+                                uiState.asr4allSwitchFailure?.let { message ->
+                                    Text(
+                                        text = message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(vertical = 4.dp),
+                                    )
+                                }
+                            }
                             when {
                                 sttState.isDownloading -> {
                                     OutlinedButton(
@@ -222,6 +247,26 @@ internal fun SpeechRecognitionSection(
     }
 }
 
+@Composable
+private fun Asr4AllSizeRow(
+    selected: Asr4AllSize,
+    sizes: List<Asr4AllSize>,
+    onSelect: (Asr4AllSize) -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(vertical = 4.dp),
+    ) {
+        sizes.forEach { size ->
+            FilterChip(
+                selected = size == selected,
+                onClick = { onSelect(size) },
+                label = { Text(if (size == Asr4AllSize.L) "L · about 101 MB" else "M · about 60 MB") },
+            )
+        }
+    }
+}
+
 /** One-line card descriptions from the Voice settings mockup (05-settings-voice.html), keeping each meaning. */
 private fun shortDescription(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.Auto -> "Picks the best recognizer on this phone. Works offline."
@@ -230,6 +275,7 @@ private fun shortDescription(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.SherpaSenseVoice -> "Offline, English. Final result only."
     VoiceInputEngine.SherpaWhisper -> "Offline, English only."
     VoiceInputEngine.SherpaParaformer -> "Offline, shows words as you speak."
+    VoiceInputEngine.Asr4all -> "Offline, shows words as you speak. Experimental."
 }
 
 /**
@@ -243,11 +289,15 @@ private fun androidNativeSettingsWarning(
     localeReady: Boolean,
     onlineAllowed: Boolean,
     zipformerDownloaded: Boolean,
+    zipformerAvailable: Boolean,
 ): String? {
-    val fallback = if (zipformerDownloaded) {
-        "Sherpa-ONNX Zipformer is downloaded and is used if Android speech fails to start or stalls."
-    } else {
-        "Download Sherpa-ONNX Zipformer below as an offline fallback."
+    val fallback = when {
+        zipformerDownloaded ->
+            "Sherpa-ONNX Zipformer is downloaded and is used if Android speech fails to start or stalls."
+        zipformerAvailable ->
+            "Download Sherpa-ONNX Zipformer below as an offline fallback."
+        else ->
+            "This release uses Android speech recognition without a Sherpa fallback."
     }
     val capabilityWarning = capabilities?.let {
         androidNativeWarning(it, localeReady, onlineAllowed || zipformerDownloaded)
@@ -327,6 +377,7 @@ private fun SectionPreview(uiState: VoiceUiState) {
                 onDownload = {},
                 onCancel = {},
                 onDelete = {},
+                onAsr4allSize = {},
             )
         }
     }

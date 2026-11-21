@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- The ExecuTorch 1.5.1 AAR manifest declares its own test runner (targetPackage
+         org.pytorch.executorch); keep it out of the app manifest. -->
+    <instrumentation
+        android:name="androidx.test.runner.AndroidJUnitRunner"
+        tools:node="remove" />
+</manifest>

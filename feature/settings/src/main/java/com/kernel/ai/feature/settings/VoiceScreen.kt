@@ -330,6 +330,7 @@ fun VoiceScreen(
         onDownloadSherpaStt = viewModel::downloadSherpaStt,
         onCancelSherpaStt = viewModel::cancelSherpaSttDownload,
         onDeleteSherpaStt = viewModel::deleteSherpaStt,
+        onAsr4allSizeSelected = viewModel::setAsr4allSize,
         onDownloadSherpaVoice = viewModel::downloadSherpaVoice,
         onCancelSherpaVoice = viewModel::cancelSherpaVoiceDownload,
         onDeleteSherpaVoice = viewModel::deleteSherpaVoice,
@@ -538,6 +539,7 @@ private fun VoiceScreenContent(
     onDownloadSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onCancelSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onDeleteSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
+    onAsr4allSizeSelected: (com.kernel.ai.core.voice.asr4all.Asr4AllSize) -> Unit = { _ -> },
     onDownloadSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onCancelSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
@@ -628,7 +630,7 @@ private fun VoiceScreenContent(
                     }
                     Text(
                         when {
-                            !uiState.isWakeWordModelAvailable -> "Wake word model not yet available — model training in progress (#984)"
+                            !uiState.isWakeWordModelAvailable -> "Wake word model unavailable in this build: its assets are excluded pending licence resolution."
                             !uiState.isDefaultAssistant -> "Set Jandal as default assistant first for reliable background mic access."
                             else -> "Say \"Hey Jandal\" to start talking, hands-free."
                         } + sizeLine,
@@ -675,6 +677,7 @@ private fun VoiceScreenContent(
                 onDownload = onDownloadSherpaStt,
                 onCancel = onCancelSherpaStt,
                 onDelete = onDeleteSherpaStt,
+                onAsr4allSize = onAsr4allSizeSelected,
             )
 
 

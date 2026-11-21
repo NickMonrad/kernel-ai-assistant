@@ -1,0 +1,32 @@
+THERMAL before base-1: 2
+Success
+    lastUpdateTime=2026-11-22 05:40:40
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+il-base-1-warmup speaking=yes lines=3719
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+il-base-1-run1 speaking=yes lines=2734
+PHASE s21 il-base-1 exit=0
+THERMAL before pre-1: 2
+Success
+    lastUpdateTime=2026-11-22 05:44:14
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+il-pre-1-warmup speaking=yes lines=3802
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+il-pre-1-run1 speaking=yes lines=1719
+PHASE s21 il-pre-1 exit=0
+THERMAL before base-2: 2
+Success
+    lastUpdateTime=2026-11-22 05:47:39
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+il-base-2-warmup speaking=yes lines=4648
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+il-base-2-run1 speaking=yes lines=2364
+PHASE s21 il-base-2 exit=0
+THERMAL before pre-2: 2
+Success
+    lastUpdateTime=2026-11-22 05:51:14
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+il-pre-2-warmup speaking=yes lines=3816
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+il-pre-2-run1 speaking=yes lines=1920
+PHASE s21 il-pre-2 exit=0

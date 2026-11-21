@@ -20,6 +20,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.security.MessageDigest
 
 private const val TAG = "ModelDownloadWorker"
 private const val NOTIFICATION_CHANNEL_ID = "kernel_model_download"
@@ -38,6 +39,8 @@ const val KEY_ERROR = "error"
 const val KEY_ERROR_CODE = "error_code"
 /** Optional HuggingFace Bearer token — present when downloading a gated model. */
 const val KEY_HF_ACCESS_TOKEN = "hf_access_token"
+/** Optional pinned SHA-256 (lowercase or uppercase hex) of the finished file; a mismatch fails the download. */
+const val KEY_SHA256 = "sha256"
 
 /**
  * WorkManager [CoroutineWorker] that downloads one model or tokenizer asset.
@@ -76,6 +79,7 @@ class ModelDownloadWorker(
         val modelsDir = (applicationContext.getExternalFilesDir("models")
             ?: File(applicationContext.filesDir, "models")).also { it.mkdirs() }
         val outputFile = File(modelsDir, fileName)
+        outputFile.parentFile?.mkdirs()
         val tmpFile = File(modelsDir, "$fileName$TMP_SUFFIX")
 
         // Show initial foreground notification (best-effort — may fail if app is backgrounded
@@ -90,6 +94,7 @@ class ModelDownloadWorker(
                 totalBytes = totalBytes,
                 displayName = displayName,
                 hfAccessToken = hfAccessToken,
+                expectedSha256 = inputData.getString(KEY_SHA256),
             )
             Log.i(TAG, "Download complete: ${outputFile.absolutePath}")
             Result.success()
@@ -109,6 +114,7 @@ class ModelDownloadWorker(
         totalBytes: Long,
         displayName: String,
         hfAccessToken: String? = null,
+        expectedSha256: String? = null,
     ) {
         // Resume from partial download if tmp file exists
         val resumeFrom = tmpFile.length()
@@ -189,11 +195,33 @@ class ModelDownloadWorker(
         }
 
 
+        // Verify the pinned digest before the file becomes visible under its final name.
+        if (expectedSha256 != null) {
+            val actual = sha256Hex(tmpFile)
+            if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                tmpFile.delete()
+                throw IOException("SHA-256 mismatch for ${outputFile.name}")
+            }
+        }
+
         // Rename tmp → final file atomically
         if (outputFile.exists()) outputFile.delete()
         if (!tmpFile.renameTo(outputFile)) {
             throw IOException("Failed to rename temp file to ${outputFile.name}")
         }
+    }
+
+    private fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read == -1) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private suspend fun trySetForeground(info: ForegroundInfo) {

@@ -1,0 +1,89 @@
+## FUTO Model Weights License (Restricted Use) 1.0
+
+## Acceptance
+
+By using the FUTO Model Weights, you agree to all of the terms and conditions below.
+
+## Copyright License
+
+FUTO Holdings, Inc. (the "Licensor") grants you a non-exclusive, royalty-free, worldwide, non-sublicensable, non-transferable license to use, copy, distribute, make available, and prepare Derivative Models of the Weights for any purpose, in each case subject to the limitations below.
+
+To the extent any of the Weights are not subject to copyright protection, these terms constitute a binding agreement between you and the Licensor, enforceable under applicable contract law. These terms will be governed by and construed under the laws of the State of Texas, without regard to its conflict of law principles.
+
+## Limitations
+
+You may use the Weights or any Derivative Model for any purpose, including in commercial products and services, and no attribution is required for Model Outputs or for products and services built on the Weights, provided that you do not use the Weights, any Derivative Model, or any Model Outputs for any of the purposes listed below, and do not knowingly enable or supply them to anyone else for any of those purposes.
+
+- Surveillance. Bulk or untargeted monitoring, interception, recording, transcription, or analysis of people's speech or communications, meaning collection that is not limited to specific individuals identified on individualized grounds, including persistent monitoring of public spaces and building searchable repositories of people's speech for later querying. Whatever its scale, covert interception of a conversation you are not a party to, and building or searching a database of voiceprints in order to identify or track people, are also restricted. Transcribing, labeling, or identifying speakers in a conversation you are a party to, or in a recording you are authorized by a party to it to process, is not restricted, and neither is verifying a person against their own voiceprint for their own authentication or access.
+
+- Profiling and discrimination. Using a person's voice or speech to determine or infer their national origin, immigration or citizenship status, race, ethnicity, religion, political opinion, union activity, sexual orientation, gender identity, disability, or health condition, and collecting, logging, or retaining that inference, or using it to monitor, track, or single them out. This includes building or maintaining records, profiles, or labeling or flagging recordings, transcripts, or speakers on that basis; and monitoring, tracking, or targeting people, individually or as a group, on the basis of their inferred race, ethnicity, or background. Detecting the language, dialect, or accent being spoken in order to transcribe or translate it is not restricted.
+
+- Intelligence gathering. Use by or on behalf of an intelligence service, or as part of an intelligence program, to collect, process, exploit, or translate the speech or communications of people. Ordinary administrative, logistical, training, accessibility, and dictation use is not restricted, nor is disaster relief, search and rescue, humanitarian assistance, or medical care.
+
+- Monitoring people in custody. Monitoring, recording, transcribing, or analyzing the speech of people held in prisons, jails, immigration detention, police custody, or other confinement.
+
+- Targeting protected activity. Identifying, monitoring, intimidating, or retaliating against journalists, sources, whistleblowers, human rights defenders, activists, protesters, political opponents, or labor organizers, or interfering with lawful assembly, worship, organizing, or political activity, regardless of the viewpoint expressed.
+
+- Circumvention. Structuring, subcontracting, or mislabeling an activity, or routing the Weights, a Derivative Model, or Model Outputs through an intermediary, in order to evade these limitations.
+
+These limitations are directed at surveilling, identifying, sorting, and acting against people. They are not directed at accessibility and captioning, transcription that the speakers have consented to or that you are a party to, personal use, transcription of published or broadcast media, dictation and clinical documentation, emergency dispatch and disaster response, research, benchmarking, security research, bias and accuracy auditing, journalism, human rights documentation, or use by criminal defense counsel, civil rights litigants, and oversight bodies, including to document conduct that these limitations would otherwise prohibit. Those uses are permitted, as is commercial use generally. If you are unsure whether an intended use is restricted, or you want an exception, write to contact@futo.tech. The Licensor may grant written exceptions, which apply only to the recipient, scope, and period stated.
+
+Use in violation of these limitations is a material breach of these terms.
+
+You may not use the name, trademarks, service marks, or logos of FUTO for any purpose, including to endorse or promote Derivative Models or to suggest a relationship between you and FUTO beyond that of licensor and licensee.
+
+You may not alter, remove, or obscure any licensing, copyright, or other notices of the Licensor. Any use of the Licensor's trademarks is subject to applicable law.
+
+## Distribution of Derivative Models
+
+If you distribute a Derivative Model, you must ensure that anyone who receives it also receives a copy of these terms. If you make the Weights or a Derivative Model available as a hosted or embedded service, the terms under which you make it available must bind your users to the Limitations section above. You must include a prominent notice in the model card, README, or equivalent documentation stating that the model is derived from Asr4All and is subject to this license.
+
+If you modify the Weights, you must include in any distributed Derivative Model a prominent notice stating that you have modified them. You may not narrow or remove the Limitations section, though you may add limitations of your own. You may not use the name, trademarks, service marks, or logos of FUTO to endorse or promote Derivative Models or to suggest any sponsorship, affiliation, or endorsement by FUTO.
+
+## Excluded Materials
+
+These terms apply only to the Weights. Inference code, source code, and datasets distributed alongside the Weights are governed by their own separate licenses and are not subject to these terms.
+
+## Notices
+
+If you publish research results using the Weights, you must cite the Weights by the name "Asr4All Model" in your publication.
+
+## Fair Use
+
+You may have "fair use" rights for the Weights under the law. These terms do not limit them.
+
+## No Other Rights
+
+These terms do not allow you to sublicense or transfer any of your licenses to anyone else, or prevent the Licensor from granting licenses to anyone else. These terms do not imply any other licenses.
+
+## Patents
+
+If you make any written claim that the Weights infringe or contribute to infringement of any patent, your license for the Weights granted under these terms ends immediately. If your company makes such a claim, your license ends immediately for work on behalf of your company.
+
+## Termination
+
+If you use the Weights in violation of these terms, such use is not licensed, and your license will automatically terminate. If the Licensor provides you with a notice of your violation, and you cease all violation of this license no later than 30 days after you receive that notice, your license will be reinstated retroactively. However, if you violate these terms after such reinstatement, any additional violation of these terms will cause your license to terminate automatically and permanently.
+
+## No Liability
+
+As far as the law allows, the Weights come as is, without any warranty or condition, and the Licensor will not be liable to you for any damages arising out of these terms or the use or nature of the Weights, under any kind of legal claim.
+
+## Definitions
+
+- The "Licensor" is FUTO Holdings, Inc.
+
+- "Weights" means the trained model weights, parameters, configurations, and checkpoints the Licensor makes available under these terms, including any portion of them. Weights do not include inference code, source code, datasets, documentation, or evaluation artifacts, which are governed by their own separate licenses.
+
+- "Derivative Model" means any model created by fine-tuning, continued training, pruning, or otherwise modifying the Weights, any model that incorporates the Weights in whole or in part, or any model trained in whole or in part on Model Outputs of the Weights or any Derivative Model.
+
+- "Model Outputs" means any data generated by running inference with the Weights or any Derivative Model.
+
+- "You" refers to the individual or entity agreeing to these terms.
+
+- "Your company" is any legal entity, sole proprietorship, or other kind of organization that you work for, plus all organizations that have control over, are under the control of, or are under common control with that organization. Control means ownership of substantially all the assets of an entity, or the power to direct its management and policies by vote, contract, or otherwise. Control can be direct or indirect.
+
+- "Your license" is the license granted to you for the Weights under these terms.
+
+- "Use" means anything you do with the Weights requiring your license.
+
+- "Trademark" means trademarks, service marks, and similar rights.

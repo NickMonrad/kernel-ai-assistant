@@ -51,7 +51,7 @@ class SherpaPiperVoiceTest {
     }
 
     @Test
-    fun `only CoriHigh is releaseVisible`() {
+    fun `only Cori is releaseVisible in v0_1`() {
         val releaseVisibleVoices = SherpaPiperVoice.entries.filter { it.releaseVisible }
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), releaseVisibleVoices)
     }
@@ -63,8 +63,7 @@ class SherpaPiperVoiceTest {
     }
 
     @Test
-    fun `entriesForBuild release includes only CoriHigh`() {
+    fun `entriesForBuild release offers only Cori among Piper voices`() {
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), SherpaPiperVoice.entriesForBuild(true))
     }
-
-    }
+}

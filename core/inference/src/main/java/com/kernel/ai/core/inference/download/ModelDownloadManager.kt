@@ -308,6 +308,7 @@ class ModelDownloadManager @Inject constructor(
                     .putString(KEY_FILE_NAME, model.fileName)
                     .putString(KEY_MODEL_DISPLAY_NAME, model.displayName)
                     .putLong(KEY_TOTAL_BYTES, model.approxSizeBytes)
+                    .apply { model.sha256?.let { putString(KEY_SHA256, it) } }
 
                 // Attach HF access token for gated models so the worker can authenticate
                 if (model.isGated) {
