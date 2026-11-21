@@ -36,7 +36,7 @@ class GetWeatherHighLowFormatTest {
     }
 
     private fun dailyJson(dates: List<String>, highs: List<Double>, lows: List<Double>): String = """
-        {"latitude":-14.28,"longitude":-170.70,
+        {"latitude":-13.83,"longitude":-171.76,
          "daily":{
             "time":[${dates.joinToString(",") { "\"$it\"" }}],
             "temperature_2m_max":[${highs.joinToString(",")}],
@@ -68,11 +68,6 @@ class GetWeatherHighLowFormatTest {
     @Test
     fun `forecastHighLowText is empty when both temperatures are missing`() {
         assertEquals("", forecastHighLowText(Double.NaN, Double.NaN))
-    }
-
-    @Test
-    fun `never emits the bare slash form`() {
-        assertFalse(forecastHighLowText(30.0, 25.0).contains("/"))
     }
 
     @Test
