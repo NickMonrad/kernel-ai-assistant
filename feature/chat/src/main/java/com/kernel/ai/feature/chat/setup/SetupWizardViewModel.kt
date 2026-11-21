@@ -150,7 +150,7 @@ class SetupWizardViewModel @Inject constructor(
             val nativeReady = setupVoiceDevice.androidNativeInputReady()
             val isRelease = setupVoiceDevice.isReleaseBuild()
             releaseBuild = isRelease
-            val inputOptions = SetupSpeechOptions.inputOptions(nativeReady, isRelease)
+            val inputOptions = SetupSpeechOptions.inputOptions(nativeReady)
             val tier = setupVoiceDevice.hardwareTier()
             val outputOptions = SetupSpeechOptions.outputOptions(
                 hasSystemTts = setupVoiceDevice.hasSystemTtsEngine(),
@@ -179,7 +179,7 @@ class SetupWizardViewModel @Inject constructor(
             // choice that is not offered shows nothing selected, and is never overwritten (see inputToSave).
             val inputEngine = when {
                 savedInput != null -> SetupSpeechOptions.offered(savedInput, inputOptions)
-                    ?: if (isRelease) VoiceInputEngine.AndroidNative else null
+                    ?: if (isRelease) VoiceInputEngine.Auto else null
                 currentInput == null -> inputOptions.first()
                 else -> SetupSpeechOptions.offered(currentInput, inputOptions)
             }
@@ -258,7 +258,7 @@ class SetupWizardViewModel @Inject constructor(
         val speech = allPlannedModels.filter { model ->
             val isZipformer = model in VoiceDefaultsProvisioner.zipformerModels()
             val isAsr4all = model in asr4all
-            (!isZipformer || VoiceDefaultsProvisioner.needsZipformer(input)) &&
+            (!isZipformer || VoiceDefaultsProvisioner.needsZipformer(input, allowsSherpaRuntime = !releaseBuild)) &&
                 (!isAsr4all || VoiceDefaultsProvisioner.needsAsr4all(input))
         }
         val inflect = if (output == VoiceOutputEngine.InflectMicroExperimental) {

@@ -12,26 +12,14 @@ import org.junit.jupiter.api.Test
 class SetupSpeechOptionsTest {
 
     @Test
-    fun `debug offers Automatic and Android native only when Android is ready`() {
+    fun `Automatic and Android native are offered only when Android is ready, in every build`() {
         assertEquals(
             listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative),
-            SetupSpeechOptions.inputOptions(androidNativeReady = true, isRelease = false),
+            SetupSpeechOptions.inputOptions(androidNativeReady = true),
         )
         assertEquals(
             listOf(VoiceInputEngine.Auto),
-            SetupSpeechOptions.inputOptions(androidNativeReady = false, isRelease = false),
-        )
-    }
-
-    @Test
-    fun `release offers only Android native input`() {
-        assertEquals(
-            listOf(VoiceInputEngine.AndroidNative),
-            SetupSpeechOptions.inputOptions(androidNativeReady = true, isRelease = true),
-        )
-        assertEquals(
-            listOf(VoiceInputEngine.AndroidNative),
-            SetupSpeechOptions.inputOptions(androidNativeReady = false, isRelease = true),
+            SetupSpeechOptions.inputOptions(androidNativeReady = false),
         )
     }
 
@@ -39,6 +27,12 @@ class SetupSpeechOptionsTest {
     fun `the reason is shown only when Android's listener is not offered`() {
         assertNull(SetupSpeechOptions.inputReason(androidNativeReady = true))
         assertTrue(SetupSpeechOptions.inputReason(androidNativeReady = false)!!.contains("Automatic"))
+    }
+
+    @Test
+    fun `release reason names the offline asr4all model Automatic falls back to`() {
+        assertNull(SetupSpeechOptions.inputReason(androidNativeReady = true, isRelease = true))
+        assertTrue(SetupSpeechOptions.inputReason(androidNativeReady = false, isRelease = true)!!.contains("asr4all"))
     }
 
     @Test

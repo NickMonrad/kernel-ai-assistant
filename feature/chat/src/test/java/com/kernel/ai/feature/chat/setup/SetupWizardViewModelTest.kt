@@ -371,19 +371,20 @@ class SetupWizardViewModelTest {
     // ── Speech options by device capability (#1855 part 2) ──────────────────────
 
     @Test
-    fun `release offers only platform speech input and never Sherpa STT, with Piper and Android TTS output`() {
+    fun `release offers Automatic and platform speech input, never Sherpa STT, with Piper and Android TTS output`() {
         every { setupVoiceDevice.isReleaseBuild() } returns true
         coEvery { downloadManager.plannedFirstRunModels() } returns VoiceDefaultsProvisioner.zipformerModels()
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(listOf(VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
-        assertEquals(VoiceInputEngine.AndroidNative, vm.uiState.value.inputEngine)
+        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
+        assertEquals(VoiceInputEngine.Auto, vm.uiState.value.inputEngine)
         assertTrue(VoiceOutputEngine.SherpaExperimental in vm.uiState.value.outputOptions)
         assertTrue(VoiceOutputEngine.AndroidTts in vm.uiState.value.outputOptions)
         assertFalse(VoiceOutputEngine.KokoroExperimental in vm.uiState.value.outputOptions)
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
+        assertTrue(vm.uiState.value.plannedModels.none { it in VoiceDefaultsProvisioner.zipformerModels() })
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
         val coriBytes = SherpaPiperVoice.CoriHigh.approxDownloadBytes
         val inflectBytes = InflectMicroSetup.kernelModels().sumOf { it.approxSizeBytes } + coriBytes
@@ -395,7 +396,7 @@ class SetupWizardViewModelTest {
         vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 0) { voiceDefaultsProvisioner.queueSpeechInput(match { it != VoiceInputEngine.AndroidNative }) }
+        coVerify(exactly = 1) { voiceDefaultsProvisioner.queueSpeechInput(VoiceInputEngine.Auto) }
         verify(exactly = 0) { downloadManager.startDownload(any(), any(), any(), any()) }
     }
 
