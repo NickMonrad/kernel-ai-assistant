@@ -953,6 +953,19 @@ class SetupWizardViewModelTest {
     }
 
     @Test
+    fun `skipping without accepted terms does nothing`() {
+        every { termsAcceptancePreferences.record } returns flowOf(TermsAcceptanceRecord())
+        var done = false
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.onSkip { done = true }
+        dispatcher.scheduler.advanceUntilIdle()
+        assertFalse(done)
+        coVerify(exactly = 0) { setupWizardPreferences.markCompleted() }
+        coVerify(exactly = 0) { downloadNetworkPreferences.setChoice(DownloadNetworkChoice.WIFI_ONLY) }
+    }
+
+    @Test
     fun `ticking the terms stores the acceptance for the current version`() {
         every { termsAcceptancePreferences.record } returns flowOf(TermsAcceptanceRecord())
         val vm = viewModel()

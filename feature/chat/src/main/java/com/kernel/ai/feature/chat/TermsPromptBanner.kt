@@ -41,7 +41,7 @@ internal fun TermsPromptBanner(
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
-                text = "Speech model downloads need the Terms accepted.",
+                text = "The asr4all speech model needs the Terms accepted.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

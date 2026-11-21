@@ -5,6 +5,7 @@ import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -188,7 +189,7 @@ class Asr4allSizeSwitcher internal constructor(
                 else -> awaitDownload(size)
             }
             if (!ready) {
-                setFailure(size, "Download of ${size.name} did not finish. The current size stays selected.")
+                setFailure(size, downloadFailureMessage(size))
             } else if (!commitWhenIdle(size)) {
                 // The download is complete and kept; the record stays, so the next start retries the commit.
                 keepPending = true
@@ -202,6 +203,19 @@ class Asr4allSizeSwitcher internal constructor(
                 if (!keepPending) voiceInputPreferences.setAsr4allPendingSize(null)
                 sweepInactiveLocked()
             }
+        }
+    }
+
+    /** Failure text for a switch: the Terms refusal when the Terms gate stopped the download (#1998). */
+    private fun downloadFailureMessage(size: Asr4AllSize): String {
+        val termsRefused = Asr4AllInstall.models(size).any { model ->
+            val state = modelDownloadManager.downloadStates.value[model]
+            state is DownloadState.Error && state.message == TERMS_NOT_ACCEPTED_MESSAGE
+        }
+        return if (termsRefused) {
+            TERMS_NOT_ACCEPTED_MESSAGE
+        } else {
+            "Download of ${size.name} did not finish. The current size stays selected."
         }
     }
 

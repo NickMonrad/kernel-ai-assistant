@@ -2632,6 +2632,7 @@ private fun ConversationModelRecoveryCard(
             ) {
                 Text("Download ${recommendedModel.displayName}")
             }
+            TermsOfUseLinkWithSheet(modifier = Modifier.padding(top = 8.dp))
             if (fallbackModel != recommendedModel) {
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -2684,6 +2685,7 @@ private fun ConversationModelRecommendationCard(
             ) {
                 Text("Download ${recommendedModel.displayName}")
             }
+            TermsOfUseLinkWithSheet(modifier = Modifier.padding(top = 8.dp))
         }
     }
 }

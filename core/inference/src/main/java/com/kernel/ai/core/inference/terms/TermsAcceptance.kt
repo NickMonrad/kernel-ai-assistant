@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.kernel.ai.core.inference.download.KernelModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import javax.inject.Inject
@@ -45,6 +46,16 @@ data class TermsAcceptanceRecord(
     fun promptPending(currentVersion: String = TERMS_VERSION): Boolean =
         !isAccepted(currentVersion) && dismissedVersion != currentVersion
 }
+
+/**
+ * Whether [model] may download now (#1998). asr4all needs the Terms accepted for the version the app ships;
+ * the other models are never blocked by the Terms.
+ */
+fun termsAllowDownload(
+    model: KernelModel,
+    record: TermsAcceptanceRecord,
+    currentVersion: String = TERMS_VERSION,
+): Boolean = !model.requiresTermsAcceptance || record.isAccepted(currentVersion)
 
 /**
  * Persists the Terms of Use acceptance (#1998). Acceptance is written as soon as the checkbox is ticked, so a
