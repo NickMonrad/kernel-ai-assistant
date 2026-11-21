@@ -1,0 +1,7 @@
+# #2013 review follow-up (S21): low-end proxy thread count, M c32r8 fallback rung at 4 threads, native with
+# segments kept on error. runtime size tier variant cpus sets
+et m stream_c16r4 t2 07 owner,long
+et m stream_c16r4 t3 07 owner,long
+et m stream_c16r4 t4 07 owner,long
+et m stream_c32r8 t4 07 owner,long
+native - - default all owner

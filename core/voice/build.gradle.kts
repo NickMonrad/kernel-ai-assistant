@@ -42,6 +42,8 @@ android {
 
 dependencies {
     implementation(project(":core:inference"))
+    // ExecuTorch, only through the shared runtime module (#2003): asr4all engine (#2004).
+    implementation(project(":core:executorch"))
     implementation(libs.core.ktx)
     implementation(libs.coroutines.android)
     implementation(libs.datastore.preferences)
@@ -67,6 +69,15 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
+}
+
+// The asr4all host harness (Asr4AllHostHarnessTest, #2004) reads its config path from the
+// environment, which Gradle does not track: make it an input and never treat a harness run as
+// up to date, so setting the variable always runs the models.
+tasks.withType<Test>().configureEach {
+    val harnessConfig = providers.environmentVariable("ASR4ALL_HARNESS_CONFIG")
+    inputs.property("asr4allHarnessConfig", harnessConfig.orElse(""))
+    outputs.upToDateWhen { !harnessConfig.isPresent }
 }
 
 // WakeWordClassifierModelTest reads the authoritative app classifier (committed in

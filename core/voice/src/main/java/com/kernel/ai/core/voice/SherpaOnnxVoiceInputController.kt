@@ -756,12 +756,15 @@ class SherpaOnnxVoiceInputController @Inject constructor(
      * 1. Whisper tiny.en when its files are present — the only catalogue model that
      *    recognises the fixed natural wake phrase on the detector-equivalent window;
      * 2. otherwise the selected online Sherpa spec (Zipformer/Paraformer) when online;
-     * 3. otherwise the Zipformer default (existing fallback).
+     * 3. otherwise the Zipformer default (existing fallback; debug builds only).
+     *    Release builds keep Zipformer excluded, so they resolve Whisper even while its
+     *    files are missing; that yields a null verification until the Whisper download lands.
      *
      * The interactive STT engine selection is never modified.
      */
     internal suspend fun resolveWakeVerifierSpec(): SherpaSttModelSpec {
         if (isSpecAvailable(SherpaSttModelSpec.WHISPER)) return SherpaSttModelSpec.WHISPER
+        if (!voiceInputPreferences.allowsSherpaRuntime()) return SherpaSttModelSpec.WHISPER
         val userSpec = resolveSpec()
         return if (userSpec.recognizerKind == SherpaSttModelSpec.RecognizerKind.Online) userSpec
                else SherpaSttModelSpec.WAKE_VERIFICATION_DEFAULT

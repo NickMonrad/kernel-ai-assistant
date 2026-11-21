@@ -55,6 +55,8 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Google Play Services Location | `com.google.android.gms:play-services-location` | Google Play services / SDK terms, not normal OSS | Include privacy disclosure for location use; generated OSS notice may not apply. |
 | Coil | `io.coil-kt.coil3:coil-compose` | Apache-2.0 | Include runtime notice if bundled. |
 | ONNX Runtime Android | `com.microsoft.onnxruntime:onnxruntime-android` | MIT | Include MIT notice if bundled. |
+| ExecuTorch Android | `org.pytorch:executorch-android` 1.5.1 (via `:core:executorch`) | BSD-3-Clause, with bundled XNNPACK/cpuinfo/pthreadpool notices | Listed in `NOTICE`; include runtime notices from generated notice/SBOM. |
+| fbjni / SoLoader nativeloader | `com.facebook.fbjni:fbjni` 0.7.0, `com.facebook.soloader:nativeloader` 0.10.5 (ExecuTorch runtime dependencies) | Apache-2.0 | Listed in `NOTICE`. |
 | LiteRT Interpreter API | `com.google.ai.edge.litert:litert` | Apache-2.0 plus bundled third-party notices | Include runtime notices from generated notice/SBOM. |
 | UIAutomator / AndroidX Test | `androidx.test:*` | Apache-2.0 | Test-only; exclude unless bundled in release. |
 | JUnit / JUnit Platform | `org.junit.*` | Eclipse Public License 2.0 | Test-only; exclude from app notices unless bundled. |
@@ -98,8 +100,8 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 |---|---|---|---|
 | Android TTS | Release speech-output path | Android platform/system service | Sole v0.1 release TTS engine; voice availability depends on the installed Android engine. |
 | Piper runtime/project | Debug-only Piper voice playback | MIT | Not shipped or selectable in v0.1 release. Per-voice dataset provenance remains separate from the project licence. |
-| rhasspy/piper-voices repository | Source of debug-only Piper ONNX voices | Hugging Face page lists `mit` for repository | No Piper voices are release-visible in v0.1. Repository-level MIT does not establish every voice's dataset provenance. |
-| en_GB-cori-high Piper voice | Debug-only British English female voice | Sourced from `rhasspy/piper-voices` (MIT-licensed repo); upstream model card identifies LibriVox (public domain) as dataset | Excluded from v0.1 release, along with all other Piper voice packs and the Sherpa runtime. Source details are recorded for development, not release clearance. |
+| rhasspy/piper-voices repository | Source of debug-only Piper ONNX voices | Hugging Face page lists `mit` for the repository, but upstream states it makes no licence grant over voice models | No Piper voices are release-visible in v0.1. The `mit` tag is not a per-voice clearance; the catalogue was reviewed in `docs/legal/piper-voice-review.md`. |
+| en_GB-cori-high Piper voice | Debug-only British English female voice | Upstream model card: trained from scratch on LibriVox (public domain); the trainer lists the voice as public domain | Excluded from v0.1 release, along with all other Piper voice packs and the Sherpa runtime. Source details are recorded for development, not release clearance. |
 | Kokoro experimental voice pack | Debug-only/post-launch TTS path for v0.1 | Exact app asset is Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage is recorded as Apache-2.0 | Not release-visible for v0.1 under #1014; this trace is not release sign-off. |
 
 ## External services and data sources
