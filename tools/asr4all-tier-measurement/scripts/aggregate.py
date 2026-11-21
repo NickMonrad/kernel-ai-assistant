@@ -114,6 +114,9 @@ def metrics(rep, refs):
     if rep["runtime"] == "native":
         m["native_errors"] = sum(c.get("native_error") is not None for c in clips)
         m["native_ended_before_eof"] = sum(bool(c.get("native_ended_before_eof")) for c in clips)
+    # WER over repeats in which the recogniser reported no error (differs from wer_norm only for native).
+    if "wer_norm" in m:
+        m["wer_norm_error_free"] = m["wer_norm"] if not m.get("native_errors") else None
     return m
 
 
@@ -138,7 +141,11 @@ def main():
                 continue
             refs = owner if rep["set"] == "owner" else breadth if rep["set"] == "breadth" else None
             runs.append({"device": device, "lane": lane_key(rep), "set": rep["set"], "mode": rep["mode"],
-                         "repeat": rep["repeat"], "engine": rep["lane"], **metrics(rep, refs)})
+                         "repeat": rep["repeat"], "engine": rep["lane"],
+                         # Traceability (reports from the first measurement predate these fields; see README).
+                         "app_apk_sha256": rep.get("app_apk_sha256"), "test_apk_sha256": rep.get("test_apk_sha256"),
+                         "private_et_driver_sha256": rep.get("private_et_driver_sha256"),
+                         **metrics(rep, refs)})
     (out / "per-run-metrics.json").write_text(json.dumps(runs, indent=1, ensure_ascii=False))
     groups = defaultdict(list)
     for r in runs:

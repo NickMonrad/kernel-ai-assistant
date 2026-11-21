@@ -16,7 +16,7 @@ directory outside Git** and compiled in at build time:
     -PprivateEtDecoderDir=$HOME/.local/share/jandal-private/asr4all-et-decoder   # default location
 ```
 
-The build fails with a clear message if the directory is missing. What the driver does is fully specified by
+Without the private directory the build warns and leaves out the `probe/src/et` source set (`EtLane`); `--lane et` then fails at run time (`StreamingLane.open` uses reflection; not run here). The SHA-256 of both driver files is written into every report (`private_et_driver_sha256`), and so are the app and test APK hashes (`app_apk_sha256`, `test_apk_sha256`). Reports from before these fields have them null. What the driver does is fully specified by
 FUTO's script (stream tier window/commit loop, CTC argmax over all 257 logit columns, PCEC `pcec_c16` /
 `pcec_c16_flush` pooling and rendering, no word spotter) and was verified frame-for-frame against it in #2002.
 The private copy additionally asserts every output tensor shape on the first call

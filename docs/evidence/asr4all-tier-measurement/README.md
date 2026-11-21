@@ -20,6 +20,7 @@ code, model selection or default is changed.
 |---|---|
 | Devices | S23U `RFCW11265XH` (SM8550, 12 GB → `HardwareTier.FLAGSHIP`); S21 `R5CR605B71K` (Exynos 2100, 8 GB → `MID_RANGE`) |
 | Low-end proxy (for `LOW_POWER`) | S21 with every thread of the process pinned to CPUs 0–2 (three Cortex-A55 at ≤2.21 GHz) via `taskset -a -p 07`, re-applied before each clip; ExecuTorch at 2 threads, Zipformer at its shipping 2. All 42 proxy runs recorded `Cpus_allowed_list = 0-2` on every thread. **A proxy, not a device**: it keeps the S21's memory system and lacks the 2 mid/big cores most budget SoCs have. |
+| ET threads | 4 (JNI default) on S23U and S21; 2 on the low-end proxy only. The LOW_POWER numbers are 2-thread results (see Recommendation). |
 | ExecuTorch | Maven `executorch-android:1.5.1`, FUTO asr4all S/M/L `executorch/xnnpack_int8` PTEs (`7d567968…`, `d08648b9…`, `2670068a…`, pins as in #2002), JNI default threads (4) unless proxy |
 | Zipformer | shipping `sherpa-onnx-streaming-zipformer-en-2023-02-21` int8 @`bfbb1195…`, the app's Sherpa AAR, shipping recogniser config |
 | Android native | Google on-device recogniser (`AiAiSpeechRecognitionService`, `en-AU` device locale), shipping intent + `EXTRA_AUDIO_SOURCE` + `EXTRA_SEGMENTED_SESSION` (see caveats) |
@@ -27,41 +28,39 @@ code, model selection or default is changed.
 | Sets | owner: 20 #1984 decision recordings, 146 words, paced 100 ms feed; long: 66.7 s public stream (`long-public.wav` `342c3e48…`), paced; breadth: 100 #1984 voice-cloned clips, 638 words, compute-only, repeat 1 |
 | Repeats | 3 sessions per phone (one lock hold each), lane order rotated per session; fresh process per lane per repeat |
 | APKs | app `98e97a76…`, test `1bb5f280…` for all 6 sessions; isolated package `ai.jandal.spike.asr4alltier` |
+| Private ExecuTorch driver | not in Git; SHA-256 `EtAsr4allDecoder.kt` `9b11efc5…`, `Asr4allEtGeometry.kt` `07d8ef37…` on the measurement host (see Caveats) |
 
-WER: #1978 tokenisation (`score.py`), summed edits / summed words. "Normalised" is the primary column for the
-like-for-like comparison F4 asked for. The #1987 asr4all engine does not call the normaliser, so the asr4all
-normalised column is hypothetical; on these clips the normaliser changed **no** final of any engine (normalised =
-as-emitted everywhere, including Zipformer's 47.26%), so F4's concern does not move the numbers here.
+WER: #1978 tokenisation (`score.py`), summed edits / summed words. "Normalised" is the primary column for the like-for-like comparison F4 asked for. The #1987 asr4all engine does not call the normaliser, so the asr4all normalised column is hypothetical. On the owner set the normaliser changed no final of any engine (normalised = as-emitted). On breadth it changed one Zipformer final (284 → 283 edits on both phones), so Zipformer breadth is 44.36% normalised (44.52% as emitted). "Repeats without recogniser error" drops the Android native repeats with a recogniser error (see Caveats); for all other lanes it equals the normalised column.
 
 ## Results
 
 #### Accuracy (owner = 20 decision clips, 146 words; breadth = 100 voice-cloned clips, 638 words)
 
-| Device | Lane | Owner WER % (normalised) | Owner WER % (as emitted) | Owner raw WER % | Breadth WER % (normalised) | NZ/Māori terms (normalised) |
-|---|---|---|---|---|---|---|
-| S23U | ET S c16r4 | **32.88** | 32.88 | 36.30 | 11.13 | 1/17 |
-| S23U | ET S c32r8 | **29.45** | 29.45 | 33.56 | 11.29 | 1/17 |
-| S23U | ET M c16r4 | **25.34** | 25.34 | 28.77 | 7.37 | 1/17 |
-| S23U | ET M c32r8 | **26.03** | 26.03 | 26.03 | 6.58 | 1/17 |
-| S23U | ET L c16r4 | **21.23** | 21.23 | 21.92 | 7.68 | 2/17 |
-| S23U | ET L c32r8 | **19.18** | 19.18 | 19.86 | 6.74 | 2/17 |
-| S23U | Zipformer (shipping) | **47.26** | 47.26 | 47.26 | 44.36 | 0/17 |
-| S23U | Android native | **32.19 (30.82–34.93)** | 32.19 (30.82–34.93) | 32.19 (30.82–34.93) | 9.56 | 0/17 |
-| S21 | ET S c16r4 | **32.88** | 32.88 | 36.30 | 11.13 | 1/17 |
-| S21 | ET S c32r8 | **29.45** | 29.45 | 33.56 | 11.29 | 1/17 |
-| S21 | ET M c16r4 | **25.34** | 25.34 | 28.77 | 7.37 | 1/17 |
-| S21 | ET M c32r8 | **26.03** | 26.03 | 26.03 | 6.58 | 1/17 |
-| S21 | ET L c16r4 | **21.23** | 21.23 | 21.92 | 7.68 | 2/17 |
-| S21 | ET L c32r8 | **19.18** | 19.18 | 19.86 | 6.74 | 2/17 |
-| S21 | Zipformer (shipping) | **47.26** | 47.26 | 47.26 | 44.36 | 0/17 |
-| S21 | Android native | **30.59 (30.14–31.51)** | 30.59 (30.14–31.51) | 30.59 (30.14–31.51) | 9.56 | 0/17 |
-| S21 | ET S c16r4 [low-end proxy: cpus 0x07, t2] | **32.88** | 32.88 | 36.30 | – | 1/17 |
-| S21 | ET S c32r8 [low-end proxy: cpus 0x07, t2] | **29.45** | 29.45 | 33.56 | – | 1/17 |
-| S21 | ET M c16r4 [low-end proxy: cpus 0x07, t2] | **25.34** | 25.34 | 28.77 | – | 1/17 |
-| S21 | ET M c32r8 [low-end proxy: cpus 0x07, t2] | **26.03** | 26.03 | 26.03 | – | 1/17 |
-| S21 | ET L c16r4 [low-end proxy: cpus 0x07, t2] | **21.23** | 21.23 | 21.92 | – | 2/17 |
-| S21 | ET L c32r8 [low-end proxy: cpus 0x07, t2] | **19.18** | 19.18 | 19.86 | – | 2/17 |
-| S21 | Zipformer (shipping) [low-end proxy: cpus 0x07, default] | **47.26** | 47.26 | 47.26 | – | 0/17 |
+| Device | Lane | Owner WER % (normalised) | Owner WER %, normalised, repeats without recogniser error | Owner WER % (as emitted) | Owner raw WER % | Breadth WER % (normalised) | NZ/Māori terms (normalised) |
+|---|---|---|---|---|---|---|---|
+| S23U | ET S c16r4 | **32.88** | 32.88 (3/3) | 32.88 | 36.30 | 11.13 | 1/17 |
+| S23U | ET S c32r8 | **29.45** | 29.45 (3/3) | 29.45 | 33.56 | 11.29 | 1/17 |
+| S23U | ET M c16r4 | **25.34** | 25.34 (3/3) | 25.34 | 28.77 | 7.37 | 1/17 |
+| S23U | ET M c32r8 | **26.03** | 26.03 (3/3) | 26.03 | 26.03 | 6.58 | 1/17 |
+| S23U | ET L c16r4 | **21.23** | 21.23 (3/3) | 21.23 | 21.92 | 7.68 | 2/17 |
+| S23U | ET L c32r8 | **19.18** | 19.18 (3/3) | 19.18 | 19.86 | 6.74 | 2/17 |
+| S23U | Zipformer (shipping) | **47.26** | 47.26 (3/3) | 47.26 | 47.26 | 44.36 | 0/17 |
+| S23U | Android native | **32.19 (30.82–34.93)** | 30.82 (2/3) | 32.19 (30.82–34.93) | 32.19 (30.82–34.93) | 9.56 | 0/17 |
+| S21 | ET S c16r4 | **32.88** | 32.88 (3/3) | 32.88 | 36.30 | 11.13 | 1/17 |
+| S21 | ET S c32r8 | **29.45** | 29.45 (3/3) | 29.45 | 33.56 | 11.29 | 1/17 |
+| S21 | ET M c16r4 | **25.34** | 25.34 (3/3) | 25.34 | 28.77 | 7.37 | 1/17 |
+| S21 | ET M c32r8 | **26.03** | 26.03 (3/3) | 26.03 | 26.03 | 6.58 | 1/17 |
+| S21 | ET L c16r4 | **21.23** | 21.23 (3/3) | 21.23 | 21.92 | 7.68 | 2/17 |
+| S21 | ET L c32r8 | **19.18** | 19.18 (3/3) | 19.18 | 19.86 | 6.74 | 2/17 |
+| S21 | Zipformer (shipping) | **47.26** | 47.26 (3/3) | 47.26 | 47.26 | 44.36 | 0/17 |
+| S21 | Android native | **30.59 (30.14–31.51)** | 30.14 (2/3) | 30.59 (30.14–31.51) | 30.59 (30.14–31.51) | 9.56 | 0/17 |
+| S21 | ET S c16r4 [low-end proxy: cpus 0x07, t2] | **32.88** | 32.88 (3/3) | 32.88 | 36.30 | – | 1/17 |
+| S21 | ET S c32r8 [low-end proxy: cpus 0x07, t2] | **29.45** | 29.45 (3/3) | 29.45 | 33.56 | – | 1/17 |
+| S21 | ET M c16r4 [low-end proxy: cpus 0x07, t2] | **25.34** | 25.34 (3/3) | 25.34 | 28.77 | – | 1/17 |
+| S21 | ET M c32r8 [low-end proxy: cpus 0x07, t2] | **26.03** | 26.03 (3/3) | 26.03 | 26.03 | – | 1/17 |
+| S21 | ET L c16r4 [low-end proxy: cpus 0x07, t2] | **21.23** | 21.23 (3/3) | 21.23 | 21.92 | – | 2/17 |
+| S21 | ET L c32r8 [low-end proxy: cpus 0x07, t2] | **19.18** | 19.18 (3/3) | 19.18 | 19.86 | – | 2/17 |
+| S21 | Zipformer (shipping) [low-end proxy: cpus 0x07, default] | **47.26** | 47.26 (3/3) | 47.26 | 47.26 | – | 0/17 |
 
 #### Real-time behaviour (paced 100 ms feed; mean ± sd over repeats, worst repeat for max columns)
 
@@ -160,7 +159,7 @@ as-emitted everywhere, including Zipformer's 47.26%), so F4's concern does not m
 
 1. **Accuracy does not depend on device or threads.** Every in-process lane (ExecuTorch, Zipformer) produced
    byte-identical owner finals on S23U, S21 and the low-end proxy, in every repeat. Order on the owner set: L c32r8 19.2% < L c16r4 21.2% < M c16r4
-   25.3% ≈ M c32r8 26.0% < S c32r8 29.5% < Android native 30.1–34.9% (varies by repeat) < S c16r4 32.9% ≪
+   25.3% ≈ M c32r8 26.0% < S c32r8 29.5% < Android native 30.1–30.8% error-free (30.1–34.9% with two error repeats) < S c16r4 32.9% ≪
    Zipformer 47.3%. On 146 words only M/L vs Zipformer is significant; the breadth set (diagnostic, 638 words)
    separates M from S clearly (7.4% vs 11.1%, p = 0.002) and puts M ≈ L.
 2. **Tier choice: c16r4 everywhere.** c32r8 buys nothing measurable in accuracy for M (37 vs 38 edits) and costs
@@ -171,7 +170,7 @@ as-emitted everywhere, including Zipformer's 47.26%), so F4's concern does not m
    ≤ 3 queued 100 ms chunks, mean lag rising by ≤ 9 ms from first to last fifth); M c16r4 on the S21: RTFx
    5.6 ± 1.6, p95 lag 105 ms, final 0.26 s after audio end. ExecuTorch S/M load in 0.16–0.44 s (mean) vs
    Zipformer's 1.7 s (S23U) / 5.7 s (S21).
-4. **Low-end proxy.** M c16r4 still runs faster than real time (RTFx 1.65 ± 0.12 on the 67 s stream) with
+4. **Low-end proxy (2 ET threads).** M c16r4 still runs faster than real time (RTFx 1.65 ± 0.12 on the 67 s stream) with
    bounded but visible lag: p95 362 ms, up to 4 queued chunks, mean lag 122 → 141 ms from first to last fifth of
    the stream, final ~1.1 s after audio end, load 1.8 s. S c16r4 has 1.6× the headroom (RTFx 2.65, p95 211 ms,
    final 0.6 s). L c16r4 is marginal (RTFx 1.10, lag 254 → 303 ms and growing, final 1.9 s) and L c32r8 worse.
@@ -186,38 +185,36 @@ as-emitted everywhere, including Zipformer's 47.26%), so F4's concern does not m
 |---|---|---|---|
 | FLAGSHIP (S23U class) | **M c16r4** | **L c16r4** (fastest live text for L; L c32r8 gains 3 owner edits, not significant, and shows partials on 6/20 clips) | S |
 | MID_RANGE (S21 class) | **M c16r4** | **L c16r4** (RTFx 3.5, ≤2 queued chunks, final ~0.4 s after audio end on the S21) | S |
-| LOW_POWER (proxy only) | **M c16r4**, with a runtime guard (below) | none (L is at RTFx ~1.1 with growing lag) | S, see the argument below |
+| LOW_POWER (proxy only, **2 ET threads**) | **M c16r4**, then the fallback ladder below | none (L is at RTFx ~1.1 with growing lag) | S, see the argument below |
+
+**Thread count is part of the LOW_POWER decision.** The LOW_POWER row is a 2-thread result on the proxy. Real budget SoCs may run the engine at 4 threads, and oversubscribing a 4-little-core SoC could push M below the 1.65× measured here [INFERENCE: not measured]. Before LOW_POWER ships, measure M c16r4 at 3 and 4 threads on the proxy (variants already defined in `scripts/lanes-s21-threads.txt`, not run in this PR), and record the thread count in the tier decision.
+
+**LOW_POWER fallback ladder** (for the runtime guard):
+1. **M c16r4** (default).
+2. **M c32r8**, the same model and session with a longer window. On the proxy it runs at RTFx 2.13 ± 0.15 (vs 1.65 for c16r4) at 26.03% owner WER (vs 25.34%; 38 vs 37 edits, p = 1.0) and 6.58% breadth (vs 7.37%). The cost is live text: first partial ~3.1 s and partials on 11/20 clips, not 18/20.
+3. **Android native**, out of process, with the error caveat above (error-free 30.1–30.8% owner WER).
+4. S is not a rung: it is not measured as a fallback, and the case for it is argued below.
+
+**Guard (runtime, LOW_POWER only).** Move down one rung when either trigger holds:
+- RTFx < 1.2 over the last 20 s of audio. Measured proxy RTFx: L c16r4 1.07–1.10, L c32r8 1.24–1.32; M c16r4 lowest repeat 1.52, M c32r8 lowest 2.02.
+- At least 8 queued 100 ms chunks for at least 10 s. Measured proxy worst-repeat queues: M c16r4 4, M c32r8 6, L c16r4 6, L c32r8 10.
+
+The earlier guard (p95 lag above 0.5 s or 5 queued chunks) is withdrawn: it would trip on M c32r8 on the proxy (p95 517 ms, worst queue 6), which runs at RTFx 2.13. Both new thresholds are chosen from three repeats per configuration, not from a UX study, so they are provisional and must be checked on a real LOW_POWER device.
 
 **Should S be offered at all? Argued both ways.**
 
-*For S (on LOW_POWER):* M's headroom on the proxy is thin: RTFx 1.65, 0.36 s p95 lag and ~1.1 s from end of
-speech to final. A real budget phone can be slower than three A55 cores at 2.21 GHz with the S21's memory
-system (most use A55 at ≤2.0 GHz [INFERENCE]), and could push M below real time where S (RTFx 2.65, 0.6 s to
-final) would still keep up. S also uses ~50 MiB less on phones with <6 GB RAM, which is exactly the RAM-defined
-LOW_POWER tier, while the app's LLM may compete for memory.
+*For S (on LOW_POWER):* M's headroom on the proxy is thin: RTFx 1.65, 0.36 s p95 lag and ~1.1 s from end of speech to final. A real budget phone can be slower than three A55 cores at 2.21 GHz with the S21's memory system (most use A55 at ≤2.0 GHz [INFERENCE]), and could push M below real time where S (RTFx 2.65, 0.6 s to final) would still keep up. S also uses ~50 MiB less on phones with <6 GB RAM, which is exactly the RAM-defined LOW_POWER tier, while the app's LLM may compete for memory.
 
-*Against S:* the owner's condition is not met by this evidence. On the slowest configuration measured, M kept up
-(RTFx > 1.5 on every repeat, lag bounded), so there is no measured device class where M can't keep up. And S
-does not clearly beat the alternatives there: its owner WER (32.9%) is no better than Android native (30.1–34.9%,
-48 vs 44 edits, 8/8 per-clip), which needs no download or local compute; it is clearly worse than M on breadth
-(11.1% vs 7.4%). A third model adds download, licence notices, test lanes and maintenance for a hypothetical
-device.
+*Against S:* the owner's condition is not met by this evidence. On the slowest configuration measured, M kept up (RTFx > 1.5 on every repeat, lag bounded), so there is no measured device class where M can't keep up. And S does not clearly beat the alternatives there. Its owner WER (32.9%) is worse than Android native's error-free 30.1–30.8% (48 vs 44–45 edits; the paired test on S21 r1 is 8/8 per-clip, p = 1.0), and it is clearly worse than M on breadth (11.1% vs 7.4%). Android native needs no download or local compute. A third model adds download, licence notices, test lanes and maintenance for a hypothetical device.
 
-**Decision recommended: do not ship S now.** Ship M c16r4 as the default on every tier and L c16r4 as an option on
-FLAGSHIP/MID_RANGE. Add a runtime guard to the integration: if a session's decode lag stays above ~0.5 s (5
-queued chunks) or RTFx < 1.2, fall back for that device to Android native (or, if the owner prefers to keep it
-local, S) and record it. Revisit S only if a real LOW_POWER device, not this proxy, shows M below real time.
+**Decision recommended: do not ship S now.** Ship M c16r4 as the default on every tier and L c16r4 as an option on FLAGSHIP/MID_RANGE. Add the LOW_POWER fallback ladder and guard above to the integration, with the thread count fixed in the tier decision. Revisit S only if a real LOW_POWER device, not this proxy, shows M below real time after the ladder.
 
 ## Caveats
 
 - **Low-end is a proxy** (above). It bounds CPU throughput only; it does not model a budget phone's memory
   bandwidth, thermal throttling or a smaller RAM budget.
-- **Android native** needed `EXTRA_SEGMENTED_SESSION` to return any result with a file audio source (both
-  Google recognisers on these phones returned an empty `onResults` bundle otherwise). It therefore transcribes
-  the whole clip rather than stopping at the first endpoint like the shipping controller, and runs out of
-  process, so load, memory, RTFx and lag are not attributable. One clip per phone ended early with a recogniser
-  error in one repeat (r3 on S23U, r2 on S21), which explains its WER range. It runs offline here (on-device
-  model) and its accuracy can change with Google app updates.
+- **Thread count.** Every low-end-proxy ExecuTorch number is a 2-thread result. The shipping engine defaults to 4 threads (`Asr4AllEngine.DEFAULT_THREADS = 4` on `feat/2004-asr4all-executorch-cleanroom`). The 3- and 4-thread proxy variants are defined in `scripts/lanes-s21-threads.txt` but have not been run.
+- **Android native** needed `EXTRA_SEGMENTED_SESSION` to return any result with a file audio source (both Google recognisers on these phones returned an empty `onResults` bundle otherwise). It therefore transcribes the whole clip rather than stopping at the first endpoint like the shipping controller, and runs out of process, so load, memory, RTFx and lag are not attributable. Two repeats hit a recogniser error: S23U r3 (A-08, 11 of 11 words deleted) and S21 r2 (A-02, 3 of 3 words deleted). The harness that produced these reports discarded segments already received when `onError` fired, so those two WER values reflect the harness, not the recogniser. The `NativeLane.kt` change (keep the segments on error) is in this PR, but **the reports here were not re-run with it**. The table therefore shows native both with all repeats and error-free. Error-free: S23U 30.82% (2 repeats, 45 edits each), S21 30.14% (2 repeats, 44 each). With the error repeats: S23U 30.82–34.93%, S21 30.14–31.51%. It runs offline here (on-device model) and its accuracy can change with Google app updates.
 - **Zipformer** finals are taken at EOF for paired WER, like asr4all; the shipping loop would have stopped at an
   endpoint before EOF on 1 of 20 owner clips.
 - **Speech-end (endpoint) latency was not measured**; "final after audio end" is EOF-flush time, not endpoint
@@ -225,3 +222,4 @@ local, S) and record it. Revisit S only if a real LOW_POWER device, not this pro
 - **First partial** is wall time from stream start and includes the tier window (c16r4 1.4 s, c32r8 2.7 s).
 - Repeats: timing sd is large on the S23U for S/M (thermal state differs between sessions); worst-repeat columns
   are reported for queueing.
+- **Traceability.** The 148 runs in this directory predate the `app_apk_sha256`, `test_apk_sha256` and `private_et_driver_sha256` fields, which are therefore null in `per-run-metrics.json`. The harness now writes all three into every report (`BenchmarkTest.kt`, `probe/build.gradle.kts`). The SHA-256 values of the private driver files on the measurement host are `EtAsr4allDecoder.kt` `9b11efc5b62d4bad553631432cf317467a5aff587060391381577e5d5ccb21fc` and `Asr4allEtGeometry.kt` `07d8ef370961811af1d294591b5d5ac89a1a2bc84251e4e5a9f0b1a8f7392ebe`. These are the files as they are now; they are not proven to be the files compiled into the earlier sessions.

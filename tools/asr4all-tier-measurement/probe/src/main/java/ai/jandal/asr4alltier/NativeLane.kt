@@ -91,7 +91,9 @@ class NativeLane(private val context: Context, backend: String) : StreamingLane 
         override fun onBufferReceived(buffer: ByteArray?) = Unit
         override fun onEndOfSpeech() = Unit
         override fun onError(error: Int) {
+            // Keep the segments already recognised: an error late in the clip must not erase them (#2013 review).
             this@NativeLane.error = error
+            if (final == null) final = segments.joinToString(" ")
             done.countDown()
         }
         override fun onResults(results: Bundle?) {
@@ -138,7 +140,7 @@ class NativeLane(private val context: Context, backend: String) : StreamingLane 
         runCatching { writer?.close() }
         writer = null
         done.await(15, TimeUnit.SECONDS)
-        val text = final ?: ""
+        val text = final ?: segments.joinToString(" ")
         return text to text
     }
 

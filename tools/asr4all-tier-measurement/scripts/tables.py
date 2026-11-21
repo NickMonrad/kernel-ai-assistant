@@ -32,8 +32,8 @@ devices = sorted({d for d, _ in by}, key=lambda d: {"S23U": 0, "S21": 1}.get(d, 
 lanes = lambda dev: sorted((l for d, l in by if d == dev), key=order)
 
 print("### Accuracy (owner = 20 decision clips, 146 words; breadth = 100 voice-cloned clips, 638 words)\n")
-print("| Device | Lane | Owner WER % (normalised) | Owner WER % (as emitted) | Owner raw WER % | Breadth WER % (normalised) | NZ/Māori terms (normalised) |")
-print("|---|---|---|---|---|---|---|")
+print("| Device | Lane | Owner WER % (normalised) | Owner WER %, normalised, repeats without recogniser error | Owner WER % (as emitted) | Owner raw WER % | Breadth WER % (normalised) | NZ/Māori terms (normalised) |")
+print("|---|---|---|---|---|---|---|---|")
 for dev in devices:
     for lane in lanes(dev):
         o, b = by[(dev, lane)].get("owner"), by[(dev, lane)].get("breadth")
@@ -45,7 +45,7 @@ for dev in devices:
             s = r[k]
             return f"{s['mean']:.2f}" + ("" if s["min"] == s["max"] else f" ({s['min']:.2f}–{s['max']:.2f})")
         nz = f"{o['nz_terms_hit_norm']['mean']:.0f}/{o['nz_terms_total']['mean']:.0f}" if o.get("nz_terms_hit_norm") else "–"
-        print(f"| {dev} | {lane} | **{w(o, 'wer_norm')}** | {w(o, 'wer')} | {w(o, 'wer_raw')} | {w(b, 'wer_norm')} | {nz} |")
+        print(f"| {dev} | {lane} | **{w(o, 'wer_norm')}** | {w(o, 'wer_norm_error_free')} ({o['wer_norm_error_free']['n'] if o.get('wer_norm_error_free') else 0}/{o['repeats']}) | {w(o, 'wer')} | {w(o, 'wer_raw')} | {w(b, 'wer_norm')} | {nz} |")
 
 print("\n### Real-time behaviour (paced 100 ms feed; mean ± sd over repeats, worst repeat for max columns)\n")
 print("| Device | Lane | n | Owner RTFx | Owner lag p95 ms | Owner max queued chunks (worst) | 67 s RTFx | 67 s lag p95 ms | 67 s max queued (worst) | 67 s mean lag first → last fifth ms | 67 s final after audio end ms |")

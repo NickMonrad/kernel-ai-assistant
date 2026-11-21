@@ -123,7 +123,11 @@
   "wer_raw": 8.150470219435737,
   "wer_raw_edits": 52,
   "wer_raw_norm": 8.150470219435737,
-  "wer_raw_norm_edits": 52
+  "wer_raw_norm_edits": 52,
+  "wer_norm_error_free": 7.6802507836990594,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -249,7 +253,11 @@
   "wer_raw": 7.210031347962382,
   "wer_raw_edits": 46,
   "wer_raw_norm": 7.210031347962382,
-  "wer_raw_norm_edits": 46
+  "wer_raw_norm_edits": 46,
+  "wer_norm_error_free": 6.739811912225705,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -375,7 +383,11 @@
   "wer_raw": 9.090909090909092,
   "wer_raw_edits": 58,
   "wer_raw_norm": 9.090909090909092,
-  "wer_raw_norm_edits": 58
+  "wer_raw_norm_edits": 58,
+  "wer_norm_error_free": 7.366771159874608,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -501,7 +513,11 @@
   "wer_raw": 7.6802507836990594,
   "wer_raw_edits": 49,
   "wer_raw_norm": 7.6802507836990594,
-  "wer_raw_norm_edits": 49
+  "wer_raw_norm_edits": 49,
+  "wer_norm_error_free": 6.58307210031348,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -627,7 +643,11 @@
   "wer_raw": 12.382445141065832,
   "wer_raw_edits": 79,
   "wer_raw_norm": 12.382445141065832,
-  "wer_raw_norm_edits": 79
+  "wer_raw_norm_edits": 79,
+  "wer_norm_error_free": 11.128526645768025,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -753,7 +773,11 @@
   "wer_raw": 12.382445141065832,
   "wer_raw_edits": 79,
   "wer_raw_norm": 12.382445141065832,
-  "wer_raw_norm_edits": 79
+  "wer_raw_norm_edits": 79,
+  "wer_norm_error_free": 11.285266457680251,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -881,7 +905,11 @@
   "wer_raw_norm": 9.561128526645769,
   "wer_raw_norm_edits": 61,
   "native_errors": 0,
-  "native_ended_before_eof": 0
+  "native_ended_before_eof": 0,
+  "wer_norm_error_free": 9.561128526645769,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1008,7 +1036,11 @@
   "wer_raw_edits": 284,
   "wer_raw_norm": 44.357366771159874,
   "wer_raw_norm_edits": 283,
-  "clips_with_endpoint_before_eof": 0
+  "clips_with_endpoint_before_eof": 0,
+  "wer_norm_error_free": 44.357366771159874,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1039,7 +1071,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9718063151642418,
   "lag_first_fifth_mean_ms": 14.99193494736842,
-  "lag_last_fifth_mean_ms": 19.068706187969926
+  "lag_last_fifth_mean_ms": 19.068706187969926,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1070,7 +1105,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9722658148492576,
   "lag_first_fifth_mean_ms": 9.781524157894737,
-  "lag_last_fifth_mean_ms": 11.518239390977444
+  "lag_last_fifth_mean_ms": 11.518239390977444,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1101,7 +1139,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9720778125243738,
   "lag_first_fifth_mean_ms": 9.607381135338345,
-  "lag_last_fifth_mean_ms": 12.119117894736842
+  "lag_last_fifth_mean_ms": 12.119117894736842,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1132,7 +1173,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9473802294435278,
   "lag_first_fifth_mean_ms": 9.506986947368421,
-  "lag_last_fifth_mean_ms": 15.338740180451127
+  "lag_last_fifth_mean_ms": 15.338740180451127,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1163,7 +1207,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9471771833508325,
   "lag_first_fifth_mean_ms": 10.86939184962406,
-  "lag_last_fifth_mean_ms": 9.450682203007519
+  "lag_last_fifth_mean_ms": 9.450682203007519,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1194,7 +1241,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9476928184940753,
   "lag_first_fifth_mean_ms": 6.9153279924812034,
-  "lag_last_fifth_mean_ms": 9.523841857142857
+  "lag_last_fifth_mean_ms": 9.523841857142857,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1225,7 +1275,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9749356868156592,
   "lag_first_fifth_mean_ms": 13.537892421052632,
-  "lag_last_fifth_mean_ms": 18.190719443609023
+  "lag_last_fifth_mean_ms": 18.190719443609023,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1256,7 +1309,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.975440474861257,
   "lag_first_fifth_mean_ms": 7.852092037593985,
-  "lag_last_fifth_mean_ms": 9.728596992481203
+  "lag_last_fifth_mean_ms": 9.728596992481203,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1287,7 +1343,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9751444271636418,
   "lag_first_fifth_mean_ms": 8.510960120300751,
-  "lag_last_fifth_mean_ms": 9.58434552631579
+  "lag_last_fifth_mean_ms": 9.58434552631579,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1318,7 +1377,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9536492808309585,
   "lag_first_fifth_mean_ms": 9.692027781954888,
-  "lag_last_fifth_mean_ms": 15.580291375939849
+  "lag_last_fifth_mean_ms": 15.580291375939849,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1349,7 +1411,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9540190654717264,
   "lag_first_fifth_mean_ms": 6.544295894736842,
-  "lag_last_fifth_mean_ms": 8.522746338345865
+  "lag_last_fifth_mean_ms": 8.522746338345865,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1380,7 +1445,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9538943740512974,
   "lag_first_fifth_mean_ms": 6.376493315789474,
-  "lag_last_fifth_mean_ms": 8.24836752631579
+  "lag_last_fifth_mean_ms": 8.24836752631579,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1411,7 +1479,10 @@
   "partial_updates_per_clip": 81,
   "partial_time_coverage": 0.9780191029548523,
   "lag_first_fifth_mean_ms": 13.362304406015037,
-  "lag_last_fifth_mean_ms": 17.783465894736842
+  "lag_last_fifth_mean_ms": 17.783465894736842,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1442,7 +1513,10 @@
   "partial_updates_per_clip": 81,
   "partial_time_coverage": 0.9785420471276436,
   "lag_first_fifth_mean_ms": 6.992974954887218,
-  "lag_last_fifth_mean_ms": 8.276995518796992
+  "lag_last_fifth_mean_ms": 8.276995518796992,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1473,7 +1547,10 @@
   "partial_updates_per_clip": 81,
   "partial_time_coverage": 0.9785674177291135,
   "lag_first_fifth_mean_ms": 6.766595067669173,
-  "lag_last_fifth_mean_ms": 8.781774781954887
+  "lag_last_fifth_mean_ms": 8.781774781954887,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1504,7 +1581,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9584875701664917,
   "lag_first_fifth_mean_ms": 8.684943428571428,
-  "lag_last_fifth_mean_ms": 15.298480736842105
+  "lag_last_fifth_mean_ms": 15.298480736842105,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1535,7 +1615,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9588257118494076,
   "lag_first_fifth_mean_ms": 5.0316657669172935,
-  "lag_last_fifth_mean_ms": 7.176491917293233
+  "lag_last_fifth_mean_ms": 7.176491917293233,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1566,7 +1649,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9587667187040648,
   "lag_first_fifth_mean_ms": 5.518288894736842,
-  "lag_last_fifth_mean_ms": 6.7776548270676695
+  "lag_last_fifth_mean_ms": 6.7776548270676695,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1598,7 +1684,10 @@
   "partial_time_coverage": 0.9829601160641968,
   "lag_first_fifth_mean_ms": 14.068854834586466,
   "lag_last_fifth_mean_ms": 14.805396571428572,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1630,7 +1719,10 @@
   "partial_time_coverage": 0.9830848067046648,
   "lag_first_fifth_mean_ms": 10.647827789473684,
   "lag_last_fifth_mean_ms": 12.521367082706767,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1662,7 +1754,10 @@
   "partial_time_coverage": 0.9830508154342283,
   "lag_first_fifth_mean_ms": 11.428067721804512,
   "lag_last_fifth_mean_ms": 12.742116105263158,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1724,7 +1819,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.2,
-  "partial_time_coverage": 0.29791593859978566
+  "partial_time_coverage": 0.29791593859978566,
+  "wer_norm_error_free": 21.232876712328768,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1786,7 +1885,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.2,
-  "partial_time_coverage": 0.305379679271799
+  "partial_time_coverage": 0.305379679271799,
+  "wer_norm_error_free": 21.232876712328768,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1848,7 +1951,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.2,
-  "partial_time_coverage": 0.3052858950525246
+  "partial_time_coverage": 0.3052858950525246,
+  "wer_norm_error_free": 21.232876712328768,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1910,7 +2017,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.3,
-  "partial_time_coverage": 0.029512857519366296
+  "partial_time_coverage": 0.029512857519366296,
+  "wer_norm_error_free": 19.17808219178082,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -1972,7 +2083,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.3,
-  "partial_time_coverage": 0.02926509314778068
+  "partial_time_coverage": 0.02926509314778068,
+  "wer_norm_error_free": 19.17808219178082,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2034,7 +2149,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.3,
-  "partial_time_coverage": 0.030665427495214077
+  "partial_time_coverage": 0.030665427495214077,
+  "wer_norm_error_free": 19.17808219178082,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2096,7 +2215,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.35,
-  "partial_time_coverage": 0.35460062513678264
+  "partial_time_coverage": 0.35460062513678264,
+  "wer_norm_error_free": 25.34246575342466,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2158,7 +2281,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.35,
-  "partial_time_coverage": 0.3620392281507712
+  "partial_time_coverage": 0.3620392281507712,
+  "wer_norm_error_free": 25.34246575342466,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2220,7 +2347,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.35,
-  "partial_time_coverage": 0.362244068528559
+  "partial_time_coverage": 0.362244068528559,
+  "wer_norm_error_free": 25.34246575342466,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2282,7 +2413,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.55,
-  "partial_time_coverage": 0.06960466337740934
+  "partial_time_coverage": 0.06960466337740934,
+  "wer_norm_error_free": 26.027397260273972,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2344,7 +2479,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.55,
-  "partial_time_coverage": 0.07383775106972601
+  "partial_time_coverage": 0.07383775106972601,
+  "wer_norm_error_free": 26.027397260273972,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2406,7 +2545,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.55,
-  "partial_time_coverage": 0.07356437185596851
+  "partial_time_coverage": 0.07356437185596851,
+  "wer_norm_error_free": 26.027397260273972,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2468,7 +2611,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.65,
-  "partial_time_coverage": 0.4208494863024581
+  "partial_time_coverage": 0.4208494863024581,
+  "wer_norm_error_free": 32.87671232876713,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2530,7 +2677,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.65,
-  "partial_time_coverage": 0.43165667795306484
+  "partial_time_coverage": 0.43165667795306484,
+  "wer_norm_error_free": 32.87671232876713,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2592,7 +2743,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.65,
-  "partial_time_coverage": 0.42989347427781543
+  "partial_time_coverage": 0.42989347427781543,
+  "wer_norm_error_free": 32.87671232876713,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2654,7 +2809,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.7,
-  "partial_time_coverage": 0.11740549783677554
+  "partial_time_coverage": 0.11740549783677554,
+  "wer_norm_error_free": 29.45205479452055,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2716,7 +2875,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.7,
-  "partial_time_coverage": 0.1219100115186457
+  "partial_time_coverage": 0.1219100115186457,
+  "wer_norm_error_free": 29.45205479452055,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2778,7 +2941,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.7,
-  "partial_time_coverage": 0.12214677950858777
+  "partial_time_coverage": 0.12214677950858777,
+  "wer_norm_error_free": 29.45205479452055,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2835,7 +3002,11 @@
   "partial_updates_per_clip": 7.15,
   "partial_time_coverage": 0.5744257824954067,
   "native_errors": 0,
-  "native_ended_before_eof": 0
+  "native_ended_before_eof": 0,
+  "wer_norm_error_free": 30.82191780821918,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2892,7 +3063,11 @@
   "partial_updates_per_clip": 7.25,
   "partial_time_coverage": 0.5745624739038879,
   "native_errors": 0,
-  "native_ended_before_eof": 0
+  "native_ended_before_eof": 0,
+  "wer_norm_error_free": 30.82191780821918,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -2949,7 +3124,11 @@
   "partial_updates_per_clip": 6.65,
   "partial_time_coverage": 0.5384088055568319,
   "native_errors": 1,
-  "native_ended_before_eof": 1
+  "native_ended_before_eof": 1,
+  "wer_norm_error_free": null,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -3012,7 +3191,11 @@
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 5.8,
   "partial_time_coverage": 0.588031505717613,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "wer_norm_error_free": 47.26027397260274,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -3075,7 +3258,11 @@
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 5.8,
   "partial_time_coverage": 0.5897542465872629,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "wer_norm_error_free": 47.26027397260274,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S23U",
@@ -3138,7 +3325,11 @@
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 5.8,
   "partial_time_coverage": 0.5910790950294222,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "wer_norm_error_free": 47.26027397260274,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -3264,7 +3455,11 @@
   "wer_raw": 8.150470219435737,
   "wer_raw_edits": 52,
   "wer_raw_norm": 8.150470219435737,
-  "wer_raw_norm_edits": 52
+  "wer_raw_norm_edits": 52,
+  "wer_norm_error_free": 7.6802507836990594,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -3390,7 +3585,11 @@
   "wer_raw": 7.210031347962382,
   "wer_raw_edits": 46,
   "wer_raw_norm": 7.210031347962382,
-  "wer_raw_norm_edits": 46
+  "wer_raw_norm_edits": 46,
+  "wer_norm_error_free": 6.739811912225705,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -3516,7 +3715,11 @@
   "wer_raw": 9.090909090909092,
   "wer_raw_edits": 58,
   "wer_raw_norm": 9.090909090909092,
-  "wer_raw_norm_edits": 58
+  "wer_raw_norm_edits": 58,
+  "wer_norm_error_free": 7.366771159874608,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -3642,7 +3845,11 @@
   "wer_raw": 7.6802507836990594,
   "wer_raw_edits": 49,
   "wer_raw_norm": 7.6802507836990594,
-  "wer_raw_norm_edits": 49
+  "wer_raw_norm_edits": 49,
+  "wer_norm_error_free": 6.58307210031348,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -3768,7 +3975,11 @@
   "wer_raw": 12.382445141065832,
   "wer_raw_edits": 79,
   "wer_raw_norm": 12.382445141065832,
-  "wer_raw_norm_edits": 79
+  "wer_raw_norm_edits": 79,
+  "wer_norm_error_free": 11.128526645768025,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -3894,7 +4105,11 @@
   "wer_raw": 12.382445141065832,
   "wer_raw_edits": 79,
   "wer_raw_norm": 12.382445141065832,
-  "wer_raw_norm_edits": 79
+  "wer_raw_norm_edits": 79,
+  "wer_norm_error_free": 11.285266457680251,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4022,7 +4237,11 @@
   "wer_raw_norm": 9.561128526645769,
   "wer_raw_norm_edits": 61,
   "native_errors": 0,
-  "native_ended_before_eof": 0
+  "native_ended_before_eof": 0,
+  "wer_norm_error_free": 9.561128526645769,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4149,7 +4368,11 @@
   "wer_raw_edits": 284,
   "wer_raw_norm": 44.357366771159874,
   "wer_raw_norm_edits": 283,
-  "clips_with_endpoint_before_eof": 0
+  "clips_with_endpoint_before_eof": 0,
+  "wer_norm_error_free": 44.357366771159874,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4180,7 +4403,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9709278617069147,
   "lag_first_fifth_mean_ms": 36.186962112781956,
-  "lag_last_fifth_mean_ms": 36.68724698496241
+  "lag_last_fifth_mean_ms": 36.68724698496241,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4211,7 +4437,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9706583476826158,
   "lag_first_fifth_mean_ms": 34.39639211278195,
-  "lag_last_fifth_mean_ms": 40.044674909774436
+  "lag_last_fifth_mean_ms": 40.044674909774436,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4242,7 +4471,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.970338939238038,
   "lag_first_fifth_mean_ms": 43.650378233082705,
-  "lag_last_fifth_mean_ms": 41.38009015037594
+  "lag_last_fifth_mean_ms": 41.38009015037594,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4275,7 +4507,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9652724400629968,
   "lag_first_fifth_mean_ms": 241.52626987218045,
-  "lag_last_fifth_mean_ms": 290.00170889473685
+  "lag_last_fifth_mean_ms": 290.00170889473685,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4308,7 +4543,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9654414169941503,
   "lag_first_fifth_mean_ms": 250.16508730075188,
-  "lag_last_fifth_mean_ms": 303.5667885037594
+  "lag_last_fifth_mean_ms": 303.5667885037594,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4341,7 +4579,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9644333975851207,
   "lag_first_fifth_mean_ms": 271.20654510526316,
-  "lag_last_fifth_mean_ms": 314.2218212631579
+  "lag_last_fifth_mean_ms": 314.2218212631579,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4372,7 +4613,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9454978412929353,
   "lag_first_fifth_mean_ms": 28.651771496240602,
-  "lag_last_fifth_mean_ms": 35.97283138345865
+  "lag_last_fifth_mean_ms": 35.97283138345865,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4403,7 +4647,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9454685639268037,
   "lag_first_fifth_mean_ms": 27.34782022556391,
-  "lag_last_fifth_mean_ms": 37.585157706766914
+  "lag_last_fifth_mean_ms": 37.585157706766914,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4434,7 +4681,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9455539488675566,
   "lag_first_fifth_mean_ms": 28.147751834586465,
-  "lag_last_fifth_mean_ms": 36.58790392481203
+  "lag_last_fifth_mean_ms": 36.58790392481203,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4467,7 +4717,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.93600399100045,
   "lag_first_fifth_mean_ms": 264.1766839548872,
-  "lag_last_fifth_mean_ms": 351.3127654285714
+  "lag_last_fifth_mean_ms": 351.3127654285714,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4500,7 +4753,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9382774579121044,
   "lag_first_fifth_mean_ms": 259.33101536090226,
-  "lag_last_fifth_mean_ms": 356.5489990451128
+  "lag_last_fifth_mean_ms": 356.5489990451128,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4533,7 +4789,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9352201249887505,
   "lag_first_fifth_mean_ms": 306.4715882180451,
-  "lag_last_fifth_mean_ms": 404.99815783458644
+  "lag_last_fifth_mean_ms": 404.99815783458644,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4564,7 +4823,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9741983310634468,
   "lag_first_fifth_mean_ms": 13.231412812030076,
-  "lag_last_fifth_mean_ms": 14.280514857142856
+  "lag_last_fifth_mean_ms": 14.280514857142856,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4595,7 +4857,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9746747066746663,
   "lag_first_fifth_mean_ms": 21.994593067669175,
-  "lag_last_fifth_mean_ms": 22.334731030075186
+  "lag_last_fifth_mean_ms": 22.334731030075186,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4626,7 +4891,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9738793402729864,
   "lag_first_fifth_mean_ms": 26.112136210526316,
-  "lag_last_fifth_mean_ms": 25.151954015037592
+  "lag_last_fifth_mean_ms": 25.151954015037592,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4659,7 +4927,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.9712104481625918,
   "lag_first_fifth_mean_ms": 107.18802112781955,
-  "lag_last_fifth_mean_ms": 135.07372609774436
+  "lag_last_fifth_mean_ms": 135.07372609774436,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4692,7 +4963,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.970314208339583,
   "lag_first_fifth_mean_ms": 140.32890243609023,
-  "lag_last_fifth_mean_ms": 155.17584744360903
+  "lag_last_fifth_mean_ms": 155.17584744360903,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4725,7 +4999,10 @@
   "partial_updates_per_clip": 83,
   "partial_time_coverage": 0.971078086680666,
   "lag_first_fifth_mean_ms": 117.7266594962406,
-  "lag_last_fifth_mean_ms": 132.49990706015038
+  "lag_last_fifth_mean_ms": 132.49990706015038,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4756,7 +5033,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9534996619769012,
   "lag_first_fifth_mean_ms": 9.423114609022557,
-  "lag_last_fifth_mean_ms": 11.694818165413533
+  "lag_last_fifth_mean_ms": 11.694818165413533,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4787,7 +5067,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9526474380530974,
   "lag_first_fifth_mean_ms": 14.519808458646617,
-  "lag_last_fifth_mean_ms": 18.93179138345865
+  "lag_last_fifth_mean_ms": 18.93179138345865,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4818,7 +5101,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.95224240059997,
   "lag_first_fifth_mean_ms": 19.815071984962405,
-  "lag_last_fifth_mean_ms": 22.81889584962406
+  "lag_last_fifth_mean_ms": 22.81889584962406,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4851,7 +5137,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9480124234588271,
   "lag_first_fifth_mean_ms": 90.72019891729323,
-  "lag_last_fifth_mean_ms": 144.8121837669173
+  "lag_last_fifth_mean_ms": 144.8121837669173,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4884,7 +5173,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9473946118494075,
   "lag_first_fifth_mean_ms": 110.26028045112783,
-  "lag_last_fifth_mean_ms": 106.666330481203
+  "lag_last_fifth_mean_ms": 106.666330481203,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4917,7 +5209,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9469304248687566,
   "lag_first_fifth_mean_ms": 125.25015354887218,
-  "lag_last_fifth_mean_ms": 148.6184907669173
+  "lag_last_fifth_mean_ms": 148.6184907669173,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4948,7 +5243,10 @@
   "partial_updates_per_clip": 81,
   "partial_time_coverage": 0.9782657169191541,
   "lag_first_fifth_mean_ms": 10.009893563909774,
-  "lag_last_fifth_mean_ms": 10.912297827067668
+  "lag_last_fifth_mean_ms": 10.912297827067668,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -4979,7 +5277,10 @@
   "partial_updates_per_clip": 81,
   "partial_time_coverage": 0.9776573456127193,
   "lag_first_fifth_mean_ms": 12.938387879699247,
-  "lag_last_fifth_mean_ms": 12.20343030075188
+  "lag_last_fifth_mean_ms": 12.20343030075188,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5010,7 +5311,10 @@
   "partial_updates_per_clip": 81,
   "partial_time_coverage": 0.977414283920804,
   "lag_first_fifth_mean_ms": 14.871415586466165,
-  "lag_last_fifth_mean_ms": 16.355502383458646
+  "lag_last_fifth_mean_ms": 16.355502383458646,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5043,7 +5347,10 @@
   "partial_updates_per_clip": 81,
   "partial_time_coverage": 0.9758579790460477,
   "lag_first_fifth_mean_ms": 50.19146342857143,
-  "lag_last_fifth_mean_ms": 54.889205165413536
+  "lag_last_fifth_mean_ms": 54.889205165413536,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5076,7 +5383,10 @@
   "partial_updates_per_clip": 81,
   "partial_time_coverage": 0.9760778345882706,
   "lag_first_fifth_mean_ms": 50.97058507518797,
-  "lag_last_fifth_mean_ms": 54.000730315789475
+  "lag_last_fifth_mean_ms": 54.000730315789475,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5109,7 +5419,10 @@
   "partial_updates_per_clip": 81,
   "partial_time_coverage": 0.9766271451927404,
   "lag_first_fifth_mean_ms": 49.30771181954887,
-  "lag_last_fifth_mean_ms": 55.5899237368421
+  "lag_last_fifth_mean_ms": 55.5899237368421,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5140,7 +5453,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.958432771081446,
   "lag_first_fifth_mean_ms": 7.88972052631579,
-  "lag_last_fifth_mean_ms": 10.75485142857143
+  "lag_last_fifth_mean_ms": 10.75485142857143,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5171,7 +5487,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9583153436928153,
   "lag_first_fifth_mean_ms": 8.243775586466166,
-  "lag_last_fifth_mean_ms": 12.99501207518797
+  "lag_last_fifth_mean_ms": 12.99501207518797,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5202,7 +5521,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9577395743962802,
   "lag_first_fifth_mean_ms": 12.638531691729323,
-  "lag_last_fifth_mean_ms": 14.079101669172932
+  "lag_last_fifth_mean_ms": 14.079101669172932,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5235,7 +5557,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9551560816409179,
   "lag_first_fifth_mean_ms": 45.41024376691729,
-  "lag_last_fifth_mean_ms": 43.02078678947368
+  "lag_last_fifth_mean_ms": 43.02078678947368,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5268,7 +5593,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9550474426578671,
   "lag_first_fifth_mean_ms": 52.01340785714286,
-  "lag_last_fifth_mean_ms": 54.34797697744361
+  "lag_last_fifth_mean_ms": 54.34797697744361,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5301,7 +5629,10 @@
   "partial_updates_per_clip": 50,
   "partial_time_coverage": 0.9553936755362232,
   "lag_first_fifth_mean_ms": 47.010905263157895,
-  "lag_last_fifth_mean_ms": 47.03273254887218
+  "lag_last_fifth_mean_ms": 47.03273254887218,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5335,7 +5666,10 @@
   "partial_time_coverage": 0.9779534683065847,
   "lag_first_fifth_mean_ms": 199.4807927142857,
   "lag_last_fifth_mean_ms": 195.84102292481202,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5369,7 +5703,10 @@
   "partial_time_coverage": 0.9796883288585571,
   "lag_first_fifth_mean_ms": 185.4677329849624,
   "lag_last_fifth_mean_ms": 183.1889229473684,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5403,7 +5740,10 @@
   "partial_time_coverage": 0.9788504673016349,
   "lag_first_fifth_mean_ms": 203.95113039849625,
   "lag_last_fifth_mean_ms": 211.62035788721803,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5435,7 +5775,10 @@
   "partial_time_coverage": 0.9805837581220939,
   "lag_first_fifth_mean_ms": 45.08139347368421,
   "lag_last_fifth_mean_ms": 46.423560563909774,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5467,7 +5810,10 @@
   "partial_time_coverage": 0.9819993290835458,
   "lag_first_fifth_mean_ms": 48.543368007518794,
   "lag_last_fifth_mean_ms": 45.70098967669173,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5499,7 +5845,10 @@
   "partial_time_coverage": 0.9818736422828859,
   "lag_first_fifth_mean_ms": 63.32127969924812,
   "lag_last_fifth_mean_ms": 56.15714641353384,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5561,7 +5910,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.2,
-  "partial_time_coverage": 0.27903622737409517
+  "partial_time_coverage": 0.27903622737409517,
+  "wer_norm_error_free": 21.232876712328768,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5623,7 +5976,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.2,
-  "partial_time_coverage": 0.27636360176468605
+  "partial_time_coverage": 0.27636360176468605,
+  "wer_norm_error_free": 21.232876712328768,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5685,7 +6042,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.2,
-  "partial_time_coverage": 0.2758822507353882
+  "partial_time_coverage": 0.2758822507353882,
+  "wer_norm_error_free": 21.232876712328768,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5749,7 +6110,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.2,
-  "partial_time_coverage": 0.20307434191998971
+  "partial_time_coverage": 0.20307434191998971,
+  "wer_norm_error_free": 21.232876712328768,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5813,7 +6178,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.2,
-  "partial_time_coverage": 0.2008504445393425
+  "partial_time_coverage": 0.2008504445393425,
+  "wer_norm_error_free": 21.232876712328768,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5877,7 +6246,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.2,
-  "partial_time_coverage": 0.19442750186928515
+  "partial_time_coverage": 0.19442750186928515,
+  "wer_norm_error_free": 21.232876712328768,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -5939,7 +6312,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.3,
-  "partial_time_coverage": 0.020599274948039564
+  "partial_time_coverage": 0.020599274948039564,
+  "wer_norm_error_free": 19.17808219178082,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6001,7 +6378,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.3,
-  "partial_time_coverage": 0.022283627389316142
+  "partial_time_coverage": 0.022283627389316142,
+  "wer_norm_error_free": 19.17808219178082,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6063,7 +6444,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.3,
-  "partial_time_coverage": 0.019926420839272502
+  "partial_time_coverage": 0.019926420839272502,
+  "wer_norm_error_free": 19.17808219178082,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6127,7 +6512,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.3,
-  "partial_time_coverage": 0.0
+  "partial_time_coverage": 0.0,
+  "wer_norm_error_free": 19.17808219178082,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6191,7 +6580,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.3,
-  "partial_time_coverage": 0.0
+  "partial_time_coverage": 0.0,
+  "wer_norm_error_free": 19.17808219178082,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6255,7 +6648,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.3,
-  "partial_time_coverage": 0.0
+  "partial_time_coverage": 0.0,
+  "wer_norm_error_free": 19.17808219178082,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6317,7 +6714,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.35,
-  "partial_time_coverage": 0.3507746978003828
+  "partial_time_coverage": 0.3507746978003828,
+  "wer_norm_error_free": 25.34246575342466,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6379,7 +6780,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.35,
-  "partial_time_coverage": 0.3426507977381302
+  "partial_time_coverage": 0.3426507977381302,
+  "wer_norm_error_free": 25.34246575342466,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6441,7 +6846,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.35,
-  "partial_time_coverage": 0.3410990569646624
+  "partial_time_coverage": 0.3410990569646624,
+  "wer_norm_error_free": 25.34246575342466,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6505,7 +6914,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.35,
-  "partial_time_coverage": 0.2845042906670959
+  "partial_time_coverage": 0.2845042906670959,
+  "wer_norm_error_free": 25.34246575342466,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6569,7 +6982,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.35,
-  "partial_time_coverage": 0.2774666054293005
+  "partial_time_coverage": 0.2774666054293005,
+  "wer_norm_error_free": 25.34246575342466,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6633,7 +7050,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.35,
-  "partial_time_coverage": 0.28152639203487684
+  "partial_time_coverage": 0.28152639203487684,
+  "wer_norm_error_free": 25.34246575342466,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6695,7 +7116,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.55,
-  "partial_time_coverage": 0.06042291839046129
+  "partial_time_coverage": 0.06042291839046129,
+  "wer_norm_error_free": 26.027397260273972,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6757,7 +7182,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.55,
-  "partial_time_coverage": 0.061097191479709864
+  "partial_time_coverage": 0.061097191479709864,
+  "wer_norm_error_free": 26.027397260273972,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6819,7 +7248,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.55,
-  "partial_time_coverage": 0.05908418473523777
+  "partial_time_coverage": 0.05908418473523777,
+  "wer_norm_error_free": 26.027397260273972,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6883,7 +7316,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.55,
-  "partial_time_coverage": 0.029638244553291903
+  "partial_time_coverage": 0.029638244553291903,
+  "wer_norm_error_free": 26.027397260273972,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -6947,7 +7384,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.55,
-  "partial_time_coverage": 0.026331449581033006
+  "partial_time_coverage": 0.026331449581033006,
+  "wer_norm_error_free": 26.027397260273972,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7011,7 +7452,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.55,
-  "partial_time_coverage": 0.02694178831836455
+  "partial_time_coverage": 0.02694178831836455,
+  "wer_norm_error_free": 26.027397260273972,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7073,7 +7518,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.65,
-  "partial_time_coverage": 0.4209816427645256
+  "partial_time_coverage": 0.4209816427645256,
+  "wer_norm_error_free": 32.87671232876713,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7135,7 +7584,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.65,
-  "partial_time_coverage": 0.41533717070579923
+  "partial_time_coverage": 0.41533717070579923,
+  "wer_norm_error_free": 32.87671232876713,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7197,7 +7650,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.65,
-  "partial_time_coverage": 0.41122983364504173
+  "partial_time_coverage": 0.41122983364504173,
+  "wer_norm_error_free": 32.87671232876713,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7261,7 +7718,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.65,
-  "partial_time_coverage": 0.3751540552556268
+  "partial_time_coverage": 0.3751540552556268,
+  "wer_norm_error_free": 32.87671232876713,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7325,7 +7786,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.65,
-  "partial_time_coverage": 0.3764504471804919
+  "partial_time_coverage": 0.3764504471804919,
+  "wer_norm_error_free": 32.87671232876713,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7389,7 +7854,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 2.65,
-  "partial_time_coverage": 0.37710250460922223
+  "partial_time_coverage": 0.37710250460922223,
+  "wer_norm_error_free": 32.87671232876713,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7451,7 +7920,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.7,
-  "partial_time_coverage": 0.1176981513249322
+  "partial_time_coverage": 0.1176981513249322,
+  "wer_norm_error_free": 29.45205479452055,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7513,7 +7986,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.7,
-  "partial_time_coverage": 0.11418246335017457
+  "partial_time_coverage": 0.11418246335017457,
+  "wer_norm_error_free": 29.45205479452055,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7575,7 +8052,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.7,
-  "partial_time_coverage": 0.11272106748304225
+  "partial_time_coverage": 0.11272106748304225,
+  "wer_norm_error_free": 29.45205479452055,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7639,7 +8120,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.7,
-  "partial_time_coverage": 0.08443151585810907
+  "partial_time_coverage": 0.08443151585810907,
+  "wer_norm_error_free": 29.45205479452055,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7703,7 +8188,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.7,
-  "partial_time_coverage": 0.08210977755172398
+  "partial_time_coverage": 0.08210977755172398,
+  "wer_norm_error_free": 29.45205479452055,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7767,7 +8256,11 @@
   "corrected_partial_coverage": 0.0,
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 0.7,
-  "partial_time_coverage": 0.08161363825828366
+  "partial_time_coverage": 0.08161363825828366,
+  "wer_norm_error_free": 29.45205479452055,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7824,7 +8317,11 @@
   "partial_updates_per_clip": 7.15,
   "partial_time_coverage": 0.5743688057564132,
   "native_errors": 0,
-  "native_ended_before_eof": 0
+  "native_ended_before_eof": 0,
+  "wer_norm_error_free": 30.136986301369863,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7881,7 +8378,11 @@
   "partial_updates_per_clip": 7.05,
   "partial_time_coverage": 0.5564851500287192,
   "native_errors": 1,
-  "native_ended_before_eof": 1
+  "native_ended_before_eof": 1,
+  "wer_norm_error_free": null,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -7938,7 +8439,11 @@
   "partial_updates_per_clip": 7.15,
   "partial_time_coverage": 0.574341100209553,
   "native_errors": 0,
-  "native_ended_before_eof": 0
+  "native_ended_before_eof": 0,
+  "wer_norm_error_free": 30.136986301369863,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -8003,7 +8508,11 @@
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 5.8,
   "partial_time_coverage": 0.486094891457325,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "wer_norm_error_free": 47.26027397260274,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -8068,7 +8577,11 @@
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 5.8,
   "partial_time_coverage": 0.49010852436637536,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "wer_norm_error_free": 47.26027397260274,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -8133,7 +8646,11 @@
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 5.8,
   "partial_time_coverage": 0.4805166190871844,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "wer_norm_error_free": 47.26027397260274,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -8196,7 +8713,11 @@
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 5.8,
   "partial_time_coverage": 0.5621697716774707,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "wer_norm_error_free": 47.26027397260274,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -8259,7 +8780,11 @@
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 5.8,
   "partial_time_coverage": 0.5584519796498224,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "wer_norm_error_free": 47.26027397260274,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  },
  {
   "device": "S21",
@@ -8322,6 +8847,10 @@
   "first_corrected_partial_median_ms": null,
   "partial_updates_per_clip": 5.8,
   "partial_time_coverage": 0.5503420685350763,
-  "clips_with_endpoint_before_eof": 1
+  "clips_with_endpoint_before_eof": 1,
+  "wer_norm_error_free": 47.26027397260274,
+  "app_apk_sha256": null,
+  "test_apk_sha256": null,
+  "private_et_driver_sha256": null
  }
 ]

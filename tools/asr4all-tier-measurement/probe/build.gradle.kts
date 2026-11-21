@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     alias(libs.plugins.android.application)
 }
@@ -5,14 +7,19 @@ plugins {
 // The ExecuTorch lane needs a Kotlin driver for FUTO's asr4all ExecuTorch bundle. FUTO's reference driver
 // (`executorch/asr4all_executorch.py`) carries no licence, so no port of it is published in this repository.
 // The driver lives in a private directory outside Git (`EtAsr4allDecoder` + `Asr4allEtGeometry`, package
-// `ai.jandal.asr4alltier`) and is compiled in from there. See ../README.md.
+// `ai.jandal.asr4alltier`) and is compiled in from there. See ../README.md. Without it the probe still builds,
+// with the Zipformer and Android native lanes only. The SHA-256 of each driver file is embedded in BuildConfig
+// and written into every report, so ExecuTorch numbers trace to an exact driver source.
 val privateEtDecoderDir = providers.gradleProperty("privateEtDecoderDir")
     .orElse(System.getProperty("user.home") + "/.local/share/jandal-private/asr4all-et-decoder")
     .map { File(it) }
     .get()
-check(File(privateEtDecoderDir, "EtAsr4allDecoder.kt").isFile) {
-    "Private ExecuTorch driver not found in $privateEtDecoderDir (set -PprivateEtDecoderDir); it is not published."
-}
+val privateDriverFiles = listOf("EtAsr4allDecoder.kt", "Asr4allEtGeometry.kt").map { File(privateEtDecoderDir, it) }
+val hasEtDriver = privateDriverFiles.all { it.isFile }
+fun sha256(file: File): String = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+    .joinToString("") { "%02x".format(it) }
+val privateDriverSha256 = if (hasEtDriver) privateDriverFiles.joinToString(",") { "${it.name}=${sha256(it)}" } else ""
+if (!hasEtDriver) logger.warn("Private ExecuTorch driver not found in $privateEtDecoderDir: building without the et lane.")
 
 // Jandal's shipping transcript normaliser, compiled unmodified from Git so every lane can be scored through it.
 val normaliserCommit = providers.gradleProperty("normaliserCommit")
@@ -48,12 +55,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         buildConfigField("String", "NORMALISER_COMMIT", "\"${normaliserCommit.get()}\"")
+        buildConfigField("String", "PRIVATE_ET_DRIVER_SHA256", "\"$privateDriverSha256\"")
     }
 
     buildFeatures { buildConfig = true }
 
     sourceSets.getByName("main").kotlin.directories.add(normaliserDir.get().asFile.path)
-    sourceSets.getByName("main").kotlin.directories.add(privateEtDecoderDir.path)
+    if (hasEtDriver) {
+        sourceSets.getByName("main").kotlin.directories.add(privateEtDecoderDir.path)
+        sourceSets.getByName("main").kotlin.directories.add("src/et/java")
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

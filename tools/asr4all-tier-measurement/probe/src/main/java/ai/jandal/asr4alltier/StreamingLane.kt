@@ -1,8 +1,6 @@
 package ai.jandal.asr4alltier
 
 import android.content.Context
-import org.json.JSONObject
-import org.pytorch.executorch.Module
 import java.io.File
 
 /**
@@ -29,36 +27,13 @@ interface StreamingLane : AutoCloseable {
     companion object {
         fun open(context: Context, runtime: String, modelRoot: File, size: String, tier: String, variant: String): StreamingLane =
             when (runtime) {
-                "et" -> EtLane(File(modelRoot, size), size, tier, variant)
+                // EtLane is compiled only when the private ExecuTorch driver is present (see build.gradle.kts).
+                "et" -> Class.forName("ai.jandal.asr4alltier.EtLane")
+                    .getConstructor(File::class.java, String::class.java, String::class.java, String::class.java)
+                    .newInstance(File(modelRoot, size), size, tier, variant) as StreamingLane
                 "zipformer" -> ZipformerLane(File(modelRoot, "zipformer"))
                 "native" -> NativeLane(context, variant)
                 else -> error("runtime must be et, zipformer or native")
             }
     }
-}
-
-/** FUTO ExecuTorch/XNNPACK INT8 `.pte`, driven by the private [EtAsr4allDecoder]. */
-class EtLane(dir: File, size: String, tier: String, variant: String) : StreamingLane {
-    private val module: Module = EtModules.load(File(dir, "asr_encoder.pte").absolutePath, variant)
-    private val decoder: EtAsr4allDecoder
-    override val description = "executorch-1.5.1/xnnpack-int8 $size $tier variant=$variant"
-
-    init {
-        val metadata = JSONObject(File(dir, "metadata.json").readText())
-        val tiers = metadata.getJSONArray("tiers")
-        val pcec = (0 until tiers.length()).map(tiers::getJSONObject).single { it.getString("name") == tier }
-            .getJSONObject("pcec")
-        // Load every method now so load time is attributed to load, not to the first utterance.
-        for (method in listOf(tier, pcec.getString("name"), pcec.getString("flush"))) module.loadMethod(method)
-        decoder = EtAsr4allDecoder(module, metadata, size, tier)
-    }
-
-    override fun reset() = decoder.reset()
-    override fun feed(chunk: FloatArray): String = decoder.decodeStream(chunk)
-    override fun correctedPartial(): String = decoder.decodePcec(decodeTail = false)
-    override fun finish(): Pair<String, String> {
-        val raw = decoder.finish()
-        return raw to decoder.decodePcec(decodeTail = true)
-    }
-    override fun close() = module.close()
 }

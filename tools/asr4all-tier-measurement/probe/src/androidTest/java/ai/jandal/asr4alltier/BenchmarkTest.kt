@@ -66,6 +66,9 @@ class BenchmarkTest {
             .put("device", "${Build.MANUFACTURER} ${Build.MODEL} ${Build.SOC_MODEL}")
             .put("cpu_count", Runtime.getRuntime().availableProcessors())
             .put("normaliser_commit", BuildConfig.NORMALISER_COMMIT)
+            .put("private_et_driver_sha256", BuildConfig.PRIVATE_ET_DRIVER_SHA256)
+            .put("app_apk_sha256", sha256(File(context.applicationInfo.sourceDir)))
+            .put("test_apk_sha256", sha256(File(InstrumentationRegistry.getInstrumentation().context.applicationInfo.sourceDir)))
             .put("load_ms", loadMs)
             .put("pss_baseline_kb", pssBaselineKb).put("pss_after_load_kb", pssAfterLoadKb)
 
@@ -178,6 +181,19 @@ class BenchmarkTest {
     }
 
     private fun ms(ns: Long) = ns / 1e6
+
+    private fun sha256(file: File): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(1 shl 16)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                digest.update(buf, 0, n)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
 
     private companion object {
         const val TAG = "ASR4ALL_TIER"
