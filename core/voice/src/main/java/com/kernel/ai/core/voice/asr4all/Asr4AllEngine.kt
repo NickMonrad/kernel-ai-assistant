@@ -9,8 +9,10 @@ import java.io.File
  * `preprocessor_config.json` defines; [acceptPcm16] converts 16-bit PCM. Audio arrives in
  * chunks of any length. Each time a full encoder window is buffered the engine runs the tier's
  * encoder method, greedy-decodes the CTC frames and feeds the tokens to the PCEC head, so
- * [partialText] is punctuated and cased: settled text plus a provisional tail. [finish] encodes
- * the rest of the audio (zero-padded to whole windows), flushes PCEC and returns the final text.
+ * [partialText] is punctuated and cased: settled text plus a provisional tail. The latest token
+ * is not shown until the next one starts (its PCEC input spans up to that point). [finish]
+ * encodes the rest of the audio (zero-padded to whole windows), decodes the frames that are
+ * wholly real audio, flushes PCEC and returns the final text.
  *
  * Threading: all methods are serialised on one lock, so the engine may be shared, but calls
  * block while a method runs. Inference must run off the main thread.
@@ -35,6 +37,8 @@ class Asr4AllEngine private constructor(
     /** Audio not yet consumed; `buffer[0]` is the first sample of the next encoder window. */
     private var buffer = FloatArray(tier.windowSamples * 2)
     private var buffered = 0
+    /** Samples received in this utterance. */
+    private var received = 0L
     private var partial = ""
 
     /** The latest live text for the current utterance; empty before the first token. */
@@ -49,12 +53,13 @@ class Asr4AllEngine private constructor(
         }
         failSafe {
             append(samples, offset, length)
+            received += length
             var changed = false
             while (buffered >= tier.windowSamples) {
                 changed = encodeWindow() or changed
                 consume(tier.hopSamples)
             }
-            if (changed) partial = pcec.text(decoder.openToken, final = false)
+            if (changed) partial = pcec.text()
             partial
         }
     }
@@ -70,13 +75,17 @@ class Asr4AllEngine private constructor(
     fun finish(): String = synchronized(lock) {
         ensureOpen()
         failSafe {
+            // Only frames wholly covered by real audio are decoded; the padding is not.
+            val realFrames = (received / config.samplesPerFrame).toInt()
             while (buffered > 0) {
+                val frames = (realFrames - decoder.framesDecoded).coerceIn(0, tier.commitFrames)
+                if (frames == 0) break // the rest is padding
                 if (buffered < tier.windowSamples) buffer.fill(0f, buffered, tier.windowSamples)
-                encodeWindow()
+                encodeWindow(frames)
                 consume(minOf(tier.hopSamples, buffered))
             }
-            decoder.close(pcec::add)
-            val text = pcec.text(final = true)
+            decoder.finish(pcec::add)
+            val text = pcec.text()
             resetUtterance()
             text
         }
@@ -114,6 +123,7 @@ class Asr4AllEngine private constructor(
         filterCache = program.initialFilterCache()
         attnCache = program.initialAttnCache()
         buffered = 0
+        received = 0
         partial = ""
     }
 
@@ -128,13 +138,16 @@ class Asr4AllEngine private constructor(
         buffered -= count
     }
 
-    /** Encodes `buffer[0 until windowSamples]`; returns true when a token started. */
-    private fun encodeWindow(): Boolean {
+    /**
+     * Encodes `buffer[0 until windowSamples]` and decodes the first [frames] committed frames;
+     * returns true when a token was handed to PCEC.
+     */
+    private fun encodeWindow(frames: Int = tier.commitFrames): Boolean {
         val window = buffer.copyOf(tier.windowSamples)
         val out = program.encoder(window, filterCache, attnCache)
         filterCache = out.filterCache
         attnCache = out.attnCache
-        return decoder.accept(out.logits, out.hidden, tier.commitFrames, pcec::add)
+        return decoder.accept(out.logits, out.hidden, frames, pcec::add)
     }
 
     companion object {

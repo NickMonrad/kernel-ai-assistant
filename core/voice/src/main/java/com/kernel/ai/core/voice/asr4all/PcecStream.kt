@@ -5,37 +5,38 @@ class PcecToken(
     val id: Int,
     val startFrame: Int,
     var endFrame: Int,
-    /** Bucketed pause before the token, or the blackout bucket when unknown. */
+    /** Log2 bucket of the blank frames before the token (see [PcecFeatures.pauseBucket]). */
     val pauseBucket: Int,
-    /** Sum of the encoder hidden rows over the token's frames; see [pooledHidden]. */
-    val hiddenSum: FloatArray,
-    var hiddenFrames: Int = 0,
+    hiddenDim: Int,
 ) {
+    /** Sum of the encoder hidden rows over the token's span, in double precision. */
+    private val hiddenSum = DoubleArray(hiddenDim)
+    var hiddenFrames: Int = 0
+        private set
+
     fun addHidden(hidden: FloatArray, offset: Int) {
         for (i in hiddenSum.indices) hiddenSum[i] += hidden[offset + i]
         hiddenFrames++
     }
 
-    /** Mean of the encoder hidden rows over the frames of the token's run. */
+    /** Mean of the encoder hidden rows over the token's span: its run and the blank frames after it. */
     fun pooledHidden(into: FloatArray, offset: Int) {
-        val scale = 1f / hiddenFrames.coerceAtLeast(1)
-        for (i in hiddenSum.indices) into[offset + i] = hiddenSum[i] * scale
+        val n = hiddenFrames.coerceAtLeast(1)
+        for (i in hiddenSum.indices) into[offset + i] = (hiddenSum[i] / n).toFloat()
     }
 }
 
 /**
- * Input features for the PCEC head, derived from the CTC timing.
+ * Input features for the PCEC head, derived from the CTC timing (CLEANROOM.md, decisions 3 and
+ * 7; fixed against the verifier's reference outputs).
  *
- * The pause before a token is the number of non-token frames between the previous token's
- * last frame and this token's first frame, bucketed on a log2 scale into
- * [Asr4AllPcecConfig.pauseBuckets] buckets (0 frames → 0, 1 → 1, 2–3 → 2, 4–7 → 3, …, capped at
- * the last bucket). The first token of an utterance has no previous token, so its pause is
- * the blackout bucket. These definitions were chosen by black-box measurement (see
- * CLEANROOM.md) and are the main candidates for parity adjustment.
+ * The pause before a token is the number of blank frames between the previous token's last
+ * frame and this token's first frame (for the first token, the frames before it), bucketed on a
+ * log2 scale into [Asr4AllPcecConfig.pauseBuckets] buckets: 0 frames → 0, 1 → 1, 2–3 → 2, 4–7 → 3,
+ * …, capped at the last bucket.
  */
 internal object PcecFeatures {
-    fun pauseBucket(pcec: Asr4AllPcecConfig, blankFramesBefore: Int?): Int {
-        if (blankFramesBefore == null) return pcec.pauseBlackout
+    fun pauseBucket(pcec: Asr4AllPcecConfig, blankFramesBefore: Int): Int {
         if (blankFramesBefore <= 0) return 0
         val floorLog2 = 31 - Integer.numberOfLeadingZeros(blankFramesBefore)
         return (floorLog2 + 1).coerceAtMost(pcec.pauseBuckets - 1)
@@ -43,8 +44,8 @@ internal object PcecFeatures {
 
     /**
      * The head's per-token float input (its fourth input). Measured: values near 0 leave the
-     * words as decoded, negative values make the head rewrite heavily; 0 gave the lowest WER of
-     * the encodings tried (CLEANROOM.md).
+     * words as decoded, negative values make the head rewrite heavily; 0 reproduces the
+     * verifier's reference finals on every row (CLEANROOM.md).
      */
     const val FLOAT_INPUT = 0f
 }
@@ -52,8 +53,8 @@ internal object PcecFeatures {
 /**
  * Drives the PCEC head over the token stream. Full rungs of tokens go through the streaming
  * method, which returns the slots of tokens [Asr4AllPcecConfig.lagTokens] behind; those slots are
- * settled. The flush method returns the slots of the held-back tokens plus up to one rung of
- * pending tokens, and is used for the provisional tail of partials and for the final text.
+ * settled. The flush method returns the slots of the held-back tokens plus the pending ones and
+ * the end-of-input slot, and gives both the live text and the final text.
  */
 internal class PcecStream(
     private val program: Asr4AllProgram,
@@ -76,21 +77,15 @@ internal class PcecStream(
     }
 
     /**
-     * Text of everything settled plus the flushed tail (pending tokens and [extra], an open
-     * token). The flush's last slot is the end-of-input position, where the head places the
-     * closing mark; it is used only when [final], so live partials do not end in a stray mark.
+     * Settled text plus the flushed tail of the pending tokens, including the end-of-input slot
+     * (where the head puts a closing mark). The live text is the same flush over the tokens
+     * handed over so far, so it never shows the latest token, whose span is still open.
      */
-    fun text(extra: PcecToken? = null, final: Boolean): String {
-        // add() commits every full rung, so pending plus one open token never exceeds a rung.
-        val tail = ArrayList<PcecToken>(pending.size + 1).apply {
-            addAll(pending)
-            if (extra != null) add(extra)
-        }
-        check(tail.size <= rung) { "PCEC tail ${tail.size} exceeds rung $rung" }
-        val n = tail.size
-        val flush = program.pcecFlush(encode(tail), n, state, seen)
-        val tokenSlots = pcec.slotsPerToken * (pcec.lagTokens + n)
-        val used = if (final) tokenSlots + 1 else tokenSlots
+    fun text(): String {
+        val n = pending.size
+        check(n < rung) { "PCEC tail $n is not below rung $rung" }
+        val flush = program.pcecFlush(encode(pending), n, state, seen)
+        val used = pcec.slotsPerToken * (pcec.lagTokens + n) + 1
         val ids = renderer.collapse(IntSlice(settled, 0, settledCount), IntSlice(flush, 0, used))
         return renderer.render(ids)
     }

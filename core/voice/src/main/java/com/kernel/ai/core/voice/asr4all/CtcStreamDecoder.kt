@@ -3,11 +3,11 @@ package com.kernel.ai.core.voice.asr4all
 /**
  * Greedy CTC decoding across streaming chunks into [PcecToken]s.
  *
- * Each frame's argmax label either starts a token, continues the open token (the same label
- * repeated) or is blank. A token stays open while its label repeats, including into the next
- * chunk, and is emitted when its run ends, so the chunking never changes the token sequence.
- * Each token carries the PCEC features: its pause bucket (from the gap after the previous
- * token) and the encoder hidden rows over its run.
+ * Each frame's argmax label either starts a token, continues the current token's run (the same
+ * label repeated) or is blank. A token is handed to PCEC ([onToken]) only when the next token
+ * starts, or at end of input ([finish]), because its PCEC hidden input covers every frame from
+ * its start up to the next token's start: its own run plus the blank frames after it. The
+ * chunking therefore never changes the tokens or their features.
  */
 class CtcStreamDecoder(private val config: Asr4AllModelConfig) {
     private val vocabSize = config.vocabSize
@@ -17,48 +17,50 @@ class CtcStreamDecoder(private val config: Asr4AllModelConfig) {
     private var nextFrame = 0
     private var lastTokenEnd = -1
 
-    /** The token whose run may still continue into the next chunk, if any. */
-    var openToken: PcecToken? = null
+    /** The latest token: not yet handed to PCEC, since its hidden span is still open. */
+    var currentToken: PcecToken? = null
         private set
+
+    /** Frames decoded so far in this utterance. */
+    val framesDecoded: Int get() = nextFrame
 
     /**
      * Decodes [frames] frames: row-major `[frames, vocabSize]` [logits] and `[frames, hiddenDim]`
-     * [hidden]. Calls [onToken] for each token whose run ended; returns true if a token started.
+     * [hidden]. Calls [onToken] for each token whose span closed; returns true if any did.
      */
     fun accept(logits: FloatArray, hidden: FloatArray, frames: Int, onToken: (PcecToken) -> Unit): Boolean {
-        var started = false
+        var handed = false
         for (f in 0 until frames) {
             val frame = nextFrame++
             val label = argmax(logits, f * vocabSize)
-            when {
-                label == blankId -> close(onToken)
-                label == previousLabel -> openToken!!.let {
-                    it.endFrame = frame
-                    it.addHidden(hidden, f * hiddenDim)
+            if (label != blankId && label != previousLabel) {
+                currentToken?.let {
+                    onToken(it)
+                    handed = true
                 }
-                else -> {
-                    close(onToken)
-                    val gap = if (lastTokenEnd < 0) null else frame - lastTokenEnd - 1
-                    openToken = PcecToken(
-                        id = label,
-                        startFrame = frame,
-                        endFrame = frame,
-                        pauseBucket = PcecFeatures.pauseBucket(config.pcec, gap),
-                        hiddenSum = FloatArray(hiddenDim),
-                    ).also { it.addHidden(hidden, f * hiddenDim) }
-                    started = true
-                }
+                // Blank frames before the token; for the first token, the leading frames.
+                val gap = if (lastTokenEnd < 0) frame else frame - lastTokenEnd - 1
+                currentToken = PcecToken(
+                    id = label,
+                    startFrame = frame,
+                    endFrame = frame,
+                    pauseBucket = PcecFeatures.pauseBucket(config.pcec, gap),
+                    hiddenDim = hiddenDim,
+                )
+            } else if (label != blankId) {
+                currentToken!!.endFrame = frame
             }
+            currentToken?.addHidden(hidden, f * hiddenDim)
+            if (label != blankId) lastTokenEnd = frame
             previousLabel = label
         }
-        return started
+        return handed
     }
 
-    /** Ends the open token's run (end of input). */
-    fun close(onToken: (PcecToken) -> Unit) {
-        val token = openToken ?: return
-        openToken = null
-        lastTokenEnd = token.endFrame
+    /** End of input: hands over the last token. */
+    fun finish(onToken: (PcecToken) -> Unit) {
+        val token = currentToken ?: return
+        currentToken = null
         onToken(token)
     }
 
@@ -66,7 +68,7 @@ class CtcStreamDecoder(private val config: Asr4AllModelConfig) {
         previousLabel = -1
         nextFrame = 0
         lastTokenEnd = -1
-        openToken = null
+        currentToken = null
     }
 
     /** Argmax over `logits[base until base + vocabSize]`; ties resolve to the lowest id. */

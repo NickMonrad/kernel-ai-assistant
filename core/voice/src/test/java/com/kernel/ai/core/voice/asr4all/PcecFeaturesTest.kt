@@ -13,9 +13,4 @@ class PcecFeaturesTest {
 
         assertEquals(expected, gaps.map { PcecFeatures.pauseBucket(pcec, it) })
     }
-
-    @Test
-    fun `unknown pause uses the blackout bucket`() {
-        assertEquals(pcec.pauseBlackout, PcecFeatures.pauseBucket(pcec, null))
-    }
 }

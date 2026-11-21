@@ -12,7 +12,7 @@ class CtcStreamDecoderTest {
     @ParameterizedTest
     @ValueSource(ints = [1, 7, 16, 160])
     fun `token sequence and timing do not depend on the chunking`(chunk: Int) {
-        val tokens = decode(chunk)
+        val tokens = decode(chunk).tokens
 
         assertEquals(clip.ctcTokens, tokens.map { Triple(it.id, it.startFrame, it.endFrame) })
         assertEquals(clip.ctcText, tokens.joinToString("") { config.vocab[it.id] })
@@ -20,17 +20,36 @@ class CtcStreamDecoderTest {
 
     @ParameterizedTest
     @ValueSource(ints = [3, 16])
-    fun `pause buckets follow the gap after the previous token`(chunk: Int) {
-        val tokens = decode(chunk)
+    fun `pause buckets follow the blank frames before each token`(chunk: Int) {
+        val tokens = decode(chunk).tokens
 
-        assertEquals(config.pcec.pauseBlackout, tokens.first().pauseBucket)
+        assertEquals(PcecFeatures.pauseBucket(config.pcec, tokens.first().startFrame), tokens.first().pauseBucket)
         for (i in 1 until tokens.size) {
             val gap = tokens[i].startFrame - tokens[i - 1].endFrame - 1
             assertEquals(PcecFeatures.pauseBucket(config.pcec, gap), tokens[i].pauseBucket, "token $i gap $gap")
         }
     }
 
-    private fun decode(chunk: Int): List<PcecToken> {
+    @ParameterizedTest
+    @ValueSource(ints = [5, 16])
+    fun `hidden input spans each token's frames up to the next token's start`(chunk: Int) {
+        val (tokens, handedBeforeFinish) = decode(chunk)
+
+        // Only the last token waits for finish(): every other one is handed over when its successor starts.
+        assertEquals(tokens.size - 1, handedBeforeFinish)
+        val pooled = FloatArray(config.hiddenDim)
+        tokens.forEachIndexed { i, t ->
+            val end = if (i + 1 < tokens.size) tokens[i + 1].startFrame else clip.frames
+            assertEquals(end - t.startFrame, t.hiddenFrames, "token $i span")
+            t.pooledHidden(pooled, 0)
+            // Column 0 of each hidden row holds its frame index, so the mean is the span's mean index.
+            assertEquals((t.startFrame + end - 1) / 2.0, pooled[0].toDouble(), 1e-4, "token $i mean")
+        }
+    }
+
+    private data class Decoded(val tokens: List<PcecToken>, val handedBeforeFinish: Int)
+
+    private fun decode(chunk: Int): Decoded {
         val decoder = CtcStreamDecoder(config)
         val out = ArrayList<PcecToken>()
         val vocab = clip.vocabSize
@@ -39,10 +58,12 @@ class CtcStreamDecoderTest {
         while (frame < clip.frames) {
             val n = minOf(chunk, clip.frames - frame)
             val logits = clip.logits.copyOfRange(frame * vocab, (frame + n) * vocab)
-            decoder.accept(logits, FloatArray(n * dim), n) { out += it }
+            val hidden = FloatArray(n * dim).also { h -> for (f in 0 until n) h[f * dim] = (frame + f).toFloat() }
+            decoder.accept(logits, hidden, n) { out += it }
             frame += n
         }
-        decoder.close { out += it }
-        return out
+        val handed = out.size
+        decoder.finish { out += it }
+        return Decoded(out, handed)
     }
 }
