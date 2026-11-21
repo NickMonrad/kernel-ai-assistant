@@ -134,6 +134,7 @@ class SetupWizardViewModel @Inject constructor(
 
     /** Every first-run model before the Zipformer filter applied by the speech input choice. */
     private var allPlannedModels: List<KernelModel> = emptyList()
+    private var releaseBuild: Boolean = false
 
     init {
         viewModelScope.launch {
@@ -146,11 +147,13 @@ class SetupWizardViewModel @Inject constructor(
                 ?.let { DownloadNetworkChoice.fromStorageName(it) }
 
             val nativeReady = setupVoiceDevice.androidNativeInputReady()
-            val inputOptions = SetupSpeechOptions.inputOptions(nativeReady)
+            val isRelease = setupVoiceDevice.isReleaseBuild()
+            releaseBuild = isRelease
+            val inputOptions = SetupSpeechOptions.inputOptions(nativeReady, isRelease)
             val tier = setupVoiceDevice.hardwareTier()
             val outputOptions = SetupSpeechOptions.outputOptions(
                 hasSystemTts = setupVoiceDevice.hasSystemTtsEngine(),
-                isRelease = setupVoiceDevice.isReleaseBuild(),
+                isRelease = isRelease,
                 inflectEligible = setupVoiceDevice.inflectEligible(),
             )
             val currentInput = if (voiceInputPreferences.hasStoredEngine()) {
@@ -175,7 +178,8 @@ class SetupWizardViewModel @Inject constructor(
             // choice that is not offered shows nothing selected, and is never overwritten (see inputToSave).
             val inputEngine = when {
                 savedInput != null -> SetupSpeechOptions.offered(savedInput, inputOptions)
-                currentInput == null -> VoiceInputEngine.Auto
+                    ?: if (isRelease) VoiceInputEngine.AndroidNative else null
+                currentInput == null -> inputOptions.first()
                 else -> SetupSpeechOptions.offered(currentInput, inputOptions)
             }
             val outputEngine = when {
@@ -193,17 +197,18 @@ class SetupWizardViewModel @Inject constructor(
             val output = effectiveOutput(outputEngine)
             val plannedModels = plannedModelsFor(input, output)
             val plannedVoices = plannedVoicesFor(output)
+            val defaultInput = inputOptions.first()
             val defaultOutput = SetupSpeechOptions.defaultOutput(tier, outputOptions)
             val welcomeTotal = if (progress.completed) {
                 estimateBytes(plannedModels, plannedVoices)
             } else {
-                estimateBytes(plannedModelsFor(VoiceInputEngine.Auto, defaultOutput), plannedVoicesFor(defaultOutput))
+                estimateBytes(plannedModelsFor(defaultInput, defaultOutput), plannedVoicesFor(defaultOutput))
             }
             _uiState.value = _uiState.value.copy(
                 loaded = true,
                 step = start,
                 inputOptions = inputOptions,
-                inputReason = SetupSpeechOptions.inputReason(nativeReady),
+                inputReason = SetupSpeechOptions.inputReason(nativeReady, isRelease),
                 inputEngine = inputEngine,
                 outputOptions = outputOptions,
                 outputEngine = outputEngine,
@@ -265,6 +270,7 @@ class SetupWizardViewModel @Inject constructor(
      * graph files plus Cori when Cori is not on disk, or 0 when all are on disk (#1931). Android TTS has no entry.
      */
     private fun outputSizes(): Map<VoiceOutputEngine, Long> {
+        if (releaseBuild) return emptyMap()
         val cori = if (isDownloaded(SherpaPiperVoice.CoriHigh)) 0L else SherpaPiperVoice.CoriHigh.approxDownloadBytes
         val inflectFiles = InflectMicroSetup.kernelModels().filterNot { isModelDownloaded(it) }.sumOf { it.approxSizeBytes }
         return mapOf(
@@ -292,7 +298,11 @@ class SetupWizardViewModel @Inject constructor(
         }
 
     private fun heyJandalMissing(input: VoiceInputEngine, plannedModels: List<KernelModel>): List<KernelModel> =
-        heyJandalDownloadModels(input).filterNot { isModelDownloaded(it) || it in plannedModels }
+        if (releaseBuild) {
+            emptyList()
+        } else {
+            heyJandalDownloadModels(input).filterNot { isModelDownloaded(it) || it in plannedModels }
+        }
 
     private fun plannedVoicesFor(output: VoiceOutputEngine?): List<SherpaPiperVoice> =
         output?.let { plannedVoicesFor(it) { voice -> isDownloaded(voice) } } ?: emptyList()
@@ -480,7 +490,9 @@ class SetupWizardViewModel @Inject constructor(
             return
         }
         if (state.wakeWordStored || MakeYoursRows.heyJandalBlock(state.platform) != null) return
-        queueHeyJandalSttModel(voiceInputPreferences, downloadManager)
+        if (!releaseBuild) {
+            queueHeyJandalSttModel(voiceInputPreferences, downloadManager)
+        }
         wakeWordPreferences.setHeyJandalEnabled(true)
     }
 

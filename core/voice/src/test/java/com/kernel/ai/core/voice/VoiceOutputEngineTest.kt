@@ -15,9 +15,9 @@ class VoiceOutputEngineTest {
     }
 
     @Test
-    fun `an unset engine resolves to the tier default while a stored choice is kept`() {
+    fun `release resolves an unavailable default to Android TTS while a stored Android choice is kept`() {
         assertEquals(
-            VoiceOutputEngine.SherpaExperimental,
+            VoiceOutputEngine.AndroidTts,
             VoiceOutputEngine.resolveForBuild(null, isRelease = true, inflectEligible = false, default = VoiceOutputEngine.SherpaExperimental),
         )
         assertEquals(
@@ -27,12 +27,13 @@ class VoiceOutputEngineTest {
     }
 
     @Test
-    fun `release eligible high-memory catalogue includes Inflect`() {
-        assertTrue(
+    fun `release catalogue contains only Android TTS`() {
+        assertEquals(
+            listOf(VoiceOutputEngine.AndroidTts),
             VoiceOutputEngine.entriesForBuild(
                 isRelease = true,
                 inflectEligible = true,
-            ).contains(VoiceOutputEngine.InflectMicroExperimental),
+            ),
         )
     }
 

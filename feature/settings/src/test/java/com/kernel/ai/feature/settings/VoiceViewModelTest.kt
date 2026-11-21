@@ -477,12 +477,12 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            listOf(SherpaPiperVoice.CoriHigh),
+            emptyList<SherpaPiperVoice>(),
             releaseViewModel.uiState.value.sherpaVoices.map { it.voice },
         )
     }
     @Test
-    fun `release builds mirror shared Inflect eligibility while debug builds expose all engines`() = runTest {
+    fun `release builds expose only Android TTS while debug builds keep Inflect`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(
@@ -509,10 +509,8 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            InflectMicroModelSpec.isReleaseEligible(HardwareTier.FLAGSHIP),
-            releaseViewModel.uiState.value.availableOutputEngines.contains(
-                VoiceOutputEngine.InflectMicroExperimental,
-            ),
+            listOf(VoiceOutputEngine.AndroidTts),
+            releaseViewModel.uiState.value.availableOutputEngines,
         )
     }
 

@@ -14,6 +14,7 @@ enum class VoiceOutputEngine(
     SherpaExperimental(
         displayName = "Piper",
         description = "Natural-sounding local voices. Falls back to Android TTS while the voice downloads or if playback fails.",
+        debugOnly = true,
     ),
     KokoroExperimental(
         displayName = "Kokoro (Experimental)",
@@ -23,7 +24,7 @@ enum class VoiceOutputEngine(
     InflectMicroExperimental(
         displayName = "Inflect Micro",
         description = "Higher-quality local Inflect Micro v2 speech for supported high-memory devices; falls back to Android TTS if unavailable.",
-        debugOnly = false,
+        debugOnly = true,
     ),
     ;
 
@@ -41,9 +42,8 @@ enum class VoiceOutputEngine(
         /**
          * Returns the engine catalogue allowed for this build and device.
          *
-         * Inflect is release-visible only when the caller has established that the device is in
-         * the validated high-memory class. The caller supplies that capability so this enum does
-         * not duplicate hardware detection.
+         * v0.1 release excludes every Sherpa-backed output engine until the bundled runtime's
+         * distribution obligations are fully evidenced. Debug builds keep the experimental engines.
          */
         fun entriesForBuild(
             isRelease: Boolean,

@@ -173,6 +173,21 @@ jobs:
           path: /tmp/ci-evidence/
           retention-days: 30
 
+      - name: Verify release licence metadata and generate SBOM
+        run: ./gradlew :app:verifyReleaseAttributionMetadata -PversionCode=${{ github.run_number }}
+
+      - name: Upload release attribution artifacts
+        if: always() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-attribution-${{ github.sha }}
+          path: |
+            app/build/reports/sbom/
+            app/build/generated/aboutLibraries/release/res/raw/aboutlibraries.json
+            app/build/reports/release-audit/attribution-verification.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Retire PR preview comment for validation-only run
         if: always() && github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
         env:

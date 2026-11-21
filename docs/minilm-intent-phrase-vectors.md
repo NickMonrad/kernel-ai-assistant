@@ -1,5 +1,14 @@
 # MiniLM intent phrase vectors
 
+## Bundled model provenance
+
+The bundled `app/src/main/assets/minilm-l6-v2-int8.tflite` is the pre-converted INT8 TFLite asset from
+`Nihal2000/all-MiniLM-L6-v2-quant.tflite`, introduced upstream by commit
+`ad6c27c81b2c156925c1fb038d533f52f94ccd77`. Its SHA-256 is
+`0aac5b0b76be23ab94f065a7fab6e0daead5e57f6ff7d55e19a2641d6a81f276`, matching the upstream
+file identity and the asset bundled by Jandal in PR #409. The upstream repository records Apache-2.0
+and identifies `sentence-transformers/all-MiniLM-L6-v2` as the source model.
+
 `MiniLMIntentClassifier` uses the committed `app/src/main/assets/intent_phrase_vectors.bin` when its asset header matches the shipped `minilm-l6-v2-int8.tflite`, `vocab.txt`, and `intent_phrases.json`. The header binds the binary to the SHA-256 of each input; a payload SHA-256 detects corruption. A missing, stale, malformed, or corrupt vector file is logged and falls back to the existing runtime phrase builder.
 
 The version-1 file uses big-endian integers and float32 values. Its 152-byte header contains the `JNDLMVEC` magic, format version, embedding dimension (384), intent and phrase counts, three 32-byte source hashes, and one 32-byte payload checksum. The payload stores each intent's UTF-8 name and phrase count, followed by that intent's row-major 384-float vectors. The current source has 39 intents and 515 phrases; the vector payload is about 773 KiB.
