@@ -39,6 +39,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.verify
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -530,6 +531,35 @@ class VoiceViewModelTest {
             listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental),
             releaseViewModel.uiState.value.availableOutputEngines,
         )
+    }
+
+    @Test
+    fun `release builds offer asr4all and start its model downloads`() = runTest {
+        val releaseContext: Context = mockk(relaxed = true)
+        every { releaseContext.applicationInfo } returns ApplicationInfo().apply { flags = 0 }
+        val releaseViewModel = VoiceViewModel(
+            androidNativeRecognitionSupport,
+            voiceInputPreferences,
+            voiceOutputPreferences,
+            sherpaVoicePackDownloadManager,
+            wakeWordPreferences,
+            wakeWordDetector,
+            modelDownloadManager,
+            hardwareProfileDetector,
+            releaseContext,
+            sherpaVoiceOutputController,
+            piperVoiceSetup,
+            asr4allVoiceInputController,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(VoiceInputEngine.Asr4all in releaseViewModel.uiState.value.availableInputEngines)
+
+        releaseViewModel.downloadSherpaStt(VoiceInputEngine.Asr4all)
+
+        Asr4AllInstall.models(Asr4AllSize.M).forEach { model ->
+            verify { modelDownloadManager.startDownload(model) }
+        }
     }
 
     @Test

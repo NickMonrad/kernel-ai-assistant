@@ -41,6 +41,8 @@ import org.junit.jupiter.api.Timeout
  * Every wait is a latch or semaphore released by the code under test; there are no sleeps.
  */
 class Asr4allVoiceInputControllerTest {
+    /** Generous join bound for the lifecycle tests: a healthy join must not be given up under CI load. Only the give-up test passes a shorter one. */
+    private val defaultCaptureJoinTimeoutMs = 30_000L
 
     private val log = CopyOnWriteArrayList<String>()
     private val engines = CopyOnWriteArrayList<Asr4AllEngine>()
@@ -94,7 +96,7 @@ class Asr4allVoiceInputControllerTest {
         return 1
     }
 
-    private fun controller(): Asr4allVoiceInputController {
+    private fun controller(captureJoinTimeoutMs: Long = defaultCaptureJoinTimeoutMs): Asr4allVoiceInputController {
         var opened = 0
         val context = mockk<Context>(relaxed = true)
         every { context.getSystemService(AudioManager::class.java) } returns mockk<AudioManager>(relaxed = true) {
@@ -110,7 +112,7 @@ class Asr4allVoiceInputControllerTest {
         val detector = mockk<HardwareProfileDetector>(relaxed = true) {
             every { profile.tier } answers { tier }
         }
-        return Asr4allVoiceInputController(context, prefs, detector).apply {
+        return Asr4allVoiceInputController(context, prefs, detector, captureJoinTimeoutMs).apply {
             availableForTest = { true }
             micGrantedForTest = true
             recorderForTest = { recorder() }
@@ -178,7 +180,7 @@ class Asr4allVoiceInputControllerTest {
         fun stoppedCount(): Int = events.count { it is VoiceInputEvent.ListeningStopped }
 
         fun awaitStops(count: Int) {
-            assertTrue(stopped.tryAcquire(count, 5, TimeUnit.SECONDS), "capture did not stop")
+            assertTrue(stopped.tryAcquire(count, 30, TimeUnit.SECONDS), "capture did not stop")
         }
     }
 
@@ -455,6 +457,28 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(2, after.size, "exactly the new route's request and open follow the abandon: $events")
             assertTrue(after.containsAll(listOf("request", "mic-open")), "new route must request focus and open after abandon: $events")
             c.releaseEngine()
+        } finally {
+            release.countDown()
+            abandonGate = null
+        }
+    }
+
+    @Test
+    fun `a teardown still held past the join bound is given up and the new start is unavailable`() = runBlocking(Dispatchers.IO) {
+        val c = controller(captureJoinTimeoutMs = 200)
+        val release = CountDownLatch(1)
+        abandonGate = release
+        try {
+            firstFrame = CountDownLatch(1)
+            startedId(c.startListening(VoiceCaptureMode.Command))
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            val stop = launch { c.stopListening() }
+            assertTrue(abandonEntered.await(5, TimeUnit.SECONDS), "teardown must reach focus abandonment")
+            val result = c.startListening(VoiceCaptureMode.Command)
+            assertTrue(result is VoiceInputStartResult.Unavailable, "a teardown held past the bound must be given up, got $result")
+            assertEquals(1, focusRequests.get(), "the given-up route must not request focus")
+            release.countDown()
+            stop.join()
         } finally {
             release.countDown()
             abandonGate = null

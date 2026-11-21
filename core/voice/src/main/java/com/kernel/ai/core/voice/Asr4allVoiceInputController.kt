@@ -113,11 +113,20 @@ private class SpeechGate {
  * - [supersedeCapture] (and [releaseEngine]) discards: nothing from it is emitted.
  */
 @Singleton
-class Asr4allVoiceInputController @Inject constructor(
-    @ApplicationContext private val context: Context,
+class Asr4allVoiceInputController internal constructor(
+    private val context: Context,
     private val voiceInputPreferences: VoiceInputPreferences,
     private val hardwareProfileDetector: HardwareProfileDetector,
+    /** Bound on waiting for a capture's job or reader to end; past it the teardown is treated as wedged. */
+    private val captureJoinTimeoutMs: Long,
 ) : VoiceInputController {
+
+    @Inject
+    constructor(
+        @ApplicationContext context: Context,
+        voiceInputPreferences: VoiceInputPreferences,
+        hardwareProfileDetector: HardwareProfileDetector,
+    ) : this(context, voiceInputPreferences, hardwareProfileDetector, CAPTURE_JOIN_TIMEOUT_MS)
 
     private val _events = voiceEventFlow()
     override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
@@ -275,16 +284,16 @@ class Asr4allVoiceInputController @Inject constructor(
         }
     }
 
-    /** Waits for [c]'s reader to exit, giving up after [CAPTURE_JOIN_TIMEOUT_MS]; a wedged reader is left running. */
+    /** Waits for [c]'s reader to exit, giving up after [captureJoinTimeoutMs]; a wedged reader is left running. */
     private suspend fun joinReader(c: Capture) {
-        withContext(NonCancellable) { withTimeoutOrNull(CAPTURE_JOIN_TIMEOUT_MS) { c.reader.join() } }
+        withContext(NonCancellable) { withTimeoutOrNull(captureJoinTimeoutMs) { c.reader.join() } }
     }
 
     /** Waits for the last capture's job and reader to end. False if either is still running after the bound. */
     private suspend fun awaitCaptureEnded(): Boolean {
         val job = activeJob
         val reader = lastCapture?.reader
-        return withTimeoutOrNull(CAPTURE_JOIN_TIMEOUT_MS) {
+        return withTimeoutOrNull(captureJoinTimeoutMs) {
             job?.join()
             reader?.join()
             true
@@ -586,7 +595,7 @@ class Asr4allVoiceInputController @Inject constructor(
      * deleting model files so no start can open them during the deletion.
      *
      * Returns null without running [block] if the capture is still running after
-     * [CAPTURE_JOIN_TIMEOUT_MS]; the engine stays open in that case.
+     * [captureJoinTimeoutMs]; the engine stays open in that case.
      */
     suspend fun <T> withEngineReleased(block: () -> T): T? {
         supersedeCapture()

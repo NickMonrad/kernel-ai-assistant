@@ -17,6 +17,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -99,6 +100,11 @@ class SelectableVoiceInputControllerTest {
 
     private fun selectEngine(engine: VoiceInputEngine) {
         every { voiceInputPreferences.selectedEngine } returns MutableStateFlow(engine)
+    }
+
+    /** The selection observer subscribes on Dispatchers.Default, so wait for that subscription before the first flip. */
+    private suspend fun awaitSelectionObserver(selected: MutableStateFlow<VoiceInputEngine>) {
+        selected.subscriptionCount.first { it > 0 }
     }
 
     private fun nativeAvailability(
@@ -667,9 +673,10 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
 
         assertEquals(VoiceInputStartResult.Started(91L), c.startListening(VoiceCaptureMode.Command))
+        awaitSelectionObserver(selected)
         selected.value = VoiceInputEngine.SherpaZipformer
         // The selection observer retires asr4all on its own dispatcher: wait for that release before the new start.
-        coVerify(timeout = 5_000) { asr4allVoiceInputController.releaseEngine() }
+        coVerify(timeout = 30_000) { asr4allVoiceInputController.releaseEngine() }
         assertEquals(VoiceInputStartResult.Started(92L), c.startListening(VoiceCaptureMode.Command))
         advanceUntilIdle()
 
@@ -1051,10 +1058,11 @@ class SelectableVoiceInputControllerTest {
         val seen = mutableListOf<VoiceInputEvent>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
         advanceUntilIdle()
+        awaitSelectionObserver(selected)
 
         selected.value = VoiceInputEngine.AndroidNative
         // The selection observer retires asr4all on its own dispatcher: wait for its release before reselecting.
-        coVerify(timeout = 5_000) { asr4allVoiceInputController.releaseEngine() }
+        coVerify(timeout = 30_000) { asr4allVoiceInputController.releaseEngine() }
         advanceUntilIdle()
         selected.value = VoiceInputEngine.Asr4all
         assertEquals(VoiceInputStartResult.Started(99L), c.startListening(VoiceCaptureMode.Command))
@@ -1070,11 +1078,12 @@ class SelectableVoiceInputControllerTest {
         every { voiceInputPreferences.selectedEngine } returns selected
         controller()
         advanceUntilIdle()
+        awaitSelectionObserver(selected)
 
         selected.value = VoiceInputEngine.AndroidNative
         advanceUntilIdle()
 
-        coVerify(timeout = 5_000, exactly = 1) { asr4allVoiceInputController.releaseEngine() }
+        coVerify(timeout = 30_000, exactly = 1) { asr4allVoiceInputController.releaseEngine() }
     }
 
     @Test
@@ -1247,12 +1256,13 @@ class SelectableVoiceInputControllerTest {
         val seen = mutableListOf<VoiceInputEvent>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
         advanceUntilIdle()
+        awaitSelectionObserver(selected)
 
         c.startListening(VoiceCaptureMode.Command)
         // Leaving asr4all discards its capture: the queued final must not reach the UI.
         selected.value = VoiceInputEngine.AndroidNative
         // The observer discards on its own dispatcher: wait for its release before the queued events arrive.
-        coVerify(timeout = 5_000) { asr4allVoiceInputController.releaseEngine() }
+        coVerify(timeout = 30_000) { asr4allVoiceInputController.releaseEngine() }
         asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "queued", 7L))
         asr4allEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 7L, cancelled = true))
         advanceUntilIdle()
