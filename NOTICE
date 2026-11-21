@@ -91,7 +91,7 @@ eSpeak-ng f6fed6c5 (GNU General Public License, version 3 or later)
   Used: phonemisation statically linked into libsherpa-onnx-jni.so. Cori voice packs also
   carry espeak-ng-data.
   Corresponding source: third_party/sherpa-onnx/sherpa-onnx-v1.13.0-inflect-source-inputs.tar.gz
-  (SHA-256 40c77074a09ad2ae5d09ad6a4347fc98e13da312527f9a9d558d2d5ca4ecd82b) in
+  (SHA-256 bd1649beeaa3baaf4eaf7c0a6b8b67e2a6d3c743bb0d96aa49348f61f4b4d645) in
   https://github.com/NickMonrad/kernel-ai-assistant/tree/9ff3846424ef1cc7857e6e724ff7f32d9e0766d9/third_party/sherpa-onnx
 
 piper-phonemize 78a788e0
