@@ -56,6 +56,8 @@ class Asr4allVoiceInputControllerTest {
     /** Amplitude by 1-based read count, for tests where the reader runs ahead of the engine. Overrides [amplitude]. */
     @Volatile private var amplitudeForRead: ((Int) -> Int)? = null
     private val readCount = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Test-only: the reader stays at most this many chunks ahead of the engine. Pre-roll drops its oldest chunks before attach, so an unbounded reader could drop the lead-in. */
+    @Volatile private var readAhead: Int? = null
     @Volatile private var renderGate: CountDownLatch? = null
     private val renderStarted = CountDownLatch(1)
     /** Partial text per acceptAudio call (1-based index); the default reports "Final" on every chunk. */
@@ -133,7 +135,9 @@ class Asr4allVoiceInputControllerTest {
             every { release() } answers { micReleases.incrementAndGet(); micReleasedSignal.release() }
             every { read(any<ShortArray>(), any(), any()) } answers {
                 val buf = firstArg<ShortArray>()
-                buf.fill(amplitudeForRead?.invoke(readCount.incrementAndGet())?.toShort() ?: amplitude)
+                val read = readCount.incrementAndGet()
+                readAhead?.let { ahead -> while (read - acceptCalls.get() > ahead) Thread.sleep(1) }
+                buf.fill(amplitudeForRead?.invoke(read)?.toShort() ?: amplitude)
                 firstFrame.countDown()
                 readGate?.await()
                 buf.size
@@ -701,9 +705,11 @@ class Asr4allVoiceInputControllerTest {
         try {
             amplitudeForRead = { read -> if (read in 2..4) 8000 else 0 } // chunk 1 is the quiet reference
             partialForCall = { "Final" }
+            readAhead = 2
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
             collected.awaitStops(1)
+            readAhead = null
 
             assertEquals(listOf("Final text."), collected.transcripts())
             assertTrue(collected.events.any { it is VoiceInputEvent.SpeechDetected })
@@ -749,9 +755,11 @@ class Asr4allVoiceInputControllerTest {
             // Quiet room, then soft speech at about 1% full scale (under the old 0.02 gate), then silence.
             amplitudeForRead = { read -> if (read <= 30) 30 else if (read <= 60) 300 else 0 }
             partialForCall = { calls -> if (calls <= 30) "" else "word$calls" }
+            readAhead = 2
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
             collected.awaitStops(1)
+            readAhead = null
 
             assertTrue(collected.events.any { it is VoiceInputEvent.SpeechDetected })
             // 30 lead-in chunks, 30 speech chunks, then the 10-chunk quiet tail. The old gate endpointed during speech.
