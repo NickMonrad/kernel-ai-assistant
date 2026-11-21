@@ -60,7 +60,7 @@ def parse(path):
             continue
         ts, msg = round(float(m.group(1)) * 1000), m.group(2)
         for name, rx, use_epoch in EVENTS:
-            if name not in times and rx.search(msg):
+            if name not in times and rx.search(msg) and (name != "firstChunkQueued" or "engine_lastToken" in times):
                 e = EPOCH.search(msg) if use_epoch else None
                 times[name] = int(e.group(1)) if e else ts
         c = CALLBACK.search(msg)
