@@ -374,6 +374,10 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(1, collected.started())
 
             // A new route takes focus only after the old one is abandoned.
+            // Held: the second route's capture must stay live while focus and mic are asserted.
+            val secondHold = CountDownLatch(1)
+            readGate = secondHold
+            c.releaseFencedForTest = { secondHold.countDown() }
             firstFrame = CountDownLatch(1)
             startedId(c.startListening(VoiceCaptureMode.Command))
             assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
@@ -382,6 +386,7 @@ class Asr4allVoiceInputControllerTest {
             c.releaseEngine()
         } finally {
             engineGate = null
+            readGate?.countDown()
             collected.job.cancel()
             scope.cancel()
         }
@@ -579,6 +584,9 @@ class Asr4allVoiceInputControllerTest {
     fun `prewarm returns without waiting for a live capture and opens no engine`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         firstFrame = CountDownLatch(1)
+        // Held: the capture must stay live while prewarm is asked to wait for it; an unheld reader can reach the cap first.
+        val hold = CountDownLatch(1)
+        readGate = hold
         try {
             startedId(c.startListening(VoiceCaptureMode.Command))
             assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
@@ -589,6 +597,7 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(opened, log.count { it.startsWith("open#") })
         } finally {
             c.stopListening()
+            readGate?.countDown()
         }
     }
 
