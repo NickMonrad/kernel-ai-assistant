@@ -28,6 +28,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.yield
 import kotlin.concurrent.thread
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -39,7 +40,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
- * Android native to Zipformer hand-off through [SelectableVoiceInputController] (#1853): the
+ * Android native to asr4all hand-off through [SelectableVoiceInputController] (#1853): the
  * hand-off itself, the speech-progress and session gates, failure surfacing, and the races
  * between a hand-off and stop or a newer start. Runs on a test Main dispatcher with virtual time.
  */
@@ -53,6 +54,8 @@ class SelectableVoiceInputHandoffTest {
     private val sherpa: SherpaOnnxVoiceInputController = mockk()
     private val recognitionSupport: AndroidNativeRecognitionSupport = mockk()
     private val nativeEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 64)
+    private val asr4allEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 64)
+    private val asr4all: Asr4allVoiceInputController = mockk()
     private val sherpaEvents = MutableSharedFlow<VoiceInputEvent>(extraBufferCapacity = 64)
     private val mode = VoiceCaptureMode.AlertCommand
 
@@ -63,19 +66,30 @@ class SelectableVoiceInputHandoffTest {
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(false)
         every { voiceInputPreferences.allowsSherpaRuntime() } returns true
         every { native.events } returns nativeEvents
-        every { sherpa.events } returns sherpaEvents
+        every { asr4all.events } returns asr4allEvents
         every { native.stopListeningForSession(any()) } just runs
         every { native.cancelListeningForSession(any()) } just runs
+        every { asr4all.stopListeningForSession(any()) } just runs
+        every { asr4all.cancelListeningForSession(any()) } just runs
+        every { native.stopListening() } just runs
+        every { asr4all.stopListening() } just runs
+        every { asr4all.supersedeCapture() } just runs
+        coEvery { asr4all.releaseEngine() } just runs
+        coEvery { asr4all.isAvailable() } returns true
+        every { sherpa.events } returns sherpaEvents
         every { sherpa.stopListeningForSession(any()) } just runs
         every { sherpa.cancelListeningForSession(any()) } just runs
-        every { native.stopListening() } just runs
         every { sherpa.stopListening() } just runs
         coEvery { sherpa.isSpecAvailable(any()) } returns true
+        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(2L)
+            VoiceInputStartResult.Started(2L)
+        }
         coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(1L)
             VoiceInputStartResult.Started(1L)
         }
-        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+        coEvery { asr4all.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(2L)
             VoiceInputStartResult.Started(2L)
         }
@@ -90,12 +104,7 @@ class SelectableVoiceInputHandoffTest {
         voiceInputPreferences = voiceInputPreferences,
         nativeAndroidVoiceInputController = native,
         sherpaOnnxVoiceInputController = sherpa,
-        asr4allVoiceInputController = mockk<Asr4allVoiceInputController>().also {
-            every { it.events } returns MutableSharedFlow()
-            every { it.stopListening() } just runs
-            every { it.supersedeCapture() } just runs
-            coEvery { it.releaseEngine() } just runs
-        },
+        asr4allVoiceInputController = asr4all,
         androidNativeRecognitionSupport = recognitionSupport,
     )
 
@@ -111,19 +120,19 @@ class SelectableVoiceInputHandoffTest {
         return notices
     }
 
-    /** Zipformer start that emits readiness while starting, as the real controller does. */
-    private fun zipformerStartsAs(id: Long) {
-        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+    /** asr4all start that emits readiness while starting, as the real controller does. */
+    private fun asr4allStartsAs(id: Long) {
+        coEvery { asr4all.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(id)
-            sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, id))
+            asr4allEvents.emit(VoiceInputEvent.ListeningStarted(mode, id))
             VoiceInputStartResult.Started(id)
         }
     }
 
-    /** Zipformer start that never finishes loading; records whether it was cancelled. */
-    private fun zipformerLoadHangs(): CompletableDeferred<Boolean> {
+    /** asr4all start that never finishes loading; records whether it was cancelled. */
+    private fun asr4allLoadHangs(): CompletableDeferred<Boolean> {
         val cancelled = CompletableDeferred<Boolean>()
-        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+        coEvery { asr4all.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(2L)
             try {
                 awaitCancellation()
@@ -135,14 +144,14 @@ class SelectableVoiceInputHandoffTest {
         return cancelled
     }
     /**
-     * Simulates a Zipformer start whose caller unwinds before NonCancellable mic teardown emits
+     * Simulates an asr4all start whose caller unwinds before NonCancellable mic teardown emits
      * the terminal. A second start can then prove the old terminal cannot clear its owner.
      */
-    private fun zipformerLoadHangsUntilTerminal(): Pair<CompletableDeferred<Boolean>, CompletableDeferred<Unit>> {
+    private fun asr4allLoadHangsUntilTerminal(): Pair<CompletableDeferred<Boolean>, CompletableDeferred<Unit>> {
         val cancelled = CompletableDeferred<Boolean>()
         val allowTerminal = CompletableDeferred<Unit>()
         var sessionId = 1L
-        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+        coEvery { asr4all.startListening(any(), any(), any()) } coAnswers {
             val id = ++sessionId
             thirdArg<(Long) -> Unit>().invoke(id)
             if (id == 2L) {
@@ -152,12 +161,12 @@ class SelectableVoiceInputHandoffTest {
                     cancelled.complete(true)
                     withContext(NonCancellable) {
                         allowTerminal.await()
-                        sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, id, cancelled = true))
+                        asr4allEvents.emit(VoiceInputEvent.ListeningStopped(mode, id, cancelled = true))
                     }
                     throw e
                 }
             } else {
-                sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, id))
+                asr4allEvents.emit(VoiceInputEvent.ListeningStarted(mode, id))
                 VoiceInputStartResult.Started(id)
             }
         }
@@ -171,8 +180,8 @@ class SelectableVoiceInputHandoffTest {
         VoiceInputEvent.Error(mode, "Didn't start", captureSessionId = id, category = NATIVE_NOT_READY)
 
     @Test
-    fun `stall after readiness hands off, keeps the cue single and re-stamps zipformer events`() = runTest(dispatcher) {
-        zipformerStartsAs(2L)
+    fun `stall after readiness hands off, keeps the cue single and re-stamps asr4all events`() = runTest(dispatcher) {
+        asr4allStartsAs(2L)
         val c = controller()
         val seen = eventsOf(c)
         val notices = noticesOf(c)
@@ -182,10 +191,10 @@ class SelectableVoiceInputHandoffTest {
         nativeEvents.emit(stalled(1L))
         nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
         advanceUntilIdle()
-        sherpaEvents.emit(VoiceInputEvent.Transcript(mode, "hello", captureSessionId = 2L))
+        asr4allEvents.emit(VoiceInputEvent.Transcript(mode, "hello", captureSessionId = 2L))
         advanceUntilIdle()
 
-        // Native readiness once; Zipformer readiness suppressed; native error and stop dropped.
+        // Native readiness once; asr4all readiness suppressed; native error and stop dropped.
         assertEquals(
             listOf(
                 VoiceInputEvent.ListeningStarted(mode, 1L),
@@ -194,12 +203,12 @@ class SelectableVoiceInputHandoffTest {
             seen,
         )
         verify(exactly = 1) { native.stopListening() }
-        assertEquals(listOf(VoiceNotice(1L, ZIPFORMER_STALL_NOTICE)), notices)
+        assertEquals(listOf(VoiceNotice(1L, ASR4ALL_STALL_NOTICE)), notices)
     }
 
     @Test
-    fun `native that never became ready hands off and zipformer readiness plays the cue`() = runTest(dispatcher) {
-        zipformerStartsAs(2L)
+    fun `native that never became ready hands off and asr4all readiness plays the cue`() = runTest(dispatcher) {
+        asr4allStartsAs(2L)
         val c = controller()
         val seen = eventsOf(c)
         val notices = noticesOf(c)
@@ -209,7 +218,7 @@ class SelectableVoiceInputHandoffTest {
         advanceUntilIdle()
 
         assertEquals(listOf(VoiceInputEvent.ListeningStarted(mode, 1L)), seen)
-        assertEquals(listOf(VoiceNotice(1L, ZIPFORMER_START_NOTICE)), notices)
+        assertEquals(listOf(VoiceNotice(1L, ASR4ALL_START_NOTICE)), notices)
     }
 
     @Test
@@ -223,8 +232,8 @@ class SelectableVoiceInputHandoffTest {
         advanceUntilIdle()
 
         assertTrue(seen.contains(stalled(1L)))
-        coVerify(exactly = 0) { sherpa.isSpecAvailable(any()) }
-        coVerify(exactly = 0) { sherpa.startListening(any(), any()) }
+        coVerify(exactly = 0) { asr4all.isAvailable() }
+        coVerify(exactly = 0) { asr4all.startListening(any(), any(), any()) }
     }
 
     @Test
@@ -238,12 +247,12 @@ class SelectableVoiceInputHandoffTest {
         advanceUntilIdle()
 
         assertTrue(seen.contains(stalled(1L)))
-        coVerify(exactly = 0) { sherpa.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { asr4all.startListening(any(), any(), any()) }
     }
 
     @Test
     fun `failed hand-off surfaces the native error and stop, and leaves native active`() = runTest(dispatcher) {
-        coEvery { sherpa.startListening(any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no model")
+        coEvery { asr4all.startListening(any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no model")
         val c = controller()
         val seen = eventsOf(c)
         val notices = noticesOf(c)
@@ -259,7 +268,7 @@ class SelectableVoiceInputHandoffTest {
 
     @Test
     fun `exception inside the hand-off still delivers the native error`() = runTest(dispatcher) {
-        coEvery { sherpa.isSpecAvailable(any()) } throws IllegalStateException("storage gone")
+        coEvery { asr4all.isAvailable() } throws IllegalStateException("storage gone")
         val c = controller()
         val seen = eventsOf(c)
 
@@ -282,11 +291,11 @@ class SelectableVoiceInputHandoffTest {
         advanceUntilIdle()
 
         assertEquals(listOf(stalled(1L)), seen)
-        coVerify(exactly = 0) { sherpa.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { asr4all.startListening(any(), any(), any()) }
     }
 
     @Test
-    fun `stop during the teardown settle never starts zipformer`() = runTest(dispatcher) {
+    fun `stop during the teardown settle never starts asr4all`() = runTest(dispatcher) {
         val c = controller()
         val seen = eventsOf(c)
         val notices = noticesOf(c)
@@ -297,21 +306,21 @@ class SelectableVoiceInputHandoffTest {
         c.stopListening(1L)
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { sherpa.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { asr4all.startListening(any(), any(), any()) }
         assertTrue(seen.none { it is VoiceInputEvent.Error })
         assertTrue(notices.isEmpty())
     }
 
     @Test
-    fun `stop from another thread during the zipformer load cancels the load`() = runTest(dispatcher) {
-        val loadCancelled = zipformerLoadHangs()
+    fun `stop from another thread during the asr4all load cancels the load`() = runTest(dispatcher) {
+        val loadCancelled = asr4allLoadHangs()
         val c = controller()
         val seen = eventsOf(c)
         val notices = noticesOf(c)
 
         c.startListening(mode)
         nativeEvents.emit(stalled(1L))
-        advanceUntilIdle() // the hand-off is now waiting on the Zipformer load
+        advanceUntilIdle() // the hand-off is now waiting on the asr4all load
 
         thread(name = "not-main") { c.cancelListening(1L) }.join()
         advanceUntilIdle()
@@ -319,8 +328,8 @@ class SelectableVoiceInputHandoffTest {
         assertTrue(loadCancelled.isCompleted)
         assertTrue(seen.none { it is VoiceInputEvent.Error })
         assertTrue(notices.isEmpty())
-        // A cancelled in-flight Sherpa admission retires through its own matched terminal.
-        sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
+        // A cancelled in-flight asr4all admission retires through its own matched terminal.
+        asr4allEvents.emit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
         advanceUntilIdle()
         assertEquals(
             listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
@@ -329,7 +338,7 @@ class SelectableVoiceInputHandoffTest {
     }
 
     @Test
-    fun `handoff admission stays owned through scoped stop until Sherpa releases mic and focus`() =
+    fun `handoff admission stays owned through scoped stop until asr4all releases mic and focus`() =
         runTest(dispatcher) {
             val c = controller()
             val seen = eventsOf(c)
@@ -339,14 +348,14 @@ class SelectableVoiceInputHandoffTest {
             val nativeStops = mutableListOf<Long>()
             var releaseScheduled = false
 
-            fun requestSherpaRelease() {
+            fun requestAsr4allRelease() {
                 if (releaseScheduled) return
                 releaseScheduled = true
                 backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
                     release.await()
                     order += "mic-released"
                     order += "focus-released"
-                    sherpaEvents.emit(
+                    asr4allEvents.emit(
                         VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true),
                     )
                 }
@@ -355,13 +364,13 @@ class SelectableVoiceInputHandoffTest {
             every { native.stopListeningForSession(any()) } answers {
                 nativeStops += firstArg<Long>()
             }
-            every { sherpa.stopListeningForSession(any()) } answers {
+            every { asr4all.stopListeningForSession(any()) } answers {
                 scopedStops += firstArg<Long>()
-                requestSherpaRelease()
+                requestAsr4allRelease()
             }
-            coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+            coEvery { asr4all.startListening(any(), any(), any()) } coAnswers {
                 thirdArg<(Long) -> Unit>().invoke(2L)
-                sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, 2L))
+                asr4allEvents.emit(VoiceInputEvent.ListeningStarted(mode, 2L))
                 c.stopListening(1L)
                 nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
                 VoiceInputStartResult.Started(2L)
@@ -389,16 +398,16 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
-    fun `stop after zipformer started but before the hand-off commits stops zipformer`() = runTest(dispatcher) {
+    fun `stop after asr4all started but before the hand-off commits stops asr4all`() = runTest(dispatcher) {
         val c = controller()
         val notices = noticesOf(c)
         val seen = eventsOf(c)
-        every { sherpa.cancelListeningForSession(2L) } answers {
-            sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
+        every { asr4all.cancelListeningForSession(2L) } answers {
+            asr4allEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
         }
-        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+        coEvery { asr4all.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(2L)
-            c.stopListening(1L) // lands after Zipformer opened the microphone
+            c.stopListening(1L) // lands after asr4all opened the microphone
             VoiceInputStartResult.Started(2L)
         }
 
@@ -406,9 +415,9 @@ class SelectableVoiceInputHandoffTest {
         nativeEvents.emit(stalled(1L))
         advanceUntilIdle()
 
-        coVerify { sherpa.cancelListeningForSession(2L) }
-        verify(exactly = 1) { sherpa.stopListeningForSession(2L) }
-        verify(exactly = 0) { sherpa.stopListening() }
+        coVerify { asr4all.cancelListeningForSession(2L) }
+        verify(exactly = 1) { asr4all.stopListeningForSession(2L) }
+        verify(exactly = 0) { asr4all.stopListening() }
         assertEquals(
             listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
             seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
@@ -418,10 +427,10 @@ class SelectableVoiceInputHandoffTest {
 
     @Test
     fun `newer start supersedes a hand-off in flight without deadlock`() = runTest(dispatcher) {
-        val loadCancelled = zipformerLoadHangs()
+        val loadCancelled = asr4allLoadHangs()
         val c = controller()
-        every { sherpa.stopListeningForSession(2L) } answers {
-            sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
+        every { asr4all.stopListeningForSession(2L) } answers {
+            asr4allEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
         }
         val notices = noticesOf(c)
         val seen = eventsOf(c)
@@ -465,15 +474,15 @@ class SelectableVoiceInputHandoffTest {
             seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
         )
         assertTrue(seen.none { it is VoiceInputEvent.Error })
-        coVerify(exactly = 0) { sherpa.startListening(any(), any(), any()) }
+        coVerify(exactly = 0) { asr4all.startListening(any(), any(), any()) }
         verify(exactly = 0) { native.stopListening() }
     }
 
     @Test
-    fun `native start failure falls back at start, routes zipformer readiness and replays the note`() =
+    fun `native start failure falls back at start, routes asr4all readiness and replays the note`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
-            zipformerStartsAs(2L)
+            asr4allStartsAs(2L)
             val c = controller()
             val seen = eventsOf(c)
 
@@ -482,19 +491,19 @@ class SelectableVoiceInputHandoffTest {
 
             assertEquals(listOf(VoiceInputEvent.ListeningStarted(mode, 2L)), seen)
             // Subscribed only after the start returned: the replayed note is still delivered.
-            assertEquals(ZIPFORMER_START_NOTICE, c.noticesFor(2L).first())
-            assertEquals(ZIPFORMER_START_NOTICE, c.latestNoticeFor(2L))
+            assertEquals(ASR4ALL_START_NOTICE, c.noticesFor(2L).first())
+            assertEquals(ASR4ALL_START_NOTICE, c.latestNoticeFor(2L))
         }
 
     @Test
-    fun `native cancelled stop from a failed start is held until zipformer settles`() =
+    fun `native cancelled stop from a failed start is held until asr4all settles`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
                 thirdArg<(Long) -> Unit>().invoke(101L)
                 nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 101L, cancelled = true))
                 VoiceInputStartResult.Unavailable("native failed")
             }
-            zipformerStartsAs(202L)
+            asr4allStartsAs(202L)
             val c = controller()
             val seen = eventsOf(c)
 
@@ -506,13 +515,13 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
-    fun `late native cancelled stop after zipformer takes over is never emitted`() =
+    fun `late native cancelled stop after asr4all takes over is never emitted`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
                 thirdArg<(Long) -> Unit>().invoke(101L)
                 VoiceInputStartResult.Unavailable("native failed")
             }
-            zipformerStartsAs(202L)
+            asr4allStartsAs(202L)
             val c = controller()
             val seen = eventsOf(c)
 
@@ -546,9 +555,9 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
-    fun `a wedged zipformer after a native hand-off is retired by owner so the next start proceeds`() =
+    fun `a wedged asr4all after a native hand-off is retired by owner so the next start proceeds`() =
         runTest(dispatcher) {
-            zipformerStartsAs(2L)
+            asr4allStartsAs(2L)
             val c = controller()
             val seen = eventsOf(c)
             assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
@@ -556,7 +565,7 @@ class SelectableVoiceInputHandoffTest {
             nativeEvents.emit(stalled(1L))
             nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
             advanceUntilIdle()
-            // The hand-off re-keys the admission under owner 1 with backend id 2. Zipformer never settles.
+            // The hand-off re-keys the admission under owner 1 with backend id 2. asr4all never settles.
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
                 thirdArg<(Long) -> Unit>().invoke(3L)
                 VoiceInputStartResult.Started(3L)
@@ -572,13 +581,13 @@ class SelectableVoiceInputHandoffTest {
             // Pre-fix, retirement looked up backend id 2 and found nothing, so the loop waited again.
             assertTrue(second.isCompleted, "a wedged hand-off backend must be retired after one bounded wait")
             assertTrue(second.await() is VoiceInputStartResult.Started)
-            // The synthetic stop is keyed by owner 1, not by the Zipformer backend id 2.
+            // The synthetic stop is keyed by owner 1, not by the asr4all backend id 2.
             assertEquals(
                 listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
                 seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
             )
-            // The late Zipformer terminal for backend id 2 is dropped with its retired admission.
-            sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 2L))
+            // The late asr4all terminal for backend id 2 is dropped with its retired admission.
+            asr4allEvents.emit(VoiceInputEvent.ListeningStopped(mode, 2L))
             advanceUntilIdle()
             assertEquals(
                 listOf(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)),
@@ -670,12 +679,12 @@ class SelectableVoiceInputHandoffTest {
 
     @Test
     fun `caller cancel during native fallback releases the held native terminal`() = runTest(dispatcher) {
-        val cancelledLoad = zipformerLoadHangs()
+        val cancelledLoad = asr4allLoadHangs()
         val c = controller()
         val seen = eventsOf(c)
         coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(1L)
-            // The native stop is held while the Zipformer fallback decides.
+            // The native stop is held while the asr4all fallback decides.
             nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true))
             VoiceInputStartResult.Unavailable("Android speech unavailable")
         }
@@ -694,11 +703,11 @@ class SelectableVoiceInputHandoffTest {
     }
 
     @Test
-    fun `a newer start supersedes a native fallback still loading zipformer`() = runTest(dispatcher) {
-        val loadCancelled = zipformerLoadHangs()
+    fun `a newer start supersedes a native fallback still loading asr4all`() = runTest(dispatcher) {
+        val loadCancelled = asr4allLoadHangs()
         val c = controller()
-        every { sherpa.stopListeningForSession(2L) } answers {
-            sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
+        every { asr4all.stopListeningForSession(2L) } answers {
+            asr4allEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
         }
         var nativeCalls = 0
         coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
@@ -717,14 +726,14 @@ class SelectableVoiceInputHandoffTest {
         val second = async { c.startListening(mode) }
         advanceUntilIdle()
 
-        assertTrue(loadCancelled.isCompleted, "the superseded Zipformer load must be cancelled")
+        assertTrue(loadCancelled.isCompleted, "the superseded asr4all load must be cancelled")
         assertEquals(VoiceInputStartResult.Cancelled(2L), first.await())
         assertEquals(VoiceInputStartResult.Started(3L), second.await())
     }
 
     @Test
-    fun `native fallback admits the native session then the zipformer session in order`() = runTest(dispatcher) {
-        zipformerStartsAs(202L)
+    fun `native fallback admits the native session then the asr4all session in order`() = runTest(dispatcher) {
+        asr4allStartsAs(202L)
         val c = controller()
         coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(101L)
@@ -737,7 +746,7 @@ class SelectableVoiceInputHandoffTest {
     }
 
     @Test
-    fun `native reservation failure keeps capture activity fenced while zipformer fallback is pending`() =
+    fun `native reservation failure keeps capture activity fenced while asr4all fallback is pending`() =
         runTest(dispatcher) {
             coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
                 thirdArg<(Long) -> Unit>().invoke(101L)
@@ -745,7 +754,7 @@ class SelectableVoiceInputHandoffTest {
                 VoiceInputStartResult.Unavailable("native unavailable")
             }
             val fallbackAdmission = CompletableDeferred<Unit>()
-            coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+            coEvery { asr4all.startListening(any(), any(), any()) } coAnswers {
                 fallbackAdmission.await()
                 thirdArg<(Long) -> Unit>().invoke(202L)
                 VoiceInputStartResult.Started(202L)
@@ -765,7 +774,7 @@ class SelectableVoiceInputHandoffTest {
             assertEquals(VoiceInputStartResult.Started(202L), start.await())
             advanceUntilIdle()
             assertEquals(listOf(false, true), activity)
-            sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 202L))
+            asr4allEvents.emit(VoiceInputEvent.ListeningStopped(mode, 202L))
             advanceUntilIdle()
 
             assertEquals(listOf(false, true, false), activity)
@@ -778,9 +787,9 @@ class SelectableVoiceInputHandoffTest {
             nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 101L, cancelled = true))
             VoiceInputStartResult.Unavailable("native failed")
         }
-        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+        coEvery { asr4all.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(202L)
-            sherpaEvents.emit(VoiceInputEvent.ListeningStopped(mode, 202L, cancelled = true))
+            asr4allEvents.emit(VoiceInputEvent.ListeningStopped(mode, 202L, cancelled = true))
             VoiceInputStartResult.Unavailable("mic unavailable")
         }
         val c = controller()
@@ -801,26 +810,29 @@ class SelectableVoiceInputHandoffTest {
     }
 
     @Test
-    fun `same sherpa replacement retires the remapped fallback owner and keeps the new owner`() =
+    fun `same Sherpa replacement retires the remapped fallback owner and keeps the new owner`() =
         runTest(dispatcher) {
-            zipformerStartsAs(2L)
+            asr4allStartsAs(2L)
             val c = controller()
             val seen = eventsOf(c)
 
             assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
             nativeEvents.emit(notReady(1L))
             advanceUntilIdle()
-            selectedEngine.value = VoiceInputEngine.SherpaZipformer
-            every { sherpa.stopListeningForSession(2L) } answers {
-                sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L))
+            selectedEngine.value = VoiceInputEngine.SherpaParaformer
+            every { asr4all.stopListeningForSession(2L) } answers {
+                asr4allEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L))
             }
             coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
                 thirdArg<(Long) -> Unit>().invoke(3L)
-                sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, 3L))
                 VoiceInputStartResult.Started(3L)
             }
 
             assertEquals(VoiceInputStartResult.Started(3L), c.startListening(mode))
+            sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, 3L))
+            // UnconfinedTestDispatcher queues each collector hop (sherpa -> pipeline -> seen);
+            // suspending lets the queued hops run before the snapshot is read.
+            repeat(3) { yield() }
             advanceUntilIdle()
 
             assertTrue(seen.contains(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true)))
@@ -832,7 +844,7 @@ class SelectableVoiceInputHandoffTest {
     @Test
     fun `caller cancellation leaves activity until gated teardown terminal then clears it`() = runTest(dispatcher) {
         coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
-        val (loadCancelled, allowTerminal) = zipformerLoadHangsUntilTerminal()
+        val (loadCancelled, allowTerminal) = asr4allLoadHangsUntilTerminal()
         val c = controller()
         val seen = eventsOf(c)
 
@@ -861,7 +873,7 @@ class SelectableVoiceInputHandoffTest {
     @Test
     fun `late cancelled terminal from unwound start does not clear replacement owner`() = runTest(dispatcher) {
         coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
-        val (loadCancelled, allowTerminal) = zipformerLoadHangsUntilTerminal()
+        val (loadCancelled, allowTerminal) = asr4allLoadHangsUntilTerminal()
         val c = controller()
         val seen = eventsOf(c)
 
@@ -894,7 +906,7 @@ class SelectableVoiceInputHandoffTest {
 
     @Test
     fun `terminal before off-main start continuation clears empty generation fence`() = runTest(dispatcher) {
-        selectedEngine.value = VoiceInputEngine.SherpaZipformer
+        selectedEngine.value = VoiceInputEngine.SherpaParaformer
         val c = controller()
         val seen = eventsOf(c)
         coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
@@ -917,11 +929,11 @@ class SelectableVoiceInputHandoffTest {
     }
 
     @Test
-    fun `stop during start-time zipformer load returns admitted cancellation without ghost start`() = runTest(dispatcher) {
+    fun `stop during start-time asr4all load returns admitted cancellation without ghost start`() = runTest(dispatcher) {
         coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("no service")
-        val loadCancelled = zipformerLoadHangs()
-        every { sherpa.cancelListeningForSession(2L) } answers {
-            sherpaEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
+        val loadCancelled = asr4allLoadHangs()
+        every { asr4all.cancelListeningForSession(2L) } answers {
+            asr4allEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true))
         }
         val c = controller()
         val seen = eventsOf(c)
@@ -934,7 +946,7 @@ class SelectableVoiceInputHandoffTest {
         assertEquals(VoiceInputStartResult.Cancelled(2L), start.await())
         assertTrue(loadCancelled.isCompleted)
         assertEquals(listOf(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true)), seen)
-        io.mockk.verify(exactly = 1) { sherpa.cancelListeningForSession(2L) }
+        io.mockk.verify(exactly = 1) { asr4all.cancelListeningForSession(2L) }
     }
 
     @Test
@@ -959,13 +971,13 @@ class SelectableVoiceInputHandoffTest {
 
     @Test
     fun `a replaced native session's close reaches mic arbitration but not the chat after a hand-off (#2027)`() = runTest(dispatcher) {
-        // The native start fails, then Zipformer takes over. Native's ListeningStopped for its replaced
+        // The native start fails, then asr4all takes over. Native's ListeningStopped for its replaced
         // session arrives after the switch, so the chat stream drops it as stale; mic arbitration must still see it.
         coEvery { native.startListening(any(), any(), any(), any()) } returns VoiceInputStartResult.Unavailable("native failed")
-        coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
+        coEvery { asr4all.startListening(any(), any(), any()) } coAnswers {
             nativeEvents.emit(VoiceInputEvent.ListeningRequested(mode, 1L))
             nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
-            sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, 2L))
+            asr4allEvents.emit(VoiceInputEvent.ListeningStarted(mode, 2L))
             VoiceInputStartResult.Started(2L)
         }
         val c = controller()

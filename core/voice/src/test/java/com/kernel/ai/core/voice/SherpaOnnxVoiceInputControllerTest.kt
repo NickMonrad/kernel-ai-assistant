@@ -47,7 +47,7 @@ class SherpaOnnxVoiceInputControllerTest {
         every { getExternalFilesDir("models") } returns tempModelsDir
         every { getSystemService(Context.AUDIO_SERVICE) } returns audioManager
     }
-    private val selectedEngine = MutableStateFlow(VoiceInputEngine.SherpaZipformer)
+    private val selectedEngine = MutableStateFlow(VoiceInputEngine.SherpaParaformer)
     private val controller = SherpaOnnxVoiceInputController(context, voiceInputPreferences)
 
     init {
@@ -104,56 +104,31 @@ class SherpaOnnxVoiceInputControllerTest {
     // ── #1439: wake-verifier model selection ───────────────────────────────────
 
     @Test
-    fun `resolveWakeVerifierSpec prefers Whisper when its files are present`() = runTest {
+    fun `wake verification uses Whisper for every interactive engine`() = runTest {
         createWhisperStubModelFiles()
-        // Whisper verifier wins regardless of the interactive engine selection.
-        listOf(
-            VoiceInputEngine.Auto,
-            VoiceInputEngine.SherpaZipformer,
-            VoiceInputEngine.SherpaWhisper,
-            VoiceInputEngine.SherpaParaformer,
-        ).forEach { engine ->
-            selectedEngine.value = engine
-            assertEquals(SherpaSttModelSpec.WHISPER, controller.resolveWakeVerifierSpec())
-        }
-    }
+        val events = mutableListOf<String>()
+        val holder = FakeHolder()
+        controller.wakeVerifierTestBuilder = testDouble(events, holder)
 
-    @Test
-    fun `resolveWakeVerifierSpec falls back to the selected online engine without Whisper`() = runTest {
-        createAllStubModelFiles() // Zipformer only
-        selectedEngine.value = VoiceInputEngine.SherpaZipformer
-        assertEquals(SherpaSttModelSpec.ZIPFORMER, controller.resolveWakeVerifierSpec())
-
-        selectedEngine.value = VoiceInputEngine.SherpaParaformer
-        assertEquals(SherpaSttModelSpec.PARAFORMER, controller.resolveWakeVerifierSpec())
-    }
-
-    @Test
-    fun `resolveWakeVerifierSpec falls back to Zipformer default without Whisper or online engine`() = runTest {
-        createAllStubModelFiles() // Zipformer only
         listOf(
             VoiceInputEngine.Auto,
             VoiceInputEngine.AndroidNative,
             VoiceInputEngine.SherpaWhisper,
+            VoiceInputEngine.SherpaParaformer,
             VoiceInputEngine.SherpaSenseVoice,
         ).forEach { engine ->
             selectedEngine.value = engine
-            assertEquals(SherpaSttModelSpec.ZIPFORMER, controller.resolveWakeVerifierSpec())
+            assertEquals("hi, jandal", controller.transcribeBlocking(shortArrayOf(1, 2)))
+            assertTrue(controller.wakeWhisperVerifierCached)
         }
+
+        assertTrue(holder.whisper != null)
     }
 
     @Test
-    fun `release resolves Whisper for wake verification and never Zipformer, even when Zipformer is installed`() = runTest {
-        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
-        createAllStubModelFiles() // Zipformer only; Whisper absent
-        listOf(
-            VoiceInputEngine.SherpaZipformer,
-            VoiceInputEngine.Auto,
-            VoiceInputEngine.SherpaParaformer,
-        ).forEach { engine ->
-            selectedEngine.value = engine
-            assertEquals(SherpaSttModelSpec.WHISPER, controller.resolveWakeVerifierSpec())
-        }
+    fun `wake verification returns null when Whisper is absent without another verifier`() = runTest {
+        assertNull(controller.transcribeBlocking(shortArrayOf(1, 2)))
+        assertFalse(controller.wakeWhisperVerifierCached)
     }
 
     @Test
@@ -164,56 +139,9 @@ class SherpaOnnxVoiceInputControllerTest {
 
     // ── #1440: wake-verifier cache mutual exclusion and lifecycle ──────────────
 
-    @Test
-    fun `fallback online to Whisper transition releases the fallback and leaves only Whisper cached`() = runTest {
-        createAllStubModelFiles() // Zipformer only → online fallback verifier
-        val events = mutableListOf<String>()
-        val holder = FakeHolder()
-        controller.wakeVerifierTestBuilder = testDouble(events, holder)
-
-        assertEquals("hy general", controller.transcribeBlocking(shortArrayOf(1, 2)))
-        assertTrue(controller.wakeOnlineVerifierCached)
-        assertFalse(controller.wakeWhisperVerifierCached)
-        assertEquals(0, holder.online!!.releaseCount)
-
-        createWhisperStubModelFiles() // Whisper becomes available → verifier transition
-        assertEquals("hi, jandal", controller.transcribeBlocking(shortArrayOf(3, 4)))
-
-        // The superseded online fallback must be released and evicted from the cache.
-        assertEquals(1, holder.online!!.releaseCount)
-        assertTrue(events.contains("online_release"))
-        assertFalse(controller.wakeOnlineVerifierCached)
-        assertTrue(controller.wakeWhisperVerifierCached)
-        assertTrue(holder.whisper != null)
-    }
 
     @Test
-    fun `Whisper to fallback online transition releases Whisper and leaves only the fallback cached`() = runTest {
-        createAllStubModelFiles()
-        createWhisperStubModelFiles()
-        val events = mutableListOf<String>()
-        val holder = FakeHolder()
-        controller.wakeVerifierTestBuilder = testDouble(events, holder)
-
-        assertEquals("hi, jandal", controller.transcribeBlocking(shortArrayOf(1, 2)))
-        assertTrue(controller.wakeWhisperVerifierCached)
-        assertFalse(controller.wakeOnlineVerifierCached)
-        assertEquals(0, holder.whisper!!.releaseCount)
-
-        deleteWhisperStubModelFiles() // Whisper unavailable → fallback verifier transition
-        assertEquals("hy general", controller.transcribeBlocking(shortArrayOf(3, 4)))
-
-        // The superseded Whisper verifier must be released and evicted from the cache.
-        assertEquals(1, holder.whisper!!.releaseCount)
-        assertTrue(events.contains("whisper_release"))
-        assertFalse(controller.wakeWhisperVerifierCached)
-        assertTrue(controller.wakeOnlineVerifierCached)
-        assertTrue(holder.online != null)
-    }
-
-    @Test
-    fun `consecutive calls with the same verifier reuse the cached recognizer`() = runTest {
-        createAllStubModelFiles()
+    fun `consecutive wake verifications reuse the Whisper recognizer`() = runTest {
         createWhisperStubModelFiles()
         val events = mutableListOf<String>()
         val holder = FakeHolder()
@@ -224,55 +152,10 @@ class SherpaOnnxVoiceInputControllerTest {
         assertEquals("hi, jandal", controller.transcribeBlocking(shortArrayOf(2)))
         assertSame(firstWhisper, holder.whisper)
         assertEquals(0, firstWhisper!!.releaseCount)
-        assertEquals(2, firstWhisper.streams.size) // one stream per call; recognizer reused
+        assertEquals(2, firstWhisper.streams.size)
         assertTrue(controller.wakeWhisperVerifierCached)
-
-        // The online fallback reuses its cached recognizer the same way.
-        deleteWhisperStubModelFiles()
-        assertEquals("hy general", controller.transcribeBlocking(shortArrayOf(3)))
-        val firstOnline = holder.online
-        assertEquals("hy general", controller.transcribeBlocking(shortArrayOf(4)))
-        assertSame(firstOnline, holder.online)
-        assertEquals(0, firstOnline!!.releaseCount)
-        assertEquals(2, firstOnline.streams.size)
-        assertTrue(controller.wakeOnlineVerifierCached)
-        assertFalse(controller.wakeWhisperVerifierCached)
     }
 
-    @Test
-    fun `verifier switching cannot release the recognizer while its decode is active`() = runTest {
-        createAllStubModelFiles()
-        createWhisperStubModelFiles() // Whisper selected first
-        val events = mutableListOf<String>()
-        val holder = FakeHolder()
-        val gate = BlockingGate()
-        controller.wakeVerifierTestBuilder = testDouble(events, holder, whisperDecodeGate = gate)
-
-        val first = async(Dispatchers.IO) { controller.transcribeBlocking(shortArrayOf(1, 2, 3)) }
-        assertTrue(gate.entered.await(5, TimeUnit.SECONDS), "whisper decode must have started")
-
-        // Make the fallback the next selection while the Whisper decode is still active.
-        deleteWhisperStubModelFiles()
-        val second = async(Dispatchers.IO) { controller.transcribeBlocking(shortArrayOf(4, 5)) }
-
-        // The in-flight Whisper recognizer must not be released while decoding.
-        assertFalse("whisper_release" in events)
-        gate.release.countDown()
-
-        assertEquals("hi, jandal", first.await())
-        assertEquals("hy general", second.await())
-
-        // Eviction may only happen after the first verification finished its decode
-        // and stream release — the single ownership boundary serializes the switch.
-        val releaseIdx = events.indexOf("whisper_release")
-        val streamReleaseIdx = events.indexOf("whisper_stream_release")
-        assertTrue(
-            releaseIdx > streamReleaseIdx && releaseIdx >= 0,
-            "whisper must be released only after its stream release: $events",
-        )
-        assertFalse(controller.wakeWhisperVerifierCached)
-        assertTrue(controller.wakeOnlineVerifierCached)
-    }
 
     @Test
     fun `wake-verifier lifecycle leaves the interactive recognizer and engine selection untouched`() = runTest {
@@ -285,9 +168,8 @@ class SherpaOnnxVoiceInputControllerTest {
 
         controller.transcribeBlocking(shortArrayOf(1, 2)) // whisper
         controller.transcribeBlocking(shortArrayOf(3, 4)) // whisper reuse
-        deleteWhisperStubModelFiles()
-        controller.transcribeBlocking(shortArrayOf(5, 6)) // online transition
-        controller.transcribeBlocking(shortArrayOf(7, 8)) // online reuse
+        controller.transcribeBlocking(shortArrayOf(5, 6))
+        controller.transcribeBlocking(shortArrayOf(7, 8))
 
         assertEquals(engineBefore, selectedEngine.value)
         assertFalse(controller.interactiveRecognizerActive)
@@ -354,7 +236,7 @@ class SherpaOnnxVoiceInputControllerTest {
     @Test
     fun `ready stop before recording job body releases mic and focus before one terminal`() = runTest {
         createAllStubModelFiles()
-        setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))
+        setPrivateField("activeSpec", SherpaSttModelSpec.PARAFORMER)
         setPrivateField("recognizer", Any())
         val order = mutableListOf<String>()
         val stoppedEvents = mutableListOf<VoiceInputEvent.ListeningStopped>()
@@ -391,12 +273,12 @@ class SherpaOnnxVoiceInputControllerTest {
     fun `spec-changing prewarm waits for active decoder teardown and same-spec prewarm is a no-op`() = runTest {
         createAllStubModelFiles()
         createWhisperStubModelFiles()
-        selectedEngine.value = VoiceInputEngine.SherpaZipformer
+        selectedEngine.value = VoiceInputEngine.SherpaParaformer
         val order = java.util.Collections.synchronizedList(mutableListOf<String>())
         val decodeGate = BlockingGate()
         val streamCreated = CountDownLatch(1)
         val recognizer = FakeOnlineRecognizer(order, decodeGate, streamCreated)
-        setPrivateField("activeSpec", SherpaSttModelSpec.ZIPFORMER)
+        setPrivateField("activeSpec", SherpaSttModelSpec.PARAFORMER)
         setPrivateField("recognizer", recognizer)
         installInteractiveMethods(recognizer)
 
@@ -425,7 +307,7 @@ class SherpaOnnxVoiceInputControllerTest {
         assertTrue(withContext(Dispatchers.IO) { streamCreated.await(5, TimeUnit.SECONDS) })
 
         val sameSpec = async {
-            controller.prewarmSpec(SherpaSttModelSpec.ZIPFORMER)
+            controller.prewarmSpec(SherpaSttModelSpec.PARAFORMER)
         }
         runCurrent()
         assertTrue(sameSpec.isCompleted)
@@ -461,12 +343,12 @@ class SherpaOnnxVoiceInputControllerTest {
     fun `replacement waits for final decoder flush and capture teardown before releasing recognizer`() = runTest {
         createAllStubModelFiles()
         createWhisperStubModelFiles()
-        selectedEngine.value = VoiceInputEngine.SherpaZipformer
+        selectedEngine.value = VoiceInputEngine.SherpaParaformer
         val order = java.util.Collections.synchronizedList(mutableListOf<String>())
         val decodeGate = BlockingGate()
         val streamCreated = CountDownLatch(1)
         val recognizer = FakeOnlineRecognizer(order, decodeGate, streamCreated)
-        setPrivateField("activeSpec", SherpaSttModelSpec.ZIPFORMER)
+        setPrivateField("activeSpec", SherpaSttModelSpec.PARAFORMER)
         setPrivateField("recognizer", recognizer)
         installInteractiveMethods(recognizer)
 
@@ -573,7 +455,7 @@ class SherpaOnnxVoiceInputControllerTest {
         // on a missing stream: that failure raced the second start and made the terminal's `cancelled` flag timing-dependent.
         val order = java.util.Collections.synchronizedList(mutableListOf<String>())
         val recognizer = FakeOnlineRecognizer(order)
-        setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))
+        setPrivateField("activeSpec", SherpaSttModelSpec.PARAFORMER)
         setPrivateField("recognizer", recognizer)
         installInteractiveMethods(recognizer)
         val first = micRecorder()
@@ -649,7 +531,7 @@ class SherpaOnnxVoiceInputControllerTest {
 
     private inner class RecognizerLoad(private val mutex: Mutex) {
         fun finish() {
-            setPrivateField("activeSpec", SherpaSttModelSpec.forEngine(VoiceInputEngine.SherpaZipformer))
+            setPrivateField("activeSpec", SherpaSttModelSpec.PARAFORMER)
             setPrivateField("recognizer", Any())
             mutex.unlock()
         }
@@ -664,10 +546,9 @@ class SherpaOnnxVoiceInputControllerTest {
 
     private fun createAllStubModelFiles() {
         listOf(
-            "sherpa-stt-encoder.int8.onnx",
-            "sherpa-stt-decoder.int8.onnx",
-            "sherpa-stt-joiner.int8.onnx",
-            "sherpa-stt-tokens.txt",
+            "sherpa-paraformer-encoder.int8.onnx",
+            "sherpa-paraformer-decoder.int8.onnx",
+            "sherpa-paraformer-tokens.txt",
         ).forEach { name -> File(tempModelsDir, name).writeText("stub") }
     }
 
@@ -679,13 +560,6 @@ class SherpaOnnxVoiceInputControllerTest {
         ).forEach { name -> File(tempModelsDir, name).writeText("stub") }
     }
 
-    private fun deleteWhisperStubModelFiles() {
-        listOf(
-            "sherpa-whisper-tiny.en-encoder.int8.onnx",
-            "sherpa-whisper-tiny.en-decoder.int8.onnx",
-            "sherpa-whisper-tiny.en-tokens.txt",
-        ).forEach { name -> File(tempModelsDir, name).delete() }
-    }
 
     /**
      * Installs the #1440 wake-verifier construction test double: fake recognizers
@@ -698,13 +572,6 @@ class SherpaOnnxVoiceInputControllerTest {
         whisperDecodeGate: BlockingGate? = null,
     ): SherpaOnnxVoiceInputController.WakeVerifierTestBuilder =
         object : SherpaOnnxVoiceInputController.WakeVerifierTestBuilder {
-            override fun buildOnline(spec: SherpaSttModelSpec): Pair<Any, SherpaOnnxVoiceInputController.WakeRecognizerMethods>? {
-                val rec = FakeOnlineRecognizer(events)
-                holder.online = rec
-                events.add("online_built")
-                return rec to onlineMethodsFor(rec)
-            }
-
             override fun buildWhisper(spec: SherpaSttModelSpec): Pair<Any, SherpaOnnxVoiceInputController.WakeWhisperMethods>? {
                 val rec = FakeWhisperRecognizer(events, whisperDecodeGate)
                 holder.whisper = rec
@@ -713,18 +580,6 @@ class SherpaOnnxVoiceInputControllerTest {
             }
         }
 
-    private fun onlineMethodsFor(rec: FakeOnlineRecognizer): SherpaOnnxVoiceInputController.WakeRecognizerMethods {
-        val streamCls = FakeOnlineStream::class.java
-        return SherpaOnnxVoiceInputController.WakeRecognizerMethods(
-            createStream = FakeOnlineRecognizer::class.java.getDeclaredMethod("createStream", String::class.java),
-            acceptWaveform = streamCls.getDeclaredMethod("acceptWaveform", FloatArray::class.java, Int::class.javaPrimitiveType),
-            inputFinished = streamCls.getDeclaredMethod("inputFinished"),
-            isReady = FakeOnlineRecognizer::class.java.getDeclaredMethod("isReady", streamCls),
-            decode = FakeOnlineRecognizer::class.java.getDeclaredMethod("decode", streamCls),
-            streamRelease = streamCls.getDeclaredMethod("release"),
-            getResult = FakeOnlineRecognizer::class.java.getDeclaredMethod("getResult", streamCls),
-        )
-    }
 
     private fun whisperMethodsFor(rec: FakeWhisperRecognizer): SherpaOnnxVoiceInputController.WakeWhisperMethods {
         val streamCls = FakeWhisperStream::class.java
@@ -738,7 +593,6 @@ class SherpaOnnxVoiceInputControllerTest {
     }
 
     private class FakeHolder {
-        var online: FakeOnlineRecognizer? = null
         var whisper: FakeWhisperRecognizer? = null
     }
 

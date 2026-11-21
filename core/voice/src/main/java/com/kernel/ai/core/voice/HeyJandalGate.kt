@@ -2,13 +2,11 @@ package com.kernel.ai.core.voice
 
 import android.content.Context
 import com.kernel.ai.core.inference.download.KernelModel
-import com.kernel.ai.core.inference.download.ModelDownloadManager
-import kotlinx.coroutines.flow.first
 
 /**
  * Why Hey Jandal cannot listen on this phone right now. The setup wizard's Make Jandal yours row uses all four
  * checks. Settings uses the microphone and Usage Access checks only: it enables Hey Jandal first and queues the
- * wake-word model afterwards ([queueHeyJandalSttModel]), so requiring the model there would block the download.
+ * wake-word model afterwards, so requiring the model there would block the download.
  */
 enum class HeyJandalBlock { NoMicrophone, MicrophoneNotGranted, ModelNotInstalled, UsageAccessNeeded }
 
@@ -43,41 +41,3 @@ fun SherpaSttModelSpec.kernelModels(): List<KernelModel> =
 /** Catalogue entries backing the wake-verifier model files (#1439). Shared by :app provisioning and setup sizes (#1931). */
 fun wakeVerifierKernelModels(): List<KernelModel> =
     SherpaSttModelSpec.WHISPER.kernelModels()
-
-/** The STT engine Hey Jandal verifies with: the selected recognizer if it is an online Sherpa one, else Zipformer. */
-private fun heyJandalSttEngine(selected: VoiceInputEngine): VoiceInputEngine =
-    if (SherpaSttModelSpec.forEngine(selected)?.recognizerKind == SherpaSttModelSpec.RecognizerKind.Online) {
-        selected
-    } else {
-        VoiceInputEngine.SherpaZipformer
-    }
-
-/**
- * Every catalogue file turning Hey Jandal on needs with [selectedInput] as the speech input: the wake verifier
- * ([wakeVerifierKernelModels]) plus, in debug builds only, the STT model [queueHeyJandalSttModel] queues. Release
- * keeps Sherpa STT excluded, so its verifier is Whisper alone. The one source for the size that setup and
- * Settings › Voice show (#1931); callers drop files already downloaded.
- */
-fun heyJandalDownloadModels(selectedInput: VoiceInputEngine, isRelease: Boolean): List<KernelModel> =
-    (wakeVerifierKernelModels() + heyJandalSttModels(selectedInput, isRelease)).distinct()
-
-private fun heyJandalSttModels(selectedInput: VoiceInputEngine, isRelease: Boolean): List<KernelModel> =
-    if (isRelease) {
-        emptyList()
-    } else {
-        SherpaSttModelSpec.forEngine(heyJandalSttEngine(selectedInput))?.kernelModels().orEmpty()
-    }
-
-/**
- * Queues the STT model Hey Jandal verifies with: the selected online recognizer if it has one,
- * otherwise Zipformer. Call when Hey Jandal is turned on. No-op in release builds.
- */
-suspend fun queueHeyJandalSttModel(
-    voiceInputPreferences: VoiceInputPreferences,
-    modelDownloadManager: ModelDownloadManager,
-    isRelease: Boolean,
-) {
-    if (isRelease) return
-    val spec = SherpaSttModelSpec.forEngine(heyJandalSttEngine(voiceInputPreferences.selectedEngine.first())) ?: return
-    spec.kernelModels().forEach { modelDownloadManager.startDownload(it) }
-}

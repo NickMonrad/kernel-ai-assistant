@@ -849,7 +849,6 @@ private fun HeyJandalCard(state: SetupWizardUiState, actions: MakeYoursActions) 
         choice = state.wakeWordChoice,
         platform = state.platform,
         extraBytes = state.heyJandalExtraBytes,
-        androidNativeZipformerBytes = state.heyJandalZipformerBytes,
     )
     SettingCard(
         id = "hey_jandal",

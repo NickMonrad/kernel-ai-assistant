@@ -21,6 +21,7 @@ import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoicePackDownloadState
 import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.kernelModels
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.model.availability.ModelRoleSection
@@ -69,7 +70,7 @@ data class ModelManagementUiState(
     val stillNeeded: List<StillNeededItem> = emptyList(),
     /** Current device hardware tier: drives recommendations and "Not needed on this phone". */
     val deviceTier: HardwareTier? = null,
-    /** Speech recognition (Zipformer) status, read-only on the Models screen. */
+    /** Speech recognition (Whisper verifier) status, read-only on the Models screen. */
     val speechRecognitionStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
     /** Jandal's voice (Cori) status, read-only on the Models screen. */
     val voiceOutputStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
@@ -82,12 +83,12 @@ data class ModelManagementUiState(
 /** Read-only status for a voice section on the Models screen. Managed in Voice settings. */
 enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED, BUILT_IN, OTHER_ENGINE }
 
-/** Files the Zipformer recognizer needs, taken from the core spec so the two lists cannot drift. */
-internal val ZIPFORMER_STT_MODELS: List<KernelModel> =
-    KernelModel.entries.filter { it.fileName in SherpaSttModelSpec.ZIPFORMER.requiredFileNames }
+/** Whisper files needed by Hey Jandal, taken from the core spec. */
+internal val WAKE_VERIFIER_STT_MODELS: List<KernelModel> =
+    SherpaSttModelSpec.WHISPER.kernelModels()
 
 internal fun speechStatusOf(states: Map<KernelModel, DownloadState>): VoiceSectionStatus {
-    val files = ZIPFORMER_STT_MODELS.map { states[it] ?: DownloadState.NotDownloaded }
+    val files = WAKE_VERIFIER_STT_MODELS.map { states[it] ?: DownloadState.NotDownloaded }
     return when {
         files.all { it is DownloadState.Downloaded } -> VoiceSectionStatus.READY
         files.any { it is DownloadState.Downloading } -> VoiceSectionStatus.DOWNLOADING

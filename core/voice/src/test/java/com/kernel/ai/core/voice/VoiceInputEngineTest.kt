@@ -20,8 +20,9 @@ class VoiceInputEngineTest {
     }
 
     @Test
-    fun `legacy SherpaOnnx value still maps to Zipformer`() {
-        assertEquals(VoiceInputEngine.SherpaZipformer, VoiceInputEngine.fromStorage("SherpaOnnx"))
+    fun `legacy Sherpa values migrate to Auto`() {
+        assertEquals(VoiceInputEngine.Auto, VoiceInputEngine.fromStorage("SherpaOnnx"))
+        assertEquals(VoiceInputEngine.Auto, VoiceInputEngine.fromStorage("SherpaZipformer"))
     }
 
     @Test
@@ -31,29 +32,15 @@ class VoiceInputEngineTest {
         }
     }
 
-    @Test
-    fun `provisioner downloads Zipformer only for engines that use it`() {
-        assertTrue(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.Auto))
-        assertTrue(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.SherpaZipformer))
-        assertFalse(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.AndroidNative))
-        assertFalse(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.SherpaWhisper))
-    }
 
     @Test
     fun `provisioner downloads asr4all only for engines that use it`() {
         assertTrue(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.Auto))
         assertTrue(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.Asr4all))
-        assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.SherpaZipformer))
+        assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.SherpaParaformer))
         assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.AndroidNative))
     }
 
-    @Test
-    fun `provisioner maps every Zipformer file to a catalogue model`() {
-        assertEquals(
-            SherpaSttModelSpec.ZIPFORMER.requiredFileNames.size,
-            VoiceDefaultsProvisioner.zipformerModels().size,
-        )
-    }
 
     @Test
     fun `legacy Vosk cleanup only targets voice folders holding the Vosk model`(@TempDir tmp: File) {
@@ -79,7 +66,7 @@ class VoiceInputEngineTest {
         assertEquals(VoiceInputEngine.AndroidNative, VoiceInputEngine.resolveForBuild("Auto", isRelease = true))
         assertEquals(
             VoiceInputEngine.AndroidNative,
-            VoiceInputEngine.resolveForBuild("SherpaZipformer", isRelease = true),
+            VoiceInputEngine.resolveForBuild("SherpaOnnx", isRelease = true),
         )
     }
 

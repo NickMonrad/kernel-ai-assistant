@@ -1,7 +1,6 @@
 package com.kernel.ai.feature.settings
 
 import com.kernel.ai.core.inference.download.DownloadState
-import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -24,16 +23,11 @@ class ModelManagementVoiceStatusTest {
     }
 
     @Test
-    fun `speech status needs every zipformer file`() {
-        val all = ZIPFORMER_STT_MODELS.associateWith { DownloadState.Downloaded("/models/${it.name}") as DownloadState }
+    fun `speech status needs every wake verifier file`() {
+        val all = WAKE_VERIFIER_STT_MODELS.associateWith { DownloadState.Downloaded("/models/${it.name}") as DownloadState }
         assertEquals(VoiceSectionStatus.READY, speechStatusOf(all))
-        val missingOne = all - ZIPFORMER_STT_MODELS.first()
+        val missingOne = all - WAKE_VERIFIER_STT_MODELS.first()
         assertEquals(VoiceSectionStatus.NOT_DOWNLOADED, speechStatusOf(missingOne))
     }
 
-    @Test
-    fun `zipformer list is the four core spec files`() {
-        assertEquals(4, ZIPFORMER_STT_MODELS.size)
-        assertEquals(setOf(KernelModel.SHERPA_STT_ENCODER, KernelModel.SHERPA_STT_DECODER, KernelModel.SHERPA_STT_JOINER, KernelModel.SHERPA_STT_TOKENS), ZIPFORMER_STT_MODELS.toSet())
-    }
 }

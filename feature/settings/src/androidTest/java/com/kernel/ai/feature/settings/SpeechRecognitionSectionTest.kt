@@ -27,7 +27,7 @@ class SpeechRecognitionSectionTest {
     fun onlineSwitchSitsInsideSelectedAndroidNativeCard() {
         setSection(selected = VoiceInputEngine.AndroidNative)
 
-        assertSwitchInsideCard(selected = VoiceInputEngine.AndroidNative, otherCard = VoiceInputEngine.SherpaZipformer)
+        assertSwitchInsideCard(selected = VoiceInputEngine.AndroidNative, otherCard = VoiceInputEngine.SherpaWhisper)
     }
 
     @Test
@@ -35,7 +35,7 @@ class SpeechRecognitionSectionTest {
         setSection(
             selected = VoiceInputEngine.AndroidNative,
             nativeMessage = "Android speech recognition is not available on this device.",
-            zipformerDownloaded = false,
+            whisperDownloaded = false,
         )
 
         composeTestRule
@@ -49,7 +49,7 @@ class SpeechRecognitionSectionTest {
 
     @Test
     fun onlineSwitchIsAbsentWhenSherpaEngineSelected() {
-        setSection(selected = VoiceInputEngine.SherpaZipformer)
+        setSection(selected = VoiceInputEngine.SherpaWhisper)
 
         composeTestRule
             .onAllNodesWithText(OnlineSpeechCopy.TITLE, useUnmergedTree = true)
@@ -59,7 +59,7 @@ class SpeechRecognitionSectionTest {
     private fun setSection(
         selected: VoiceInputEngine,
         nativeMessage: String? = null,
-        zipformerDownloaded: Boolean = true,
+        whisperDownloaded: Boolean = true,
     ) {
         composeTestRule.setContent {
             KernelAITheme(darkTheme = true, dynamicColor = false) {
@@ -71,7 +71,7 @@ class SpeechRecognitionSectionTest {
                         androidNativeAvailabilityMessage = nativeMessage,
                         androidNativeLanguageName = "English (Australia)",
                         sherpaSttStates = mapOf(
-                            VoiceInputEngine.SherpaZipformer to SherpaSttDownloadState(isDownloaded = zipformerDownloaded),
+                            VoiceInputEngine.SherpaWhisper to SherpaSttDownloadState(isDownloaded = whisperDownloaded),
                         ),
                     ),
                     onSelect = {},

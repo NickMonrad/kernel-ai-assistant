@@ -143,7 +143,7 @@ internal fun skipsLiveCheckWaits(
  * The reason a capture cannot start, or null. When the platform speech service can take the capture
  * ([platformServiceAvailable]: online recognition on and a speech service other than Jandal's own is
  * installed), a missing on-device recognizer or language pack does not block (#1973): the start goes
- * to that service instead of failing over to Zipformer.
+ * to that service instead of failing over to asr4all.
  */
 internal fun captureBlockingReason(
     availability: AndroidNativeRecognitionAvailability,
@@ -238,7 +238,7 @@ const val NO_SPEECH_WINDOW_EXHAUSTED = "no_speech_window_exhausted"
 
 /**
  * Stable categories for on-device failures that the controller can hand to another recognizer
- * (Zipformer) without user action: the recognizer never became ready ([NATIVE_NOT_READY]), or
+ * (asr4all) without user action: the recognizer never became ready ([NATIVE_NOT_READY]), or
  * its watchdog expired before any speech progress ([NATIVE_STALLED]). Recognizer-reported
  * errors (no match, speech timeout, network) and stalls after speech keep a null category and
  * are surfaced as-is.
@@ -935,7 +935,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         // as NO_SPEECH_WINDOW_EXHAUSTED so the wake session skips the
                         // pointless attempt-2 and re-arms.  #1853: any other stall before
                         // speech progress is NATIVE_STALLED, which the selectable controller
-                        // may hand to Zipformer.  Stalls after speech progress stay generic.
+                        // may hand to asr4all.  Stalls after speech progress stay generic.
                         category = when {
                             heardSpeech || sawPartialTranscript -> null
                             isRefreshed && mode == VoiceCaptureMode.AlertCommand ->

@@ -37,14 +37,6 @@ internal fun downloadRows(
     group(plannedModels, MEMORY_MODELS) { bytes ->
         DownloadRowItem(DownloadRowKind.Memory, "Memory and search", KernelModel.ARCTIC_EMBED_M_V1_5.displayName, bytes)
     }
-    group(plannedModels, VoiceDefaultsProvisioner.zipformerModels().toSet()) { bytes ->
-        DownloadRowItem(
-            DownloadRowKind.SpeechInput,
-            "Offline speech recognition",
-            VoiceInputEngine.SherpaZipformer.displayName,
-            bytes,
-        )
-    }
     group(plannedModels, VoiceDefaultsProvisioner.asr4allSetupModels().toSet()) { bytes ->
         DownloadRowItem(
             DownloadRowKind.SpeechInput,
@@ -59,8 +51,8 @@ internal fun downloadRows(
     group(plannedModels, InflectMicroSetup.kernelModels().toSet()) { bytes ->
         DownloadRowItem(DownloadRowKind.Voice, "Inflect Micro", "Inflect Micro v2 voice", bytes)
     }
-    val grouped = CHAT_MODELS + MEMORY_MODELS + VoiceDefaultsProvisioner.zipformerModels() +
-        VoiceDefaultsProvisioner.asr4allSetupModels() + InflectMicroSetup.kernelModels()
+    val grouped = CHAT_MODELS + MEMORY_MODELS + VoiceDefaultsProvisioner.asr4allSetupModels() +
+        InflectMicroSetup.kernelModels()
     plannedModels.filterNot { it in grouped }.forEach { model ->
         add(DownloadRowItem(DownloadRowKind.Other, ModelRoleCopy.purpose(model), model.displayName, model.approxSizeBytes))
     }

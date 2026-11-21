@@ -13,14 +13,14 @@ import org.junit.jupiter.api.Test
 class SetupDownloadRowsTest {
 
     private val arctic = listOf(KernelModel.ARCTIC_EMBED_M_V1_5, KernelModel.ARCTIC_EMBED_V1_5_VOCAB)
-    private val zipformer = VoiceDefaultsProvisioner.zipformerModels()
+    private val asr4all = VoiceDefaultsProvisioner.asr4allSetupModels()
 
     private fun total(models: List<KernelModel>, voices: List<SherpaPiperVoice>) =
         DownloadConsent.firstRunEstimateBytes(models, voices.sumOf { it.approxDownloadBytes })
 
     @Test
     fun `a flagship plan lists E-4B, memory, offline speech and Cori, adding up to the total`() {
-        val models = listOf(KernelModel.GEMMA_4_E4B) + arctic + zipformer
+        val models = listOf(KernelModel.GEMMA_4_E4B) + arctic + asr4all
         val voices = listOf(SherpaPiperVoice.CoriHigh)
 
         val rows = downloadRows(models, voices)
@@ -31,7 +31,7 @@ class SetupDownloadRowsTest {
         )
         assertEquals(KernelModel.GEMMA_4_E4B.displayName, rows.first().technicalName)
         assertEquals(arctic.sumOf { it.approxSizeBytes }, rows[1].bytes)
-        assertEquals(zipformer.sumOf { it.approxSizeBytes }, rows[2].bytes)
+        assertEquals(asr4all.sumOf { it.approxSizeBytes }, rows[2].bytes)
         assertEquals(total(models, voices), rows.sumOf { it.bytes })
     }
 

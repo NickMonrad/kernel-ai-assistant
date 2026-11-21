@@ -97,7 +97,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
 
         clockTimerNotificationCoordinator.start()
         clockStopwatchNotificationCoordinator.start()
-        // #1008: queue the default voice models (Zipformer STT, Cori TTS) with the other
+        // #1008: queue the default speech model (asr4all) and Cori TTS with the other
         // first-run downloads, and remove the unpacked model left by the removed Vosk engine.
         voiceDefaultsProvisioner.get().start()
         WorkManager.getInstance(this).enqueueUniqueWork(

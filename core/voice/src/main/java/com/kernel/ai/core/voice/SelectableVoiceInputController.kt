@@ -59,17 +59,16 @@ internal const val BACKEND_TEARDOWN_TIMEOUT_MS = 3000L
 internal const val AUTO_STT_UNAVAILABLE_MESSAGE =
     "Voice input is still getting ready. The offline speech model is downloading, so try again in a minute."
 
-/** Notice when Android native could not start or never became ready, and Zipformer took the request. */
-internal const val ZIPFORMER_START_NOTICE =
-    "Android speech isn't available on this phone right now. Using Zipformer for this request."
+/** Notice when Android native could not start or never became ready, and the offline model took the request. */
+internal const val ASR4ALL_START_NOTICE =
+    "Android speech isn't available on this phone right now. Using the offline speech model for this request."
 
 /**
- * Notice when Android native stopped responding before any speech progress and Zipformer took
- * over. The user may have spoken and not been heard, and the cue is not replayed, so ask them
- * to repeat.
+ * Notice when Android native stopped responding before any speech progress and the offline model took over. The
+ * user may have spoken and not been heard, and the cue is not replayed, so ask them to repeat.
  */
-internal const val ZIPFORMER_STALL_NOTICE =
-    "Android speech stopped responding, so Zipformer is listening now. Please say that again."
+internal const val ASR4ALL_STALL_NOTICE =
+    "Android speech stopped responding, so the offline speech model is listening now. Please say that again."
 
 /** Which recognizer [VoiceInputEngine.Auto] uses for one capture session. */
 internal enum class AutoSttRoute {
@@ -79,9 +78,6 @@ internal enum class AutoSttRoute {
     /** Offline asr4all streaming model, once it is downloaded. */
     Asr4all,
 
-    /** Offline Sherpa-ONNX Zipformer. */
-    Zipformer,
-
     /** No usable recognizer yet (no offline model downloaded, no on-device support). */
     Unavailable,
 }
@@ -89,10 +85,9 @@ internal enum class AutoSttRoute {
 /**
  * Picks the recognizer for [VoiceInputEngine.Auto].
  *
- * Without the online fallback, an offline model wins: asr4all once it is downloaded, then
- * Zipformer. Android's on-device recognizer is not preferred there: on the S23 Ultra it returned
- * empty results for clearly audible speech that Zipformer transcribed (#1008). On-device Android
- * recognition is used only while no offline model is downloaded.
+ * Without the online fallback, an offline model wins: asr4all once it is downloaded. Android's on-device recognizer is
+ * not preferred there: on the S23 Ultra it returned empty results for clearly audible speech that an offline model
+ * transcribed (#1008). On-device Android recognition is used only while no offline model is downloaded.
  *
  * With the online fallback allowed, Android native is preferred: it starts on-device and its
  * existing fallback retries empty or failed on-device results on the platform service.
@@ -100,18 +95,16 @@ internal enum class AutoSttRoute {
 internal fun resolveAutoSttRoute(
     nativeOnDeviceReady: Boolean,
     asr4allReady: Boolean,
-    zipformerReady: Boolean,
     allowOnlineFallback: Boolean,
 ): AutoSttRoute = when {
     allowOnlineFallback && nativeOnDeviceReady -> AutoSttRoute.Native
     asr4allReady -> AutoSttRoute.Asr4all
-    zipformerReady -> AutoSttRoute.Zipformer
     nativeOnDeviceReady -> AutoSttRoute.Native
     else -> AutoSttRoute.Unavailable
 }
 
 /**
- * Whether a terminal Android native error may be handed to Zipformer for the same capture.
+ * Whether a terminal Android native error may be handed to asr4all for the same capture.
  *
  * Only two failures qualify: the recognizer never became ready ([NATIVE_NOT_READY]) and the
  * watchdog expired before any speech progress ([NATIVE_STALLED]; the native controller leaves
@@ -121,7 +114,7 @@ internal fun resolveAutoSttRoute(
  * transcripts for the session; any of them blocks the hand-off, so the user's words are never
  * silently replaced.
  */
-internal fun isZipformerHandoffEligible(category: String?, hadSpeechProgress: Boolean): Boolean =
+internal fun isAsr4allHandoffEligible(category: String?, hadSpeechProgress: Boolean): Boolean =
     !hadSpeechProgress && (category == NATIVE_NOT_READY || category == NATIVE_STALLED)
 
 /** Native session facts needed to decide a hand-off. Main thread only. */
@@ -147,16 +140,16 @@ private data class NativeTeardownSettle(
     val settleUntilElapsedMs: Long,
     val settled: CompletableDeferred<Unit>,
 )
-private data class PendingZipformerStart(val generation: Long, val job: Job)
+private data class PendingAsr4allStart(val generation: Long, val job: Job)
 
 /**
- * A Zipformer session that replaced a native session mid-capture. Its events are re-stamped
+ * An asr4all session that replaced a native session mid-capture. Its events are re-stamped
  * with [nativeSessionId] so consumers keep matching the session they started.
  */
-private data class ZipformerHandoff(
+private data class Asr4allHandoff(
     val nativeSessionId: Long,
-    val zipformerSessionId: Long,
-    /** Native readiness already reached consumers, so the cue must not replay for Zipformer. */
+    val asr4allSessionId: Long,
+    /** Native readiness already reached consumers, so the cue must not replay for asr4all. */
     val readinessAnnounced: Boolean,
 )
 
@@ -172,20 +165,20 @@ private fun VoiceInputEvent.withCaptureSessionId(id: Long): VoiceInputEvent = wh
 }
 
 /**
- * Routes voice capture between Android native, Sherpa-ONNX Zipformer, and asr4all, one owner at a time.
+ * Routes voice capture between Android native, Sherpa-ONNX, and asr4all, one owner at a time.
  *
  * Concurrency model:
  * - Routing state ([activeController], [openGeneration], [expectedNativeSessionId],
  *   [nativeFacts], [handoff]) is confined to the Main thread. [startListening] switches to
- *   Main, and the event pipeline and every Zipformer start job run on [pipelineScope] (Main).
+ *   Main, and the event pipeline and every asr4all start job run on [pipelineScope] (Main).
  * - [stopListening] may be called from any thread. It only bumps the atomic [generation],
- *   cancels the atomic [pendingZipformerStart] job, and stops both recognizers, which are
+ *   cancels the atomic [pendingAsr4allStart] job, and stops both recognizers, which are
  *   thread-safe themselves.
  * - Each capture owns the generation it was started with. A stop or a newer start bumps
  *   [generation], so a hand-off for an older capture can no longer commit.
- * - Every Zipformer start made on the user's behalf (start-time fallback, mid-session hand-off)
+ * - Every asr4all start made on the user's behalf (start-time fallback, mid-session hand-off)
  *   runs as a cancellable job. Cancelling it while the model loads makes
- *   [SherpaOnnxVoiceInputController.startListening] give up before it takes audio focus or
+ *   [Asr4allVoiceInputController.startListening] give up before it takes audio focus or
  *   opens the microphone.
  * - Starts and hand-offs are serialised by [startMutex].
  */
@@ -221,7 +214,7 @@ class SelectableVoiceInputController @Inject constructor(
     private val _captureActivity = MutableStateFlow(false)
     override val captureActivity: StateFlow<Boolean> = _captureActivity
     private val asr4allStartsInFlight = java.util.concurrent.atomic.AtomicInteger(0)
-    private val pendingZipformerStart = AtomicReference<PendingZipformerStart?>(null)
+    private val pendingAsr4allStart = AtomicReference<PendingAsr4allStart?>(null)
     private val startMutex = Mutex()
     private val preferenceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -268,7 +261,7 @@ class SelectableVoiceInputController @Inject constructor(
                 previousGenerationInvalidation
             }
             invalidation.complete(Unit)
-            pendingZipformerStart.getAndSet(null)?.job?.cancel()
+            pendingAsr4allStart.getAndSet(null)?.job?.cancel()
         }
         asr4allVoiceInputController.supersedeCapture()
     }
@@ -278,7 +271,7 @@ class SelectableVoiceInputController @Inject constructor(
     /** Native session id returned by the current start. Main only. */
     private var expectedNativeSessionId: Long? = null
     private var nativeFacts: NativeSessionFacts? = null
-    private var handoff: ZipformerHandoff? = null
+    private var handoff: Asr4allHandoff? = null
 
     private val pipelineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val outbound = voiceEventFlow()
@@ -290,7 +283,7 @@ class SelectableVoiceInputController @Inject constructor(
     )
 
     /**
-     * One pipeline for all collectors. Collecting per subscriber would run the Zipformer
+     * One pipeline for all collectors. Collecting per subscriber would run the
      * hand-off once per collector and could start two recognizers.
      */
     override val events: Flow<VoiceInputEvent> = outbound.asSharedFlow()
@@ -327,7 +320,6 @@ class SelectableVoiceInputController @Inject constructor(
                 val route = resolveAutoSttRoute(
                     nativeOnDeviceReady = nativeOnDeviceReady,
                     asr4allReady = asr4allVoiceInputController.isAvailable(),
-                    zipformerReady = zipformerDownloaded(),
                     allowOnlineFallback = allowOnlineFallback,
                 )
                 when (route) {
@@ -336,7 +328,6 @@ class SelectableVoiceInputController @Inject constructor(
                             voiceInputPreferences.selectedEngine.first() == VoiceInputEngine.Auto
                         }
                     }
-                    AutoSttRoute.Zipformer -> sherpaOnnxVoiceInputController.prewarmSpec(SherpaSttModelSpec.ZIPFORMER)
                     AutoSttRoute.Native, AutoSttRoute.Unavailable -> Unit
                 }
             }
@@ -445,7 +436,7 @@ class SelectableVoiceInputController @Inject constructor(
                 return@synchronized capture to null
             }
             val handOffOwned = inFlightStartGenerations.contains(capture.generation) ||
-                pendingZipformerStart.get()?.generation == capture.generation ||
+                pendingAsr4allStart.get()?.generation == capture.generation ||
                 pendingNativeTeardownSettle?.ownerSessionId == sessionId
             if (finalize && !handOffOwned) {
                 if (!capture.finalizing) {
@@ -459,7 +450,7 @@ class SelectableVoiceInputController @Inject constructor(
             capture to capture.generation
         }
         invalidation?.complete(Unit)
-        if (invalidatedGeneration != null) cancelPendingZipformerStart(invalidatedGeneration)
+        if (invalidatedGeneration != null) cancelPendingAsr4allStart(invalidatedGeneration)
         finalizing?.let(::armFinalizeGiveUp)
         return capture
     }
@@ -476,9 +467,9 @@ class SelectableVoiceInputController @Inject constructor(
         }
     }
 
-    private fun cancelPendingZipformerStart(generation: Long) {
-        val pending = pendingZipformerStart.get()?.takeIf { it.generation == generation } ?: return
-        if (pendingZipformerStart.compareAndSet(pending, null)) pending.job.cancel()
+    private fun cancelPendingAsr4allStart(generation: Long) {
+        val pending = pendingAsr4allStart.get()?.takeIf { it.generation == generation } ?: return
+        if (pendingAsr4allStart.compareAndSet(pending, null)) pending.job.cancel()
     }
 
     private fun retireAdmission(
@@ -611,7 +602,7 @@ class SelectableVoiceInputController @Inject constructor(
                 // Sherpa can also still block inside its session mutex (joins of the previous job and
                 // reader); that is why retirement, not a clean settle, is the only bound here. Once
                 // retired, capture activity goes false while that backend may still hold the mic.
-                // Retire by owner key: after a Native->Zipformer hand-off the backend id is Zipformer's,
+                // Retire by owner key: after a Native->asr4all hand-off the backend id is asr4all's,
                 // so retiring by backend id found no entry and the loop re-waited forever.
                 if (teardown != null && withTimeoutOrNull(BACKEND_TEARDOWN_TIMEOUT_MS) { teardown.await() } == null) {
                     Log.w(TAG, "backend for session ${capture.backendSessionId} (owner $ownerSessionId) did not settle; retiring its admission")
@@ -660,7 +651,7 @@ class SelectableVoiceInputController @Inject constructor(
         }
         invalidation.complete(Unit)
         previousNativeSessionId?.let(nativeAndroidVoiceInputController::cancelListeningForSession)
-        pendingZipformerStart.getAndSet(null)?.job?.cancel()
+        pendingAsr4allStart.getAndSet(null)?.job?.cancel()
         return try {
             withContext(Dispatchers.Main.immediate) {
                 startMutex.withLock {
@@ -739,9 +730,8 @@ class SelectableVoiceInputController @Inject constructor(
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult {
         val asr4allReady = asr4allVoiceInputController.isAvailable()
-        val zipformerReady = zipformerDownloaded()
         // An offline model wins without the online fallback, so the native availability check is skipped then.
-        val offlineModelWins = !allowOnlineFallback && (asr4allReady || zipformerReady)
+        val offlineModelWins = !allowOnlineFallback && asr4allReady
         // Use the cached locale check when there is one; only run the slower live check for
         // interactive captures that have no cached answer yet.
         var ranLiveCheck = false
@@ -764,19 +754,18 @@ class SelectableVoiceInputController @Inject constructor(
         val route = resolveAutoSttRoute(
             nativeOnDeviceReady = nativeOnDeviceReady,
             asr4allReady = asr4allReady,
-            zipformerReady = zipformerReady,
             allowOnlineFallback = allowOnlineFallback,
         )
         Log.i(
             TAG,
             "Auto STT route=$route mode=$mode nativeOnDeviceReady=$nativeOnDeviceReady " +
-                "asr4allReady=$asr4allReady zipformerReady=$zipformerReady " +
+                "asr4allReady=$asr4allReady " +
                 "allowOnlineFallback=$allowOnlineFallback",
         )
         JandalEvents.record(
             "voice", "stt_route", "route" to route,
             "native_ready" to nativeOnDeviceReady, "asr4all_ready" to asr4allReady,
-            "zipformer_ready" to zipformerReady, "online_fallback" to allowOnlineFallback,
+            "online_fallback" to allowOnlineFallback,
         )
         return when (route) {
             AutoSttRoute.Native -> {
@@ -787,14 +776,13 @@ class SelectableVoiceInputController @Inject constructor(
                 startNative(mode, allowOnlineFallback, gen, onSessionAdmitted)
             }
             AutoSttRoute.Asr4all -> startAsr4all(mode, gen, onSessionAdmitted)
-            AutoSttRoute.Zipformer -> startSherpa(mode, gen, onSessionAdmitted)
             AutoSttRoute.Unavailable -> VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE)
         }
     }
 
     /**
-     * Starts Android native. If it cannot start at all and Zipformer is downloaded, the capture
-     * starts on Zipformer for this request. The saved engine setting is not changed.
+     * Starts Android native. If it cannot start at all and the asr4all model is ready, the capture
+     * starts on asr4all for this request. The saved engine setting is not changed.
      * Caller holds [startMutex].
      */
     private suspend fun startNative(
@@ -840,23 +828,23 @@ class SelectableVoiceInputController @Inject constructor(
             return nativeResult
         }
         if (nativeSessionId == null) endNativeStart(nativeStart)
-        // Zipformer is not offered in this release: a native failure stays a native failure.
-        if (!voiceInputPreferences.allowsSherpaRuntime()) return nativeResult
+        // A native failure stays a native failure unless the asr4all model can take the request.
+        if (!asr4allVoiceInputController.isAvailable()) return nativeResult
         // Keep the backend mapping until its post-cleanup terminal is routed. A start-time
         // fallback can suspend while that physical stop is queued.
         // Its post-cleanup terminal retires the Native mapping after fallback suspension.
-        Log.w(TAG, "Android native unavailable at start; trying Zipformer: ${(nativeResult as? VoiceInputStartResult.Unavailable)?.message}")
-        activeController.value = sherpaOnnxVoiceInputController
+        Log.w(TAG, "Android native unavailable at start; trying asr4all: ${(nativeResult as? VoiceInputStartResult.Unavailable)?.message}")
+        activeController.value = asr4allVoiceInputController
         var fallbackSessionId: Long? = null
         var fallbackResult: VoiceInputStartResult? = null
-        val zipformer = try {
-            runZipformerStart(gen) {
-                val result = sherpaOnnxVoiceInputController.startListening(
+        val offline = try {
+            runAsr4allStart(gen) {
+                val result = asr4allVoiceInputController.startListening(
                     mode,
                     isWanted = { gen == generation.get() },
-                    onSessionAdmitted = { sessionId ->
+                    onSession = { sessionId ->
                         fallbackSessionId = sessionId
-                        admitSession(gen, sherpaOnnxVoiceInputController, sessionId, mode, onSessionAdmitted)
+                        admitSession(gen, asr4allVoiceInputController, sessionId, mode, onSessionAdmitted)
                     },
                 )
                 fallbackResult = result
@@ -864,7 +852,7 @@ class SelectableVoiceInputController @Inject constructor(
                 when {
                     started == null -> null
                     gen != generation.get() -> {
-                        sherpaOnnxVoiceInputController.cancelListeningForSession(started.captureSessionId)
+                        asr4allVoiceInputController.cancelListeningForSession(started.captureSessionId)
                         null
                     }
                     else -> started
@@ -874,19 +862,19 @@ class SelectableVoiceInputController @Inject constructor(
             endNativeStart(nativeStart)
             throw e
         }
-        if (nativeSessionId != null) settleNativeFallback(nativeStart, zipformerStarted = zipformer != null)
-        if (zipformer != null) {
-            recordZipformerFallback(
+        if (nativeSessionId != null) settleNativeFallback(nativeStart, asr4allStarted = offline != null)
+        if (offline != null) {
+            recordAsr4allFallback(
                 reason = NATIVE_NOT_READY,
                 mode = mode,
                 jandalReason = NativeFallbackReason.NATIVE_NOT_READY,
             )
-            postNotice(VoiceNotice(zipformer.captureSessionId, ZIPFORMER_START_NOTICE))
-            return zipformer
+            postNotice(VoiceNotice(offline.captureSessionId, ASR4ALL_START_NOTICE))
+            return offline
         }
         activeController.value = nativeAndroidVoiceInputController
         if (fallbackResult == null) {
-            fallbackSessionId?.let(sherpaOnnxVoiceInputController::cancelListeningForSession)
+            fallbackSessionId?.let(asr4allVoiceInputController::cancelListeningForSession)
         }
         if (fallbackResult is VoiceInputStartResult.Unavailable) {
             retainStartFence(gen)
@@ -906,11 +894,11 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     /**
-     * Settles a Native start that was admitted and then handed to Zipformer. If the fallback
+     * Settles a Native start that was admitted and then handed to asr4all. If the fallback
      * started, the Native terminal is superseded: drop it when already held, else drop it on arrival.
      */
-    private fun settleNativeFallback(start: NativeStartFallback, zipformerStarted: Boolean) {
-        if (!zipformerStarted) {
+    private fun settleNativeFallback(start: NativeStartFallback, asr4allStarted: Boolean) {
+        if (!asr4allStarted) {
             endNativeStart(start)
             return
         }
@@ -923,7 +911,7 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     /**
-     * Holds the terminal of a Native start while its Zipformer fallback decides. Consumers end
+     * Holds the terminal of a Native start while its asr4all fallback decides. Consumers end
      * capture on any cancelled stop, so a superseded Native stop must not reach them mid-fallback.
      * Main thread only.
      */
@@ -997,28 +985,24 @@ class SelectableVoiceInputController @Inject constructor(
         activeController.value = controller
     }
 
-    private suspend fun zipformerDownloaded(): Boolean =
-        voiceInputPreferences.allowsSherpaRuntime() &&
-            sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER)
-
     /**
-     * Runs [block] as the cancellable Zipformer start for the capture with generation [gen].
+     * Runs [block] as the cancellable asr4all start for the capture with generation [gen].
      * [stopListening] and a newer [startListening] cancel it. Returns null when the capture
      * was stopped or superseded, or when [block] failed or returned null; callers compare
      * [gen] with [generation] to tell these apart.
      */
-    private suspend fun runZipformerStart(
+    private suspend fun runAsr4allStart(
         gen: Long,
         block: suspend () -> VoiceInputStartResult.Started?,
     ): VoiceInputStartResult.Started? {
         val job = pipelineScope.async(start = CoroutineStart.LAZY) { block() }
-        val pending = PendingZipformerStart(gen, job)
-        pendingZipformerStart.set(pending)
+        val pending = PendingAsr4allStart(gen, job)
+        pendingAsr4allStart.set(pending)
         return try {
             // Publish first, then re-check: a stop that ran before the publish bumped the
             // generation; a stop after it cancels the job.
             if (gen != generation.get()) {
-                Log.i(TAG, "Zipformer start skipped: capture already stopped or superseded")
+                Log.i(TAG, "asr4all start skipped: capture already stopped or superseded")
                 job.cancel()
                 null
             } else {
@@ -1026,16 +1010,16 @@ class SelectableVoiceInputController @Inject constructor(
             }
         } catch (e: CancellationException) {
             // Covers both a cancelled job (stop / newer start) and a cancelled caller; in the
-            // latter case the job must not keep loading Zipformer on its own.
+            // latter case the job must not keep loading asr4all on its own.
             job.cancel()
             currentCoroutineContext().ensureActive()
-            Log.i(TAG, "Zipformer start cancelled: capture stopped or superseded")
+            Log.i(TAG, "asr4all start cancelled: capture stopped or superseded")
             null
         } catch (e: Exception) {
-            Log.e(TAG, "Zipformer failed to start", e)
+            Log.e(TAG, "asr4all failed to start", e)
             null
         } finally {
-            pendingZipformerStart.compareAndSet(pending, null)
+            pendingAsr4allStart.compareAndSet(pending, null)
         }
     }
 
@@ -1153,14 +1137,14 @@ class SelectableVoiceInputController @Inject constructor(
             trackNative(event)
             if (event is VoiceInputEvent.Error && isHandoffCandidate(event)) {
                 val handled = try {
-                    handOffToZipformer(event)
+                    handOffToAsr4all(event)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.e(TAG, "Zipformer hand-off failed; surfacing the native error", e)
+                    Log.e(TAG, "asr4all hand-off failed; surfacing the native error", e)
                     false
                 }
-                // The native error is not surfaced: the capture continues on Zipformer, or the
+                // The native error is not surfaced: the capture continues on asr4all, or the
                 // user stopped or restarted during the hand-off.
                 if (handled) return
                 if (!handled && !logicalCaptureStillCurrent()) return
@@ -1168,8 +1152,8 @@ class SelectableVoiceInputController @Inject constructor(
         }
 
         val current = handoff
-        if (current != null && controller === sherpaOnnxVoiceInputController &&
-            event.captureSessionId == current.zipformerSessionId
+        if (current != null && controller === asr4allVoiceInputController &&
+            event.captureSessionId == current.asr4allSessionId
         ) {
             // The native cue already played for this capture; do not replay it.
             if (event is VoiceInputEvent.ListeningStarted && current.readinessAnnounced) return
@@ -1203,53 +1187,54 @@ class SelectableVoiceInputController @Inject constructor(
 
     /** The error belongs to the open capture's native session and qualifies for a hand-off. */
     private fun isHandoffCandidate(error: VoiceInputEvent.Error): Boolean {
-        if (!voiceInputPreferences.allowsSherpaRuntime()) return false
         val facts = nativeFacts ?: return false
-        return openGeneration != -1L &&
+        // Release builds never hand off: the asr4all hand-off stays debug-gated like the Zipformer one it replaces.
+        return voiceInputPreferences.allowsSherpaRuntime() &&
+            openGeneration != -1L &&
             openGeneration == generation.get() &&
             error.captureSessionId == expectedNativeSessionId &&
             facts.sessionId == error.captureSessionId &&
-            isZipformerHandoffEligible(error.category, facts.speechProgress)
+            isAsr4allHandoffEligible(error.category, facts.speechProgress)
     }
 
     /**
-     * Replaces the failed native capture with Zipformer for the same mode.
+     * Replaces the failed native capture with asr4all for the same mode.
      *
-     * Returns true when the native error must not be surfaced: the capture moved to Zipformer,
-     * or the user stopped or restarted during the hand-off. Returns false when Zipformer could
+     * Returns true when the native error must not be surfaced: the capture moved to asr4all,
+     * or the user stopped or restarted during the hand-off. Returns false when asr4all could
      * not start, so the caller surfaces the native error and native stays active.
      */
-    private suspend fun handOffToZipformer(error: VoiceInputEvent.Error): Boolean {
+    private suspend fun handOffToAsr4all(error: VoiceInputEvent.Error): Boolean {
         val gen = openGeneration
         val nativeId = error.captureSessionId
         val reason = error.category.orEmpty()
         val readinessAnnounced = nativeFacts?.readinessAnnounced == true
         // Tear native down first, then let its shared on-device service settle.
         nativeAndroidVoiceInputController.stopListening()
-        val zipformer = runZipformerStart(gen) {
+        val offline = runAsr4allStart(gen) {
             delay(NATIVE_TEARDOWN_SETTLE_MS)
             startMutex.withLock {
-                if (gen != generation.get() || !zipformerDownloaded()) return@withLock null
-                Log.w(TAG, "Android native failed ($reason); handing capture to Zipformer for this session")
+                if (gen != generation.get() || !asr4allVoiceInputController.isAvailable()) return@withLock null
+                Log.w(TAG, "Android native failed ($reason); handing capture to asr4all for this session")
                 val previousAdmission = synchronized(captureOwnerLock) { admittedControllers[nativeId] }
                     ?: return@withLock null
-                var sherpaSessionId: Long? = null
+                var asr4allSessionId: Long? = null
                 var backendRegistered = false
-                val result = sherpaOnnxVoiceInputController.startListening(
+                val result = asr4allVoiceInputController.startListening(
                     error.mode,
                     isWanted = { gen == generation.get() },
-                    onSessionAdmitted = { backendId ->
-                        sherpaSessionId = backendId
+                    onSession = { backendId ->
+                        asr4allSessionId = backendId
                         backendRegistered = synchronized(captureOwnerLock) {
                             val current = admittedControllers[nativeId]
                             if (current == null) {
                                 false
                             } else {
                                 admittedControllers[nativeId] = current.copy(
-                                    controller = sherpaOnnxVoiceInputController,
+                                    controller = asr4allVoiceInputController,
                                     backendSessionId = backendId,
                                 )
-                                backendAdmissions[BackendCaptureKey(sherpaOnnxVoiceInputController, backendId)] =
+                                backendAdmissions[BackendCaptureKey(asr4allVoiceInputController, backendId)] =
                                     nativeId
                                 true
                             }
@@ -1260,7 +1245,7 @@ class SelectableVoiceInputController @Inject constructor(
                     if (backendRegistered) {
                         synchronized(captureOwnerLock) {
                             backendAdmissions.remove(
-                                BackendCaptureKey(sherpaOnnxVoiceInputController, checkNotNull(sherpaSessionId)),
+                                BackendCaptureKey(asr4allVoiceInputController, checkNotNull(asr4allSessionId)),
                             )
                             admittedControllers[nativeId] = previousAdmission
                             backendAdmissions[
@@ -1271,46 +1256,46 @@ class SelectableVoiceInputController @Inject constructor(
                     return@withLock null
                 }
                 val started = result as? VoiceInputStartResult.Started ?: return@withLock null
-                if (sherpaSessionId != started.captureSessionId || !backendRegistered) {
-                    sherpaOnnxVoiceInputController.cancelListeningForSession(started.captureSessionId)
+                if (asr4allSessionId != started.captureSessionId || !backendRegistered) {
+                    asr4allVoiceInputController.cancelListeningForSession(started.captureSessionId)
                     return@withLock null
                 }
                 if (gen != generation.get()) {
-                    sherpaOnnxVoiceInputController.cancelListeningForSession(started.captureSessionId)
+                    asr4allVoiceInputController.cancelListeningForSession(started.captureSessionId)
                     return@withLock null
                 }
-                // Admission is already mapped to the logical native owner before Sherpa can
+                // Admission is already mapped to the logical native owner before asr4all can
                 // emit readiness or a terminal. Commit only if that owner is still current.
                 val remapped = synchronized(captureOwnerLock) {
                     val current = admittedControllers[nativeId]
                     gen == generation.get() &&
                         captureOwner?.sessionId == nativeId &&
-                        current?.controller === sherpaOnnxVoiceInputController &&
+                        current?.controller === asr4allVoiceInputController &&
                         current.backendSessionId == started.captureSessionId
                 }
                 if (!remapped) {
-                    sherpaOnnxVoiceInputController.cancelListeningForSession(started.captureSessionId)
+                    asr4allVoiceInputController.cancelListeningForSession(started.captureSessionId)
                     return@withLock null
                 }
-                activeController.value = sherpaOnnxVoiceInputController
-                handoff = ZipformerHandoff(
+                activeController.value = asr4allVoiceInputController
+                handoff = Asr4allHandoff(
                     nativeSessionId = nativeId,
-                    zipformerSessionId = started.captureSessionId,
+                    asr4allSessionId = started.captureSessionId,
                     readinessAnnounced = readinessAnnounced,
                 )
-                recordZipformerFallback(
+                recordAsr4allFallback(
                     reason = reason,
                     mode = error.mode,
                     jandalReason = NativeFallbackReason.NATIVE_ERROR,
                 )
-                val message = if (error.category == NATIVE_STALLED) ZIPFORMER_STALL_NOTICE else ZIPFORMER_START_NOTICE
+                val message = if (error.category == NATIVE_STALLED) ASR4ALL_STALL_NOTICE else ASR4ALL_START_NOTICE
                 postNotice(VoiceNotice(nativeId, message))
                 started
             }
         }
-        if (zipformer != null) return true
+        if (offline != null) return true
         if (gen != generation.get()) return true
-        Log.w(TAG, "Zipformer hand-off did not start; surfacing native error: ${error.message}")
+        Log.w(TAG, "asr4all hand-off did not start; surfacing native error: ${error.message}")
         return false
     }
 
@@ -1318,12 +1303,12 @@ class SelectableVoiceInputController @Inject constructor(
         noticeFlow.tryEmit(notice)
     }
 
-    private fun recordZipformerFallback(reason: String, jandalReason: NativeFallbackReason, mode: VoiceCaptureMode) {
+    private fun recordAsr4allFallback(reason: String, jandalReason: NativeFallbackReason, mode: VoiceCaptureMode) {
         AcousticJournalBridge.record(
-            type = AcousticEventType.STT_ZIPFORMER_FALLBACK,
+            type = AcousticEventType.STT_ASR4ALL_FALLBACK,
             metadata = { mapOf("reason" to reason, "mode" to mode.name) },
         )
-        JandalEvents.record("voice", "zipformer_fallback", "reason" to jandalReason, "mode" to mode)
+        JandalEvents.record("voice", "asr4all_fallback", "reason" to jandalReason, "mode" to mode)
     }
 
     /** Thread-safe: see the class concurrency notes. */
@@ -1335,20 +1320,19 @@ class SelectableVoiceInputController @Inject constructor(
             previousGenerationInvalidation
         }
         invalidation.complete(Unit)
-        pendingZipformerStart.getAndSet(null)?.job?.cancel()
+        pendingAsr4allStart.getAndSet(null)?.job?.cancel()
         nativeAndroidVoiceInputController.stopListening()
         sherpaOnnxVoiceInputController.stopListening()
         asr4allVoiceInputController.supersedeCapture()
     }
 
     /**
-     * Wake-word verification always runs through the dedicated Sherpa wake
+     * Wake-word verification always runs through the dedicated Whisper wake
      * recognizer ([SherpaOnnxVoiceInputController.transcribeBlocking]),
      * independent of the selected interactive STT engine. The interactive
      * selection and [activeController] are deliberately untouched so the
-     * currently selected engine keeps its normal capture behaviour. Release
-     * builds reach only the Whisper verifier here: [SherpaOnnxVoiceInputController]
-     * never resolves Zipformer in release.
+     * currently selected engine keeps its normal capture behaviour. Whisper
+     * tiny.en is the only wake verifier in every build.
      */
     override suspend fun transcribeBlocking(pcm: ShortArray): String? =
         sherpaOnnxVoiceInputController.transcribeBlocking(pcm)

@@ -512,7 +512,7 @@ class DiagnosticLogRedactorTest {
             "TTFT (Time to First Token): 2310ms [backend=GPU]",
             "Android native STT ready: sessionId=12 mode=COMMAND backend=ON_DEVICE",
             "Android native STT retried with platform recognizer after error=7 for sessionId=12 heardSpeech=true sawPartialTranscript=false",
-            "Auto STT route=Zipformer mode=COMMAND allowOnlineFallback=false",
+            "Auto STT route=asr4all mode=COMMAND allowOnlineFallback=false",
             "ADB_TOOL_COMPLETE commandId=abc123 intent=get_list_items result=failure_no_llm",
             "TTFT_STAGE commandId=abc123 stage=first_answer_token_visible t_ms=812",
             "thinking_save: thinkingLen=0, contentLen=214",

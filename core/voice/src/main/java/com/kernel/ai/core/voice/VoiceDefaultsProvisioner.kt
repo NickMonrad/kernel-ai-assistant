@@ -27,8 +27,8 @@ private const val LEGACY_VOSK_DIR = "voice"
 /**
  * Prepares the default voice stack on app start, alongside the required model downloads:
  *
- * - queues the speech input files the selected engine needs: Zipformer for Auto and Sherpa Zipformer, and
- *   asr4all for Auto and asr4all streaming (the size the tier policy picks);
+ * - queues the speech input file the selected engine needs: asr4all for Auto and asr4all streaming (the size the tier
+ *   policy picks);
  * - queues the selected Sherpa voice (Cori by default) when the effective engine is Sherpa Piper.
  *   That is the tier default on fresh installs, so it starts after the wizard's network choice.
  *   A stored Android TTS choice never queues it. Choosing Piper later goes through [PiperVoiceSetup];
@@ -69,10 +69,6 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     private suspend fun queueSpeechInputModel() {
         val engine = voiceInputPreferences.selectedEngine.first()
-        if (!prefs.getBoolean(KEY_ZIPFORMER_QUEUED, false)) {
-            queueZipformer(engine)
-            prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
-        }
         // Marked only once queued, so a launch while the Terms gate (#1998) is closed retries later.
         if (!prefs.getBoolean(KEY_ASR4ALL_QUEUED, false) && queueAsr4all(engine)) {
             prefs.edit().putBoolean(KEY_ASR4ALL_QUEUED, true).apply()
@@ -80,22 +76,12 @@ class VoiceDefaultsProvisioner @Inject constructor(
     }
 
     /**
-     * Queues the speech input files [engine] needs that are not on disk yet: Zipformer for Auto and Sherpa
-     * Zipformer, asr4all for Auto and asr4all streaming. Used at launch and by the setup wizard's Finish, so the
+     * Queues the asr4all files [engine] needs that are not on disk yet: asr4all for Auto and asr4all streaming.
+     * Used at launch and by the setup wizard's Finish, so the
      * size line and the queue agree, including a stored Automatic whose files were deleted.
      */
     suspend fun queueSpeechInput(engine: VoiceInputEngine) {
-        queueZipformer(engine)
         queueAsr4all(engine)
-    }
-
-    private suspend fun queueZipformer(engine: VoiceInputEngine) {
-        if (!needsZipformer(engine)) return
-        val missing = zipformerModels().filterNot { it.isDownloaded(context) }
-        if (missing.isNotEmpty()) {
-            Log.i(TAG, "Queuing Zipformer STT model for engine=$engine: ${missing.map { it.name }}")
-            missing.forEach { modelDownloadManager.startDownload(it, source = DownloadSource.AUTO_QUEUED) }
-        }
     }
 
     /**
@@ -170,7 +156,6 @@ class VoiceDefaultsProvisioner @Inject constructor(
             }
 
         private const val PREFS_NAME = "voice_defaults_provisioner"
-        private const val KEY_ZIPFORMER_QUEUED = "zipformer_queued_v1"
         private const val KEY_VOICE_QUEUED = "piper_voice_queued_v1"
         private const val KEY_ASR4ALL_QUEUED = "asr4all_queued_v1"
 
@@ -179,19 +164,11 @@ class VoiceDefaultsProvisioner @Inject constructor(
             roots.map { File(it, LEGACY_VOSK_DIR) }
                 .filter { it.isDirectory && File(it, "vosk-model").exists() }
 
-        fun needsZipformer(engine: VoiceInputEngine): Boolean =
-            engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.SherpaZipformer
-
-        /** Auto and asr4all streaming use the asr4all model; Sherpa Zipformer does not. */
+        /** Auto and asr4all streaming use the asr4all model. */
         fun needsAsr4all(engine: VoiceInputEngine): Boolean =
             engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.Asr4all
 
         /** The asr4all files the setup plan counts: the default size, which the tier policy resolves to on every tier. */
         fun asr4allSetupModels(): List<KernelModel> = Asr4AllInstall.models(Asr4AllInstall.defaultSize)
-
-        fun zipformerModels(): List<KernelModel> =
-            SherpaSttModelSpec.ZIPFORMER.requiredFileNames.mapNotNull { name ->
-                KernelModel.entries.firstOrNull { it.fileName == name }
-            }
     }
 }

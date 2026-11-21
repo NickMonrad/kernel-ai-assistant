@@ -102,7 +102,7 @@ interface VoiceInputController {
     val micLifecycleEvents: Flow<VoiceInputEvent> get() = events
 
     /**
-     * User-facing notes, such as a Zipformer hand-off after Android native failed. Each note
+     * User-facing notes, such as an asr4all hand-off after Android native failed. Each note
      * carries the capture session id the consumer received from [startListening], so a surface
      * shows only the notes for its own capture. The latest note is replayed: a note posted
      * while [startListening] is still running reaches a collector that subscribes after it
@@ -210,7 +210,7 @@ fun VoiceInputController.noticesFor(captureSessionId: Long): Flow<String> =
 /**
  * The note already posted for [captureSessionId], or null. A surface that retries a failed
  * capture checks this when the capture ends: a non-null note means the capture already moved to
- * Zipformer, so retrying would only start the failing recognizer again.
+ * asr4all, so retrying would only start the failing recognizer again.
  */
 fun VoiceInputController.latestNoticeFor(captureSessionId: Long): String? =
     notices.replayCache.lastOrNull { it.captureSessionId == captureSessionId && it.message.isNotBlank() }?.message

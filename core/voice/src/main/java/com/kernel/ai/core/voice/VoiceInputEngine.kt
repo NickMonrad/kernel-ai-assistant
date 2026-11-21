@@ -9,19 +9,13 @@ enum class VoiceInputEngine(
 ) {
     Auto(
         displayName = "Automatic (recommended)",
-        description = "Uses the offline asr4all model once it is downloaded, and the offline Sherpa-ONNX Zipformer model until then. If you allow online speech recognition, uses Android speech recognition instead.",
+        description = "Uses the offline asr4all model once it is downloaded. If you allow online speech recognition, uses Android speech recognition instead.",
         debugOnly = true,
     ),
     AndroidNative(
         displayName = "Android native",
         description = "Uses Android's speech recognition: on-device, or your phone's speech service when online speech recognition is on. May work better for some accents or devices.",
         warning = "Android native speech recognition depends on device support and installed language packs. With online speech recognition on, Jandal uses your phone's speech service straight away when on-device recognition isn't confirmed for your language. With it off, voice input stays on the phone.",
-    ),
-    SherpaZipformer(
-        displayName = "Sherpa-ONNX Zipformer",
-        description = "Fully offline streaming speech recognition using the Sherpa-ONNX Zipformer model. Highest accuracy for NZ English with no network dependency.",
-        isSherpaFamily = true,
-        debugOnly = true,
     ),
     SherpaSenseVoice(
         displayName = "Sherpa-ONNX SenseVoice",
@@ -46,7 +40,7 @@ enum class VoiceInputEngine(
     Asr4all(
         displayName = "asr4all streaming",
         description = "Offline streaming speech recognition with the asr4all model (ExecuTorch). M is about 60 MB; L, for capable phones, is about 101 MB. Streaming partial results.",
-        warning = "Experimental. Accuracy has not yet been compared with Sherpa-ONNX Zipformer; compare on your own speech before relying on it.",
+        warning = "Experimental. Accuracy has not yet been compared with other offline models; compare on your own speech before relying on it.",
     ),
     ;
 
@@ -55,12 +49,12 @@ enum class VoiceInputEngine(
 
     companion object {
         /**
-         * Maps a stored engine name to an engine. Legacy values migrate: "SherpaOnnx" was the
-         * Zipformer engine before the Sherpa family split, and "Vosk" was removed (#1008), so
-         * former Vosk users land on [Auto]. Missing or unknown values also resolve to [Auto].
+         * Maps a stored engine name to an engine. "SherpaOnnx" and "SherpaZipformer" were the Zipformer engine, removed
+         * in #1982, so they land on [Auto]. "Vosk" was removed (#1008), so former Vosk users also land on [Auto].
+         * Missing or unknown values also resolve to [Auto].
          */
         fun fromStorage(value: String?): VoiceInputEngine =
-            if (value == "SherpaOnnx") SherpaZipformer
+            if (value == "SherpaOnnx" || value == "SherpaZipformer") Auto
             else entries.firstOrNull { it.name == value } ?: Auto
 
         /** Release v0.1 excludes the unresolved Sherpa runtime; debug keeps the full catalogue. */

@@ -1,8 +1,6 @@
 package com.kernel.ai.feature.chat.setup
 
 import com.kernel.ai.core.ui.ChipStatus
-import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
-import com.kernel.ai.feature.chat.formatBytesShort
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -32,13 +30,11 @@ class HeyJandalCardTest {
         choice: Boolean,
         platform: MakeYoursPlatform = ready,
         extraBytes: Long = 0L,
-        zipformerBytes: Long = 0L,
     ) = MakeYoursRows.heyJandalCard(
         stored = stored,
         choice = choice,
         platform = platform,
         extraBytes = extraBytes,
-        androidNativeZipformerBytes = zipformerBytes,
     )
 
     @Test
@@ -50,6 +46,7 @@ class HeyJandalCardTest {
         assertEquals("Uses a little battery.", c.caveat)
         assertEquals("Say \"Hey Jandal\" to start talking, hands-free.", c.description)
         assertNotNull(c.why)
+        assertTrue(c.why!!.contains("Whisper tiny.en verifies the wake phrase."))
     }
 
     @Test
@@ -177,14 +174,6 @@ class HeyJandalCardTest {
         assertTrue(c.caveat!!.endsWith("download. Uses a little battery."))
     }
 
-    @Test
-    fun `Why names the Zipformer size only when Android's own listener still needs it`() {
-        val zipformerBytes = VoiceDefaultsProvisioner.zipformerModels().sumOf { it.approxSizeBytes }
-        val native = card(stored = false, choice = false, zipformerBytes = zipformerBytes)
-        val onDisk = card(stored = false, choice = false, zipformerBytes = 0L)
-        assertTrue(native.why!!.contains("Zipformer speech model, about ${formatBytesShort(zipformerBytes)}"))
-        assertFalse(onDisk.why!!.contains("Zipformer"))
-    }
 
     @Test
     fun `the default assistant never blocks Hey Jandal`() {

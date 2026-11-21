@@ -27,7 +27,7 @@ object DownloadConsent {
     /** Auto-queued downloads (required and tier models) run only after the user has chosen a network. */
     fun autoQueueAllowed(choice: DownloadNetworkChoice?): Boolean = choice != null
 
-    /** Voice defaults (Piper voice, Zipformer STT) wait for the same consent as the model auto-queue (#1855). */
+    /** Voice defaults (asr4all model and Piper voice) wait for the same consent as the model auto-queue (#1855). */
     fun voiceDefaultsAllowed(choice: DownloadNetworkChoice?): Boolean = autoQueueAllowed(choice)
 
     /**
@@ -86,16 +86,17 @@ object DownloadConsent {
     }
 
     /**
-     * Speech input models the voice defaults queue for the default Auto engine (Zipformer files).
+     * Speech input models the voice defaults queue for the default Auto engine (asr4all M files).
      * Matched by file name, as the voice provisioner does.
      */
     fun speechDefaultModels(isDownloaded: (KernelModel) -> Boolean): List<KernelModel> =
-        KernelModel.entries.filter { it.fileName.startsWith("sherpa-stt-") && !isDownloaded(it) }
+        KernelModel.entries.filter { it.fileName.startsWith("asr4all/m/") && !isDownloaded(it) }
 
     /**
-     * Total the wizard shows as "About X": the planned models (including the Zipformer files) plus the
-     * planned voice packs (for example Cori). Callers pass the same lists the queue will start.
+     * Total the wizard shows as "About X": the planned models plus the planned voice packs
+     * (for example Cori). Callers pass the same lists the queue will start.
      */
+
     fun firstRunEstimateBytes(models: List<KernelModel>, voiceBytes: Long): Long =
         models.sumOf { it.approxSizeBytes } + voiceBytes
 }

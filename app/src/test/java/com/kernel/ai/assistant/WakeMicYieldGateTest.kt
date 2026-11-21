@@ -110,7 +110,7 @@ class WakeMicYieldGateTest {
     }
 
     @Test
-    fun `a replaced native session closed after a Zipformer hand-off does not re-arm under the live capture`() {
+    fun `a replaced native session closed after an asr4all hand-off does not re-arm under the live capture`() {
         gate.onVoiceEvent(VoiceInputEvent.ListeningRequested(mode, 1L))
         gate.onVoiceEvent(VoiceInputEvent.ListeningStarted(mode, 2L))
         gate.onVoiceEvent(VoiceInputEvent.ListeningStopped(mode, 1L))

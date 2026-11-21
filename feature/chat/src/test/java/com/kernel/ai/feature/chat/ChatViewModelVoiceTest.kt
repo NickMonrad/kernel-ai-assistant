@@ -1911,13 +1911,17 @@ class ChatViewModelVoiceTest {
     @Test
     fun `hand-off note is shown and a handed-off chat capture is not silently retried`() = runTest(dispatcher) {
         // Posted while the start ran (start-time fallback): only the replay can deliver it.
-        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+        voiceInputNotices.emit(
+            VoiceNotice(1L, "Android speech isn't available on this phone right now. Using the offline speech model for this request."),
+        )
         val viewModel = createViewModel()
         advanceUntilIdle()
 
         val noteState = async {
             viewModel.uiState.first { state ->
-                state is ChatUiState.Ready && state.error == "Using Zipformer for this request."
+                state is ChatUiState.Ready &&
+                    state.error ==
+                    "Android speech isn't available on this phone right now. Using the offline speech model for this request."
             }
         }
         viewModel.startVoiceInput()

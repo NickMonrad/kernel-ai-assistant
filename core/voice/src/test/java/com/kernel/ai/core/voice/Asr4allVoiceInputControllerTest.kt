@@ -558,6 +558,10 @@ class Asr4allVoiceInputControllerTest {
     @Test
     fun `prewarm returns without waiting for a live capture and opens no engine`() = runBlocking(Dispatchers.IO) {
         val c = controller()
+        // Hold the reader so the capture is provably live when prewarm runs; without the gate the
+        // fake reader can finish first and the assertion races the capture's end.
+        val gate = CountDownLatch(1)
+        readGate = gate
         firstFrame = CountDownLatch(1)
         try {
             startedId(c.startListening(VoiceCaptureMode.Command))
@@ -568,6 +572,8 @@ class Asr4allVoiceInputControllerTest {
             assertFalse(warmed)
             assertEquals(opened, log.count { it.startsWith("open#") })
         } finally {
+            gate.countDown()
+            readGate = null
             c.stopListening()
         }
     }

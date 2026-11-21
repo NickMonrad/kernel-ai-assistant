@@ -473,7 +473,7 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
     @Test
     fun `with online on but no outside speech service a phone without an on-device recognizer stays unavailable`() = runTest {
         // Jandal's own recognition service makes isRecognitionAvailable true everywhere, so only an
-        // outside speech service may lift the on-device block; otherwise Zipformer takes over upstream.
+        // outside speech service may lift the on-device block; otherwise asr4all takes over upstream.
         every { recognitionSupport.getCaptureAvailability() } returns unconfirmedAvailability(onDeviceAvailable = false)
         every { recognitionSupport.hasLocaleCheckResult("en-NZ") } returns true
         every { recognitionSupport.hasExternalPlatformRecognizer() } returns false
