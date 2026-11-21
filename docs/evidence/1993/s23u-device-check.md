@@ -1,12 +1,12 @@
-# #1993 device check: S23U (RFCW11265XH), Cori TTS, `mahi` -> `ma-hee`
+# #1993 device check: S23U (RFCW11265XH), Cori TTS, `mahi` -> `ma-hee` (PENDING)
 
-Status: NOT VERIFIED ON DEVICE. The install crashed the debug app on launch. No audio was rendered.
+Status: PENDING. Not run on device. The S23U is PIN-locked (`isKeyguardShowing=true`, `mDreamingLockscreen=true`). The owner must unlock it in person. An earlier attempt on this device crashed the debug app (see below). This evidence is incomplete until the device check is redone.
 
 ## What ran
 
 - Host unit tests: `./gradlew :core:voice:testDebugUnitTest` for `PronunciationLexiconTest` (21 tests) and `SherpaSpeechTextTest` (61 tests) passed. Includes the new `mahi` cases.
 - Debug build: `./gradlew :app:assembleDebug` succeeded on this branch (Room v59, `KernelDatabase` `version = 59`).
-- `adb -s RFCW11265XH install -r app/build/outputs/apk/debug/app-debug.apk` returned `Success`. Package `ai.jandal.assistant.debug`, versionCode 1.
+- `settings global stay_on_while_plugged_in`: set to 15, then restored to 0 (previous value). The restore to 0 is the setting that left the device locked. For any future use, set it to 2 and leave it at 2 afterwards.
 - `SampleClipReceiver` broadcasts (text `Ka pai tō mahi.`, then `Ka pai tō ma-hee.`) started the process, and the app crashed both times:
 
 ```
