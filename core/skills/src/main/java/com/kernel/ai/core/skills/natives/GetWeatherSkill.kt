@@ -73,6 +73,17 @@ internal fun formatForecastDate(dateStr: String): String {
 /** Round a Double to nearest int and format as "X degrees". */
 internal fun Double.toRoundedDegreesText(): String = "${roundToInt()} degrees"
 
+/**
+ * Model-facing high/low for a forecast row (#2033). Labelled explicitly so small models cannot
+ * swap them: the old bare " 30°C / 25°C" was read back as "high 25°C" on E-2B.
+ */
+internal fun forecastHighLowText(high: Double, low: Double): String {
+    if (high.isNaN() && low.isNaN()) return ""
+    val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
+    val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
+    return ", high $highStr, low $lowStr"
+}
+
 /** Map UV index to human-readable label. */
 internal fun uvIndexLabel(uv: Double): String = when {
     uv <= 2 -> "Low"
@@ -597,9 +608,7 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
             val high = maxTemps.optDouble(i, Double.NaN)
             val low = minTemps.optDouble(i, Double.NaN)
             val rain = precip.optDouble(i, Double.NaN)  // NaN after the MET cutoff (#1922)
-            val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
-            val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
-            val tempsStr = if (high.isNaN() && low.isNaN()) "" else " $highStr / $lowStr"
+            val tempsStr = forecastHighLowText(high, low)
             val rainStr = if (rain.isNaN()) "" else ", %.0fmm rain".format(rain)
             val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
             val uvStr = uvMax?.let { " | UV max: %.0f (%s)".format(it, uvIndexLabel(it)) } ?: ""
@@ -1216,7 +1225,7 @@ class GetWeatherSkill @Inject constructor(
             cacheParsedForecast(cacheKey, displayName, weather) { parseForecastResponse(it, displayName) }
         }
 
-    private fun parseForecastResponse(json: String, displayName: String?): SkillResult {
+    internal fun parseForecastResponse(json: String, displayName: String?): SkillResult {
         val obj = JSONObject(json)
         val daily = obj.getJSONObject("daily")
         val dates = daily.getJSONArray("time")
@@ -1247,9 +1256,7 @@ class GetWeatherSkill @Inject constructor(
                 val high = maxTemps.optDouble(i, Double.NaN)
                 val low = minTemps.optDouble(i, Double.NaN)
                 val rain = precip.optDouble(i, Double.NaN)  // NaN: today's rain is absent after the MET cutoff (#1922)
-                val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
-                val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
-                val tempsStr = if (high.isNaN() && low.isNaN()) "" else " $highStr / $lowStr"
+                val tempsStr = forecastHighLowText(high, low)
                 val rainStr = if (rain.isNaN()) "" else ", %.0fmm rain".format(rain)
                 val uvMax = uvMaxArr?.let { if (i < it.length() && !it.isNull(i)) it.getDouble(i) else null }
                 val uvStr = uvMax?.let { " | UV max: %.0f (%s)".format(it, uvIndexLabel(it)) } ?: ""
@@ -1388,7 +1395,7 @@ class GetWeatherSkill @Inject constructor(
         cacheParsedForecast(cacheKey, displayName, weather) { parseForecastDayResponse(it, displayName, dayIndex) }
     }
 
-    private fun parseForecastDayResponse(json: String, displayName: String?, dayIndex: Int): SkillResult {
+    internal fun parseForecastDayResponse(json: String, displayName: String?, dayIndex: Int): SkillResult {
         val obj = JSONObject(json)
         val daily = obj.getJSONObject("daily")
         val dates = daily.getJSONArray("time")
@@ -1412,9 +1419,7 @@ class GetWeatherSkill @Inject constructor(
         val high = maxTemps.optDouble(dayIndex, Double.NaN)
         val low = minTemps.optDouble(dayIndex, Double.NaN)
         val rain = precip.optDouble(dayIndex, Double.NaN)  // NaN: today's rain is absent after the MET cutoff (#1922)
-        val highStr = if (!high.isNaN()) "%.0f°C".format(high) else "?°C"
-        val lowStr = if (!low.isNaN()) "%.0f°C".format(low) else "?°C"
-        val tempsStr = if (high.isNaN() && low.isNaN()) "" else " $highStr / $lowStr"
+        val tempsStr = forecastHighLowText(high, low)
         val rainStr = if (rain.isNaN()) "" else ", %.0fmm rain".format(rain)
         val uvMax = uvMaxArr?.let { if (dayIndex < it.length() && !it.isNull(dayIndex)) it.getDouble(dayIndex) else null }
         val uvStr = uvMax?.let { " | UV max: %.0f (%s)".format(it, uvIndexLabel(it)) } ?: ""
