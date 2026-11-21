@@ -14,12 +14,12 @@ class Asr4AllConfigException(message: String, cause: Throwable? = null) : Asr4Al
  * config files. Raised before any output buffer is indexed.
  */
 class Asr4AllShapeException(
+    /** The method whose output did not match. */
     val method: String,
-    val outputIndex: Int,
-    val expected: String,
-    val actual: String,
+    /** Names the output index and both shapes (from `:core:executorch`'s check). */
+    message: String,
     cause: Throwable? = null,
-) : Asr4AllException("$method output[$outputIndex]: expected $expected, got $actual", cause)
+) : Asr4AllException(message, cause)
 
 /** The runtime failed to execute a method. */
 class Asr4AllRuntimeException(message: String, cause: Throwable? = null) : Asr4AllException(message, cause)

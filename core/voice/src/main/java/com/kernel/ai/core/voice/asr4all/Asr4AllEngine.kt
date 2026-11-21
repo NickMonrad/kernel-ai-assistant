@@ -1,7 +1,5 @@
 package com.kernel.ai.core.voice.asr4all
 
-import com.kernel.ai.core.voice.asr4all.runtime.EtProgramLoader
-import com.kernel.ai.core.voice.asr4all.runtime.EtTensor
 import java.io.File
 
 /**
@@ -31,8 +29,8 @@ class Asr4AllEngine private constructor(
 
     private val decoder = CtcStreamDecoder(config)
     private val pcec = PcecStream(program, config, tier)
-    private var filterCache: EtTensor = program.initialFilterCache()
-    private var attnCache: EtTensor = program.initialAttnCache()
+    private var filterCache = program.initialFilterCache()
+    private var attnCache = program.initialAttnCache()
 
     /** Audio not yet consumed; `buffer[0]` is the first sample of the next encoder window. */
     private var buffer = FloatArray(tier.windowSamples * 2)
@@ -133,7 +131,7 @@ class Asr4AllEngine private constructor(
     /** Encodes `buffer[0 until windowSamples]`; returns true when a token started. */
     private fun encodeWindow(): Boolean {
         val window = buffer.copyOf(tier.windowSamples)
-        val out = program.encoder(tier, window, filterCache, attnCache)
+        val out = program.encoder(window, filterCache, attnCache)
         filterCache = out.filterCache
         attnCache = out.attnCache
         return decoder.accept(out.logits, out.hidden, tier.commitFrames, pcec::add)
@@ -142,48 +140,66 @@ class Asr4AllEngine private constructor(
     companion object {
         /**
          * Default XNNPACK thread count: four threads, the performance-core count of the
-         * S23 Ultra and S21 class devices this engine targets.
+         * S23 Ultra and S21 class devices this engine targets. ExecuTorch has one process-wide
+         * pool, so every ExecuTorch model open at the same time must use the same count
+         * (`:core:executorch` rejects a conflicting load).
          */
         const val DEFAULT_THREADS = 4
 
         /**
          * Opens the [size] export in [modelDir] at [tierName] (default: the export's default
-         * tier), validating the config files against each other and against [size], checking the
-         * program's methods, and running each method once on silence so that any shape mismatch
-         * between the config and the `.pte` fails here with a typed error.
+         * tier) with ExecuTorch through `:core:executorch`.
+         *
+         * Before the runtime sees the program, the config files are checked against each other
+         * and against [size], and the method signatures derived from them are compared with the
+         * ones the `.pte` declares ([PteMethodTable]): the 1.5.1 runtime aborts the process on a
+         * shape mismatch, so a program from another size or revision must fail here, typed.
+         * Each method then runs once on silence, which also checks every output shape.
+         *
+         * @throws Asr4AllConfigException if the files disagree with each other or with [size].
+         * @throws Asr4AllShapeException if a method returns outputs of another layout.
+         * @throws Asr4AllRuntimeException if the runtime cannot load or run the program.
          */
         fun open(
             modelDir: File,
             size: Asr4AllSize,
-            loader: EtProgramLoader,
             tierName: String? = null,
             threads: Int = DEFAULT_THREADS,
+            loader: Asr4AllBackendLoader = ExecuTorchBackend,
+        ): Asr4AllEngine = open(modelDir, size, tierName, threads, loader, PteMethodTable::read)
+
+        internal fun open(
+            modelDir: File,
+            size: Asr4AllSize,
+            tierName: String?,
+            threads: Int,
+            loader: Asr4AllBackendLoader,
+            declaredMethods: (File) -> Map<String, PteMethodInfo>,
         ): Asr4AllEngine {
             require(threads >= 1) { "threads must be >= 1" }
             val config = Asr4AllModelConfig.load(modelDir, size)
             val tier = config.tier(tierName)
             if (!config.encoderFile.isFile) throw Asr4AllConfigException("missing ${config.encoderFile.path}")
-            val etProgram = try {
+            val signatures = Asr4AllSignatures(config, tier)
+            signatures.checkDeclared(declaredMethods(config.encoderFile))
+            val backend = try {
                 loader.load(config.encoderFile, threads)
             } catch (e: RuntimeException) {
                 throw Asr4AllRuntimeException("cannot load ${config.encoderFile.name}: ${e.message}", e)
             }
-            val program = Asr4AllProgram(etProgram, config)
+            val program = Asr4AllProgram(backend, config, signatures)
             try {
-                program.requireMethods(tier)
-                validate(program, config, tier)
+                program.requireMethods()
+                runOnSilence(program, config, tier)
             } catch (e: Throwable) {
                 program.close()
-                if (e is Asr4AllRuntimeException) {
-                    throw Asr4AllConfigException("program rejected inputs derived from the config files: ${e.message}", e)
-                }
                 throw e
             }
             return Asr4AllEngine(config, tier, program)
         }
 
-        private fun validate(program: Asr4AllProgram, config: Asr4AllModelConfig, tier: Asr4AllTier) {
-            program.encoder(tier, FloatArray(tier.windowSamples), program.initialFilterCache(), program.initialAttnCache())
+        private fun runOnSilence(program: Asr4AllProgram, config: Asr4AllModelConfig, tier: Asr4AllTier) {
+            program.encoder(FloatArray(tier.windowSamples), program.initialFilterCache(), program.initialAttnCache())
             val rung = tier.pcecRung
             val pad = PcecInputs(
                 LongArray(rung) { config.pcec.padInputId.toLong() },
@@ -191,8 +207,8 @@ class Asr4AllEngine private constructor(
                 FloatArray(rung * config.hiddenDim),
                 FloatArray(rung),
             )
-            val stream = program.pcecStream(tier, pad, program.initialPcecState(), 0)
-            program.pcecFlush(tier, pad, 0, stream.state, stream.seen)
+            val stream = program.pcecStream(pad, program.initialPcecState(), 0)
+            program.pcecFlush(pad, 0, stream.state, stream.seen)
         }
     }
 }

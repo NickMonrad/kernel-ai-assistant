@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test
 
 /**
  * Host-side parity harness (#2004): runs the real Kotlin engine on the real `.pte` exports
- * through [PythonBridgeProgram] and writes one JSON line per clip × size × tier with the
+ * through [PythonBridgeBackend] and writes one JSON line per clip × size × tier with the
  * partial-text sequence and the final text, for a separate verifier to compare against
  * reference outputs. Skipped unless `ASR4ALL_HARNESS_CONFIG` names a config file; see
  * `tools/asr4all-cleanroom/README.md`.
@@ -35,7 +35,7 @@ class Asr4AllHostHarnessTest {
         val bridge = path(cfg["bridge"].asString)
         val outFile = path(cfg["output"].asString).also { it.parentFile?.mkdirs() }
         val stderrLog = File(outFile.path + ".bridge.log")
-        val loader = PythonBridgeProgram.loader(python, bridge, stderrLog)
+        val loader = PythonBridgeBackend.loader(python, bridge, stderrLog)
         val chunkMs = cfg["chunk_ms"]?.asInt ?: 100
         val repeat = cfg["repeat"]?.asInt ?: 1
         // Optional second chunk size: the final text must not depend on how audio is chunked.
@@ -51,7 +51,7 @@ class Asr4AllHostHarnessTest {
                     ?.takeUnless { it == listOf("all") }
                     ?: Asr4AllModelConfig.load(modelDir, size).tiers.keys.toList()
                 for (tierName in tierNames) {
-                    Asr4AllEngine.open(modelDir, size, loader, tierName).use { engine ->
+                    Asr4AllEngine.open(modelDir, size, tierName, loader = loader).use { engine ->
                         val chunk = engine.config.sampleRate * chunkMs / 1000
                         for ((id, wav) in clips) {
                             val pcm = readWav(wav, engine.config.sampleRate)

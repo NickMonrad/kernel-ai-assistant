@@ -88,7 +88,7 @@ internal class PcecStream(
         }
         check(tail.size <= rung) { "PCEC tail ${tail.size} exceeds rung $rung" }
         val n = tail.size
-        val flush = program.pcecFlush(tier, encode(tail), n, state, seen)
+        val flush = program.pcecFlush(encode(tail), n, state, seen)
         val tokenSlots = pcec.slotsPerToken * (pcec.lagTokens + n)
         val used = if (final) tokenSlots + 1 else tokenSlots
         val ids = renderer.collapse(IntSlice(settled, 0, settledCount), IntSlice(flush, 0, used))
@@ -105,7 +105,7 @@ internal class PcecStream(
     private fun commitRung() {
         val tokens = ArrayList<PcecToken>(rung)
         repeat(rung) { tokens += pending.removeFirst() }
-        val out = program.pcecStream(tier, encode(tokens), state, seen)
+        val out = program.pcecStream(encode(tokens), state, seen)
         state = out.state
         seen = out.seen
         appendSettled(out.slots)

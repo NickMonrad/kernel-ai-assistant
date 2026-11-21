@@ -7,8 +7,9 @@ reads or produces reference outputs.
 
 The engine runs unmodified. Only the runtime differs from the app: `et_bridge.py` loads the
 `.pte` with the official `executorch` Python package and executes the methods the engine asks
-for (a black-box loader with no asr4all logic), through `PythonBridgeProgram` in the
-`core:voice` unit-test source set.
+for (a black-box loader with no asr4all logic), through `PythonBridgeBackend` in the
+`core:voice` unit-test source set. The engine applies the same `:core:executorch` input and
+output shape checks on every call as it does on a device.
 
 ## Setup
 

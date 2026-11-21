@@ -19,8 +19,9 @@ history), anything in `futo-org/voice-input` or transcribe.cpp, PR #1987 or bran
 `docs/audits/build8-sol-audit.md`, `docs/evidence/1978/`, any `build8-*` worktree or branch, the
 listed `/var/tmp` and `/tmp` paths, other agents' worktrees or logs, or any third-party write-up of
 asr4all decoding. The only GitHub issue bodies read were #2004, #2003, #2007 and #1999 (bodies
-only, no comments). No PR for #2003 existed when I searched (`gh pr list --search 2003`, empty),
-so no #2003 code was read.
+only, no comments). When I first searched, no PR for #2003 existed (`gh pr list --search 2003`,
+empty). After the operator pointed me to it, the only #2003 material read was the diff of draft PR
+#2010 (listed below); I read no PR comments or review threads, and no other branch.
 
 Incidental: a `ps` listing I ran to check my own Gradle process also showed another agent's Gradle
 command line, whose working directory was a worktree named `feat-core-executorch-runtime`. No file
@@ -63,10 +64,27 @@ of `vocab.json` and `merges.txt`. The `.pte` files were only loaded and executed
 official `executorch` Python package (1.5.1, with torch 2.14.1+cpu, Python 3.12.13, x86-64) as a
 black-box loader: method names, input/output counts, shapes and dtypes from its `MethodMeta`, and
 the values the methods returned for inputs I chose. The program's instructions and constant
-tensors were not inspected.
+tensors were not inspected. Since the move to `:core:executorch`, the engine also reads each
+method's declared input/output tensor metadata (dtype, sizes, dynamism) from the `.pte`
+flatbuffer at open (`PteMethodTable`). That is the same information as `MethodMeta`, read
+through ExecuTorch's public schema. Instructions, delegate payloads and constants are still not
+read.
 
 Non-asr4all material used: ExecuTorch's public Python runtime API, this repository's code,
 public speech data for black-box measurement (below), and general knowledge of CTC decoding.
+Also the following:
+
+| input | revision | SHA-256 |
+|---|---|---|
+| #2003 shared runtime: diff of draft PR #2010 (`gh pr diff 2010`), branch `feat/core-executorch-runtime` | head `dceae496cabf5798e2aefb716ee3880b2bfd47e6` | `97373a3d0c5c3cabb90ab33f85afa0ad8184f766a2f7044d04d1f6040324620a` (diff text) |
+| ExecuTorch `schema/program.fbs` | `pytorch/executorch` tag `v1.5.1` | `da7b809b497abea70e813cb23f39e46b6c76e2501d66ef3e91d4f9e1c9cfd62f` |
+| ExecuTorch `schema/scalar_type.fbs` | `pytorch/executorch` tag `v1.5.1` | `a4c83c25ee7da8eedf61f04fe3df979e5866035763f0ee8d3ed68463e3baad8f` |
+| ExecuTorch `schema/extended_header.h` | `pytorch/executorch` tag `v1.5.1` | `e93e15f096dd16b46e9459e6816da0e017357ac1fb7b25086f8810e09e74a92d` |
+
+The #2010 diff contains no asr4all logic. Its `docs/architecture/executorch-runtime.md` states that
+the 1.5.1 Android runtime aborts the process on an input shape the program rejects. That is why
+the engine compares its config-derived signatures with the `.pte`'s declared ones before any
+method runs.
 
 ## Observed method I/O
 
@@ -132,6 +150,13 @@ parity failure can be traced:
    and `allcaps` to the next word, attach marks to the preceding text without a space (marks
    before the first word are dropped), keep single spaces, then sentence-initial capitals after
    `.`/`?`, as the model card describes.
+6. Runtime (since the rebase onto #2010): every method runs through `:core:executorch`'s
+   `ExecuTorchModel.run` with a `MethodSignature` built from the config files. At open, those
+   signatures are compared with the ones declared in the `.pte` before the runtime runs anything,
+   and PCEC token ids and pause buckets are range-checked before every call. This is because the
+   1.5.1 Android runtime aborts the process on inputs the program rejects (#2010's runtime
+   document; I observed a native embedding-range check fail on such inputs with the Python
+   runtime).
 
 Items 3 and 5 are the least certain; they were chosen by black-box measurement against public
 references (see below). Parity results from the verifier decide whether they stand.
@@ -177,3 +202,7 @@ encoding tried; the renderer drops it.
   combination opens, passes the open-time validation and the per-call shape checks, and gives
   identical partials and final text on a repeated run.
 - M at `stream_c16r4` and `stream_c64r16`: final text identical with 100 ms and 37 ms chunks.
+- After the rebase onto #2010 (seam replaced by `:core:executorch` types, `.pte` signature
+  check added): the S/M/L × 6 tiers × 3 clips run passes again, and the M `stream_c16r4` and
+  `stream_c64r16` rows (partials and finals) are byte-identical to the pre-rebase output.
+- Device results (S21) are in `docs/evidence/2004/README.md`.

@@ -6,34 +6,23 @@ request. It contains no asr4all logic: the Kotlin engine under test decides ever
 
 Protocol (little-endian, over stdin/stdout):
   request  := u8 op ...
-    op 1 METHODS                      -> ok, u32 n, n * str
-    op 2 EXECUTE str method, u32 n, n * tensor_in
-                                      -> ok, u32 n, n * tensor_out
-    op 3 FETCH u64 handle             -> ok, tensor (inline)
+    op 1 METHODS                                   -> ok, u32 n, n * str
+    op 2 EXECUTE str method, u32 n, n * tensor     -> ok, u32 n, n * tensor
     op 4 QUIT
   response := u8 status (0 ok, 1 error: str message) ...
   str      := u32 byte length, utf-8 bytes
-  tensor_in  := u8 kind (0 inline: tensor | 1 handle: u64 id)
-  tensor_out := u8 kind (0 inline: tensor | 1 handle: u64 id, u8 dtype, u32 ndim, ndim * i64)
   tensor   := u8 dtype (0 float32, 1 int64), u32 ndim, ndim * i64 dims, raw data
-
-Outputs with more than HANDLE_MIN elements stay in this process and are returned as handles,
-so streaming caches are not copied through the pipe on every call. The most recent
-HANDLE_KEEP handles are retained.
 
 Usage: et_bridge.py MODEL.pte
 The XNNPACK thread pool is the runtime's default; the host harness is for output
 comparison, not timing.
 """
-import collections
 import struct
 import sys
 
 import torch
 from executorch.runtime import Runtime
 
-HANDLE_MIN = 65536
-HANDLE_KEEP = 64
 DTYPES = {0: torch.float32, 1: torch.int64}
 CODES = {torch.float32: 0, torch.int64: 1}
 
@@ -75,11 +64,8 @@ def write_tensor(out, t):
 
 
 def main():
-    path = sys.argv[1]
-    program = Runtime.get().load_program(path)
+    program = Runtime.get().load_program(sys.argv[1])
     methods = {}
-    handles = collections.OrderedDict()
-    next_id = 1
     inp, out = sys.stdin.buffer, sys.stdout.buffer
     while True:
         try:
@@ -95,35 +81,13 @@ def main():
             elif op == 2:
                 name = read_str(inp)
                 (n,) = struct.unpack("<I", read_exact(inp, 4))
-                args = []
-                for _ in range(n):
-                    (kind,) = struct.unpack("<B", read_exact(inp, 1))
-                    if kind == 0:
-                        args.append(read_tensor(inp))
-                    else:
-                        (hid,) = struct.unpack("<Q", read_exact(inp, 8))
-                        args.append(handles[hid])
+                args = [read_tensor(inp) for _ in range(n)]
                 if name not in methods:
                     methods[name] = program.load_method(name)
                 results = methods[name].execute(args)
-                buf = [b"\x00", struct.pack("<I", len(results))]
-                out.write(b"".join(buf))
+                out.write(b"\x00" + struct.pack("<I", len(results)))
                 for r in results:
-                    if r.numel() > HANDLE_MIN:
-                        hid = next_id
-                        next_id += 1
-                        handles[hid] = r.clone()
-                        while len(handles) > HANDLE_KEEP:
-                            handles.popitem(last=False)
-                        out.write(struct.pack("<BQBI", 1, hid, CODES[r.dtype], r.dim()))
-                        out.write(struct.pack(f"<{r.dim()}q", *r.shape))
-                    else:
-                        out.write(b"\x00")
-                        write_tensor(out, r)
-            elif op == 3:
-                (hid,) = struct.unpack("<Q", read_exact(inp, 8))
-                out.write(b"\x00")
-                write_tensor(out, handles[hid])
+                    write_tensor(out, r)
             elif op == 4:
                 return
             else:
