@@ -1207,7 +1207,7 @@ class VoiceViewModelTest {
         every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
         every { context.filesDir } returns tempDir.toFile()
         val oldFiles = Asr4AllInstall.models(Asr4AllSize.M).map { it.localFile(context) }
-        oldFiles.forEach { it.parentFile.mkdirs(); it.writeText("x") }
+        oldFiles.forEach { it.parentFile?.mkdirs(); it.writeText("x") }
         every { modelDownloadManager.refreshState(any()) } just Runs
         coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } returns null
 

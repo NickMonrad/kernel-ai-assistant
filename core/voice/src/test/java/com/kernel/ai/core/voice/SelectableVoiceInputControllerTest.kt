@@ -1053,6 +1053,8 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
 
         selected.value = VoiceInputEngine.AndroidNative
+        // The selection observer retires asr4all on its own dispatcher: wait for its release before reselecting.
+        coVerify(timeout = 5_000) { asr4allVoiceInputController.releaseEngine() }
         advanceUntilIdle()
         selected.value = VoiceInputEngine.Asr4all
         assertEquals(VoiceInputStartResult.Started(99L), c.startListening(VoiceCaptureMode.Command))
@@ -1072,7 +1074,7 @@ class SelectableVoiceInputControllerTest {
         selected.value = VoiceInputEngine.AndroidNative
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { asr4allVoiceInputController.releaseEngine() }
+        coVerify(timeout = 5_000, exactly = 1) { asr4allVoiceInputController.releaseEngine() }
     }
 
     @Test
@@ -1249,6 +1251,8 @@ class SelectableVoiceInputControllerTest {
         c.startListening(VoiceCaptureMode.Command)
         // Leaving asr4all discards its capture: the queued final must not reach the UI.
         selected.value = VoiceInputEngine.AndroidNative
+        // The observer discards on its own dispatcher: wait for its release before the queued events arrive.
+        coVerify(timeout = 5_000) { asr4allVoiceInputController.releaseEngine() }
         asr4allEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "queued", 7L))
         asr4allEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 7L, cancelled = true))
         advanceUntilIdle()
