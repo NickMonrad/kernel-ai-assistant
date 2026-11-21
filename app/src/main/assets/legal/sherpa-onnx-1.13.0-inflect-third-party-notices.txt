@@ -4,7 +4,7 @@ Third-party notices for the Sherpa-ONNX v1.13.0 Inflect runtime (libsherpa-onnx-
 Packaged file: third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar
   SHA-256 46a8e806833066bc657d8508e66e35dae8b1a04dff207ebd8538517d58b6567d
 Corresponding source: third_party/sherpa-onnx/sherpa-onnx-v1.13.0-inflect-source-inputs.tar.gz
-  SHA-256 40c77074a09ad2ae5d09ad6a4347fc98e13da312527f9a9d558d2d5ca4ecd82b
+  SHA-256 bd1649beeaa3baaf4eaf7c0a6b8b67e2a6d3c743bb0d96aa49348f61f4b4d645
   Build manifest: scripts/sherpa-onnx-v1.13.0-inflect-build.md
 
 Components whose licence texts follow, in order:
