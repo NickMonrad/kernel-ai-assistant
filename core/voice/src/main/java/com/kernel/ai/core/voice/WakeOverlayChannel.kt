@@ -44,6 +44,7 @@ internal fun WakeOverlayState.onWakeEvent(event: VoiceInputEvent): WakeOverlaySt
         is VoiceInputEvent.Transcript,
         is VoiceInputEvent.SpeechDetected,
         is VoiceInputEvent.ListeningStopped,
+        is VoiceInputEvent.ListeningRequested,
         -> this
     }
 }

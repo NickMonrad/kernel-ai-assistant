@@ -395,4 +395,32 @@ class SelectableVoiceInputHandoffTest {
         assertTrue(accepted.all { it })
         assertEquals((0 until 1_000).map { it.toString() }, received)
     }
+
+    @Test
+    fun `a replaced native session's close reaches mic arbitration but not the chat after a hand-off (#2027)`() = runTest(dispatcher) {
+        // The native start fails, then Zipformer takes over. Native's ListeningStopped for its replaced
+        // session arrives after the switch, so the chat stream drops it as stale; mic arbitration must still see it.
+        coEvery { native.startListening(any(), any()) } returns VoiceInputStartResult.Unavailable("native failed")
+        coEvery { sherpa.startListening(any(), any()) } coAnswers {
+            nativeEvents.emit(VoiceInputEvent.ListeningRequested(mode, 1L))
+            nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
+            sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, 2L))
+            VoiceInputStartResult.Started(2L)
+        }
+        val c = controller()
+        val chat = eventsOf(c)
+        val micLifecycle = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch { c.micLifecycleEvents.collect { micLifecycle += it } }
+
+        c.startListening(mode)
+
+        assertEquals(
+            listOf(
+                VoiceInputEvent.ListeningRequested(mode, 1L),
+                VoiceInputEvent.ListeningStopped(mode, 1L),
+            ),
+            micLifecycle.filter { it.captureSessionId == 1L },
+        )
+        assertTrue(chat.none { it is VoiceInputEvent.ListeningStopped && it.captureSessionId == 1L })
+    }
 }

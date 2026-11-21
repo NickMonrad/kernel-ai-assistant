@@ -803,6 +803,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             voiceInputController.events.collect { event ->
                 when (event) {
+                    // #2027: the pre-start event only moves the wake mic; readiness state stays with ListeningStarted.
+                    is VoiceInputEvent.ListeningRequested -> Unit
                     is VoiceInputEvent.ListeningStarted -> {
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture()) return@collect
                         startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
