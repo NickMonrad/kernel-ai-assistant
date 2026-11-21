@@ -1,0 +1,87 @@
+{
+ "schema": 1,
+ "device": "S23U RFCW11265XH (partial: run stopped by operator)",
+ "rings": 1118,
+ "by_class_rings": {
+  "genuine": 375,
+  "near_miss": 420,
+  "background_speech": 290,
+  "non_speech": 33
+ },
+ "lanes": {
+  "whisper-tiny-en:prod (app probe)": {
+   "genuine": {
+    "n": 171,
+    "of": 375,
+    "pct": 45.6
+   },
+   "near_miss": {
+    "n": 3,
+    "of": 420,
+    "pct": 0.7
+   },
+   "background_speech": {
+    "n": 1,
+    "of": 31,
+    "pct": 3.2
+   },
+   "non_speech": {
+    "n": 0,
+    "of": 0,
+    "pct": null
+   },
+   "genuine_by_condition": {
+    "clean": {
+     "n": 67,
+     "of": 125,
+     "pct": 53.6
+    },
+    "att12": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    },
+    "reverb": {
+     "n": 35,
+     "of": 125,
+     "pct": 28.0
+    },
+    "music10": {
+     "n": 69,
+     "of": 125,
+     "pct": 55.2
+    },
+    "babble10": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    }
+   },
+   "genuine_owner_natural": {
+    "n": 1,
+    "of": 3,
+    "pct": 33.3
+   },
+   "host_verdict_agreement": {
+    "n": 816,
+    "of": 826,
+    "pct": 98.8
+   },
+   "runs_consistent": {
+    "n": 826,
+    "of": 826,
+    "pct": 100.0
+   },
+   "verify_warm_p50_ms": 218.0,
+   "verify_warm_p95_ms": 293.8,
+   "verify_warm_max_ms": 478.0,
+   "broadcast_overhead_median_ms": 71.0,
+   "cold_first_verify_est_ms": 777.0,
+   "pss_delta_mib": null,
+   "vm_hwm_mib": null,
+   "same_process": null,
+   "rings_completed": 826,
+   "probe_errors": 0
+  }
+ }
+}
