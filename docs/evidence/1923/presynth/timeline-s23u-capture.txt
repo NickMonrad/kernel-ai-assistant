@@ -1,0 +1,102 @@
+== base-run1.log
+   generate_called                    +0 ms
+   vm_first_thinking               +6080 ms
+   engine_first_visible_token     +33083 ms
+   vm_first_token                 +33086 ms
+   first_sentence_ready           +34666 ms
+   engine_lastToken               +41121 ms
+   vm_complete_handler            +41150 ms
+   firstChunkQueued               +41246 ms
+   SpeakingStarted                +44735 ms
+   sherpa_synth0_end              +44735 ms
+   first sentence (78 chars): "More, I's good to chat with you.\n\nHere are three short facts about kiwi birds:"
+   first chunk synth: 89 chars, 3489 ms for 6095 ms audio
+   decode: 95 tokens @ 11.49 tok/s
+   lastToken->firstChunkQueued 125 ms; lastToken->SpeakingStarted +3614 ms
+   visible-answer phase (first visible token -> lastToken): 8038 ms
+   projection (same synth time, no contention): live speech starts -2966 ms vs lastToken
+== base-run2.log
+   generate_called                    +0 ms
+   vm_first_thinking               +6177 ms
+   engine_first_visible_token     +27280 ms
+   vm_first_token                 +27280 ms
+   first_sentence_ready           +27933 ms
+   engine_lastToken               +29057 ms
+   vm_complete_handler            +29074 ms
+   firstChunkQueued               +29144 ms
+   sherpa_synth0_end              +31102 ms
+   SpeakingStarted                +31103 ms
+   first sentence (48 chars): 'More. Here are three short facts about the Kiwi.'
+   first chunk synth: 48 chars, 1958 ms for 3289 ms audio
+   decode: 377 tokens @ 16.31 tok/s
+   lastToken->firstChunkQueued 87 ms; lastToken->SpeakingStarted +2046 ms
+   visible-answer phase (first visible token -> lastToken): 1777 ms
+   projection (same synth time, no contention): live speech starts +834 ms vs lastToken
+== base-run3.log
+   generate_called                    +0 ms
+   vm_first_thinking               +6285 ms
+   engine_first_visible_token     +30742 ms
+   vm_first_token                 +30745 ms
+   first_sentence_ready           +31690 ms
+   engine_lastToken               +33266 ms
+   vm_complete_handler            +33267 ms
+   firstChunkQueued               +33360 ms
+   sherpa_synth0_end              +36439 ms
+   SpeakingStarted                +36440 ms
+   first sentence (72 chars): 'More na. Kiwis are flightless and nocturnal birds native to New Zealand.'
+   first chunk synth: 72 chars, 3079 ms for 5250 ms audio
+   decode: 436 tokens @ 16.03 tok/s
+   lastToken->firstChunkQueued 94 ms; lastToken->SpeakingStarted +3174 ms
+   visible-answer phase (first visible token -> lastToken): 2524 ms
+   projection (same synth time, no contention): live speech starts +1503 ms vs lastToken
+== presynth-run1.log
+   firstChunkQueued                -2297 ms
+   generate_called                    +0 ms
+   vm_first_thinking               +6218 ms
+   engine_first_visible_token     +16615 ms
+   vm_first_token                 +16620 ms
+   first_sentence_ready           +17404 ms
+   sherpa_synth0_end              +20059 ms
+   engine_lastToken               +20387 ms
+   vm_complete_handler            +20389 ms
+   SpeakingStarted                +20402 ms
+   first sentence (52 chars): 'Morena. Here are three short facts about kiwi birds:'
+   first chunk synth: 57 chars, 2605 ms for 4044 ms audio
+   decode: 220 tokens @ 15.28 tok/s
+   lastToken->firstChunkQueued -22684 ms; lastToken->SpeakingStarted +15 ms
+   visible-answer phase (first visible token -> lastToken): 3772 ms
+   projection (same synth time, no contention): live speech starts -378 ms vs lastToken
+== presynth-run2.log
+   firstChunkQueued                -2136 ms
+   generate_called                    +0 ms
+   vm_first_thinking               +6307 ms
+   engine_first_visible_token     +22374 ms
+   vm_first_token                 +22380 ms
+   first_sentence_ready           +23454 ms
+   sherpa_synth0_end              +26448 ms
+   engine_lastToken               +27501 ms
+   vm_complete_handler            +27504 ms
+   SpeakingStarted                +27536 ms
+   first sentence (61 chars): 'Morena, here are a few quick facts about our favourite birds:'
+   first chunk synth: 66 chars, 2944 ms for 4133 ms audio
+   decode: 319 tokens @ 14.89 tok/s
+   lastToken->firstChunkQueued -29637 ms; lastToken->SpeakingStarted +35 ms
+   visible-answer phase (first visible token -> lastToken): 5127 ms
+   projection (same synth time, no contention): live speech starts -1103 ms vs lastToken
+== presynth-run3.log
+   firstChunkQueued                -2136 ms
+   generate_called                    +0 ms
+   vm_first_thinking               +6056 ms
+   engine_first_visible_token     +46666 ms
+   vm_first_token                 +46670 ms
+   first_sentence_ready           +47951 ms
+   engine_lastToken               +49171 ms
+   vm_complete_handler            +49172 ms
+   sherpa_synth0_end              +51540 ms
+   SpeakingStarted                +51541 ms
+   first sentence (90 chars): 'Morena.\n\nKiwi birds are flightless, nocturnal ground-dwelling birds native to New Zealand.'
+   first chunk synth: 94 chars, 3727 ms for 5663 ms audio
+   decode: 645 tokens @ 14.88 tok/s
+   lastToken->firstChunkQueued -51307 ms; lastToken->SpeakingStarted +2370 ms
+   visible-answer phase (first visible token -> lastToken): 2505 ms
+   projection (same synth time, no contention): live speech starts +2507 ms vs lastToken
