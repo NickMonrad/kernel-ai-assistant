@@ -71,7 +71,7 @@ class Asr4allVoiceInputControllerTest {
     @Volatile private var finalText = "Final text."
     /** Set to block engine construction until the test releases it. */
     @Volatile private var engineGate: CountDownLatch? = null
-    /** Test-only: each read blocks on this latch. Holding it keeps a capture live; an unheld reader outruns the engine and reaches the 60 s cap in tens of ms. */
+    /** Test-only: each read blocks on this latch. Holding it keeps a capture live; an unheld reader outruns the engine and reaches its 1 s silence endpoint (10 chunks) within microseconds. */
     @Volatile private var readGate: CountDownLatch? = null
     private val engineEntered = CountDownLatch(1)
     /** Test-only: holds focus abandonment after it is entered, so a teardown can be parked mid-release. */
@@ -221,7 +221,7 @@ class Asr4allVoiceInputControllerTest {
         val collected = Collected(c.events, scope)
         try {
             // Holds the reader after its first chunk, so the capture stays live until the release. An unheld reader
-            // outruns the engine and reaches the 60 s cap (600 chunks) within tens of ms, so it could end and emit
+            // outruns the engine and reaches its 1 s silence endpoint (10 chunks) within microseconds, so it could end and emit
             // its transcript before the test releases it.
             val hold = CountDownLatch(1)
             readGate = hold
@@ -452,7 +452,7 @@ class Asr4allVoiceInputControllerTest {
         abandonGate = release
         try {
             // Each route's reader is held after its first chunk, so a capture the test does not end stays live
-            // instead of reaching the 60 s cap and abandoning focus on its own.
+            // instead of reaching its silence endpoint and abandoning focus on its own.
             val firstHold = CountDownLatch(1)
             readGate = firstHold
             firstFrame = CountDownLatch(1)
@@ -584,7 +584,7 @@ class Asr4allVoiceInputControllerTest {
     fun `prewarm returns without waiting for a live capture and opens no engine`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         firstFrame = CountDownLatch(1)
-        // Held: the capture must stay live while prewarm is asked to wait for it; an unheld reader can reach the cap first.
+        // Held: the capture must stay live while prewarm is asked to wait for it; an unheld reader can reach its silence endpoint first.
         val hold = CountDownLatch(1)
         readGate = hold
         try {
