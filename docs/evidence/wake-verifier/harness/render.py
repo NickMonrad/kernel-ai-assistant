@@ -29,12 +29,12 @@ def host_tables(h: dict, labels: list[str]) -> str:
     for lb in labels:
         e = h["engine_level"][lb]["genuine_by_condition"]
         out.append(f"| `{lb}` | " + " | ".join(p(e.get(c)) for c in CONDS) + " |")
-    out += ["", "| Option | Genuine accepted | Near-miss accepted | Background accepted | Genuine via verifier |",
-            "|---|---|---|---|---|"]
+    out += ["", "| Option | Genuine accepted | Gain over detector-only (of 12 low-band) | Near-miss accepted | Near-miss gain (of 11 low-band) | Background accepted |",
+            "|---|---|---|---|---|---|"]
     for lb in labels:
         s = h["system"][lb]
-        out.append(f"| `{lb}` | {p(s['genuine'])} | {p(s['near_miss'])} | {p(s['background_speech'])} | "
-                   f"{s['genuine']['via_verifier']} |")
+        out.append(f"| `{lb}` | {p(s['genuine'])} | {s['genuine']['gain_over_detector_only']} | "
+                   f"{p(s['near_miss'])} | {s['near_miss']['gain_over_detector_only']} | {p(s['background_speech'])} |")
     out += ["", "| Option | Genuine accepted | Near-miss accepted | Background accepted |", "|---|---|---|---|"]
     for lb in labels:
         s = h["system_verify_all"][lb]

@@ -6252,29 +6252,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 439,
-    "via_verifier": 2
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c16r4:prod": {
@@ -6282,29 +6282,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 439,
-    "via_verifier": 2
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c16r4:joined": {
@@ -6312,29 +6312,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 439,
-    "via_verifier": 2
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c16r4:fuzzy": {
@@ -6342,29 +6342,29 @@
     "n": 449,
     "of": 625,
     "pct": 71.8,
-    "via_high": 409,
-    "via_verifier": 40
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 8
    },
    "near_miss": {
     "n": 93,
     "of": 700,
     "pct": 13.3,
-    "via_high": 89,
-    "via_verifier": 4
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 3
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c16r4:prod+forms": {
@@ -6372,29 +6372,29 @@
     "n": 449,
     "of": 625,
     "pct": 71.8,
-    "via_high": 410,
-    "via_verifier": 39
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 8
    },
    "near_miss": {
     "n": 93,
     "of": 700,
     "pct": 13.3,
-    "via_high": 90,
-    "via_verifier": 3
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 3
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c16r4/raw:strict": {
@@ -6402,29 +6402,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 439,
-    "via_verifier": 2
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c16r4/raw:prod": {
@@ -6432,29 +6432,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 439,
-    "via_verifier": 2
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c16r4/raw:joined": {
@@ -6462,29 +6462,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 439,
-    "via_verifier": 2
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c16r4/raw:fuzzy": {
@@ -6492,29 +6492,29 @@
     "n": 449,
     "of": 625,
     "pct": 71.8,
-    "via_high": 409,
-    "via_verifier": 40
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 8
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 89,
-    "via_verifier": 3
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c16r4/raw:prod+forms": {
@@ -6522,29 +6522,29 @@
     "n": 449,
     "of": 625,
     "pct": 71.8,
-    "via_high": 410,
-    "via_verifier": 39
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 8
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8:strict": {
@@ -6552,29 +6552,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 438,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8:prod": {
@@ -6582,29 +6582,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 438,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8:joined": {
@@ -6612,29 +6612,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 437,
-    "via_verifier": 5
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8:fuzzy": {
@@ -6642,29 +6642,29 @@
     "n": 447,
     "of": 625,
     "pct": 71.5,
-    "via_high": 406,
-    "via_verifier": 41
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 6
    },
    "near_miss": {
     "n": 91,
     "of": 700,
     "pct": 13.0,
-    "via_high": 89,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 1
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8:prod+forms": {
@@ -6672,29 +6672,29 @@
     "n": 446,
     "of": 625,
     "pct": 71.4,
-    "via_high": 407,
-    "via_verifier": 39
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 5
    },
    "near_miss": {
     "n": 91,
     "of": 700,
     "pct": 13.0,
-    "via_high": 90,
-    "via_verifier": 1
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 1
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8/raw:strict": {
@@ -6702,29 +6702,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 438,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8/raw:prod": {
@@ -6732,29 +6732,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 438,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8/raw:joined": {
@@ -6762,29 +6762,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 437,
-    "via_verifier": 5
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8/raw:fuzzy": {
@@ -6792,29 +6792,29 @@
     "n": 447,
     "of": 625,
     "pct": 71.5,
-    "via_high": 407,
-    "via_verifier": 40
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 6
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 89,
-    "via_verifier": 1
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-l-stream_c32r8/raw:prod+forms": {
@@ -6822,29 +6822,29 @@
     "n": 446,
     "of": 625,
     "pct": 71.4,
-    "via_high": 408,
-    "via_verifier": 38
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 5
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4:strict": {
@@ -6852,29 +6852,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 440,
-    "via_verifier": 1
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4:prod": {
@@ -6882,29 +6882,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 437,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4:joined": {
@@ -6912,29 +6912,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 437,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4:fuzzy": {
@@ -6942,29 +6942,29 @@
     "n": 446,
     "of": 625,
     "pct": 71.4,
-    "via_high": 410,
-    "via_verifier": 36
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 5
    },
    "near_miss": {
     "n": 93,
     "of": 700,
     "pct": 13.3,
-    "via_high": 89,
-    "via_verifier": 4
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 3
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4:prod+forms": {
@@ -6972,29 +6972,29 @@
     "n": 445,
     "of": 625,
     "pct": 71.2,
-    "via_high": 410,
-    "via_verifier": 35
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 4
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4/raw:strict": {
@@ -7002,29 +7002,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 440,
-    "via_verifier": 1
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4/raw:prod": {
@@ -7032,29 +7032,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 437,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4/raw:joined": {
@@ -7062,29 +7062,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 437,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4/raw:fuzzy": {
@@ -7092,29 +7092,29 @@
     "n": 446,
     "of": 625,
     "pct": 71.4,
-    "via_high": 410,
-    "via_verifier": 36
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 5
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 89,
-    "via_verifier": 3
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c16r4/raw:prod+forms": {
@@ -7122,29 +7122,29 @@
     "n": 445,
     "of": 625,
     "pct": 71.2,
-    "via_high": 410,
-    "via_verifier": 35
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 4
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8:strict": {
@@ -7152,29 +7152,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 440,
-    "via_verifier": 2
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8:prod": {
@@ -7182,29 +7182,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 438,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8:joined": {
@@ -7212,29 +7212,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 438,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8:fuzzy": {
@@ -7242,29 +7242,29 @@
     "n": 446,
     "of": 625,
     "pct": 71.4,
-    "via_high": 412,
-    "via_verifier": 34
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 5
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 89,
-    "via_verifier": 3
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8:prod+forms": {
@@ -7272,29 +7272,29 @@
     "n": 445,
     "of": 625,
     "pct": 71.2,
-    "via_high": 412,
-    "via_verifier": 33
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 4
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8/raw:strict": {
@@ -7302,29 +7302,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 440,
-    "via_verifier": 2
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8/raw:prod": {
@@ -7332,29 +7332,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 438,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8/raw:joined": {
@@ -7362,29 +7362,29 @@
     "n": 442,
     "of": 625,
     "pct": 70.7,
-    "via_high": 438,
-    "via_verifier": 4
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 1
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8/raw:fuzzy": {
@@ -7392,29 +7392,29 @@
     "n": 446,
     "of": 625,
     "pct": 71.4,
-    "via_high": 412,
-    "via_verifier": 34
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 5
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 89,
-    "via_verifier": 3
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "asr4all-m-stream_c32r8/raw:prod+forms": {
@@ -7422,29 +7422,29 @@
     "n": 445,
     "of": 625,
     "pct": 71.2,
-    "via_high": 412,
-    "via_verifier": 33
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 4
    },
    "near_miss": {
     "n": 92,
     "of": 700,
     "pct": 13.1,
-    "via_high": 90,
-    "via_verifier": 2
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 2
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "kws-t0.08-s2.0": {
@@ -7452,29 +7452,29 @@
     "n": 451,
     "of": 625,
     "pct": 72.2,
-    "via_high": 403,
-    "via_verifier": 48
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 10
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "kws-t0.15-s1.5": {
@@ -7482,29 +7482,29 @@
     "n": 451,
     "of": 625,
     "pct": 72.2,
-    "via_high": 404,
-    "via_verifier": 47
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 10
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "kws-t0.25-s1.0": {
@@ -7512,29 +7512,29 @@
     "n": 449,
     "of": 625,
     "pct": 71.8,
-    "via_high": 405,
-    "via_verifier": 44
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 8
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "whisper-tiny-en:strict": {
@@ -7542,29 +7542,29 @@
     "n": 444,
     "of": 625,
     "pct": 71.0,
-    "via_high": 418,
-    "via_verifier": 26
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 3
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "whisper-tiny-en:prod": {
@@ -7572,29 +7572,29 @@
     "n": 444,
     "of": 625,
     "pct": 71.0,
-    "via_high": 416,
-    "via_verifier": 28
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 3
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "whisper-tiny-en:joined": {
@@ -7602,29 +7602,29 @@
     "n": 444,
     "of": 625,
     "pct": 71.0,
-    "via_high": 414,
-    "via_verifier": 30
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 3
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "whisper-tiny-en:fuzzy": {
@@ -7632,29 +7632,29 @@
     "n": 446,
     "of": 625,
     "pct": 71.4,
-    "via_high": 412,
-    "via_verifier": 34
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 5
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 89,
-    "via_verifier": 1
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "whisper-tiny-en:prod+forms": {
@@ -7662,29 +7662,29 @@
     "n": 445,
     "of": 625,
     "pct": 71.2,
-    "via_high": 414,
-    "via_verifier": 31
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 4
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "zipformer:strict": {
@@ -7692,29 +7692,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 441,
-    "via_verifier": 0
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "zipformer:prod": {
@@ -7722,29 +7722,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 441,
-    "via_verifier": 0
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "zipformer:joined": {
@@ -7752,29 +7752,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 441,
-    "via_verifier": 0
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "zipformer:fuzzy": {
@@ -7782,29 +7782,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 441,
-    "via_verifier": 0
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   },
   "zipformer:prod+forms": {
@@ -7812,29 +7812,29 @@
     "n": 441,
     "of": 625,
     "pct": 70.6,
-    "via_high": 441,
-    "via_verifier": 0
+    "accepted_without_verifier": 441,
+    "gain_over_detector_only": 0
    },
    "near_miss": {
     "n": 90,
     "of": 700,
     "pct": 12.9,
-    "via_high": 90,
-    "via_verifier": 0
+    "accepted_without_verifier": 90,
+    "gain_over_detector_only": 0
    },
    "background_speech": {
     "n": 0,
     "of": 118,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    },
    "non_speech": {
     "n": 0,
     "of": 33,
     "pct": 0.0,
-    "via_high": 0,
-    "via_verifier": 0
+    "accepted_without_verifier": 0,
+    "gain_over_detector_only": 0
    }
   }
  },

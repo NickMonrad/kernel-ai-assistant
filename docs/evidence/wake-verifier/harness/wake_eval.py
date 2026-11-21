@@ -68,12 +68,19 @@ ASR4ALL_PTE = {  # executorch/xnnpack_int8/asr_encoder.pte
     "l": "2670068a",
 }
 KWS_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
-KWS_FILES = {
-    "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    "tokens.txt",
+# Upstream: https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/<KWS_DIR>.tar.bz2
+# (archive sha256 f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a). Licence: the README.md
+# inside the archive (front matter `license: Apache License 2.0`); see the README "Licence and training data".
+KWS_PIN = {
+    "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx": "1e721676515bcd42a186979733981213c66c80db680e1cc582dfedf3be76e678",
+    "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx": "e40ff43297abe815e8898494c17e71bba2152d9d40fa3eb803f75d0f7533329a",
+    "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx": "eae9da0c7e1e6c6a3f4cc42d167899c388f6c6701b94cb96320e4f55df79624c",
+    "tokens.txt": "fd2ded4050a55d2b1578870ba8697d02371980217806b7558bd0a5cc60f3ba53",
+    "bpe.model": "c8a2a0129c4ab8e463164c142f82d25649661b122c8cd0b7aab5c9e80b90ad24",  # only to build the keyword
+    "README.md": "74e42d37d63acd2366b042151d576fcc0c4917a41de339414a37f1e79f4e80e2",  # licence statement
 }
+# Committed keyword line, produced from bpe.model by the Kws class and checked against it on every run.
+KWS_KEYWORDS = Path(__file__).resolve().parent / "device-kws" / "keywords.txt"
 KWS_PHRASES = ("HEY JANDAL",)
 
 
@@ -398,14 +405,18 @@ class Kws:
         import sherpa_onnx
 
         d = private / "wake-verifier-spike/models" / KWS_DIR
-        sp = spm.SentencePieceProcessor(model_file=str(d / "bpe.model"))
+        files = pinned(d, KWS_PIN)
+        sp = spm.SentencePieceProcessor(model_file=str(files["bpe.model"]))
+        line = "".join(" ".join(sp.encode(p, out_type=str)) + f" @{p.replace(' ', '_')}\n" for p in KWS_PHRASES)
+        if line != KWS_KEYWORDS.read_text(encoding="utf-8"):
+            raise SystemExit(f"keywords differ from committed {KWS_KEYWORDS}")
         kw = Path(os.environ.get("TMPDIR", "/tmp")) / f"kws-{os.getpid()}.txt"
-        kw.write_text("".join(" ".join(sp.encode(p, out_type=str)) + f" @{p.replace(' ', '_')}\n" for p in KWS_PHRASES))
+        kw.write_text(line, encoding="utf-8")
         self.kws = sherpa_onnx.KeywordSpotter(
-            tokens=str(d / "tokens.txt"),
-            encoder=str(d / "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"),
-            decoder=str(d / "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"),
-            joiner=str(d / "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx"),
+            tokens=str(files["tokens.txt"]),
+            encoder=str(files["encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"]),
+            decoder=str(files["decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"]),
+            joiner=str(files["joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx"]),
             keywords_file=str(kw), num_threads=2, max_active_paths=4,
             keywords_score=score, keywords_threshold=threshold, num_trailing_blanks=1)
         kw.unlink()
@@ -675,16 +686,26 @@ def cmd_score(a) -> None:
             sub = [i for i in items if i["class"] == c]
             acc = high = ver = 0
             for i in sub:
+                fast = any(v is not None and v >= HIGH for v in i["scores"])
+                by = None  # the frame that accepts the item in the production loop, if any
                 for f, v in enumerate(i["scores"]):
                     if v is None:
                         continue
                     if v >= HIGH:
-                        acc += 1; high += 1
+                        by = "high"
                         break
                     if v >= LOW and f in i["lowband_frames"] and verdict(name, field, mname, f"{i['id']}@{f}"):
-                        acc += 1; ver += 1
+                        by = "verifier"
                         break
-            sysr[c] = {**rate(acc, len(sub)), "via_high": high, "via_verifier": ver}
+                acc += by is not None
+                # `high`: the detector alone would accept (any frame >= HIGH). `ver`: accepted only because
+                # the verifier said yes, i.e. the gain over detector-only. Only `ver` is verifier gain.
+                if fast:
+                    high += 1
+                elif by == "verifier":
+                    ver += 1
+            assert acc == high + ver, (label, c)
+            sysr[c] = {**rate(acc, len(sub)), "accepted_without_verifier": high, "gain_over_detector_only": ver}
         out["system"][label] = sysr
 
         # Alternative policy: verify every candidate >= LOW, including >= HIGH (no unverified fast path).

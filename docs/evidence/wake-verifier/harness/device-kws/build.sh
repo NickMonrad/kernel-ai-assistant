@@ -18,5 +18,6 @@ cp "$out"/tmp/sherpa/jni/arm64-v8a/*.so "$out/tmp/ort/jni/arm64-v8a/libonnxrunti
 javac -nowarn -source 17 -target 17 -cp "$out/tmp/sherpa/classes.jar:$AJAR" -d "$out/tmp/cls" "$here/KwsProbe.java"
 "$D8" --release --min-api 35 --lib "$AJAR" --output "$out" "$out/tmp/cls/KwsProbe.class" "$out/tmp/sherpa/classes.jar" "$STD"
 rm -rf "$out/tmp"
+cp "$here/keywords.txt" "$out/keywords.txt"  # the keyword line device_run.sh pushes; same as wake_eval.py KWS_KEYWORDS
 sha256sum "$AAR" "$ORT" "$STD" > "$out/inputs.sha256"
 ls -la "$out" "$out/lib"
