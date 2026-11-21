@@ -71,6 +71,7 @@ class Asr4allVoiceInputControllerTest {
     @Volatile private var finalText = "Final text."
     /** Set to block engine construction until the test releases it. */
     @Volatile private var engineGate: CountDownLatch? = null
+    /** Test-only: each read blocks on this latch. Holding it keeps a capture live; an unheld reader outruns the engine and reaches the 60 s cap in tens of ms. */
     @Volatile private var readGate: CountDownLatch? = null
     private val engineEntered = CountDownLatch(1)
     /** Test-only: holds focus abandonment after it is entered, so a teardown can be parked mid-release. */
@@ -219,6 +220,12 @@ class Asr4allVoiceInputControllerTest {
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
         try {
+            // Holds the reader after its first chunk, so the capture stays live until the release. An unheld reader
+            // outruns the engine and reaches the 60 s cap (600 chunks) within tens of ms, so it could end and emit
+            // its transcript before the test releases it.
+            val hold = CountDownLatch(1)
+            readGate = hold
+            c.releaseFencedForTest = { hold.countDown() }
             val first = startedId(c.startListening(VoiceCaptureMode.Command))
             assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
 
@@ -229,6 +236,9 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(1, log.count { it == "close#1" })
 
             firstFrame = CountDownLatch(1)
+            val nextHold = CountDownLatch(1)
+            readGate = nextHold
+            c.releaseFencedForTest = { nextHold.countDown() }
             val second = startedId(c.startListening(VoiceCaptureMode.Command))
             assertNotEquals(first, second)
             assertTrue(log.indexOf("close#1") < log.indexOf("open#2"))
@@ -236,6 +246,7 @@ class Asr4allVoiceInputControllerTest {
             c.releaseEngine()
             collected.awaitStops(1)
         } finally {
+            readGate?.countDown() // releases a reader still held by a failing assertion
             collected.job.cancel()
             scope.cancel()
         }
@@ -435,12 +446,21 @@ class Asr4allVoiceInputControllerTest {
         val release = CountDownLatch(1)
         abandonGate = release
         try {
+            // Each route's reader is held after its first chunk, so a capture the test does not end stays live
+            // instead of reaching the 60 s cap and abandoning focus on its own.
+            val firstHold = CountDownLatch(1)
+            readGate = firstHold
             firstFrame = CountDownLatch(1)
             startedId(c.startListening(VoiceCaptureMode.Command))
             assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
-            val stop = launch { c.stopListening() }
+            c.stopListening()
+            // The held reader wakes on the closed buffer; its teardown then reaches the blocked abandon.
+            firstHold.countDown()
             assertTrue(abandonEntered.await(5, TimeUnit.SECONDS), "teardown must reach focus abandonment")
             // Overlap: the new route runs eagerly up to its first suspension while the old teardown is held.
+            val secondHold = CountDownLatch(1)
+            readGate = secondHold
+            c.releaseFencedForTest = { secondHold.countDown() }
             firstFrame = CountDownLatch(1)
             val start = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                 val overlap = c.startListening(VoiceCaptureMode.Command)
@@ -449,7 +469,6 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(1, focusRequests.get(), "no second focus request while the old abandon is held")
             assertEquals(1, micOpens.get(), "no second recorder open while the old abandon is held")
             release.countDown()
-            stop.join()
             start.join()
             assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
             val events = focusOrder.toList()
@@ -464,6 +483,7 @@ class Asr4allVoiceInputControllerTest {
             c.releaseEngine()
         } finally {
             release.countDown()
+            readGate?.countDown()
             abandonGate = null
         }
     }
