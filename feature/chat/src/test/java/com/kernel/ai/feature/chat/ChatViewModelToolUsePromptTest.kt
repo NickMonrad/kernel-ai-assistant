@@ -7,13 +7,15 @@ import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
+import com.kernel.ai.core.inference.hardware.recommendedMaxTokensFor
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.inference.PersonaMode
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
-import com.kernel.ai.core.inference.hardware.MID_RANGE_RECOMMENDED_MAX_TOKENS
+import com.google.ai.edge.litertlm.InternalJsonTool
+import com.google.ai.edge.litertlm.tool
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
@@ -291,17 +293,27 @@ class ChatViewModelToolUsePromptTest {
             "Calendar rule must clarify alarms/timers/reminders retain their intents\n$p")
     }
 
-    // #1961: E-2B (MID_RANGE) rejected a ~3.4k-token tool-path prompt against a 3072-token window.
-    // Estimate uses the app's conservative 3 chars/token heuristic on the fixed tool-path text
-    // (system prompt + tool-use rules + turn instruction). Native tool declarations are not included
-    // here; their size is verified on device.
+    // #1961: E-2B (MID_RANGE) LiteRT rejected a ~3.4k-token tool-path prefill at 3072.
+    // Estimate = fixed tool-path text + serialized native tool declarations from the real
+    // KernelAIToolSet provider + RESPONSE_RESERVE, using the app's 3 chars/token estimator.
+    // The sum is ~5.1k tokens, so this fails at 3072 and 4000 and passes at the detector value.
     @Test
-    fun `tool-path fixed prompt fits within E-2B mid-range context window`() {
+    fun `tool-path prompt with native declarations and reply reserve fits MID_RANGE window`() {
         val fixedToolPath = MINIMAL_SYSTEM_PROMPT +
             createViewModel().buildToolUsePrompt() +
             toolTurnInstruction(isFirstReply = true).orEmpty()
-        val estimated = ContextWindowManager().estimateTokens(fixedToolPath)
-        assertTrue(estimated <= MID_RANGE_RECOMMENDED_MAX_TOKENS,
-            "Tool-path fixed prompt estimate $estimated tokens exceeds $MID_RANGE_RECOMMENDED_MAX_TOKENS\n")
+        val required = ContextWindowManager().estimateTokens(fixedToolPath + nativeToolDeclarations()) +
+            ContextWindowManager.RESPONSE_RESERVE
+        val window = recommendedMaxTokensFor(HardwareTier.MID_RANGE)
+        assertTrue(required <= window,
+            "Tool-path prompt + declarations + reserve needs $required tokens, MID_RANGE window is $window\n")
+    }
+
+    private fun nativeToolDeclarations(): String {
+        val provider = tool(KernelAIToolSet(dagger.Lazy { mockk<SkillRegistry>(relaxed = true) }))
+        val provideTools = provider.javaClass.methods.single { it.name.startsWith("provideTools") }
+        @Suppress("UNCHECKED_CAST")
+        val tools = provideTools.invoke(provider) as Map<String, InternalJsonTool>
+        return tools.toSortedMap().values.joinToString("\n") { it.getToolDescription().toString() }
     }
 }

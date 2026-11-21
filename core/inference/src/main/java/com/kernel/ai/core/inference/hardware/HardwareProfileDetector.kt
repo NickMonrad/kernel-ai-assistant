@@ -12,11 +12,25 @@ import javax.inject.Singleton
 private const val TAG = "HardwareProfileDetector"
 
 /**
- * Default E-2B context window (LiteRT `maxNumTokens`) for [HardwareTier.MID_RANGE].
- * Must be at least the settings slider minimum (4000, ModelSettingsScreen) and large enough for the
- * tool-path prompt (~3.4k tokens measured on S21, #1961). 4000 is not a power of 2 (see safeTokenCount).
+ * Default LiteRT `maxNumTokens` per tier, used by [HardwareProfileDetector.profile].
+ *
+ * MID_RANGE = 7000 (#1961). Budget, using the app's 3 chars/token estimator (it overestimates
+ * LiteRT's real count by ~1.3x):
+ * - fixed prompt floor 2400 (FixedPromptTokenBudget), or 2612 measured on S21
+ *   (minimal system 876 + native tool declarations 1736)
+ * - current prompt incl. tool-use rules 1631 (measured on S21)
+ * - RESPONSE_RESERVE 1024
+ * - largest full load_skill envelope 1507 (run_intent instructions, JSON-escaped)
+ * 2612 + 1631 + 1024 + 1507 = 6774. 7000 leaves 226 tokens, so the full result fits
+ * after a calibrated turn. A 4000-token limit gives load_skill a budget of 0 and the
+ * 3072 limit fails LiteRT prefill (3382 tokens, S21). 7000 is not a power of 2 (see
+ * safeTokenCount).
  */
-const val MID_RANGE_RECOMMENDED_MAX_TOKENS = 4000
+fun recommendedMaxTokensFor(tier: HardwareTier): Int = when (tier) {
+    HardwareTier.FLAGSHIP -> 8000
+    HardwareTier.MID_RANGE -> 7000
+    HardwareTier.LOW_POWER -> 1000
+}
 
 /**
  * Detects hardware capabilities at startup and returns an immutable [HardwareProfile].
@@ -58,11 +72,7 @@ class HardwareProfileDetector @Inject constructor(
             else -> BackendType.CPU
         }
 
-        val recommendedMaxTokens = when (tier) {
-            HardwareTier.FLAGSHIP -> 8000
-            HardwareTier.MID_RANGE -> MID_RANGE_RECOMMENDED_MAX_TOKENS
-            HardwareTier.LOW_POWER -> 1000
-        }
+        val recommendedMaxTokens = recommendedMaxTokensFor(tier)
 
         val profile = HardwareProfile(
             tier = tier,

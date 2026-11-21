@@ -1059,13 +1059,13 @@ abstract class KernelDatabase : RoomDatabase() {
             }
         }
         /**
-         * Raises E-2B rows still at the old MID_RANGE default of 3072 to 4000 (#1961): the tool-path prompt
-         * is ~3.4k tokens and 3072 was rejected by LiteRT. The settings slider only snaps to multiples of 500
-         * from 4000, so 3072 can only come from that default.
+         * 59 -> 60 (#1961): raise the E-2B MID_RANGE default from 3072 to 7000. LiteRT rejected the
+         * ~3.4k-token tool-path prefill at 3072. Only rows still at the exact old default are rewritten;
+         * values the user chose (slider/typed input is clamped to 4000..32000) are kept.
          */
         val MIGRATION_59_60 = object : Migration(59, 60) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("UPDATE `model_settings` SET `contextWindowSize` = 4000 WHERE `contextWindowSize` = 3072")
+                db.execSQL("UPDATE `model_settings` SET `contextWindowSize` = 7000 WHERE `contextWindowSize` = 3072")
             }
         }
     }
