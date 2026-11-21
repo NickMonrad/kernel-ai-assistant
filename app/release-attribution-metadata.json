@@ -1,6 +1,16 @@
 {
   "schema_version": 1,
-  "local_dependencies": [],
+  "local_dependencies": [
+    {
+      "component_id": "file:third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar",
+      "artifact_path": "third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar",
+      "artifact_sha256": "46a8e806833066bc657d8508e66e35dae8b1a04dff207ebd8538517d58b6567d",
+      "source_component": "Jandal custom Sherpa-ONNX v1.13.0 Inflect AAR (sherpa-onnx b0592803 with Inflect patch; eSpeak-ng f6fed6c5; piper-phonemize 78a788e0); corresponding source third_party/sherpa-onnx/sherpa-onnx-v1.13.0-inflect-source-inputs.tar.gz",
+      "license_expression": "Apache-2.0 AND GPL-3.0-or-later AND MIT AND Unlicense",
+      "license_status": "reviewed",
+      "required_notice": "app/src/main/assets/legal/sherpa-onnx-1.13.0-inflect-third-party-notices.txt"
+    }
+  ],
   "native_libraries": [
     {
       "name": "libLiteRt.so",
@@ -55,6 +65,12 @@
       "source_component": "com.microsoft.onnxruntime:onnxruntime-android:1.24.3 (matched to Microsoft.ML.OnnxRuntime 1.24.3 Android JNI payload)",
       "license_expression": "MIT",
       "license_status": "reviewed"
+    },
+    {
+      "name": "libsherpa-onnx-jni.so",
+      "source_component": "Jandal custom Sherpa-ONNX v1.13.0 Inflect AAR jni/<abi>/libsherpa-onnx-jni.so (arm64-v8a, armeabi-v7a, x86, x86_64); eSpeak-ng GPL-3.0-or-later statically linked; c-api and cxx-api libraries are excluded from the bundle",
+      "license_expression": "Apache-2.0 AND GPL-3.0-or-later AND MIT AND Unlicense",
+      "license_status": "reviewed"
     }
   ],
   "native_notice_assets": {
@@ -63,7 +79,32 @@
     "ndk-r28c-libcxx-licence.txt": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
     "ndk-r28c-libcxxabi-licence.txt": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
     "onnxruntime-1.24.3-licence.txt": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
-    "onnxruntime-1.24.3-third-party-notices.txt": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+    "onnxruntime-1.24.3-third-party-notices.txt": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
+    "sherpa-onnx-1.13.0-inflect-third-party-notices.txt": "80f306b495730823b38a26270819c2f7db000e77f6957a9e48a485f45b05b41b",
+    "openwakeword-0.5.1-notices.txt": "e4d2610b04bcc7c1cbac038a4e881f66be59693fa1893092b669c9d9a16986c9",
+    "cc-by-nc-sa-4.0-legalcode.txt": "e66c269d4819aaab34b49ef5220c4ddab6756f21bb5180761a4eb8561f2b7bbd"
   },
-  "wake_word_assets": []
+  "wake_word_assets": [
+    {
+      "name": "melspectrogram.onnx",
+      "artifact_sha256": "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f",
+      "license_expression": "CC-BY-NC-SA-4.0",
+      "license_status": "reviewed",
+      "source_component": "dscripka/openWakeWord v0.5.1 (commit 1eec2158c5c54150ac5f4c15065adacb1003b1e7) release asset; unmodified"
+    },
+    {
+      "name": "embedding_model.onnx",
+      "artifact_sha256": "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
+      "license_expression": "CC-BY-NC-SA-4.0",
+      "license_status": "reviewed",
+      "source_component": "dscripka/openWakeWord v0.5.1 (commit 1eec2158c5c54150ac5f4c15065adacb1003b1e7) release asset; unmodified"
+    },
+    {
+      "name": "hey_jandal.onnx",
+      "artifact_sha256": "11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206",
+      "license_expression": "CC-BY-NC-SA-4.0",
+      "license_status": "reviewed",
+      "source_component": "Jandal-trained Stage 3 classifier over the openWakeWord Stage 1/2 backbone (training/wakeword)"
+    }
+  ]
 }

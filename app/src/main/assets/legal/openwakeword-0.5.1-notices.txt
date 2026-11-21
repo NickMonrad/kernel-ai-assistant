@@ -1,0 +1,34 @@
+openWakeWord v0.5.1 wake-word models (Hey Jandal pipeline)
+
+Copyright openWakeWord contributors
+Source: https://github.com/dscripka/openWakeWord
+Pinned upstream: tag v0.5.1, commit 1eec2158c5c54150ac5f4c15065adacb1003b1e7 (2023-09-02)
+Release assets: https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1
+
+The openWakeWord source code is licensed under the Apache License, Version 2.0.
+Upstream README (License section, line 242 at the pinned commit) states that the included
+pre-trained models are licensed under the Creative Commons Attribution-NonCommercial-ShareAlike
+4.0 International licence "due to the inclusion of datasets with unknown or restrictive
+licensing as part of the training data". The full licence text is in
+cc-by-nc-sa-4.0-legalcode.txt in this folder.
+
+Jandal uses these models under CC BY-NC-SA 4.0 as published, per the owner decision recorded on
+NickMonrad/kernel-ai-assistant#2017 (https://github.com/NickMonrad/kernel-ai-assistant/issues/2017#issuecomment-7056043539).
+Jandal is a non-commercial application.
+
+Bundled files (app/src/main/assets/models/wakeword/), SHA-256:
+  melspectrogram.onnx   ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f
+                        Stage 1 preprocessing; byte-identical to the upstream v0.5.1 asset.
+  embedding_model.onnx  70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f
+                        Stage 2 embedding; byte-identical to the upstream v0.5.1 asset. Upstream
+                        attributes its backbone to Google's speech_embedding (Apache-2.0) and says
+                        it was manually re-implemented; the weight origin is not stated upstream.
+  hey_jandal.onnx       11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206
+                        Stage 3 Hey Jandal classifier, trained by the Jandal project on the frozen
+                        Stage 1/2 backbone. Offered under CC BY-NC-SA 4.0 (ShareAlike).
+
+Unmodified upstream Stage 1/2 files: no changes were made to melspectrogram.onnx or
+embedding_model.onnx.
+
+File-level terms for the upstream Stage 1/2 files and the Stage 3 training data are recorded as
+unresolved in the licence review (draft PR #2020, docs/legal/wakeword-licence-review.md).

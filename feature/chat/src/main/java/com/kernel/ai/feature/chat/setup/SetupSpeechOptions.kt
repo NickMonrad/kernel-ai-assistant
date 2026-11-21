@@ -34,11 +34,10 @@ internal object SetupSpeechOptions {
         }
 
     /**
-     * Release v0.1 offers only Android's built-in voice while the Sherpa/Piper/eSpeak distribution obligations
-     * remain unresolved. Debug builds keep Cori and Inflect Micro for development. Kokoro is never offered here.
+     * Release v0.1 offers Piper (Cori) and Android TTS, plus Inflect Micro on eligible devices. Debug builds also keep
+     * Inflect Micro everywhere, as Settings does. Kokoro is never offered here.
      */
     fun outputOptions(hasSystemTts: Boolean, isRelease: Boolean, inflectEligible: Boolean): List<VoiceOutputEngine> {
-        if (isRelease) return listOf(VoiceOutputEngine.AndroidTts)
         val offered = VoiceOutputEngine.entriesForBuild(isRelease, inflectEligible)
         return listOf(
             VoiceOutputEngine.SherpaExperimental,

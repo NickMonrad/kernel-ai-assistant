@@ -460,9 +460,8 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             wakeWordPreferences.heyJandalEnabled.collect { enabled ->
                 _uiState.update { it.copy(heyJandalEnabled = enabled) }
-                if (enabled && !isReleaseBuild) {
-                    // Debug builds retain Sherpa low-confidence wake verification.
-                    queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager)
+                if (enabled) {
+                    queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager, isReleaseBuild)
                 }
             }
         }
@@ -546,13 +545,9 @@ class VoiceViewModel @Inject constructor(
     }
 
     private fun heyJandalDownloadBytes(input: VoiceInputEngine, states: Map<KernelModel, DownloadState>): Long =
-        if (isReleaseBuild) {
-            0L
-        } else {
-            heyJandalDownloadModels(input)
-                .filterNot { states[it] is DownloadState.Downloaded }
-                .sumOf { it.approxSizeBytes }
-        }
+        heyJandalDownloadModels(input, isReleaseBuild)
+            .filterNot { states[it] is DownloadState.Downloaded }
+            .sumOf { it.approxSizeBytes }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
         val effective = engine.takeIf { it in _uiState.value.availableInputEngines }
@@ -572,7 +567,6 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun downloadInflectMicro() {
-        if (isReleaseBuild) return
         InflectMicroSetup.queue(
             modelDownloadManager = modelDownloadManager,
             voicePackDownloadManager = sherpaVoicePackDownloadManager,
@@ -819,8 +813,8 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(heyJandalEnabled = enabled) }
         viewModelScope.launch {
             wakeWordPreferences.setHeyJandalEnabled(enabled)
-            if (enabled && !isReleaseBuild) {
-                queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager)
+            if (enabled) {
+                queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager, isReleaseBuild)
             }
         }
     }

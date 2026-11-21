@@ -12,11 +12,11 @@ The owner rule recorded on #1263 is fail-closed: any Sherpa/Piper/eSpeak voice o
 The release build therefore uses:
 
 - Android native speech recognition for voice input;
-- Android text-to-speech for spoken output;
-- no wake-word model assets are included in the v0.1 release; the Hey Jandal detector is unavailable and its models remain debug-only;
-- no custom Sherpa/Piper/eSpeak AAR, Sherpa STT runtime, Piper voice pack, Inflect Micro runtime, or Kokoro runtime.
+- Cori (Piper) and Android TTS for spoken output; Inflect Micro on flagship arm64 devices;
+- openWakeWord Stage 1/2 and Hey Jandal Stage 3 wake-word assets, plus the Whisper tiny.en verifier downloaded with Hey Jandal; the wake-word assets are CC BY-NC-SA 4.0 per the owner decision on #2017;
+- no Sherpa STT runtime or model, no Piper voice other than Cori, and no Kokoro runtime.
 
-Debug builds retain the full Sherpa/Inflect/Piper/Kokoro development paths.
+The custom Sherpa-ONNX v1.13.0 Inflect AAR's `libsherpa-onnx-jni.so` is packaged for Cori, Piper and Inflect Micro, with its GPL-bearing eSpeak-ng code and notices recorded in the native inventory below (#2016 restores this speech path after #1793 removed it). Debug builds retain the full Sherpa/Inflect/Piper/Kokoro development paths.
 
 ## Generated release evidence
 
@@ -39,10 +39,10 @@ The verifier runs against the exact AAB produced by `bundleRelease`. CI evidence
 | Android native STT | Release-visible | Android platform/provider terms; offline availability is device/provider dependent. |
 | Sherpa STT engines/models | Debug/internal only | Excluded from v0.1 with the unresolved Sherpa runtime distribution path. |
 | Android TTS | Release-visible | Android platform/installed-engine terms. |
-| Piper/Cori/Semaine voices | Debug/internal only | Excluded from v0.1. Cori provenance remains documented but is not release clearance. `docs/legal/piper-voice-review.md` reviews the other catalogue voices: each one's Sherpa archive contains weights derived from Lessac or Ryan, so none of them is releasable as downloaded. |
-| Inflect Micro | Debug/internal only | Upstream ONNX model is documented; runtime depends on the excluded custom Sherpa AAR. |
+| Piper/Cori voices | Cori: release-visible, download on demand. Other Piper voices and Semaine: debug/internal only | Cori's basis is the trainer's public-domain statement and the LibriVox-derived dataset; the `rhasspy/piper-voices` MIT repository tag is not a grant (`docs/legal/piper-voice-review.md`). Other voices remain excluded: each one's Sherpa archive contains weights derived from Lessac or Ryan, so none of them is releasable as downloaded. |
+| Inflect Micro | Release-visible on flagship arm64 devices; download on demand | Upstream `owensong/Inflect-Micro-v2-ONNX` is Apache-2.0 (upstream repository). The runtime is the packaged custom Sherpa-ONNX JNI. |
 | Kokoro | Debug/post-launch only | Sherpa package and upstream Kokoro lineage remain documented. |
-| openWakeWord Stage 1/2 and Hey Jandal Stage 3 | Debug-only; excluded from v0.1 | The Stage 1/2 export terms are unresolved. All three assets are excluded from release artifacts; the attribution view and verifier require this exclusion. The Stage 3 classifier remains Jandal-generated with provenance recorded in `training/wakeword/README.md`. |
+| openWakeWord Stage 1/2 and Hey Jandal Stage 3 | Release-visible under CC BY-NC-SA 4.0 (owner decision, #2017) | Upstream v0.5.1 models are stated as CC BY-NC-SA 4.0 in the upstream README; the Stage 1/2 files are unmodified. The Stage 3 classifier is Jandal-generated with provenance in `training/wakeword/README.md`. Draft PR #2020 records every file-level verdict as "unclear"; the owner decision overrides that review. |
 
 Vosk has been removed and is not part of the current release.
 
@@ -70,12 +70,13 @@ The release AAB is checked against `app/release-attribution-metadata.json`. Expr
 | `libkernelvec.so` | Jandal Apache-2.0 JNI, vendored [sqlite-vec 0.1.9](https://github.com/asg017/sqlite-vec/tree/v0.1.9) (MIT OR Apache-2.0; Jandal supplies the MIT notice), and [SQLite 3.49.2](https://www.sqlite.org/copyright.html) (public domain). |
 | `liblitertlm_jni.so` | `com.google.ai.edge.litertlm:litertlm-android:0.19.1` supplies the JNI file, Apache-2.0 licence and `THIRD_PARTY_NOTICE.txt`; the vendor notice is bundled. |
 | `libonnxruntime.so`, `libonnxruntime4j_jni.so` | Maven `com.microsoft.onnxruntime:onnxruntime-android:1.24.3` declares MIT. All eight JNI entries match those in `runtimes/android/native/onnxruntime.aar` from [Microsoft.ML.OnnxRuntime 1.24.3](https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime/1.24.3). The official package's `LICENSE` and `ThirdPartyNotices.txt` are bundled. |
+| `libsherpa-onnx-jni.so` (arm64-v8a, armeabi-v7a, x86, x86_64) | Packaged from `third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar` (SHA-256 `46a8e806833066bc657d8508e66e35dae8b1a04dff207ebd8538517d58b6567d`). Apache-2.0 Sherpa-ONNX code with eSpeak-ng GPL-3.0-or-later statically linked; piper-phonemize MIT; uni-algo public domain. Corresponding source: `third_party/sherpa-onnx/sherpa-onnx-v1.13.0-inflect-source-inputs.tar.gz` (SHA-256 `40c77074a09ad2ae5d09ad6a4347fc98e13da312527f9a9d558d2d5ca4ecd82b`) with `scripts/sherpa-onnx-v1.13.0-inflect-source-package.md` and `scripts/sherpa-onnx-v1.13.0-inflect-build.md`. The combined notice is `app/src/main/assets/legal/sherpa-onnx-1.13.0-inflect-third-party-notices.txt`. The eSpeak-ng GPL posture was accepted by the owner under #1474. |
 
-Vendor notice text is retained with LF line endings. The original Inflect AAR, Sherpa JNI, Vosk and JNA must not be packaged. The TTS-free Sherpa AAR in this branch is not a release dependency: the [Whisper ONNX export repository](https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/tree/d026532c022fa99fd789d6b32446a1df7b6bfc43) identifies no licence for the exact exported files. Its [export recipe](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/whisper/export-onnx.html) establishes lineage, not an express grant for that export.
+Vendor notice text is retained with LF line endings. The Vosk and JNA libraries must not be packaged. The Sherpa `libsherpa-onnx-c-api.so` and `libsherpa-onnx-cxx-api.so` libraries are excluded from the bundle for all ABIs, because the JNI does not use them. Whisper tiny.en (the wake verifier) is attributed to the upstream OpenAI weights (MIT code; Apache-2.0 weights card). Its [Whisper ONNX export repository](https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/tree/d026532c022fa99fd789d6b32446a1df7b6bfc43) identifies no licence for the exact exported files, and its [export recipe](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/whisper/export-onnx.html) establishes lineage, not an express grant for that export. The owner accepted this attribution on #2017.
 
 ## Remaining release acceptance
 
-The attribution verifier does not package or accept any wake-word model assets in v0.1. The openWakeWord Stage 1/2 export terms remain unresolved, so the shared Gradle asset source is excluded from release while debug builds retain the feature for development. Re-enable release wake-word assets only after an authoritative license determination or an acceptable replacement is recorded.
+The attribution verifier requires the three wake-word assets to be packaged with `license_status` `reviewed` and matching SHA-256 pins (`wake_word_assets` in `app/release-attribution-metadata.json`). They ship under CC BY-NC-SA 4.0 as published, per the owner decision recorded at https://github.com/NickMonrad/kernel-ai-assistant/issues/2017#issuecomment-7056043539 (21 Nov). That decision overrides the licence review in draft PR #2020, whose verdicts for all three files and the Whisper export remain "unclear". CC BY-NC-SA 4.0 is non-commercial and carries ShareAlike; whether Play distribution is acceptable is the owner's decision and is not resolved here.
 
 Do not mark #1793 ready until exact-head CI and the release attribution gate pass.
 

@@ -46,31 +46,40 @@ class ReleaseAssetAttributionCatalogTest {
     }
 
     @Test
-    fun wakeWordAssetsAreExplicitlyDebugOnly() {
+    fun wakeWordAssetsAreBundledInReleaseUnderCcByNcSa() {
         val wakeWordEntries = ReleaseAssetAttributionCatalog.entries.filter { it.id.startsWith("wakeword:") }
         assertEquals(3, wakeWordEntries.size)
-        assertTrue(wakeWordEntries.all { it.releaseStatus == "Debug-only · excluded from v0.1 release" })
+        assertTrue(wakeWordEntries.all { it.releaseStatus == "Bundled in release · CC BY-NC-SA 4.0" })
         assertTrue(wakeWordEntries.all { it.sourceText.isNotBlank() && it.lineageText.isNotBlank() })
-        assertTrue(
-            wakeWordEntries.filter { it.id != "wakeword:hey-jandal" }
-                .all { it.licenceText.contains("unresolved", ignoreCase = true) },
-        )
+        assertTrue(wakeWordEntries.all { it.licenceText.contains("CC BY-NC-SA 4.0") })
     }
 
     @Test
-    fun unresolvedSherpaPiperAndKokoroEntriesAreExplicitlyExcludedFromV01() {
-        val speechRuntimeEntries = ReleaseAssetAttributionCatalog.entries.filter {
-            it.id.startsWith("stt:") && it.id != "stt:AndroidNative" ||
-                it.id.startsWith("piper:") ||
+    fun whisperVerifierIsDisclosedAsDownloadedReleaseAsset() {
+        val whisper = ReleaseAssetAttributionCatalog.entries.single { it.id == "asset:whisper-tiny-en-verifier" }
+        assertTrue(whisper.releaseStatus.startsWith("Downloaded with Hey Jandal"))
+        assertTrue(whisper.licenceText.contains("Apache-2.0"))
+    }
+
+
+    @Test
+    fun sherpaSttNonCoriPiperAndKokoroStayExcludedWhileCoriAndSherpaEnginesAreReleaseVisible() {
+        val excluded = ReleaseAssetAttributionCatalog.entries.filter {
+            (it.id.startsWith("stt:") && it.id != "stt:AndroidNative") ||
+                (it.id.startsWith("piper:") && it.id != "piper:CoriHigh") ||
                 it.id.startsWith("kokoro:") ||
-                it.id == "tts:SherpaExperimental" ||
-                it.id == "tts:InflectMicroExperimental" ||
                 it.id == "tts:KokoroExperimental"
         }
-        assertTrue(speechRuntimeEntries.isNotEmpty())
-        assertTrue(speechRuntimeEntries.all {
+        assertTrue(excluded.isNotEmpty())
+        assertTrue(excluded.all {
             it.releaseStatus.contains("excluded", ignoreCase = true) ||
                 it.releaseStatus.contains("post-launch", ignoreCase = true)
         })
+
+        val released = ReleaseAssetAttributionCatalog.entries.filter {
+            it.id == "piper:CoriHigh" || it.id == "tts:SherpaExperimental" || it.id == "tts:InflectMicroExperimental"
+        }
+        assertEquals(3, released.size)
+        assertTrue(released.none { it.releaseStatus.contains("excluded", ignoreCase = true) })
     }
 }

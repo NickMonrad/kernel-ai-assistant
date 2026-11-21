@@ -281,7 +281,7 @@ class SetupWizardViewModel @Inject constructor(
 
     /**
      * Extra download the Hey Jandal card names: the files turning it on still needs for this input
-     * ([heyJandalDownloadModels]: the verifier, plus Zipformer unless an online Sherpa recognizer is chosen), less
+     * ([heyJandalDownloadModels]: the verifier, plus Zipformer in debug builds unless an online Sherpa recognizer is chosen), less
      * files on disk and files already in the step-3 plan, so no byte is counted twice (#1931).
      */
     private fun heyJandalExtraBytes(input: VoiceInputEngine, plannedModels: List<KernelModel>): Long =
@@ -298,11 +298,7 @@ class SetupWizardViewModel @Inject constructor(
         }
 
     private fun heyJandalMissing(input: VoiceInputEngine, plannedModels: List<KernelModel>): List<KernelModel> =
-        if (releaseBuild) {
-            emptyList()
-        } else {
-            heyJandalDownloadModels(input).filterNot { isModelDownloaded(it) || it in plannedModels }
-        }
+        heyJandalDownloadModels(input, releaseBuild).filterNot { isModelDownloaded(it) || it in plannedModels }
 
     private fun plannedVoicesFor(output: VoiceOutputEngine?): List<SherpaPiperVoice> =
         output?.let { plannedVoicesFor(it) { voice -> isDownloaded(voice) } } ?: emptyList()
@@ -490,9 +486,7 @@ class SetupWizardViewModel @Inject constructor(
             return
         }
         if (state.wakeWordStored || MakeYoursRows.heyJandalBlock(state.platform) != null) return
-        if (!releaseBuild) {
-            queueHeyJandalSttModel(voiceInputPreferences, downloadManager)
-        }
+        queueHeyJandalSttModel(voiceInputPreferences, downloadManager, releaseBuild)
         wakeWordPreferences.setHeyJandalEnabled(true)
     }
 

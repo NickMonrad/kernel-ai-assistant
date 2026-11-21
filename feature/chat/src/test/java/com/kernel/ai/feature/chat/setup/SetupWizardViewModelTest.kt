@@ -368,7 +368,7 @@ class SetupWizardViewModelTest {
     // ── Speech options by device capability (#1855 part 2) ──────────────────────
 
     @Test
-    fun `release offers only platform speech and queues no Sherpa assets`() {
+    fun `release offers only platform speech input and never Sherpa STT, with Piper and Android TTS output`() {
         every { setupVoiceDevice.isReleaseBuild() } returns true
         coEvery { downloadManager.plannedFirstRunModels() } returns VoiceDefaultsProvisioner.zipformerModels()
 
@@ -377,10 +377,11 @@ class SetupWizardViewModelTest {
 
         assertEquals(listOf(VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
         assertEquals(VoiceInputEngine.AndroidNative, vm.uiState.value.inputEngine)
-        assertEquals(listOf(VoiceOutputEngine.AndroidTts), vm.uiState.value.outputOptions)
-        assertEquals(VoiceOutputEngine.AndroidTts, vm.uiState.value.outputEngine)
-        assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
-        assertEquals(0L, vm.uiState.value.heyJandalExtraBytes)
+        assertTrue(VoiceOutputEngine.SherpaExperimental in vm.uiState.value.outputOptions)
+        assertTrue(VoiceOutputEngine.AndroidTts in vm.uiState.value.outputOptions)
+        assertFalse(VoiceOutputEngine.KokoroExperimental in vm.uiState.value.outputOptions)
+        assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
+        assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
 
         vm.atDownloadStep()
         vm.onContinue {}
@@ -389,7 +390,6 @@ class SetupWizardViewModelTest {
 
         coVerify(exactly = 0) { voiceDefaultsProvisioner.queueSpeechInput(match { it != VoiceInputEngine.AndroidNative }) }
         verify(exactly = 0) { downloadManager.startDownload(any(), any(), any(), any()) }
-        verify(exactly = 0) { voicePackDownloadManager.startDownload(any(), any(), any(), any()) }
     }
 
     @Test
