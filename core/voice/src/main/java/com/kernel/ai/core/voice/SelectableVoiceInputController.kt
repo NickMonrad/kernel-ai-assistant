@@ -129,6 +129,7 @@ private data class ZipformerHandoff(
 
 private fun VoiceInputEvent.withCaptureSessionId(id: Long): VoiceInputEvent = when (this) {
     is VoiceInputEvent.ListeningStarted -> copy(captureSessionId = id)
+    is VoiceInputEvent.ListeningRequested -> copy(captureSessionId = id)
     is VoiceInputEvent.SpeechDetected -> copy(captureSessionId = id)
     is VoiceInputEvent.PartialTranscript -> copy(captureSessionId = id)
     is VoiceInputEvent.Transcript -> copy(captureSessionId = id)

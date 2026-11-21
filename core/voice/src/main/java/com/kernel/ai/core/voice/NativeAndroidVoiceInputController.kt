@@ -315,6 +315,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
      */
     @Volatile
     private var readinessEmittedForSession = false
+    /** Session whose ListeningRequested was emitted and not yet closed by a terminal event (#2027). */
+    private var announcedSessionId: Long = 0L
 
     /** #1973: elapsedRealtime when the current session's start was requested, for the start-to-ready timing. */
     @Volatile
@@ -450,7 +452,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 VoiceInputStartResult.Started(sessionId)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Android native voice capture", e)
-                stopListeningInternal(emitStopped = false)
+                // #2027: a start that announced ListeningRequested closes with ListeningStopped so the
+                // wake-word detector re-arms. A start that never announced stays silent, as before.
+                val announced = announcedSessionId != 0L && announcedSessionId == activeSessionId
+                stopListeningInternal(emitStopped = announced)
                 VoiceInputStartResult.Unavailable(
                     e.message ?: "Failed to start Android speech recognition.",
                 )
@@ -481,6 +486,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
         _inputLevel.value = 0f
         activeSessionId = 0L
         readinessEmittedForSession = false
+        announcedSessionId = 0L
 
         recognizer?.apply {
             runCatching { stopListening() }
@@ -512,6 +518,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
         backend: RecognizerBackend,
         isRefreshed: Boolean = false,
     ) {
+        // #2027: announce the start before any recognizer exists, so the wake-word detector releases the
+        // microphone first. Readiness cannot come while another capture holds it.
+        _events.tryEmit(VoiceInputEvent.ListeningRequested(mode, sessionId))
+        announcedSessionId = sessionId
         val recognizer = when (backend) {
             RecognizerBackend.OnDevice -> recognitionSupport.createOnDeviceSpeechRecognizer()
             RecognizerBackend.Platform -> recognitionSupport.createPlatformSpeechRecognizer()

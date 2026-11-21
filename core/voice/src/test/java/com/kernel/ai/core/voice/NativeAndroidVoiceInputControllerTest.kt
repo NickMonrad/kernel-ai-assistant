@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.resetMain
@@ -992,6 +993,47 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
 
         assertTrue(events.any { it is VoiceInputEvent.Error })
         assertEquals(1, events.filterIsInstance<VoiceInputEvent.Error>().size)
+        collector.cancel()
+    }
+
+    @Test
+    fun `native start announces ListeningRequested before the recognizer is created`() = runTest {
+        // #2027: the wake-word detector must release the mic before the recognizer is built, because
+        // readiness cannot come while another capture holds the microphone.
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val events = mutableListOf<VoiceInputEvent>()
+        val eventsSeenAtCreate = mutableListOf<List<VoiceInputEvent>>()
+        every { recognitionSupport.createPlatformSpeechRecognizer() } answers {
+            eventsSeenAtCreate += events.toList()
+            recognizer
+        }
+        val collector = launch(UnconfinedTestDispatcher(testScheduler)) { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true) as
+            VoiceInputStartResult.Started
+
+        val announced = eventsSeenAtCreate.single().single()
+        assertEquals(VoiceInputEvent.ListeningRequested(VoiceCaptureMode.AlertCommand, result.captureSessionId), announced)
+        collector.cancel()
+    }
+
+    @Test
+    fun `a start that throws before readiness ends with ListeningStopped so the wake detector re-arms`() = runTest {
+        // #2027: ListeningRequested was announced, so the failed start must close it with ListeningStopped;
+        // otherwise the wake detector stays released for the rest of the process.
+        every { recognitionSupport.createPlatformSpeechRecognizer() } throws IllegalStateException("no recognizer")
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch(UnconfinedTestDispatcher(testScheduler)) { controller.events.collect { events += it } }
+        runCurrent()
+
+        val result = controller.startListening(VoiceCaptureMode.AlertCommand, allowPlatformFallback = true)
+
+        assertEquals(true, result is VoiceInputStartResult.Unavailable)
+        assertEquals(2, events.size)
+        assertTrue(events[0] is VoiceInputEvent.ListeningRequested)
+        assertTrue(events[1] is VoiceInputEvent.ListeningStopped)
+        assertEquals(events[0].captureSessionId, events[1].captureSessionId)
         collector.cancel()
     }
 }

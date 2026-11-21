@@ -684,7 +684,8 @@ internal fun tryPromoteToMicrophoneForeground(
  * **Mic arbitration:** [WakeWordDetector] holds a raw [android.media.AudioRecord] continuously.
  * To avoid blocking [android.speech.SpeechRecognizer] when the widget, Side key, or any other
  * caller opens a voice session, this service observes [VoiceInputController.events]:
- * - [VoiceInputEvent.ListeningStarted] → stop the detector (release AudioRecord)
+ * - [VoiceInputEvent.ListeningRequested] (native, before the recognizer exists) or
+ *   [VoiceInputEvent.ListeningStarted] → stop the detector (release AudioRecord); #2027
  * - [VoiceInputEvent.ListeningStopped] → re-arm the detector
  *
  * This handles every caller (widget, assistant session, chat) automatically with no
@@ -735,6 +736,14 @@ class WakeWordService : Service() {
 
     /** True while [handleDetection] owns a live STT session; suppresses the observer's re-arm. */
     @Volatile private var isHandlingDetection = false
+    /** Releases and re-arms the mic once per voice session (#2027); see [WakeMicYieldGate]. */
+    private val micGate = WakeMicYieldGate(
+        releaseMic = {
+            Log.i(TAG, "WakeWordService: yielding mic to voice session")
+            wakeWordDetector.stop()
+        },
+        rearmMic = { rearmDetector() },
+    )
 
     /** One-shot guard: verifier model provisioning is requested at most once per service lifetime. */
     @Volatile private var wakeVerifierProvisionRequested = false
@@ -833,27 +842,16 @@ class WakeWordService : Service() {
         // Automatically yield the AudioRecord whenever another voice session is active.
         eventCollectorJob = serviceScope.launch {
             voiceInputController.events.collect { event ->
-                when (event) {
-                    is VoiceInputEvent.ListeningStarted -> {
-                        isVoiceSessionActive = true
-                        Log.i(TAG, "WakeWordService: yielding mic to voice session (${event.mode})")
-                        wakeWordDetector.stop()
-                    }
-
-                    is VoiceInputEvent.ListeningStopped -> {
-                        isVoiceSessionActive = false
-                        if (isHandlingDetection) return@collect
-                        Log.i(TAG, "WakeWordService: re-arming after voice session (${event.mode})")
-                        rearmDetector()
-                    }
-
-                    is VoiceInputEvent.SpeechDetected,
-                    is VoiceInputEvent.PartialTranscript,
-                    is VoiceInputEvent.Transcript,
-                    is VoiceInputEvent.Error,
-                    is VoiceInputEvent.SpeechEnded,
-                    -> Unit
+                // #2027: yield on the pre-start ListeningRequested as well as ListeningStarted; re-arm on
+                // ListeningStopped only. The gate makes the release and the re-arm each run once per session.
+                isVoiceSessionActive = when (event) {
+                    is VoiceInputEvent.ListeningRequested,
+                    is VoiceInputEvent.ListeningStarted,
+                    -> true
+                    is VoiceInputEvent.ListeningStopped -> false
+                    else -> isVoiceSessionActive
                 }
+                micGate.onVoiceEvent(event, rearmAllowed = !isHandlingDetection)
             }
         }
 

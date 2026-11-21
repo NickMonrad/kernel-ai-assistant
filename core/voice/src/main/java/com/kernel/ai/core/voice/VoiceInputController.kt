@@ -27,6 +27,16 @@ sealed interface VoiceInputEvent {
     val mode: VoiceCaptureMode
     val captureSessionId: Long
 
+    /**
+     * A capture is about to create its recognizer (#2027). Emitted before any recognizer or microphone
+     * is opened on the native path, so a consumer holding the microphone (the wake-word detector) can
+     * release it before readiness. The on-device recognizer cannot become ready while another capture
+     * holds the mic. Ends with ListeningStarted, or ListeningStopped if the start fails.
+     */
+    data class ListeningRequested(
+        override val mode: VoiceCaptureMode,
+        override val captureSessionId: Long = 0L,
+    ) : VoiceInputEvent
     data class ListeningStarted(
         override val mode: VoiceCaptureMode,
         override val captureSessionId: Long = 0L,
