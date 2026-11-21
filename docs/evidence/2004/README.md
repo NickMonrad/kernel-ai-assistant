@@ -9,8 +9,8 @@ recorded separately by the verifier.
 |---|---|
 | Device | Samsung S21 `R5CR605B71K` (SM-G991B, Exynos 2100), `samsung/o1sxxx/o1s:15/AP3A.240905.015.A2/G991BXXSJHZC2` |
 | Lock | `/tmp/jandal-s21.lock` held for the whole run, then released |
-| Engine | branch `feat/2004-asr4all-executorch-cleanroom` on #2010 head `dceae496`; ExecuTorch `org.pytorch:executorch-android:1.5.1` through `:core:executorch` only |
 | Engine | branch `feat/2004-asr4all-executorch-cleanroom`, code as committed in `7568e9e`, on #2010 head `dceae496`; ExecuTorch `org.pytorch:executorch-android:1.5.1` through `:core:executorch` only |
+| Test APK | `core/voice/build/outputs/apk/androidTest/debug/voice-debug-androidTest.apk`, package `com.kernel.ai.core.voice.test` (test-only; the app is untouched) |
 | Model | `futo-org/asr4all-m` @ `7d6e9145109a5bece4f05831d046e93d27e38a99` (`asr_encoder.pte` SHA-256 `d08648b9…7763`); S `asr_encoder.pte` @ `87a6b5d0…1f0` (`7d567968…27ec`) for the mismatch test. Hashes checked on the device after the push |
 | Threads | `Asr4AllEngine.DEFAULT_THREADS` = 4 |
 
