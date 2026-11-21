@@ -1,0 +1,47 @@
+11-22 05:35:23.053 D KernelAI: ADB_INTENT_TRACE commandId=64272972-1 input=redacted submitMode=Text
+11-22 05:35:23.053 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=accepted t_ms=0
+11-22 05:35:23.113 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=coroutine_started t_ms=59
+11-22 05:35:23.209 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=first_feedback_visible t_ms=155
+11-22 05:35:23.351 D KernelAI: Set placeholder title for 2dbf4d46-2cb1-4d85-a426-24d6463843b1: "Will it be hotter in Apia tomorrow than …"
+11-22 05:35:23.427 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=route_done t_ms=373
+11-22 05:35:23.591 W KernelAI: UserProfileRepository.getName(): both paths returned null (profileText length=0). Profile may not contain a recognisable name field.
+11-22 05:35:23.592 D KernelAI: ADB_ROUTE_DECISION commandId=64272972-1 result=fallthrough best_guess=get_weather confidence=0.54440105
+11-22 05:35:23.592 D KernelAI: llm_tools_route: result=fallthrough best_guess=get_weather confidence=0.54440105
+11-22 05:35:23.612 D KernelAI: ADB_MODEL_STATE commandId=64272972-1 status=generating route=llm_fallthrough
+11-22 05:35:23.612 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=model_ready t_ms=558
+11-22 05:35:23.633 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=rag_done t_ms=579
+11-22 05:35:23.747 D KernelAI: generation_context_budget generation_id=64272972-1-g1 attempt=1 source=app_estimate resolved_token_cap=7000 app_context_window=7000 estimated_prior_fixed_tokens=2400 current_prompt_excluding_rag_tokens=1634 response_reserve_token
+11-22 05:35:23.747 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=generate_called t_ms=693
+11-22 05:35:23.759 D LiteRtInferenceEngine: generation_diagnostic generation_id=64272972-1-g1 send_attempt=1 stage=initial_prompt event=send_start
+11-22 05:35:41.541 D LiteRtInferenceEngine: generation_diagnostic generation_id=64272972-1-g1 send_attempt=1 stage=initial_prompt event=tool_call_received tool_names=get_weather count=1
+11-22 05:35:41.791 D KernelAI: event_seq: tool_call name=get_weather argsLen=39 args={}
+11-22 05:35:41.791 D KernelAI: ToolSet: getWeather(locationLen=4, forecastDays=1)
+11-22 05:35:42.219 D KernelAI: GetWeatherSkill: fetched 1-day forecast
+11-22 05:35:42.227 D KernelAI: event_seq: tool_result name=get_weather_gps resultType=DirectReply directReply=true returnedToGemma=false contentLen=124
+11-22 05:35:42.228 D LiteRtInferenceEngine: generation_diagnostic generation_id=64272972-1-g1 send_attempt=1 stage=initial_prompt event=tool_dispatch_result tool=get_weather returned=true serialized_result_tokens_estimate=46
+11-22 05:35:42.231 D LiteRtInferenceEngine: generation_diagnostic generation_id=64272972-1-g1 send_attempt=1 stage=initial_prompt event=on_done tool_response_pending=true
+11-22 05:35:42.231 D LiteRtInferenceEngine: generation_diagnostic generation_id=64272972-1-g1 send_attempt=2 stage=tool_response event=send_start
+11-22 05:35:46.929 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=1 type=callback channels=[] thought="" raw="I" toolCalls=
+11-22 05:35:46.930 I LiteRtInferenceEngine: TTFT (Time to First Token): 23178ms [backend=GPU]
+11-22 05:35:46.931 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=first_token t_ms=23878
+11-22 05:35:46.955 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=first_ui_update t_ms=23901
+11-22 05:35:47.073 D KernelAI: TTFT_STAGE commandId=64272972-1 stage=first_answer_token_visible t_ms=24019
+11-22 05:35:47.231 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=2 type=callback channels=[] thought="" raw=" don't have" toolCalls=
+11-22 05:35:47.504 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=3 type=callback channels=[] thought="" raw=" a" toolCalls=
+11-22 05:35:47.807 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=4 type=callback channels=[] thought="" raw=" forecast for" toolCalls=
+11-22 05:35:48.105 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=5 type=callback channels=[] thought="" raw=" Apia" toolCalls=
+11-22 05:35:48.391 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=6 type=callback channels=[] thought="" raw="." toolCalls=
+11-22 05:35:48.666 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=7 type=callback channels=[] thought="" raw=" Can you" toolCalls=
+11-22 05:35:48.935 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=8 type=callback channels=[] thought="" raw=" check" toolCalls=
+11-22 05:35:49.201 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=9 type=callback channels=[] thought="" raw=" another" toolCalls=
+11-22 05:35:49.452 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=10 type=callback channels=[] thought="" raw=" place?" toolCalls=
+11-22 05:35:49.467 D LiteRtInferenceEngine: generation_diagnostic generation_id=64272972-1-g1 send_attempt=2 stage=tool_response event=on_done tool_response_pending=false
+11-22 05:35:49.472 I LiteRtInferenceEngine: Generation complete: total=25716ms, TTFT=23178ms, visibleChunks=10 [backend=GPU]
+11-22 05:35:49.472 D LiteRtInferenceEngine: event_seq: 64272972-1-g1 seq=11 type=complete callbacks=10 thinkingChars=0
+11-22 05:35:49.507 D KernelAI: llm_tools_tool_sequence: attempt=get_weather turn=get_weather terminal=get_weather
+11-22 05:35:49.507 D KernelAI: thinking_save: thinkingLen=0, contentLen=62
+11-22 05:35:49.508 D KernelAI: llm_tools_native_tool: tool=get_weather requestLen=39
+11-22 05:35:49.508 D KernelAI: llm_tools_skill_result: tool=get_weather mode=direct_reply success=true
+11-22 05:35:49.508 D KernelAI: llm_tools_assistant_reply: len=124
+11-22 05:35:49.802 D KernelAI: llm_tools_message_toolcall_saved: id=bceef22e-1530-4668-b010-890121d20867 tool=get_weather
+11-22 05:35:49.802 D KernelAI: tool_chip_visible: tool=get_weather
