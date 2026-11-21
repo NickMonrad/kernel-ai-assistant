@@ -1,0 +1,15 @@
+11-22 04:43:52.739 D KernelAI: llm_tools_route: result=classified intent=get_weather
+11-22 04:43:55.868 D KernelAI: GetWeatherSkill: fetched forecast for day 1 (Mon 23 Nov)
+11-22 04:43:55.925 D KernelAI: ADB_TOOL_COMPLETE commandId=404fa006-1 intent=get_weather result=direct_reply
+11-22 04:45:52.586 D KernelAI: llm_tools_route: result=fallthrough best_guess=get_weather confidence=0.54440105
+11-22 04:45:52.654 D KernelAI: generation_context_budget generation_id=01993023-2-g1 attempt=1 source=app_estimate resolved_token_cap=7000 app_context_window=7000 estimated_prior_fixed_tokens=2400 current_prompt_excluding_rag_tokens=1676 re
+11-22 04:46:02.778 D KernelAI: event_seq: tool_call name=get_weather argsLen=39 args={}
+11-22 04:46:02.778 D KernelAI: ToolSet: getWeather(locationLen=4, forecastDays=1)
+11-22 04:46:04.525 D KernelAI: GetWeatherSkill: fetched 1-day forecast
+11-22 04:46:04.586 D KernelAI: event_seq: tool_result name=get_weather_gps resultType=DirectReply directReply=true returnedToGemma=false contentLen=124
+11-22 04:46:13.843 D KernelAI: llm_tools_tool_sequence: attempt=get_weather turn=get_weather terminal=get_weather
+11-22 04:46:13.844 D KernelAI: llm_tools_native_tool: tool=get_weather requestLen=39
+11-22 04:46:13.844 D KernelAI: llm_tools_skill_result: tool=get_weather mode=direct_reply success=true
+11-22 04:46:13.844 D KernelAI: llm_tools_assistant_reply: len=124
+11-22 04:46:13.956 D KernelAI: llm_tools_message_toolcall_saved: id=813b128a-e09e-412c-9f81-43a4b369572a tool=get_weather
+11-22 04:46:13.956 D KernelAI: tool_chip_visible: tool=get_weather
