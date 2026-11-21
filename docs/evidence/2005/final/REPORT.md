@@ -45,3 +45,24 @@ DB state: S23U `kernel_db` user_version 59. S21 user_version 60 before install.
 - A2 mid-dictation switch and switch-back to M.
 - A3 partials verification.
 - Hold-to-talk release measurement (PTT is tap-to-start; see observation 1).
+
+## Re-run r2: A2 mid-dictation M→L switch and A3 live partials (S23U)
+
+Scope: PR head `35484706` (evidence commit on top of `80bca11f`); APKs unchanged from the table above. Source: S21 (`R5CR605B71K`) acoustic receiver. Fixtures built from the private `qwen_command` fixture by `/tmp/jandal-long/make.py` (host-only, not committed): `a2long_1..7` and `a3long_1..4`, each = qwen_command + 300 ms gap + qwen_command + 300 ms gap (3593 ms). Chunks are chained broadcasts with no pause between them. Every chunk is the same recorded utterance, so the speech is repetitive, not a natural long dictation.
+
+Test-induced change, restored: a stray tap at (400,1373) on S23U Voice settings selected `Android native` (prefs `AndroidNative`). Restored by tapping the asr4all streaming card; prefs back to `Asr4all` before any capture in this re-run.
+
+| # | Check | Result | Evidence |
+|---|---|---|---|
+| A2 | Mid-dictation M→L switch | **PASS** (retry; first attempt see below) | Retry 04:12: L tap 15.399; S23U `Asr4allVoiceInputController` requestAudioFocus 17.866; S21 chunk-1 playback starts ≈17.95 (S21 wall 738.308); `ModelDownloadManager: Download succeeded … asr4all/l/…/asr_encoder.pte` 18.451, i.e. ~0.5 s into first speech chunk, so the L download completed during the live capture. Final: `ADB_INTENT_TRACE` 45.811, `ADB_ROUTE_DECISION` `get_time` 45.844, `ADB_TOOL_COMPLETE` 46.280 (transcript delivered, not cancelled). Audio focus abandoned 45.949. `Refreshed state for asr4all M encoder: NotDownloaded` 45.987; M dir gone at poll 46.185 (`/l` only). Next PTT on L (trial `a2-next-l`, qwen_command, S21 start 777.234 ≈ host 56.9): `ADB_INTENT_TRACE` 59.604, route `get_time` 59.641, `ADB_TOOL_COMPLETE` 04:13:00.076. No `asr4all engine failed to open` in logcat. |
+| A3 | Live partials during PTT | **PASS** (engine L, after A2 retry) | `screenrecord --time-limit 15` on S23U, PTT tap 1.2 s after start, chain a3long_1..4 from S21 (4 broadcasts). Frames at 4 fps, cropped to bottom 900 px (`a3-frames/sheet1..3.png`, 16 frames per sheet, 0–12 s). In the `Listening, speak now` banner the partial grows: `What?` → `What time is?` → `What time is it? What` → `What time is it? What time is it?` → `… What time is?` → `… What time is it? What time is` (≈1.5–12 s). Composer stays `Message Jandal…` during capture. Final came after the recording had ended (`ADB_INTENT_TRACE` 32.476, device clock), so the frames show partials before final, not the final bubble. Sheet 4 (12–15 s) not reviewed. Partials on engine M not re-measured in this run. |
+
+First attempt (04:09), not counted as PASS: L encoder finished 27.672, 24 ms after capture focus 27.648 and before speech onset (~28.0), so the download did not overlap speech. Capture ended with `ADB_INTENT_TRACE` 55.667 `get_time`; abandon 55.786; M NotDownloaded 55.813; M dir gone by 56.245 (M deleted after capture end, transcript delivered). Retry (04:12) used a shorter navigation (L tap → PTT ≈ 2.5 s) so speech began before the download finished.
+
+Observation 2 (M disappearing from disk after L selection): re-run shows the M removal is the designed one-size-on-disk commit, and it happened only after the capture's audio focus was abandoned (45.949 → M gone by 46.185; 56.245 in the first attempt). Whether the commit waits for capture idle is inferred from this ordering, not from a direct log line. Earlier "cause not identified" note is superseded.
+
+End state (S23U): asr4all engine selected (prefs `selected_voice_input_engine` = `Asr4all`, `asr4all_model_size` key present), model M installed, `files/models/asr4all/m` only, L removed. Set `svc power stayon false`. S21: stayon false; acoustic fixtures removed from `files/acoustic-fixtures`; `/data/local/tmp` a2long/a3long/qwen wav and manifest removed (52 unrelated items left in `/data/local/tmp`, not touched). Logcat jobs cancelled. Sanitized log: `logcat-r2-sanitized.log` (pids 3598 S23U, 25146 S21).
+
+Open question (not decided by me): the first run recorded the original engine setting as `Automatic (Recommended)`. The coordinator's end state is M, while the "restore original if different" clause would require Automatic. I left M per the explicit end state. Confirm which is wanted; switching to Automatic is one tap on S23U.
+
+Partial-frame evidence `a3-frames/` shows only the chat test conversation and the Jandal banner/composer; status bar and conversation list were not captured.
