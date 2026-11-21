@@ -35,6 +35,7 @@ Load this when navigating unfamiliar modules.
 | `core/wasm/` | Chicory Wasm host, bridge functions |
 | `core/ui/` | Shared Compose components, Material 3 |
 | `core/skills/` | SkillInterface, SkillRegistry, schema generation |
+| `core/executorch/` | Shared ExecuTorch runtime: `.pte` load, typed tensors, output-shape assertions ([docs](../../docs/architecture/executorch-runtime.md)) |
 
 ### Feature modules
 | Path | Purpose |

@@ -60,6 +60,7 @@ The assistant is built on a **Brain–Memory–Action** triad, orchestrated cent
 :core:skills          SkillRegistry, SkillExecutor, QuickIntentRouter, native Kotlin skills
 :core:wasm            Chicory Wasm host runtime, bridge functions, resource limiting
 :core:ui              Shared Compose components, Material 3 theme
+:core:executorch      Shared ExecuTorch runtime (sole owner of org.pytorch:executorch-android)
 :feature:chat         ChatScreen, ChatViewModel, ActionsScreen, ActionsViewModel
 :feature:widget       Glance homescreen widget, VoiceCommandActivity, WidgetTextInputActivity, WidgetNavigator
 :feature:settings     Memory management, model settings, persona config

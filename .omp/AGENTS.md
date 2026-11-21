@@ -39,6 +39,7 @@ Batch fallback: NPU → GPU (Adreno 740) → CPU. E-4B and E-2B support thinking
 | `:core:model-availability` | ModelAvailabilityState, StateBadge, ModelCard, GatedModelStatusRepo |
 | `:core:ui` | Shared Compose components, Material 3 theme |
 | `:core:skills` | SkillInterface, SkillRegistry, JSON schema gen |
+| `:core:executorch` | Sole owner of the ExecuTorch runtime: `.pte` load, typed tensors, output-shape assertions |
 | `:feature:chat` | Chat screen, conversation list, ChatViewModel |
 | `:feature:settings` | Memory management, skill store, model info, persona |
 | `:feature:widget` | Glance widget, VoiceCommandActivity, WidgetTextInputActivity |
