@@ -595,12 +595,10 @@ class SelectableVoiceInputController @Inject constructor(
      * recognizer ([SherpaOnnxVoiceInputController.transcribeBlocking]),
      * independent of the selected interactive STT engine. The interactive
      * selection and [activeController] are deliberately untouched so the
-     * currently selected engine keeps its normal capture behaviour.
+     * currently selected engine keeps its normal capture behaviour. Release
+     * builds reach only the Whisper verifier here: [SherpaOnnxVoiceInputController]
+     * never resolves Zipformer in release.
      */
     override suspend fun transcribeBlocking(pcm: ShortArray): String? =
-        if (voiceInputPreferences.allowsSherpaRuntime()) {
-            sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
-        } else {
-            null
-        }
+        sherpaOnnxVoiceInputController.transcribeBlocking(pcm)
 }

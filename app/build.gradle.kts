@@ -313,53 +313,11 @@ android {
         }
     }
 }
-// The shared preprocessing exports have unresolved file-specific terms. Keep all three
-// wake-word assets available to debug builds, but exclude them from release artifacts.
-abstract class FilterReleaseAssetsTask : DefaultTask() {
-    @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val inputDirectory: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val outputDirectory: DirectoryProperty
-
-    @TaskAction
-    fun filterAssets() {
-        val source = inputDirectory.get().asFile
-        val output = outputDirectory.get().asFile
-        output.deleteRecursively()
-        source.walkTopDown()
-            .filter { it.isFile }
-            .filterNot {
-                val path = it.relativeTo(source).invariantSeparatorsPath
-                path == "models/wakeword" || path.startsWith("models/wakeword/")
-            }
-            .forEach { file ->
-                val destination = output.resolve(file.relativeTo(source).path)
-                destination.parentFile.mkdirs()
-                file.copyTo(destination, overwrite = true)
-            }
-    }
-}
-
-val filterReleaseAssets = tasks.register<FilterReleaseAssetsTask>("filterReleaseAssets") {
-    inputDirectory.set(layout.projectDirectory.dir("src/main/assets"))
-    outputDirectory.set(layout.buildDirectory.dir("generated/filteredReleaseAssets"))
-}
-android.sourceSets.getByName("main").assets.directories.clear()
-
 // Release builds (Play bundle and tester APK) report "<major.minor>.<versionCode>", with the
 // prefix taken from defaultConfig.versionName. The mapping is lazy, so it picks up the code
 // GPP's AUTO resolution assigns during a publish run.
 androidComponents {
-    onVariants(selector().withBuildType("debug")) { variant ->
-        variant.sources.assets?.addStaticSourceDirectory("src/main/assets")
-    }
     onVariants(selector().withBuildType("release")) { variant ->
-        variant.sources.assets?.addGeneratedSourceDirectory(
-            filterReleaseAssets,
-            FilterReleaseAssetsTask::outputDirectory,
-        )
         variant.outputs.forEach { output ->
             output.versionName.set(output.versionCode.map { "$releaseVersionPrefix.$it" })
         }
@@ -412,7 +370,7 @@ tasks.register("verifyReleaseJniKeepRules") {
             "com.google.ai.edge.litertlm.LiteRtLmJni",
             "com.google.ai.edge.litertlm.LiteRtLmJniException",
             "com.google.ai.edge.litertlm.NativeLibraryLoader",
-            // No Sherpa JNI runtime is packaged in release until attribution is resolved.
+            "com.k2fsa.sherpa.onnx.OfflineTts",
             // verifyReleaseAttributionMetadata checks this against the packaged native inventory.
             "org.tensorflow.lite.InterpreterFactoryImpl",
             "org.tensorflow.lite.NativeInterpreterWrapper",
@@ -763,10 +721,11 @@ dependencies {
     implementation(project(":feature:widget"))
     implementation(project(":feature:convert"))
 
-    // Keep the Inflect/Piper/eSpeak runtime out of release until its distribution obligations are met.
+    // Sherpa-ONNX (Cori/Piper and Inflect Micro TTS) ships in release. Its eSpeak-ng GPL posture and per-component
+    // notices are recorded in release-attribution-metadata.json (#2016).
     val inflectSherpaAar =
         rootProject.file("third_party/sherpa-onnx/sherpa-onnx-1.13.0-noort-inflect.aar")
-    debugImplementation(files(inflectSherpaAar.absolutePath))
+    implementation(files(inflectSherpaAar.absolutePath))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

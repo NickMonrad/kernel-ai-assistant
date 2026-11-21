@@ -61,17 +61,59 @@ SQLite 3.49.2
   https://www.sqlite.org/2025/sqlite-amalgamation-3490200.zip
   Used: bundled SQLite amalgamation.
 
+Sherpa-ONNX 1.13.0 (Inflect build)
+  Licensed under the Apache License, Version 2.0
+  https://github.com/k2-fsa/sherpa-onnx (source snapshot b0592803, with Jandal's Inflect patch)
+  Used: Sherpa-ONNX runtime for Cori (Piper) text-to-speech and Inflect Micro v2 speech,
+  packaged as libsherpa-onnx-jni.so for arm64-v8a, armeabi-v7a, x86 and x86_64.
+
+eSpeak-ng f6fed6c5 (GNU General Public License, version 3 or later)
+  Licensed under the GNU GPL version 3 or later, with bundled COPYING.APACHE, COPYING.BSD2
+  and COPYING.UCD notices. The full text is in the Sherpa-ONNX third-party notices asset.
+  https://github.com/espeak-ng/espeak-ng
+  Used: phonemisation statically linked into libsherpa-onnx-jni.so. Cori voice packs also
+  carry espeak-ng-data.
+  Corresponding source: third_party/sherpa-onnx/sherpa-onnx-v1.13.0-inflect-source-inputs.tar.gz
+  (SHA-256 40c77074a09ad2ae5d09ad6a4347fc98e13da312527f9a9d558d2d5ca4ecd82b) in
+  https://github.com/NickMonrad/kernel-ai-assistant/tree/9ff3846424ef1cc7857e6e724ff7f32d9e0766d9/third_party/sherpa-onnx
+
+piper-phonemize 78a788e0
+  Copyright 2023 Michael Hansen
+  Licensed under the MIT License
+  https://github.com/rhasspy/piper-phonemize
+
+uni-algo
+  Licensed under the public-domain dedication (The Unlicense)
+
+Cori voice (en_GB-cori-high)
+  Trained from scratch on LibriVox audiobooks, which are public domain. The trainer states
+  the voice is public domain (https://brycebeattie.com/files/tts/). The MIT tag on the
+  rhasspy/piper-voices repository is not a grant of rights to the voice model.
+  rhasspy/piper-voices at revision 5041a7a49ae5b3a0f30e6837769eb03fdbb231bd (pre-retrain card).
+
+Inflect Micro v2 (owensong/Inflect-Micro-v2-ONNX)
+  Licensed under the Apache License, Version 2.0 (upstream model repository)
+  https://github.com/owensong/Inflect-Micro-v2-ONNX
+  Used: duration and decode ONNX graphs, downloaded on demand on supported flagship arm64 devices.
+
 openWakeWord
   Copyright openWakeWord contributors
-  The openWakeWord source code is licensed under the Apache License, Version 2.0.
+  Source code: Apache License, Version 2.0. Pre-trained models: Creative Commons
+  Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0), used as published
+  under the owner decision on #2017. Full licence text: cc-by-nc-sa-4.0-legalcode.txt.
+  Bundled in release: melspectrogram.onnx and embedding_model.onnx (unmodified upstream v0.5.1
+  assets), and hey_jandal.onnx (Jandal-trained Stage 3 classifier, offered under CC BY-NC-SA 4.0).
+  Stage 3 training data: consented maintainer/spouse recordings and Piper-generated synthetic clips.
+  Notice and SHA-256 pins: openwakeword-0.5.1-notices.txt.
   https://github.com/dscripka/openWakeWord
-  The upstream v0.5.1 feature backbones and Jandal-specific Stage 3 classifier
-  remain in debug assets only and are excluded from the v0.1 release.
-  The file-specific terms for the Stage 1/2 exports remain unresolved.
   https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1
-  The Stage 3 training record is in training/wakeword/README.md; debug fixtures
-  include consented maintainer/spouse recordings and Piper-generated synthetic clips.
-  The Piper runtime and voice packs themselves are not distributed in v0.1.
+
+Whisper tiny.en speech-recognition weights (sherpa-onnx export)
+  OpenAI Whisper code: Copyright (c) 2022 OpenAI, MIT License. OpenAI whisper-tiny.en
+  weights: Apache License 2.0 (model card). Downloaded on demand for wake-word verification.
+  Export: https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/tree/d026532c022fa99fd789d6b32446a1df7b6bfc43
+  Upstream: https://github.com/openai/whisper and https://huggingface.co/openai/whisper-tiny.en
+  The export repository has no licence file; it is attributed to the OpenAI weights above.
 
 asr4all speech recognition weights (Asr4All, 28M and 56M sizes)
   Licensed under the FUTO Model Weights License (Restricted Use) 1.0. The full text is
