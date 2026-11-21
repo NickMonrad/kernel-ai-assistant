@@ -512,8 +512,11 @@ class Asr4allVoiceInputControllerTest {
     @Test
     fun `withEngineReleasedIfIdle refuses a live capture and leaves it recording`() = runBlocking(Dispatchers.IO) {
         val c = controller()
-        firstFrame = CountDownLatch(1)
+        // Holding the reader keeps the capture live; without it the fake source can end the capture on its own.
+        val gate = CountDownLatch(1)
+        readGate = gate
         try {
+            firstFrame = CountDownLatch(1)
             startedId(c.startListening(VoiceCaptureMode.Command))
             assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
             var ran = false
@@ -523,6 +526,8 @@ class Asr4allVoiceInputControllerTest {
             assertFalse(ran, "the block must not run while the capture is live")
             assertTrue(c.hasActiveCapture(), "the refused release must leave the capture running")
         } finally {
+            gate.countDown()
+            readGate = null
             c.stopListening()
         }
     }
@@ -530,15 +535,24 @@ class Asr4allVoiceInputControllerTest {
     @Test
     fun `awaitCaptureIdle returns only after the live capture has ended`() = runBlocking(Dispatchers.IO) {
         val c = controller()
-        firstFrame = CountDownLatch(1)
-        startedId(c.startListening(VoiceCaptureMode.Command))
-        assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
-        val idle = async { c.awaitCaptureIdle() }
-        // The capture is live for the whole of this check, so the waiter must still be parked.
-        assertFalse(idle.isCompleted, "must not return while the capture is live")
-        c.stopListening()
-        withTimeout(5_000) { idle.await() }
-        assertFalse(c.hasActiveCapture())
+        val gate = CountDownLatch(1)
+        readGate = gate
+        try {
+            firstFrame = CountDownLatch(1)
+            startedId(c.startListening(VoiceCaptureMode.Command))
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            val idle = async { c.awaitCaptureIdle() }
+            // The reader is held on [gate], so the capture is live and the waiter must still be parked.
+            assertFalse(idle.isCompleted, "must not return while the capture is live")
+            gate.countDown()
+            c.stopListening()
+            withTimeout(5_000) { idle.await() }
+            assertFalse(c.hasActiveCapture())
+        } finally {
+            gate.countDown()
+            readGate = null
+            c.stopListening()
+        }
     }
 
     @Test
