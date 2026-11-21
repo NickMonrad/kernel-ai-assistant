@@ -60,6 +60,8 @@ class Asr4allVoiceInputControllerTest {
     private val readCount = java.util.concurrent.atomic.AtomicInteger(0)
     /** Test-only: the reader stays at most this many chunks ahead of the engine. Pre-roll drops its oldest chunks before attach, so an unbounded reader could drop the lead-in. */
     @Volatile private var readAhead: Int? = null
+    /** Set once the engine finishes: the consumer is done, so the reader must not wait on it any longer. */
+    @Volatile private var finished = false
     @Volatile private var renderGate: CountDownLatch? = null
     private val renderStarted = CountDownLatch(1)
     /** Partial text per acceptAudio call (1-based index); the default reports "Final" on every chunk. */
@@ -138,7 +140,7 @@ class Asr4allVoiceInputControllerTest {
             every { read(any<ShortArray>(), any(), any()) } answers {
                 val buf = firstArg<ShortArray>()
                 val read = readCount.incrementAndGet()
-                readAhead?.let { ahead -> while (read - acceptCalls.get() > ahead) Thread.sleep(1) }
+                readAhead?.let { ahead -> while (read - acceptCalls.get() > ahead && !finished) Thread.sleep(1) }
                 buf.fill(amplitudeForRead?.invoke(read)?.toShort() ?: amplitude)
                 firstFrame.countDown()
                 readGate?.await()
@@ -156,6 +158,7 @@ class Asr4allVoiceInputControllerTest {
         }
         every { e.reset() } answers { log += "reset#$index" }
         every { e.finish() } answers {
+            finished = true
             renderGate?.let { renderStarted.countDown(); it.await(5, TimeUnit.SECONDS) }
             log += "finish#$index"
             finalText
@@ -439,7 +442,8 @@ class Asr4allVoiceInputControllerTest {
             // Overlap: the new route runs eagerly up to its first suspension while the old teardown is held.
             firstFrame = CountDownLatch(1)
             val start = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                startedId(c.startListening(VoiceCaptureMode.Command))
+                val overlap = c.startListening(VoiceCaptureMode.Command)
+                assertTrue(overlap is VoiceInputStartResult.Started, "overlapping start must open after the old abandon: $overlap")
             }
             assertEquals(1, focusRequests.get(), "no second focus request while the old abandon is held")
             assertEquals(1, micOpens.get(), "no second recorder open while the old abandon is held")
