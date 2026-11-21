@@ -23,6 +23,8 @@ data class ReleaseAssetAttribution(
 object ReleaseAssetAttributionCatalog {
     const val UNDER_REVIEW = "Under review"
     private const val EXCLUDED = "Debug/internal only · excluded from v0.1"
+    private const val STT_DEBUG_ONLY = "Debug-only · Sherpa STT input excluded from v0.1"
+    private const val WHISPER_VERIFIER = "Downloaded with Hey Jandal · release-visible"
 
     private val modelRows = KernelModel.entries.map { model ->
         val details = when (model) {
@@ -93,8 +95,10 @@ object ReleaseAssetAttributionCatalog {
             licenceDisplay = details.second,
             lineageDisplay = details.third,
             releaseStatus = when {
+                model.name.startsWith("SHERPA_WHISPER_") ->
+                    WHISPER_VERIFIER
                 model.name.startsWith("SHERPA_") ->
-                    EXCLUDED
+                    STT_DEBUG_ONLY
                 model.isBundled -> "Bundled in release"
                 else -> "Download on demand"
             },
@@ -113,7 +117,7 @@ object ReleaseAssetAttributionCatalog {
                 sourceDisplay = row?.sourceDisplay,
                 licenceDisplay = row?.licenceDisplay,
                 lineageDisplay = row?.lineageDisplay,
-                releaseStatus = EXCLUDED,
+                releaseStatus = if (spec == SherpaSttModelSpec.WHISPER) WHISPER_VERIFIER else STT_DEBUG_ONLY,
             )
         }
     }
@@ -155,7 +159,6 @@ object ReleaseAssetAttributionCatalog {
         ReleaseAssetAttribution("wakeword:openwakeword-melspectrogram", "openWakeWord melspectrogram stage", "Wake-word audio preprocessing", "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx", "CC BY-NC-SA 4.0 as published upstream (owner decision, #2017); file-level terms unresolved (PR #2020)", "Unmodified upstream v0.5.1 asset; SHA-256 ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f", "Bundled in release · CC BY-NC-SA 4.0"),
         ReleaseAssetAttribution("wakeword:openwakeword-embedding", "openWakeWord embedding stage", "Wake-word audio embedding", "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx", "CC BY-NC-SA 4.0 as published upstream (owner decision, #2017); file-level terms unresolved (PR #2020)", "Unmodified upstream v0.5.1 asset; SHA-256 70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f; upstream attributes the backbone to Google speech_embedding (Apache-2.0)", "Bundled in release · CC BY-NC-SA 4.0"),
         ReleaseAssetAttribution("wakeword:hey-jandal", "Hey Jandal wake-word classifier", "Wake-word detection", "Jandal training/wakeword pipeline · app/src/main/assets/models/wakeword/hey_jandal.onnx", "CC BY-NC-SA 4.0 (owner decision, #2017; ShareAlike)", "Jandal-specific Stage 3 classifier, SHA-256 11bcdb0d800b3a93449197122bd9fb484c4b8db887364c629f6c975e3e38c206; training used consented maintainer/spouse recordings plus Piper-generated synthetic clips as recorded in training/wakeword/README.md", "Bundled in release · CC BY-NC-SA 4.0"),
-        ReleaseAssetAttribution("asset:whisper-tiny-en-verifier", "Whisper tiny.en wake verifier", "Wake-word verification (downloaded)", "csukuangfj/sherpa-onnx-whisper-tiny.en · revision d026532c022fa99fd789d6b32446a1df7b6bfc43", "MIT (OpenAI code); Apache-2.0 (OpenAI whisper-tiny.en weights card)", "Export repository has no licence file; attributed to the upstream OpenAI weights and the sherpa-onnx export recipe", "Downloaded with Hey Jandal · release-visible"),
         ReleaseAssetAttribution("asset:vocab", "Bundled tokenizer vocabulary", "Memory search tokenizer", "Snowflake/snowflake-arctic-embed-m-v1.5 · revision e58a8f756156a1293d763f17e3aae643474e9b8a", "Apache-2.0", "WordPiece vocabulary, SHA-256 07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3", "Bundled in release"),
         ReleaseAssetAttribution("asset:intent-vectors", "Bundled MiniLM intent phrase vectors", "Intent matching vectors", "Jandal-generated from the bundled MiniLM model, vocab.txt and intent_phrases.json", "Apache-2.0 (Jandal project)", "Hash-bound generated vector asset; generation and freshness checks are documented in docs/minilm-intent-phrase-vectors.md", "Bundled in release"),
     )

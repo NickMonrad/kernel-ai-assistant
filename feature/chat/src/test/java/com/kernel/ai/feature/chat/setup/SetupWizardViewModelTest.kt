@@ -382,6 +382,10 @@ class SetupWizardViewModelTest {
         assertFalse(VoiceOutputEngine.KokoroExperimental in vm.uiState.value.outputOptions)
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
+        val coriBytes = SherpaPiperVoice.CoriHigh.approxDownloadBytes
+        val inflectBytes = InflectMicroSetup.kernelModels().sumOf { it.approxSizeBytes } + coriBytes
+        assertEquals(coriBytes, vm.uiState.value.outputSizes[VoiceOutputEngine.SherpaExperimental])
+        assertEquals(inflectBytes, vm.uiState.value.outputSizes[VoiceOutputEngine.InflectMicroExperimental])
 
         vm.atDownloadStep()
         vm.onContinue {}

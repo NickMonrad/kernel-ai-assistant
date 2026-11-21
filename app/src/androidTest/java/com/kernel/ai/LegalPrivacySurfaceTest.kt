@@ -58,6 +58,8 @@ class LegalPrivacySurfaceTest {
         }
         composeRule.onNodeWithText("openWakeWord melspectrogram stage").assertExists()
         // The three wake-word entries (melspectrogram, embedding, Hey Jandal) carry this release status.
+        // The screen is a verticalScroll Column (not LazyColumn), so rows below the fold are composed and counted.
+        // Not executed on a device in this PR; compile-checked only.
         composeRule.onAllNodesWithText("Bundled in release · CC BY-NC-SA 4.0", substring = true).assertCountEquals(3)
         // Stage 1/2 terms stay flagged as unresolved at file level (PR #2020).
         composeRule.onAllNodesWithText("file-level terms unresolved", substring = true).assertCountEquals(2)

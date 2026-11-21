@@ -55,17 +55,20 @@ class ReleaseAssetAttributionCatalogTest {
     }
 
     @Test
-    fun whisperVerifierIsDisclosedAsDownloadedReleaseAsset() {
-        val whisper = ReleaseAssetAttributionCatalog.entries.single { it.id == "asset:whisper-tiny-en-verifier" }
-        assertTrue(whisper.releaseStatus.startsWith("Downloaded with Hey Jandal"))
-        assertTrue(whisper.licenceText.contains("Apache-2.0"))
+    fun whisperVerifierFilesAreReleaseVisibleAndDownloadedWithHeyJandal() {
+        val whisperIds = SherpaSttModelSpec.WHISPER.requiredFileNames.map { "stt:$it" }.toSet()
+        val whisper = ReleaseAssetAttributionCatalog.entries.filter { it.id in whisperIds }
+        assertEquals(whisperIds.size, whisper.size)
+        assertTrue(whisper.all { it.releaseStatus == "Downloaded with Hey Jandal · release-visible" })
+        assertTrue(whisper.all { it.licenceText.contains("Apache-2.0") })
     }
 
 
     @Test
     fun sherpaSttNonCoriPiperAndKokoroStayExcludedWhileCoriAndSherpaEnginesAreReleaseVisible() {
+        val whisperIds = SherpaSttModelSpec.WHISPER.requiredFileNames.map { "stt:$it" }.toSet()
         val excluded = ReleaseAssetAttributionCatalog.entries.filter {
-            (it.id.startsWith("stt:") && it.id != "stt:AndroidNative") ||
+            (it.id.startsWith("stt:") && it.id != "stt:AndroidNative" && it.id !in whisperIds) ||
                 (it.id.startsWith("piper:") && it.id != "piper:CoriHigh") ||
                 it.id.startsWith("kokoro:") ||
                 it.id == "tts:KokoroExperimental"

@@ -270,7 +270,6 @@ class SetupWizardViewModel @Inject constructor(
      * graph files plus Cori when Cori is not on disk, or 0 when all are on disk (#1931). Android TTS has no entry.
      */
     private fun outputSizes(): Map<VoiceOutputEngine, Long> {
-        if (releaseBuild) return emptyMap()
         val cori = if (isDownloaded(SherpaPiperVoice.CoriHigh)) 0L else SherpaPiperVoice.CoriHigh.approxDownloadBytes
         val inflectFiles = InflectMicroSetup.kernelModels().filterNot { isModelDownloaded(it) }.sumOf { it.approxSizeBytes }
         return mapOf(

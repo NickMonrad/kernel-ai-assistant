@@ -1257,3 +1257,46 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+=======================================================================================
+3. Additional statically linked dependencies (Sherpa-ONNX Inflect JNI)
+=======================================================================================
+The packaged libsherpa-onnx-jni.so also links the components below, built from the
+source inputs in third_party/sherpa-onnx/sherpa-onnx-v1.13.0-inflect-source-inputs.tar.gz
+(dependencies/). Unless stated otherwise, the copyright holders are as listed.
+
+3a. kaldi-decoder v0.3.0: Apache License 2.0 (text in section 1). Copyright (c) 2022-2023 Xiaomi Corporation; portions Copyright 2009-2012 Microsoft Corporation.
+3b. kaldi-native-fbank v1.22.3: Apache License 2.0 (text in section 1). Copyright (c) 2022-2025 Xiaomi Corporation (Fangjun Kuang); Copyright (c) 2024 Brno University of Technology (Karel Vesely).
+3c. kaldifst v1.8.0: Apache License 2.0 (text in section 1). Copyright (c) 2021-2023 Xiaomi Corporation (Fangjun Kuang); portions Copyright 2009-2011 Microsoft Corporation.
+3d. OpenFst v1.8.5 (2026-04-11): Apache License 2.0 (text in section 1). Copyright 2005-2024 Google LLC.
+3e. simple-sentencepiece v0.7: Apache License 2.0 (text in section 1). Copyright (c) 2024 Wei Kang. It vendors darts-clone (ssentencepiece/csrc/darts.h), licensed under the BSD 2-Clause License (text in section 2b, Copyright (c) 2008-2014 Susumu Yata).
+3f. nlohmann/json v3.12.0: MIT License (text as in the piper-phonemize section above, with the copyright line Copyright (c) 2013-2025 Niels Lohmann).
+3g. KISS FFT (kissfft febd4cae): BSD-3-Clause (text below). Copyright (c) 2003-2010 Mark Borgerding.
+3h. Eigen 5.0.1: primarily Mozilla Public License 2.0. Some files are BSD-3-Clause (Copyright (c) 2011 Intel Corporation, text below). COPYING.MINPACK (Minpack, University of Chicago) applies to Eigen's unsupported NonLinearOptimization module only. MPL-2.0 full text: https://www.mozilla.org/MPL/2.0/ and COPYING.MPL2 in dependencies/eigen-5.0.1.tar.gz of the source inputs archive.
+
+BSD-3-Clause (KISS FFT; Eigen BSD files)
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation
+and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+may be used to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
+USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
