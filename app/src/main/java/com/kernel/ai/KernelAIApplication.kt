@@ -45,6 +45,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var inferenceEngine: InferenceEngine
     @Inject lateinit var clockTimerNotificationCoordinator: ClockTimerNotificationCoordinator
+    @Inject lateinit var asr4allSizeSwitcher: Provider<com.kernel.ai.core.voice.Asr4allSizeSwitcher>
     @Inject lateinit var clockStopwatchNotificationCoordinator: ClockStopwatchNotificationCoordinator
     @Inject lateinit var nextcloudSyncScheduler: Provider<NextcloudSyncScheduler>
     @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
@@ -131,6 +132,8 @@ class KernelAIApplication : Application(), Configuration.Provider {
                 }
             }
         }
+        // Resumes an asr4all size switch that was pending when the process ended, and keeps inactive sizes swept.
+        asr4allSizeSwitcher.get().start()
     }
 
     /**

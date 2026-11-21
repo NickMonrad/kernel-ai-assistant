@@ -1,0 +1,73 @@
+         1795294090.172 25999 25999 I adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:log -t Evidence1923 smoke_mode=kiwi thermal_status_at_start=0'
+         1795294090.240  8193  8193 I Evidence1923: smoke_mode=kiwi thermal_status_at_start=0
+         1795294090.984  7976  7976 I KernelAI: external_prompt_trust callerUid=-1 trust=DIRECT
+         1795294092.430  7976  7976 D VoiceTiming: firstChunkQueued epochMs=1795294092430 chars=34
+         1795294092.769  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=accepted t_ms=0
+         1795294092.799  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=coroutine_started t_ms=30
+         1795294092.869  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=route_done t_ms=100
+         1795294092.880  7976  7976 D KernelAI: llm_tools_route: result=fallthrough best_guess=null confidence=0.0
+         1795294100.835  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=model_ready t_ms=8066
+         1795294102.408  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=rag_done t_ms=9638
+         1795294102.420  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=prompt_reset_start t_ms=9650
+         1795294102.422  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=prompt_reset_done t_ms=9652
+         1795294102.429  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=generate_called t_ms=9659
+         1795294102.433  7976  8564 D LiteRtInferenceEngine: TTFT_STAGE engine generation_lock_wait_ms=0
+         1795294102.441  7976  8564 D LiteRtInferenceEngine: generation_diagnostic generation_id=b33bcc57-1-g1 send_attempt=1 stage=initial_prompt event=send_start
+         1795294109.833  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=1 type=callback channels=[] thought="" raw="Morena," toolCalls=
+         1795294109.836  7976  8731 I LiteRtInferenceEngine: TTFT (Time to First Token): 7402ms [backend=GPU]
+         1795294109.840  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=first_token t_ms=17070
+         1795294109.875  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=first_ui_update t_ms=17106
+         1795294109.949  7976  7976 D KernelAI: TTFT_STAGE commandId=b33bcc57-1 stage=first_answer_token_visible t_ms=17179
+         1795294109.979  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=2 type=callback channels=[] thought="" raw="\n\nHere are" toolCalls=
+         1795294110.121  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=3 type=callback channels=[] thought="" raw=" three" toolCalls=
+         1795294110.267  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=4 type=callback channels=[] thought="" raw=" facts about" toolCalls=
+         1795294110.411  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=5 type=callback channels=[] thought="" raw=" kiwi birds:\n\n" toolCalls=
+         1795294110.564  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=6 type=callback channels=[] thought="" raw="1." toolCalls=
+         1795294110.703  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=7 type=callback channels=[] thought="" raw=" The kiwi is a" toolCalls=
+         1795294110.854  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=8 type=callback channels=[] thought="" raw=" flightless, nocturnal" toolCalls=
+         1795294111.018  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=9 type=callback channels=[] thought="" raw=" bird" toolCalls=
+         1795294111.182  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=10 type=callback channels=[] thought="" raw=" that" toolCalls=
+         1795294111.335  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=11 type=callback channels=[] thought="" raw=" lives on the ground" toolCalls=
+         1795294111.498  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=12 type=callback channels=[] thought="" raw=" in New Zealand." toolCalls=
+         1795294111.662  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=13 type=callback channels=[] thought="" raw="\n2. The" toolCalls=
+         1795294111.817  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=14 type=callback channels=[] thought="" raw=" kiwi is the national" toolCalls=
+         1795294111.976  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=15 type=callback channels=[] thought="" raw=" symbol of New Zealand" toolCalls=
+         1795294112.138  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=16 type=callback channels=[] thought="" raw=" and is strictly protected" toolCalls=
+         1795294112.302  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=17 type=callback channels=[] thought="" raw=".\n3." toolCalls=
+         1795294112.459  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=18 type=callback channels=[] thought="" raw=" Chur is" toolCalls=
+         1795294112.633  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=19 type=callback channels=[] thought="" raw=" an" toolCalls=
+         1795294112.790  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=20 type=callback channels=[] thought="" raw=" acknowledgement" toolCalls=
+         1795294112.943  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=21 type=callback channels=[] thought="" raw=" often used" toolCalls=
+         1795294113.115  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=22 type=callback channels=[] thought="" raw=" by" toolCalls=
+         1795294113.305  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=23 type=callback channels=[] thought="" raw=" New Zealand" toolCalls=
+         1795294113.471  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=24 type=callback channels=[] thought="" raw="ers to" toolCalls=
+         1795294113.649  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=25 type=callback channels=[] thought="" raw=" mean" toolCalls=
+         1795294113.812  7976  8284 I VoiceTiming: synth token=1 chunk=0 chars=51 sid=0 startEpochMs=1795294110534 endEpochMs=1795294113811 synthMs=3277 audioMs=3039 rtf=1.08
+         1795294113.828  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=26 type=callback channels=[] thought="" raw=" thanks" toolCalls=
+         1795294113.971  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=27 type=callback channels=[] thought="" raw=" or" toolCalls=
+         1795294114.117  7976  8731 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=28 type=callback channels=[] thought="" raw=" agreement." toolCalls=
+         1795294114.120  7976  8768 D LiteRtInferenceEngine: generation_diagnostic generation_id=b33bcc57-1-g1 send_attempt=1 stage=initial_prompt event=on_done tool_response_pending=false
+         1795294114.122  7976  8768 I LiteRtInferenceEngine: LiteRT benchmark: init=12.090343337s, TTFT=6.32151475325s, prefill=2507 tokens @ 401.5474394753631 tokens/s, decode=69 tokens @ 12.792998446681915 tokens/s [backend=GPU]
+         1795294114.122  7976  8768 I LiteRtInferenceEngine: Generation complete: total=11687ms, TTFT=7402ms, visibleChunks=28 [backend=GPU]
+         1795294114.122  7976  8768 D LiteRtInferenceEngine: event_seq: b33bcc57-1-g1 seq=29 type=complete callbacks=28 thinkingChars=0
+         1795294114.122  7976  8768 D LiteRtInferenceEngine: VoiceTiming lastToken epochMs=1795294114122
+         1795294114.127  7976  7976 D KernelAI: llm_tools_tool_sequence: attempt=none turn=none terminal=none
+         1795294114.127  7976  7976 D KernelAI: thinking_save: thinkingLen=0, contentLen=298
+         1795294114.128  7976  7976 D KernelAI: llm_tools_assistant_reply: len=298
+         1795294114.167  7976  7976 D VoiceTiming: firstChunkQueued epochMs=1795294114167 chars=51
+         1795294114.169  7976  8284 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=51 part=1/1 text=Moh-reh-nah, Here are three facts about kiwi birds.
+         1795294114.169  7976  8284 I KernelAI: SpeakingStarted engine=sherpa chars=51 epochMs=1795294114169
+         1795294114.226  7976  8284 I VoiceTiming: playStart token=1 chunk=0 epochMs=1795294114226
+         1795294117.539  7976  8284 I VoiceTiming: playEnd token=1 chunk=0 epochMs=1795294117538
+         1795294118.440  7976  8283 I VoiceTiming: synth token=1 chunk=1 chars=81 sid=0 startEpochMs=1795294114171 endEpochMs=1795294118440 synthMs=4269 audioMs=4603 rtf=0.93
+         1795294118.442  7976  8288 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=81 part=1/1 text=The kiwi is a flightless, nocturnal bird that lives on the ground in New Zealand.
+         1795294118.442  7976  8288 I VoiceTiming: playStart token=1 chunk=1 epochMs=1795294118442 gapMs=904
+         1795294121.307  7976  8283 I VoiceTiming: synth token=1 chunk=2 chars=73 sid=0 startEpochMs=1795294118440 endEpochMs=1795294121306 synthMs=2866 audioMs=4701 rtf=0.61
+         1795294123.197  7976  8288 I VoiceTiming: playEnd token=1 chunk=1 epochMs=1795294123197
+         1795294123.199  7976  8288 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=73 part=1/1 text=The kiwi is the national symbol of New Zealand and is strictly protected.
+         1795294123.199  7976  8288 I VoiceTiming: playStart token=1 chunk=2 epochMs=1795294123199 gapMs=2
+         1795294124.564  7976  8283 I VoiceTiming: synth token=1 chunk=3 chars=84 sid=0 startEpochMs=1795294121307 endEpochMs=1795294124564 synthMs=3257 audioMs=5486 rtf=0.59
+         1795294128.048  7976  8288 I VoiceTiming: playEnd token=1 chunk=2 epochMs=1795294128048
+         1795294128.050  7976  8288 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=84 part=1/1 text=Chur is an acknowledgement often used by New Zealanders to mean thanks or agreement.
+         1795294128.050  7976  8288 I VoiceTiming: playStart token=1 chunk=3 epochMs=1795294128050 gapMs=2
+         1795294133.682  7976  8288 I VoiceTiming: playEnd token=1 chunk=3 epochMs=1795294133680

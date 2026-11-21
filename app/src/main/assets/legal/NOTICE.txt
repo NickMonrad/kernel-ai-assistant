@@ -137,9 +137,9 @@ asr4all speech recognition weights (Asr4All, 56M and 97M sizes)
   shown at the end of this screen.
   https://huggingface.co/futo-org/asr4all-m/blob/7d6e9145109a5bece4f05831d046e93d27e38a99/LICENSE
   https://huggingface.co/futo-org/asr4all-l/blob/79d1c23bc8f1174cee576b40bbaa0118bd95abed/LICENSE
-  Planned use, not yet enabled in this build: unmodified ExecuTorch INT8 (XNNPACK) speech-recognition exports to be
-  downloaded from the publisher's Hugging Face repositories (asr4all-m at revision 7d6e9145, asr4all-l at
-  revision 79d1c23b). Commercial
+  Used by Jandal's offline speech recognition (asr4all, ExecuTorch). Unmodified INT8 (XNNPACK) speech-recognition
+  exports, downloaded on demand from the publisher's Hugging Face repositories (asr4all-m at revision 7d6e9145,
+  asr4all-l at revision 79d1c23b). Commercial
   use is permitted. The Limitations section prohibits surveillance, profiling and
   discrimination, intelligence gathering, monitoring people in custody, targeting protected
   activity, and circumvention of those limits. asr4all-l-plus is under a different licence

@@ -1,0 +1,478 @@
+===== s23u-raw.log =====
+11-22 03:49:41.546  3598  3598 I ModelDownloadManager: Enqueuing download for asr4all M config
+11-22 03:49:41.548  3598  3598 I ModelDownloadManager: Enqueuing download for asr4all M release geometry
+11-22 03:49:41.549  3598  3598 I ModelDownloadManager: Enqueuing download for asr4all M preprocessor
+11-22 03:49:41.553  3598  3598 I ModelDownloadManager: Enqueuing download for asr4all M ExecuTorch metadata
+11-22 03:49:41.555  3598  3834 I ModelDownloadManager: Enqueuing asr4all M release geometry with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:49:41.557  3598  3598 I ModelDownloadManager: Enqueuing download for asr4all M encoder
+11-22 03:49:41.557  3598  3833 I ModelDownloadManager: Enqueuing asr4all M preprocessor with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:49:41.559  3598  3836 I ModelDownloadManager: Enqueuing asr4all M config with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:49:41.559  3598  3832 I ModelDownloadManager: Enqueuing asr4all M ExecuTorch metadata with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:49:41.589  3598  3837 I ModelDownloadManager: Enqueuing asr4all M encoder with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:49:41.648  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:49:41.649  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:49:41.655  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:49:41.659  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:49:41.666  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:49:42.175  3598  3837 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/preprocessor_config.json
+11-22 03:49:42.181  3598  4898 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/executorch/xnnpack_int8/metadata.json
+11-22 03:49:42.182  3598  4899 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/config.json
+11-22 03:49:42.188  3598  4898 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/release_geom.json
+11-22 03:49:42.190  3598  3862 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=ecbcfa4a-f034-45eb-b6fa-25783692f70c, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_m_preprocessor } ]
+11-22 03:49:42.193  3598  3862 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=b97ebf1a-4992-4a9f-bd7a-3b554a388d72, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_m_metadata } ]
+11-22 03:49:42.199  3598  3862 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=c4b2b39f-a873-483d-b0c5-de70cb00024a, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_m_config } ]
+11-22 03:49:42.202  3598  3862 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=5c9fb158-86f8-4547-88cc-d2d2b60437ff, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_m_release_geom } ]
+11-22 03:49:42.225  3598  3837 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/config.json
+11-22 03:49:42.226  3598  3825 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/release_geom.json
+11-22 03:49:42.227  3598  4898 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/preprocessor_config.json
+11-22 03:49:42.232  3598  4899 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/executorch/xnnpack_int8/metadata.json
+11-22 03:49:44.769  3598  3833 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/executorch/xnnpack_int8/asr_encoder.pte
+11-22 03:49:44.771  3598  3878 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=5dc0c4c2-e620-42fc-8367-741b762e98f5, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_m_encoder } ]
+11-22 03:49:44.797  3598  3833 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/executorch/xnnpack_int8/asr_encoder.pte
+11-22 03:50:43.022  3598  3598 I KernelAI: Eager inference initialization waiting for app foreground
+11-22 03:50:43.022  3598  3598 I KernelAI: Eager inference initialization permitted at lifecycle state=RESUMED
+11-22 03:50:43.031  3598  3832 I KernelAI: Using downloaded voice pack at /data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-cori-high
+11-22 03:50:43.104  3598  4898 I ExecuTorch: Reading file /sys/devices/soc0/image_version
+11-22 03:50:43.104  3598  4898 I ExecuTorch: Failed to open midr file /sys/devices/soc0/image_version
+11-22 03:50:43.104  3598  4898 I ExecuTorch: Number of efficient cores 3
+11-22 03:50:43.108  3598  4898 I ExecuTorch: Resetting threadpool to 4 threads.
+11-22 03:50:44.419  3598  3832 I KernelAI: Sherpa-ONNX TTS initialised — voice: en_GB-cori-high at /data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-cori-high
+11-22 03:50:44.419  3598  3598 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.
+11-22 03:51:33.455  3013  8663 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 03:51:33.460  3013  8663 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@a82ac86
+11-22 03:51:44.060  3598  3598 D KernelAI: ChatViewModel: voice error — silent retry 1/1
+11-22 03:51:44.109  3013  8471 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:51:44.110  3013  8471 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@a82ac86
+11-22 03:51:44.110  3013  8471 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@a82ac86
+11-22 03:51:44.140  3013  8663 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 03:51:44.140  3013  8663 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@9e4d41f
+11-22 03:51:54.420  3013  4498 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:51:54.420  3013  4498 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@9e4d41f
+11-22 03:51:54.420  3013  4498 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@9e4d41f
+11-22 03:52:23.577  3013  8858 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 03:52:23.577  3013  8858 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@fe937af
+11-22 03:52:27.393  3598  3598 D KernelAI: ADB_INTENT_TRACE commandId=6e58637f-1 input=redacted submitMode=Voice
+11-22 03:52:27.393  3598  3598 D KernelAI: TTFT_STAGE commandId=6e58637f-1 stage=accepted t_ms=0
+11-22 03:52:27.432  3598  3598 D KernelAI: TTFT_STAGE commandId=6e58637f-1 stage=coroutine_started t_ms=38
+11-22 03:52:27.457  3013  8471 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:52:27.457  3013  8471 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@fe937af
+11-22 03:52:27.457  3013  8471 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@fe937af
+11-22 03:52:27.469  3598  3598 D KernelAI: TTFT_STAGE commandId=6e58637f-1 stage=first_feedback_visible t_ms=75
+11-22 03:52:27.472  3598  3598 D KernelAI: Set placeholder title: <redacted>
+11-22 03:52:27.474  3598  3598 D KernelAI: TTFT_STAGE commandId=6e58637f-1 stage=route_done t_ms=80
+11-22 03:52:27.494  3598  3598 D KernelAI: ADB_ROUTE_DECISION commandId=6e58637f-1 result=classified intent=get_time
+11-22 03:52:27.494  3598  3598 D KernelAI: llm_tools_route: result=classified intent=get_time
+11-22 03:52:27.496  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 03:52:27.497  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 03:52:27.497  3598  3598 D KernelAI: DirectReply: len=12
+11-22 03:52:28.319  3598  3598 D KernelAI: ADB_TOOL_COMPLETE commandId=6e58637f-1 intent=get_time result=direct_reply
+11-22 03:52:28.375  3598  3598 D VoiceTiming: firstChunkQueued epochMs=1795283548375 chars=13
+11-22 03:52:29.728  3598  3825 I VoiceTiming: synth token=1 chunk=0 chars=25 sid=0 startEpochMs=1795283548375 endEpochMs=1795283549728 synthMs=1353 audioMs=1857 rtf=0.73
+11-22 03:52:29.729  3598  3832 I KernelAI: SpeakingStarted engine=sherpa chars=25 epochMs=1795283549729
+11-22 03:52:29.730  3013  8471 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=3 flags=0x0 sdk=36
+11-22 03:52:29.730  3013  8471 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@1273ff4
+11-22 03:52:29.730  3598  3832 I VoiceTiming: playStart token=1 chunk=0 epochMs=1795283549730
+11-22 03:52:31.755  3598  3832 I VoiceTiming: playEnd token=1 chunk=0 epochMs=1795283551755
+11-22 03:52:31.758  3013  8487 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:52:31.758  3013  8487 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@1273ff4
+11-22 03:52:31.758  3013  8487 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@1273ff4
+11-22 03:52:50.266  3013  6379 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 03:52:50.267  3013  6379 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@d8186d5
+11-22 03:52:53.868  3598  3598 D KernelAI: ADB_INTENT_TRACE commandId=b9432c87-2 input=redacted submitMode=Voice
+11-22 03:52:53.868  3598  3598 D KernelAI: TTFT_STAGE commandId=b9432c87-2 stage=accepted t_ms=0
+11-22 03:52:53.869  3598  3598 D KernelAI: TTFT_STAGE commandId=b9432c87-2 stage=coroutine_started t_ms=0
+11-22 03:52:53.875  3598  3598 D KernelAI: TTFT_STAGE commandId=b9432c87-2 stage=route_done t_ms=6
+11-22 03:52:53.898  3598  3598 D KernelAI: TTFT_STAGE commandId=b9432c87-2 stage=first_feedback_visible t_ms=29
+11-22 03:52:53.902  3598  3598 D KernelAI: ADB_ROUTE_DECISION commandId=b9432c87-2 result=classified intent=get_time
+11-22 03:52:53.902  3598  3598 D KernelAI: llm_tools_route: result=classified intent=get_time
+11-22 03:52:53.902  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 03:52:53.902  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 03:52:53.902  3598  3598 D KernelAI: DirectReply: len=12
+11-22 03:52:53.987  3013  8487 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:52:53.987  3013  8487 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@d8186d5
+11-22 03:52:53.987  3013  8487 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@d8186d5
+11-22 03:52:54.361  3598  3598 D KernelAI: ADB_TOOL_COMPLETE commandId=b9432c87-2 intent=get_time result=direct_reply
+11-22 03:52:54.404  3598  3598 D VoiceTiming: firstChunkQueued epochMs=1795283574404 chars=13
+11-22 03:52:55.222  3598  4896 I VoiceTiming: synth token=2 chunk=0 chars=25 sid=0 startEpochMs=1795283574404 endEpochMs=1795283575222 synthMs=818 audioMs=1758 rtf=0.47
+11-22 03:52:55.223  3598  4896 I KernelAI: SpeakingStarted engine=sherpa chars=25 epochMs=1795283575223
+11-22 03:52:55.223  3013  8487 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=3 flags=0x0 sdk=36
+11-22 03:52:55.224  3013  8487 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@76a76a
+11-22 03:52:55.224  3598  4896 I VoiceTiming: playStart token=2 chunk=0 epochMs=1795283575224
+11-22 03:52:57.076  3598  4896 I VoiceTiming: playEnd token=2 chunk=0 epochMs=1795283577076
+11-22 03:52:57.078  3013  8663 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:52:57.078  3013  8663 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@76a76a
+11-22 03:52:57.078  3013  8663 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@76a76a
+11-22 03:53:21.323  3013  4498 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 03:53:21.324  3013  4498 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@c09364f
+11-22 03:53:24.883  3598  3598 D KernelAI: ADB_INTENT_TRACE commandId=63db74dc-3 input=redacted submitMode=Voice
+11-22 03:53:24.883  3598  3598 D KernelAI: TTFT_STAGE commandId=63db74dc-3 stage=accepted t_ms=0
+11-22 03:53:24.883  3598  3598 D KernelAI: TTFT_STAGE commandId=63db74dc-3 stage=coroutine_started t_ms=0
+11-22 03:53:24.914  3598  3598 D KernelAI: TTFT_STAGE commandId=63db74dc-3 stage=first_feedback_visible t_ms=31
+11-22 03:53:24.924  3598  3598 D KernelAI: TTFT_STAGE commandId=63db74dc-3 stage=route_done t_ms=41
+11-22 03:53:24.926  3598  3598 D KernelAI: ADB_ROUTE_DECISION commandId=63db74dc-3 result=classified intent=get_time
+11-22 03:53:24.926  3598  3598 D KernelAI: llm_tools_route: result=classified intent=get_time
+11-22 03:53:24.926  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 03:53:24.926  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 03:53:24.927  3598  3598 D KernelAI: DirectReply: len=12
+11-22 03:53:25.006  3013  4498 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:53:25.006  3013  4498 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@c09364f
+11-22 03:53:25.006  3013  4498 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@c09364f
+11-22 03:53:25.387  3598  3598 D KernelAI: ADB_TOOL_COMPLETE commandId=63db74dc-3 intent=get_time result=direct_reply
+11-22 03:53:25.431  3598  3598 D VoiceTiming: firstChunkQueued epochMs=1795283605431 chars=13
+11-22 03:53:26.298  3598  3832 I VoiceTiming: synth token=3 chunk=0 chars=27 sid=0 startEpochMs=1795283605431 endEpochMs=1795283606298 synthMs=867 audioMs=1923 rtf=0.45
+11-22 03:53:26.298  3598  3832 I KernelAI: SpeakingStarted engine=sherpa chars=27 epochMs=1795283606298
+11-22 03:53:26.299  3013  5810 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=3 flags=0x0 sdk=36
+11-22 03:53:26.299  3013  5810 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@28fa7bf
+11-22 03:53:26.299  3598  3832 I VoiceTiming: playStart token=3 chunk=0 epochMs=1795283606299
+11-22 03:53:28.360  3598  3832 I VoiceTiming: playEnd token=3 chunk=0 epochMs=1795283608360
+11-22 03:53:28.361  3013  4498 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:53:28.361  3013  4498 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@28fa7bf
+11-22 03:53:28.361  3013  4498 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@28fa7bf
+11-22 03:53:52.874  3013  6438 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 03:53:52.875  3013  6438 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@78bdbf2
+11-22 03:53:56.421  3598  3598 D KernelAI: ADB_INTENT_TRACE commandId=1b065a0c-4 input=redacted submitMode=Voice
+11-22 03:53:56.421  3598  3598 D KernelAI: TTFT_STAGE commandId=1b065a0c-4 stage=accepted t_ms=0
+11-22 03:53:56.422  3598  3598 D KernelAI: TTFT_STAGE commandId=1b065a0c-4 stage=coroutine_started t_ms=0
+11-22 03:53:56.440  3598  3598 D KernelAI: TTFT_STAGE commandId=1b065a0c-4 stage=route_done t_ms=18
+11-22 03:53:56.453  3598  3598 D KernelAI: TTFT_STAGE commandId=1b065a0c-4 stage=first_feedback_visible t_ms=32
+11-22 03:53:56.455  3598  3598 D KernelAI: ADB_ROUTE_DECISION commandId=1b065a0c-4 result=classified intent=get_time
+11-22 03:53:56.455  3598  3598 D KernelAI: llm_tools_route: result=classified intent=get_time
+11-22 03:53:56.455  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 03:53:56.455  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 03:53:56.455  3598  3598 D KernelAI: DirectReply: len=12
+11-22 03:53:56.552  3013  8471 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:53:56.552  3013  8471 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@78bdbf2
+11-22 03:53:56.552  3013  8471 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@78bdbf2
+11-22 03:53:56.934  3598  3598 D KernelAI: ADB_TOOL_COMPLETE commandId=1b065a0c-4 intent=get_time result=direct_reply
+11-22 03:53:56.976  3598  3598 D VoiceTiming: firstChunkQueued epochMs=1795283636976 chars=13
+11-22 03:53:57.796  3598  4896 I VoiceTiming: synth token=4 chunk=0 chars=27 sid=0 startEpochMs=1795283636976 endEpochMs=1795283637796 synthMs=820 audioMs=1749 rtf=0.47
+11-22 03:53:57.796  3598  4896 I KernelAI: SpeakingStarted engine=sherpa chars=27 epochMs=1795283637796
+11-22 03:53:57.797  3013  8478 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=3 flags=0x0 sdk=36
+11-22 03:53:57.797  3013  8478 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@9a316c2
+11-22 03:53:57.797  3598  4896 I VoiceTiming: playStart token=4 chunk=0 epochMs=1795283637797
+11-22 03:53:59.722  3598  4896 I VoiceTiming: playEnd token=4 chunk=0 epochMs=1795283639721
+11-22 03:53:59.724  3013  8471 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:53:59.724  3013  8471 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@9a316c2
+11-22 03:53:59.725  3013  8471 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@9a316c2
+11-22 03:54:55.740  3598  9301 W KernelAI: Episodic distillation dropped ungrounded sentence: The user repeatedly asked about the current time.
+11-22 03:54:55.741  3598  9301 W KernelAI: Episodic distillation dropped ungrounded sentence: The user's interest in knowing the current time was noted multiple times.
+11-22 03:54:55.741  3598  9301 W KernelAI: Episodic distillation dropped ungrounded sentence: No preferences or specific events were established within this conversation.
+11-22 03:54:55.741  3598  9301 W KernelAI: Episodic distillation: no sentences parsed for 0f66f7ce-cbf9-40c1-a67e-126d45c1651a
+11-22 03:55:02.461  3598  9301 I ModelDownloadManager: Enqueuing download for asr4all L config
+11-22 03:55:02.462  3598  9301 I ModelDownloadManager: Enqueuing download for asr4all L release geometry
+11-22 03:55:02.463  3598  9301 I ModelDownloadManager: Enqueuing download for asr4all L preprocessor
+11-22 03:55:02.465  3598  9301 I ModelDownloadManager: Enqueuing download for asr4all L ExecuTorch metadata
+11-22 03:55:02.468  3598  9301 I ModelDownloadManager: Enqueuing download for asr4all L encoder
+11-22 03:55:02.472  3598  3832 I ModelDownloadManager: Enqueuing asr4all L release geometry with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:55:02.474  3598  3825 I ModelDownloadManager: Enqueuing asr4all L ExecuTorch metadata with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:55:02.474  3598  3830 I ModelDownloadManager: Enqueuing asr4all L preprocessor with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:55:02.474  3598  9297 I ModelDownloadManager: Enqueuing asr4all L encoder with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:55:02.475  3598  4893 I ModelDownloadManager: Enqueuing asr4all L config with policy=REPLACE (existingStates=[SUCCEEDED])
+11-22 03:55:02.582  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:55:02.585  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:55:02.587  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:55:02.591  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:55:02.595  3598  3598 D WM-WorkerWrapper: Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+11-22 03:55:03.125  3598  9396 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/release_geom.json
+11-22 03:55:03.128  3598  3879 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=39a202ea-28db-4078-ad49-d913eb90eb1d, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_release_geom } ]
+11-22 03:55:03.134  3598  9395 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/config.json
+11-22 03:55:03.140  3598  3880 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=59e6f61c-456b-4ad3-8760-032bbe650d97, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_config } ]
+11-22 03:55:03.154  3598  9395 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/config.json
+11-22 03:55:03.154  3598  4896 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/release_geom.json
+11-22 03:55:03.331  3598  9297 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/executorch/xnnpack_int8/metadata.json
+11-22 03:55:03.334  3598  9396 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/preprocessor_config.json
+11-22 03:55:03.337  3598  3862 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=073afe71-2b34-44b2-bc3b-5ac6b05e67b8, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_metadata } ]
+11-22 03:55:03.339  3598  3862 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=e656b237-203d-4f05-b16a-ad4a1c18430b, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_preprocessor } ]
+11-22 03:55:03.360  3598  4898 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/preprocessor_config.json
+11-22 03:55:03.362  3598  3825 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/executorch/xnnpack_int8/metadata.json
+11-22 03:55:07.766  3598  4899 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/executorch/xnnpack_int8/asr_encoder.pte
+11-22 03:55:07.767  3598  3880 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=53c126dd-d20c-4f59-8bf0-c841bcdf656f, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_encoder } ]
+11-22 03:55:07.816  3598  9297 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/executorch/xnnpack_int8/asr_encoder.pte
+11-22 03:55:07.858  3598  4899 I ModelDownloadManager: Refreshed state for asr4all M config: NotDownloaded
+11-22 03:55:07.859  3598  4899 I ModelDownloadManager: Refreshed state for asr4all M release geometry: NotDownloaded
+11-22 03:55:07.859  3598  4899 I ModelDownloadManager: Refreshed state for asr4all M preprocessor: NotDownloaded
+11-22 03:55:07.860  3598  4899 I ModelDownloadManager: Refreshed state for asr4all M ExecuTorch metadata: NotDownloaded
+11-22 03:55:07.860  3598  4899 I ModelDownloadManager: Refreshed state for asr4all M encoder: NotDownloaded
+11-22 03:56:29.841  3598  3598 D KernelAI: Restored session 0f66f7ce-cbf9-40c1-a67e-126d45c1651a has placeholder title — smart title can still fire
+11-22 03:56:29.844  3598  3598 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.
+11-22 03:56:29.854  3598  9692 I ExecuTorch: Resetting threadpool to 4 threads.
+11-22 03:56:35.491  3013  8483 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 03:56:35.491  3013  8483 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@382cc5a
+11-22 03:56:39.107  3598  3598 D KernelAI: ADB_INTENT_TRACE commandId=9e0d669d-1 input=redacted submitMode=Voice
+11-22 03:56:39.107  3598  3598 D KernelAI: TTFT_STAGE commandId=9e0d669d-1 stage=accepted t_ms=0
+11-22 03:56:39.107  3598  3598 D KernelAI: TTFT_STAGE commandId=9e0d669d-1 stage=coroutine_started t_ms=0
+11-22 03:56:39.130  3598  3598 D KernelAI: TTFT_STAGE commandId=9e0d669d-1 stage=route_done t_ms=23
+11-22 03:56:39.132  3598  3598 D KernelAI: ADB_ROUTE_DECISION commandId=9e0d669d-1 result=classified intent=get_time
+11-22 03:56:39.132  3598  3598 D KernelAI: llm_tools_route: result=classified intent=get_time
+11-22 03:56:39.132  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 03:56:39.132  3598  3598 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 03:56:39.133  3598  3598 D KernelAI: DirectReply: len=12
+11-22 03:56:39.180  3013  4499 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:56:39.180  3013  4499 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@382cc5a
+11-22 03:56:39.180  3013  4499 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@382cc5a
+11-22 03:56:39.643  3598  3598 D KernelAI: ADB_TOOL_COMPLETE commandId=9e0d669d-1 intent=get_time result=direct_reply
+11-22 03:56:39.678  3598  3598 D VoiceTiming: firstChunkQueued epochMs=1795283799678 chars=13
+11-22 03:56:41.063  3598  9690 I VoiceTiming: synth token=5 chunk=0 chars=25 sid=0 startEpochMs=1795283799679 endEpochMs=1795283801063 synthMs=1384 audioMs=2201 rtf=0.63
+11-22 03:56:41.064  3598  9690 I KernelAI: SpeakingStarted engine=sherpa chars=25 epochMs=1795283801064
+11-22 03:56:41.064  3013  8858 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=3 flags=0x0 sdk=36
+11-22 03:56:41.065  3013  8858 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@6ccb550
+11-22 03:56:41.065  3598  9690 I VoiceTiming: playStart token=5 chunk=0 epochMs=1795283801065
+11-22 03:56:43.413  3598  9690 I VoiceTiming: playEnd token=5 chunk=0 epochMs=1795283803413
+11-22 03:56:43.416  3013  8858 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:56:43.416  3013  8858 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@6ccb550
+11-22 03:56:43.416  3013  8858 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@6ccb550
+11-22 03:58:42.479  3013  8483 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 03:58:42.480  3013  8483 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@82a6fda
+11-22 03:58:42.716  3598  3598 I AcousticStimulus: {"event":"prepared","trial_id":"b1-wake","fixture_id":"natural_wake","monotonic_ms":3876598478,"wall_clock_ms":1795283922716}
+11-22 03:58:42.718  3598  3598 I AcousticStimulus: {"event":"started","trial_id":"b1-wake","fixture_id":"natural_wake","monotonic_ms":3876598480,"wall_clock_ms":1795283922718}
+11-22 03:58:44.841  3598  3598 I AcousticStimulus: {"event":"completed","trial_id":"b1-wake","fixture_id":"natural_wake","monotonic_ms":3876600602,"wall_clock_ms":1795283924841}
+11-22 03:58:44.850  3013  5810 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:58:44.850  3013  5810 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@82a6fda
+11-22 03:58:44.850  3013  5810 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@82a6fda
+11-22 03:58:44.870  3598  3598 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"b1-wake","fixture_id":"natural_wake","monotonic_ms":3876600631,"wall_clock_ms":1795283924869,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 03:58:48.013  3013  8483 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 03:58:48.014  3013  8483 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@50ca339
+11-22 03:58:48.048  3598  3598 I AcousticStimulus: {"event":"prepared","trial_id":"b1-qwen","fixture_id":"qwen_command","monotonic_ms":3876603810,"wall_clock_ms":1795283928048}
+11-22 03:58:48.050  3598  3598 I AcousticStimulus: {"event":"started","trial_id":"b1-qwen","fixture_id":"qwen_command","monotonic_ms":3876603811,"wall_clock_ms":1795283928050}
+11-22 03:58:49.632  3598  3598 I AcousticStimulus: {"event":"completed","trial_id":"b1-qwen","fixture_id":"qwen_command","monotonic_ms":3876605393,"wall_clock_ms":1795283929631}
+11-22 03:58:49.650  3013  8483 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 03:58:49.650  3013  8483 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@50ca339
+11-22 03:58:49.650  3013  8483 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@50ca339
+11-22 03:58:49.665  3598  3598 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"b1-qwen","fixture_id":"qwen_command","monotonic_ms":3876605426,"wall_clock_ms":1795283929665,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 04:00:45.455  3013  3043 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 04:00:45.456  3013  3043 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@5228071
+11-22 04:00:45.669  3598  3598 I AcousticStimulus: {"event":"prepared","trial_id":"b2-steady","fixture_id":"noisy_steady_qwen","monotonic_ms":3876721430,"wall_clock_ms":1795284045668}
+11-22 04:00:45.673  3598  3598 I AcousticStimulus: {"event":"started","trial_id":"b2-steady","fixture_id":"noisy_steady_qwen","monotonic_ms":3876721434,"wall_clock_ms":1795284045673}
+11-22 04:00:49.939  3598  3598 I AcousticStimulus: {"event":"completed","trial_id":"b2-steady","fixture_id":"noisy_steady_qwen","monotonic_ms":3876725701,"wall_clock_ms":1795284049939}
+11-22 04:00:49.967  3013  8496 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 04:00:49.967  3013  8496 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@5228071
+11-22 04:00:49.967  3013  8496 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@5228071
+11-22 04:00:49.985  3598  3598 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"b2-steady","fixture_id":"noisy_steady_qwen","monotonic_ms":3876725746,"wall_clock_ms":1795284049985,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 04:01:16.907  3013  4674 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 04:01:16.908  3013  4674 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@4ffcca9
+11-22 04:01:16.944  3598  3598 I AcousticStimulus: {"event":"prepared","trial_id":"b2-babble","fixture_id":"noisy_babble_qwen","monotonic_ms":3876752705,"wall_clock_ms":1795284076943}
+11-22 04:01:16.946  3598  3598 I AcousticStimulus: {"event":"started","trial_id":"b2-babble","fixture_id":"noisy_babble_qwen","monotonic_ms":3876752707,"wall_clock_ms":1795284076945}
+11-22 04:01:21.050  3598  3598 I AcousticStimulus: {"event":"completed","trial_id":"b2-babble","fixture_id":"noisy_babble_qwen","monotonic_ms":3876756812,"wall_clock_ms":1795284081050}
+11-22 04:01:21.077  3013  6438 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 04:01:21.077  3013  6438 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@4ffcca9
+11-22 04:01:21.077  3013  6438 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@4ffcca9
+11-22 04:01:21.090  3598  3598 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"b2-babble","fixture_id":"noisy_babble_qwen","monotonic_ms":3876756852,"wall_clock_ms":1795284081090,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 04:01:43.621  3013  7183 I MediaFocusControl: requestAudioFocus() from uid/pid 10993/3598 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 04:01:43.622  3013  7183 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@a4367e1
+11-22 04:01:43.652  3598  3598 I AcousticStimulus: {"event":"prepared","trial_id":"b3-loop","fixture_id":"qwen_command","monotonic_ms":3876779414,"wall_clock_ms":1795284103652}
+11-22 04:01:43.653  3598  3598 I AcousticStimulus: {"event":"started","trial_id":"b3-loop","fixture_id":"qwen_command","monotonic_ms":3876779415,"wall_clock_ms":1795284103653}
+11-22 04:01:45.223  3598  3598 I AcousticStimulus: {"event":"completed","trial_id":"b3-loop","fixture_id":"qwen_command","monotonic_ms":3876780985,"wall_clock_ms":1795284105223}
+11-22 04:01:45.238  3013  8495 I MediaFocusControl: abandonAudioFocus() from uid/pid 10993/3598 clientId=android.media.AudioManager@73ab961<client> callingPack=ai.jandal.assistant.debug
+11-22 04:01:45.238  3013  8495 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@a4367e1
+11-22 04:01:45.238  3013  8495 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@73ab961com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@a4367e1
+11-22 04:01:45.248  3598  3598 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"b3-loop","fixture_id":"qwen_command","monotonic_ms":3876781010,"wall_clock_ms":1795284105248,"cleanup_success":true,"exact_restoration_verified":true}
+===== s21-raw.log =====
+11-22 03:51:30.630 13472 14605 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 03:51:30.634 13472 14605 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@d222fb4
+11-22 03:51:31.012 25146 25146 I AcousticStimulus: {"event":"prepared","trial_id":"a1-ptt-qwen-1","fixture_id":"qwen_command","monotonic_ms":11999106734,"wall_clock_ms":1795283491011}
+11-22 03:51:31.028 25146 25146 I AcousticStimulus: {"event":"started","trial_id":"a1-ptt-qwen-1","fixture_id":"qwen_command","monotonic_ms":11999106751,"wall_clock_ms":1795283491028}
+11-22 03:51:32.937 25146 25146 I AcousticStimulus: {"event":"completed","trial_id":"a1-ptt-qwen-1","fixture_id":"qwen_command","monotonic_ms":11999108659,"wall_clock_ms":1795283492936}
+11-22 03:51:32.991 13472 17027 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 03:51:32.991 13472 17027 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@d222fb4
+11-22 03:51:32.992 13472 17027 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@d222fb4
+11-22 03:51:33.017 25146 25146 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"a1-ptt-qwen-1","fixture_id":"qwen_command","monotonic_ms":11999108737,"wall_clock_ms":1795283493014,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 03:52:24.980 13472 17034 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 03:52:24.980 13472 17034 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@95a16aa
+11-22 03:52:25.034 25146 25146 I AcousticStimulus: {"event":"prepared","trial_id":"a1-ptt-qwen-2","fixture_id":"qwen_command","monotonic_ms":11999160756,"wall_clock_ms":1795283545033}
+11-22 03:52:25.042 25146 25146 I AcousticStimulus: {"event":"started","trial_id":"a1-ptt-qwen-2","fixture_id":"qwen_command","monotonic_ms":11999160765,"wall_clock_ms":1795283545042}
+11-22 03:52:26.721 25146 25146 I AcousticStimulus: {"event":"completed","trial_id":"a1-ptt-qwen-2","fixture_id":"qwen_command","monotonic_ms":11999162443,"wall_clock_ms":1795283546720}
+11-22 03:52:26.739 13472 14266 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 03:52:26.739 13472 14266 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@95a16aa
+11-22 03:52:26.739 13472 14266 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@95a16aa
+11-22 03:52:26.767 25146 25146 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"a1-ptt-qwen-2","fixture_id":"qwen_command","monotonic_ms":11999162490,"wall_clock_ms":1795283546767,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 03:52:51.425 13472 16354 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 03:52:51.426 13472 16354 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@1faf24d
+11-22 03:52:51.468 25146 25146 I AcousticStimulus: {"event":"prepared","trial_id":"a3-partials-1","fixture_id":"qwen_command","monotonic_ms":11999187191,"wall_clock_ms":1795283571468}
+11-22 03:52:51.472 25146 25146 I AcousticStimulus: {"event":"started","trial_id":"a3-partials-1","fixture_id":"qwen_command","monotonic_ms":11999187194,"wall_clock_ms":1795283571471}
+11-22 03:52:53.172 25146 25146 I AcousticStimulus: {"event":"completed","trial_id":"a3-partials-1","fixture_id":"qwen_command","monotonic_ms":11999188895,"wall_clock_ms":1795283573172}
+11-22 03:52:53.179 13472 16354 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 03:52:53.179 13472 16354 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@1faf24d
+11-22 03:52:53.179 13472 16354 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@1faf24d
+11-22 03:52:53.196 25146 25146 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"a3-partials-1","fixture_id":"qwen_command","monotonic_ms":11999188919,"wall_clock_ms":1795283573196,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 03:53:22.488 13472 16334 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 03:53:22.492 13472 16334 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@e14157c
+11-22 03:53:22.528 25146 25146 I AcousticStimulus: {"event":"prepared","trial_id":"a3-partials-2","fixture_id":"qwen_command","monotonic_ms":11999218251,"wall_clock_ms":1795283602528}
+11-22 03:53:22.531 25146 25146 I AcousticStimulus: {"event":"started","trial_id":"a3-partials-2","fixture_id":"qwen_command","monotonic_ms":11999218253,"wall_clock_ms":1795283602530}
+11-22 03:53:24.230 25146 25146 I AcousticStimulus: {"event":"completed","trial_id":"a3-partials-2","fixture_id":"qwen_command","monotonic_ms":11999219952,"wall_clock_ms":1795283604229}
+11-22 03:53:24.243 13472 14266 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 03:53:24.243 13472 14266 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@e14157c
+11-22 03:53:24.243 13472 14266 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@e14157c
+11-22 03:53:24.258 25146 25146 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"a3-partials-2","fixture_id":"qwen_command","monotonic_ms":11999219980,"wall_clock_ms":1795283604257,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 03:53:54.033 13472 14266 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 03:53:54.034 13472 14266 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@eb50267
+11-22 03:53:54.067 25146 25146 I AcousticStimulus: {"event":"prepared","trial_id":"a3-partials-3","fixture_id":"qwen_command","monotonic_ms":11999249790,"wall_clock_ms":1795283634067}
+11-22 03:53:54.082 25146 25146 I AcousticStimulus: {"event":"started","trial_id":"a3-partials-3","fixture_id":"qwen_command","monotonic_ms":11999249805,"wall_clock_ms":1795283634082}
+11-22 03:53:55.770 25146 25146 I AcousticStimulus: {"event":"completed","trial_id":"a3-partials-3","fixture_id":"qwen_command","monotonic_ms":11999251493,"wall_clock_ms":1795283635770}
+11-22 03:53:55.789 13472 16949 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 03:53:55.789 13472 16949 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@eb50267
+11-22 03:53:55.789 13472 16949 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@eb50267
+11-22 03:53:55.816 25146 25146 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"a3-partials-3","fixture_id":"qwen_command","monotonic_ms":11999251539,"wall_clock_ms":1795283635815,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 03:56:09.028 13472 17033 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 03:56:09.033 13472 17033 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@450d3fe
+11-22 03:56:09.106 25146 25146 I AcousticStimulus: {"event":"prepared","trial_id":"a2-l-1","fixture_id":"qwen_command","monotonic_ms":11999384829,"wall_clock_ms":1795283769106}
+11-22 03:56:09.111 25146 25146 I AcousticStimulus: {"event":"started","trial_id":"a2-l-1","fixture_id":"qwen_command","monotonic_ms":11999384834,"wall_clock_ms":1795283769111}
+11-22 03:56:10.754 25146 25146 I AcousticStimulus: {"event":"completed","trial_id":"a2-l-1","fixture_id":"qwen_command","monotonic_ms":11999386476,"wall_clock_ms":1795283770753}
+11-22 03:56:10.774 13472 13503 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 03:56:10.774 13472 13503 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@450d3fe
+11-22 03:56:10.774 13472 13503 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@450d3fe
+11-22 03:56:10.802 25146 25146 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"a2-l-1","fixture_id":"qwen_command","monotonic_ms":11999386524,"wall_clock_ms":1795283770801,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 03:56:36.643 13472 14059 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=2 flags=0x0 sdk=36
+11-22 03:56:36.646 13472 14059 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@692e0f1
+11-22 03:56:36.668 25146 25146 I AcousticStimulus: {"event":"prepared","trial_id":"a2-l-2","fixture_id":"qwen_command","monotonic_ms":11999412391,"wall_clock_ms":1795283796668}
+11-22 03:56:36.669 25146 25146 I AcousticStimulus: {"event":"started","trial_id":"a2-l-2","fixture_id":"qwen_command","monotonic_ms":11999412392,"wall_clock_ms":1795283796669}
+11-22 03:56:38.359 25146 25146 I AcousticStimulus: {"event":"completed","trial_id":"a2-l-2","fixture_id":"qwen_command","monotonic_ms":11999414082,"wall_clock_ms":1795283798359}
+11-22 03:56:38.369 13472 16807 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 03:56:38.369 13472 16807 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@692e0f1
+11-22 03:56:38.369 13472 16807 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.debug.acoustic.AndroidStimulusAudioController$$ExternalSyntheticLambda0@692e0f1
+11-22 03:56:38.387 25146 25146 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"a2-l-2","fixture_id":"qwen_command","monotonic_ms":11999414109,"wall_clock_ms":1795283798386,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 03:57:29.625 25146 25146 I IDS_TAG : Clearing training data of com.kernel.ai.KernelAIApplication@3c60ff3
+11-22 03:57:29.626 25146 25146 I IDS_TAG : Getting Shared Preference for com.kernel.ai.KernelAIApplication@3c60ff3 uid = 10300
+11-22 03:57:29.626 25146 25146 I IDS_TAG : App com.kernel.ai.KernelAIApplication@3c60ff3 has not finished training
+11-22 03:57:29.627 25146 25146 I IDS_TAG : Getting Shared Preference for com.kernel.ai.KernelAIApplication@3c60ff3 uid = 10300
+11-22 03:57:29.628 25146 25146 I IDS_TAG : IDS count updated to 1 for com.kernel.ai.KernelAIApplication@3c60ff3
+11-22 03:58:33.306 13472 17027 I ActivityManager: Background started FGS: Allowed [callingPackage: ai.jandal.assistant.debug; callingUid: 10300; uidState: TOP ; uidBFSL: [BFSL]; intent: Intent { cmp=ai.jandal.assistant.debug/com.kernel.ai.assistant.WakeWordService }; code:PROC_STATE_TOP; tempAllowListReason:<null>; targetSdkVersion:36; callerTargetSdkVersion:36; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+11-22 03:58:33.349 25146 25146 I KernelAI: WakeWordService: starting wake word detection
+11-22 03:58:33.357 25146 25146 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 03:58:33.579 25146 28709 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 03:58:33.593 25146 28709 D KernelAI: WakeWordDetector: recording started
+11-22 03:58:36.960 25146 25154 I assistant.debug: Compiler allocated 9453KB to compile void com.kernel.ai.core.voice.OnnxWakeWordDetector.runDetectionLoop(long, com.kernel.ai.core.voice.OnnxWakeWordDetector$ModelBytes, float, float, float, int, int, int, kotlin.jvm.functions.Function1, kotlin.jvm.functions.Function0)
+11-22 03:58:40.152 25146 25154 I assistant.debug: Compiler allocated 9713KB to compile void com.kernel.ai.core.voice.OnnxWakeWordDetector.runDetectionLoop(long, com.kernel.ai.core.voice.OnnxWakeWordDetector$ModelBytes, float, float, float, int, int, int, kotlin.jvm.functions.Function1, kotlin.jvm.functions.Function0)
+11-22 03:58:44.686 25146 28709 I KernelAI: WakeWordDetector: detected (high confidence=0.74335074)
+11-22 03:58:44.776 25146 28709 D WakeWordDiag: WakeWordDetector: diagnostics final elapsedMs=11376 audioFrames=137 stage1=137 stage2=70 stage3=55 stage2PerHour=22151.898734177215 stage3PerHour=17405.063291139242 silenceSkips=58 silenceSkipRatio=0.453125 verifier=0 verifierPasses=0 verifierRejects=0 highActivations=1 verifiedActivations=0 embeddingProvider=session_created_nnapi_requested_assignment_unverified
+11-22 03:58:44.776 25146 28709 D WakeWordDiag: WakeWordDetector: gateExitSummary gen=1 stage3Evals=10 maxConfidence=0.74335074 maxConfidenceOffsetFrames=9 lowVerifyEntered=false lowVerifyAccepted=false gatedProbeExecutions=4 episodePeakRms=910.9537 maxWindowPeakRms=910.9537 maxWindowMeanRms=274.5061
+11-22 03:58:44.779 25146 25309 D KernelAI: WakeWordDetector: stopped
+11-22 03:58:44.802 25146 25307 I KernelAI: WakeWordService: yielding mic to voice session
+11-22 03:58:44.802 25146 25307 D KernelAI: WakeWordDetector: stopped
+11-22 03:58:44.804 13472 16963 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 03:58:44.804 13472 16963 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@2c7f571
+11-22 03:58:44.961 25146 25309 I ExecuTorch: Reading file /sys/devices/soc0/image_version
+11-22 03:58:44.962 25146 25309 I ExecuTorch: Failed to open midr file /sys/devices/soc0/image_version
+11-22 03:58:44.962 25146 25309 I ExecuTorch: Number of efficient cores 4
+11-22 03:58:44.962 25146 25309 I ExecuTorch: Resetting threadpool to 4 threads.
+11-22 03:58:51.072 25146 25309 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 03:58:51.100 25146 28766 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 03:58:51.103 25146 28766 D KernelAI: WakeWordDetector: recording started
+11-22 03:58:51.150 13472 13596 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 03:58:51.150 13472 13596 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@2c7f571
+11-22 03:58:51.150 13472 13596 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.Asr4allVoiceInputController$$ExternalSyntheticLambda0@2c7f571
+11-22 03:58:51.494 25146 25146 I KernelAI: external_prompt_trust callerUid=10300 trust=DIRECT
+11-22 03:58:51.829 25146 25146 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-22 03:58:51.832 25146 25146 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 03:58:52.001 25146 25146 D KernelAI: WakeWordService: already running — ignoring duplicate onStartCommand
+11-22 03:58:52.011 25146 25309 I KernelAI: Using downloaded voice pack at /data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-cori-high
+11-22 03:58:54.047 25146 25309 I KernelAI: Sherpa-ONNX TTS initialised — voice: en_GB-cori-high at /data/user/0/ai.jandal.assistant.debug/files/sherpa-tts/vits-piper-en_GB-cori-high
+11-22 03:58:54.047 25146 25146 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.
+11-22 03:58:54.072 25146 25146 D VoiceTiming: firstChunkQueued epochMs=1795283934072 chars=13
+11-22 03:58:55.236 25146 25308 I VoiceTiming: synth token=1 chunk=0 chars=27 sid=0 startEpochMs=1795283934073 endEpochMs=1795283935236 synthMs=1163 audioMs=1962 rtf=0.59
+11-22 03:58:55.237 25146 25308 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=27 part=1/1 text=It's three fifty eight A-M.
+11-22 03:58:55.237 25146 25308 I KernelAI: SpeakingStarted engine=sherpa chars=27 epochMs=1795283935237
+11-22 03:58:55.240 13472 14043 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=3 flags=0x0 sdk=36
+11-22 03:58:55.242 13472 14043 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@11910dc
+11-22 03:58:55.242 25146 25308 I VoiceTiming: playStart token=1 chunk=0 epochMs=1795283935242
+11-22 03:58:57.338 25146 25308 I VoiceTiming: playEnd token=1 chunk=0 epochMs=1795283937338
+11-22 03:58:57.341 13472 16932 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 03:58:57.341 13472 16932 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@11910dc
+11-22 03:58:57.341 13472 16932 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@11910dc
+11-22 03:59:34.578 25146 25146 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@e46be64 voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@779b8cd
+11-22 03:59:34.580 25146 25146 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@e46be64 voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@779b8cd
+11-22 03:59:34.580 25146 25146 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:lifecycleOnStop
+11-22 03:59:56.448 25146 28766 D WakeWordDiag: WakeWordDetector: diagnostics final elapsedMs=65362 audioFrames=815 stage1=815 stage2=184 stage3=169 stage2PerHour=10134.328814907745 stage3PerHour=9308.160704996788 silenceSkips=622 silenceSkipRatio=0.771712158808933 verifier=0 verifierPasses=0 verifierRejects=0 highActivations=0 verifiedActivations=0 embeddingProvider=session_created_nnapi_requested_assignment_unverified
+11-22 03:59:56.448 25146 25146 D KernelAI: WakeWordDetector: stopped
+11-22 03:59:56.449 25146 25146 D LeakCanary: Watching instance of com.kernel.ai.assistant.WakeWordService (com.kernel.ai.assistant.WakeWordService received Service#onDestroy() callback) with key 4441263e-642c-4a1e-800a-5331df70595b
+11-22 04:00:18.462 25146 25146 D KernelAI: ActionsViewModel: screen resumed, background pause cleared
+11-22 04:00:23.366 25146 25146 D KernelAI: ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@e46be64 voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@779b8cd
+11-22 04:00:23.366 25146 25146 D KernelAI: ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@e46be64 voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@779b8cd
+11-22 04:00:23.366 25146 25146 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:lifecycleOnStop
+11-22 04:00:29.819 25146 25146 I KernelAI: Eager inference initialization waiting for app foreground
+11-22 04:00:29.820 25146 25146 I KernelAI: Eager inference initialization permitted at lifecycle state=RESUMED
+11-22 04:00:29.836 25146 25146 I KernelAI: Sherpa-ONNX TTS selected as active voice output backend.
+11-22 04:00:36.241 13472 14045 W ActivityManager: Background started FGS: Disallowed [callingPackage: ai.jandal.assistant; callingUid: 10644; uidState: TRNB; uidBFSL: n/a; intent: Intent { cmp=ai.jandal.assistant/com.kernel.ai.assistant.WakeWordService }; code:DENIED; tempAllowListReason:<null>; targetSdkVersion:36; callerTargetSdkVersion:36; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+11-22 04:00:36.241 13472 14045 W ActivityManager: startForegroundService() not allowed due to mAllowStartForeground false: service ai.jandal.assistant/com.kernel.ai.assistant.WakeWordService
+11-22 04:00:36.244 29274 29298 W KernelAI: WakeWordService: cannot start from background: startForegroundService() not allowed due to mAllowStartForeground false: service ai.jandal.assistant/com.kernel.ai.assistant.WakeWordService
+11-22 04:00:44.733 13472 16963 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 04:00:44.733 13472 16963 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.NativeAndroidVoiceInputController$$ExternalSyntheticLambda4@82178aa
+11-22 04:00:49.788 25146 25146 D KernelAI: ADB_INTENT_TRACE commandId=8e96cc01-1 input=redacted submitMode=Voice
+11-22 04:00:49.788 25146 25146 D KernelAI: TTFT_STAGE commandId=8e96cc01-1 stage=accepted t_ms=0
+11-22 04:00:49.832 25146 25146 D KernelAI: TTFT_STAGE commandId=8e96cc01-1 stage=coroutine_started t_ms=43
+11-22 04:00:49.851 13472 14040 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 04:00:49.851 13472 14040 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.core.voice.NativeAndroidVoiceInputController$$ExternalSyntheticLambda4@82178aa
+11-22 04:00:49.851 13472 14040 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.NativeAndroidVoiceInputController$$ExternalSyntheticLambda4@82178aa
+11-22 04:00:49.938 25146 25146 D KernelAI: TTFT_STAGE commandId=8e96cc01-1 stage=first_feedback_visible t_ms=150
+11-22 04:00:49.954 25146 25146 D KernelAI: Set placeholder title: <redacted>
+11-22 04:00:49.957 25146 25146 D KernelAI: TTFT_STAGE commandId=8e96cc01-1 stage=route_done t_ms=168
+11-22 04:00:49.994 25146 25146 D KernelAI: ADB_ROUTE_DECISION commandId=8e96cc01-1 result=classified intent=get_time
+11-22 04:00:49.994 25146 25146 D KernelAI: llm_tools_route: result=classified intent=get_time
+11-22 04:00:49.996 25146 25146 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 04:00:49.997 25146 25146 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 04:00:49.998 25146 25146 D KernelAI: DirectReply: len=12
+11-22 04:00:51.860 25146 25146 D KernelAI: ADB_TOOL_COMPLETE commandId=8e96cc01-1 intent=get_time result=direct_reply
+11-22 04:00:51.926 25146 25146 D VoiceTiming: firstChunkQueued epochMs=1795284051926 chars=13
+11-22 04:00:53.177 25146 29200 I VoiceTiming: synth token=2 chunk=0 chars=22 sid=0 startEpochMs=1795284051927 endEpochMs=1795284053176 synthMs=1249 audioMs=1695 rtf=0.74
+11-22 04:00:53.178 25146 29200 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=22 part=1/1 text=It's four o'clock A-M.
+11-22 04:00:53.178 25146 29200 I KernelAI: SpeakingStarted engine=sherpa chars=22 epochMs=1795284053178
+11-22 04:00:53.184 13472 17027 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=3 flags=0x0 sdk=36
+11-22 04:00:53.184 13472 17027 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@4af3f9a
+11-22 04:00:53.185 25146 29200 I VoiceTiming: playStart token=2 chunk=0 epochMs=1795284053185
+11-22 04:00:55.077 25146 29200 I VoiceTiming: playEnd token=2 chunk=0 epochMs=1795284055076
+11-22 04:00:55.081 13472 16334 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 04:00:55.081 13472 16334 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@4af3f9a
+11-22 04:00:55.081 13472 16334 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@4af3f9a
+11-22 04:01:16.335 13472 16354 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 04:01:16.335 13472 16354 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.NativeAndroidVoiceInputController$$ExternalSyntheticLambda4@6758bf9
+11-22 04:01:21.250 25146 25146 D KernelAI: ADB_INTENT_TRACE commandId=98fe40e9-2 input=redacted submitMode=Voice
+11-22 04:01:21.250 25146 25146 D KernelAI: TTFT_STAGE commandId=98fe40e9-2 stage=accepted t_ms=0
+11-22 04:01:21.250 25146 25146 D KernelAI: TTFT_STAGE commandId=98fe40e9-2 stage=coroutine_started t_ms=0
+11-22 04:01:21.265 13472 13504 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 04:01:21.266 13472 13504 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.core.voice.NativeAndroidVoiceInputController$$ExternalSyntheticLambda4@6758bf9
+11-22 04:01:21.266 13472 13504 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.NativeAndroidVoiceInputController$$ExternalSyntheticLambda4@6758bf9
+11-22 04:01:21.346 25146 25146 D KernelAI: TTFT_STAGE commandId=98fe40e9-2 stage=first_feedback_visible t_ms=95
+11-22 04:01:21.358 25146 25146 D KernelAI: TTFT_STAGE commandId=98fe40e9-2 stage=route_done t_ms=108
+11-22 04:01:21.379 25146 25146 D KernelAI: ADB_ROUTE_DECISION commandId=98fe40e9-2 result=classified intent=get_time
+11-22 04:01:21.379 25146 25146 D KernelAI: llm_tools_route: result=classified intent=get_time
+11-22 04:01:21.379 25146 25146 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 04:01:21.380 25146 25146 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 04:01:21.381 25146 25146 D KernelAI: DirectReply: len=12
+11-22 04:01:22.813 25146 25146 D KernelAI: ADB_TOOL_COMPLETE commandId=98fe40e9-2 intent=get_time result=direct_reply
+11-22 04:01:22.883 25146 25146 D VoiceTiming: firstChunkQueued epochMs=1795284082883 chars=13
+11-22 04:01:23.889 25146 25306 I VoiceTiming: synth token=3 chunk=0 chars=21 sid=0 startEpochMs=1795284082884 endEpochMs=1795284083888 synthMs=1004 audioMs=1509 rtf=0.67
+11-22 04:01:23.892 25146 25305 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=21 part=1/1 text=It's four oh one A-M.
+11-22 04:01:23.893 25146 25305 I KernelAI: SpeakingStarted engine=sherpa chars=21 epochMs=1795284083892
+11-22 04:01:23.898 13472 17027 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=3 flags=0x0 sdk=36
+11-22 04:01:23.899 13472 17027 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@c337ab3
+11-22 04:01:23.900 25146 25305 I VoiceTiming: playStart token=3 chunk=0 epochMs=1795284083899
+11-22 04:01:25.525 25146 25305 I VoiceTiming: playEnd token=3 chunk=0 epochMs=1795284085525
+11-22 04:01:25.527 13472 13504 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 04:01:25.527 13472 13504 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@c337ab3
+11-22 04:01:25.527 13472 13504 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@c337ab3
+11-22 04:01:43.048 13472 14040 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_VOICE_COMMUNICATION/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=4 flags=0x0 sdk=36
+11-22 04:01:43.048 13472 14040 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.NativeAndroidVoiceInputController$$ExternalSyntheticLambda4@4e55fd4
+11-22 04:01:46.728 25146 25146 D KernelAI: ADB_INTENT_TRACE commandId=55b0dc56-3 input=redacted submitMode=Voice
+11-22 04:01:46.728 25146 25146 D KernelAI: TTFT_STAGE commandId=55b0dc56-3 stage=accepted t_ms=0
+11-22 04:01:46.728 25146 25146 D KernelAI: TTFT_STAGE commandId=55b0dc56-3 stage=coroutine_started t_ms=0
+11-22 04:01:46.736 13472 17027 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 04:01:46.736 13472 17027 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.core.voice.NativeAndroidVoiceInputController$$ExternalSyntheticLambda4@4e55fd4
+11-22 04:01:46.736 13472 17027 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.NativeAndroidVoiceInputController$$ExternalSyntheticLambda4@4e55fd4
+11-22 04:01:46.805 25146 25146 D KernelAI: TTFT_STAGE commandId=55b0dc56-3 stage=first_feedback_visible t_ms=76
+11-22 04:01:46.812 25146 25146 D KernelAI: TTFT_STAGE commandId=55b0dc56-3 stage=route_done t_ms=84
+11-22 04:01:46.830 25146 25146 D KernelAI: ADB_ROUTE_DECISION commandId=55b0dc56-3 result=classified intent=get_time
+11-22 04:01:46.830 25146 25146 D KernelAI: llm_tools_route: result=classified intent=get_time
+11-22 04:01:46.830 25146 25146 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 04:01:46.831 25146 25146 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 04:01:46.832 25146 25146 D KernelAI: DirectReply: len=12
+11-22 04:01:48.113 25146 25146 D KernelAI: ADB_TOOL_COMPLETE commandId=55b0dc56-3 intent=get_time result=direct_reply
+11-22 04:01:48.177 25146 25146 D VoiceTiming: firstChunkQueued epochMs=1795284108176 chars=13
+11-22 04:01:49.059 25146 25309 I VoiceTiming: synth token=4 chunk=0 chars=21 sid=0 startEpochMs=1795284108177 endEpochMs=1795284109058 synthMs=881 audioMs=1590 rtf=0.55
+11-22 04:01:49.059 25146 25309 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=21 part=1/1 text=It's four oh one A-M.
+11-22 04:01:49.059 25146 25309 I KernelAI: SpeakingStarted engine=sherpa chars=21 epochMs=1795284109059
+11-22 04:01:49.062 13472 14040 I MediaFocusControl: requestAudioFocus() from uid/pid 10300/25146 AA=USAGE_ASSISTANT/CONTENT_TYPE_SPEECH clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug req=3 flags=0x0 sdk=36
+11-22 04:01:49.064 13472 14040 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@8920e77
+11-22 04:01:49.064 25146 25309 I VoiceTiming: playStart token=4 chunk=0 epochMs=1795284109064
+11-22 04:01:50.765 25146 25309 I VoiceTiming: playEnd token=4 chunk=0 epochMs=1795284110765
+11-22 04:01:50.768 13472 17062 I MediaFocusControl: abandonAudioFocus() from uid/pid 10300/25146 clientId=android.media.AudioManager@dd2b487<client> callingPack=ai.jandal.assistant.debug
+11-22 04:01:50.768 13472 17062 D MediaFocusControl: abandonAudioFocus, clientId = android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@8920e77
+11-22 04:01:50.769 13472 17062 I MediaFocusControl: removeFocusStackEntry client:android.media.AudioManager@dd2b487com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController$$ExternalSyntheticLambda0@8920e77

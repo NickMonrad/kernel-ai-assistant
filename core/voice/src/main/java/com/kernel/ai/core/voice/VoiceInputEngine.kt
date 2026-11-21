@@ -43,7 +43,15 @@ enum class VoiceInputEngine(
         isSherpaFamily = true,
         debugOnly = true,
     ),
+    Asr4all(
+        displayName = "asr4all streaming",
+        description = "Offline streaming speech recognition with the asr4all model (ExecuTorch). M is about 60 MB; L, for capable phones, is about 101 MB. Streaming partial results.",
+        warning = "Experimental. Accuracy has not yet been compared with Sherpa-ONNX Zipformer; compare on your own speech before relying on it.",
+    ),
     ;
+
+    /** Engines whose model files are downloaded from Settings → Voice (Sherpa family and asr4all). */
+    val hasDownloadableModel: Boolean get() = isSherpaFamily || this == Asr4all
 
     companion object {
         /**
