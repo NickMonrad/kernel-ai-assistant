@@ -101,6 +101,7 @@ import com.kernel.ai.core.ui.theme.JandalTheme
 import com.kernel.ai.core.voice.HonorCameraCoexistence
 import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.onlineSpeechToggleVisible
 import com.kernel.ai.feature.chat.R
@@ -559,8 +560,8 @@ private fun VoiceStep(
         state.outputOptions.forEachIndexed { index, engine ->
             val clip = sampleClipFor(engine)
             ChoiceCard(
-                title = outputTitle(engine),
-                description = outputBody(engine),
+                title = VoiceOutputCopy.title(engine),
+                description = VoiceOutputCopy.body(engine),
                 selected = outputEngine == engine,
                 onSelect = { onOutputSelected(engine) },
                 index = index,
@@ -647,18 +648,6 @@ private fun inputTitle(engine: VoiceInputEngine): String = when (engine) {
 private fun inputBody(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.AndroidNative -> "Your phone's built-in speech recognition."
     else -> "Works offline on this phone."
-}
-
-private fun outputTitle(engine: VoiceOutputEngine): String = when (engine) {
-    VoiceOutputEngine.AndroidTts -> "Phone's built-in voice"
-    VoiceOutputEngine.InflectMicroExperimental -> "Inflect Micro"
-    else -> "Cori, natural voice"
-}
-
-private fun outputBody(engine: VoiceOutputEngine): String = when (engine) {
-    VoiceOutputEngine.AndroidTts -> "No download. Sounds more robotic."
-    VoiceOutputEngine.InflectMicroExperimental -> "Higher-quality voice. Works offline."
-    else -> "Sounds natural and works offline. Can be slower on older phones."
 }
 
 @Composable
