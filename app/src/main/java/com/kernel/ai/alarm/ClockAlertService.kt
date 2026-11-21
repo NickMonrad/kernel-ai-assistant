@@ -10,6 +10,7 @@ import android.content.Intent
 import com.kernel.ai.assistant.WakeSessionJournal
 import com.kernel.ai.assistant.cueMetadata
 import com.kernel.ai.core.voice.AcousticEventType
+import com.kernel.ai.core.voice.cancelListening
 import com.kernel.ai.core.voice.StartListeningCueResult
 import android.media.AudioAttributes
 import android.media.Ringtone
@@ -208,6 +209,11 @@ internal suspend fun bufferedCaptureSession(
                 )
             }
             is VoiceInputStartResult.Unavailable -> CaptureStartResult.Unavailable(startResult.message)
+            is VoiceInputStartResult.Cancelled -> {
+                // A superseded or stopped start may still own a session; release it before reporting.
+                startResult.captureSessionId?.let(voiceInputController::cancelListening)
+                CaptureStartResult.Unavailable("Voice start was cancelled")
+            }
         }
     } finally {
         collectorJob.cancelAndJoin()

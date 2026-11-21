@@ -120,6 +120,22 @@ class WakeMicYieldGateTest {
     }
 
     @Test
+    fun `a superseded session's cancelled stop does not re-arm under the live capture (#2029)`() {
+        gate.onVoiceEvent(VoiceInputEvent.ListeningRequested(mode, 1L))
+        gate.onVoiceEvent(VoiceInputEvent.ListeningRequested(mode, 2L))
+        gate.onVoiceEvent(VoiceInputEvent.ListeningStopped(mode, 1L, cancelled = true))
+        gate.onVoiceEvent(VoiceInputEvent.ListeningStarted(mode, 2L))
+
+        assertEquals(1, released)
+        assertEquals(0, rearmed)
+        assertTrue(gate.voiceSessionActive)
+
+        gate.onVoiceEvent(VoiceInputEvent.ListeningStopped(mode, 2L))
+        assertEquals(1, rearmed)
+        assertFalse(gate.voiceSessionActive)
+    }
+
+    @Test
     fun `non-lifecycle events neither release nor re-arm`() {
         gate.onVoiceEvent(VoiceInputEvent.SpeechDetected(mode, 1L))
         gate.onVoiceEvent(VoiceInputEvent.Transcript(mode, "hi", 1L))

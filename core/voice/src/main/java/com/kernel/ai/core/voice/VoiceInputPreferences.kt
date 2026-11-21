@@ -3,6 +3,7 @@ package com.kernel.ai.core.voice
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.Log
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -36,6 +37,8 @@ class VoiceInputPreferences @Inject constructor(
         booleanPreferencesKey("auto_start_alert_voice_commands_enabled")
     private val allowOnlineSpeechFallbackKey =
         booleanPreferencesKey("allow_online_speech_fallback")
+    private val asr4allSizeKey = stringPreferencesKey("asr4all_model_size")
+    private val asr4allPendingSizeKey = stringPreferencesKey("asr4all_pending_model_size")
 
     val selectedEngine: Flow<VoiceInputEngine> = context.voiceInputPrefsDataStore.data
         .catch { e ->
@@ -81,6 +84,47 @@ class VoiceInputPreferences @Inject constructor(
     suspend fun setAllowOnlineSpeechFallback(allowed: Boolean) {
         context.voiceInputPrefsDataStore.edit { prefs ->
             prefs[allowOnlineSpeechFallbackKey] = allowed
+        }
+    }
+
+    /** The asr4all size the user chose; [Asr4AllInstall.effectiveSize] applies the tier policy. */
+    val asr4allSize: Flow<Asr4AllSize> = context.voiceInputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice input preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs ->
+            prefs[asr4allSizeKey]?.let { stored -> Asr4AllSize.entries.firstOrNull { it.name == stored } }
+                ?: Asr4AllInstall.defaultSize
+        }
+
+    suspend fun setAsr4allSize(size: Asr4AllSize) {
+        context.voiceInputPrefsDataStore.edit { prefs ->
+            prefs[asr4allSizeKey] = size.name
+        }
+    }
+
+    /** A size whose download is pending a switch; null when none. Survives a process restart. */
+    val asr4allPendingSize: Flow<Asr4AllSize?> = context.voiceInputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice input preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs ->
+            prefs[asr4allPendingSizeKey]?.let { stored -> Asr4AllSize.entries.firstOrNull { it.name == stored } }
+        }
+
+    suspend fun setAsr4allPendingSize(size: Asr4AllSize?) {
+        context.voiceInputPrefsDataStore.edit { prefs ->
+            if (size == null) prefs.remove(asr4allPendingSizeKey) else prefs[asr4allPendingSizeKey] = size.name
         }
     }
 

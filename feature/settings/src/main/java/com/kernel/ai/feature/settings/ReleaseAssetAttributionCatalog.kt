@@ -66,6 +66,15 @@ object ReleaseAssetAttributionCatalog {
                 "Apache-2.0 on export page; upstream model-weight terms require review",
                 "ONNX export of DAMO speech_paraformer_asr_nat-zh-cn-16k-common-vocab8404-online; FunASR MODEL_LICENSE applies where relevant",
             )
+            KernelModel.ASR4ALL_M_CONFIG, KernelModel.ASR4ALL_M_RELEASE_GEOM,
+            KernelModel.ASR4ALL_M_PREPROCESSOR, KernelModel.ASR4ALL_M_METADATA,
+            KernelModel.ASR4ALL_M_ENCODER, KernelModel.ASR4ALL_L_CONFIG,
+            KernelModel.ASR4ALL_L_RELEASE_GEOM, KernelModel.ASR4ALL_L_PREPROCESSOR,
+            KernelModel.ASR4ALL_L_METADATA, KernelModel.ASR4ALL_L_ENCODER -> Triple(
+                "Hugging Face · asr4all-m and asr4all-l export repositories (revisions pinned in NOTICE)",
+                "FUTO Model Weights License (Restricted Use) 1.0",
+                "Unmodified ExecuTorch INT8 (XNNPACK) export of the asr4all speech-recognition model; M and L sizes",
+            )
             KernelModel.INFLECT_MICRO_DURATION, KernelModel.INFLECT_MICRO_DECODE -> Triple(
                 "owensong/Inflect-Micro-v2-ONNX",
                 "Apache-2.0 (upstream model repository)",
@@ -84,6 +93,11 @@ object ReleaseAssetAttributionCatalog {
             KernelModel.SHERPA_WHISPER_TINY_EN_TOKENS,
             KernelModel.SHERPA_PARAFORMER_ENCODER, KernelModel.SHERPA_PARAFORMER_DECODER,
             KernelModel.SHERPA_PARAFORMER_TOKENS -> "Speech recognition (STT) model"
+            KernelModel.ASR4ALL_M_CONFIG, KernelModel.ASR4ALL_M_RELEASE_GEOM,
+            KernelModel.ASR4ALL_M_PREPROCESSOR, KernelModel.ASR4ALL_M_METADATA,
+            KernelModel.ASR4ALL_M_ENCODER, KernelModel.ASR4ALL_L_CONFIG,
+            KernelModel.ASR4ALL_L_RELEASE_GEOM, KernelModel.ASR4ALL_L_PREPROCESSOR,
+            KernelModel.ASR4ALL_L_METADATA, KernelModel.ASR4ALL_L_ENCODER -> "Speech recognition (STT) model"
             KernelModel.INFLECT_MICRO_DURATION, KernelModel.INFLECT_MICRO_DECODE ->
                 "Speech synthesis (TTS) model"
         }
