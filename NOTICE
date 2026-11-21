@@ -132,14 +132,14 @@ Whisper tiny.en speech-recognition weights (sherpa-onnx export)
   Upstream: https://github.com/openai/whisper and https://huggingface.co/openai/whisper-tiny.en
   The export repository has no licence file; it is attributed to the OpenAI weights above.
 
-asr4all speech recognition weights (Asr4All, 28M and 56M sizes)
+asr4all speech recognition weights (Asr4All, 56M and 97M sizes)
   Licensed under the FUTO Model Weights License (Restricted Use) 1.0. The full text is
   shown at the end of this screen.
-  https://huggingface.co/futo-org/asr4all-s/blob/87a6b5d093723fe37e9f69ad26307a3b95a31af0/LICENSE
   https://huggingface.co/futo-org/asr4all-m/blob/7d6e9145109a5bece4f05831d046e93d27e38a99/LICENSE
-  Planned use, not yet enabled in this build: unmodified ONNX speech-recognition weights to be
-  downloaded from the publisher's Hugging Face repositories (asr4all-s at revision 87a6b5d0,
-  asr4all-m at revision 7d6e9145). Commercial
+  https://huggingface.co/futo-org/asr4all-l/blob/79d1c23bc8f1174cee576b40bbaa0118bd95abed/LICENSE
+  Planned use, not yet enabled in this build: unmodified ExecuTorch INT8 (XNNPACK) speech-recognition exports to be
+  downloaded from the publisher's Hugging Face repositories (asr4all-m at revision 7d6e9145, asr4all-l at
+  revision 79d1c23b). Commercial
   use is permitted. The Limitations section prohibits surveillance, profiling and
   discrimination, intelligence gathering, monitoring people in custody, targeting protected
   activity, and circumvention of those limits. asr4all-l-plus is under a different licence
