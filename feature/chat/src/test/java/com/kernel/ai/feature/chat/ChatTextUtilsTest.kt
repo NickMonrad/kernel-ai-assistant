@@ -353,6 +353,11 @@ class ChatTextUtilsTest {
         }
 
         @Test
+        fun `a non-web scheme keeps its colon-slash-slash so it is not split at the colon`() {
+            assertEquals("Fetch ftp://files.example.org", normalizeChatTextForSpeech("Fetch ftp://files.example.org"))
+        }
+
+        @Test
         fun `converts em and en dashes into comma pauses`() {
             assertEquals(
                 "a warm bath, like a story, signals bedtime",

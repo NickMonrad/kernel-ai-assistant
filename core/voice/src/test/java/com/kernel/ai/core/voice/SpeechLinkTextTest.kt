@@ -56,4 +56,26 @@ class SpeechLinkTextTest {
         val once = SpeechLinkText.strip("Kiwi_(bird) is here.\n\nRead more: https://en.wikipedia.org/wiki/Kiwi_(bird)")
         assertEquals(once, SpeechLinkText.strip(once))
     }
+
+    @Test
+    fun `a url glued to a word or an address is not a link`() {
+        assertEquals("Awww.That was cute.", SpeechLinkText.strip("Awww.That was cute."))
+        assertEquals("mail bob@www.example.com now", SpeechLinkText.strip("mail bob@www.example.com now"))
+    }
+
+    @Test
+    fun `a source mention without a link is kept`() {
+        assertEquals("Source: the BBC says so.", SpeechLinkText.strip("Source: the BBC says so."))
+    }
+
+    @Test
+    fun `url scheme and host match regardless of case`() {
+        assertEquals("See now.", SpeechLinkText.strip("See HTTPS://X.COM/A now."))
+    }
+
+    @Test
+    fun `identifiers and subscripts keep their underscores`() {
+        val text = "Use snake_case, MAX_VALUE, my_file.txt, x_1, CO_2, __init__ or _italic_."
+        assertEquals(text, SpeechLinkText.strip(text))
+    }
 }

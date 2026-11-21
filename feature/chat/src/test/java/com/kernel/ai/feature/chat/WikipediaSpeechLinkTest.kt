@@ -23,4 +23,12 @@ class WikipediaSpeechLinkTest {
             normalizeChatTextForSpeech("Read the [article about kiwi](https://en.wikipedia.org/wiki/Kiwi_(bird))."),
         )
     }
+
+    @Test
+    fun `chat speech keeps lone subscripts as unicode digits`() {
+        assertEquals(
+            "Carbon dioxide is CO₂, and x₁ is set.",
+            normalizeChatTextForSpeech("Carbon dioxide is CO_2, and x_1 is set."),
+        )
+    }
 }

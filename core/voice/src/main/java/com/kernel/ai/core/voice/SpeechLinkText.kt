@@ -24,10 +24,11 @@ object SpeechLinkText {
         """^[ \t]*(?:read\s+more|sources?|links?|more\s+info(?:rmation)?)[ \t]*[:\-–—]?[ \t]*(?:$URL|\[[^\]\n]*]$MARKDOWN_LINK_TARGET)[ \t]*$""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
     )
-    private val markdownLink = Regex("""\[([^\]\n]*)]$MARKDOWN_LINK_TARGET""")
-    private val bareUrl = Regex("""[ \t]*$URL""")
-    /** "Kiwi_(bird)", "Kiwi_Bird": a title's underscore is a space, not a subscript or a pause. */
-    private val titleUnderscore = Regex("""(?<=[\p{L}\d])_+(?=[\p{L}\d(])""")
+    private val markdownLink = Regex("""\[([^\]\n]*)]$MARKDOWN_LINK_TARGET""", RegexOption.IGNORE_CASE)
+    /** Not glued to a preceding letter, digit, or one of @ . _ / -: "Awww.That" and "bob@www.example.com" keep their text. */
+    private val bareUrl = Regex("""[ \t]*(?<![\p{L}\d@._/-])$URL""", RegexOption.IGNORE_CASE)
+    /** "Kiwi_(bird)" → "Kiwi (bird)": only a slug underscore before "(" is a space. snake_case, x_1 and CO_2 are untouched. */
+    private val titleUnderscore = Regex("""(?<=[\p{L}\d])_+(?=\()""")
     private val spaceRun = Regex("""[ \t]{2,}""")
 
     /**
