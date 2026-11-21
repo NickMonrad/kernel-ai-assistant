@@ -810,7 +810,7 @@ class SelectableVoiceInputHandoffTest {
     }
 
     @Test
-    fun `same Sherpa replacement retires the remapped fallback owner and keeps the new owner`() =
+    fun `same asr4all replacement retires the remapped fallback owner and keeps the new owner`() =
         runTest(dispatcher) {
             asr4allStartsAs(2L)
             val c = controller()
@@ -819,18 +819,15 @@ class SelectableVoiceInputHandoffTest {
             assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
             nativeEvents.emit(notReady(1L))
             advanceUntilIdle()
-            selectedEngine.value = VoiceInputEngine.SherpaParaformer
+            selectedEngine.value = VoiceInputEngine.Asr4all
             every { asr4all.stopListeningForSession(2L) } answers {
                 asr4allEvents.tryEmit(VoiceInputEvent.ListeningStopped(mode, 2L))
             }
-            coEvery { sherpa.startListening(any(), any(), any()) } coAnswers {
-                thirdArg<(Long) -> Unit>().invoke(3L)
-                VoiceInputStartResult.Started(3L)
-            }
+            asr4allStartsAs(3L)
 
             assertEquals(VoiceInputStartResult.Started(3L), c.startListening(mode))
-            sherpaEvents.emit(VoiceInputEvent.ListeningStarted(mode, 3L))
-            // UnconfinedTestDispatcher queues each collector hop (sherpa -> pipeline -> seen);
+            asr4allEvents.emit(VoiceInputEvent.ListeningStarted(mode, 3L))
+            // UnconfinedTestDispatcher queues each collector hop (asr4all -> pipeline -> seen);
             // suspending lets the queued hops run before the snapshot is read.
             repeat(3) { yield() }
             advanceUntilIdle()

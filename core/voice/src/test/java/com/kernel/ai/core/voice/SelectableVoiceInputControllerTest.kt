@@ -146,6 +146,18 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `auto uses android native when the online fallback is allowed`() {
+        assertEquals(
+            AutoSttRoute.Native,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = true,
+                allowOnlineFallback = true,
+            ),
+        )
+    }
+
+    @Test
     fun `auto uses native when it is the only ready recognizer`() {
         assertEquals(
             AutoSttRoute.Native,
@@ -185,9 +197,10 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `release Android native does not fall back to Sherpa when native cannot start`() = runTest(dispatcher) {
+    fun `release Android native does not fall back when native cannot start`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.AndroidNative)
         every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
         coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } returns
             VoiceInputStartResult.Unavailable("not ready")
 
@@ -198,6 +211,7 @@ class SelectableVoiceInputControllerTest {
 
         coVerify(exactly = 0) { sherpaOnnxVoiceInputController.isSpecAvailable(any()) }
         coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
     }
 
     @Test
@@ -245,6 +259,28 @@ class SelectableVoiceInputControllerTest {
 
         coVerify(exactly = 1) { recognitionSupport.getAvailability() }
         coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
+    }
+
+    @Test
+    fun `auto keeps a loaded asr4all engine when its route is asr4all`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
+
+        controller().startListening(VoiceCaptureMode.Command)
+
+        coVerify(exactly = 1) { asr4allVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.releaseEngine() }
+    }
+
+    @Test
+    fun `auto releases a loaded asr4all engine when its route is not asr4all`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
+
+        controller().startListening(VoiceCaptureMode.Command)
+
+        coVerify(exactly = 1) { asr4allVoiceInputController.releaseEngine() }
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
     }
 
 

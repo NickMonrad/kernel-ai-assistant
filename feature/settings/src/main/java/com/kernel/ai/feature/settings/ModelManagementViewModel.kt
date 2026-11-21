@@ -24,6 +24,10 @@ import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.kernelModels
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.model.availability.ModelRoleSection
 import com.kernel.ai.core.model.availability.ModelRoles
 import com.kernel.ai.core.model.availability.StillNeededItem
@@ -83,15 +87,24 @@ data class ModelManagementUiState(
 /** Read-only status for a voice section on the Models screen. Managed in Voice settings. */
 enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED, BUILT_IN, OTHER_ENGINE }
 
-/** Whisper files needed by Hey Jandal, taken from the core spec. */
-internal val WAKE_VERIFIER_STT_MODELS: List<KernelModel> =
-    SherpaSttModelSpec.WHISPER.kernelModels()
-
-internal fun speechStatusOf(states: Map<KernelModel, DownloadState>): VoiceSectionStatus {
-    val files = WAKE_VERIFIER_STT_MODELS.map { states[it] ?: DownloadState.NotDownloaded }
+/**
+ * The speech row follows the selected input engine (#1982): Android native is built in, Auto and asr4all
+ * need the asr4all files of the effective size, and each Sherpa engine needs the files of its own spec.
+ */
+internal fun speechStatusOf(
+    engine: VoiceInputEngine,
+    states: Map<KernelModel, DownloadState>,
+    asr4allSize: Asr4AllSize,
+): VoiceSectionStatus {
+    val files = when (engine) {
+        VoiceInputEngine.AndroidNative -> return VoiceSectionStatus.BUILT_IN
+        VoiceInputEngine.Auto, VoiceInputEngine.Asr4all -> Asr4AllInstall.models(asr4allSize)
+        else -> SherpaSttModelSpec.forEngine(engine)?.kernelModels() ?: return VoiceSectionStatus.OTHER_ENGINE
+    }
+    val downloads = files.map { states[it] ?: DownloadState.NotDownloaded }
     return when {
-        files.all { it is DownloadState.Downloaded } -> VoiceSectionStatus.READY
-        files.any { it is DownloadState.Downloading } -> VoiceSectionStatus.DOWNLOADING
+        downloads.all { it is DownloadState.Downloaded } -> VoiceSectionStatus.READY
+        downloads.any { it is DownloadState.Downloading } -> VoiceSectionStatus.DOWNLOADING
         else -> VoiceSectionStatus.NOT_DOWNLOADED
     }
 }
@@ -122,6 +135,7 @@ class ModelManagementViewModel @Inject constructor(
     private val gatedModelStatusRepository: GatedModelStatusRepository,
     private val sherpaVoicePackDownloadManager: SherpaVoicePackDownloadManager,
     private val voiceOutputPreferences: VoiceOutputPreferences,
+    private val voiceInputPreferences: VoiceInputPreferences,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
@@ -173,6 +187,8 @@ class ModelManagementViewModel @Inject constructor(
         voiceOutputPreferences.selectedEngine,
         modelDownloadManager.waitingForWifi,
         downloadNetworkPreferences.choice,
+        voiceInputPreferences.selectedEngine,
+        voiceInputPreferences.asr4allSize,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val downloadStates = array[0] as Map<KernelModel, DownloadState>
@@ -192,6 +208,8 @@ class ModelManagementViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val waitingForWifi = array[10] as Set<KernelModel>
         val mobileDataAllowed = array[11] as DownloadNetworkChoice? == DownloadNetworkChoice.MOBILE_DATA_ALLOWED
+        val inputEngine = array[12] as VoiceInputEngine
+        val asr4allStored = array[13] as Asr4AllSize
 
         val filteredModels = KernelModel.entries.filter {
             it.showInModelManagement && !it.isDeprecated
@@ -224,7 +242,11 @@ class ModelManagementViewModel @Inject constructor(
             roleSections = ModelRoles.sections(preferred = preferredModel, tier = tier, states = downloadStates),
             stillNeeded = ModelRoles.stillNeeded(tier = tier, states = downloadStates),
             deviceTier = tier,
-            speechRecognitionStatus = speechStatusOf(downloadStates),
+            speechRecognitionStatus = speechStatusOf(
+                engine = inputEngine,
+                states = downloadStates,
+                asr4allSize = Asr4AllInstall.effectiveSize(asr4allStored, tier),
+            ),
             voiceOutputStatus = voiceOutputStatusOf(engine, voicePacks[SherpaPiperVoice.CoriHigh]),
             mobileDataAllowed = mobileDataAllowed,
             waitingForWifi = waitingForWifi,

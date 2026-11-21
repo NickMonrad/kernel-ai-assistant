@@ -103,6 +103,9 @@ internal fun resolveAutoSttRoute(
     else -> AutoSttRoute.Unavailable
 }
 
+/** Auto and asr4all share one loaded engine, so an Auto start keeps it when its route is asr4all. */
+private fun VoiceInputEngine.usesAsr4all(): Boolean = this == VoiceInputEngine.Asr4all || this == VoiceInputEngine.Auto
+
 /**
  * Whether a terminal Android native error may be handed to asr4all for the same capture.
  *
@@ -230,14 +233,14 @@ class SelectableVoiceInputController @Inject constructor(
                 .distinctUntilChanged()
                 .catch { Log.w(TAG, "asr4all selection observer stopped", it) }
                 .collect { engine ->
-                    val leftAsr4all = previous == VoiceInputEngine.Asr4all && engine != VoiceInputEngine.Asr4all
+                    val leftAsr4all = previous?.usesAsr4all() == true && !engine.usesAsr4all()
                     previous = engine
                     if (!leftAsr4all) return@collect
                     // Supersede before waiting behind a start's lock, so a cold mic closes at once.
                     retireAsr4allForDeselect()
                     // Re-read under startMutex: a reselect that ran first keeps the loaded engine.
                     startMutex.withLock {
-                        if (voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all) {
+                        if (!voiceInputPreferences.selectedEngine.first().usesAsr4all()) {
                             asr4allVoiceInputController.releaseEngine()
                         }
                     }
@@ -617,7 +620,7 @@ class SelectableVoiceInputController @Inject constructor(
     /**
      * Retires a superseded capture whose backend never settled. Keyed by owner because a hand-off
      * re-keys the admission to a new backend id. A wedged native records a settle window, which the
-     * next start awaits only when its engine is Sherpa-family or asr4all (settleNativeToLocal). Consumers
+     * next start awaits only when its engine is Sherpa-family, asr4all or Auto (settleNativeToLocal). Consumers
      * get one synthetic cancelled stop, only if this call removed the admission; a backend terminal that
      * arrives later is dropped with its admission.
      */
@@ -658,7 +661,7 @@ class SelectableVoiceInputController @Inject constructor(
                     if (gen != generation.get()) return@withLock VoiceInputStartResult.Cancelled()
                     val selectedBeforeTeardown = voiceInputPreferences.selectedEngine.first()
                     val settleNativeToLocal =
-                        selectedBeforeTeardown.isSherpaFamily || selectedBeforeTeardown == VoiceInputEngine.Asr4all
+                        selectedBeforeTeardown.isSherpaFamily || selectedBeforeTeardown.usesAsr4all()
                     if (!stopAndAwaitPreviousBackends(gen, settleNativeToLocal)) {
                         return@withLock VoiceInputStartResult.Cancelled()
                     }
@@ -676,7 +679,7 @@ class SelectableVoiceInputController @Inject constructor(
                     if (engine != VoiceInputEngine.Auto) {
                         JandalEvents.record("voice", "stt_route", "route" to engine, "online_fallback" to allowOnlineFallback)
                     }
-                    if (engine != VoiceInputEngine.Asr4all) {
+                    if (!engine.usesAsr4all()) {
                         asr4allVoiceInputController.releaseEngine()
                     }
                     if (gen != generation.get() || voiceInputPreferences.selectedEngine.first() != engine) {
@@ -767,6 +770,11 @@ class SelectableVoiceInputController @Inject constructor(
             "native_ready" to nativeOnDeviceReady, "asr4all_ready" to asr4allReady,
             "online_fallback" to allowOnlineFallback,
         )
+        // Auto keeps a loaded asr4all engine for its next start. Every other route releases it first.
+        if (route != AutoSttRoute.Asr4all) {
+            asr4allVoiceInputController.releaseEngine()
+            if (gen != generation.get()) return VoiceInputStartResult.Cancelled()
+        }
         return when (route) {
             AutoSttRoute.Native -> {
                 // The live check's throwaway recognizer is torn down asynchronously; starting
@@ -828,8 +836,8 @@ class SelectableVoiceInputController @Inject constructor(
             return nativeResult
         }
         if (nativeSessionId == null) endNativeStart(nativeStart)
-        // A native failure stays a native failure unless the asr4all model can take the request.
-        if (!asr4allVoiceInputController.isAvailable()) return nativeResult
+        // A native failure stays a native failure: release builds never start asr4all here, and debug starts it only when the model can take the request.
+        if (!voiceInputPreferences.allowsSherpaRuntime() || !asr4allVoiceInputController.isAvailable()) return nativeResult
         // Keep the backend mapping until its post-cleanup terminal is routed. A start-time
         // fallback can suspend while that physical stop is queued.
         // Its post-cleanup terminal retires the Native mapping after fallback suspension.
@@ -1188,7 +1196,7 @@ class SelectableVoiceInputController @Inject constructor(
     /** The error belongs to the open capture's native session and qualifies for a hand-off. */
     private fun isHandoffCandidate(error: VoiceInputEvent.Error): Boolean {
         val facts = nativeFacts ?: return false
-        // Release builds never hand off: the asr4all hand-off stays debug-gated like the Zipformer one it replaces.
+        // allowsSherpaRuntime() is the debug-build gate; it also keeps the mid-session asr4all hand-off debug-only.
         return voiceInputPreferences.allowsSherpaRuntime() &&
             openGeneration != -1L &&
             openGeneration == generation.get() &&

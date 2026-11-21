@@ -37,7 +37,7 @@ internal fun downloadRows(
     group(plannedModels, MEMORY_MODELS) { bytes ->
         DownloadRowItem(DownloadRowKind.Memory, "Memory and search", KernelModel.ARCTIC_EMBED_M_V1_5.displayName, bytes)
     }
-    group(plannedModels, VoiceDefaultsProvisioner.asr4allSetupModels().toSet()) { bytes ->
+    group(plannedModels, VoiceDefaultsProvisioner.asr4allFilesOfAnySize().toSet()) { bytes ->
         DownloadRowItem(
             DownloadRowKind.SpeechInput,
             "Offline speech recognition",
@@ -51,7 +51,7 @@ internal fun downloadRows(
     group(plannedModels, InflectMicroSetup.kernelModels().toSet()) { bytes ->
         DownloadRowItem(DownloadRowKind.Voice, "Inflect Micro", "Inflect Micro v2 voice", bytes)
     }
-    val grouped = CHAT_MODELS + MEMORY_MODELS + VoiceDefaultsProvisioner.asr4allSetupModels() +
+    val grouped = CHAT_MODELS + MEMORY_MODELS + VoiceDefaultsProvisioner.asr4allFilesOfAnySize() +
         InflectMicroSetup.kernelModels()
     plannedModels.filterNot { it in grouped }.forEach { model ->
         add(DownloadRowItem(DownloadRowKind.Other, ModelRoleCopy.purpose(model), model.displayName, model.approxSizeBytes))

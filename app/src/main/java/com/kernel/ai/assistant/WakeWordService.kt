@@ -205,6 +205,7 @@ internal class WakeAttemptCollectionException(
  * The collectors and channel are always cleaned up in [finally].
  * [onError] is called for non-fatal user-facing messages: a start failure, and every
  * controller note for this capture (#1853 native hand-off to asr4all). A terminal recognition error is
+ * returned in [WakeAttemptOutcome.NoTranscript.errorMessage] instead, so the session shows it
  * only when no retry follows.
  *
  * Throws [WakeAttemptCollectionException] when event collection fails,
@@ -253,6 +254,7 @@ internal suspend fun runWakeAttempt(
 
             val captureSessionId = startResult.captureSessionId
             // #1853/#1866: notes for this capture (a native hand-off to asr4all) are shown at once. The
+            // latest note is replayed, so one posted during startListening is not lost.
             noticeJob = launch(start = CoroutineStart.UNDISPATCHED) {
                 voiceInputController.noticesFor(captureSessionId).collect { onError(it) }
             }
@@ -752,7 +754,7 @@ class WakeWordService : Service() {
      * #1439: the low-band wake verifier prefers the Whisper tiny.en catalogue model
      * (the only model that recognises the fixed wake phrase). Queue the download
      * through the existing catalogue flow when the files are missing; verification
-     * falls back to the online recognizer until they arrive.
+     * rejects low-band candidates until they arrive.
      */
     private fun ensureWakeVerifierModels() {
         if (wakeVerifierProvisionRequested) return

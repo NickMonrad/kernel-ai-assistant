@@ -2,9 +2,10 @@ package com.kernel.ai.feature.chat.setup
 
 import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
-import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -13,7 +14,7 @@ import org.junit.jupiter.api.Test
 class SetupDownloadRowsTest {
 
     private val arctic = listOf(KernelModel.ARCTIC_EMBED_M_V1_5, KernelModel.ARCTIC_EMBED_V1_5_VOCAB)
-    private val asr4all = VoiceDefaultsProvisioner.asr4allSetupModels()
+    private val asr4all = Asr4AllInstall.models(Asr4AllSize.M)
 
     private fun total(models: List<KernelModel>, voices: List<SherpaPiperVoice>) =
         DownloadConsent.firstRunEstimateBytes(models, voices.sumOf { it.approxDownloadBytes })

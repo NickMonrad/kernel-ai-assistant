@@ -81,11 +81,11 @@ class DownloadConsentTest {
     }
 
     @Test
-    fun `speech defaults are asr4all M files that are not yet downloaded`() {
-        val downloadedModel = KernelModel.ASR4ALL_M_CONFIG
-        val speech = DownloadConsent.speechDefaultModels { it == downloadedModel }
-        assertTrue(speech.all { it.fileName.startsWith("asr4all/m/") })
-        assertTrue(speech.none { it == downloadedModel })
+    fun `the auto-queue set never includes asr4all, which the setup wizard plans itself`() {
+        HardwareTier.entries.forEach { tier ->
+            val planned = DownloadConsent.autoQueueModels(tier, { false }, emptySet(), hasToken = true)
+            assertTrue(planned.none { it.fileName.startsWith("asr4all/") }, "tier $tier")
+        }
     }
 
     @Test
@@ -122,11 +122,10 @@ class DownloadConsentTest {
     }
 
     @Test
-    fun `first-run estimate counts speech default files and the planned voice`() {
-        val speechDefaults = DownloadConsent.speechDefaultModels { false }
-        assertTrue(speechDefaults.isNotEmpty())
+    fun `first-run estimate counts the planned models and the planned voice`() {
+        val models = listOf(KernelModel.GEMMA_4_E4B)
         val cori = 115_574_061L
-        assertEquals(speechDefaults.sumOf { it.approxSizeBytes } + cori, DownloadConsent.firstRunEstimateBytes(speechDefaults, cori))
+        assertEquals(KernelModel.GEMMA_4_E4B.approxSizeBytes + cori, DownloadConsent.firstRunEstimateBytes(models, cori))
         assertEquals(cori, DownloadConsent.firstRunEstimateBytes(emptyList(), cori))
     }
 }

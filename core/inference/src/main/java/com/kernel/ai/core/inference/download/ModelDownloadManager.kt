@@ -225,9 +225,8 @@ class ModelDownloadManager @Inject constructor(
         hasToken = authRepository.getAccessToken() != null,
     )
 
-    /** Models the first-run plan covers: the auto-queue set plus the speech input defaults (#1855). */
-    suspend fun plannedFirstRunModels(): List<KernelModel> =
-        autoQueueSet() + DownloadConsent.speechDefaultModels { it.isDownloaded(context) }
+    /** Models the first-run plan covers: the auto-queue set. The setup wizard plans the asr4all files itself (#1855). */
+    suspend fun plannedFirstRunModels(): List<KernelModel> = autoQueueSet()
 
     /** Waiting means queued, Wi-Fi only, and the only connection is metered. Driven by work state and network callbacks (#1855). */
     private suspend fun updateWaitingForWifi(model: KernelModel, state: WorkInfo.State) {

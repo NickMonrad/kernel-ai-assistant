@@ -70,12 +70,8 @@ class SherpaOnnxVoiceInputControllerTest {
 
     @Test
     fun `isAvailable returns false when one model file absent`() = runTest {
-        // Create 3 of the 4 required files — tokens.txt is missing.
-        listOf(
-            "sherpa-stt-encoder.int8.onnx",
-            "sherpa-stt-decoder.int8.onnx",
-            "sherpa-stt-joiner.int8.onnx",
-        ).forEach { File(tempModelsDir, it).writeText("stub") }
+        // Paraformer is the selected engine: all of its files but the last are on disk, so it is still unavailable.
+        SherpaSttModelSpec.PARAFORMER.requiredFileNames.dropLast(1).forEach { File(tempModelsDir, it).writeText("stub") }
 
         assertFalse(controller.isAvailable())
     }
@@ -127,6 +123,9 @@ class SherpaOnnxVoiceInputControllerTest {
 
     @Test
     fun `wake verification returns null when Whisper is absent without another verifier`() = runTest {
+        // Paraformer and SenseVoice are on disk, so a fallback verifier exists; only Whisper is missing.
+        (SherpaSttModelSpec.PARAFORMER.requiredFileNames + SherpaSttModelSpec.SENSE_VOICE.requiredFileNames)
+            .forEach { File(tempModelsDir, it).writeText("stub") }
         assertNull(controller.transcribeBlocking(shortArrayOf(1, 2)))
         assertFalse(controller.wakeWhisperVerifierCached)
     }

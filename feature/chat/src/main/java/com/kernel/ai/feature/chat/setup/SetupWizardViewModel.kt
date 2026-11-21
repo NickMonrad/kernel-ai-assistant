@@ -13,6 +13,7 @@ import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardFlow
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
+import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -188,8 +189,10 @@ class SetupWizardViewModel @Inject constructor(
 
             val wakeStored = wakeWordPreferences.heyJandalEnabled.first()
             voiceStates = voicePackDownloadManager.downloadStates.value
+            // The stored size when this tier offers it: the plan counts the same files the provisioner queues.
+            val asr4allSize = Asr4AllInstall.effectiveSize(voiceInputPreferences.asr4allSize.first(), tier)
             allPlannedModels = downloadManager.plannedFirstRunModels() +
-                VoiceDefaultsProvisioner.asr4allSetupModels().filterNot { isModelDownloaded(it) }
+                Asr4AllInstall.models(asr4allSize).filterNot { isModelDownloaded(it) }
             val input = effectiveInput(inputEngine)
             val output = effectiveOutput(outputEngine)
             val plannedModels = plannedModelsFor(input, output)
@@ -246,7 +249,7 @@ class SetupWizardViewModel @Inject constructor(
      * them (#1931).
      */
     private fun plannedModelsFor(input: VoiceInputEngine, output: VoiceOutputEngine?): List<KernelModel> {
-        val asr4all = VoiceDefaultsProvisioner.asr4allSetupModels()
+        val asr4all = VoiceDefaultsProvisioner.asr4allFilesOfAnySize()
         val speech = allPlannedModels.filter { model ->
             model !in asr4all || VoiceDefaultsProvisioner.needsAsr4all(input)
         }

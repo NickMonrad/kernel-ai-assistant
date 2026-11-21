@@ -11,6 +11,8 @@ import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
+import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -73,6 +75,7 @@ class SetupWizardViewModelTest {
         every { wakeWordPreferences.heyJandalEnabled } returns flowOf(false)
         every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns flowOf(false)
+        every { voiceInputPreferences.asr4allSize } returns flowOf(Asr4AllSize.M)
         every { downloadManager.downloadStates } returns MutableStateFlow(emptyMap())
         every { setupVoiceDevice.inflectEligible() } returns false
         // Most of this suite exercises the full debug speech stack. Release-only gating has focused tests below.
@@ -566,7 +569,7 @@ class SetupWizardViewModelTest {
         vm.onOutputSelected(VoiceOutputEngine.InflectMicroExperimental)
 
         assertEquals(
-            VoiceDefaultsProvisioner.asr4allSetupModels() + InflectMicroSetup.kernelModels(),
+            Asr4AllInstall.models(Asr4AllSize.M) + InflectMicroSetup.kernelModels(),
             vm.uiState.value.plannedModels,
         )
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
@@ -626,7 +629,7 @@ class SetupWizardViewModelTest {
     // ── Hey Jandal download size (#1931) ─────────────────────────────────────────
 
     private val verifierBytes = wakeVerifierKernelModels().sumOf { it.approxSizeBytes }
-    private val asr4allBytes = VoiceDefaultsProvisioner.asr4allSetupModels().sumOf { it.approxSizeBytes }
+    private val asr4allBytes = Asr4AllInstall.models(Asr4AllSize.M).sumOf { it.approxSizeBytes }
 
     @Test
     fun `Hey Jandal with Android's own listener and nothing downloaded adds the verifier`() {
@@ -645,7 +648,7 @@ class SetupWizardViewModelTest {
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(VoiceDefaultsProvisioner.asr4allSetupModels(), vm.uiState.value.plannedModels)
+        assertEquals(Asr4AllInstall.models(Asr4AllSize.M), vm.uiState.value.plannedModels)
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
     }
 
@@ -679,8 +682,21 @@ class SetupWizardViewModelTest {
     // ── asr4all files follow the speech input (#1855 part 2 review S1) ──────────
 
     @Test
+    fun `the plan counts the stored asr4all size only where the tier offers it`() {
+        every { voiceInputPreferences.asr4allSize } returns flowOf(Asr4AllSize.L)
+        val flagship = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(Asr4AllInstall.models(Asr4AllSize.L), flagship.uiState.value.plannedModels)
+
+        device(nativeReady = true, hasTts = true, tier = HardwareTier.LOW_POWER)
+        val lowPower = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(Asr4AllInstall.models(Asr4AllSize.M), lowPower.uiState.value.plannedModels)
+    }
+
+    @Test
     fun `asr4all files are planned for Automatic and dropped for Android's listener`() {
-        val asr4all = VoiceDefaultsProvisioner.asr4allSetupModels()
+        val asr4all = Asr4AllInstall.models(Asr4AllSize.M)
         val other = KernelModel.entries.first { it !in asr4all }
         coEvery { downloadManager.plannedFirstRunModels() } returns listOf(other)
         val vm = viewModel()
@@ -690,6 +706,18 @@ class SetupWizardViewModelTest {
         vm.onInputSelected(VoiceInputEngine.AndroidNative)
 
         assertEquals(listOf(other), vm.uiState.value.plannedModels)
+    }
+
+    @Test
+    fun `asr4all is counted once when the first-run plan is the auto-queue set`() {
+        coEvery { downloadManager.plannedFirstRunModels() } returns listOf(KernelModel.GEMMA_4_E4B)
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            Asr4AllInstall.models(Asr4AllSize.M),
+            vm.uiState.value.plannedModels.filter { it.fileName.startsWith("asr4all/") },
+        )
     }
 
     // ── Storage and consent ──────────────────────────────────────────────────────

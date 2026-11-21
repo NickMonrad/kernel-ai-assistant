@@ -40,7 +40,7 @@ enum class VoiceInputEngine(
     Asr4all(
         displayName = "asr4all streaming",
         description = "Offline streaming speech recognition with the asr4all model (ExecuTorch). M is about 60 MB; L, for capable phones, is about 101 MB. Streaming partial results.",
-        warning = "Experimental. Accuracy has not yet been compared with other offline models; compare on your own speech before relying on it.",
+        warning = "Experimental. Compare on your own speech before relying on it.",
     ),
     ;
 

@@ -88,7 +88,7 @@ These assets are downloaded or bundled by the app rather than manually placed in
 | Asset family | Approx. size | Runtime/source | Notes |
 |--------------|--------------|----------------|-------|
 | Hey Jandal wake word | bundled ONNX assets | openWakeWord-derived Jandal-specific ONNX assets | openWakeWord is Apache-2.0; final release must record generated model/training-data provenance. |
-| Sherpa Zipformer STT | ~72 MB | Hugging Face `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | Streaming/online ONNX recogniser: encoder, decoder, joiner, tokens. |
+| Sherpa Zipformer STT (removed in #1982; no longer downloaded) | ~72 MB | Hugging Face `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21` | Streaming/online ONNX recogniser: encoder, decoder, joiner, tokens. |
 | Sherpa SenseVoice STT | ~100 MB | Hugging Face `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | Offline/final-only ONNX recogniser: model + tokens. |
 | Sherpa Whisper tiny.en STT | ~117 MB | Hugging Face `csukuangfj/sherpa-onnx-whisper-tiny.en` | Offline/final-only ONNX recogniser: encoder, decoder, tokens. |
 | Sherpa Paraformer STT | ~220 MB | Hugging Face `csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en` | Streaming/online ONNX recogniser: encoder, decoder, tokens. |
