@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice.asr4all
 
+import com.kernel.ai.core.executorch.ExecuTorchClosedException
 import com.kernel.ai.core.executorch.ExecuTorchException
 import com.kernel.ai.core.executorch.ExecuTorchTensor
 import com.kernel.ai.core.executorch.MethodSignature
@@ -122,7 +123,7 @@ class Asr4AllEngineLifecycleTest {
     /** What a `.pte` matching M's config at `stream_c16r4` declares, with [hiddenDim] substituted. */
     private fun declared(hiddenDim: Long = 512): Map<String, PteMethodInfo> {
         fun info(specs: List<TensorSpec>) = specs.map { s ->
-            PteTensorInfo(s.dtype, s.dims.map { if (it == 512L) hiddenDim else it }, dynamic = false)
+            PteTensorInfo(s.dtype, s.dims.map { if (it.min == 512L) hiddenDim else it.min }, dynamic = false)
         }
         return Asr4AllSignatures(config, config.tier(null)).all.associate { it.method to PteMethodInfo(info(it.inputs), info(it.outputs)) }
     }
@@ -142,7 +143,7 @@ class Asr4AllEngineLifecycleTest {
         override fun run(signature: MethodSignature, inputs: List<ExecuTorchTensor>): List<ExecuTorchTensor> {
             if (closeCalls > 0) {
                 usedAfterClose = true
-                throw IllegalStateException("closed")
+                throw ExecuTorchClosedException("fake.pte")
             }
             runCalls++
             if (failRuns) throw ExecuTorchException("failed", errorCode = 18)

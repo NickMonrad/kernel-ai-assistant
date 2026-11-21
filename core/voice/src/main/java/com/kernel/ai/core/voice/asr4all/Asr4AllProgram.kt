@@ -1,11 +1,13 @@
 package com.kernel.ai.core.voice.asr4all
 
+import com.kernel.ai.core.executorch.ExecuTorchClosedException
 import com.kernel.ai.core.executorch.ExecuTorchException
 import com.kernel.ai.core.executorch.ExecuTorchTensor
 import com.kernel.ai.core.executorch.InputShapeMismatchException
 import com.kernel.ai.core.executorch.MethodSignature
 import com.kernel.ai.core.executorch.OutputShapeMismatchException
 import com.kernel.ai.core.executorch.TensorDType
+import com.kernel.ai.core.executorch.TensorDim
 import com.kernel.ai.core.executorch.TensorSpec
 import com.kernel.ai.core.executorch.assertOutputShapes
 import com.kernel.ai.core.executorch.requireInputShapes
@@ -19,6 +21,10 @@ internal class PcecStreamOutput(val slots: IntArray, val state: FloatArray, val 
  * (plus the observed PCEC state size, [Asr4AllProgram.PCEC_STATE_NUMEL]).
  */
 internal class Asr4AllSignatures(config: Asr4AllModelConfig, tier: Asr4AllTier) {
+    /** Every asr4all tensor has a fixed shape (each tier is its own method). */
+    private fun spec(name: String, dtype: TensorDType, vararg dims: Long) =
+        TensorSpec(name, dtype, *Array(dims.size) { TensorDim.exact(dims[it]) })
+
     private val f32 = TensorDType.FLOAT32
     private val i64 = TensorDType.INT64
     private val nf = config.filterCacheNumel.toLong()
@@ -31,39 +37,39 @@ internal class Asr4AllSignatures(config: Asr4AllModelConfig, tier: Asr4AllTier) 
     val encoder = MethodSignature(
         tier.name,
         inputs = listOf(
-            TensorSpec("audio", f32, 1, tier.windowSamples.toLong()),
-            TensorSpec("filter_cache", f32, nf),
-            TensorSpec("attn_cache", f32, na),
+            spec("audio", f32, 1, tier.windowSamples.toLong()),
+            spec("filter_cache", f32, nf),
+            spec("attn_cache", f32, na),
         ),
         outputs = listOf(
-            TensorSpec("logits", f32, 1, commit, config.vocabSize.toLong()),
-            TensorSpec("filter_cache", f32, nf),
-            TensorSpec("attn_cache", f32, na),
-            TensorSpec("hidden", f32, 1, commit, dim),
+            spec("logits", f32, 1, commit, config.vocabSize.toLong()),
+            spec("filter_cache", f32, nf),
+            spec("attn_cache", f32, na),
+            spec("hidden", f32, 1, commit, dim),
         ),
     )
 
     private fun tokenInputs() = listOf(
-        TensorSpec("token_ids", i64, 1, rung),
-        TensorSpec("pause_buckets", i64, 1, rung),
-        TensorSpec("hidden", f32, 1, rung, dim),
-        TensorSpec("token_float", f32, 1, rung),
+        spec("token_ids", i64, 1, rung),
+        spec("pause_buckets", i64, 1, rung),
+        spec("hidden", f32, 1, rung, dim),
+        spec("token_float", f32, 1, rung),
     )
 
     val pcec = MethodSignature(
         tier.pcecMethod,
-        inputs = tokenInputs() + listOf(TensorSpec("state", f32, 1, state), TensorSpec("seen", i64, 1)),
+        inputs = tokenInputs() + listOf(spec("state", f32, 1, state), spec("seen", i64, 1)),
         outputs = listOf(
-            TensorSpec("slots", i64, 1, config.pcec.slotsPerToken * rung),
-            TensorSpec("state", f32, 1, state),
-            TensorSpec("seen", i64, 1),
+            spec("slots", i64, 1, config.pcec.slotsPerToken * rung),
+            spec("state", f32, 1, state),
+            spec("seen", i64, 1),
         ),
     )
 
     val pcecFlush = MethodSignature(
         tier.pcecFlushMethod,
-        inputs = tokenInputs() + listOf(TensorSpec("n", i64), TensorSpec("state", f32, 1, state), TensorSpec("seen", i64, 1)),
-        outputs = listOf(TensorSpec("tail_slots", i64, 1, config.pcec.slotsPerToken * (rung + config.pcec.lagTokens) + 1)),
+        inputs = tokenInputs() + listOf(spec("n", i64), spec("state", f32, 1, state), spec("seen", i64, 1)),
+        outputs = listOf(spec("tail_slots", i64, 1, config.pcec.slotsPerToken * (rung + config.pcec.lagTokens) + 1)),
     )
 
     val all: List<MethodSignature> get() = listOf(encoder, pcec, pcecFlush)
@@ -88,7 +94,7 @@ internal class Asr4AllSignatures(config: Asr4AllModelConfig, tier: Asr4AllTier) 
         expected.forEachIndexed { i, spec ->
             val d = declared[i]
             val ok = d != null && d.dtype == spec.dtype && d.sizes.size == spec.dims.size &&
-                spec.dims.indices.all { j -> if (d.dynamic) spec.dims[j] <= d.sizes[j] else spec.dims[j] == d.sizes[j] }
+                spec.dims.indices.all { j -> if (d.dynamic) spec.dims[j].max <= d.sizes[j] else spec.dims[j].matches(d.sizes[j]) }
             if (!ok) {
                 throw Asr4AllConfigException(
                     "$method $kind $i is $d in the program but the config files imply $spec (files from different sizes or revisions?)",
@@ -164,8 +170,11 @@ internal class Asr4AllProgram(
         )
     }
 
-    private fun f32(data: FloatArray, spec: TensorSpec) = ExecuTorchTensor.Float32(data, spec.dims.toLongArray())
-    private fun i64(data: LongArray, spec: TensorSpec) = ExecuTorchTensor.Int64(data, spec.dims.toLongArray())
+    private fun f32(data: FloatArray, spec: TensorSpec) = ExecuTorchTensor.Float32(data, shapeOf(spec))
+    private fun i64(data: LongArray, spec: TensorSpec) = ExecuTorchTensor.Int64(data, shapeOf(spec))
+
+    /** The fixed shape of an asr4all [TensorSpec] (every dimension is exact). */
+    private fun shapeOf(spec: TensorSpec) = LongArray(spec.dims.size) { spec.dims[it].min }
 
     private fun ExecuTorchTensor.floats(): FloatArray = (this as ExecuTorchTensor.Float32).data
     private fun ExecuTorchTensor.longs(): LongArray = (this as ExecuTorchTensor.Int64).data
@@ -202,6 +211,8 @@ internal class Asr4AllProgram(
         throw Asr4AllRuntimeException("$what rejected its inputs: ${e.message}", e)
     } catch (e: ExecuTorchException) {
         throw Asr4AllRuntimeException("$what failed: ${e.message}", e)
+    } catch (e: ExecuTorchClosedException) {
+        throw Asr4AllClosedException()
     } catch (e: IllegalStateException) {
         throw Asr4AllRuntimeException("$what failed: ${e.message}", e)
     }
