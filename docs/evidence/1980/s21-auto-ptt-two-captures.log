@@ -1,0 +1,7 @@
+# #1980 S21 Auto PTT check (device R5CR605B71K SM-G991B, debug APK ai.jandal.assistant.debug versionName 0.1.0)
+# Build: debug APK built from 26bfa440 plus the two engine loaded/released log lines (this commit). Installed with adb install -r at 09:36.
+# Setup: cold process start, asr4all M present (asr4allReady=true), input engine Automatic, online fallback off.
+# Two push-to-talk captures (tap, ~5 s, tap to stop) at 09:37:40 and 09:37:51. No speech was spoken, so transcription is not verified here.
+11-22 09:36:50.407 I/Asr4allSTT(20538): asr4all engine loaded size=M threads=4
+11-22 09:37:40.765 I/SelectableVoiceInput(20538): Auto STT route=Asr4all mode=Command nativeOnDeviceReady=false asr4allReady=true zipformerReady=true allowOnlineFallback=false
+11-22 09:37:51.348 I/SelectableVoiceInput(20538): Auto STT route=Asr4all mode=Command nativeOnDeviceReady=false asr4allReady=true zipformerReady=true allowOnlineFallback=false
