@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.settings
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,10 +17,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -56,7 +51,6 @@ import com.kernel.ai.core.ui.permissions.DefaultAssistantPrompt
 import com.kernel.ai.core.ui.permissions.DefaultAssistantPromptSuccess
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
-import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,10 +75,7 @@ import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
-import com.kernel.ai.core.model.availability.ModelAvailabilityState
-import com.kernel.ai.core.model.availability.ModelCardCompact
 import kotlin.math.roundToInt
-import com.kernel.ai.core.model.availability.UnavailableReason
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -793,569 +784,28 @@ private fun VoiceScreenContent(
             )
             HorizontalDivider()
 
-            Text(
-                text = "How Jandal speaks",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            SpeakingSection(
+                uiState = uiState,
+                onOutputEngineSelected = onVoiceOutputEngineSelected,
+                onSherpaVoiceSelected = onSherpaVoiceSelected,
+                onSherpaSpeedChanged = onSherpaSpeedChanged,
+                onSherpaPitchChanged = onSherpaPitchChanged,
+                onSherpaGainChanged = onSherpaGainChanged,
+                onActiveSpeakerIdChanged = onActiveSpeakerIdChanged,
+                onKokoroVoiceSelected = onKokoroVoiceSelected,
+                onKokoroActiveSpeakerIdChanged = onKokoroActiveSpeakerIdChanged,
+                onDownloadSherpaVoice = onDownloadSherpaVoice,
+                onCancelSherpaVoice = onCancelSherpaVoice,
+                onDeleteSherpaVoice = onDeleteSherpaVoice,
+                onPlaySherpaSample = onPlaySherpaSample,
+                onUseMobileDataForVoice = onUseMobileDataForVoice,
+                onDownloadKokoroVoice = onDownloadKokoroVoice,
+                onCancelKokoroVoice = onCancelKokoroVoice,
+                onDeleteKokoroVoice = onDeleteKokoroVoice,
+                onDownloadInflectMicro = onDownloadInflectMicro,
+                onCancelInflectMicro = onCancelInflectMicro,
+                onDeleteInflectMicro = onDeleteInflectMicro,
             )
-
-            VoiceOutputSelectionCard(
-                selectedEngine = uiState.selectedOutputEngine,
-                inflectMicroReady = uiState.isInflectMicroReady,
-                sherpaVoiceReady = uiState.isSelectedSherpaVoiceDownloaded,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-
-            uiState.availableOutputEngines.forEach { engine ->
-                val engineSelected = uiState.selectedOutputEngine == engine
-                val engineReady = when (engine) {
-                    VoiceOutputEngine.InflectMicroExperimental -> uiState.isInflectMicroReady
-                    VoiceOutputEngine.SherpaExperimental -> uiState.isSelectedSherpaVoiceDownloaded
-                    else -> true
-                }
-                val engineActive = engineSelected && engineReady
-                val selectedVoiceDownloading = uiState.sherpaVoices
-                    .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState is VoicePackDownloadState.Downloading
-                ListItem(
-                    modifier = Modifier.fillMaxWidth(),
-                    headlineContent = { Text(engine.displayName) },
-                    supportingContent = {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(engine.description)
-                            Text(
-                                text = when {
-                                    engineActive -> "Active"
-                                    engineSelected && engine == VoiceOutputEngine.SherpaExperimental &&
-                                        selectedVoiceDownloading -> "Setting up"
-                                    engineSelected && engine == VoiceOutputEngine.SherpaExperimental ->
-                                        "Needs ${uiState.selectedSherpaVoice.displayName}"
-                                    engineSelected -> "Selected, setup needed"
-                                    else -> "Inactive"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (engineActive) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                    },
-                    trailingContent = {
-                        RadioButton(
-                            selected = engineSelected,
-                            enabled = true,
-                            onClick = { onVoiceOutputEngineSelected(engine) },
-                        )
-                    },
-                )
-                if (engine == VoiceOutputEngine.SherpaExperimental && engineSelected) {
-                    Text(
-                        text = sherpaVoiceStatusLine(
-                            voice = uiState.selectedSherpaVoice,
-                            state = uiState.sherpaVoices
-                                .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                    )
-                }
-                HorizontalDivider()
-            }
-
-            val piperVoiceDownloadState = uiState.sherpaVoices
-                .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState
-            if (
-                uiState.selectedOutputEngine != VoiceOutputEngine.SherpaExperimental &&
-                piperVoiceDownloadState is VoicePackDownloadState.Downloading
-            ) {
-                Text(
-                    text = sherpaVoiceStatusLine(uiState.selectedSherpaVoice, piperVoiceDownloadState),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                // While the Inflect row is preparing, it owns this Cori download and shows the one Cancel.
-                if (uiState.inflectMicroAvailability !is ModelAvailabilityState.Preparing) {
-                    OutlinedButton(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                        onClick = { onCancelSherpaVoice(uiState.selectedSherpaVoice) },
-                    ) {
-                        Text("Cancel")
-                    }
-                }
-            }
-
-            Text(
-                text = "Choose how Jandal speaks. Only the selected option speaks.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-
-            val inflectSelected =
-                uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
-            val sherpaSelected =
-                uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental
-            val showSherpaVoiceControls = sherpaSelected
-            if (showSherpaVoiceControls) {
-                Text(
-                    text = "Voice",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-
-                val selectedSherpaName = uiState.selectedSherpaVoice.displayName
-                val sherpaHelpText = when {
-                    !uiState.hasDownloadedSherpaVoice ->
-                        "Download a voice below before this option can speak."
-                    !uiState.isSelectedSherpaVoiceDownloaded ->
-                        "Your saved voice is not downloaded on this device. Download it again or choose another installed voice below."
-                    else ->
-                        "Only downloaded voices can be selected. Android TTS speaks only while it is selected above."
-                }
-                VoiceInfoCard(
-                    title = if (uiState.isSelectedSherpaVoiceDownloaded) {
-                        "$selectedSherpaName is selected"
-                    } else {
-                        "$selectedSherpaName is not downloaded"
-                    },
-                    message = sherpaHelpText,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-
-
-                // Tracks whether the speaker selector is expanded; resets to true on voice change.
-                var speakerSelectorExpanded by rememberSaveable(uiState.selectedSherpaVoice) {
-                    mutableStateOf(true)
-                }
-
-                val sortedVoices = uiState.sherpaVoices
-                    .sortedByDescending { it.voice == uiState.selectedSherpaVoice }
-                sortedVoices.forEach { voiceRow ->
-                    val isSelected = uiState.selectedSherpaVoice == voiceRow.voice
-                    val isDownloaded = voiceRow.downloadState is VoicePackDownloadState.Downloaded
-                    val isMultiSpeaker = voiceRow.voice == SherpaPiperVoice.VctkMedium ||
-                        voiceRow.voice == SherpaPiperVoice.SemaineMedium
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ModelCardCompact(
-                            title = voiceRow.voice.displayName,
-                            description = voiceRow.voice.description,
-                            state = uiState.sherpaVoiceAvailability[voiceRow.voice]
-                                ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
-                            modifier = Modifier.weight(1f),
-                        )
-                        RadioButton(
-                            selected = isSelected,
-                            onClick = { if (isDownloaded) onSherpaVoiceSelected(voiceRow.voice) },
-                            enabled = isDownloaded,
-                        )
-                    }
-                    TermsOfUseLinkWithSheet()
-                    if (!isDownloaded) {
-                        Text(
-                            text = "About ${formatBytes(voiceRow.voice.approxDownloadBytes)} download",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                        )
-                    }
-                    val voiceRowState = voiceRow.downloadState
-                    when (voiceRowState) {
-                        is VoicePackDownloadState.NotDownloaded -> {
-                            Button(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                onClick = { onDownloadSherpaVoice(voiceRow.voice) },
-                            ) {
-                                Text("Download")
-                            }
-                        }
-                        is VoicePackDownloadState.Downloading -> {
-                            if (voiceRowState.waitingForWifi) {
-                                Text(
-                                    text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this voice only.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                )
-                                Button(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                    onClick = { onUseMobileDataForVoice(voiceRow.voice) },
-                                ) {
-                                    Text("Use mobile data")
-                                }
-                            }
-                            OutlinedButton(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                onClick = { onCancelSherpaVoice(voiceRow.voice) },
-                            ) {
-                                Text("Cancel")
-                            }
-                        }
-                        is VoicePackDownloadState.Downloaded -> {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                if (isSelected) {
-                                    Button(onClick = { onPlaySherpaSample(voiceRow.voice) }) {
-                                        Text("Play sample")
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-                                OutlinedButton(onClick = { onDeleteSherpaVoice(voiceRow.voice) }) {
-                                    Text("Delete")
-                                }
-                            }
-                        }
-                        is VoicePackDownloadState.Error -> {
-                            OutlinedButton(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                onClick = { onDownloadSherpaVoice(voiceRow.voice) },
-                            ) {
-                                Text("Retry")
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-                    if (isSelected && isDownloaded && isMultiSpeaker) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 0.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = "Speaker",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 8.dp),
-                            )
-                            IconButton(onClick = { speakerSelectorExpanded = !speakerSelectorExpanded }) {
-                                Icon(
-                                    imageVector = if (speakerSelectorExpanded) {
-                                        Icons.Default.ExpandLess
-                                    } else {
-                                        Icons.Default.ExpandMore
-                                    },
-                                    contentDescription = if (speakerSelectorExpanded) {
-                                        "Collapse speaker selector"
-                                    } else {
-                                        "Expand speaker selector"
-                                    },
-                                )
-                            }
-                        }
-                        AnimatedVisibility(visible = speakerSelectorExpanded) {
-                            when (voiceRow.voice) {
-                                SherpaPiperVoice.VctkMedium -> VctkSpeakerSelector(
-                                    activeSpeakerId = uiState.activeSpeakerId,
-                                    onSpeakerSelected = onActiveSpeakerIdChanged,
-                                )
-                                SherpaPiperVoice.SemaineMedium -> SemaineSpeakerSelector(
-                                    activeSpeakerId = uiState.activeSpeakerId,
-                                    onSpeakerSelected = onActiveSpeakerIdChanged,
-                                )
-                                else -> Unit
-                            }
-                        }
-                    }
-                }
-                uiState.sherpaSampleError?.let { message ->
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-
-                // Speech rate slider — range 0.5–1.5 in steps of 0.05 (19 discrete steps)
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    SliderRow(
-                        label = "Speech rate",
-                        valueLabel = "%.2fx".format(uiState.sherpaSpeed),
-                        value = uiState.sherpaSpeed,
-                        valueRange = 0.5f..1.5f,
-                        steps = 19,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaSpeedChanged(
-                                (newVal * 20).roundToInt() / 20f
-                            )
-                        },
-                    )
-                }
-
-                // Pitch slider — range 0.5–2.0 in steps of 0.05 (29 discrete steps)
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SliderRow(
-                        label = "Pitch",
-                        valueLabel = "%.2fx".format(uiState.sherpaPitch),
-                        value = uiState.sherpaPitch,
-                        valueRange = 0.5f..2.0f,
-                        steps = 29,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaPitchChanged(
-                                (newVal * 20).roundToInt() / 20f
-                            )
-                        },
-                    )
-                }
-
-                // Volume boost slider — range 0.5–3.0 in steps of 0.25 (9 discrete steps)
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SliderRow(
-                        label = "Volume boost",
-                        valueLabel = "%.2fx".format(uiState.sherpaGain),
-                        value = uiState.sherpaGain,
-                        valueRange = 0.5f..3.0f,
-                        steps = 9,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaGainChanged(
-                                (newVal * 4).roundToInt() / 4f
-                            )
-                        },
-                    )
-                }
-            }
-
-            val inflectModelState = uiState.inflectMicroAvailability
-            val coriDownloading = uiState.sherpaVoices
-                .firstOrNull { it.voice == uiState.selectedSherpaVoice }?.downloadState is VoicePackDownloadState.Downloading
-            val inflectGraphsReady = uiState.inflectMicroStates.isNotEmpty() &&
-                uiState.inflectMicroStates.values.all {
-                    it is com.kernel.ai.core.inference.download.DownloadState.Downloaded
-                }
-            if (
-                VoiceOutputEngine.InflectMicroExperimental in uiState.availableOutputEngines &&
-                (
-                    inflectModelState !is ModelAvailabilityState.Ready ||
-                        uiState.selectedOutputEngine == VoiceOutputEngine.InflectMicroExperimental
-                    )
-            ) {
-                val inflectReady = inflectSelected && uiState.isInflectMicroReady
-                Text(
-                    text = "Inflect Micro model",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                VoiceInfoCard(
-                    title = when {
-                        inflectReady -> "Inflect Micro is active"
-                        inflectSelected -> "Inflect Micro selected — setup required"
-                        else -> "Inflect Micro is available"
-                    },
-                    message = when {
-                        inflectReady ->
-                            "Inflect Micro is ready to speak. Android TTS remains the fallback if synthesis is unavailable."
-                        inflectSelected ->
-                            "Inflect Micro is selected — setup required. Download the Inflect setup below before it can speak."
-                        else ->
-                            "Download Inflect Micro to enable this higher-quality local speech path."
-                    },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                ModelCardCompact(
-                    title = "Inflect Micro",
-                    description = "Higher-quality local TTS with all required setup assets.",
-                    state = inflectModelState,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                TermsOfUseLinkWithSheet(modifier = Modifier.padding(horizontal = 16.dp))
-                when {
-                    inflectModelState is ModelAvailabilityState.Preparing -> {
-                        OutlinedButton(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                            onClick = onCancelInflectMicro,
-                        ) {
-                            Text("Cancel")
-                        }
-                    }
-                    inflectModelState is ModelAvailabilityState.Ready -> {
-                        OutlinedButton(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                            onClick = onDeleteInflectMicro,
-                        ) {
-                            Text("Delete")
-                        }
-                    }
-                    inflectModelState is ModelAvailabilityState.ActionRequired -> {
-                        OutlinedButton(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                            onClick = onDownloadInflectMicro,
-                        ) {
-                            Text("Retry")
-                        }
-                    }
-                    inflectModelState is ModelAvailabilityState.NotDisplayed &&
-                        inflectGraphsReady &&
-                        coriDownloading &&
-                        uiState.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental -> {
-                        Text(
-                            text = "The Piper voice above is still downloading. Inflect is ready once it finishes.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                    }
-                    else -> {
-                        Button(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                            onClick = onDownloadInflectMicro,
-                        ) {
-                            Text("Download")
-                        }
-                    }
-                }
-                HorizontalDivider()
-            }
-
-            if (uiState.selectedOutputEngine == VoiceOutputEngine.KokoroExperimental) {
-                Text(
-                    text = "Kokoro voice",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-
-                val kokoroHelpText = if (!uiState.isSelectedKokoroVoiceDownloaded) {
-                    "Download the Kokoro voice pack below before Kokoro can speak."
-                } else {
-                    "Kokoro (Experimental) is active. Android TTS is inactive while Kokoro is selected."
-                }
-                VoiceInfoCard(
-                    title = "Kokoro (Experimental) is active",
-                    message = kokoroHelpText,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-
-                // Speech rate slider — shared with Piper; 0.5–1.5 in steps of 0.05
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    SliderRow(
-                        label = "Speech rate",
-                        valueLabel = "%.2fx".format(uiState.sherpaSpeed),
-                        value = uiState.sherpaSpeed,
-                        valueRange = 0.5f..1.5f,
-                        steps = 19,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaSpeedChanged(
-                                (newVal * 20).roundToInt() / 20f
-                            )
-                        },
-                    )
-                }
-
-                // Pitch slider — shared with Piper; 0.5–2.0 in steps of 0.05
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SliderRow(
-                        label = "Pitch",
-                        valueLabel = "%.2fx".format(uiState.sherpaPitch),
-                        value = uiState.sherpaPitch,
-                        valueRange = 0.5f..2.0f,
-                        steps = 29,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaPitchChanged(
-                                (newVal * 20).roundToInt() / 20f
-                            )
-                        },
-                    )
-                }
-
-                // Volume boost slider — shared with Piper; 0.5–3.0 in steps of 0.25
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SliderRow(
-                        label = "Volume boost",
-                        valueLabel = "%.2fx".format(uiState.sherpaGain),
-                        value = uiState.sherpaGain,
-                        valueRange = 0.5f..3.0f,
-                        steps = 9,
-                        onValueChangeFinished = { newVal ->
-                            onSherpaGainChanged(
-                                (newVal * 4).roundToInt() / 4f
-                            )
-                        },
-                    )
-                }
-
-                uiState.kokoroVoices.forEach { voiceRow ->
-                    val isSelected = uiState.selectedKokoroVoice == voiceRow.voice
-                    val isDownloaded = voiceRow.downloadState is VoicePackDownloadState.Downloaded
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ModelCardCompact(
-                            title = voiceRow.voice.displayName,
-                            description = voiceRow.voice.description,
-                            state = uiState.kokoroVoiceAvailability[voiceRow.voice]
-                                ?: ModelAvailabilityState.Unavailable(UnavailableReason.NotBundled),
-                            modifier = Modifier.weight(1f),
-                        )
-                        RadioButton(
-                            selected = isSelected,
-                            onClick = { if (isDownloaded) onKokoroVoiceSelected(voiceRow.voice) },
-                            enabled = isDownloaded,
-                        )
-                    }
-                    TermsOfUseLinkWithSheet()
-                    val kokoroRowState = voiceRow.downloadState
-                    when (kokoroRowState) {
-                        is VoicePackDownloadState.NotDownloaded -> {
-                            Button(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                onClick = { onDownloadKokoroVoice(voiceRow.voice) },
-                            ) {
-                                Text("Download")
-                            }
-                        }
-                        is VoicePackDownloadState.Downloading -> {
-                            OutlinedButton(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                onClick = { onCancelKokoroVoice(voiceRow.voice) },
-                            ) {
-                                Text("Cancel")
-                            }
-                        }
-                        is VoicePackDownloadState.Downloaded -> {
-                            OutlinedButton(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                onClick = { onDeleteKokoroVoice(voiceRow.voice) },
-                            ) {
-                                Text("Delete")
-                            }
-                        }
-                        is VoicePackDownloadState.Error -> {
-                            OutlinedButton(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                                onClick = { onDownloadKokoroVoice(voiceRow.voice) },
-                            ) {
-                                Text("Retry")
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-
-                    if (isSelected && isDownloaded && voiceRow.voice.speakerCount > 1) {
-                        KokoroSpeakerSelector(
-                            voice = voiceRow.voice,
-                            activeSpeakerId = uiState.kokoroActiveSpeakerId,
-                            onSpeakerSelected = onKokoroActiveSpeakerIdChanged,
-                        )
-                    }
-                }
-            }
-
         }
     }
 
@@ -1369,7 +819,7 @@ private fun VoiceScreenContent(
  * uses a plain (non-lazy) Column — safe for 109 items since they are lightweight rows.
  */
 @Composable
-private fun VctkSpeakerSelector(
+internal fun VctkSpeakerSelector(
     activeSpeakerId: Int,
     onSpeakerSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -1436,7 +886,7 @@ private fun VctkSpeakerSelector(
  * Exposes all 4 speakers: Prudence, Spike, Obadiah, and Poppy.
  */
 @Composable
-private fun SemaineSpeakerSelector(
+internal fun SemaineSpeakerSelector(
     activeSpeakerId: Int,
     onSpeakerSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -1486,7 +936,7 @@ private fun SemaineSpeakerSelector(
  * Shows a numeric input and slider since there are no labelled speaker names in the model card.
  */
 @Composable
-private fun KokoroSpeakerSelector(
+internal fun KokoroSpeakerSelector(
     voice: SherpaKokoroVoice,
     activeSpeakerId: Int,
     onSpeakerSelected: (Int) -> Unit,
@@ -1599,82 +1049,6 @@ private fun KokoroSpeakerSelector(
     }
 }
 
-@Composable
-private fun VoiceInfoCard(
-    title: String,
-    message: String,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        }
-    }
-}
-
-
-
-@Composable
-private fun VoiceOutputSelectionCard(
-    selectedEngine: VoiceOutputEngine,
-    inflectMicroReady: Boolean,
-    sherpaVoiceReady: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val selectedEngineReady = when (selectedEngine) {
-        VoiceOutputEngine.InflectMicroExperimental -> inflectMicroReady
-        VoiceOutputEngine.SherpaExperimental -> sherpaVoiceReady
-        else -> true
-    }
-    val message = when (selectedEngine) {
-        VoiceOutputEngine.AndroidTts ->
-            "Android TTS speaks. Piper voices below stay inactive until you select Piper."
-        VoiceOutputEngine.SherpaExperimental ->
-            if (selectedEngineReady) {
-                "Piper speaks. Android TTS is inactive until you select Android TTS."
-            } else {
-                "Piper is selected, but its voice is not ready yet. Android TTS speaks until it is."
-            }
-        VoiceOutputEngine.KokoroExperimental ->
-            "Kokoro (Experimental) speaks. Android TTS is inactive until you select Android TTS."
-        VoiceOutputEngine.InflectMicroExperimental ->
-            if (selectedEngineReady) {
-                "Inflect Micro is selected and ready to speak. Android TTS remains the fallback if synthesis is unavailable."
-            } else {
-                "Inflect Micro is selected — setup required. Download the Inflect setup below before it can speak."
-            }
-    }
-
-    VoiceInfoCard(
-        title = if (selectedEngineReady) {
-            "Active: ${selectedEngine.displayName}"
-        } else {
-            "Selected: ${selectedEngine.displayName}"
-        },
-        message = message,
-        modifier = modifier,
-    )
-}
-
 /**
  * A labelled slider row with an editable text field for precise input.
  * Duplicated locally from [ModelSettingsScreen] to avoid cross-module coupling.
@@ -1683,7 +1057,7 @@ internal fun shouldCommitTextOnFocusLost(wasFocused: Boolean, isFocused: Boolean
     wasFocused && !isFocused
 
 @Composable
-private fun SliderRow(
+internal fun SliderRow(
     label: String,
     valueLabel: String,
     value: Float,
@@ -1769,7 +1143,7 @@ private fun SliderRow(
     }
 }
 
-private fun formatBytes(bytes: Long): String = when {
+internal fun formatBytes(bytes: Long): String = when {
     bytes >= 1_000_000_000L -> "${"%.1f".format(bytes / 1_000_000_000.0)} GB"
     bytes >= 1_000_000L -> "${"%.0f".format(bytes / 1_000_000.0)} MB"
     bytes >= 1_000L -> "${"%.0f".format(bytes / 1_000.0)} KB"
@@ -1823,17 +1197,3 @@ private fun VoiceScreenPreview() {
         )
     }
 }
-
-/** One-line status for the selected Piper voice, shown under the Piper option. */
-private fun sherpaVoiceStatusLine(voice: SherpaPiperVoice, state: VoicePackDownloadState?): String =
-    when (state) {
-        is VoicePackDownloadState.Downloaded -> "${voice.displayName} · Ready"
-        is VoicePackDownloadState.Downloading ->
-            if (state.waitingForWifi) {
-                "${voice.displayName} · Waiting for Wi-Fi"
-            } else {
-                "${voice.displayName} · Downloading ${(state.progress * 100).toInt()}%"
-            }
-        is VoicePackDownloadState.Error -> "${voice.displayName} · Download failed"
-        else -> "${voice.displayName} · Not downloaded"
-    }
