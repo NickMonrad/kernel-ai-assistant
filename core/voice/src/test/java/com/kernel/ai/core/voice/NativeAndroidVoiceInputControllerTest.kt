@@ -1036,4 +1036,108 @@ class NativeAndroidVoiceInputControllerStartListeningTest {
         assertEquals(events[0].captureSessionId, events[1].captureSessionId)
         collector.cancel()
     }
+
+    @Test
+    fun `without platform fallback the announcement precedes the recognizer and the not-ready end closes it once`() = runTest {
+        // #2027 device path: on-device only. The wake detector must hear ListeningRequested before the
+        // recognizer exists, and the not-ready end must close the announced session with one ListeningStopped.
+        val recognizer = mockk<SpeechRecognizer>(relaxed = true)
+        val events = mutableListOf<VoiceInputEvent>()
+        val eventsSeenAtCreate = mutableListOf<List<VoiceInputEvent>>()
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } answers {
+            eventsSeenAtCreate += events.toList()
+            recognizer
+        }
+        val collector = launch(UnconfinedTestDispatcher(testScheduler)) { controller.events.collect { events += it } }
+        runCurrent()
+
+        val started = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+            as VoiceInputStartResult.Started
+        assertEquals(
+            listOf<VoiceInputEvent>(VoiceInputEvent.ListeningRequested(VoiceCaptureMode.Command, started.captureSessionId)),
+            eventsSeenAtCreate.single(),
+        )
+
+        advanceTimeBy(ON_DEVICE_READY_TIMEOUT_NO_FALLBACK_MS + 100)
+        runCurrent()
+
+        assertEquals(1, events.count { it is VoiceInputEvent.ListeningStopped })
+        assertTrue(events.last() is VoiceInputEvent.ListeningStopped)
+        assertEquals(NATIVE_NOT_READY, events.filterIsInstance<VoiceInputEvent.Error>().single().category)
+        verify(exactly = 0) { recognitionSupport.createPlatformSpeechRecognizer() }
+        collector.cancel()
+    }
+
+    @Test
+    fun `a failed platform retry after the startup timeout ends the session with one ListeningStopped`() = runTest {
+        // #2027: the retry re-announces, then throws. Nothing else would close the announcement.
+        val onDevice = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns onDevice
+        every { recognitionSupport.createPlatformSpeechRecognizer() } throws IllegalStateException("no platform recognizer")
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch(UnconfinedTestDispatcher(testScheduler)) { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = true)
+        advanceTimeBy(2_000L)
+        runCurrent()
+
+        verify(exactly = 1) { recognitionSupport.createPlatformSpeechRecognizer() }
+        assertEquals(1, events.count { it is VoiceInputEvent.ListeningStopped })
+        assertTrue(events.last() is VoiceInputEvent.ListeningStopped)
+        assertTrue(events.filterIsInstance<VoiceInputEvent.Error>().isNotEmpty())
+        collector.cancel()
+    }
+
+    @Test
+    fun `a replacement blocked before it announces closes the session it replaced`() = runTest {
+        // Double-tap during the not-ready window: the second start is blocked, so nothing else closes session 1.
+        val first = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returns first
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch(UnconfinedTestDispatcher(testScheduler)) { controller.events.collect { events += it } }
+        runCurrent()
+        val firstStart = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+            as VoiceInputStartResult.Started
+
+        val blocked = createRecognitionAvailability(
+            isRecognitionAvailable = false,
+            isOnDeviceRecognitionAvailable = false,
+            languageTag = "en-AU",
+            languageDisplayName = "English (Australia)",
+            localeStatus = AndroidNativeRecognitionLocaleStatus.Ready,
+        )
+        every { recognitionSupport.getCaptureAvailability() } returns blocked
+        coEvery { recognitionSupport.getAvailability() } returns blocked
+        val second = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+
+        assertInstanceOf(VoiceInputStartResult.Unavailable::class.java, second)
+        val lifecycle = events.filter { it is VoiceInputEvent.ListeningRequested || it is VoiceInputEvent.ListeningStopped }
+        assertEquals(
+            listOf<VoiceInputEvent>(
+                VoiceInputEvent.ListeningRequested(VoiceCaptureMode.Command, firstStart.captureSessionId),
+                VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, firstStart.captureSessionId),
+            ),
+            lifecycle,
+        )
+        collector.cancel()
+    }
+
+    @Test
+    fun `a replacement that starts does not close the session it replaced, so the wake yield carries over`() = runTest {
+        val first = mockk<SpeechRecognizer>(relaxed = true)
+        val second = mockk<SpeechRecognizer>(relaxed = true)
+        every { recognitionSupport.createOnDeviceSpeechRecognizer() } returnsMany listOf(first, second)
+        val events = mutableListOf<VoiceInputEvent>()
+        val collector = launch(UnconfinedTestDispatcher(testScheduler)) { controller.events.collect { events += it } }
+        runCurrent()
+
+        controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+        val replacement = controller.startListening(VoiceCaptureMode.Command, allowPlatformFallback = false)
+            as VoiceInputStartResult.Started
+
+        assertTrue(events.none { it is VoiceInputEvent.ListeningStopped })
+        assertEquals(replacement.captureSessionId, events.filterIsInstance<VoiceInputEvent.ListeningRequested>().last().captureSessionId)
+        collector.cancel()
+    }
 }

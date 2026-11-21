@@ -28,10 +28,12 @@ sealed interface VoiceInputEvent {
     val captureSessionId: Long
 
     /**
-     * A capture is about to create its recognizer (#2027). Emitted before any recognizer or microphone
-     * is opened on the native path, so a consumer holding the microphone (the wake-word detector) can
-     * release it before readiness. The on-device recognizer cannot become ready while another capture
-     * holds the mic. Ends with ListeningStarted, or ListeningStopped if the start fails.
+     * A native capture is about to create its recognizer (#2027). The event is emitted before the
+     * recognizer is created, so a consumer that holds the microphone (the wake-word detector) is told to
+     * release it first. The guarantee is only that order: the release runs asynchronously, and the
+     * on-device recognizer opens the mic a moment later. The fix relies on that timing margin, which the
+     * S21 hold-to-talk runs measured; it is not a synchronisation guarantee.
+     * Ends with ListeningStarted, or with ListeningStopped if the start fails.
      */
     data class ListeningRequested(
         override val mode: VoiceCaptureMode,
@@ -83,6 +85,14 @@ private val NO_LEVEL: StateFlow<Float> = MutableStateFlow(0f)
 
 interface VoiceInputController {
     val events: Flow<VoiceInputEvent> get() = emptyFlow()
+
+    /**
+     * Capture lifecycle events for microphone arbitration (the wake-word detector), including events from
+     * a controller that the selector has just replaced. [events] is filtered to the active controller;
+     * a replaced native session's close must still reach the arbiter or the wake detector stays released.
+     * Consumers outside mic arbitration use [events].
+     */
+    val micLifecycleEvents: Flow<VoiceInputEvent> get() = events
 
     /**
      * User-facing notes, such as a Zipformer hand-off after Android native failed. Each note

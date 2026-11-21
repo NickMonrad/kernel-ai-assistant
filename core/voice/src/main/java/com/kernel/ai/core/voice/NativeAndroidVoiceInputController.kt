@@ -316,6 +316,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
     @Volatile
     private var readinessEmittedForSession = false
     /** Session whose ListeningRequested was emitted and not yet closed by a terminal event (#2027). */
+    @Volatile
     private var announcedSessionId: Long = 0L
 
     /** #1973: elapsedRealtime when the current session's start was requested, for the start-to-ready timing. */
@@ -338,6 +339,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
     ): VoiceInputStartResult {
         return withContext(Dispatchers.Main.immediate) {
             val startRequestedAtMs = SystemClock.elapsedRealtime()
+            // #2027: a replaced session that announced ListeningRequested and never closed still holds the
+            // wake mic. It is closed here only if this start fails; a successful start takes ownership.
+            val replaced = currentMode?.takeIf { announcedSessionId != 0L }?.let { it to activeSessionId }
             stopListeningInternal(emitStopped = false)
             this@NativeAndroidVoiceInputController.allowPlatformFallback = allowPlatformFallback
 
@@ -389,6 +393,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     "Blocking Android native STT start: language=${availability.languageSummary} " +
                         "localeStatus=${availability.localeStatus} reason=$reason",
                 )
+                closeReplaced(replaced)
                 return@withContext VoiceInputStartResult.Unavailable(
                     reason,
                 )
@@ -456,6 +461,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 // wake-word detector re-arms. A start that never announced stays silent, as before.
                 val announced = announcedSessionId != 0L && announcedSessionId == activeSessionId
                 stopListeningInternal(emitStopped = announced)
+                closeReplaced(replaced)
                 VoiceInputStartResult.Unavailable(
                     e.message ?: "Failed to start Android speech recognition.",
                 )
@@ -567,28 +573,51 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 // Online fallback not allowed: end the session instead of leaving it waiting
                 // on a recognizer that never became ready.
                 Log.w(TAG, "On-device recognizer never became ready for sessionId=$sessionId; platform fallback disabled")
-                _events.tryEmit(
-                    VoiceInputEvent.Error(
+                endNotReadySession(
+                    sessionId = sessionId,
+                    mode = mode,
+                    error = VoiceInputEvent.Error(
                         mode = mode,
                         captureSessionId = sessionId,
                         message = "On-device speech recognition didn't start. Please try again.",
                         category = NATIVE_NOT_READY,
                     ),
                 )
-                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
-                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
                 return@launch
             }
             Log.w(
                 TAG,
                 "On-device recognizer never became ready for sessionId=$sessionId; retrying with platform recognizer",
             )
-            retryWithPlatformRecognizer(
-                sessionId = sessionId,
-                mode = mode,
-                availability = availability,
-            )
+            // A failed platform retry must end the session too: its ListeningRequested is already out.
+            if (!retryWithPlatformRecognizer(sessionId = sessionId, mode = mode, availability = availability)) {
+                endNotReadySession(
+                    sessionId = sessionId,
+                    mode = mode,
+                    error = VoiceInputEvent.Error(
+                        mode = mode,
+                        captureSessionId = sessionId,
+                        message = "Android speech recognition failed to start. Please try again.",
+                    ),
+                )
+            }
         }
+    }
+
+    /**
+     * Ends a session whose recognizer never reached readiness: the terminal [error], then exactly one
+     * [VoiceInputEvent.ListeningStopped], the event the wake detector re-arms on (#2027). Callers check
+     * that [sessionId] is still active.
+     */
+    private fun endNotReadySession(sessionId: Long, mode: VoiceCaptureMode, error: VoiceInputEvent.Error) {
+        _events.tryEmit(error)
+        _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+        stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+    }
+
+    /** Emits the close for a replaced session whose start has just failed (#2027); no-op otherwise. */
+    private fun closeReplaced(replaced: Pair<VoiceCaptureMode, Long>?) {
+        replaced?.let { (mode, sessionId) -> _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId)) }
     }
 
     private fun cancelStartupFallback() {
@@ -603,8 +632,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
      * tracked as [inPlaceRefreshJob]: it is cancelled before scheduling another
      * refresh, by [stopListeningInternal], and whenever the session is replaced; it
      * re-checks [activeSessionId] after the settle so it can never start for a stale
-     * session.  Emits no events and allocates no new session id — the session-level
-     * attempt count and journal correlation are unchanged.
+     * session.  The replacement re-emits ListeningRequested through [startRecognizer]; the wake gate already
+     * holds the yield for this session, so it does not release again.  No ListeningStopped is emitted and no
+     * new session id is allocated: the session-level attempt count and journal correlation are unchanged.
      */
     private fun scheduleInPlaceRefresh(
         sessionId: Long,

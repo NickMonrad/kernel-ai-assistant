@@ -743,6 +743,8 @@ class WakeWordService : Service() {
             wakeWordDetector.stop()
         },
         rearmMic = { rearmDetector() },
+        // The wake handoff owns the session and re-arms on its own terminal event.
+        rearmAllowed = { !isHandlingDetection },
     )
 
     /** One-shot guard: verifier model provisioning is requested at most once per service lifetime. */
@@ -841,17 +843,12 @@ class WakeWordService : Service() {
 
         // Automatically yield the AudioRecord whenever another voice session is active.
         eventCollectorJob = serviceScope.launch {
-            voiceInputController.events.collect { event ->
-                // #2027: yield on the pre-start ListeningRequested as well as ListeningStarted; re-arm on
-                // ListeningStopped only. The gate makes the release and the re-arm each run once per session.
-                isVoiceSessionActive = when (event) {
-                    is VoiceInputEvent.ListeningRequested,
-                    is VoiceInputEvent.ListeningStarted,
-                    -> true
-                    is VoiceInputEvent.ListeningStopped -> false
-                    else -> isVoiceSessionActive
-                }
-                micGate.onVoiceEvent(event, rearmAllowed = !isHandlingDetection)
+            // #2027: yield on the pre-start ListeningRequested as well as ListeningStarted; re-arm on the
+            // ListeningStopped of the session that owns the yield. micLifecycleEvents also carries a
+            // replaced native session's close, which the gate's owner check keeps from re-arming.
+            voiceInputController.micLifecycleEvents.collect { event ->
+                micGate.onVoiceEvent(event)
+                isVoiceSessionActive = micGate.voiceSessionActive
             }
         }
 
