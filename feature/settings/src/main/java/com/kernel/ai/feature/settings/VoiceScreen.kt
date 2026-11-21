@@ -56,6 +56,7 @@ import com.kernel.ai.core.ui.permissions.DefaultAssistantPrompt
 import com.kernel.ai.core.ui.permissions.DefaultAssistantPromptSuccess
 import com.kernel.ai.core.ui.permissions.PermissionDialogAction
 import com.kernel.ai.core.ui.permissions.PermissionOverlayDialog
+import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -331,6 +332,7 @@ fun VoiceScreen(
         onCancelSherpaStt = viewModel::cancelSherpaSttDownload,
         onDeleteSherpaStt = viewModel::deleteSherpaStt,
         onAsr4allSizeSelected = viewModel::setAsr4allSize,
+        onTermsAcceptedChanged = viewModel::onTermsAcceptedChanged,
         onDownloadSherpaVoice = viewModel::downloadSherpaVoice,
         onCancelSherpaVoice = viewModel::cancelSherpaVoiceDownload,
         onDeleteSherpaVoice = viewModel::deleteSherpaVoice,
@@ -540,6 +542,7 @@ private fun VoiceScreenContent(
     onCancelSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onDeleteSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onAsr4allSizeSelected: (com.kernel.ai.core.voice.asr4all.Asr4AllSize) -> Unit = { _ -> },
+    onTermsAcceptedChanged: (Boolean) -> Unit = {},
     onDownloadSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onCancelSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
@@ -678,6 +681,7 @@ private fun VoiceScreenContent(
                 onCancel = onCancelSherpaStt,
                 onDelete = onDeleteSherpaStt,
                 onAsr4allSize = onAsr4allSizeSelected,
+                onTermsAcceptedChanged = onTermsAcceptedChanged,
             )
 
 
@@ -954,6 +958,7 @@ private fun VoiceScreenContent(
                             enabled = isDownloaded,
                         )
                     }
+                    TermsOfUseLinkWithSheet()
                     if (!isDownloaded) {
                         Text(
                             text = "About ${formatBytes(voiceRow.voice.approxDownloadBytes)} download",
@@ -1166,6 +1171,7 @@ private fun VoiceScreenContent(
                     state = inflectModelState,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
+                TermsOfUseLinkWithSheet(modifier = Modifier.padding(horizontal = 16.dp))
                 when {
                     inflectModelState is ModelAvailabilityState.Preparing -> {
                         OutlinedButton(
@@ -1302,6 +1308,7 @@ private fun VoiceScreenContent(
                             enabled = isDownloaded,
                         )
                     }
+                    TermsOfUseLinkWithSheet()
                     val kokoroRowState = voiceRow.downloadState
                     when (kokoroRowState) {
                         is VoicePackDownloadState.NotDownloaded -> {

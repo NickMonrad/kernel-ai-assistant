@@ -9,6 +9,7 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,6 +32,7 @@ class ConversationListViewModel @Inject constructor(
     private val chatPreferences: ChatPreferences,
     private val downloadManager: ModelDownloadManager,
     private val setupWizardPreferences: SetupWizardPreferences,
+    private val termsAcceptancePreferences: TermsAcceptancePreferences,
 ) : ViewModel() {
 
     /**
@@ -57,6 +59,25 @@ class ConversationListViewModel @Inject constructor(
     val setupWizardPending: StateFlow<Boolean?> = setupWizardPreferences.progress
         .map<SetupWizardProgress, Boolean?> { setupWizardPendingOf(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * True when the non-blocking Terms prompt should show: setup is finished and the current Terms version is neither
+     * accepted nor dismissed (#1998). Null until both have loaded.
+     */
+    val termsPromptPending: StateFlow<Boolean?> = combine(
+        termsAcceptancePreferences.record,
+        setupWizardPending,
+    ) { record, wizardPending ->
+        wizardPending?.let { !it && record.promptPending() }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun onTermsPromptAccepted(accepted: Boolean) {
+        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted) }
+    }
+
+    fun onTermsPromptDismissed() {
+        viewModelScope.launch { termsAcceptancePreferences.dismissPrompt() }
+    }
 
     val waitingForWifi: StateFlow<Set<KernelModel>> = downloadManager.waitingForWifi
 

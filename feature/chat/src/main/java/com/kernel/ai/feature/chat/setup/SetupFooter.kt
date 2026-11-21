@@ -47,6 +47,7 @@ internal fun SetupFooter(
     onPrimary: () -> Unit,
     onBack: () -> Unit,
     onSkip: () -> Unit,
+    actionsEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -60,7 +61,7 @@ internal fun SetupFooter(
             modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 14.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SetupFooterButtons(primaryLabel, skipLabel, onPrimary, onBack, onSkip)
+            SetupFooterButtons(primaryLabel, skipLabel, onPrimary, onBack, onSkip, actionsEnabled = actionsEnabled)
         }
     }
 }
@@ -73,10 +74,12 @@ internal fun SetupFooterButtons(
     onPrimary: () -> Unit,
     onBack: () -> Unit,
     onSkip: () -> Unit,
+    actionsEnabled: Boolean = true,
 ) {
     val accent = JandalTheme.colors.accent
     Button(
         onClick = onPrimary,
+        enabled = actionsEnabled,
         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
     ) {
         Text(primaryLabel)
@@ -93,6 +96,7 @@ internal fun SetupFooterButtons(
         ) { Text("Back") }
         TextButton(
             onClick = onSkip,
+            enabled = actionsEnabled,
             modifier = Modifier.heightIn(min = 48.dp),
             colors = ButtonDefaults.textButtonColors(contentColor = accent),
         ) { Text(skipLabel) }

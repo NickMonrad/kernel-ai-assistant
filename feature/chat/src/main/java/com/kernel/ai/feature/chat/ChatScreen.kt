@@ -210,6 +210,7 @@ import com.kernel.ai.core.ui.PauaLoadingRing
 import com.kernel.ai.core.ui.PauaDotsIndicator
 import com.kernel.ai.core.ui.PauaLoadingIndicator
 import com.kernel.ai.core.ui.PauaShimmerBar
+import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 import com.kernel.ai.core.ui.theme.PauaDeep
 import com.kernel.ai.core.ui.theme.PauaPurple
 import com.kernel.ai.core.ui.theme.PauaTeal
@@ -2529,6 +2530,7 @@ private fun OnboardingContent(
                             ),
                             showLock = item.model.isGated,
                         )
+                        TermsOfUseLinkWithSheet()
                     }
                 }
             }
@@ -2557,6 +2559,7 @@ private fun OnboardingContent(
                             ),
                             showLock = item.model.isGated,
                         )
+                        TermsOfUseLinkWithSheet()
                     }
                 }
             }
